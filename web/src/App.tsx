@@ -34,6 +34,11 @@ const MfaSettingsPage = lazy(() =>
     default: m.MfaSettingsPage,
   })),
 );
+const PlatformPage = lazy(() =>
+  import("@/features/platform/platform-page").then((m) => ({
+    default: m.PlatformPage,
+  })),
+);
 const NotFoundPage = lazy(() =>
   import("@/features/not-found/not-found-page").then((m) => ({
     default: m.NotFoundPage,
@@ -130,6 +135,16 @@ export function App() {
                   <ProtectedRoute>
                     <LazyPage>
                       <AliasListPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/platform"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <PlatformPage />
                     </LazyPage>
                   </ProtectedRoute>
                 }

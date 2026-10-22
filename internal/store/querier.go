@@ -127,6 +127,10 @@ type Querier interface {
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListMailboxes(ctx context.Context) ([]PlatformListMailboxesRow, error)
+	PlatformListTenants(ctx context.Context) ([]PlatformListTenantsRow, error)
+	// Platform administration queries (no tenant scope; platform role only).
+	PlatformOverview(ctx context.Context) (PlatformOverviewRow, error)
+	PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUpdateTenantStatusParams) (PlatformUpdateTenantStatusRow, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
 	SetMFASecret(ctx context.Context, arg SetMFASecretParams) error
 	// Refuses to soft-delete entries under legal hold (returns no rows when held).

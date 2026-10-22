@@ -84,6 +84,7 @@ func New(opts Options) *gin.Engine {
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
+	platformHandler := handlers.NewPlatformHandler(platformQueries)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -97,6 +98,21 @@ func New(opts Options) *gin.Engine {
 			// Second MFA login leg: authenticated by the short-lived
 			// one-time mfa_token, not a session.
 			authGroup.POST("/mfa/verify", authHandler.MFAVerify)
+		}
+
+		// Platform administration. These routes deliberately run outside
+		// RequireTenantTx: the platform role is cross-tenant by design.
+		if authQueries != nil && platformQueries != nil {
+			platform := v1.Group("/platform")
+			platform.Use(middleware.RequireAuth(authQueries))
+			platform.Use(middleware.RequirePlatformAdmin(authQueries))
+			platform.Use(middleware.RequireCSRF())
+			{
+				platform.GET("/overview", platformHandler.Overview)
+				platform.GET("/tenants", platformHandler.ListTenants)
+				platform.POST("/tenants/:id/suspend", platformHandler.SuspendTenant)
+				platform.POST("/tenants/:id/activate", platformHandler.ActivateTenant)
+			}
 		}
 
 		// User-level routes need a session but not a tenant transaction.
