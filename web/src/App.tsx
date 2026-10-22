@@ -34,6 +34,11 @@ const MfaSettingsPage = lazy(() =>
     default: m.MfaSettingsPage,
   })),
 );
+const BillingPage = lazy(() =>
+  import("@/features/billing/billing-page").then((m) => ({
+    default: m.BillingPage,
+  })),
+);
 const PlatformPage = lazy(() =>
   import("@/features/platform/platform-page").then((m) => ({
     default: m.PlatformPage,
@@ -135,6 +140,16 @@ export function App() {
                   <ProtectedRoute>
                     <LazyPage>
                       <AliasListPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/billing"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <BillingPage />
                     </LazyPage>
                   </ProtectedRoute>
                 }

@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Menu,
   Languages,
+  Receipt,
 } from "lucide-react";
 import { useAuth } from "@/app/auth-context";
 import { useI18nLocale } from "@/app/providers";
@@ -70,6 +71,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
     { name: t("layout.domains"), href: "/domains", icon: Globe },
     { name: t("layout.mailboxes"), href: "/mailboxes", icon: Mail },
     { name: t("layout.aliases"), href: "/aliases", icon: Share2 },
+    { name: t("nav.billing"), href: "/billing", icon: Receipt },
     { name: t("layout.settings"), href: "/settings/mfa", icon: ShieldCheck },
     ...(isAdmin
       ? [{ name: t("nav.platform"), href: "/platform", icon: Building2 }]

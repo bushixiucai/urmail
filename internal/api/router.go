@@ -84,6 +84,7 @@ func New(opts Options) *gin.Engine {
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
+	billingHandler := handlers.NewBillingHandler(appQueries)
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
 
 	v1 := engine.Group("/api/v1")
@@ -164,6 +165,13 @@ func New(opts Options) *gin.Engine {
 			protected.GET("/aliases", aliasHandler.List)
 			protected.POST("/aliases", middleware.RequireRole("owner", "admin"), aliasHandler.Create)
 			protected.DELETE("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Delete)
+
+			// Billing and distribution (tenant-scoped reads)
+			protected.GET("/billing/plans", billingHandler.Plans)
+			protected.GET("/billing/subscription", billingHandler.Subscription)
+			protected.GET("/billing/invoices", billingHandler.Invoices)
+			protected.GET("/billing/distribution", billingHandler.Distribution)
+			protected.POST("/billing/coupons/validate", billingHandler.ValidateCoupon)
 
 			// Archive / legal hold
 			protected.GET("/archive", archiveHandler.List)
