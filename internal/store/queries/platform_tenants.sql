@@ -27,3 +27,20 @@ UPDATE tenants
 SET status = $2
 WHERE id = $1
 RETURNING id, brand_id, name, slug, status, owner_user_id, created_at;
+
+-- name: PlatformListBrands :many
+SELECT id, slug, name, logo_url, favicon_url, primary_color, theme, created_at
+FROM brands
+ORDER BY id ASC;
+
+-- name: PlatformListPlans :many
+SELECT code, name, description, price_cents, currency, quota_bytes,
+       mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
+FROM plans
+ORDER BY sort_order ASC, price_cents ASC;
+
+-- name: PlatformListCoupons :many
+SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+FROM coupons
+ORDER BY code ASC;
+

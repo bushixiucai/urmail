@@ -11,6 +11,127 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const platformListBrands = `-- name: PlatformListBrands :many
+SELECT id, slug, name, logo_url, favicon_url, primary_color, theme, created_at
+FROM brands
+ORDER BY id ASC
+`
+
+type PlatformListBrandsRow struct {
+	ID           int64              `json:"id"`
+	Slug         string             `json:"slug"`
+	Name         string             `json:"name"`
+	LogoUrl      pgtype.Text        `json:"logo_url"`
+	FaviconUrl   pgtype.Text        `json:"favicon_url"`
+	PrimaryColor pgtype.Text        `json:"primary_color"`
+	Theme        []byte             `json:"theme"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) PlatformListBrands(ctx context.Context) ([]PlatformListBrandsRow, error) {
+	rows, err := q.db.Query(ctx, platformListBrands)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlatformListBrandsRow{}
+	for rows.Next() {
+		var i PlatformListBrandsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.LogoUrl,
+			&i.FaviconUrl,
+			&i.PrimaryColor,
+			&i.Theme,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const platformListCoupons = `-- name: PlatformListCoupons :many
+SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+FROM coupons
+ORDER BY code ASC
+`
+
+func (q *Queries) PlatformListCoupons(ctx context.Context) ([]Coupons, error) {
+	rows, err := q.db.Query(ctx, platformListCoupons)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Coupons{}
+	for rows.Next() {
+		var i Coupons
+		if err := rows.Scan(
+			&i.Code,
+			&i.Kind,
+			&i.Value,
+			&i.MaxRedemptions,
+			&i.RedeemedCount,
+			&i.ValidFrom,
+			&i.ValidTo,
+			&i.Active,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const platformListPlans = `-- name: PlatformListPlans :many
+SELECT code, name, description, price_cents, currency, quota_bytes,
+       mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
+FROM plans
+ORDER BY sort_order ASC, price_cents ASC
+`
+
+func (q *Queries) PlatformListPlans(ctx context.Context) ([]Plans, error) {
+	rows, err := q.db.Query(ctx, platformListPlans)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Plans{}
+	for rows.Next() {
+		var i Plans
+		if err := rows.Scan(
+			&i.Code,
+			&i.Name,
+			&i.Description,
+			&i.PriceCents,
+			&i.Currency,
+			&i.QuotaBytes,
+			&i.MailboxLimit,
+			&i.DomainLimit,
+			&i.DailySendLimit,
+			&i.Features,
+			&i.SortOrder,
+			&i.Active,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const platformListTenants = `-- name: PlatformListTenants :many
 SELECT t.id,
        t.brand_id,

@@ -16,6 +16,9 @@ type PlatformStore interface {
 	PlatformOverview(ctx context.Context) (store.PlatformOverviewRow, error)
 	PlatformListTenants(ctx context.Context) ([]store.PlatformListTenantsRow, error)
 	PlatformUpdateTenantStatus(ctx context.Context, arg store.PlatformUpdateTenantStatusParams) (store.PlatformUpdateTenantStatusRow, error)
+	PlatformListBrands(ctx context.Context) ([]store.PlatformListBrandsRow, error)
+	PlatformListPlans(ctx context.Context) ([]store.Plans, error)
+	PlatformListCoupons(ctx context.Context) ([]store.Coupons, error)
 }
 
 type PlatformHandler struct {
@@ -98,4 +101,31 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 		Status:    row.Status,
 		CreatedAt: row.CreatedAt,
 	}})
+}
+
+func (h *PlatformHandler) Brands(c *gin.Context) {
+	rows, err := h.Store.PlatformListBrands(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"brands": rows})
+}
+
+func (h *PlatformHandler) Plans(c *gin.Context) {
+	rows, err := h.Store.PlatformListPlans(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"plans": rows})
+}
+
+func (h *PlatformHandler) Coupons(c *gin.Context) {
+	rows, err := h.Store.PlatformListCoupons(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"coupons": rows})
 }
