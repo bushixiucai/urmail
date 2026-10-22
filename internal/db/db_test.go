@@ -51,7 +51,7 @@ func truncate(t *testing.T, pool *db.Pool) {
 	}
 	if _, err := tx.Exec(ctx, `
 		TRUNCATE mailboxes, mailbox_aliases, mailbox_usage, domains,
-		         tenants, brands, users CASCADE`); err != nil {
+		         tenants, brands, users, settings CASCADE`); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("truncate: %v", err)
 	}
@@ -309,4 +309,116 @@ func TestPlatformTxHasNoTenant(t *testing.T) {
 	if current != 0 {
 		t.Fatalf("a platform transaction must have no tenant context, got %d", current)
 	}
+}
+
+// TestSettingsAndBrandsRLSSecurity proves the P0 security fixes from migration 0002:
+// 1. A tenant cannot write platform or brand settings (only their own tenant scope).
+// 2. A tenant cannot insert or modify brands (WITH CHECK (false)).
+func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
+	url := testDatabaseURL(t)
+	ctx := context.Background()
+
+	applyMigrations(t, url)
+
+	platform, err := db.OpenPlatform(ctx, url)
+	if err != nil {
+		t.Fatalf("open platform pool: %v", err)
+	}
+	defer platform.Close()
+
+	app, err := db.OpenApp(ctx, url)
+	if err != nil {
+		t.Fatalf("open app pool: %v", err)
+	}
+	defer app.Close()
+
+	truncate(t, platform)
+
+	// Seed one brand and one tenant via platform role
+	tx, err := platform.PlatformTx(ctx)
+	if err != nil {
+		t.Fatalf("begin seed transaction: %v", err)
+	}
+
+	var brandID int64
+	if err := tx.QueryRow(ctx, "INSERT INTO brands (slug, name) VALUES ('test-brand', 'Test Brand') RETURNING id").Scan(&brandID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert brand: %v", err)
+	}
+
+	var tenantID int64
+	if err := tx.QueryRow(ctx, "INSERT INTO tenants (brand_id, name, slug) VALUES ($1, 'Test Tenant', 'test-tenant') RETURNING id", brandID).Scan(&tenantID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert tenant: %v", err)
+	}
+
+	// Insert a platform setting via platform
+	if _, err := tx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('platform', 0, 'site_name', '"urMail"'::jsonb)`); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert platform setting: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	// 1. Tenant can read platform setting
+	tenantTx, err := app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	var val string
+	if err := tenantTx.QueryRow(ctx, "SELECT value::text FROM settings WHERE scope = 'platform' AND key = 'site_name'").Scan(&val); err != nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("tenant read platform setting: %v", err)
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 2. Tenant cannot insert platform setting
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	_, err = tenantTx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('platform', 0, 'evil_key', '"evil"'::jsonb)`)
+	if err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to insert platform settings")
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 3. Tenant cannot update platform setting
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	_, err = tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'site_name'`)
+	if err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to update platform settings")
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 4. Tenant CAN write their own tenant setting
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	_, err = tenantTx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('tenant', $1, 'custom_theme', '"dark"'::jsonb)`, tenantID)
+	if err != nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("tenant should be able to insert tenant setting: %v", err)
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 5. Tenant CANNOT insert a brand (WITH CHECK (false))
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	_, err = tenantTx.Exec(ctx, "INSERT INTO brands (slug, name) VALUES ('rogue-brand', 'Rogue Brand')")
+	if err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to insert into brands")
+	}
+	_ = tenantTx.Rollback(ctx)
 }
