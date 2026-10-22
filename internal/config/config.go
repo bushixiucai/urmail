@@ -36,6 +36,16 @@ type Config struct {
 	// used by platform administration endpoints.
 	DatabaseURLPlatform string
 
+	// MyHostname is the FQDN Postfix announces itself as (myhostname).
+	MyHostname string
+
+	// PolicyEnabled controls whether Postfix queries the policy service.
+	PolicyEnabled bool
+
+	// ArchiveEnabled controls whether Postfix routes incoming mail through
+	// the archive transport.
+	ArchiveEnabled bool
+
 	// StorageRoot holds mailboxes, archives and certificates.
 	StorageRoot string
 
@@ -55,6 +65,16 @@ type Config struct {
 
 	// Locale is the fallback locale for messages.
 	Locale string
+}
+
+// parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
+func parseBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // ErrMissing is returned when a required setting is absent.
@@ -77,6 +97,9 @@ func Load() (*Config, error) {
 		ListenAddr:          values["URMAIL_LISTEN_ADDR"],
 		DatabaseURL:         values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform: values["URMAIL_DATABASE_URL_PLATFORM"],
+		MyHostname:          values["URMAIL_MYHOSTNAME"],
+		PolicyEnabled:       parseBool(values["URMAIL_POLICY_ENABLED"]),
+		ArchiveEnabled:      parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
 		StorageRoot:         values["URMAIL_STORAGE_ROOT"],
 		AgentSocket:         values["URMAIL_AGENT_SOCKET"],
 		PolicySocket:        values["URMAIL_POLICY_SOCKET"],

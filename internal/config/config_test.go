@@ -119,3 +119,32 @@ func TestMissingEnvFileIsNotAnError(t *testing.T) {
 		t.Fatalf("a missing env file must not fail the load: %v", err)
 	}
 }
+func TestLoadMailConfig(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "urmaild.env")
+	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
+		"URMAIL_DATABASE_URL_PLATFORM=postgres://platform@localhost/urmail\n" +
+		"URMAIL_MYHOSTNAME=mail.example.com\n" +
+		"URMAIL_POLICY_ENABLED=true\n" +
+		"URMAIL_ARCHIVE_ENABLED=1\n"
+	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+
+	t.Setenv("URMAIL_ENV_FILE", envFile)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.MyHostname != "mail.example.com" {
+		t.Errorf("expected MyHostname 'mail.example.com', got %q", cfg.MyHostname)
+	}
+	if !cfg.PolicyEnabled {
+		t.Errorf("expected PolicyEnabled true, got false")
+	}
+	if !cfg.ArchiveEnabled {
+		t.Errorf("expected ArchiveEnabled true, got false")
+	}
+}
