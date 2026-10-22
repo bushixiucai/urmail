@@ -57,6 +57,10 @@ export function I18nProvider({
   const [locale, setLocaleState] = useState(() =>
     initialLocale === FALLBACK_LOCALE ? preferredLocale() : initialLocale,
   );
+  // Do not mount children before i18next has an instance. react-i18next's
+  // useTranslation assumes i18n.options exists; rendering first led to a
+  // crash on the first keystroke in the login form.
+  const [ready, setReady] = useState(() => i18n.isInitialized);
   const setLocale = (next: string) => {
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, next);
@@ -72,7 +76,10 @@ export function I18nProvider({
     async function load() {
       const catalogue = await loadCatalogue(locale);
       if (cancelled) return;
-      if (Object.keys(catalogue).length === 0) return;
+      if (Object.keys(catalogue).length === 0) {
+        setReady(true);
+        return;
+      }
 
       if (!i18n.isInitialized) {
         await i18n.use(initReactI18next).init({
@@ -81,10 +88,12 @@ export function I18nProvider({
           resources: { [locale]: { translation: catalogue } },
           interpolation: { escapeValue: false },
         });
+        if (!cancelled) setReady(true);
         return;
       }
       i18n.addResourceBundle(locale, "translation", catalogue, true, true);
       await i18n.changeLanguage(locale);
+      if (!cancelled) setReady(true);
     }
 
     void load();
@@ -95,7 +104,11 @@ export function I18nProvider({
 
   const value = useMemo(() => ({ locale, setLocale }), [locale]);
 
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+  return (
+    <I18nContext.Provider value={value}>
+      {ready ? children : null}
+    </I18nContext.Provider>
+  );
 }
 
 export function useI18nLocale(): I18nContextValue {

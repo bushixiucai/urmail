@@ -5,7 +5,6 @@ const password = process.env.URMAIL_E2E_PASSWORD;
 
 let api: APIRequestContext;
 let token = "";
-let csrf = "";
 
 test.beforeAll(async ({ baseURL }) => {
   if (!password) return;
@@ -20,7 +19,6 @@ test.beforeAll(async ({ baseURL }) => {
   expect(res.status()).toBe(200);
   const body = await res.json();
   token = body.token;
-  csrf = body.csrf_token;
 });
 
 test.afterAll(async () => {

@@ -8,6 +8,5 @@ export default defineConfig({
   use: {
     baseURL: process.env.URMAIL_E2E_BASE_URL || "https://127.0.0.1",
     ignoreHTTPSErrors: true,
-    extraHTTPHeaders: { "Content-Type": "application/json" },
   },
 });
