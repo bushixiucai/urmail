@@ -27,6 +27,8 @@ interface DNSGuidance {
   spf: string;
   dkim?: string;
   dmarc: string;
+  verification_name?: string;
+  verification_value?: string;
 }
 
 export function DomainListPage() {
@@ -76,6 +78,24 @@ export function DomainListPage() {
       });
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const handleVerify = async (domain: DomainItem) => {
+    try {
+      await request("/api/v1/domains/" + domain.id + "/verify", {
+        method: "POST",
+      });
+      fetchDomains();
+      setNotice({
+        variant: "info",
+        message: t("page.domains.verify_success"),
+      });
+    } catch (err: unknown) {
+      setNotice({
+        variant: "error",
+        message: t("page.domains.verify_failed") + ": " + errorMessage(err),
+      });
     }
   };
 
@@ -207,6 +227,37 @@ export function DomainListPage() {
                 </Button>
               </div>
             )}
+
+            {dnsGuidance.verification_name &&
+              dnsGuidance.verification_value && (
+                <div className="p-3 bg-card border rounded flex items-center justify-between">
+                  <div className="overflow-hidden">
+                    <span className="font-bold text-foreground">
+                      {t("page.domains.verification_txt")}:{" "}
+                    </span>
+                    <span className="break-all">
+                      {dnsGuidance.verification_name} ={" "}
+                      {dnsGuidance.verification_value}
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      copyToClipboard(
+                        dnsGuidance.verification_value!,
+                        "verification",
+                      )
+                    }
+                  >
+                    {copiedKey === "verification" ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                  </Button>
+                </div>
+              )}
           </CardContent>
         </Card>
       )}
@@ -243,14 +294,26 @@ export function DomainListPage() {
                     </div>
                   </div>
 
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:bg-destructive/10"
-                    onClick={() => setDeleteTarget(d)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {d.status !== "active" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleVerify(d)}
+                      >
+                        <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                        {t("page.domains.verify")}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteTarget(d)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
