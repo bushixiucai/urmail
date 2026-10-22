@@ -17,6 +17,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/i18n"
+	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
 )
@@ -42,6 +43,10 @@ type Options struct {
 	Secrets handlers.SecretsBox
 	// DNSProvider writes verification records for delegated domains when set.
 	DNSProvider dnsprovider.Provider
+	// Payment enables Stripe Checkout and webhook settlement when set.
+	Payment *payment.Stripe
+	// BaseURL is the public panel origin used for Stripe redirects.
+	BaseURL string
 }
 
 // New builds the gin engine with all middleware and routes attached.
@@ -91,6 +96,9 @@ func New(opts Options) *gin.Engine {
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
 	auditHandler := handlers.NewAuditHandler(appQueries)
 	billingHandler := handlers.NewBillingHandler(appQueries)
+	billingHandler.Pool = opts.PlatformPool
+	billingHandler.Stripe = opts.Payment
+	billingHandler.BaseURL = opts.BaseURL
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
 	platformHandler.Pool = opts.PlatformPool
 	platformHandler.Reconcile = opts.Reconcile
@@ -106,6 +114,8 @@ func New(opts Options) *gin.Engine {
 	{
 		v1.GET("/healthz", healthz(opts))
 		v1.GET("/i18n/:locale", i18nCatalogue(opts))
+
+		v1.POST("/billing/webhook/stripe", billingHandler.StripeWebhook)
 
 		// Public Auth
 		authGroup := v1.Group("/auth")

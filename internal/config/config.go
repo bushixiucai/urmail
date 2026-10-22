@@ -93,6 +93,12 @@ type Config struct {
 
 	// CloudflareToken is the API token used when DNSProvider is cloudflare.
 	CloudflareToken string
+
+	// StripeSecretKey enables Stripe Checkout when set.
+	StripeSecretKey string
+
+	// StripeWebhookSecret verifies /billing/webhook/stripe.
+	StripeWebhookSecret string
 }
 
 // parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
@@ -141,6 +147,8 @@ func Load() (*Config, error) {
 		Nameservers:         splitCSV(values["URMAIL_NAMESERVERS"]),
 		DNSProvider:         strings.ToLower(strings.TrimSpace(values["URMAIL_DNS_PROVIDER"])),
 		CloudflareToken:     values["URMAIL_CLOUDFLARE_TOKEN"],
+		StripeSecretKey:     values["URMAIL_STRIPE_SECRET_KEY"],
+		StripeWebhookSecret: values["URMAIL_STRIPE_WEBHOOK_SECRET"],
 	}
 	cfg.applyDefaults()
 

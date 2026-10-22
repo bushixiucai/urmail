@@ -29,6 +29,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
+	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/reconcile"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -84,6 +85,14 @@ func run() error {
 	var dnsProvider dnsprovider.Provider
 	if cfg.DNSProvider == "cloudflare" && cfg.CloudflareToken != "" {
 		dnsProvider = dnsprovider.NewCloudflare(cfg.CloudflareToken)
+	}
+	var stripe *payment.Stripe
+	if cfg.StripeSecretKey != "" {
+		stripe = payment.NewStripe(cfg.StripeSecretKey, cfg.StripeWebhookSecret)
+	}
+	baseURL := "https://" + cfg.MyHostname
+	if cfg.MyHostname == "" {
+		baseURL = "https://box." + cfg.PrimaryDomain
 	}
 
 	var secretBox handlers.SecretsBox
@@ -143,6 +152,8 @@ func run() error {
 		Audit:        store.New(platformPool.Pool),
 		Secrets:      secretBox,
 		DNSProvider:  dnsProvider,
+		Payment:      stripe,
+		BaseURL:      baseURL,
 	})
 
 	server := &http.Server{

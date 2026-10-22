@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -28,7 +33,10 @@ type BillingStore interface {
 }
 
 type BillingHandler struct {
-	Store BillingStore
+	Store   BillingStore
+	Pool    *db.Pool
+	Stripe  *payment.Stripe
+	BaseURL string
 }
 
 func NewBillingHandler(s BillingStore) *BillingHandler {
@@ -171,6 +179,21 @@ func (h *BillingHandler) Checkout(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "ORDER_EXISTS"}})
 		return
 	}
+	if h.Stripe != nil {
+		base := strings.TrimRight(h.BaseURL, "/")
+		session, err := h.Stripe.CreateCheckoutSession(c, order.ID, order.OrderNo,
+			order.AmountCents, order.Currency, base+"/billing?paid=1", base+"/billing?canceled=1")
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "PAYMENT_PROVIDER_ERROR"}})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{
+			"order":          order,
+			"payment_method": "stripe",
+			"checkout_url":   session.URL,
+		})
+		return
+	}
 	c.JSON(http.StatusCreated, gin.H{
 		"order":          order,
 		"payment_method": "manual",
@@ -191,4 +214,39 @@ func (h *BillingHandler) Orders(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"orders": orders})
+}
+
+func (h *BillingHandler) StripeWebhook(c *gin.Context) {
+	if h.Stripe == nil || h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "PAYMENT_PROVIDER_DISABLED"}})
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PAYLOAD"}})
+		return
+	}
+	if err := h.Stripe.VerifyWebhook(raw, c.GetHeader("Stripe-Signature"), 5*time.Minute); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_SIGNATURE"}})
+		return
+	}
+	var event payment.Event
+	if err := json.Unmarshal(raw, &event); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PAYLOAD"}})
+		return
+	}
+	if event.Type != "checkout.session.completed" {
+		c.JSON(http.StatusOK, gin.H{"status": "ignored"})
+		return
+	}
+	id, err := strconv.ParseInt(event.Data.Object.Metadata.OrderID, 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PAYLOAD"}})
+		return
+	}
+	if err := SettleOrder(c, h.Pool, id); err != nil && !errors.Is(err, ErrOrderNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"received": true})
 }
