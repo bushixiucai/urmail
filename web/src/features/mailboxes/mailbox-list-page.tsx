@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Mail, Plus, Trash2, KeyRound } from "lucide-react";
+import { Mail, Plus, Trash2, KeyRound, HardDrive } from "lucide-react";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,10 @@ export function MailboxListPage() {
   const [resetId, setResetId] = useState<number | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
+  // Quota edit state (MB; 0 means unlimited)
+  const [quotaId, setQuotaId] = useState<number | null>(null);
+  const [quotaMB, setQuotaMB] = useState("");
+
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<MailboxItem | null>(null);
 
@@ -71,6 +75,24 @@ export function MailboxListPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleQuota = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!quotaId) return;
+    const value = Number(quotaMB);
+    if (!Number.isFinite(value) || value < 0) return;
+    try {
+      await request("/api/v1/mailboxes/" + quotaId + "/quota", {
+        method: "POST",
+        body: { quota_bytes: Math.floor(value * 1024 * 1024) },
+      });
+      setQuotaId(null);
+      setQuotaMB("");
+      fetchData();
+    } catch (err: unknown) {
+      setNotice({ variant: "error", message: errorMessage(err) });
+    }
+  };
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -258,6 +280,40 @@ export function MailboxListPage() {
         </Card>
       )}
 
+      {quotaId && (
+        <Card className="border-primary/40 bg-muted/10">
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <HardDrive className="h-4 w-4" />
+              {t("page.mailboxes.quota_title", { id: quotaId })}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleQuota} className="flex gap-3 max-w-sm">
+              <Input
+                type="number"
+                min="0"
+                placeholder={t("page.mailboxes.quota_placeholder")}
+                value={quotaMB}
+                onChange={(e) => setQuotaMB(e.target.value)}
+                required
+              />
+              <Button type="submit" size="sm">
+                {t("page.mailboxes.confirm_quota")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setQuotaId(null)}
+              >
+                {t("action.cancel")}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Mailbox List Table */}
       <Card>
         <CardHeader>
@@ -306,6 +362,21 @@ export function MailboxListPage() {
                     >
                       <KeyRound className="h-3.5 w-3.5 mr-1" />
                       {t("page.mailboxes.change_password")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setQuotaId(m.id);
+                        setQuotaMB(
+                          m.quota_bytes > 0
+                            ? String(Math.round(m.quota_bytes / 1024 / 1024))
+                            : "0",
+                        );
+                      }}
+                    >
+                      <HardDrive className="h-3.5 w-3.5 mr-1" />
+                      {t("page.mailboxes.quota")}
                     </Button>
                     <Button
                       size="sm"
