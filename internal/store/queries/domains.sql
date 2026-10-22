@@ -36,3 +36,10 @@ WHERE tenant_id = $1 AND id = $2;
 SELECT COUNT(*)
 FROM domains
 WHERE tenant_id = $1;
+
+-- name: UpdateDomainModeStatus :one
+UPDATE domains
+SET mode = $3, status = $4
+WHERE tenant_id = $1 AND id = $2
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at;
+

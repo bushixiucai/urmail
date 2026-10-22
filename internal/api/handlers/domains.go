@@ -29,6 +29,7 @@ type DomainStore interface {
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
 	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
+	UpdateDomainModeStatus(ctx context.Context, arg store.UpdateDomainModeStatusParams) (store.UpdateDomainModeStatusRow, error)
 }
 
 type ReconcileTrigger interface {
@@ -299,4 +300,66 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+type UpdateDomainRequest struct {
+	Mode   string `json:"mode"`
+	Status string `json:"status"`
+}
+
+func (h *DomainHandler) Update(c *gin.Context) {
+	q := requestStore(c, h.Store)
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	current, err := q.GetDomainByID(c, store.GetDomainByIDParams{TenantID: tenantID, ID: id})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "DOMAIN_NOT_FOUND"}})
+		return
+	}
+	var req UpdateDomainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	mode := req.Mode
+	if mode == "" {
+		mode = current.Mode
+	}
+	status := req.Status
+	if status == "" {
+		status = current.Status
+	}
+	if mode != "managed" && mode != "delegated" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if status != "pending_dns" && status != "active" && status != "disabled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if status == "active" && !current.VerifiedAt.Valid {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "DOMAIN_NOT_VERIFIED"}})
+		return
+	}
+	updated, err := q.UpdateDomainModeStatus(c, store.UpdateDomainModeStatusParams{
+		TenantID: tenantID, ID: id, Mode: mode, Status: status,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if h.Reconcile != nil {
+		h.Reconcile.Trigger()
+	}
+	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(
+		updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt,
+	)})
 }

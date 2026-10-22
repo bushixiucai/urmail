@@ -193,6 +193,7 @@ func New(opts Options) *gin.Engine {
 			protected.GET("/domains", domainHandler.List)
 			protected.POST("/domains", middleware.RequireRole("owner", "admin"), domainHandler.Create)
 			protected.POST("/domains/:id/verify", middleware.RequireRole("owner", "admin"), domainHandler.Verify)
+			protected.PATCH("/domains/:id", middleware.RequireRole("owner", "admin"), domainHandler.Update)
 			protected.DELETE("/domains/:id", middleware.RequireRole("owner", "admin"), domainHandler.Delete)
 
 			// Mailboxes

@@ -148,6 +148,7 @@ type Querier interface {
 	// Refuses to soft-delete entries under legal hold (returns no rows when held).
 	SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error)
 	UpdateAlias(ctx context.Context, arg UpdateAliasParams) (MailboxAliases, error)
+	UpdateDomainModeStatus(ctx context.Context, arg UpdateDomainModeStatusParams) (UpdateDomainModeStatusRow, error)
 	UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatusParams) (UpdateDomainStatusRow, error)
 	UpdateMailboxPassword(ctx context.Context, arg UpdateMailboxPasswordParams) (Mailboxes, error)
 	UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuotaParams) (Mailboxes, error)

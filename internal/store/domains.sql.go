@@ -270,6 +270,64 @@ func (q *Queries) ListDomainsByTenant(ctx context.Context, tenantID int64) ([]Li
 	return items, nil
 }
 
+const updateDomainModeStatus = `-- name: UpdateDomainModeStatus :one
+UPDATE domains
+SET mode = $3, status = $4
+WHERE tenant_id = $1 AND id = $2
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
+`
+
+type UpdateDomainModeStatusParams struct {
+	TenantID int64  `json:"tenant_id"`
+	ID       int64  `json:"id"`
+	Mode     string `json:"mode"`
+	Status   string `json:"status"`
+}
+
+type UpdateDomainModeStatusRow struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	Fqdn              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	DnsProvider       pgtype.Text        `json:"dns_provider"`
+	ProviderRef       pgtype.Text        `json:"provider_ref"`
+	VerificationToken string             `json:"verification_token"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	MxHost            pgtype.Text        `json:"mx_host"`
+	TlsMode           string             `json:"tls_mode"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) UpdateDomainModeStatus(ctx context.Context, arg UpdateDomainModeStatusParams) (UpdateDomainModeStatusRow, error) {
+	row := q.db.QueryRow(ctx, updateDomainModeStatus,
+		arg.TenantID,
+		arg.ID,
+		arg.Mode,
+		arg.Status,
+	)
+	var i UpdateDomainModeStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Fqdn,
+		&i.Mode,
+		&i.Status,
+		&i.DnsProvider,
+		&i.ProviderRef,
+		&i.VerificationToken,
+		&i.VerifiedAt,
+		&i.MxHost,
+		&i.TlsMode,
+		&i.DkimSelector,
+		&i.DkimPrivateKey,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateDomainStatus = `-- name: UpdateDomainStatus :one
 UPDATE domains
 SET status = $3, verified_at = $4

@@ -139,6 +139,15 @@ func (f *shapeFakeDomainStore) UpdateDomainStatus(_ context.Context, arg store.U
 	}, nil
 }
 
+func (f *shapeFakeDomainStore) UpdateDomainModeStatus(_ context.Context, arg store.UpdateDomainModeStatusParams) (store.UpdateDomainModeStatusRow, error) {
+	return store.UpdateDomainModeStatusRow{
+		ID:       arg.ID,
+		TenantID: arg.TenantID,
+		Mode:     arg.Mode,
+		Status:   arg.Status,
+	}, nil
+}
+
 func (f *shapeFakeDomainStore) DeleteDomain(_ context.Context, _ store.DeleteDomainParams) error {
 	return nil
 }
