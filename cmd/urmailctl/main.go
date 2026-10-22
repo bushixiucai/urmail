@@ -18,10 +18,11 @@ import (
 const usage = `urmailctl — urMail.cn administrative tool
 
 Usage:
-  urmailctl migrate up        apply pending schema migrations
-  urmailctl migrate down      roll back the most recent schema migration
-  urmailctl migrate version   print the current schema version
-  urmailctl status            print the service status
+  urmailctl migrate up             apply pending schema migrations
+  urmailctl migrate down           roll back the most recent schema migration
+  urmailctl migrate version        print the current schema version
+  urmailctl status                 print the service status
+  urmailctl config render [--dry-run] [--out-dir <dir>]
 `
 
 func main() {
@@ -45,6 +46,8 @@ func run(args []string) error {
 		return runMigrate(ctx, args[1:])
 	case "status":
 		return runStatus(ctx)
+	case "config":
+		return runConfig(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

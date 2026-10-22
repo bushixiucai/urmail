@@ -39,6 +39,9 @@ type Config struct {
 	// MyHostname is the FQDN Postfix announces itself as (myhostname).
 	MyHostname string
 
+	// PrimaryDomain is the primary apex domain of the platform (e.g. urmail.cn).
+	PrimaryDomain string
+
 	// PolicyEnabled controls whether Postfix queries the policy service.
 	PolicyEnabled bool
 
@@ -98,6 +101,7 @@ func Load() (*Config, error) {
 		DatabaseURL:         values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform: values["URMAIL_DATABASE_URL_PLATFORM"],
 		MyHostname:          values["URMAIL_MYHOSTNAME"],
+		PrimaryDomain:       values["URMAIL_PRIMARY_DOMAIN"],
 		PolicyEnabled:       parseBool(values["URMAIL_POLICY_ENABLED"]),
 		ArchiveEnabled:      parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
 		StorageRoot:         values["URMAIL_STORAGE_ROOT"],
@@ -137,6 +141,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Locale == "" {
 		c.Locale = "zh-CN"
+	}
+	if c.PrimaryDomain == "" && c.MyHostname != "" {
+		parts := strings.SplitN(c.MyHostname, ".", 2)
+		if len(parts) == 2 {
+			c.PrimaryDomain = parts[1]
+		}
+	}
+	if c.PrimaryDomain == "" {
+		c.PrimaryDomain = "urmail.cn"
 	}
 }
 

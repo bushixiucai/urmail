@@ -19,6 +19,8 @@ var allowedWriteRoots = []string{
 	"/etc/postfix/urmail",
 	"/etc/dovecot/conf.d/urmail",
 	"/etc/nginx/conf.d/urmail",
+	"/etc/nsd/nsd.conf.d",
+	"/etc/nsd/zones",
 	"/var/lib/urmail",
 }
 
