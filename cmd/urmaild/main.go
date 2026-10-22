@@ -83,8 +83,15 @@ func run() error {
 	}
 
 	var dnsProvider dnsprovider.Provider
-	if cfg.DNSProvider == "cloudflare" && cfg.CloudflareToken != "" {
-		dnsProvider = dnsprovider.NewCloudflare(cfg.CloudflareToken)
+	switch cfg.DNSProvider {
+	case "cloudflare":
+		if cfg.CloudflareToken != "" {
+			dnsProvider = dnsprovider.NewCloudflare(cfg.CloudflareToken)
+		}
+	case "dnspod":
+		if cfg.DNSPodToken != "" {
+			dnsProvider = dnsprovider.NewDNSPod(cfg.DNSPodToken)
+		}
 	}
 	var stripe *payment.Stripe
 	if cfg.StripeSecretKey != "" {
