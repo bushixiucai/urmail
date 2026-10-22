@@ -13,9 +13,11 @@ NPM         ?= npm
 DIST        := bin
 WEB         := web
 EMBED_DIR   := internal/web/dist
-VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# The version comes from the VERSION file so that a checkout of the old
+# Mail-in-a-Box tags cannot leak into the package metadata.
+VERSION     ?= $(shell cat VERSION 2>/dev/null || echo 0.0.0-dev)
 LDFLAGS     := -X main.version=$(VERSION)
-PKG_VERSION := $(shell echo $(VERSION) | sed 's/^v//')
+PKG_VERSION := $(VERSION)
 
 # 国内网络下可直接使用；海外环境可覆盖为 proxy.golang.org
 export GOPROXY ?= https://goproxy.cn,direct
