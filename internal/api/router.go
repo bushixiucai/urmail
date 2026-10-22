@@ -87,6 +87,7 @@ func New(opts Options) *gin.Engine {
 	auditHandler := handlers.NewAuditHandler(appQueries)
 	billingHandler := handlers.NewBillingHandler(appQueries)
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
+	platformHandler.Pool = opts.PlatformPool
 	legacyTenantID := int64(1)
 	if platformQueries != nil {
 		if tenants, err := platformQueries.PlatformListTenants(context.Background()); err == nil && len(tenants) > 0 {
@@ -134,6 +135,7 @@ func New(opts Options) *gin.Engine {
 			{
 				platform.GET("/overview", platformHandler.Overview)
 				platform.GET("/tenants", platformHandler.ListTenants)
+				platform.POST("/tenants", platformHandler.CreateTenant)
 				platform.GET("/brands", platformHandler.Brands)
 				platform.GET("/plans", platformHandler.Plans)
 				platform.GET("/coupons", platformHandler.Coupons)

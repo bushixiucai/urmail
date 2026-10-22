@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Building2, Globe, Mail, Users } from "lucide-react";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { NoticeDialog } from "@/components/ui/notice-dialog";
 
 interface Overview {
@@ -34,6 +35,10 @@ export function PlatformPage() {
   const [plans, setPlans] = useState<string[]>([]);
   const [coupons, setCoupons] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
 
   const load = useCallback(() => {
     void Promise.all([
@@ -56,6 +61,28 @@ export function PlatformPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const createTenant = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await request("/api/v1/platform/tenants", {
+        method: "POST",
+        body: {
+          name,
+          slug,
+          owner_email: ownerEmail,
+          owner_password: ownerPassword,
+        },
+      });
+      setName("");
+      setSlug("");
+      setOwnerEmail("");
+      setOwnerPassword("");
+      load();
+    } catch (err: unknown) {
+      setNotice(errorMessage(err));
+    }
+  };
 
   const setStatus = async (tenant: Tenant, action: "suspend" | "activate") => {
     try {
@@ -117,6 +144,49 @@ export function PlatformPage() {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("page.platform.create_tenant")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={createTenant}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+          >
+            <Input
+              placeholder={t("page.platform.name")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <Input
+              placeholder={t("page.platform.slug")}
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              required
+            />
+            <Input
+              type="email"
+              placeholder={t("page.platform.owner_email")}
+              value={ownerEmail}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              required
+            />
+            <Input
+              type="password"
+              placeholder={t("page.platform.owner_password")}
+              value={ownerPassword}
+              onChange={(e) => setOwnerPassword(e.target.value)}
+              minLength={12}
+              required
+            />
+            <Button type="submit">{t("page.platform.create")}</Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
