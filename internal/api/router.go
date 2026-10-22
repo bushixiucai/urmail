@@ -94,20 +94,23 @@ func New(opts Options) *gin.Engine {
 
 			// Domains
 			protected.GET("/domains", domainHandler.List)
-			protected.POST("/domains", domainHandler.Create)
-			protected.DELETE("/domains/:id", domainHandler.Delete)
+			protected.POST("/domains", middleware.RequireRole("owner", "admin"), domainHandler.Create)
+			protected.DELETE("/domains/:id", middleware.RequireRole("owner", "admin"), domainHandler.Delete)
 
 			// Mailboxes
 			protected.GET("/mailboxes", mailboxHandler.List)
-			protected.POST("/mailboxes", mailboxHandler.Create)
-			protected.POST("/mailboxes/:id/password", mailboxHandler.UpdatePassword)
-			protected.POST("/mailboxes/:id/quota", mailboxHandler.UpdateQuota)
-			protected.DELETE("/mailboxes/:id", mailboxHandler.Delete)
+			protected.POST("/mailboxes", middleware.RequireRole("owner", "admin"), mailboxHandler.Create)
+			protected.POST("/mailboxes/:id/password", middleware.RequireRole("owner", "admin"), mailboxHandler.UpdatePassword)
+			protected.POST("/mailboxes/:id/quota", middleware.RequireRole("owner", "admin"), mailboxHandler.UpdateQuota)
+			protected.DELETE("/mailboxes/:id", middleware.RequireRole("owner", "admin"), mailboxHandler.Delete)
 
 			// Aliases
 			protected.GET("/aliases", aliasHandler.List)
-			protected.POST("/aliases", aliasHandler.Create)
-			protected.DELETE("/aliases/:id", aliasHandler.Delete)
+			protected.POST("/aliases", middleware.RequireRole("owner", "admin"), aliasHandler.Create)
+			protected.DELETE("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Delete)
+
+			// Tenant switching
+			protected.POST("/auth/switch-tenant", authHandler.SwitchTenant)
 		}
 	}
 

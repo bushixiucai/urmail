@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -17,10 +18,13 @@ import (
 )
 
 type DomainStore interface {
-	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]store.Domains, error)
-	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.Domains, error)
-	CreateDomain(ctx context.Context, arg store.CreateDomainParams) (store.Domains, error)
+	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]store.ListDomainsByTenantRow, error)
+	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
+	CreateDomain(ctx context.Context, arg store.CreateDomainParams) (store.CreateDomainRow, error)
 	DeleteDomain(ctx context.Context, arg store.DeleteDomainParams) error
+	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
+	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
+	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 }
 
 type ReconcileTrigger interface {
@@ -85,10 +89,26 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		mode = "delegated"
 	}
 
+	if !quotaCheck(c, requestStore[QuotaStore](c, nil), tenantID, "domain") {
+		return
+	}
+
 	// Generate random verification token
 	tokenBytes := make([]byte, 16)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+		return
+	}
 	verifToken := hex.EncodeToString(tokenBytes)
+
+	// Generate the DKIM keypair before inserting so the private key is
+	// persisted together with the domain. Dropping the key would strand the
+	// DNS TXT record published in the guidance below.
+	dkim, err := domainMail.GenerateDKIMKeypair("mail")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+		return
+	}
 
 	domain, err := q.CreateDomain(c, store.CreateDomainParams{
 		TenantID:          tenantID,
@@ -97,19 +117,14 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		Status:            "active",
 		VerificationToken: verifToken,
 		TlsMode:           "letsencrypt",
+		DkimSelector:      dkim.Selector,
+		DkimPrivateKey:    pgtype.Text{String: dkim.PrivateKey, Valid: true},
 	})
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{"code": "DOMAIN_CONFLICT", "message": "domain.already_exists"},
 		})
 		return
-	}
-
-	// Generate DKIM DNS record info
-	dkimKey, _ := domainMail.GenerateDKIMKeypair("mail")
-	var dkimTXT string
-	if dkimKey != nil {
-		dkimTXT = dkimKey.DNSTXT
 	}
 
 	// Trigger async reconcile pipeline
@@ -120,10 +135,10 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"domain": domain,
 		"dns_guidance": gin.H{
-			"mx":    "10 box.urmail.cn.",
-			"spf":   "v=spf1 mx -all",
-			"dkim":  dkimTXT,
-			"dmarc": "v=DMARC1; p=quarantine; sp=quarantine; adkim=r; aspf=r;",
+			"mx":     "10 box.urmail.cn.",
+			"spf":    "v=spf1 mx -all",
+			"dkim":   dkim.DNSTXT,
+			"dmarc":  "v=DMARC1; p=quarantine; sp=quarantine; adkim=r; aspf=r;",
 		},
 	})
 }

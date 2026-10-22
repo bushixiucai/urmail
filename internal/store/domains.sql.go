@@ -26,10 +26,11 @@ func (q *Queries) CountDomainsByTenant(ctx context.Context, tenantID int64) (int
 
 const createDomain = `-- name: CreateDomain :one
 INSERT INTO domains (
-    tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, tls_mode
+    tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, tls_mode,
+    dkim_selector, dkim_private_key
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, created_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 `
 
 type CreateDomainParams struct {
@@ -41,9 +42,28 @@ type CreateDomainParams struct {
 	ProviderRef       pgtype.Text `json:"provider_ref"`
 	VerificationToken string      `json:"verification_token"`
 	TlsMode           string      `json:"tls_mode"`
+	DkimSelector      string      `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text `json:"dkim_private_key"`
 }
 
-func (q *Queries) CreateDomain(ctx context.Context, arg CreateDomainParams) (Domains, error) {
+type CreateDomainRow struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	Fqdn              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	DnsProvider       pgtype.Text        `json:"dns_provider"`
+	ProviderRef       pgtype.Text        `json:"provider_ref"`
+	VerificationToken string             `json:"verification_token"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	MxHost            pgtype.Text        `json:"mx_host"`
+	TlsMode           string             `json:"tls_mode"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateDomain(ctx context.Context, arg CreateDomainParams) (CreateDomainRow, error) {
 	row := q.db.QueryRow(ctx, createDomain,
 		arg.TenantID,
 		arg.Fqdn,
@@ -53,8 +73,10 @@ func (q *Queries) CreateDomain(ctx context.Context, arg CreateDomainParams) (Dom
 		arg.ProviderRef,
 		arg.VerificationToken,
 		arg.TlsMode,
+		arg.DkimSelector,
+		arg.DkimPrivateKey,
 	)
-	var i Domains
+	var i CreateDomainRow
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -67,6 +89,8 @@ func (q *Queries) CreateDomain(ctx context.Context, arg CreateDomainParams) (Dom
 		&i.VerifiedAt,
 		&i.MxHost,
 		&i.TlsMode,
+		&i.DkimSelector,
+		&i.DkimPrivateKey,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -88,7 +112,7 @@ func (q *Queries) DeleteDomain(ctx context.Context, arg DeleteDomainParams) erro
 }
 
 const getDomainByFQDN = `-- name: GetDomainByFQDN :one
-SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, created_at
+SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 FROM domains
 WHERE tenant_id = $1 AND fqdn = $2
 `
@@ -98,9 +122,26 @@ type GetDomainByFQDNParams struct {
 	Fqdn     string `json:"fqdn"`
 }
 
-func (q *Queries) GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams) (Domains, error) {
+type GetDomainByFQDNRow struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	Fqdn              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	DnsProvider       pgtype.Text        `json:"dns_provider"`
+	ProviderRef       pgtype.Text        `json:"provider_ref"`
+	VerificationToken string             `json:"verification_token"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	MxHost            pgtype.Text        `json:"mx_host"`
+	TlsMode           string             `json:"tls_mode"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams) (GetDomainByFQDNRow, error) {
 	row := q.db.QueryRow(ctx, getDomainByFQDN, arg.TenantID, arg.Fqdn)
-	var i Domains
+	var i GetDomainByFQDNRow
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -113,13 +154,15 @@ func (q *Queries) GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams
 		&i.VerifiedAt,
 		&i.MxHost,
 		&i.TlsMode,
+		&i.DkimSelector,
+		&i.DkimPrivateKey,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getDomainByID = `-- name: GetDomainByID :one
-SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, created_at
+SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 FROM domains
 WHERE tenant_id = $1 AND id = $2
 `
@@ -129,9 +172,26 @@ type GetDomainByIDParams struct {
 	ID       int64 `json:"id"`
 }
 
-func (q *Queries) GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (Domains, error) {
+type GetDomainByIDRow struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	Fqdn              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	DnsProvider       pgtype.Text        `json:"dns_provider"`
+	ProviderRef       pgtype.Text        `json:"provider_ref"`
+	VerificationToken string             `json:"verification_token"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	MxHost            pgtype.Text        `json:"mx_host"`
+	TlsMode           string             `json:"tls_mode"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (GetDomainByIDRow, error) {
 	row := q.db.QueryRow(ctx, getDomainByID, arg.TenantID, arg.ID)
-	var i Domains
+	var i GetDomainByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -144,27 +204,46 @@ func (q *Queries) GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (D
 		&i.VerifiedAt,
 		&i.MxHost,
 		&i.TlsMode,
+		&i.DkimSelector,
+		&i.DkimPrivateKey,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listDomainsByTenant = `-- name: ListDomainsByTenant :many
-SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, created_at
+SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 FROM domains
 WHERE tenant_id = $1
 ORDER BY fqdn ASC
 `
 
-func (q *Queries) ListDomainsByTenant(ctx context.Context, tenantID int64) ([]Domains, error) {
+type ListDomainsByTenantRow struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	Fqdn              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	DnsProvider       pgtype.Text        `json:"dns_provider"`
+	ProviderRef       pgtype.Text        `json:"provider_ref"`
+	VerificationToken string             `json:"verification_token"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	MxHost            pgtype.Text        `json:"mx_host"`
+	TlsMode           string             `json:"tls_mode"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListDomainsByTenant(ctx context.Context, tenantID int64) ([]ListDomainsByTenantRow, error) {
 	rows, err := q.db.Query(ctx, listDomainsByTenant, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Domains{}
+	items := []ListDomainsByTenantRow{}
 	for rows.Next() {
-		var i Domains
+		var i ListDomainsByTenantRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TenantID,
@@ -177,6 +256,8 @@ func (q *Queries) ListDomainsByTenant(ctx context.Context, tenantID int64) ([]Do
 			&i.VerifiedAt,
 			&i.MxHost,
 			&i.TlsMode,
+			&i.DkimSelector,
+			&i.DkimPrivateKey,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -193,7 +274,7 @@ const updateDomainStatus = `-- name: UpdateDomainStatus :one
 UPDATE domains
 SET status = $3, verified_at = $4
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, created_at
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 `
 
 type UpdateDomainStatusParams struct {
@@ -203,14 +284,31 @@ type UpdateDomainStatusParams struct {
 	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
 }
 
-func (q *Queries) UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatusParams) (Domains, error) {
+type UpdateDomainStatusRow struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	Fqdn              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	DnsProvider       pgtype.Text        `json:"dns_provider"`
+	ProviderRef       pgtype.Text        `json:"provider_ref"`
+	VerificationToken string             `json:"verification_token"`
+	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	MxHost            pgtype.Text        `json:"mx_host"`
+	TlsMode           string             `json:"tls_mode"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatusParams) (UpdateDomainStatusRow, error) {
 	row := q.db.QueryRow(ctx, updateDomainStatus,
 		arg.TenantID,
 		arg.ID,
 		arg.Status,
 		arg.VerifiedAt,
 	)
-	var i Domains
+	var i UpdateDomainStatusRow
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -223,6 +321,8 @@ func (q *Queries) UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatus
 		&i.VerifiedAt,
 		&i.MxHost,
 		&i.TlsMode,
+		&i.DkimSelector,
+		&i.DkimPrivateKey,
 		&i.CreatedAt,
 	)
 	return i, err

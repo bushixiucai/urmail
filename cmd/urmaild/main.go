@@ -16,11 +16,14 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/bushixiucai/urmail/internal/agent"
+	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
+	"github.com/bushixiucai/urmail/internal/reconcile"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -76,12 +79,21 @@ func run() error {
 	// time; this is pure housekeeping.
 	go purgeExpiredSessions(ctx, appPool, logger)
 
+	// The reconcile pipeline re-renders all configuration files whenever a
+	// domain or mailbox changes and pushes them through the privileged
+	// agent, followed by the affected service reloads.
+	reconcilePipeline := reconcile.NewPipeline(cfg, store.New(platformPool.Pool), cfg.PublicIPv4, cfg.Nameservers)
+	go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
+		return pushRenderedConfigs(ctx, cfg.AgentSocket, files, logger)
+	})
+
 	engine := api.New(api.Options{
 		Logger:       logger,
 		AppPool:      appPool,
 		PlatformPool: platformPool,
 		Messages:     messages,
 		Version:      version,
+		Reconcile:    reconcilePipeline,
 	})
 
 	server := &http.Server{
@@ -134,4 +146,29 @@ func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger
 			}
 		}
 	}
+}
+
+// reloadUnits are the services affected by rendered configuration files.
+var reloadUnits = []string{"postfix", "dovecot", "nginx", "nsd"}
+
+// pushRenderedConfigs writes every rendered file through the privileged
+// agent and restarts the mail services. Any failure aborts the push so the
+// next trigger retries the whole cycle; renders are deterministic.
+func pushRenderedConfigs(ctx context.Context, agentSocket string, files map[string]string, logger *zap.Logger) error {
+	client := agent.NewClient(agentSocket)
+	for path, content := range files {
+		if _, err := client.Do(ctx, "file.write", agentd.WriteFileParams{
+			Path:    path,
+			Content: content,
+		}); err != nil {
+			return fmt.Errorf("write %s via agent: %w", path, err)
+		}
+	}
+	for _, unit := range reloadUnits {
+		if _, err := client.Do(ctx, "systemctl.restart", agentd.RestartUnitParams{Unit: unit}); err != nil {
+			return fmt.Errorf("restart %s via agent: %w", unit, err)
+		}
+	}
+	logger.Info("rendered configuration pushed", zap.Int("files", len(files)))
+	return nil
 }

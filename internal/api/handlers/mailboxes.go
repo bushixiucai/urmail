@@ -19,11 +19,14 @@ import (
 type MailboxStore interface {
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]store.Mailboxes, error)
 	GetMailboxByID(ctx context.Context, arg store.GetMailboxByIDParams) (store.Mailboxes, error)
-	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.Domains, error)
+	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
 	CreateMailbox(ctx context.Context, arg store.CreateMailboxParams) (store.Mailboxes, error)
 	UpdateMailboxPassword(ctx context.Context, arg store.UpdateMailboxPasswordParams) (store.Mailboxes, error)
 	UpdateMailboxQuota(ctx context.Context, arg store.UpdateMailboxQuotaParams) (store.Mailboxes, error)
 	DeleteMailbox(ctx context.Context, arg store.DeleteMailboxParams) error
+	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
+	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
+	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 }
 
 type MailboxHandler struct {
@@ -88,6 +91,10 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "INVALID_LOCAL_PART", "message": "mailbox.invalid_local_part"},
 		})
+		return
+	}
+
+	if !quotaCheck(c, requestStore[QuotaStore](c, nil), tenantID, "mailbox") {
 		return
 	}
 

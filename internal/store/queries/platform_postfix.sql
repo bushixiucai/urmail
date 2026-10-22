@@ -1,7 +1,7 @@
 -- name: PlatformListDomains :many
 -- Platform query for Postfix configuration generator.
 -- Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
-SELECT fqdn, status
+SELECT fqdn, status, mode, updated_at
 FROM domains
 WHERE status = 'active'
 ORDER BY fqdn ASC;

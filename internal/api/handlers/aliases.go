@@ -16,7 +16,7 @@ import (
 type AliasStore interface {
 	ListAliasesByTenant(ctx context.Context, tenantID int64) ([]store.ListAliasesByTenantRow, error)
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]store.Mailboxes, error)
-	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.Domains, error)
+	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
 	CreateAlias(ctx context.Context, arg store.CreateAliasParams) (store.MailboxAliases, error)
 	DeleteAlias(ctx context.Context, arg store.DeleteAliasParams) error
 }

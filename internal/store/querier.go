@@ -6,12 +6,18 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
-	// Step 1 in atomic upgrade/downgrade replacement
+	// Step 1 in atomic upgrade/downgrade replacement. past_due subscriptions must
+	// be canceled too, otherwise the unique partial index
+	// subscriptions_one_active_per_tenant (which covers past_due) makes the
+	// follow-up INSERT fail (M3 review P2).
 	CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
+	ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchiveEntryLegalHoldParams) (ArchiveEntries, error)
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CreateAlias(ctx context.Context, arg CreateAliasParams) (MailboxAliases, error)
@@ -19,7 +25,9 @@ type Querier interface {
 	CreateChannelAttribution(ctx context.Context, arg CreateChannelAttributionParams) (ChannelAttribution, error)
 	CreateCommission(ctx context.Context, arg CreateCommissionParams) (Commissions, error)
 	CreateCouponRedemption(ctx context.Context, arg CreateCouponRedemptionParams) (CouponRedemptions, error)
-	CreateDomain(ctx context.Context, arg CreateDomainParams) (Domains, error)
+	CreateDomain(ctx context.Context, arg CreateDomainParams) (CreateDomainRow, error)
+	// Invoices (tenant-scoped). M3 checklist gap: CRUD for the invoices table.
+	CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoices, error)
 	CreateMailbox(ctx context.Context, arg CreateMailboxParams) (Mailboxes, error)
 	CreateOrder(ctx context.Context, arg CreateOrderParams) (Orders, error)
 	CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payments, error)
@@ -35,15 +43,25 @@ type Querier interface {
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (Subscriptions, error)
 	GetAliasByDomainAndLocalPart(ctx context.Context, arg GetAliasByDomainAndLocalPartParams) (GetAliasByDomainAndLocalPartRow, error)
 	GetAliasByID(ctx context.Context, arg GetAliasByIDParams) (GetAliasByIDRow, error)
+	GetArchiveEntryByID(ctx context.Context, arg GetArchiveEntryByIDParams) (ArchiveEntries, error)
+	GetArchiveEntryLegalHold(ctx context.Context, arg GetArchiveEntryLegalHoldParams) (bool, error)
 	GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (ChannelAttribution, error)
 	GetChannelByCode(ctx context.Context, code string) (Channels, error)
 	GetCouponByCode(ctx context.Context, code string) (Coupons, error)
 	// Locks the coupon row for concurrent redemption serialization
 	GetCouponForUpdate(ctx context.Context, code string) (Coupons, error)
-	GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams) (Domains, error)
-	GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (Domains, error)
+	GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams) (GetDomainByFQDNRow, error)
+	GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (GetDomainByIDRow, error)
+	GetInvoiceByID(ctx context.Context, arg GetInvoiceByIDParams) (Invoices, error)
+	GetInvoiceByNumber(ctx context.Context, arg GetInvoiceByNumberParams) (Invoices, error)
 	GetMailboxByAddress(ctx context.Context, arg GetMailboxByAddressParams) (Mailboxes, error)
 	GetMailboxByID(ctx context.Context, arg GetMailboxByIDParams) (Mailboxes, error)
+	// Platform-side daily-sent usage queries used by the SMTP policy service
+	// (internal/mail/policy). The policy service resolves the tenant from the
+	// mailbox address itself and runs outside a tenant context, so these queries
+	// are exempt from the tenant_id predicate per AGENTS.md and therefore live in
+	// a platform_*.sql file (M3 review P1-2).
+	// (moved verbatim from usage.sql)
 	GetMailboxDailySent(ctx context.Context, address string) (GetMailboxDailySentRow, error)
 	// Locks the mailbox row to serialize concurrent daily sent quota evaluation
 	GetMailboxDailySentForUpdate(ctx context.Context, address string) (GetMailboxDailySentForUpdateRow, error)
@@ -55,39 +73,57 @@ type Querier interface {
 	GetTenantSetting(ctx context.Context, arg GetTenantSettingParams) (Settings, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error)
+	GetUserRoleForTenant(ctx context.Context, arg GetUserRoleForTenantParams) (string, error)
 	GetUserTenants(ctx context.Context, userID int64) ([]GetUserTenantsRow, error)
 	IncrementCouponRedemption(ctx context.Context, code string) (Coupons, error)
 	// Atomic check-and-increment: the counter is only advanced while it stays
 	// below the daily limit ($3); returns pgx.ErrNoRows when the limit is
-	// already reached. NOTE: the generated store code must be regenerated with
-	// sqlc for this signature change (:one with limit parameter).
+	// already reached.
 	IncrementMailboxDailySent(ctx context.Context, arg IncrementMailboxDailySentParams) (int32, error)
+	// Archive / legal hold (tenant-scoped). M3 review P2-3: the tables existed
+	// without any queries; writes are wired by the platform side later.
+	InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntryParams) (ArchiveEntries, error)
 	InsertPaymentEventPlaceholder(ctx context.Context, arg InsertPaymentEventPlaceholderParams) (InsertPaymentEventPlaceholderRow, error)
 	ListActivePlans(ctx context.Context) ([]Plans, error)
 	ListAliasesByTenant(ctx context.Context, tenantID int64) ([]ListAliasesByTenantRow, error)
+	ListArchiveEntriesByTenant(ctx context.Context, arg ListArchiveEntriesByTenantParams) ([]ArchiveEntries, error)
 	ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsByTenantParams) ([]AuditLogs, error)
-	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]Domains, error)
+	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]ListDomainsByTenantRow, error)
+	ListInvoicesByTenant(ctx context.Context, tenantID int64) ([]Invoices, error)
 	ListMailboxesByDomain(ctx context.Context, arg ListMailboxesByDomainParams) ([]Mailboxes, error)
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]Mailboxes, error)
+	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
 	ListSettingsByScopes(ctx context.Context, arg ListSettingsByScopesParams) ([]Settings, error)
+	MarkInvoicePaid(ctx context.Context, arg MarkInvoicePaidParams) (Invoices, error)
+	// Platform queries for brand theming. Brand rows and the tenant -> brand
+	// relation are not tenant-scoped data, so these are exempt from the tenant_id
+	// predicate per AGENTS.md (platform_*.sql).
+	// Effective branding source row for a tenant's brand.
+	PlatformGetBrandThemeByTenant(ctx context.Context, id int64) (PlatformGetBrandThemeByTenantRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
+	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListDomains(ctx context.Context) ([]PlatformListDomainsRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListMailboxes(ctx context.Context) ([]PlatformListMailboxesRow, error)
+	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
+	// Refuses to soft-delete entries under legal hold (returns no rows when held).
+	SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error)
 	UpdateAlias(ctx context.Context, arg UpdateAliasParams) (MailboxAliases, error)
-	UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatusParams) (Domains, error)
+	UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatusParams) (UpdateDomainStatusRow, error)
 	UpdateMailboxPassword(ctx context.Context, arg UpdateMailboxPasswordParams) (Mailboxes, error)
 	UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuotaParams) (Mailboxes, error)
 	UpdateMailboxStatus(ctx context.Context, arg UpdateMailboxStatusParams) (Mailboxes, error)
 	UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusParams) (Orders, error)
+	UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error
 	UpdateTenantSettings(ctx context.Context, arg UpdateTenantSettingsParams) (Tenants, error)
 	UpdateTenantStatus(ctx context.Context, arg UpdateTenantStatusParams) (Tenants, error)
 	UpsertTenantSetting(ctx context.Context, arg UpsertTenantSettingParams) (Settings, error)
+	VoidInvoice(ctx context.Context, arg VoidInvoiceParams) (Invoices, error)
 }
 
 var _ Querier = (*Queries)(nil)

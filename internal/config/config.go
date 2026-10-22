@@ -68,6 +68,14 @@ type Config struct {
 
 	// Locale is the fallback locale for messages.
 	Locale string
+
+	// PublicIPv4 is the public address published in A records and
+	// rendered into NSD zone files.
+	PublicIPv4 string
+
+	// Nameservers are the NS hosts (FQDN, no trailing dot) published in
+	// managed zones.
+	Nameservers []string
 }
 
 // parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
@@ -110,6 +118,8 @@ func Load() (*Config, error) {
 		MasterKeyPath:       values["URMAIL_MASTER_KEY_PATH"],
 		LogLevel:            values["URMAIL_LOG_LEVEL"],
 		Locale:              values["URMAIL_LOCALE"],
+		PublicIPv4:          values["URMAIL_PUBLIC_IPV4"],
+		Nameservers:         splitCSV(values["URMAIL_NAMESERVERS"]),
 	}
 	cfg.applyDefaults()
 
@@ -148,6 +158,12 @@ func (c *Config) applyDefaults() {
 			c.PrimaryDomain = parts[1]
 		}
 	}
+	if c.PublicIPv4 == "" {
+		c.PublicIPv4 = "127.0.0.1"
+	}
+	if len(c.Nameservers) == 0 && c.MyHostname != "" {
+		c.Nameservers = []string{c.MyHostname}
+	}
 	if c.PrimaryDomain == "" {
 		c.PrimaryDomain = "urmail.cn"
 	}
@@ -170,6 +186,17 @@ func (c *Config) validate() error {
 		return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// splitCSV splits a comma-separated environment value, dropping blanks.
+func splitCSV(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // loadEnvFile reads a KEY=VALUE file. A missing file is not an error:

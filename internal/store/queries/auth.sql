@@ -39,3 +39,13 @@ WHERE id = $1;
 -- name: DeleteExpiredSessions :exec
 DELETE FROM sessions
 WHERE expires_at <= now();
+
+-- name: GetUserRoleForTenant :one
+SELECT r.role
+FROM user_tenant_roles r
+WHERE r.user_id = $1 AND r.tenant_id = $2;
+
+-- name: UpdateSessionTenant :exec
+UPDATE sessions
+SET tenant_id = $2
+WHERE id = $1;

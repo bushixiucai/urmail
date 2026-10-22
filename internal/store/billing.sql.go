@@ -14,10 +14,13 @@ import (
 const cancelActiveSubscriptionsForTenant = `-- name: CancelActiveSubscriptionsForTenant :exec
 UPDATE subscriptions
 SET status = 'canceled'
-WHERE tenant_id = $1 AND status IN ('active', 'trialing')
+WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')
 `
 
-// Step 1 in atomic upgrade/downgrade replacement
+// Step 1 in atomic upgrade/downgrade replacement. past_due subscriptions must
+// be canceled too, otherwise the unique partial index
+// subscriptions_one_active_per_tenant (which covers past_due) makes the
+// follow-up INSERT fail (M3 review P2).
 func (q *Queries) CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error {
 	_, err := q.db.Exec(ctx, cancelActiveSubscriptionsForTenant, tenantID)
 	return err

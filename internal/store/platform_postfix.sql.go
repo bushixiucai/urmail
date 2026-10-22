@@ -7,6 +7,8 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformListAliases = `-- name: PlatformListAliases :many
@@ -52,15 +54,17 @@ func (q *Queries) PlatformListAliases(ctx context.Context) ([]PlatformListAliase
 }
 
 const platformListDomains = `-- name: PlatformListDomains :many
-SELECT fqdn, status
+SELECT fqdn, status, mode, updated_at
 FROM domains
 WHERE status = 'active'
 ORDER BY fqdn ASC
 `
 
 type PlatformListDomainsRow struct {
-	Fqdn   string `json:"fqdn"`
-	Status string `json:"status"`
+	Fqdn      string             `json:"fqdn"`
+	Status    string             `json:"status"`
+	Mode      string             `json:"mode"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 // Platform query for Postfix configuration generator.
@@ -74,7 +78,12 @@ func (q *Queries) PlatformListDomains(ctx context.Context) ([]PlatformListDomain
 	items := []PlatformListDomainsRow{}
 	for rows.Next() {
 		var i PlatformListDomainsRow
-		if err := rows.Scan(&i.Fqdn, &i.Status); err != nil {
+		if err := rows.Scan(
+			&i.Fqdn,
+			&i.Status,
+			&i.Mode,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

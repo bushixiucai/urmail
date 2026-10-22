@@ -179,6 +179,24 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 	return i, err
 }
 
+const getUserRoleForTenant = `-- name: GetUserRoleForTenant :one
+SELECT r.role
+FROM user_tenant_roles r
+WHERE r.user_id = $1 AND r.tenant_id = $2
+`
+
+type GetUserRoleForTenantParams struct {
+	UserID   int64 `json:"user_id"`
+	TenantID int64 `json:"tenant_id"`
+}
+
+func (q *Queries) GetUserRoleForTenant(ctx context.Context, arg GetUserRoleForTenantParams) (string, error) {
+	row := q.db.QueryRow(ctx, getUserRoleForTenant, arg.UserID, arg.TenantID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
 const getUserTenants = `-- name: GetUserTenants :many
 SELECT t.id, t.brand_id, t.name, t.slug, t.status, r.role
 FROM user_tenant_roles r
@@ -221,4 +239,20 @@ func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTe
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateSessionTenant = `-- name: UpdateSessionTenant :exec
+UPDATE sessions
+SET tenant_id = $2
+WHERE id = $1
+`
+
+type UpdateSessionTenantParams struct {
+	ID       string      `json:"id"`
+	TenantID pgtype.Int8 `json:"tenant_id"`
+}
+
+func (q *Queries) UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error {
+	_, err := q.db.Exec(ctx, updateSessionTenant, arg.ID, arg.TenantID)
+	return err
 }

@@ -1,3 +1,10 @@
+-- Platform-side daily-sent usage queries used by the SMTP policy service
+-- (internal/mail/policy). The policy service resolves the tenant from the
+-- mailbox address itself and runs outside a tenant context, so these queries
+-- are exempt from the tenant_id predicate per AGENTS.md and therefore live in
+-- a platform_*.sql file (M3 review P1-2).
+-- (moved verbatim from usage.sql)
+
 -- name: GetMailboxDailySent :one
 SELECT COALESCE(u.messages_sent, 0) AS messages_sent, m.id AS mailbox_id, m.tenant_id
 FROM mailboxes m
@@ -15,8 +22,7 @@ FOR UPDATE OF m;
 -- name: IncrementMailboxDailySent :one
 -- Atomic check-and-increment: the counter is only advanced while it stays
 -- below the daily limit ($3); returns pgx.ErrNoRows when the limit is
--- already reached. NOTE: the generated store code must be regenerated with
--- sqlc for this signature change (:one with limit parameter).
+-- already reached.
 INSERT INTO mailbox_usage (mailbox_id, tenant_id, day, messages_sent)
 VALUES ($1, $2, CURRENT_DATE, 1)
 ON CONFLICT (mailbox_id, day)

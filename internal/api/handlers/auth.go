@@ -41,6 +41,7 @@ type AuthStore interface {
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
 	CreateSession(ctx context.Context, arg store.CreateSessionParams) (store.Sessions, error)
 	DeleteSession(ctx context.Context, id string) error
+	UpdateSessionTenant(ctx context.Context, arg store.UpdateSessionTenantParams) error
 }
 
 type AuthHandler struct {
@@ -197,4 +198,61 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		"tenants":  tenants,
 		"is_admin": isAdmin,
 	})
+}
+
+type SwitchTenantRequest struct {
+	TenantID int64 `json:"tenant_id" binding:"required"`
+}
+
+// SwitchTenant moves the current session to another tenant the user is a
+// member of. Membership is checked against user_tenant_roles, so a session
+// can never be pointed at an unrelated tenant.
+func (h *AuthHandler) SwitchTenant(c *gin.Context) {
+	var req SwitchTenantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{"code": "INVALID_PARAMS", "message": "common.invalid_params"},
+		})
+		return
+	}
+
+	session, ok := c.Get(middleware.ContextSession)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	s, ok := session.(store.Sessions)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+
+	tenants, err := h.Store.GetUserTenants(c, s.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	member := false
+	for _, t := range tenants {
+		if t.ID == req.TenantID {
+			member = true
+			break
+		}
+	}
+	if !member {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{"code": "FORBIDDEN", "message": "error.FORBIDDEN"},
+		})
+		return
+	}
+
+	if err := h.Store.UpdateSessionTenant(c, store.UpdateSessionTenantParams{
+		ID:       s.ID,
+		TenantID: pgtype.Int8{Int64: req.TenantID, Valid: true},
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

@@ -137,6 +137,9 @@ type Domains struct {
 	MxHost            pgtype.Text        `json:"mx_host"`
 	TlsMode           string             `json:"tls_mode"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	DkimSelector      string             `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text        `json:"dkim_private_key"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Invoices struct {
