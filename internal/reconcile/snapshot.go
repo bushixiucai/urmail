@@ -125,6 +125,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	if publicIPv4 == "" {
 		publicIPv4 = "127.0.0.1"
 	}
+	dovecotDB := cfg.DatabaseURLDovecot
+	if dovecotDB == "" {
+		// Development fallback; production sets URMAIL_DATABASE_URL_DOVECOT.
+		dovecotDB = cfg.DatabaseURLPlatform
+	}
 
 	return &mail.ConfigContext{
 		PostfixNode: postfix.NodeConfig{
@@ -145,7 +150,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			StorageRoot:   storageRoot,
 			TLSCertFile:   certFile,
 			TLSKeyFile:    keyFile,
-			DatabaseURL:   cfg.DatabaseURL,
+			DatabaseURL:   dovecotDB,
 		},
 
 		NSDNode: nsd.NodeConfig{
@@ -160,7 +165,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,
 			// nginx backends are validated to carry an explicit scheme.
-			BackendHTTP:   withHTTPScheme(cfg.ListenAddr),
+			BackendHTTP: withHTTPScheme(cfg.ListenAddr),
 		},
 		NginxSnap: nginx.Snapshot{Domains: nginxDomains},
 	}, nil

@@ -71,6 +71,10 @@ func runConfigRender(ctx context.Context, args []string) error {
 	if storageRoot == "" {
 		storageRoot = "/var/mail"
 	}
+	dovecotDB := cfg.DatabaseURLDovecot
+	if dovecotDB == "" {
+		dovecotDB = cfg.DatabaseURLPlatform
+	}
 
 	// Assemble the full context (node config + tenant snapshot) from the
 	// database when a platform connection is configured. Without a database
@@ -105,7 +109,7 @@ func runConfigRender(ctx context.Context, args []string) error {
 				StorageRoot:   storageRoot,
 				TLSCertFile:   filepath.Join(storageRoot, "ssl", hostname+".cert"),
 				TLSKeyFile:    filepath.Join(storageRoot, "ssl", hostname+".key"),
-				DatabaseURL:   cfg.DatabaseURL,
+				DatabaseURL:   dovecotDB,
 			},
 			NSDNode: nsd.NodeConfig{
 				Hostname:      hostname,

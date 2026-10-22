@@ -18,9 +18,11 @@ import (
 const usage = `urmailctl — urMail.cn administrative tool
 
 Usage:
+  urmailctl bootstrap [--database-url URL]  create cluster roles (as superuser)
   urmailctl migrate up             apply pending schema migrations
   urmailctl migrate down           roll back the most recent schema migration
   urmailctl migrate version        print the current schema version
+  urmailctl setup --email E --password P [--brand B] [--tenant T]
   urmailctl status                 print the service status
   urmailctl config render [--dry-run] [--out-dir <dir>]
 `
@@ -42,8 +44,12 @@ func run(args []string) error {
 	defer stop()
 
 	switch args[0] {
+	case "bootstrap":
+		return runBootstrap(ctx, args[1:])
 	case "migrate":
 		return runMigrate(ctx, args[1:])
+	case "setup":
+		return runSetup(ctx, args[1:])
 	case "status":
 		return runStatus(ctx)
 	case "config":
@@ -67,7 +73,13 @@ func runMigrate(ctx context.Context, args []string) error {
 		return err
 	}
 
-	migrator, err := db.NewMigrator(cfg.DatabaseURLPlatform)
+	migrateURL := cfg.DatabaseURLMigrate
+	if migrateURL == "" {
+		// Backward-compatible development fallback; production installs set
+		// URMAIL_DATABASE_URL_MIGRATE to the dedicated migration role.
+		migrateURL = cfg.DatabaseURLPlatform
+	}
+	migrator, err := db.NewMigrator(migrateURL)
 	if err != nil {
 		return err
 	}

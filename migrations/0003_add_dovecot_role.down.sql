@@ -4,5 +4,5 @@
 -- Roles themselves are left in place (consistent with 0001_init.down.sql convention).
 
 REVOKE SELECT ON mailboxes, domains FROM urmail_dovecot;
-REVOKE USAGE ON SCHEMA public FROM urmail_dovecot;
-ALTER ROLE urmail_dovecot NOBYPASSRLS;
+-- The role and its BYPASSRLS attribute are cluster-level bootstrap state and
+-- are intentionally left alone on down migration.

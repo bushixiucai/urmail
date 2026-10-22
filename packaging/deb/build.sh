@@ -32,6 +32,7 @@ install -m 0755 "$ROOT/bin/urmailctl" "$STAGE/usr/bin/urmailctl"
 install -m 0644 "$ROOT/packaging/systemd/urmaild.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmaild-agent.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
+install -m 0644 "$ROOT/internal/db/bootstrap.sql" "$STAGE/usr/share/urmail/bootstrap.sql"
 
 cat >"$STAGE/DEBIAN/control" <<EOF
 Package: urmail

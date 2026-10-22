@@ -32,6 +32,9 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 	url := integrationURL(t)
 	ctx := context.Background()
 
+	if err := db.Bootstrap(ctx, url); err != nil {
+		t.Fatalf("bootstrap cluster roles: %v", err)
+	}
 	migrator, err := db.NewMigrator(url)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)

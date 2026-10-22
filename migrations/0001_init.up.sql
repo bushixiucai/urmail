@@ -19,22 +19,23 @@
 -- Roles
 -- ---------------------------------------------------------------------------
 
+-- Cluster-level roles are created by installer/bootstrap.sql, which runs as
+-- a PostgreSQL superuser before the versioned migrations. Keeping them out of
+-- 0001 lets the schema migrations run as the non-superuser urmail_migrate role.
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_app') THEN
-        CREATE ROLE urmail_app NOLOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_platform') THEN
-        CREATE ROLE urmail_platform NOLOGIN;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_app')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_platform')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_dovecot')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_migrate') THEN
+        RAISE EXCEPTION 'urMail cluster roles are missing; run installer/bootstrap.sql first';
     END IF;
 END
 $$;
 
--- The platform role owns the tables and is explicitly allowed to bypass
--- row-level security: it is the administrative path and must see every
--- tenant. The attribute is enforced on every migration so that a role
--- created by an older installer converges to the current definition.
-ALTER ROLE urmail_platform BYPASSRLS;
+-- urmail_platform owns the tables and bypasses RLS; installer/bootstrap.sql
+-- sets BYPASSRLS on the role. urmail_migrate is a member of urmail_platform so
+-- the ownership transfer below is allowed.
 
 -- ---------------------------------------------------------------------------
 -- Brands, tenants and users
@@ -639,7 +640,6 @@ BEGIN
 END
 $$;
 
-GRANT USAGE ON SCHEMA public TO urmail_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO urmail_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO urmail_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public

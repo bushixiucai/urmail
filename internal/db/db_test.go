@@ -28,6 +28,10 @@ func testDatabaseURL(t *testing.T) string {
 func applyMigrations(t *testing.T, url string) {
 	t.Helper()
 
+	if err := db.Bootstrap(context.Background(), url); err != nil {
+		t.Fatalf("bootstrap cluster roles: %v", err)
+	}
+
 	migrator, err := db.NewMigrator(url)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
@@ -73,6 +77,9 @@ func TestMigrationIsReversible(t *testing.T) {
 	}
 	defer func() { _ = migrator.Close() }()
 
+	if err := db.Bootstrap(ctx, url); err != nil {
+		t.Fatalf("bootstrap cluster roles: %v", err)
+	}
 	if err := migrator.Up(ctx); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}

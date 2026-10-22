@@ -36,6 +36,16 @@ type Config struct {
 	// used by platform administration endpoints.
 	DatabaseURLPlatform string
 
+	// DatabaseURLMigrate is the connection string for the schema migration
+	// role (urmail_migrate). It is a member of urmail_platform so it can
+	// transfer table ownership during migrations.
+	DatabaseURLMigrate string
+
+	// DatabaseURLDovecot is the connection string for the Dovecot role
+	// (urmail_dovecot). Dovecot uses it for passdb/userdb queries across
+	// tenants; it has BYPASSRLS but only SELECT on mailboxes/domains.
+	DatabaseURLDovecot string
+
 	// MyHostname is the FQDN Postfix announces itself as (myhostname).
 	MyHostname string
 
@@ -108,6 +118,8 @@ func Load() (*Config, error) {
 		ListenAddr:          values["URMAIL_LISTEN_ADDR"],
 		DatabaseURL:         values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform: values["URMAIL_DATABASE_URL_PLATFORM"],
+		DatabaseURLMigrate:  values["URMAIL_DATABASE_URL_MIGRATE"],
+		DatabaseURLDovecot:  values["URMAIL_DATABASE_URL_DOVECOT"],
 		MyHostname:          values["URMAIL_MYHOSTNAME"],
 		PrimaryDomain:       values["URMAIL_PRIMARY_DOMAIN"],
 		PolicyEnabled:       parseBool(values["URMAIL_POLICY_ENABLED"]),
