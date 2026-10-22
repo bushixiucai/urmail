@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -48,14 +49,25 @@ type WriteFileParams struct {
 	Mode    string `json:"mode"`
 }
 
+// maxWriteContentBytes bounds a single file.write payload. The server already
+// bounds the JSON request line; this is defence in depth for direct callers.
+const maxWriteContentBytes = 8 << 20
+
 // WriteFile writes a file inside an allowed directory.
+//
+// The write is atomic and symlink-safe: see writeFileAtomic. The caller never
+// chooses the owner; files are created as the agent identity (root:mailinabox
+// under the systemd unit) with the validated mode.
 func WriteFile(params json.RawMessage) (string, string, error) {
 	var args WriteFileParams
 	if err := json.Unmarshal(params, &args); err != nil {
 		return "", "", fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
+	if len(args.Content) > maxWriteContentBytes {
+		return "", "", fmt.Errorf("%w: content is larger than %d bytes", ErrRejected, maxWriteContentBytes)
+	}
 
-	cleaned, err := safePath(args.Path)
+	cleaned, _, err := resolveAllowedPath(args.Path, allowedWriteRoots)
 	if err != nil {
 		return "", "", err
 	}
@@ -75,13 +87,11 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 	}
 	mode = enforced
 
-	if err := os.MkdirAll(filepath.Dir(cleaned), 0o755); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrRejected, err)
+	written, err := writeFileAtomic(cleaned, []byte(args.Content), mode, allowedWriteRoots)
+	if err != nil {
+		return "", "", err
 	}
-	if err := os.WriteFile(cleaned, []byte(args.Content), mode); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrFailed, err)
-	}
-	return cleaned, "", nil
+	return written, "", nil
 }
 
 // RestartUnitParams are the parameters of the systemctl.restart operation.
@@ -163,6 +173,107 @@ func BuildPostconfArgs(keys map[string]string) ([]string, error) {
 	return arguments, nil
 }
 
+// OpPostmap is the whitelisted operation that compiles one Postfix map.
+const OpPostmap = "postfix.postmap"
+
+// postmapRoot is the only directory whose *.map files may be compiled.
+const postmapRoot = "/etc/postfix/urmail"
+
+// postmapFilenamePattern restricts map names to a conservative filename
+// alphabet. A dot is only allowed as the extension separator.
+var postmapFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*\.map$`)
+
+// PostmapParams are the parameters of the postfix.postmap operation.
+type PostmapParams struct {
+	Path string `json:"path"`
+}
+
+// Postmap compiles one Postfix map with postmap.
+//
+// Exactly one validated absolute path is passed to postmap: the caller cannot
+// add flags, a shell is never involved, and the path must be a direct regular
+// *.map child of postmapRoot. Traversal, symlinks and nested paths are
+// rejected before postmap runs.
+func Postmap(params json.RawMessage) (string, string, error) {
+	var args PostmapParams
+	if err := json.Unmarshal(params, &args); err != nil {
+		return "", "", fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+
+	target, err := resolvePostmapFile(args.Path, postmapRoot)
+	if err != nil {
+		return "", "", err
+	}
+
+	cmd := exec.Command("postmap", target)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", string(output), fmt.Errorf("%w: postmap: %v", ErrFailed, err)
+	}
+	return string(output), "", nil
+}
+
+// validatePostmapPath performs the lexical checks for a postmap request.
+func validatePostmapPath(path, root string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("%w: empty postmap path", ErrRejected)
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%w: postmap path %q must be absolute", ErrRejected, path)
+	}
+
+	cleaned := filepath.Clean(path)
+	if cleaned != path {
+		return "", fmt.Errorf("%w: postmap path %q is not a clean absolute path", ErrRejected, path)
+	}
+
+	root = filepath.Clean(root)
+	if filepath.Dir(cleaned) != root {
+		return "", fmt.Errorf("%w: postmap path %q must be a direct child of %s", ErrRejected, path, root)
+	}
+
+	name := filepath.Base(cleaned)
+	if !postmapFilenamePattern.MatchString(name) {
+		return "", fmt.Errorf("%w: postmap file %q is not an allowed *.map name", ErrRejected, name)
+	}
+	return cleaned, nil
+}
+
+// resolvePostmapFile validates path and resolves it on the filesystem. The
+// parent directory must resolve to the real root and the map itself must be a
+// regular file, not a symlink or directory.
+func resolvePostmapFile(path, root string) (string, error) {
+	cleaned, err := validatePostmapPath(path, root)
+	if err != nil {
+		return "", err
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("%w: resolve postmap root %s: %v", ErrRejected, root, err)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(cleaned))
+	if err != nil {
+		return "", fmt.Errorf("%w: resolve postmap directory: %v", ErrRejected, err)
+	}
+	if resolvedParent != resolvedRoot {
+		return "", fmt.Errorf("%w: postmap path %q escapes %s", ErrRejected, path, root)
+	}
+
+	target := filepath.Join(resolvedRoot, filepath.Base(cleaned))
+	info, err := os.Lstat(target)
+	if err != nil {
+		return "", fmt.Errorf("%w: inspect postmap file %s: %v", ErrRejected, target, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%w: postmap file %s is a symlink", ErrRejected, target)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: postmap file %s is not a regular file", ErrRejected, target)
+	}
+	return target, nil
+}
+
 // enforceSensitiveFileMode forces mode 0600 for credential-bearing files
 // (dovecot db.conf) regardless of the default or requested mode; an explicit
 // conflicting mode is rejected (M2 review P1-2). Separated from WriteFile so
@@ -180,33 +291,22 @@ func enforceSensitiveFileMode(path string, mode os.FileMode, requested string) (
 	return mode, nil
 }
 
-// safePath resolves a path and verifies that it stays inside an allowed root.
-// It rejects traversal attempts and symlink escapes.
-func safePath(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("%w: empty path", ErrRejected)
-	}
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("%w: path %q must be absolute", ErrRejected, path)
-	}
-
-	cleaned := filepath.Clean(path)
-	for _, root := range allowedWriteRoots {
-		if cleaned == root || strings.HasPrefix(cleaned, root+string(filepath.Separator)) {
-			return cleaned, nil
-		}
-	}
-	return "", fmt.Errorf("%w: path %q is outside the allowed roots", ErrRejected, path)
-}
-
 // parseOctal parses an octal file mode string.
+//
+// Only plain permissions in the range 0000-0777 are accepted. Setuid (04000),
+// setgid (02000) and sticky (01000) bits are rejected rather than silently
+// masked, because a caller that asks for them is either confused or probing
+// the boundary.
 func parseOctal(value string) (os.FileMode, error) {
-	var mode uint32
-	if _, err := fmt.Sscanf(value, "%o", &mode); err != nil {
+	if value == "" {
+		return 0, fmt.Errorf("%w: empty mode", ErrRejected)
+	}
+	mode, err := strconv.ParseUint(value, 8, 32)
+	if err != nil {
 		return 0, fmt.Errorf("%w: invalid mode %q", ErrRejected, value)
 	}
-	if mode > 0o7777 {
-		return 0, fmt.Errorf("%w: mode %q out of range", ErrRejected, value)
+	if mode > 0o777 {
+		return 0, fmt.Errorf("%w: mode %q is outside 0000-0777 or contains setuid/setgid/sticky bits", ErrRejected, value)
 	}
 	return os.FileMode(mode), nil
 }

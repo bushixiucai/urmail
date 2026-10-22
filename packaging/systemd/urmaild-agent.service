@@ -6,7 +6,9 @@ After=network.target
 [Service]
 Type=exec
 User=root
-Group=root
+Group=mailinabox
+ExecStartPre=/bin/chown root:mailinabox /run/urmail
+ExecStartPre=/bin/chmod 0770 /run/urmail
 ExecStart=/usr/bin/urmaild-agent
 Restart=always
 RestartSec=3s
@@ -15,8 +17,13 @@ EnvironmentFile=-/etc/urmail/urmaild.env
 # The agent runs as root because it has to write system configuration and
 # reload services. It has no network listener at all: it is reached only
 # through a unix socket that is restricted to the mailinabox group.
+#
+# RuntimeDirectory, the explicit chown/chmod above and the server's chmod of
+# the socket together guarantee /run/urmail is root:mailinabox 0770 and the
+# socket is root:mailinabox 0660. urmaild runs as mailinabox and is the only
+# unprivileged writer.
 RuntimeDirectory=urmail
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=0770
 UMask=0007
 
 NoNewPrivileges=no
@@ -36,7 +43,7 @@ RestrictAddressFamilies=AF_UNIX
 LockPersonality=yes
 SystemCallArchitectures=native
 
-ReadWritePaths=/etc/urmail /etc/postfix /etc/dovecot /etc/nginx /var/lib/urmail /run/urmail /var/mail
+ReadWritePaths=/etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /var/lib/urmail /run/urmail /var/mail
 
 [Install]
 WantedBy=multi-user.target

@@ -39,6 +39,7 @@ func run() error {
 	registry.Register("file.write", agentd.WriteFile)
 	registry.Register("systemctl.restart", agentd.RestartUnit)
 	registry.Register("postconf.set", agentd.PostconfSet)
+	registry.Register(agentd.OpPostmap, agentd.Postmap)
 
 	server := agentd.NewServer(cfg.AgentSocket, registry, logger)
 	if err := server.Listen(ctx); err != nil {

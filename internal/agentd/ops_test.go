@@ -71,18 +71,20 @@ func TestWriteFileRejectsTraversalIntoAllowedRoot(t *testing.T) {
 	}
 }
 
-func TestWriteFileAcceptsPathInsideAllowedRoot(t *testing.T) {
-	dir := t.TempDir()
-	// The allowed roots are absolute system paths, so exercise safePath
-	// directly for the accept case rather than writing to a real location.
-	cleaned, err := safePath("/etc/urmail/urmaild.env")
+func TestResolveAllowedPathAcceptsPathInsideAllowedRoot(t *testing.T) {
+	// The allowed roots are absolute system paths, so exercise the lexical
+	// resolver directly rather than writing to a real location. The filesystem
+	// checks are covered by the writeFileAtomic tests.
+	cleaned, root, err := resolveAllowedPath("/etc/urmail/urmaild.env", allowedWriteRoots)
 	if err != nil {
 		t.Fatalf("expected /etc/urmail to be allowed, got %v", err)
 	}
 	if cleaned != filepath.Clean("/etc/urmail/urmaild.env") {
 		t.Fatalf("unexpected cleaned path %q", cleaned)
 	}
-	_ = dir
+	if root != "/etc/urmail" {
+		t.Fatalf("unexpected matching root %q", root)
+	}
 }
 
 func TestWriteFileRejectsInvalidMode(t *testing.T) {
@@ -138,16 +140,16 @@ func TestBuildPostconfArgsAcceptsValidKeys(t *testing.T) {
 	}
 }
 
-func TestSafePathRejectsSymlinkEscape(t *testing.T) {
+func TestResolveAllowedPathRejectsPathOutsideRoots(t *testing.T) {
 	dir := t.TempDir()
 	link := filepath.Join(dir, "link")
 	if err := os.Symlink("/etc", link); err != nil {
 		t.Skipf("cannot create symlink: %v", err)
 	}
-	// safePath only inspects the literal path; the symlink check happens at
-	// write time. Confirm the literal path is still evaluated on its own
-	// terms so a future change does not silently drop the check.
-	if _, err := safePath(filepath.Join(dir, "link", "shadow")); err == nil {
+	// The lexical check rejects a path whose literal form is outside every
+	// allowed root; writeFileAtomic rejects the symlink itself (see
+	// TestWriteFileAtomicRejectsParentSymlinkEscape).
+	if _, _, err := resolveAllowedPath(filepath.Join(dir, "link", "shadow"), allowedWriteRoots); err == nil {
 		t.Fatal("a path outside the allowed roots must be rejected")
 	}
 }
