@@ -383,3 +383,44 @@ func (h *LegacyHandler) ZoneFile(c *gin.Context) {
 	}
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", raw)
 }
+
+func (h *LegacyHandler) Updates(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"updates": []string{}})
+}
+
+func (h *LegacyHandler) BackupStatus(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	entries, _ := os.ReadDir("/var/lib/urmail/backups")
+	out := make([]gin.H, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, gin.H{
+			"name":     entry.Name(),
+			"size":     info.Size(),
+			"modified": info.ModTime().UTC().Format(time.RFC3339),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"backups": out})
+}
+
+func (h *LegacyHandler) WebDomains(c *gin.Context) {
+	h.MailDomains(c)
+}
+
+func (h *LegacyHandler) MFAStatus(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"mfa_enabled": false})
+}

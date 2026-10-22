@@ -262,6 +262,10 @@ func New(opts Options) *gin.Engine {
 			legacyRoot.POST("/mail/users/password", legacyHandler.SetMailUserPassword)
 			legacyRoot.POST("/mail/aliases/remove", legacyHandler.RemoveMailAlias)
 			legacyRoot.GET("/ssl/status", legacyHandler.SSLStatus)
+			legacyRoot.GET("/system/updates", legacyHandler.Updates)
+			legacyRoot.GET("/system/backup/status", legacyHandler.BackupStatus)
+			legacyRoot.GET("/web/domains", legacyHandler.WebDomains)
+			legacyRoot.GET("/mfa/status", legacyHandler.MFAStatus)
 			legacyRoot.GET("/dns/zonefile/:zone", legacyHandler.ZoneFile)
 		}
 	}
