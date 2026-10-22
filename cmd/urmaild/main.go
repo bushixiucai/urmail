@@ -119,6 +119,7 @@ func run() error {
 		Version:      version,
 		MyHostname:   cfg.MyHostname,
 		Reconcile:    reconcilePipeline,
+		Audit:        store.New(platformPool.Pool),
 	})
 
 	server := &http.Server{

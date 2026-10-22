@@ -34,6 +34,8 @@ type Options struct {
 	MyHostname string
 	// Reconcile is the configuration reconcile trigger.
 	Reconcile handlers.ReconcileTrigger
+	// Audit receives one row per successful mutating tenant request.
+	Audit middleware.AuditWriter
 }
 
 // New builds the gin engine with all middleware and routes attached.
@@ -113,6 +115,9 @@ func New(opts Options) *gin.Engine {
 		protected.Use(middleware.RequireAuth(authQueries))
 		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
+		if opts.Audit != nil {
+			protected.Use(middleware.Audit(opts.Audit, opts.Logger))
+		}
 		{
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
