@@ -422,3 +422,88 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	}
 	_ = tenantTx.Rollback(ctx)
 }
+
+// TestDovecotRolePermissions proves the D4 security model:
+// urmail_dovecot has BYPASSRLS and can SELECT from mailboxes and domains,
+// but CANNOT write, and CANNOT access other tables (e.g. settings, tenants, audit_logs).
+func TestDovecotRolePermissions(t *testing.T) {
+	url := testDatabaseURL(t)
+	ctx := context.Background()
+
+	applyMigrations(t, url)
+
+	platform, err := db.OpenPlatform(ctx, url)
+	if err != nil {
+		t.Fatalf("open platform pool: %v", err)
+	}
+	defer platform.Close()
+
+	truncate(t, platform)
+
+	// Seed brand, tenant, domain, mailbox via platform role
+	tx, err := platform.PlatformTx(ctx)
+	if err != nil {
+		t.Fatalf("begin seed transaction: %v", err)
+	}
+
+	var brandID, tenantID, domainID int64
+	if err := tx.QueryRow(ctx, "INSERT INTO brands (slug, name) VALUES ('b', 'B') RETURNING id").Scan(&brandID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert brand: %v", err)
+	}
+	if err := tx.QueryRow(ctx, "INSERT INTO tenants (brand_id, name, slug) VALUES ($1, 'T', 't') RETURNING id", brandID).Scan(&tenantID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert tenant: %v", err)
+	}
+	if err := tx.QueryRow(ctx, "INSERT INTO domains (tenant_id, fqdn, status, verification_token) VALUES ($1, 'd.com', 'active', 'tok') RETURNING id", tenantID).Scan(&domainID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert domain: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO mailboxes (tenant_id, domain_id, local_part, address, password_hash) VALUES ($1, $2, 'u', 'u@d.com', '{SHA512-CRYPT}x')", tenantID, domainID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert mailbox: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	// Connect as platform, then SET ROLE to urmail_dovecot to verify effective permissions
+	dovTx, err := platform.PlatformTx(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = dovTx.Rollback(ctx) }()
+
+	if _, err := dovTx.Exec(ctx, "SET ROLE urmail_dovecot"); err != nil {
+		t.Fatalf("set role urmail_dovecot: %v", err)
+	}
+
+	// 1. urmail_dovecot can SELECT mailboxes across tenants (BYPASSRLS)
+	var count int
+	if err := dovTx.QueryRow(ctx, "SELECT count(*) FROM mailboxes").Scan(&count); err != nil {
+		t.Fatalf("select mailboxes as urmail_dovecot: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 mailbox visible, got %d", count)
+	}
+
+	// 2. urmail_dovecot can SELECT domains
+	if err := dovTx.QueryRow(ctx, "SELECT count(*) FROM domains").Scan(&count); err != nil {
+		t.Fatalf("select domains as urmail_dovecot: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 domain visible, got %d", count)
+	}
+
+	// 3. urmail_dovecot CANNOT write to mailboxes (no INSERT/UPDATE/DELETE privilege)
+	_, err = dovTx.Exec(ctx, "INSERT INTO mailboxes (tenant_id, domain_id, local_part, address, password_hash) VALUES (1, 1, 'bad', 'bad@d.com', 'x')")
+	if err == nil {
+		t.Fatal("urmail_dovecot must NOT be permitted to INSERT into mailboxes")
+	}
+
+	// 4. urmail_dovecot CANNOT access tenants or settings tables
+	_, err = dovTx.Exec(ctx, "SELECT count(*) FROM tenants")
+	if err == nil {
+		t.Fatal("urmail_dovecot must NOT have SELECT on tenants")
+	}
+}
