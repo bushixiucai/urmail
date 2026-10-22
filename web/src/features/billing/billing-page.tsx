@@ -4,6 +4,7 @@ import { Receipt } from "lucide-react";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { useI18nLocale } from "@/app/providers";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NoticeDialog } from "@/components/ui/notice-dialog";
 
@@ -48,6 +49,7 @@ export function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,14 +58,28 @@ export function BillingPage() {
         "/api/v1/billing/subscription",
       ),
       request<{ invoices: Invoice[] }>("/api/v1/billing/invoices"),
+      request<{ plans: Plan[] }>("/api/v1/billing/plans"),
     ])
-      .then(([s, i]) => {
+      .then(([s, i, p]) => {
         setSubscription(s.subscription);
         setPlan(s.plan);
         setInvoices(i.invoices ?? []);
+        setPlans(p.plans ?? []);
       })
       .catch((err: unknown) => setNotice(errorMessage(err)));
   }, [errorMessage]);
+
+  const checkout = async (code: string) => {
+    try {
+      await request("/api/v1/billing/checkout", {
+        method: "POST",
+        body: { plan_code: code },
+      });
+      setNotice(t("page.billing.order_created"));
+    } catch (err: unknown) {
+      setNotice(errorMessage(err));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -148,6 +164,35 @@ export function BillingPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("page.billing.choose_plan")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {plans.map((p) => (
+              <div key={p.code} className="border rounded-md p-3 space-y-2">
+                <div className="font-medium">{localized(p.name, locale)}</div>
+                <div className="text-xs text-muted-foreground">
+                  {p.mailbox_limit} {t("page.billing.mailboxes")} ·{" "}
+                  {p.domain_limit} {t("page.billing.domains")} ·{" "}
+                  {p.daily_send_limit} {t("page.billing.daily_send")}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">
+                    {(p.price_cents / 100).toFixed(2)} {p.currency}
+                  </span>
+                  <Button size="sm" onClick={() => checkout(p.code)}>
+                    {t("page.billing.select")}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
       <NoticeDialog
         open={notice !== null}
         onOpenChange={(open) => !open && setNotice(null)}
