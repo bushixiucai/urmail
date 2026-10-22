@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/app/auth-context";
 import { useI18nLocale } from "@/app/providers";
+import { request } from "@/lib/api/client";
+import { BrandTheme, ThemeInjector } from "@/components/brand/theme-injector";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -33,6 +35,34 @@ export function TenantLayout({ children }: TenantLayoutProps) {
   const { user, tenants, currentTenant, switchTenant, logout, isAdmin } =
     useAuth();
   const { locale, setLocale } = useI18nLocale();
+  const [brand, setBrand] = useState<{
+    theme?: BrandTheme;
+    logo_url?: string | null;
+    primary_color?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    request<{
+      theme?: {
+        theme?: BrandTheme;
+        logo_url?: string | null;
+        primary_color?: string | null;
+      };
+    }>("/api/v1/tenants/current")
+      .then((res) => setBrand(res.theme ?? null))
+      .catch(() => {});
+  }, []);
+
+  const brandLogo =
+    brand?.logo_url && /^https?:\/\//.test(brand.logo_url)
+      ? brand.logo_url
+      : null;
+  const brandTheme: BrandTheme | undefined = brand
+    ? {
+        ...(brand.theme ?? {}),
+        ...(brand.primary_color ? { primary: brand.primary_color } : {}),
+      }
+    : undefined;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navigation = [
@@ -74,9 +104,17 @@ export function TenantLayout({ children }: TenantLayoutProps) {
     <>
       <div className="p-5 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold">
-            U
-          </div>
+          {brandLogo ? (
+            <img
+              src={brandLogo}
+              alt=""
+              className="h-8 max-w-[120px] object-contain"
+            />
+          ) : (
+            <div className="h-8 w-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold">
+              U
+            </div>
+          )}
           <div>
             <h1 className="text-base font-semibold leading-tight">urMail.cn</h1>
             <p className="text-xs text-muted-foreground truncate max-w-[130px]">
@@ -131,6 +169,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
 
   return (
     <div className="flex min-h-screen bg-muted/20">
+      <ThemeInjector theme={brandTheme} />
       {/* Mobile drawer */}
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetTrigger asChild>

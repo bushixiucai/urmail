@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Globe, Mail, Shield, CheckCircle2, ArrowUpRight } from "lucide-react";
 import { request } from "@/lib/api/client";
-import { ThemeInjector, BrandTheme } from "@/components/brand/theme-injector";
 import {
   Card,
   CardContent,
@@ -46,12 +45,8 @@ export function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  const theme = data?.settings?.theme as BrandTheme | undefined;
-
   return (
     <div className="space-y-6">
-      <ThemeInjector theme={theme} />
-
       <div>
         <h2 className="text-2xl font-bold tracking-tight">
           {t("page.dashboard.title")}
