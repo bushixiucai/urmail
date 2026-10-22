@@ -35,8 +35,9 @@ type PlatformStore interface {
 }
 
 type PlatformHandler struct {
-	Store PlatformStore
-	Pool  *db.Pool
+	Store     PlatformStore
+	Pool      *db.Pool
+	Reconcile ReconcileTrigger
 }
 
 func NewPlatformHandler(s PlatformStore) *PlatformHandler {
@@ -93,6 +94,10 @@ func (h *PlatformHandler) ActivateTenant(c *gin.Context) {
 	h.setStatus(c, "active")
 }
 
+func (h *PlatformHandler) CloseTenant(c *gin.Context) {
+	h.setStatus(c, "closed")
+}
+
 func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -106,6 +111,9 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "TENANT_NOT_FOUND"}})
 		return
+	}
+	if h.Reconcile != nil {
+		h.Reconcile.Trigger()
 	}
 	c.JSON(http.StatusOK, gin.H{"tenant": PlatformTenant{
 		ID:        row.ID,
@@ -472,4 +480,85 @@ func (h *PlatformHandler) UpsertChannel(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"channel": row})
+}
+
+type UpdateTenantRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+func (h *PlatformHandler) UpdateTenant(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	var req UpdateTenantRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if _, err := h.Pool.Exec(c, "UPDATE tenants SET name = $2 WHERE id = $1", id, strings.TrimSpace(req.Name)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+type TransferOwnerRequest struct {
+	Email string `json:"email" binding:"required"`
+}
+
+func (h *PlatformHandler) TransferOwner(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	var req TransferOwnerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	tx, err := h.Pool.PlatformTx(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	defer func() { _ = tx.Rollback(c) }()
+	var userID int64
+	if err := tx.QueryRow(c, "SELECT id FROM users WHERE email = $1", email).Scan(&userID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
+		return
+	}
+	if _, err := tx.Exec(c, `
+		UPDATE user_tenant_roles SET role = 'admin'
+		WHERE tenant_id = $1 AND role = 'owner' AND user_id <> $2`, id, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if _, err := tx.Exec(c, `
+		INSERT INTO user_tenant_roles (user_id, tenant_id, role)
+		VALUES ($1, $2, 'owner')
+		ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = 'owner'`, userID, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if _, err := tx.Exec(c, "UPDATE tenants SET owner_user_id = $2 WHERE id = $1", id, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if err := tx.Commit(c); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "owner_user_id": userID})
 }

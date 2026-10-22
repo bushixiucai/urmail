@@ -88,6 +88,7 @@ func New(opts Options) *gin.Engine {
 	billingHandler := handlers.NewBillingHandler(appQueries)
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
 	platformHandler.Pool = opts.PlatformPool
+	platformHandler.Reconcile = opts.Reconcile
 	legacyTenantID := int64(1)
 	if platformQueries != nil {
 		if tenants, err := platformQueries.PlatformListTenants(context.Background()); err == nil && len(tenants) > 0 {
@@ -146,6 +147,9 @@ func New(opts Options) *gin.Engine {
 				platform.POST("/channels", platformHandler.UpsertChannel)
 				platform.POST("/tenants/:id/suspend", platformHandler.SuspendTenant)
 				platform.POST("/tenants/:id/activate", platformHandler.ActivateTenant)
+				platform.POST("/tenants/:id/close", platformHandler.CloseTenant)
+				platform.PATCH("/tenants/:id", platformHandler.UpdateTenant)
+				platform.POST("/tenants/:id/owner", platformHandler.TransferOwner)
 			}
 		}
 

@@ -13,9 +13,10 @@ import (
 
 const platformGetMailboxByAddress = `-- name: PlatformGetMailboxByAddress :one
 
-SELECT id, tenant_id, address
-FROM mailboxes
-WHERE address = $1 AND status = 'active'
+SELECT m.id, m.tenant_id, m.address
+FROM mailboxes m
+JOIN tenants t ON t.id = m.tenant_id
+WHERE m.address = $1 AND m.status = 'active' AND t.status = 'active'
 `
 
 type PlatformGetMailboxByAddressRow struct {

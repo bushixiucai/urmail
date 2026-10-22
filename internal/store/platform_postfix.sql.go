@@ -15,7 +15,8 @@ const platformListAliases = `-- name: PlatformListAliases :many
 SELECT d.fqdn AS domain, a.local_part, a.target, a.kind
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
-WHERE a.active = true AND d.status = 'active'
+JOIN tenants t ON t.id = a.tenant_id
+WHERE a.active = true AND d.status = 'active' AND t.status = 'active'
 ORDER BY d.fqdn ASC, a.local_part ASC
 `
 
@@ -54,10 +55,11 @@ func (q *Queries) PlatformListAliases(ctx context.Context) ([]PlatformListAliase
 }
 
 const platformListDomains = `-- name: PlatformListDomains :many
-SELECT fqdn, status, mode, updated_at
-FROM domains
-WHERE status = 'active'
-ORDER BY fqdn ASC
+SELECT d.fqdn, d.status, d.mode, d.updated_at
+FROM domains d
+JOIN tenants t ON t.id = d.tenant_id
+WHERE d.status = 'active' AND t.status = 'active'
+ORDER BY d.fqdn ASC
 `
 
 type PlatformListDomainsRow struct {
@@ -95,10 +97,11 @@ func (q *Queries) PlatformListDomains(ctx context.Context) ([]PlatformListDomain
 }
 
 const platformListMailboxes = `-- name: PlatformListMailboxes :many
-SELECT address, status
-FROM mailboxes
-WHERE status = 'active'
-ORDER BY address ASC
+SELECT m.address, m.status
+FROM mailboxes m
+JOIN tenants t ON t.id = m.tenant_id
+WHERE m.status = 'active' AND t.status = 'active'
+ORDER BY m.address ASC
 `
 
 type PlatformListMailboxesRow struct {

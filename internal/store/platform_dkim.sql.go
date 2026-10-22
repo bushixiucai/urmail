@@ -12,12 +12,13 @@ import (
 )
 
 const platformListDKIMDomains = `-- name: PlatformListDKIMDomains :many
-SELECT fqdn, dkim_selector, dkim_private_key
-FROM domains
-WHERE status = 'active'
-  AND dkim_private_key IS NOT NULL
-  AND dkim_private_key <> ''
-ORDER BY fqdn ASC
+SELECT d.fqdn, d.dkim_selector, dkim_private_key
+FROM domains d
+JOIN tenants t ON t.id = d.tenant_id
+WHERE d.status = 'active' AND t.status = 'active'
+  AND d.dkim_private_key IS NOT NULL
+  AND d.dkim_private_key <> ''
+ORDER BY d.fqdn ASC
 `
 
 type PlatformListDKIMDomainsRow struct {
