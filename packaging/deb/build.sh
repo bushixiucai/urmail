@@ -48,7 +48,7 @@ Section: mail
 Priority: optional
 Architecture: $ARCH
 Maintainer: urMail.cn <support@urmail.cn>
-Depends: nginx, postfix, dovecot-core, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot
+Depends: nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot
 Description: urMail.cn multi-tenant email SaaS platform
  A self-hosted platform for selling domain mailboxes: multi-tenancy, quotas,
  billing, payment, DNS onboarding, certificates, observability and compliance.

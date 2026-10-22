@@ -26,7 +26,10 @@ ubuntu:22.04|ubuntu:24.04) ;;
 esac
 
 ARCH="$(dpkg --print-architecture)"
-[ "$ARCH" = amd64 ] || die "urMail.cn supports amd64 only (found ${ARCH})."
+case "$ARCH" in
+amd64|arm64) ;;
+*) die "urMail.cn supports amd64 and arm64 (found ${ARCH})." ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -46,7 +49,8 @@ export DEBIAN_FRONTEND=noninteractive
 log "installing system dependencies"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-	nginx postfix dovecot-core dovecot-pgsql nsd opendkim postgresql \
+	nginx postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd \
+	dovecot-sieve dovecot-managesieved dovecot-pgsql nsd opendkim postgresql \
 	ca-certificates curl gnupg openssl certbot rsync duplicity python3-venv
 
 # ---------------------------------------------------------------------------
@@ -54,19 +58,25 @@ apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 
 PKG_URL=""
-if [ "$VERSION" = "latest" ]; then
-	MIRROR_BASE="${MIRROR:-${REPO}}"
-	PKG_URL="${MIRROR_BASE}/releases/latest/download/urmail_latest_amd64.deb"
+TMP_DEB=""
+if [ -n "${URMAIL_PACKAGE:-}" ]; then
+	TMP_DEB="$URMAIL_PACKAGE"
+	log "using the local package ${TMP_DEB}"
 else
-	MIRROR_BASE="${MIRROR:-${REPO}}"
-	PKG_URL="${MIRROR_BASE}/releases/download/v${VERSION}/urmail_${VERSION}_amd64.deb"
-fi
+	if [ "$VERSION" = "latest" ]; then
+		MIRROR_BASE="${MIRROR:-${REPO}}"
+		PKG_URL="${MIRROR_BASE}/releases/latest/download/urmail_latest_${ARCH}.deb"
+	else
+		MIRROR_BASE="${MIRROR:-${REPO}}"
+		PKG_URL="${MIRROR_BASE}/releases/download/v${VERSION}/urmail_${VERSION}_${ARCH}.deb"
+	fi
 
-log "downloading ${PKG_URL}"
-TMP_DEB="$(mktemp -d)/urmail.deb"
-if ! curl -fLsS --retry 3 --connect-timeout 20 --max-time 600 "$PKG_URL" -o "$TMP_DEB"; then
-	warn "the release could not be downloaded from ${PKG_URL}"
-	die "Set URMAIL_MIRROR to a reachable mirror, or install the .deb manually."
+	log "downloading ${PKG_URL}"
+	TMP_DEB="$(mktemp -d)/urmail.deb"
+	if ! curl -fLsS --retry 3 --connect-timeout 20 --max-time 600 "$PKG_URL" -o "$TMP_DEB"; then
+		warn "the release could not be downloaded from ${PKG_URL}"
+		die "Set URMAIL_MIRROR to a reachable mirror, or install the .deb manually."
+	fi
 fi
 
 log "installing the package"
@@ -154,6 +164,34 @@ chmod 0640 "$ENV_FILE"
 if [ ! -f /etc/urmail/master.key ]; then
 	log "generating the master key"
 	(umask 077; openssl genrsa -traditional -out /etc/urmail/master.key 2048 >/dev/null 2>&1)
+fi
+
+# Self-signed certificates are a bootstrap fallback so nginx/Postfix/Dovecot can
+# start before ACME succeeds. The renewal path replaces them later.
+PANEL_CERT_DIR=/var/lib/urmail/certs/panel
+MAIL_CERT_DIR=/var/mail/ssl
+install -d -o mailinabox -g mailinabox -m 0750 "$PANEL_CERT_DIR"
+install -d -o root -g mailinabox -m 0755 "$MAIL_CERT_DIR"
+if [ ! -f "$PANEL_CERT_DIR/fullchain.pem" ]; then
+	log "generating the bootstrap panel certificate for ${MYHOSTNAME}"
+	openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+		-keyout "$PANEL_CERT_DIR/privkey.pem" \
+		-out "$PANEL_CERT_DIR/fullchain.pem" \
+		-subj "/CN=$MYHOSTNAME" \
+		-addext "subjectAltName=DNS:$MYHOSTNAME" >/dev/null 2>&1
+	chown root:mailinabox "$PANEL_CERT_DIR/privkey.pem" "$PANEL_CERT_DIR/fullchain.pem"
+	chmod 0600 "$PANEL_CERT_DIR/privkey.pem"
+	chmod 0644 "$PANEL_CERT_DIR/fullchain.pem"
+fi
+if [ ! -f "$MAIL_CERT_DIR/$MYHOSTNAME.cert" ]; then
+	log "generating the bootstrap mail certificate for ${MYHOSTNAME}"
+	openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+		-keyout "$MAIL_CERT_DIR/$MYHOSTNAME.key" \
+		-out "$MAIL_CERT_DIR/$MYHOSTNAME.cert" \
+		-subj "/CN=$MYHOSTNAME" \
+		-addext "subjectAltName=DNS:$MYHOSTNAME" >/dev/null 2>&1
+	chmod 0600 "$MAIL_CERT_DIR/$MYHOSTNAME.key"
+	chmod 0644 "$MAIL_CERT_DIR/$MYHOSTNAME.cert"
 fi
 
 log "applying database migrations"

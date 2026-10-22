@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -110,6 +111,15 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	for _, d := range domains {
 		domainCert := filepath.Join(storageRoot, "ssl", d.Fqdn+".cert")
 		domainKey := filepath.Join(storageRoot, "ssl", d.Fqdn+".key")
+		// Do not emit a server block whose certificate does not exist yet:
+		// nginx -t would fail and block every other tenant's configuration.
+		// The certificate worker (F3) adds the block after issuance.
+		if _, err := os.Stat(domainCert); err != nil {
+			continue
+		}
+		if _, err := os.Stat(domainKey); err != nil {
+			continue
+		}
 		nginxDomains = append(nginxDomains, nginx.DomainConfig{
 			FQDN:              d.Fqdn,
 			TLSCertFile:       domainCert,
