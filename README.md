@@ -21,12 +21,15 @@ urMail.cn 把「域名邮箱」这件事做成一个**可售卖、可自助开�
 
 ## 当前实施状态（v0.4.0 修复线）
 
-- 已在 Ubuntu 22.04 / 24.04 真机安装验证：PostgreSQL bootstrap、RLS、Dovecot/Postfix/NSD/OpenDKIM、nginx tenant vhost、归档管道、审计、平台/租户 API。
+- 已在 Ubuntu 22.04 / 24.04 真机安装验证（test23）：PostgreSQL bootstrap、RLS、Dovecot/Postfix/NSD/OpenDKIM、nginx tenant vhost、归档管道、审计、平台/租户 API。
 - 邮件链路已实测：SMTP AUTH、LMTP、DKIM 签名、日发信配额（554）、邮箱存储配额（LMTP 552）、archive-pipe 落库。
-- 证书：域名自动获得自签占位证书；`urmailctl cert issue <domain>` 通过 certbot 获取 ACME 证书，`urmail-cert-renew.timer` 每日续期。
-- 管理面：平台总览/租户创建暂停关闭/owner 转移/套餐优惠券渠道/审计；租户域名/邮箱/别名/账单/审计/会话/密码/MFA。
-- 兼容层：`/admin` 已覆盖 status/version、mail users/domains/aliases、dns zones 与 mailbox/alias 添加。
-- **仍未完成**：支付/下单/发票 PDF、外部 DNS provider 自动写入、旧 API 剩余路径、平台品牌/渠道的完整编辑页面、Playwright 与最终 tag。详见 `docs/acceptance/m1-m4-v2-progress.md`。
+- 客户端验收：IMAP 993 / POP3 995 / SMTP 587 smoke，Playwright 5/5（API + 浏览器登录/导航）。
+- 证书：域名自签占位证书 + `urmailctl cert issue/renew` + `urmail-cert-renew.timer`；真实公网 ACME 未在测试环境签发（已接受限制）。
+- 管理面：平台/租户/品牌/套餐/渠道/优惠券/审计/域名/邮箱/别名/账单/PDF/Stripe/manual settlement。
+- DNS provider：Cloudflare、Aliyun、DNSPod；managed 模式走 NSD。
+- 兼容层：`/admin` status/version、users/domains/aliases、DNS zones/zonefile、SSL status、system/backup/web/MFA；未知路径 404。
+- 已接受限制：Thunderbird/iOS GUI 矩阵用协议级 smoke 替代；公网 ACME 未实测。
+- 发布：tag `v0.4.0-m1m4-remediated-v2`；验收记录 `docs/acceptance/m1-m4-v2.md`。
 
 ## 技术栈
 
