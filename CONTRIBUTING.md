@@ -1,58 +1,62 @@
-# Contributing
+# Contributing to urMail.cn
 
-Mail-in-a-Box is an open source project. Your contributions and pull requests are welcome.
+感谢参与。本项目采用 **AGPL-3.0** 许可证。
 
-## Development
+## 开发环境
 
-To start developing Mail-in-a-Box, [clone the repository](https://github.com/mail-in-a-box/mailinabox) and familiarize yourself with the code.
+需要 Go **1.27.3**、Node.js 22+、PostgreSQL 16+、Docker（用于本地依赖与集成测试）。
 
-    $ git clone https://github.com/mail-in-a-box/mailinabox
+```bash
+make dev        # 起本地全栈
+make test       # 跑全部测试
+make lint       # 静态检查
+make build      # 构建（含前端 embed）
+```
 
-### Vagrant and VirtualBox
+## 代码规范
 
-We recommend you use [Vagrant](https://www.vagrantup.com/intro/getting-started/install.html) and [VirtualBox](https://www.virtualbox.org/wiki/Downloads) for development. Please install them first.
+### Go
 
-With Vagrant set up, the following should boot up Mail-in-a-Box inside a virtual machine:
+- `golangci-lint` 必须零告警。启用的规则集见 `.golangci.yml`。
+- 业务逻辑放在 `internal/domain/`，**不得**依赖数据库或 HTTP。
+- 所有面向租户的数据访问**必须**带 `tenant_id` 谓词。例外只允许出现在
+  `internal/store/queries/platform_*.sql`（仅平台级 role 使用）。
+  CI 有一条检查专门盯这条规则。
+- 不允许在日志中输出密码、邮件正文、TOTP 密钥、API token。日志字段有白名单，见
+  `internal/logging/`。
 
-    $ vagrant up --provision
+### SQL
 
-_If you're seeing an error message about your *IP address being listed in the Spamhaus Block List*, simply uncomment the `export SKIP_NETWORK_CHECKS=1` line in `Vagrantfile`. It's normal, you're probably using a dynamic IP address assigned by your Internet provider–they're almost all listed._
+- 用 sqlc，SQL 写在 `internal/store/queries/*.sql`，**不要**手写字符串拼接查询。
+- 迁移文件放在 `migrations/`，**必须同时写 `up` 和 `down`**。
 
-### Modifying your `hosts` file
+### 前端
 
-After a while, Mail-in-a-Box will be available at `192.168.56.4` (unless you changed that in your `Vagrantfile`). To be able to use the web-based bits, we recommend to add a hostname to your `hosts` file:
+- TypeScript strict 模式。
+- 组件基于 shadcn/ui，源码直接放在 `web/src/components/ui/`（可改）。
+- **所有用户可见文案必须走 i18n**（`web/src/locales/*.json`）。
+  后端返回的是 i18n key + params，不是已本地化字符串。
+- 新增 i18n key 时**必须同时补齐 `zh-CN` 和 `en`**，CI 会检查。
 
-    $ echo "192.168.56.4 mailinabox.lan" | sudo tee -a /etc/hosts
+### 变更系统配置
 
-You should now be able to navigate to https://mailinabox.lan/admin using your browser. There should be an initial admin user with the name `me@mailinabox.lan` and the password `12345678`.
+Postfix / Dovecot / nsd / nginx 的配置一律由 `internal/mail/` 下的生成器产出，
+**不要**手工编辑 `/etc/` 下的文件，也不要在脚本里零散地 `sed` 系统配置。
+生成器是纯函数，必须配套 golden file 快照测试。
 
-### Making changes
+特权操作（写系统目录、重载服务、签发证书）统一走 `urmaild-agent` 的结构化接口，
+新增操作必须在 `internal/agentd/ops.go` 的白名单里显式注册。
 
-Your working copy of Mail-in-a-Box will be mounted inside your VM at `/vagrant`. Any change you make locally will appear inside your VM automatically.
+## 提交与分支
 
-Running `vagrant up --provision` again will repeat the installation with your modifications.
+- 主线 `main`；大规模改造走 `feat/*` 分支。
+- 提交信息用英文祈使句，首行 ≤ 72 字符。
+- 一个提交只做一件事。
 
-Alternatively, you can also ssh into the VM using:
+## 安全问题
 
-    $ vagrant ssh
+**不要**开公开 issue 报告安全漏洞。请按 [SECURITY.md](SECURITY.md) 的指引私下报告。
 
-Once inside the VM, you can re-run individual parts of the setup like in this example:
+## 行为准则
 
-    vm$ cd /vagrant
-    vm$ sudo setup/owncloud.sh # replace with script you'd like to re-run
-
-### Tests
-
-Mail-in-a-Box needs more tests. If you're still looking for a way to help out, writing and contributing tests would be a great start!
-
-## Public domain
-
-This project is in the public domain. Copyright and related rights in the work worldwide are waived through the [CC0 1.0 Universal public domain dedication][CC0]. See the LICENSE file in this directory.
-
-All contributions to this project must be released under the same CC0 wavier. By submitting a pull request or patch, you are agreeing to comply with this waiver of copyright interest.
-
-[CC0]: http://creativecommons.org/publicdomain/zero/1.0/
-
-## Code of Conduct
-
-This project has a [Code of Conduct](CODE_OF_CONDUCT.md). Please review it when joining our community.
+参与即同意 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。

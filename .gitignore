@@ -6,4 +6,36 @@ externals/
 .env
 .vagrant
 api/docs/api-docs.html
+
+# --- 本地设计与 agent 文档（永不入库）---
+/docs/
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.opencode/
+/.claude/
+/.cursor/
+/.copilot/
 *.code-workspace
+
+# --- Go ---
+/bin/
+/urmaild
+/urmaild-agent
+/urmailctl
+*.deb
+*.tar.gz
+*.tar.xz
+
+# --- 前端 ---
+/web/node_modules/
+/web/dist/
+/web/.vite/
+# The embed directory must exist for `go:embed` to work on a fresh clone, so
+# its placeholder is tracked while the build output is not.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# --- 本地数据 ---
+/data/
+/tmp/

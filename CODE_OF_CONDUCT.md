@@ -1,48 +1,45 @@
-# Mail-in-a-Box Code of Conduct
+# 行为准则
 
-Mail-in-a-Box is an open source community project about working, as a group, to empower ourselves and others to have control over our own digital communications. Just as we hope to increase technological diversity on the Internet through decentralization, we also believe that diverse viewpoints and voices among our community members foster innovation and creative solutions to the challenges we face.
+## 我们的承诺
 
-We are committed to providing a safe, welcoming, and harassment-free space for collaboration, for everyone, without regard to age, disability, economic situation, ethnicity, gender identity and expression, language fluency, level of knowledge or experience, nationality, personal appearance, race, religion, sexual identity and orientation, or any other attribute. Community comes first. This policy supersedes all other project goals.
+为了营造开放、友好的环境，我们作为参与者和维护者承诺：不骚扰任何人，
+不以任何与个人特征相关的身份歧视任何人，反馈时保持同理心，对错误承担责任，
+并优先关注对社区最有利的事情。
 
-The maintainers of Mail-in-a-Box share the dual responsibility of leading by example and enforcing these policies as necessary to maintain an open and welcoming environment. All community members should be excellent to each other.
+## 我们的准则
 
-## Scope
+有助于营造积极环境的行为包括：
 
-This Code of Conduct applies to all places where Mail-in-a-Box community activity is occurring, including on GitHub, in discussion forums, on Slack, on social media, and in real life. The Code of Conduct applies not only on websites/at events run by the Mail-in-a-Box community (e.g. our GitHub organization, our Slack team) but also at any other location where the Mail-in-a-Box community is present (e.g. in issues of other GitHub organizations where Mail-in-a-Box community members are discussing problems related to Mail-in-a-Box, or real-life professional conferences), or whenever a Mail-in-a-Box community member is representing Mail-in-a-Box to the public at large or acting on behalf of Mail-in-a-Box.
+- 使用友善和包容的语言
+- 尊重不同的观点和经验
+- 优雅地接受建设性的批评
+- 关注对社区最有利的事情
+- 对社区成员表示同理心
 
-This code does not apply to activity on a server running Mail-in-a-Box software, unless your server is hosting a service for the Mail-in-a-Box community at large.
+不可接受的行为包括：
 
-## Our Standards
+- 使用与性别、国籍、性取向、身份、年龄、身体状况、种族、宗教或性别认同相关的
+  贬损性绰号，或进行人身攻击
+- 挑衅、侮辱/贬损评论、人身攻击或政治攻击
+- 公开或私下的骚扰
+- 未经明确许可，擅自发布他人的私人信息
+- 在专业场合被认为不恰当的其他行为
 
-Examples of behavior that contributes to creating a positive environment include:
+## 执行责任
 
-* Using welcoming and inclusive language
-* Being respectful of differing viewpoints and experiences
-* Gracefully accepting constructive criticism
-* Showing empathy towards other community members
-* Making room for new and quieter voices
+社区维护者有责任澄清、纠正违反本准则的行为，并采取其他合理且符合社区利益的
+处罚措施。
 
-Examples of unacceptable behavior by participants include:
+## 适用范围
 
-* The use of sexualized language or imagery and unwelcome sexual attention or advances
-* Trolling, insulting/derogatory/unwelcome comments, and personal or political attacks
-* Public or private harassment
-* Publishing others' private information, such as a physical or electronic address, without explicit permission
-* Aggressive and micro-aggressive behavior, such as unconstructive criticism, providing corrections that do not improve the conversation (sometimes referred to as "well actually"s), repeatedly interrupting or talking over someone else, feigning surprise at someone's lack of knowledge or awareness about a topic, or subtle prejudice (for example, comments like "That's so easy my grandmother could do it.", which is prejudicial toward grandmothers).
-* Other conduct which could reasonably be considered inappropriate in a professional setting
-* Retaliating against anyone who reports a violation of this code.
+本准则适用于社区空间，以及个人将社区视为代表自身观点的场合。
 
-We will not tolerate harassment. Harassment is any unwelcome or hostile behavior towards another person for any reason. This includes, but is not limited to, offensive verbal comments related to personal characteristics or choices, sexual images or comments, deliberate intimidation, bullying, stalking, following, harassing photography or recording, sustained disruption of discussion or events, nonconsensual publication of private comments, inappropriate physical contact, or unwelcome sexual attention. Conduct need not be intentional to be harassment.
+## 强制执行
 
-## Enforcement
+如遇到滥用、骚扰或其他不可接受的行为，可向 `conduct@urmail.cn` 报告。
+所有投诉都会被审查和调查。
 
-We will remove, edit, or reject comments, commits, code, wiki edits, issues, and other contributions that are not consistent with this Code of Conduct. We may ban, temporarily or permanently, any contributor for violating this code, when appropriate.
+## 来源
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project lead, [Joshua Tauberer](https://razor.occams.info/). All reports will be treated confidentially, impartially, consistently, and swiftly.
-
-Because the need for confidentiality for all parties involved in an enforcement action outweighs the goals of openness, limited information will be shared with the Mail-in-a-Box community regarding enforcement actions that have taken place.
-
-## Attribution
-
-This Code of Conduct is adapted from the [Contributor Covenant, version 1.4](http://contributor-covenant.org/version/1/4) and the code of conduct of [Code for DC](http://codefordc.org/resources/codeofconduct.html).
-
+本准则改编自 [Contributor Covenant](https://www.contributor-covenant.org/) 2.1 版本，
+并参考了 [GitHub 社区准则](https://docs.github.com/en/site-policy/github-terms/community-guidelines)。

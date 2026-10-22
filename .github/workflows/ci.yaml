@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27.3"
+  GOPROXY: https://goproxy.cn,direct
+  npm_config_registry: https://registry.npmmirror.com
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.1
+          args: --timeout=10m
+
+      - name: Message catalogue consistency
+        run: go run ./cmd/i18ncheck
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+  integration:
+    name: Integration (PostgreSQL)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: urmail
+          POSTGRES_PASSWORD: urmail
+          POSTGRES_DB: urmail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U urmail -d urmail"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Test against PostgreSQL
+        env:
+          URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail?sslmode=disable
+        run: go test -race ./internal/db/...
+
+  embed:
+    name: Embedded frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy the bundle into the embed directory
+        run: |
+          rm -rf internal/web/dist
+          cp -R web/dist internal/web/dist
+
+      - name: Build the binary
+        run: go build -o /tmp/urmaild ./cmd/urmaild
+
+      - name: Verify the bundle is inside the binary
+        run: |
+          if ! strings /tmp/urmaild | grep -q "assets/index"; then
+            echo "the frontend bundle is missing from the binary" >&2
+            exit 1
+          fi
+
+  shellcheck:
+    name: Shell
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+
+      - name: Lint the shell scripts
+        run: |
+          find installer packaging -name '*.sh' -print0 \
+            | xargs -0 -r shellcheck --severity=warning --external-sources
+
+      - name: Syntax check
+        run: find . -name '*.sh' -not -path './web/*' -print0 | xargs -0 -r -n1 bash -n

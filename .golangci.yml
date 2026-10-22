@@ -1,0 +1,53 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - bodyclose
+    - errorlint
+    - misspell
+    - revive
+    - unconvert
+    - gocritic
+    - prealloc
+    - copyloopvar
+    - usestdlibvars
+    - nilnil
+    - noctx
+
+  settings:
+    gosec:
+      excludes:
+        # The agent intentionally runs as root and executes allow-listed
+        # external commands; the allow-lists live in internal/agentd.
+        - G301
+        - G302
+        - G306
+    misspell:
+      locale: US
+
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/bushixiucai/urmail
