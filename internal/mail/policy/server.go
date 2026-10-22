@@ -74,6 +74,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 		decision := s.Service.Evaluate(ctx, req)
+		decisionsTotal.WithLabelValues(string(decision.Action)).Inc()
 		if err := WriteDecision(conn, decision); err != nil {
 			return
 		}

@@ -71,7 +71,9 @@ func (p *Pipeline) Trigger() {
 }
 
 // RenderOnce executes one synchronous reconcile cycle, assembling DB snapshot and rendering configs.
-func (p *Pipeline) RenderOnce(ctx context.Context) (map[string]string, error) {
+func (p *Pipeline) RenderOnce(ctx context.Context) (files map[string]string, err error) {
+	start := time.Now()
+	defer func() { observeRender(start, err) }()
 	if p.ensureCerts != nil {
 		if err := p.ensureCerts(ctx); err != nil {
 			p.log.Warn("domain certificate ensure failed", zap.Error(err))
@@ -82,7 +84,7 @@ func (p *Pipeline) RenderOnce(ctx context.Context) (map[string]string, error) {
 		return nil, fmt.Errorf("assemble config context: %w", err)
 	}
 
-	files, err := mail.RenderAll(*mailCtx)
+	files, err = mail.RenderAll(*mailCtx)
 	if err != nil {
 		return nil, fmt.Errorf("render all configs: %w", err)
 	}

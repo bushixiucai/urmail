@@ -52,6 +52,7 @@ func New(opts Options) *gin.Engine {
 	engine.Use(middleware.RequestID())
 	engine.Use(middleware.Recover(opts.Logger))
 	engine.Use(middleware.AccessLog(opts.Logger))
+	engine.Use(middleware.BodyLimit(1 << 20))
 	engine.Use(middleware.Timeout(30 * time.Second))
 
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
