@@ -222,8 +222,12 @@ fi
 
 log "starting the services"
 systemctl daemon-reload
-systemctl enable --now urmaild-agent.service
-systemctl enable --now urmaild.service
+systemctl enable urmaild-agent.service >/dev/null 2>&1 || true
+systemctl enable urmaild.service >/dev/null 2>&1 || true
+# restart, not just enable --now: an upgrade must replace an already-running
+# binary and reload the newly written environment file.
+systemctl restart urmaild-agent.service
+systemctl restart urmaild.service
 systemctl reload nginx 2>/dev/null || systemctl restart nginx
 
 log "urMail.cn is installed."

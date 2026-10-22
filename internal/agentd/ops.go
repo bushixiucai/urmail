@@ -18,6 +18,9 @@ import (
 // allowedWriteRoots lists the directories the agent may write into.
 var allowedWriteRoots = []string{
 	"/etc/urmail",
+	// main.cf/master.cf are written by reconcile; the maps live in the
+	// urmail/ subdirectory. The agent is the only writer of either.
+	"/etc/postfix",
 	"/etc/postfix/urmail",
 	"/etc/dovecot/conf.d/urmail",
 	"/etc/nginx/conf.d/urmail",
