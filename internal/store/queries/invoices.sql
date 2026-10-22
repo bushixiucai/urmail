@@ -34,3 +34,7 @@ UPDATE invoices
 SET status = 'void'
 WHERE tenant_id = $1 AND id = $2 AND status IN ('draft', 'issued')
 RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at;
+
+-- name: SetInvoicePDFPath :exec
+UPDATE invoices SET pdf_path = $3 WHERE tenant_id = $1 AND id = $2;
+

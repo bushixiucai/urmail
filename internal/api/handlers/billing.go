@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/payment"
+	"github.com/bushixiucai/urmail/internal/pdf"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -30,6 +33,8 @@ type BillingStore interface {
 	GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (store.ChannelAttribution, error)
 	CreateOrder(ctx context.Context, arg store.CreateOrderParams) (store.Orders, error)
 	ListOrdersByTenant(ctx context.Context, tenantID int64) ([]store.Orders, error)
+	GetInvoiceByID(ctx context.Context, arg store.GetInvoiceByIDParams) (store.Invoices, error)
+	SetInvoicePDFPath(ctx context.Context, arg store.SetInvoicePDFPathParams) error
 }
 
 type BillingHandler struct {
@@ -249,4 +254,55 @@ func (h *BillingHandler) StripeWebhook(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"received": true})
+}
+
+func (h *BillingHandler) InvoicePDF(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	q := requestStore(c, h.Store)
+	invoice, err := q.GetInvoiceByID(c, store.GetInvoiceByIDParams{TenantID: tenantID, ID: id})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "INVOICE_NOT_FOUND"}})
+		return
+	}
+	path := invoice.PdfPath.String
+	if !invoice.PdfPath.Valid || path == "" {
+		raw, err := pdf.Invoice(pdf.InvoiceData{
+			Number: invoice.Number, Tenant: fmt.Sprintf("tenant-%d", tenantID),
+			Amount:      fmt.Sprintf("%.2f", float64(invoice.AmountCents)/100),
+			Currency:    invoice.Currency,
+			PeriodStart: invoice.PeriodStart.Time.Format("2006-01-02"),
+			PeriodEnd:   invoice.PeriodEnd.Time.Format("2006-01-02"),
+			Status:      invoice.Status, IssuedAt: invoice.IssuedAt.Time.Format("2006-01-02"),
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "PDF_FAILED"}})
+			return
+		}
+		dir := "/var/lib/urmail/invoices"
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "PDF_FAILED"}})
+			return
+		}
+		path = filepath.Join(dir, invoice.Number+".pdf")
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "PDF_FAILED"}})
+			return
+		}
+		if err := q.SetInvoicePDFPath(c, store.SetInvoicePDFPathParams{
+			TenantID: tenantID, ID: id, PdfPath: pgtype.Text{String: path, Valid: true},
+		}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+			return
+		}
+	}
+	c.File(path)
 }

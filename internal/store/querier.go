@@ -145,6 +145,7 @@ type Querier interface {
 	PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCouponParams) (Coupons, error)
 	PlatformUpsertPlan(ctx context.Context, arg PlatformUpsertPlanParams) (Plans, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
+	SetInvoicePDFPath(ctx context.Context, arg SetInvoicePDFPathParams) error
 	SetMFASecret(ctx context.Context, arg SetMFASecretParams) error
 	// Refuses to soft-delete entries under legal hold (returns no rows when held).
 	SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error)

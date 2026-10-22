@@ -242,6 +242,7 @@ func New(opts Options) *gin.Engine {
 			protected.GET("/billing/plans", billingHandler.Plans)
 			protected.POST("/billing/checkout", middleware.RequireRole("owner", "admin"), billingHandler.Checkout)
 			protected.GET("/billing/orders", billingHandler.Orders)
+			protected.GET("/billing/invoices/:id/pdf", billingHandler.InvoicePDF)
 			protected.GET("/billing/subscription", billingHandler.Subscription)
 			protected.GET("/billing/invoices", billingHandler.Invoices)
 			protected.GET("/billing/distribution", billingHandler.Distribution)

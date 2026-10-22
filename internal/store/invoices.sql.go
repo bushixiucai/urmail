@@ -192,6 +192,21 @@ func (q *Queries) MarkInvoicePaid(ctx context.Context, arg MarkInvoicePaidParams
 	return i, err
 }
 
+const setInvoicePDFPath = `-- name: SetInvoicePDFPath :exec
+UPDATE invoices SET pdf_path = $3 WHERE tenant_id = $1 AND id = $2
+`
+
+type SetInvoicePDFPathParams struct {
+	TenantID int64       `json:"tenant_id"`
+	ID       int64       `json:"id"`
+	PdfPath  pgtype.Text `json:"pdf_path"`
+}
+
+func (q *Queries) SetInvoicePDFPath(ctx context.Context, arg SetInvoicePDFPathParams) error {
+	_, err := q.db.Exec(ctx, setInvoicePDFPath, arg.TenantID, arg.ID, arg.PdfPath)
+	return err
+}
+
 const voidInvoice = `-- name: VoidInvoice :one
 UPDATE invoices
 SET status = 'void'
