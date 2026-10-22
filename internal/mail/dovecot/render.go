@@ -55,7 +55,7 @@ func renderDovecotConf(node NodeConfig) string {
 
 	b.WriteString("service auth {\n")
 	b.WriteString("  unix_listener /var/spool/postfix/private/auth {\n")
-	b.WriteString("    mode = 0666\n")
+	b.WriteString("    mode = 0660\n")
 	b.WriteString("    user = postfix\n")
 	b.WriteString("    group = postfix\n")
 	b.WriteString("  }\n")
@@ -99,7 +99,7 @@ func renderDBConf(node NodeConfig) string {
 	b.WriteString(fmt.Sprintf("connect = %s\n", node.DatabaseURL))
 	b.WriteString("default_pass_scheme = SHA512-CRYPT\n\n")
 	b.WriteString("password_query = SELECT address AS user, password_hash AS password FROM mailboxes WHERE address = '%u' AND status = 'active';\n\n")
-	b.WriteString(fmt.Sprintf("user_query = SELECT address AS user, '%s' AS uid, '%s' AS gid, '%s/mail/mailboxes/%%d/%%n' AS home, '*:bytes=' || quota_bytes AS quota_rule FROM mailboxes WHERE address = '%%u' AND status = 'active';\n\n", mailUID, mailGID, storageRoot))
+	b.WriteString(fmt.Sprintf("user_query = SELECT address AS user, '%s' AS uid, '%s' AS gid, '%s/mail/mailboxes/%%d/%%n' AS home, '*:bytes=' || COALESCE(quota_bytes::text, '0') AS quota_rule FROM mailboxes WHERE address = '%%u' AND status = 'active';\n\n", mailUID, mailGID, storageRoot))
 	b.WriteString("iterate_query = SELECT address AS user FROM mailboxes WHERE status = 'active';\n")
 	return b.String()
 }

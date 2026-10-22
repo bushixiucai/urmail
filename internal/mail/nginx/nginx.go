@@ -45,8 +45,9 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 
 		// Port 443 server block: TLS termination + proxy
 		b.WriteString("server {\n")
-		b.WriteString("    listen 443 ssl http2;\n")
-		b.WriteString("    listen [::]:443 ssl http2;\n")
+		b.WriteString("    listen 443 ssl;\n")
+		b.WriteString("    listen [::]:443 ssl;\n")
+		b.WriteString("    http2 on;\n")
 		b.WriteString(fmt.Sprintf("    server_name %s;\n\n", fqdn))
 		b.WriteString(fmt.Sprintf("    ssl_certificate %s;\n", d.TLSCertFile))
 		b.WriteString(fmt.Sprintf("    ssl_certificate_key %s;\n", d.TLSKeyFile))

@@ -2,22 +2,10 @@ package postfix
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
-)
 
-// RFC 1123 hostname regex (labels of 1-63 alphanumeric or hyphens, cannot start/end with hyphen, total <= 255).
-var (
-	hostnameRegex  = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
-	localPartRegex = regexp.MustCompile(`^[a-zA-Z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+$`)
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
-
-func isValidHostname(h string) bool {
-	if len(h) == 0 || len(h) > 255 {
-		return false
-	}
-	return hostnameRegex.MatchString(h)
-}
 
 func isValidEmail(addr string) bool {
 	parts := strings.Split(addr, "@")
@@ -25,23 +13,29 @@ func isValidEmail(addr string) bool {
 		return false
 	}
 	local, domain := parts[0], parts[1]
-	if len(local) == 0 || len(local) > 64 || !localPartRegex.MatchString(local) {
+	if len(local) == 0 || len(local) > 64 || !validation.LocalPartRegex.MatchString(local) {
 		return false
 	}
-	return isValidHostname(domain)
+	return validation.IsValidHostname(domain)
 }
 
 // Validate checks the node configuration and snapshot for consistency and correctness.
 func Validate(node NodeConfig, snap Snapshot) error {
 	// 1. Validate NodeConfig
-	if !isValidHostname(node.Hostname) {
+	if !validation.IsValidHostname(node.Hostname) {
 		return fmt.Errorf("%w: invalid hostname %q", ErrInvalidConfig, node.Hostname)
 	}
-	if !isValidHostname(node.PrimaryDomain) {
+	if !validation.IsValidHostname(node.PrimaryDomain) {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if strings.TrimSpace(node.StorageRoot) == "" {
 		return fmt.Errorf("%w: storage root cannot be empty", ErrInvalidConfig)
+	}
+	if strings.TrimSpace(node.TLSCertFile) == "" {
+		return fmt.Errorf("%w: TLS certificate file path cannot be empty", ErrInvalidConfig)
+	}
+	if strings.TrimSpace(node.TLSKeyFile) == "" {
+		return fmt.Errorf("%w: TLS key file path cannot be empty", ErrInvalidConfig)
 	}
 
 	// 2. Validate Domains
@@ -51,7 +45,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 			return fmt.Errorf("%w: domain %s has status %s", ErrInvalidStatus, d.FQDN, d.Status)
 		}
 		fqdn := strings.ToLower(d.FQDN)
-		if !isValidHostname(fqdn) {
+		if !validation.IsValidHostname(fqdn) {
 			return fmt.Errorf("%w: invalid domain FQDN %q", ErrInvalidDomain, d.FQDN)
 		}
 		if domainSet[fqdn] {
@@ -96,7 +90,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 				return fmt.Errorf("%w: catchall alias LocalPart must be empty string, got %q", ErrInvalidAlias, a.LocalPart)
 			}
 		} else {
-			if a.LocalPart == "" || !localPartRegex.MatchString(a.LocalPart) {
+			if a.LocalPart == "" || !validation.LocalPartRegex.MatchString(a.LocalPart) {
 				return fmt.Errorf("%w: invalid local_part %q", ErrInvalidAlias, a.LocalPart)
 			}
 		}

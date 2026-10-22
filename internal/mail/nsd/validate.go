@@ -3,25 +3,17 @@ package nsd
 import (
 	"fmt"
 	"net"
-	"regexp"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
-
-var hostnameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
-
-func isValidHostname(h string) bool {
-	if len(h) == 0 || len(h) > 255 {
-		return false
-	}
-	return hostnameRegex.MatchString(h)
-}
 
 // Validate checks the node configuration and zones.
 func Validate(node NodeConfig, snap Snapshot) error {
-	if !isValidHostname(node.Hostname) {
+	if !validation.IsValidHostname(node.Hostname) {
 		return fmt.Errorf("%w: invalid hostname %q", ErrInvalidConfig, node.Hostname)
 	}
-	if !isValidHostname(node.PrimaryDomain) {
+	if !validation.IsValidHostname(node.PrimaryDomain) {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if net.ParseIP(node.PublicIPv4) == nil {
@@ -31,7 +23,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 		return fmt.Errorf("%w: at least one nameserver is required", ErrInvalidConfig)
 	}
 	for _, ns := range node.Nameservers {
-		if !isValidHostname(ns) {
+		if !validation.IsValidHostname(ns) {
 			return fmt.Errorf("%w: invalid nameserver %q", ErrInvalidConfig, ns)
 		}
 	}
@@ -39,7 +31,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 	seenZones := make(map[string]bool, len(snap.Zones))
 	for _, z := range snap.Zones {
 		domain := strings.ToLower(strings.TrimSuffix(z.Domain, "."))
-		if !isValidHostname(domain) {
+		if !validation.IsValidHostname(domain) {
 			return fmt.Errorf("%w: invalid domain %q", ErrInvalidZone, z.Domain)
 		}
 		if seenZones[domain] {

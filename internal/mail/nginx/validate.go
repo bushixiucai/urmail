@@ -2,22 +2,14 @@ package nginx
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
-
-var hostnameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
-
-func isValidHostname(h string) bool {
-	if len(h) == 0 || len(h) > 255 {
-		return false
-	}
-	return hostnameRegex.MatchString(h)
-}
 
 // Validate checks the node configuration and snapshot.
 func Validate(node NodeConfig, snap Snapshot) error {
-	if !isValidHostname(node.PrimaryDomain) {
+	if !validation.IsValidHostname(node.PrimaryDomain) {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if strings.TrimSpace(node.StorageRoot) == "" {
@@ -30,7 +22,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 	seen := make(map[string]bool, len(snap.Domains))
 	for _, d := range snap.Domains {
 		fqdn := strings.ToLower(strings.TrimSpace(d.FQDN))
-		if !isValidHostname(fqdn) {
+		if !validation.IsValidHostname(fqdn) {
 			return fmt.Errorf("%w: invalid domain FQDN %q", ErrInvalidDomain, d.FQDN)
 		}
 		if seen[fqdn] {

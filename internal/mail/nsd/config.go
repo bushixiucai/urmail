@@ -22,6 +22,7 @@ type Record struct {
 type Zone struct {
 	Domain  string   // Domain name (e.g. example.com)
 	Mode    string   // "managed" (full authority) or "delegated" (subdomain/minimal)
+	Serial  uint32   // SOA serial number; caller (reconcile layer) must increment on each zone update
 	Records []Record // Custom or additional records (e.g. DKIM, verification tokens)
 }
 

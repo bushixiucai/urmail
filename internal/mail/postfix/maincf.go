@@ -34,7 +34,8 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("# SMTP Banner\n")
 	b.WriteString("smtpd_banner = $myhostname ESMTP urmail\n")
 	b.WriteString("biff = no\n")
-	b.WriteString("append_dot_mydomain = no\n\n")
+	b.WriteString("append_dot_mydomain = no\n")
+	b.WriteString("recipient_delimiter = +\n\n")
 
 	b.WriteString("# Virtual domains, mailboxes and aliases\n")
 	b.WriteString(fmt.Sprintf("virtual_mailbox_domains = %s\n", virtualMailboxDomains))
@@ -73,6 +74,8 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("smtpd_tls_exclude_ciphers = aNULL, RC4, 3DES\n")
 	b.WriteString(fmt.Sprintf("smtpd_tls_cert_file = %s\n", node.TLSCertFile))
 	b.WriteString(fmt.Sprintf("smtpd_tls_key_file = %s\n", node.TLSKeyFile))
+	b.WriteString("smtp_tls_security_level = may\n")
+	b.WriteString("smtp_tls_loglevel = 1\n")
 
 	return b.String()
 }

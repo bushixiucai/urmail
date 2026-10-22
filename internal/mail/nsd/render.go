@@ -33,9 +33,9 @@ func renderZoneFile(node NodeConfig, z Zone) string {
 	b.WriteString(fmt.Sprintf("$ORIGIN %s.\n", domain))
 	b.WriteString("$TTL 86400\n\n")
 
-	// SOA record (Fixed serial 2026102201 for determinism in generation)
+	// SOA record
 	b.WriteString(fmt.Sprintf("@ IN SOA %s. %s (\n", primaryNS, hostmaster))
-	b.WriteString("    2026102201 ; serial\n")
+	b.WriteString(fmt.Sprintf("    %d ; serial\n", z.Serial))
 	b.WriteString("    7200       ; refresh (2 hours)\n")
 	b.WriteString("    3600       ; retry (1 hour)\n")
 	b.WriteString("    1209600    ; expire (2 weeks)\n")

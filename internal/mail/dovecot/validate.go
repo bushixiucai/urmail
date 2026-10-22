@@ -2,25 +2,17 @@ package dovecot
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
-
-var hostnameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
-
-func isValidHostname(h string) bool {
-	if len(h) == 0 || len(h) > 255 {
-		return false
-	}
-	return hostnameRegex.MatchString(h)
-}
 
 // Validate checks the node configuration.
 func Validate(node NodeConfig) error {
-	if !isValidHostname(node.Hostname) {
+	if !validation.IsValidHostname(node.Hostname) {
 		return fmt.Errorf("%w: invalid hostname %q", ErrInvalidConfig, node.Hostname)
 	}
-	if !isValidHostname(node.PrimaryDomain) {
+	if !validation.IsValidHostname(node.PrimaryDomain) {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if strings.TrimSpace(node.StorageRoot) == "" {

@@ -71,6 +71,7 @@ func TestGoldenCases(t *testing.T) {
 					{
 						Domain: "customer-managed.com",
 						Mode:   "managed",
+						Serial: 2026102201,
 						Records: []nsd.Record{
 							{Name: "mail._domainkey", Type: "TXT", Value: "v=DKIM1; k=rsa; p=MIGfMA0GCS..."},
 							{Name: "@", Type: "TXT", Value: "google-site-verification=xyz"},
@@ -79,6 +80,7 @@ func TestGoldenCases(t *testing.T) {
 					{
 						Domain: "customer-delegated.org",
 						Mode:   "delegated",
+						Serial: 2026102201,
 						Records: []nsd.Record{
 							{Name: "@", Type: "MX", Prio: 10, Value: "box.urmail.cn."},
 							{Name: "mail._domainkey", Type: "TXT", Value: "v=DKIM1; k=rsa; p=MIGf..."},

@@ -17,6 +17,8 @@ func TestRenderAll(t *testing.T) {
 			Hostname:      "box.urmail.cn",
 			PrimaryDomain: "urmail.cn",
 			StorageRoot:   "/var/mail",
+			TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
+			TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
 		},
 		DovecotNode: dovecot.NodeConfig{
 			Hostname:      "box.urmail.cn",

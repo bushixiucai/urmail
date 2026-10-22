@@ -13,6 +13,7 @@ inet_protocols = all
 smtpd_banner = $myhostname ESMTP urmail
 biff = no
 append_dot_mydomain = no
+recipient_delimiter = +
 
 # Virtual domains, mailboxes and aliases
 virtual_mailbox_domains = tenant-a.com, tenant-b.net, tenant-c.org
@@ -47,3 +48,5 @@ smtpd_tls_protocols = >=TLSv1.2
 smtpd_tls_exclude_ciphers = aNULL, RC4, 3DES
 smtpd_tls_cert_file = /var/mail/ssl/box.urmail.cn.cert
 smtpd_tls_key_file = /var/mail/ssl/box.urmail.cn.key
+smtp_tls_security_level = may
+smtp_tls_loglevel = 1

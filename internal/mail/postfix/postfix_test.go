@@ -387,4 +387,22 @@ func TestErrorPaths(t *testing.T) {
 			t.Errorf("expected ErrInvalidAlias, got %v", err)
 		}
 	})
+
+	t.Run("empty_tls_cert_file", func(t *testing.T) {
+		badNode := node
+		badNode.TLSCertFile = ""
+		_, err := postfix.Generate(badNode, postfix.Snapshot{})
+		if err == nil || !strings.Contains(err.Error(), postfix.ErrInvalidConfig.Error()) {
+			t.Errorf("expected ErrInvalidConfig, got %v", err)
+		}
+	})
+
+	t.Run("empty_tls_key_file", func(t *testing.T) {
+		badNode := node
+		badNode.TLSKeyFile = "  "
+		_, err := postfix.Generate(badNode, postfix.Snapshot{})
+		if err == nil || !strings.Contains(err.Error(), postfix.ErrInvalidConfig.Error()) {
+			t.Errorf("expected ErrInvalidConfig, got %v", err)
+		}
+	})
 }

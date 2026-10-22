@@ -32,8 +32,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.listener = l
 
-	// Allow postfix (and anyone in local group) to read/write socket
-	_ = os.Chmod(s.SocketPath, 0666)
+	// Restrict permissions to owner and group (postfix)
+	_ = os.Chmod(s.SocketPath, 0660)
 
 	go func() {
 		<-ctx.Done()

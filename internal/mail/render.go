@@ -50,6 +50,8 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	}
 
 	// 3. NSD
+	// NSD splits configuration into nsd.conf.d snippets (zones.conf)
+	// and zone database definition text files (/etc/nsd/zones/<domain>.txt).
 	nsdFiles, err := nsd.Generate(ctx.NSDNode, ctx.NSDSnap)
 	if err != nil {
 		return nil, fmt.Errorf("render nsd: %w", err)
