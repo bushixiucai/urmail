@@ -21,12 +21,14 @@ import (
 	"github.com/bushixiucai/urmail/internal/agent"
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/api"
+	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
 	"github.com/bushixiucai/urmail/internal/reconcile"
+	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -77,6 +79,15 @@ func run() error {
 		return fmt.Errorf("load message catalogue: %w", err)
 	}
 
+	var secretBox handlers.SecretsBox
+	if cfg.MasterKeyPath != "" {
+		if box, loadErr := secrets.Load(cfg.MasterKeyPath); loadErr != nil {
+			logger.Warn("master key unavailable; TOTP secrets stay legacy plaintext", zap.Error(loadErr))
+		} else {
+			secretBox = box
+		}
+	}
+
 	// Periodically purge expired sessions so the sessions table does not
 	// grow without bound. Expired sessions are already rejected at lookup
 	// time; this is pure housekeeping. The app role has no access to
@@ -120,6 +131,7 @@ func run() error {
 		MyHostname:   cfg.MyHostname,
 		Reconcile:    reconcilePipeline,
 		Audit:        store.New(platformPool.Pool),
+		Secrets:      secretBox,
 	})
 
 	server := &http.Server{

@@ -176,9 +176,17 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
 		return
 	}
+	storedSecret := key.Secret()
+	if h.Secrets != nil {
+		storedSecret, err = h.Secrets.EncryptString(storedSecret)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+			return
+		}
+	}
 	if err := h.Store.SetMFASecret(c, store.SetMFASecretParams{
 		ID:        userID,
-		MfaSecret: pgtype.Text{String: key.Secret(), Valid: true},
+		MfaSecret: pgtype.Text{String: storedSecret, Valid: true},
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -223,7 +231,12 @@ func (h *AuthHandler) MFAEnable(c *gin.Context) {
 		})
 		return
 	}
-	if !validateTOTP(req.Code, user.MfaSecret.String) {
+	mfaSecret, err := h.decryptMFA(user.MfaSecret.String)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+		return
+	}
+	if !validateTOTP(req.Code, mfaSecret) {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "MFA_INVALID_CODE", "message": "auth.mfa_invalid_code"},
 		})
@@ -286,7 +299,15 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		return
 	}
 
-	authenticated := user.MfaSecret.Valid && validateTOTP(req.Code, user.MfaSecret.String)
+	authenticated := false
+	if user.MfaSecret.Valid {
+		mfaSecret, err := h.decryptMFA(user.MfaSecret.String)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+			return
+		}
+		authenticated = validateTOTP(req.Code, mfaSecret)
+	}
 	if !authenticated {
 		n, err := h.Store.ConsumeRecoveryCode(c, store.ConsumeRecoveryCodeParams{
 			ID:      userID,
@@ -346,7 +367,15 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		return
 	}
 
-	authenticated := user.MfaSecret.Valid && validateTOTP(req.Code, user.MfaSecret.String)
+	authenticated := false
+	if user.MfaSecret.Valid {
+		mfaSecret, decryptErr := h.decryptMFA(user.MfaSecret.String)
+		if decryptErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+			return
+		}
+		authenticated = validateTOTP(req.Code, mfaSecret)
+	}
 	if !authenticated {
 		n, err := h.Store.ConsumeRecoveryCode(c, store.ConsumeRecoveryCodeParams{
 			ID:      pending.UserID,

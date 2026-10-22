@@ -167,6 +167,8 @@ if [ ! -f /etc/urmail/master.key ]; then
 	log "generating the master key"
 	(umask 077; openssl genrsa -traditional -out /etc/urmail/master.key 2048 >/dev/null 2>&1)
 fi
+chown root:mailinabox /etc/urmail/master.key
+chmod 0640 /etc/urmail/master.key
 
 # Self-signed certificates are a bootstrap fallback so nginx/Postfix/Dovecot can
 # start before ACME succeeds. The renewal path replaces them later.

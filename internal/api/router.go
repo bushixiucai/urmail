@@ -37,6 +37,8 @@ type Options struct {
 	Reconcile handlers.ReconcileTrigger
 	// Audit receives one row per successful mutating tenant request.
 	Audit middleware.AuditWriter
+	// Secrets encrypts TOTP seeds at rest. Nil keeps legacy plaintext support.
+	Secrets handlers.SecretsBox
 }
 
 // New builds the gin engine with all middleware and routes attached.
@@ -71,6 +73,7 @@ func New(opts Options) *gin.Engine {
 	}
 
 	authHandler := handlers.NewAuthHandler(authQueries)
+	authHandler.Secrets = opts.Secrets
 	var platformQueries *store.Queries
 	if opts.PlatformPool != nil {
 		platformQueries = store.New(opts.PlatformPool.Pool)
@@ -80,6 +83,7 @@ func New(opts Options) *gin.Engine {
 	domainHandler.Hostname = opts.MyHostname
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
+	archiveHandler := handlers.NewArchiveHandler(appQueries)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -143,6 +147,12 @@ func New(opts Options) *gin.Engine {
 			protected.GET("/aliases", aliasHandler.List)
 			protected.POST("/aliases", middleware.RequireRole("owner", "admin"), aliasHandler.Create)
 			protected.DELETE("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Delete)
+
+			// Archive / legal hold
+			protected.GET("/archive", archiveHandler.List)
+			protected.POST("/archive/:id/hold", middleware.RequireRole("owner", "admin"), archiveHandler.SetHold)
+			protected.POST("/archive/:id/release", middleware.RequireRole("owner", "admin"), archiveHandler.ClearHold)
+			protected.DELETE("/archive/:id", middleware.RequireRole("owner", "admin"), archiveHandler.Delete)
 
 		}
 	}

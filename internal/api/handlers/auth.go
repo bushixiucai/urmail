@@ -49,11 +49,25 @@ type AuthStore interface {
 }
 
 type AuthHandler struct {
-	Store AuthStore
+	Store   AuthStore
+	Secrets SecretsBox
+}
+
+// SecretsBox is the subset of secrets.Box used by the auth handler.
+type SecretsBox interface {
+	EncryptString(plain string) (string, error)
+	DecryptString(value string) (string, error)
 }
 
 func NewAuthHandler(s AuthStore) *AuthHandler {
 	return &AuthHandler{Store: s}
+}
+
+func (h *AuthHandler) decryptMFA(value string) (string, error) {
+	if h.Secrets == nil {
+		return value, nil
+	}
+	return h.Secrets.DecryptString(value)
 }
 
 type LoginRequest struct {
