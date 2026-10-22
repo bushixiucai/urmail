@@ -106,6 +106,15 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 		if err := chownGroup(written, "opendkim"); err != nil {
 			return "", "", err
 		}
+		// The domain directory was created under the agent's umask
+		// (root:mailinabox 0750); OpenDKIM must be able to traverse it.
+		dir := filepath.Dir(written)
+		if err := chownGroup(dir, "opendkim"); err != nil {
+			return "", "", err
+		}
+		if err := os.Chmod(dir, 0o750); err != nil {
+			return "", "", fmt.Errorf("%w: chmod %s: %v", ErrFailed, dir, err)
+		}
 	}
 	return written, "", nil
 }

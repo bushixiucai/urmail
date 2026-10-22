@@ -84,16 +84,17 @@ func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
 		return Decision{Action: ActionDunno}
 	}
 	identity := req.SASLUsername
+	// smtpd_sender_restrictions runs at MAIL FROM, before Postfix assigns a
+	// queue id. In that phase a missing queue id means "one message per MAIL
+	// FROM", so duplicate suppression must be disabled; otherwise every
+	// following message in the TTL window is silently exempted.
 	dedupKey := identity + "\x00" + req.QueueID
-
-	// Suppress duplicate accounting for the same message only after a
-	// successful permit. A rejected first recipient must not turn every later
-	// recipient of the same queue_id into DUNNO.
-	if s.dedup != nil && s.dedup.Seen(dedupKey) {
+	dedup := s.dedup != nil && req.QueueID != ""
+	if dedup && s.dedup.Seen(dedupKey) {
 		return Decision{Action: ActionDunno}
 	}
 	forget := func() {
-		if s.dedup != nil {
+		if dedup {
 			s.dedup.Forget(dedupKey)
 		}
 	}
