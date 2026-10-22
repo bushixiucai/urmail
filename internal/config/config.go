@@ -86,6 +86,13 @@ type Config struct {
 	// Nameservers are the NS hosts (FQDN, no trailing dot) published in
 	// managed zones.
 	Nameservers []string
+
+	// DNSProvider enables automatic DNS record writes for delegated domains.
+	// Supported: "cloudflare" (currently).
+	DNSProvider string
+
+	// CloudflareToken is the API token used when DNSProvider is cloudflare.
+	CloudflareToken string
 }
 
 // parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
@@ -132,6 +139,8 @@ func Load() (*Config, error) {
 		Locale:              values["URMAIL_LOCALE"],
 		PublicIPv4:          values["URMAIL_PUBLIC_IPV4"],
 		Nameservers:         splitCSV(values["URMAIL_NAMESERVERS"]),
+		DNSProvider:         strings.ToLower(strings.TrimSpace(values["URMAIL_DNS_PROVIDER"])),
+		CloudflareToken:     values["URMAIL_CLOUDFLARE_TOKEN"],
 	}
 	cfg.applyDefaults()
 

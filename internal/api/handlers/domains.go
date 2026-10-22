@@ -36,9 +36,14 @@ type ReconcileTrigger interface {
 	Trigger()
 }
 
+type DNSProvider interface {
+	EnsureTXT(ctx context.Context, zone, name, value string) error
+}
+
 type DomainHandler struct {
 	Store     DomainStore
 	Reconcile ReconcileTrigger
+	DNS       DNSProvider
 	// Hostname is the MX target advertised in DNS guidance. It is injected
 	// from config so a non-default deployment does not publish box.urmail.cn.
 	Hostname string
@@ -187,6 +192,16 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// If a DNS provider is configured, write the verification TXT record.
+	// Failure is non-fatal: DNS may be delegated to a provider the caller
+	// manages manually.
+	dnsAuto := false
+	if h.DNS != nil {
+		if err := h.DNS.EnsureTXT(c, domain.Fqdn, "_urmail-verify."+domain.Fqdn, verifToken); err == nil {
+			dnsAuto = true
+		}
+	}
+
 	// Trigger async reconcile pipeline
 	if h.Reconcile != nil {
 		h.Reconcile.Trigger()
@@ -196,6 +211,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		"domain": newDomainResponse(
 			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt,
 		),
+		"dns_auto": dnsAuto,
 		"dns_guidance": DNSGuidanceResponse{
 			MX:                fmt.Sprintf("10 %s.", h.mxHost()),
 			SPF:               "v=spf1 mx -all",

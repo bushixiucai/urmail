@@ -15,6 +15,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
@@ -39,6 +40,8 @@ type Options struct {
 	Audit middleware.AuditWriter
 	// Secrets encrypts TOTP seeds at rest. Nil keeps legacy plaintext support.
 	Secrets handlers.SecretsBox
+	// DNSProvider writes verification records for delegated domains when set.
+	DNSProvider dnsprovider.Provider
 }
 
 // New builds the gin engine with all middleware and routes attached.
@@ -81,6 +84,7 @@ func New(opts Options) *gin.Engine {
 	}
 	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
 	domainHandler := handlers.NewDomainHandler(appQueries, opts.Reconcile)
+	domainHandler.DNS = opts.DNSProvider
 	domainHandler.Hostname = opts.MyHostname
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)

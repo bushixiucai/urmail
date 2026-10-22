@@ -25,6 +25,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
@@ -78,6 +79,11 @@ func run() error {
 	messages, err := i18n.NewStore()
 	if err != nil {
 		return fmt.Errorf("load message catalogue: %w", err)
+	}
+
+	var dnsProvider dnsprovider.Provider
+	if cfg.DNSProvider == "cloudflare" && cfg.CloudflareToken != "" {
+		dnsProvider = dnsprovider.NewCloudflare(cfg.CloudflareToken)
 	}
 
 	var secretBox handlers.SecretsBox
@@ -136,6 +142,7 @@ func run() error {
 		Reconcile:    reconcilePipeline,
 		Audit:        store.New(platformPool.Pool),
 		Secrets:      secretBox,
+		DNSProvider:  dnsProvider,
 	})
 
 	server := &http.Server{
