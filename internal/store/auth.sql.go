@@ -25,6 +25,31 @@ func (q *Queries) CheckPlatformAdmin(ctx context.Context, userID int64) (bool, e
 	return is_admin, err
 }
 
+const consumeRecoveryCode = `-- name: ConsumeRecoveryCode :execrows
+UPDATE users
+SET mfa_recovery_codes = COALESCE((
+    SELECT jsonb_agg(v ORDER BY ord)
+    FROM jsonb_array_elements(mfa_recovery_codes) WITH ORDINALITY AS t(v, ord)
+    WHERE v <> to_jsonb($2::text)
+), '[]'::jsonb)
+WHERE id = $1 AND mfa_recovery_codes @> to_jsonb($2::text)
+`
+
+type ConsumeRecoveryCodeParams struct {
+	ID      int64  `json:"id"`
+	Column2 string `json:"column_2"`
+}
+
+// Removes one recovery code (given as its stored SHA-256 hex hash) from the
+// user's code list. Zero rows affected means the code did not match.
+func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, consumeRecoveryCode, arg.ID, arg.Column2)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (
     id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at
@@ -87,6 +112,33 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const disableUserMFA = `-- name: DisableUserMFA :exec
+UPDATE users
+SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'::jsonb
+WHERE id = $1
+`
+
+func (q *Queries) DisableUserMFA(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, disableUserMFA, id)
+	return err
+}
+
+const enableUserMFA = `-- name: EnableUserMFA :exec
+UPDATE users
+SET mfa_enabled = true, mfa_recovery_codes = $2
+WHERE id = $1
+`
+
+type EnableUserMFAParams struct {
+	ID               int64  `json:"id"`
+	MfaRecoveryCodes []byte `json:"mfa_recovery_codes"`
+}
+
+func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error {
+	_, err := q.db.Exec(ctx, enableUserMFA, arg.ID, arg.MfaRecoveryCodes)
+	return err
+}
+
 const getSessionByID = `-- name: GetSessionByID :one
 SELECT id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at
 FROM sessions
@@ -110,21 +162,24 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Sessions, erro
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, display_name, locale, timezone, status, mfa_enabled, created_at
+SELECT id, email, password_hash, display_name, locale, timezone, status,
+       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at
 FROM users
 WHERE email = $1 AND status = 'active'
 `
 
 type GetUserByEmailRow struct {
-	ID           int64              `json:"id"`
-	Email        string             `json:"email"`
-	PasswordHash string             `json:"password_hash"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	Locale       string             `json:"locale"`
-	Timezone     string             `json:"timezone"`
-	Status       string             `json:"status"`
-	MfaEnabled   bool               `json:"mfa_enabled"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID               int64              `json:"id"`
+	Email            string             `json:"email"`
+	PasswordHash     string             `json:"password_hash"`
+	DisplayName      pgtype.Text        `json:"display_name"`
+	Locale           string             `json:"locale"`
+	Timezone         string             `json:"timezone"`
+	Status           string             `json:"status"`
+	MfaSecret        pgtype.Text        `json:"mfa_secret"`
+	MfaRecoveryCodes []byte             `json:"mfa_recovery_codes"`
+	MfaEnabled       bool               `json:"mfa_enabled"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
@@ -138,6 +193,8 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 		&i.Locale,
 		&i.Timezone,
 		&i.Status,
+		&i.MfaSecret,
+		&i.MfaRecoveryCodes,
 		&i.MfaEnabled,
 		&i.CreatedAt,
 	)
@@ -145,21 +202,24 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, display_name, locale, timezone, status, mfa_enabled, created_at
+SELECT id, email, password_hash, display_name, locale, timezone, status,
+       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at
 FROM users
 WHERE id = $1 AND status = 'active'
 `
 
 type GetUserByIDRow struct {
-	ID           int64              `json:"id"`
-	Email        string             `json:"email"`
-	PasswordHash string             `json:"password_hash"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	Locale       string             `json:"locale"`
-	Timezone     string             `json:"timezone"`
-	Status       string             `json:"status"`
-	MfaEnabled   bool               `json:"mfa_enabled"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID               int64              `json:"id"`
+	Email            string             `json:"email"`
+	PasswordHash     string             `json:"password_hash"`
+	DisplayName      pgtype.Text        `json:"display_name"`
+	Locale           string             `json:"locale"`
+	Timezone         string             `json:"timezone"`
+	Status           string             `json:"status"`
+	MfaSecret        pgtype.Text        `json:"mfa_secret"`
+	MfaRecoveryCodes []byte             `json:"mfa_recovery_codes"`
+	MfaEnabled       bool               `json:"mfa_enabled"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error) {
@@ -173,6 +233,8 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 		&i.Locale,
 		&i.Timezone,
 		&i.Status,
+		&i.MfaSecret,
+		&i.MfaRecoveryCodes,
 		&i.MfaEnabled,
 		&i.CreatedAt,
 	)
@@ -239,6 +301,22 @@ func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTe
 		return nil, err
 	}
 	return items, nil
+}
+
+const setMFASecret = `-- name: SetMFASecret :exec
+UPDATE users
+SET mfa_secret = $2
+WHERE id = $1
+`
+
+type SetMFASecretParams struct {
+	ID        int64       `json:"id"`
+	MfaSecret pgtype.Text `json:"mfa_secret"`
+}
+
+func (q *Queries) SetMFASecret(ctx context.Context, arg SetMFASecretParams) error {
+	_, err := q.db.Exec(ctx, setMFASecret, arg.ID, arg.MfaSecret)
+	return err
 }
 
 const updateSessionTenant = `-- name: UpdateSessionTenant :exec

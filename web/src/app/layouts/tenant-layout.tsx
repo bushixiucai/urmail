@@ -37,6 +37,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
     { name: t("layout.domains"), href: "/domains", icon: Globe },
     { name: t("layout.mailboxes"), href: "/mailboxes", icon: Mail },
     { name: t("layout.aliases"), href: "/aliases", icon: Share2 },
+    { name: t("layout.settings"), href: "/settings/mfa", icon: ShieldCheck },
   ];
 
   const renderNavLinks = (onNavigate?: () => void) => (

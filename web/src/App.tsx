@@ -29,6 +29,11 @@ const AliasListPage = lazy(() =>
     default: m.AliasListPage,
   })),
 );
+const MfaSettingsPage = lazy(() =>
+  import("@/features/auth/mfa-settings-page").then((m) => ({
+    default: m.MfaSettingsPage,
+  })),
+);
 const NotFoundPage = lazy(() =>
   import("@/features/not-found/not-found-page").then((m) => ({
     default: m.NotFoundPage,
@@ -125,6 +130,16 @@ export function App() {
                   <ProtectedRoute>
                     <LazyPage>
                       <AliasListPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/mfa"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <MfaSettingsPage />
                     </LazyPage>
                   </ProtectedRoute>
                 }

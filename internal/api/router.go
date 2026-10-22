@@ -81,6 +81,9 @@ func New(opts Options) *gin.Engine {
 		authGroup := v1.Group("/auth")
 		{
 			authGroup.POST("/login", authHandler.Login)
+			// Second MFA login leg: authenticated by the short-lived
+			// one-time mfa_token, not a session.
+			authGroup.POST("/mfa/verify", authHandler.MFAVerify)
 		}
 
 		// Protected Routes
@@ -92,6 +95,11 @@ func New(opts Options) *gin.Engine {
 			// Auth
 			protected.POST("/auth/logout", authHandler.Logout)
 			protected.GET("/auth/me", authHandler.Me)
+
+			// MFA management (any logged-in user, role-independent)
+			protected.POST("/auth/mfa/setup", authHandler.MFASetup)
+			protected.POST("/auth/mfa/enable", authHandler.MFAEnable)
+			protected.POST("/auth/mfa/disable", authHandler.MFADisable)
 
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)

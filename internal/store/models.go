@@ -345,8 +345,9 @@ type Users struct {
 	Locale            string             `json:"locale"`
 	Timezone          string             `json:"timezone"`
 	Status            string             `json:"status"`
-	MfaSecret         []byte             `json:"mfa_secret"`
+	MfaSecret         pgtype.Text        `json:"mfa_secret"`
 	MfaEnabled        bool               `json:"mfa_enabled"`
 	PasswordChangedAt pgtype.Timestamptz `json:"password_changed_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	MfaRecoveryCodes  []byte             `json:"mfa_recovery_codes"`
 }

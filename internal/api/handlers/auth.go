@@ -42,6 +42,10 @@ type AuthStore interface {
 	CreateSession(ctx context.Context, arg store.CreateSessionParams) (store.Sessions, error)
 	DeleteSession(ctx context.Context, id string) error
 	UpdateSessionTenant(ctx context.Context, arg store.UpdateSessionTenantParams) error
+	SetMFASecret(ctx context.Context, arg store.SetMFASecretParams) error
+	EnableUserMFA(ctx context.Context, arg store.EnableUserMFAParams) error
+	DisableUserMFA(ctx context.Context, id int64) error
+	ConsumeRecoveryCode(ctx context.Context, arg store.ConsumeRecoveryCodeParams) (int64, error)
 }
 
 type AuthHandler struct {
@@ -68,6 +72,11 @@ type LoginResponse struct {
 	} `json:"user"`
 	Tenants []store.GetUserTenantsRow `json:"tenants"`
 	IsAdmin bool                      `json:"is_admin"`
+
+	// Set on the first login leg when the user has MFA enabled: no session
+	// is created until the second factor is verified via /auth/mfa/verify.
+	MfaRequired bool   `json:"mfa_required,omitempty"`
+	MfaToken    string `json:"mfa_token,omitempty"`
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -105,8 +114,28 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		})
 		return
 	}
-	loginAttempts.reset(limiterKey)
+	if user.MfaEnabled {
+		// The limiter is only reset once BOTH factors pass (MFAVerify);
+		// second-leg failures keep counting on the same key.
+		mfaToken, err := pendingMFATokens.issue(user.ID, limiterKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": gin.H{"code": "INTERNAL_ERROR"},
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"mfa_required": true, "mfa_token": mfaToken})
+		return
+	}
 
+	loginAttempts.reset(limiterKey)
+	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale)
+}
+
+// establishSession creates the session row and writes the full login
+// response. It is shared by the single-factor login path and the second
+// MFA leg.
+func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email string, displayName pgtype.Text, locale string) {
 	token, err := randomHexToken()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -123,8 +152,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	tenants, _ := h.Store.GetUserTenants(c, user.ID)
-	isAdmin, _ := h.Store.CheckPlatformAdmin(c, user.ID)
+	tenants, _ := h.Store.GetUserTenants(c, userID)
+	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
 
 	var defaultTenantID pgtype.Int8
 	if len(tenants) > 0 {
@@ -133,7 +162,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	session, err := h.Store.CreateSession(c, store.CreateSessionParams{
 		ID:        middleware.HashSessionToken(token),
-		UserID:    user.ID,
+		UserID:    userID,
 		TenantID:  defaultTenantID,
 		CsrfToken: csrfToken,
 		UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true},
@@ -152,12 +181,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Tenants:   tenants,
 		IsAdmin:   isAdmin,
 	}
-	resp.User.ID = user.ID
-	resp.User.Email = user.Email
-	if user.DisplayName.Valid {
-		resp.User.DisplayName = user.DisplayName.String
+	resp.User.ID = userID
+	resp.User.Email = email
+	if displayName.Valid {
+		resp.User.DisplayName = displayName.String
 	}
-	resp.User.Locale = user.Locale
+	resp.User.Locale = locale
 
 	c.JSON(http.StatusOK, resp)
 }

@@ -18,6 +18,9 @@ type Querier interface {
 	CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
 	ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchiveEntryLegalHoldParams) (ArchiveEntries, error)
+	// Removes one recovery code (given as its stored SHA-256 hex hash) from the
+	// user's code list. Zero rows affected means the code did not match.
+	ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error)
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CreateAlias(ctx context.Context, arg CreateAliasParams) (MailboxAliases, error)
@@ -40,6 +43,8 @@ type Querier interface {
 	DeleteMailbox(ctx context.Context, arg DeleteMailboxParams) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteTenantSetting(ctx context.Context, arg DeleteTenantSettingParams) error
+	DisableUserMFA(ctx context.Context, id int64) error
+	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (Subscriptions, error)
 	GetAliasByDomainAndLocalPart(ctx context.Context, arg GetAliasByDomainAndLocalPartParams) (GetAliasByDomainAndLocalPartRow, error)
 	GetAliasByID(ctx context.Context, arg GetAliasByIDParams) (GetAliasByIDRow, error)
@@ -111,6 +116,7 @@ type Querier interface {
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListMailboxes(ctx context.Context) ([]PlatformListMailboxesRow, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
+	SetMFASecret(ctx context.Context, arg SetMFASecretParams) error
 	// Refuses to soft-delete entries under legal hold (returns no rows when held).
 	SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error)
 	UpdateAlias(ctx context.Context, arg UpdateAliasParams) (MailboxAliases, error)
