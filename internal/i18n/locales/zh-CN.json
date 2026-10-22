@@ -1,7 +1,6 @@
 {
   "app.name": "urMail.cn",
   "app.tagline": "多租户邮件 SaaS 平台",
-
   "nav.dashboard": "总览",
   "nav.domains": "域名",
   "nav.mailboxes": "邮箱",
@@ -15,7 +14,6 @@
   "nav.announcements": "公告",
   "nav.settings": "设置",
   "nav.platform": "平台管理",
-
   "action.save": "保存",
   "action.cancel": "取消",
   "action.delete": "删除",
@@ -26,12 +24,10 @@
   "action.close": "关闭",
   "action.copy": "复制",
   "action.search": "搜索",
-
   "state.loading": "加载中…",
   "state.empty": "暂无数据",
   "state.error": "出错了",
   "state.success": "操作成功",
-
   "error.INTERNAL_ERROR": "服务器内部错误",
   "error.NOT_FOUND": "找不到该资源",
   "error.UNAUTHORIZED": "未登录或登录已过期",
@@ -44,8 +40,23 @@
   "error.DOMAIN_NOT_VERIFIED": "域名尚未完成验证",
   "error.PAYMENT_FAILED": "支付失败",
   "error.SESSION_EXPIRED": "会话已过期，请重新登录",
-
   "mailbox.quota_exceeded": "邮箱 {address} 的存储配额已用尽（上限 {limit}）",
   "domain.verification_required": "请先完成域名 {domain} 的 DNS 验证",
-  "payment.amount_mismatch": "支付金额 {expected} 与渠道返回的 {actual} 不一致"
+  "payment.amount_mismatch": "支付金额 {expected} 与渠道返回的 {actual} 不一致",
+  "auth.unauthorized": "未提供有效身份凭证",
+  "auth.invalid_token": "无效的认证令牌",
+  "auth.session_expired": "会话已过期，请重新登录",
+  "auth.invalid_credentials": "邮箱或密码错误",
+  "auth.session_failed": "创建会话失败",
+  "auth.no_tenant": "未选择租户上下文",
+  "auth.csrf_missing": "缺少 CSRF 令牌",
+  "auth.csrf_invalid": "CSRF 令牌无效",
+  "tenant.not_found": "未找到当前租户",
+  "domain.invalid_fqdn": "域名格式不正确",
+  "domain.already_exists": "域名已存在",
+  "mailbox.invalid_local_part": "邮箱前缀格式不正确",
+  "mailbox.already_exists": "邮箱账号已存在",
+  "alias.already_exists": "别名或规则已存在",
+  "common.invalid_params": "请求参数不合法",
+  "auth.csrf_invalid_origin": "来源域名不匹配，跨站请求已被拦截"
 }

@@ -11,9 +11,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
+	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/i18n"
+	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
 )
 
@@ -28,6 +30,8 @@ type Options struct {
 	Messages *i18n.Store
 	// Version is reported by /api/v1/healthz.
 	Version string
+	// Reconcile is the configuration reconcile trigger.
+	Reconcile handlers.ReconcileTrigger
 }
 
 // New builds the gin engine with all middleware and routes attached.
@@ -42,24 +46,68 @@ func New(opts Options) *gin.Engine {
 
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// The bundled assets are served with their real content type. Everything
-	// else falls through to the single-page application.
+	// Bundled web assets
 	engine.GET("/assets/*filepath", gin.WrapH(web.AssetHandler()))
+
+	var appQueries *store.Queries
+	if opts.AppPool != nil {
+		appQueries = store.New(opts.AppPool.Pool)
+	}
+
+	authHandler := handlers.NewAuthHandler(appQueries)
+	tenantHandler := handlers.NewTenantHandler(appQueries)
+	domainHandler := handlers.NewDomainHandler(appQueries, opts.Reconcile)
+	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
+	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 
 	v1 := engine.Group("/api/v1")
 	{
 		v1.GET("/healthz", healthz(opts))
 		v1.GET("/i18n/:locale", i18nCatalogue(opts))
+
+		// Public Auth
+		authGroup := v1.Group("/auth")
+		{
+			authGroup.POST("/login", authHandler.Login)
+		}
+
+		// Protected Routes
+		protected := v1.Group("")
+		protected.Use(middleware.RequireAuth(appQueries))
+		protected.Use(middleware.RequireCSRF())
+		{
+			// Auth
+			protected.POST("/auth/logout", authHandler.Logout)
+			protected.GET("/auth/me", authHandler.Me)
+
+			// Tenants
+			protected.GET("/tenants/current", tenantHandler.Current)
+
+			// Domains
+			protected.GET("/domains", domainHandler.List)
+			protected.POST("/domains", domainHandler.Create)
+			protected.DELETE("/domains/:id", domainHandler.Delete)
+
+			// Mailboxes
+			protected.GET("/mailboxes", mailboxHandler.List)
+			protected.POST("/mailboxes", mailboxHandler.Create)
+			protected.POST("/mailboxes/:id/password", mailboxHandler.UpdatePassword)
+			protected.POST("/mailboxes/:id/quota", mailboxHandler.UpdateQuota)
+			protected.DELETE("/mailboxes/:id", mailboxHandler.Delete)
+
+			// Aliases
+			protected.GET("/aliases", aliasHandler.List)
+			protected.POST("/aliases", aliasHandler.Create)
+			protected.DELETE("/aliases/:id", aliasHandler.Delete)
+		}
 	}
 
-	// The SPA is served from the same origin as the API. Unknown paths fall
-	// through to index.html so that client-side routes survive a reload.
+	// Single-Page Application Fallback
 	engine.NoRoute(func(c *gin.Context) {
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
 			return
 		}
-		// A missing asset is a missing asset, not a client-side route.
 		if web.IsAssetPath(c.Request.URL.Path) {
 			c.Status(http.StatusNotFound)
 			return
@@ -70,8 +118,7 @@ func New(opts Options) *gin.Engine {
 	return engine
 }
 
-// healthz reports whether the process can serve requests. A database failure
-// makes the box unhealthy: the management plane is useless without it.
+// healthz reports whether the process can serve requests.
 func healthz(opts Options) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
@@ -89,22 +136,13 @@ func healthz(opts Options) gin.HandlerFunc {
 	}
 }
 
-// ping checks the database, tolerating a nil pool so that the server can
-// start before the database is reachable.
 func ping(ctx context.Context, pool *db.Pool) error {
 	if pool == nil {
 		return errors.New("database pool is not configured")
 	}
-	if err := pool.Ping(ctx); err != nil {
-		return err
-	}
-	return nil
+	return pool.Ping(ctx)
 }
 
-// i18nCatalogue serves the message catalogue of a locale.
-//
-// The catalogue is served from the same embedded copy the backend uses, so the
-// frontend and the backend can never disagree about a message.
 func i18nCatalogue(opts Options) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		locale := c.Param("locale")

@@ -1,7 +1,6 @@
 {
   "app.name": "urMail.cn",
   "app.tagline": "Multi-tenant email SaaS platform",
-
   "nav.dashboard": "Overview",
   "nav.domains": "Domains",
   "nav.mailboxes": "Mailboxes",
@@ -15,7 +14,6 @@
   "nav.announcements": "Announcements",
   "nav.settings": "Settings",
   "nav.platform": "Platform",
-
   "action.save": "Save",
   "action.cancel": "Cancel",
   "action.delete": "Delete",
@@ -26,12 +24,10 @@
   "action.close": "Close",
   "action.copy": "Copy",
   "action.search": "Search",
-
   "state.loading": "Loading…",
   "state.empty": "Nothing here yet",
   "state.error": "Something went wrong",
   "state.success": "Done",
-
   "error.INTERNAL_ERROR": "Internal server error",
   "error.NOT_FOUND": "Not found",
   "error.UNAUTHORIZED": "Not signed in, or the session expired",
@@ -44,8 +40,23 @@
   "error.DOMAIN_NOT_VERIFIED": "The domain has not been verified yet",
   "error.PAYMENT_FAILED": "The payment failed",
   "error.SESSION_EXPIRED": "Your session expired, please sign in again",
-
   "mailbox.quota_exceeded": "Mailbox {address} has exhausted its storage quota (limit {limit})",
   "domain.verification_required": "Complete the DNS verification for {domain} first",
-  "payment.amount_mismatch": "The paid amount {actual} does not match the expected amount {expected}"
+  "payment.amount_mismatch": "The paid amount {actual} does not match the expected amount {expected}",
+  "auth.unauthorized": "No valid authentication credentials provided",
+  "auth.invalid_token": "Invalid authentication token",
+  "auth.session_expired": "Session expired, please login again",
+  "auth.invalid_credentials": "Invalid email or password",
+  "auth.session_failed": "Failed to create session",
+  "auth.no_tenant": "No tenant context selected",
+  "auth.csrf_missing": "Missing CSRF token",
+  "auth.csrf_invalid": "Invalid CSRF token",
+  "tenant.not_found": "Tenant not found",
+  "domain.invalid_fqdn": "Invalid domain FQDN",
+  "domain.already_exists": "Domain already exists",
+  "mailbox.invalid_local_part": "Invalid mailbox local part",
+  "mailbox.already_exists": "Mailbox address already exists",
+  "alias.already_exists": "Alias rule already exists",
+  "common.invalid_params": "Invalid request parameters",
+  "auth.csrf_invalid_origin": "Origin mismatch, cross-site request blocked"
 }
