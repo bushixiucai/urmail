@@ -578,3 +578,65 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"logs": logs})
 }
+
+type AssignSubscriptionRequest struct {
+	PlanCode  string `json:"plan_code" binding:"required"`
+	PeriodEnd string `json:"period_end"`
+}
+
+// AssignSubscription replaces the tenant's active subscription. Payment and
+// invoicing remain separate steps; this is the administrative entitlement
+// change used by the platform console and support tooling.
+func (h *PlatformHandler) AssignSubscription(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	var req AssignSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.PlanCode) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	periodEnd := time.Now().AddDate(0, 1, 0)
+	if req.PeriodEnd != "" {
+		t, err := time.Parse(time.RFC3339, req.PeriodEnd)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+			return
+		}
+		periodEnd = t
+	}
+	tx, err := h.Pool.PlatformTx(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	defer func() { _ = tx.Rollback(c) }()
+	var exists bool
+	if err := tx.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM plans WHERE code = $1 AND active)", req.PlanCode).Scan(&exists); err != nil || !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "PLAN_NOT_FOUND"}})
+		return
+	}
+	if _, err := tx.Exec(c, `
+		UPDATE subscriptions SET status = 'canceled'
+		WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')`, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if _, err := tx.Exec(c, `
+		INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end)
+		VALUES ($1, $2, 'active', now(), $3)`, id, req.PlanCode, periodEnd); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if err := tx.Commit(c); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "plan_code": req.PlanCode, "period_end": periodEnd})
+}

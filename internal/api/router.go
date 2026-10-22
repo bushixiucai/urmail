@@ -152,6 +152,7 @@ func New(opts Options) *gin.Engine {
 				platform.POST("/tenants/:id/close", platformHandler.CloseTenant)
 				platform.PATCH("/tenants/:id", platformHandler.UpdateTenant)
 				platform.POST("/tenants/:id/owner", platformHandler.TransferOwner)
+				platform.POST("/tenants/:id/subscription", platformHandler.AssignSubscription)
 			}
 		}
 
