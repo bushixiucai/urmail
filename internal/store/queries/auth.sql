@@ -86,3 +86,10 @@ SET mfa_recovery_codes = COALESCE((
 ), '[]'::jsonb)
 WHERE id = $1 AND mfa_recovery_codes @> to_jsonb($2::text);
 
+
+-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1;
+
+-- name: DeleteOtherUserSessions :exec
+DELETE FROM sessions WHERE user_id = $1 AND id <> $2;
+

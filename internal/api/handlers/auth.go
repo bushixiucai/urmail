@@ -46,6 +46,8 @@ type AuthStore interface {
 	EnableUserMFA(ctx context.Context, arg store.EnableUserMFAParams) error
 	DisableUserMFA(ctx context.Context, id int64) error
 	ConsumeRecoveryCode(ctx context.Context, arg store.ConsumeRecoveryCodeParams) (int64, error)
+	UpdateUserPassword(ctx context.Context, arg store.UpdateUserPasswordParams) error
+	DeleteOtherUserSessions(ctx context.Context, arg store.DeleteOtherUserSessionsParams) error
 }
 
 type AuthHandler struct {

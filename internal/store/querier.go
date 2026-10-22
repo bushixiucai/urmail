@@ -41,6 +41,7 @@ type Querier interface {
 	DeleteDomain(ctx context.Context, arg DeleteDomainParams) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteMailbox(ctx context.Context, arg DeleteMailboxParams) error
+	DeleteOtherUserSessions(ctx context.Context, arg DeleteOtherUserSessionsParams) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteTenantSetting(ctx context.Context, arg DeleteTenantSettingParams) error
 	DisableUserMFA(ctx context.Context, id int64) error
@@ -144,6 +145,7 @@ type Querier interface {
 	UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error
 	UpdateTenantSettings(ctx context.Context, arg UpdateTenantSettingsParams) (Tenants, error)
 	UpdateTenantStatus(ctx context.Context, arg UpdateTenantStatusParams) (Tenants, error)
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpsertTenantSetting(ctx context.Context, arg UpsertTenantSettingParams) (Settings, error)
 	VoidInvoice(ctx context.Context, arg VoidInvoiceParams) (Invoices, error)
 }

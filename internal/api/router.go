@@ -132,6 +132,7 @@ func New(opts Options) *gin.Engine {
 			userLevel.POST("/auth/mfa/disable", authHandler.MFADisable)
 
 			userLevel.POST("/auth/switch-tenant", authHandler.SwitchTenant)
+			userLevel.POST("/auth/password", authHandler.ChangePassword)
 		}
 
 		// Tenant-scoped routes run inside the RLS transaction.

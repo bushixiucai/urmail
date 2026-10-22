@@ -141,6 +141,22 @@ func (f *fakeAuthStore) DisableUserMFA(_ context.Context, id int64) error {
 	return nil
 }
 
+func (f *fakeAuthStore) UpdateUserPassword(_ context.Context, arg store.UpdateUserPasswordParams) error {
+	if u, ok := f.users[arg.ID]; ok {
+		u.PasswordHash = arg.PasswordHash
+	}
+	return nil
+}
+
+func (f *fakeAuthStore) DeleteOtherUserSessions(_ context.Context, arg store.DeleteOtherUserSessionsParams) error {
+	for id, session := range f.sessions {
+		if session.UserID == arg.UserID && id != arg.ID {
+			delete(f.sessions, id)
+		}
+	}
+	return nil
+}
+
 func (f *fakeAuthStore) ConsumeRecoveryCode(_ context.Context, arg store.ConsumeRecoveryCodeParams) (int64, error) {
 	u, ok := f.users[arg.ID]
 	if !ok {
