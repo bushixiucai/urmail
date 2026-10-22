@@ -1,14 +1,39 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { I18nProvider } from "@/app/providers";
 import { AuthProvider, useAuth } from "@/app/auth-context";
 import { TenantLayout } from "@/app/layouts/tenant-layout";
-import { LoginPage } from "@/features/auth/login-page";
-import { DashboardPage } from "@/features/dashboard/dashboard-page";
-import { DomainListPage } from "@/features/domains/domain-list-page";
-import { MailboxListPage } from "@/features/mailboxes/mailbox-list-page";
-import { AliasListPage } from "@/features/aliases/alias-list-page";
-import { NotFoundPage } from "@/features/not-found/not-found-page";
+
+const LoginPage = lazy(() =>
+  import("@/features/auth/login-page").then((m) => ({ default: m.LoginPage })),
+);
+const DashboardPage = lazy(() =>
+  import("@/features/dashboard/dashboard-page").then((m) => ({
+    default: m.DashboardPage,
+  })),
+);
+const DomainListPage = lazy(() =>
+  import("@/features/domains/domain-list-page").then((m) => ({
+    default: m.DomainListPage,
+  })),
+);
+const MailboxListPage = lazy(() =>
+  import("@/features/mailboxes/mailbox-list-page").then((m) => ({
+    default: m.MailboxListPage,
+  })),
+);
+const AliasListPage = lazy(() =>
+  import("@/features/aliases/alias-list-page").then((m) => ({
+    default: m.AliasListPage,
+  })),
+);
+const NotFoundPage = lazy(() =>
+  import("@/features/not-found/not-found-page").then((m) => ({
+    default: m.NotFoundPage,
+  })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,12 +45,26 @@ const queryClient = new QueryClient({
   },
 });
 
+function RouteFallback() {
+  const { t } = useTranslation();
+  return (
+    <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
+      {t("state.loading")}
+    </div>
+  );
+}
+
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const { t } = useTranslation();
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-        加载中...
+        {t("state.loading")}
       </div>
     );
   }
@@ -42,12 +81,21 @@ export function App() {
         <AuthProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/login" element={<LoginPage />} />
+              <Route
+                path="/login"
+                element={
+                  <LazyPage>
+                    <LoginPage />
+                  </LazyPage>
+                }
+              />
               <Route
                 path="/"
                 element={
                   <ProtectedRoute>
-                    <DashboardPage />
+                    <LazyPage>
+                      <DashboardPage />
+                    </LazyPage>
                   </ProtectedRoute>
                 }
               />
@@ -55,7 +103,9 @@ export function App() {
                 path="/domains"
                 element={
                   <ProtectedRoute>
-                    <DomainListPage />
+                    <LazyPage>
+                      <DomainListPage />
+                    </LazyPage>
                   </ProtectedRoute>
                 }
               />
@@ -63,7 +113,9 @@ export function App() {
                 path="/mailboxes"
                 element={
                   <ProtectedRoute>
-                    <MailboxListPage />
+                    <LazyPage>
+                      <MailboxListPage />
+                    </LazyPage>
                   </ProtectedRoute>
                 }
               />
@@ -71,11 +123,20 @@ export function App() {
                 path="/aliases"
                 element={
                   <ProtectedRoute>
-                    <AliasListPage />
+                    <LazyPage>
+                      <AliasListPage />
+                    </LazyPage>
                   </ProtectedRoute>
                 }
               />
-              <Route path="*" element={<NotFoundPage />} />
+              <Route
+                path="*"
+                element={
+                  <LazyPage>
+                    <NotFoundPage />
+                  </LazyPage>
+                }
+              />
             </Routes>
           </BrowserRouter>
         </AuthProvider>

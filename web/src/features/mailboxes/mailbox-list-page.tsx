@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Mail, Plus, Trash2, KeyRound } from "lucide-react";
-import { request, getApiErrorMessage } from "@/lib/api/client";
+import { request } from "@/lib/api/client";
+import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog, NoticeDialog } from "@/components/ui/notice-dialog";
 import {
   Card,
   CardContent,
@@ -27,6 +30,8 @@ interface DomainItem {
 }
 
 export function MailboxListPage() {
+  const { t } = useTranslation();
+  const errorMessage = useApiErrorMessage();
   const [mailboxes, setMailboxes] = useState<MailboxItem[]>([]);
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [selectedDomainId, setSelectedDomainId] = useState<number | null>(null);
@@ -38,6 +43,14 @@ export function MailboxListPage() {
   // Password reset modal state
   const [resetId, setResetId] = useState<number | null>(null);
   const [newPassword, setNewPassword] = useState("");
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<MailboxItem | null>(null);
+
+  const [notice, setNotice] = useState<{
+    variant: "error" | "info";
+    message: string;
+  } | null>(null);
 
   const fetchData = useCallback(() => {
     request<{ mailboxes: MailboxItem[] }>("/api/v1/mailboxes")
@@ -80,7 +93,10 @@ export function MailboxListPage() {
       setDisplayName("");
       fetchData();
     } catch (err: unknown) {
-      alert("创建邮箱失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.mailboxes.create_failed")}: ${errorMessage(err)}`,
+      });
     } finally {
       setIsAdding(false);
     }
@@ -97,39 +113,52 @@ export function MailboxListPage() {
       });
       setResetId(null);
       setNewPassword("");
-      alert("密码已成功修改");
+      setNotice({
+        variant: "info",
+        message: t("page.mailboxes.reset_success"),
+      });
     } catch (err: unknown) {
-      alert("修改失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.mailboxes.reset_failed")}: ${errorMessage(err)}`,
+      });
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除此邮箱账号吗？")) return;
+  const handleDelete = async (mailbox: MailboxItem) => {
+    setDeleteTarget(null);
     try {
-      await request(`/api/v1/mailboxes/${id}`, { method: "DELETE" });
+      await request(`/api/v1/mailboxes/${mailbox.id}`, { method: "DELETE" });
       fetchData();
     } catch (err: unknown) {
-      alert("删除失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.mailboxes.delete_failed")}: ${errorMessage(err)}`,
+      });
     }
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">邮箱账号</h2>
+        <h2 className="text-2xl font-bold tracking-tight">
+          {t("page.mailboxes.title")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          创建与管理租户邮箱用户，支持设置 SHA512-Crypt 密码及单号配额
+          {t("page.mailboxes.subtitle")}
         </p>
       </div>
 
       {/* Create Mailbox Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">开通新邮箱</CardTitle>
+          <CardTitle className="text-base">
+            {t("page.mailboxes.create_title")}
+          </CardTitle>
           <CardDescription>
             {domains.length === 0
-              ? "请先在「域名管理」添加可用域名"
-              : "选择域名并输入前缀与初始密码"}
+              ? t("page.mailboxes.create_desc_no_domain")
+              : t("page.mailboxes.create_desc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -139,7 +168,7 @@ export function MailboxListPage() {
           >
             <div>
               <label className="text-xs font-medium text-muted-foreground">
-                域名
+                {t("page.mailboxes.field_domain")}
               </label>
               <select
                 className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
@@ -157,7 +186,7 @@ export function MailboxListPage() {
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">
-                邮箱前缀
+                {t("page.mailboxes.field_local_part")}
               </label>
               <Input
                 placeholder="alice"
@@ -170,11 +199,11 @@ export function MailboxListPage() {
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">
-                初始密码
+                {t("page.mailboxes.field_password")}
               </label>
               <Input
                 type="password"
-                placeholder="至少 6 位"
+                placeholder={t("page.mailboxes.password_hint")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -184,7 +213,9 @@ export function MailboxListPage() {
 
             <Button type="submit" disabled={isAdding || domains.length === 0}>
               <Plus className="h-4 w-4 mr-1" />
-              {isAdding ? "开通中..." : "开通账号"}
+              {isAdding
+                ? t("page.mailboxes.creating")
+                : t("page.mailboxes.create")}
             </Button>
           </form>
         </CardContent>
@@ -196,7 +227,7 @@ export function MailboxListPage() {
           <CardHeader>
             <CardTitle className="text-sm flex items-center gap-2">
               <KeyRound className="h-4 w-4" />
-              重置邮箱密码 (ID: {resetId})
+              {t("page.mailboxes.reset_title", { id: resetId })}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -206,13 +237,13 @@ export function MailboxListPage() {
             >
               <Input
                 type="password"
-                placeholder="输入新密码"
+                placeholder={t("page.mailboxes.new_password_placeholder")}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
               />
               <Button type="submit" size="sm">
-                确认重置
+                {t("page.mailboxes.confirm_reset")}
               </Button>
               <Button
                 type="button"
@@ -220,7 +251,7 @@ export function MailboxListPage() {
                 variant="ghost"
                 onClick={() => setResetId(null)}
               >
-                取消
+                {t("action.cancel")}
               </Button>
             </form>
           </CardContent>
@@ -230,13 +261,15 @@ export function MailboxListPage() {
       {/* Mailbox List Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">邮箱用户列表</CardTitle>
+          <CardTitle className="text-base">
+            {t("page.mailboxes.list_title")}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md divide-y">
             {mailboxes.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">
-                暂无邮箱账号
+                {t("page.mailboxes.empty")}
               </div>
             ) : (
               mailboxes.map((m) => (
@@ -253,10 +286,10 @@ export function MailboxListPage() {
                           {m.status}
                         </span>
                         <span>
-                          配额:{" "}
+                          {t("page.mailboxes.quota")}:{" "}
                           {m.quota_bytes > 0
                             ? `${(m.quota_bytes / 1024 / 1024).toFixed(0)} MB`
-                            : "无限制"}
+                            : t("page.mailboxes.unlimited")}
                         </span>
                       </div>
                     </div>
@@ -272,13 +305,13 @@ export function MailboxListPage() {
                       }}
                     >
                       <KeyRound className="h-3.5 w-3.5 mr-1" />
-                      修改密码
+                      {t("page.mailboxes.change_password")}
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       className="text-destructive hover:bg-destructive/10"
-                      onClick={() => handleDelete(m.id)}
+                      onClick={() => setDeleteTarget(m)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -289,6 +322,25 @@ export function MailboxListPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t("page.mailboxes.delete_confirm_title")}
+        description={t("page.mailboxes.delete_confirm")}
+        confirmLabel={t("action.delete")}
+        destructive
+        onConfirm={() =>
+          deleteTarget ? handleDelete(deleteTarget) : Promise.resolve()
+        }
+      />
+
+      <NoticeDialog
+        open={notice !== null}
+        onOpenChange={(open) => !open && setNotice(null)}
+        message={notice?.message ?? ""}
+        variant={notice?.variant}
+      />
     </div>
   );
 }

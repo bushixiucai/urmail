@@ -1,8 +1,9 @@
 import { useState, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Mail, Lock, AlertCircle, ArrowRight } from "lucide-react";
 import { useAuth, User, TenantInfo } from "@/app/auth-context";
-import { request } from "@/lib/api/client";
+import { ApiRequestError, request } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,6 +24,7 @@ interface LoginResponse {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,12 +51,13 @@ export function LoginPage() {
       );
       navigate("/");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(
-        message === "INVALID_CREDENTIALS"
-          ? "邮箱或密码错误"
-          : "登录失败，请重试",
-      );
+      if (err instanceof ApiRequestError) {
+        setError(
+          t(`error.${err.code}`, { defaultValue: t("error.LOGIN_FAILED") }),
+        );
+      } else {
+        setError(t("error.LOGIN_FAILED"));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -68,7 +71,7 @@ export function LoginPage() {
             U
           </div>
           <CardTitle className="text-2xl font-bold">urMail.cn</CardTitle>
-          <CardDescription>多租户邮件 SaaS 运营管理平台</CardDescription>
+          <CardDescription>{t("login.subtitle")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -84,7 +87,7 @@ export function LoginPage() {
                 className="text-sm font-medium leading-none"
                 htmlFor="email"
               >
-                账号邮箱
+                {t("login.email_label")}
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -106,7 +109,7 @@ export function LoginPage() {
                   className="text-sm font-medium leading-none"
                   htmlFor="password"
                 >
-                  密码
+                  {t("login.password_label")}
                 </label>
               </div>
               <div className="relative">
@@ -124,7 +127,7 @@ export function LoginPage() {
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "登录中..." : "登录控制台"}
+              {isLoading ? t("login.signing_in") : t("login.submit")}
               {!isLoading && <ArrowRight className="h-4 w-4 ml-2" />}
             </Button>
           </form>

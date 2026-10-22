@@ -43,7 +43,7 @@ interface AuthState {
     isAdmin: boolean,
   ) => void;
   logout: () => Promise<void>;
-  switchTenant: (tenant: TenantInfo) => void;
+  switchTenant: (tenant: TenantInfo) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -117,8 +117,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const switchTenant = (t: TenantInfo) => {
-    setCurrentTenant(t);
+  // Tenant switching is authoritative on the backend: the session's tenant
+  // context only changes after POST /auth/switch-tenant succeeds.
+  const switchTenant = async (tenant: TenantInfo) => {
+    setCurrentTenant(tenant);
+    try {
+      await request("/api/v1/auth/switch-tenant", {
+        method: "POST",
+        body: { tenant_id: tenant.id },
+      });
+      const me = await request<{
+        user: User;
+        tenants: TenantInfo[];
+        is_admin: boolean;
+      }>("/api/v1/auth/me");
+      setUser(me.user);
+      setTenants(me.tenants);
+      setIsAdmin(me.is_admin);
+      const match = me.tenants.find((t) => t.id === tenant.id);
+      setCurrentTenant(match ?? me.tenants[0] ?? tenant);
+    } catch {
+      // Keep the optimistic selection; /tenants/current consumers will surface
+      // the backend error if the switch was rejected.
+    }
   };
 
   return (

@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Share2, Plus, Trash2 } from "lucide-react";
-import { request, getApiErrorMessage } from "@/lib/api/client";
+import { request } from "@/lib/api/client";
+import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog, NoticeDialog } from "@/components/ui/notice-dialog";
 import {
   Card,
   CardContent,
@@ -27,6 +30,8 @@ interface DomainItem {
 }
 
 export function AliasListPage() {
+  const { t } = useTranslation();
+  const errorMessage = useApiErrorMessage();
   const [aliases, setAliases] = useState<AliasItem[]>([]);
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [selectedDomainId, setSelectedDomainId] = useState<number | null>(null);
@@ -34,6 +39,11 @@ export function AliasListPage() {
   const [target, setTarget] = useState("");
   const [isCatchall, setIsCatchall] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AliasItem | null>(null);
+  const [notice, setNotice] = useState<{
+    variant: "error" | "info";
+    message: string;
+  } | null>(null);
 
   const fetchData = useCallback(() => {
     request<{ aliases: AliasItem[] }>("/api/v1/aliases")
@@ -77,38 +87,46 @@ export function AliasListPage() {
       setIsCatchall(false);
       fetchData();
     } catch (err: unknown) {
-      alert("创建别名失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.aliases.create_failed")}: ${errorMessage(err)}`,
+      });
     } finally {
       setIsAdding(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除此别名吗？")) return;
+  const handleDelete = async (alias: AliasItem) => {
+    setDeleteTarget(null);
     try {
-      await request(`/api/v1/aliases/${id}`, { method: "DELETE" });
+      await request(`/api/v1/aliases/${alias.id}`, { method: "DELETE" });
       fetchData();
     } catch (err: unknown) {
-      alert("删除失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.aliases.delete_failed")}: ${errorMessage(err)}`,
+      });
     }
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">别名与转发</h2>
+        <h2 className="text-2xl font-bold tracking-tight">
+          {t("page.aliases.title")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          支持邮件地址重定向（例如 info@ → alice@）与域名 Catchall 通配收信
+          {t("page.aliases.subtitle")}
         </p>
       </div>
 
       {/* Create Alias Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">新建别名规则</CardTitle>
-          <CardDescription>
-            设置别名前缀与目标收信地址（支持转发至站内邮箱或外部 Gmail/QQ 邮箱）
-          </CardDescription>
+          <CardTitle className="text-base">
+            {t("page.aliases.create_title")}
+          </CardTitle>
+          <CardDescription>{t("page.aliases.create_desc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -117,7 +135,7 @@ export function AliasListPage() {
           >
             <div>
               <label className="text-xs font-medium text-muted-foreground">
-                所属域名
+                {t("page.aliases.field_domain")}
               </label>
               <select
                 className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
@@ -136,7 +154,7 @@ export function AliasListPage() {
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-muted-foreground">
-                  别名前缀
+                  {t("page.aliases.field_local_part")}
                 </label>
                 <label className="text-[10px] text-muted-foreground flex items-center gap-1 cursor-pointer">
                   <input
@@ -144,11 +162,15 @@ export function AliasListPage() {
                     checked={isCatchall}
                     onChange={(e) => setIsCatchall(e.target.checked)}
                   />
-                  Catchall 全域通配
+                  {t("page.aliases.catchall")}
                 </label>
               </div>
               <Input
-                placeholder={isCatchall ? "@ (全部未匹配邮件)" : "contact"}
+                placeholder={
+                  isCatchall
+                    ? t("page.aliases.catchall_placeholder")
+                    : "contact"
+                }
                 value={isCatchall ? "" : localPart}
                 onChange={(e) => setLocalPart(e.target.value)}
                 disabled={isCatchall || domains.length === 0}
@@ -158,7 +180,7 @@ export function AliasListPage() {
 
             <div>
               <label className="text-xs font-medium text-muted-foreground">
-                转发目标地址
+                {t("page.aliases.field_target")}
               </label>
               <Input
                 type="email"
@@ -172,7 +194,7 @@ export function AliasListPage() {
 
             <Button type="submit" disabled={isAdding || domains.length === 0}>
               <Plus className="h-4 w-4 mr-1" />
-              {isAdding ? "添加中..." : "添加别名"}
+              {isAdding ? t("page.aliases.adding") : t("page.aliases.add")}
             </Button>
           </form>
         </CardContent>
@@ -181,13 +203,15 @@ export function AliasListPage() {
       {/* Aliases List Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">规则列表</CardTitle>
+          <CardTitle className="text-base">
+            {t("page.aliases.list_title")}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md divide-y">
             {aliases.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">
-                暂无别名规则
+                {t("page.aliases.empty")}
               </div>
             ) : (
               aliases.map((a) => (
@@ -219,7 +243,7 @@ export function AliasListPage() {
                     size="sm"
                     variant="ghost"
                     className="text-destructive hover:bg-destructive/10"
-                    onClick={() => handleDelete(a.id)}
+                    onClick={() => setDeleteTarget(a)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -229,6 +253,25 @@ export function AliasListPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t("page.aliases.delete_confirm_title")}
+        description={t("page.aliases.delete_confirm")}
+        confirmLabel={t("action.delete")}
+        destructive
+        onConfirm={() =>
+          deleteTarget ? handleDelete(deleteTarget) : Promise.resolve()
+        }
+      />
+
+      <NoticeDialog
+        open={notice !== null}
+        onOpenChange={(open) => !open && setNotice(null)}
+        message={notice?.message ?? ""}
+        variant={notice?.variant}
+      />
     </div>
   );
 }

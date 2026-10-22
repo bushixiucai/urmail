@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Globe, Mail, Shield, CheckCircle2, ArrowUpRight } from "lucide-react";
 import { request } from "@/lib/api/client";
 import { ThemeInjector, BrandTheme } from "@/components/brand/theme-injector";
@@ -36,6 +37,7 @@ interface TenantCurrentData {
 }
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<TenantCurrentData | null>(null);
 
   useEffect(() => {
@@ -51,9 +53,11 @@ export function DashboardPage() {
       <ThemeInjector theme={theme} />
 
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">总览仪表盘</h2>
+        <h2 className="text-2xl font-bold tracking-tight">
+          {t("page.dashboard.title")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          查看租户资源用量、套餐状态与快捷入口
+          {t("page.dashboard.subtitle")}
         </p>
       </div>
 
@@ -61,7 +65,9 @@ export function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">托管域名</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {t("page.dashboard.domains")}
+            </CardTitle>
             <Globe className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -73,14 +79,16 @@ export function DashboardPage() {
             </div>
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
               <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-              解析状态正常
+              {t("page.dashboard.domains_ok")}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">邮箱账号</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {t("page.dashboard.mailboxes")}
+            </CardTitle>
             <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -94,14 +102,16 @@ export function DashboardPage() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Dovecot PG 认证就绪
+              {t("page.dashboard.mailboxes_ok")}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">当前套餐</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {t("page.dashboard.plan")}
+            </CardTitle>
             <Shield className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -109,7 +119,8 @@ export function DashboardPage() {
               {data?.subscription?.plan_code || "STANDARD"}
             </div>
             <p className="text-xs text-emerald-600 font-medium mt-1">
-              状态: {data?.subscription?.status || "active"}
+              {t("page.dashboard.status")}:{" "}
+              {data?.subscription?.status || "active"}
             </p>
           </CardContent>
         </Card>
@@ -118,29 +129,29 @@ export function DashboardPage() {
       {/* Quick Actions */}
       <Card>
         <CardHeader>
-          <CardTitle>快速操作</CardTitle>
+          <CardTitle>{t("page.dashboard.quick_actions")}</CardTitle>
           <CardDescription>
-            添加新域名并引导配置 DNS 解析，或为租户开通新邮箱账号
+            {t("page.dashboard.quick_actions_desc")}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <Button asChild>
             <Link to="/domains">
               <Globe className="h-4 w-4 mr-2" />
-              添加域名
+              {t("page.dashboard.add_domain")}
               <ArrowUpRight className="h-4 w-4 ml-1" />
             </Link>
           </Button>
           <Button asChild variant="outline">
             <Link to="/mailboxes">
               <Mail className="h-4 w-4 mr-2" />
-              开通邮箱
+              {t("page.dashboard.create_mailbox")}
               <ArrowUpRight className="h-4 w-4 ml-1" />
             </Link>
           </Button>
           <Button asChild variant="secondary">
             <Link to="/aliases">
-              别名与转发规则
+              {t("page.dashboard.aliases")}
               <ArrowUpRight className="h-4 w-4 ml-1" />
             </Link>
           </Button>

@@ -11,10 +11,18 @@ export const apiErrorSchema = z.object({
 
 export type ApiError = z.infer<typeof apiErrorSchema>;
 
+/** A message that looks like an i18n catalogue key, e.g. "error.CONFLICT". */
+const I18N_KEY_PATTERN = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9_-]+)+$/;
+
+export function looksLikeI18nKey(value: string): boolean {
+  return I18N_KEY_PATTERN.test(value);
+}
+
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
-  readonly i18nKey: string;
+  /** The backend-provided message, which doubles as an i18n catalogue key. */
+  readonly messageKey: string;
   readonly params: Record<string, unknown>;
 
   constructor(status: number, body: ApiError) {
@@ -22,22 +30,39 @@ export class ApiRequestError extends Error {
     this.name = "ApiRequestError";
     this.status = status;
     this.code = body.error.code;
-    this.i18nKey = body.error.message;
+    this.messageKey = body.error.message;
     this.params = body.error.params ?? {};
   }
 }
 
-export function getApiErrorMessage(
+export interface ApiErrorMessage {
+  /** i18n key to render, possibly with interpolation params. */
+  key: string;
+  params: Record<string, unknown>;
+}
+
+/**
+ * Map a thrown error to an i18n key so that every user-visible message is
+ * localised. Resolution order for API errors:
+ *   1. `error.<CODE>` from the catalogue's error.* series;
+ *   2. the backend `message` when it is itself a catalogue key;
+ *   3. the caller's fallback key.
+ */
+export function getApiErrorKey(
   err: unknown,
-  fallback = "操作失败，请重试",
-): string {
+  fallbackKey = "error.REQUEST_FAILED",
+): ApiErrorMessage {
   if (err instanceof ApiRequestError) {
-    return err.i18nKey || err.code || fallback;
+    const codeKey = `error.${err.code}`;
+    if (looksLikeI18nKey(codeKey)) {
+      return { key: codeKey, params: err.params };
+    }
+    if (err.messageKey && looksLikeI18nKey(err.messageKey)) {
+      return { key: err.messageKey, params: err.params };
+    }
+    return { key: fallbackKey, params: {} };
   }
-  if (err instanceof Error) {
-    return err.message;
-  }
-  return fallback;
+  return { key: fallbackKey, params: {} };
 }
 
 const SESSION_TOKEN_KEY = "urmail.session-token";

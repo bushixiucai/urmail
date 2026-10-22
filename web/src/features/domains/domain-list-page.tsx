@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Globe, Plus, Trash2, CheckCircle, Copy, Check } from "lucide-react";
-import { request, getApiErrorMessage } from "@/lib/api/client";
+import { request } from "@/lib/api/client";
+import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog, NoticeDialog } from "@/components/ui/notice-dialog";
 import {
   Card,
   CardContent,
@@ -27,11 +30,18 @@ interface DNSGuidance {
 }
 
 export function DomainListPage() {
+  const { t } = useTranslation();
+  const errorMessage = useApiErrorMessage();
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [newFqdn, setNewFqdn] = useState("");
   const [dnsGuidance, setDnsGuidance] = useState<DNSGuidance | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DomainItem | null>(null);
+  const [notice, setNotice] = useState<{
+    variant: "error" | "info";
+    message: string;
+  } | null>(null);
 
   const fetchDomains = useCallback(() => {
     request<{ domains: DomainItem[] }>("/api/v1/domains")
@@ -60,19 +70,25 @@ export function DomainListPage() {
       setDnsGuidance(res.dns_guidance);
       fetchDomains();
     } catch (err: unknown) {
-      alert("添加域名失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.domains.add_failed")}: ${errorMessage(err)}`,
+      });
     } finally {
       setIsAdding(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除此域名吗？")) return;
+  const handleDelete = async (domain: DomainItem) => {
+    setDeleteTarget(null);
     try {
-      await request(`/api/v1/domains/${id}`, { method: "DELETE" });
+      await request(`/api/v1/domains/${domain.id}`, { method: "DELETE" });
       fetchDomains();
     } catch (err: unknown) {
-      alert("删除失败: " + getApiErrorMessage(err));
+      setNotice({
+        variant: "error",
+        message: `${t("page.domains.delete_failed")}: ${errorMessage(err)}`,
+      });
     }
   };
 
@@ -86,9 +102,11 @@ export function DomainListPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">域名管理</h2>
+          <h2 className="text-2xl font-bold tracking-tight">
+            {t("page.domains.title")}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            管理租户邮箱域名，查看 DNS 指引并自动签发证书
+            {t("page.domains.subtitle")}
           </p>
         </div>
       </div>
@@ -96,10 +114,10 @@ export function DomainListPage() {
       {/* Add Domain Form */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">添加新域名</CardTitle>
-          <CardDescription>
-            输入您的自有域名（例如 example.com）
-          </CardDescription>
+          <CardTitle className="text-base">
+            {t("page.domains.add_title")}
+          </CardTitle>
+          <CardDescription>{t("page.domains.add_desc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleAddDomain} className="flex gap-3 max-w-md">
@@ -111,7 +129,7 @@ export function DomainListPage() {
             />
             <Button type="submit" disabled={isAdding}>
               <Plus className="h-4 w-4 mr-1" />
-              {isAdding ? "添加中..." : "添加域名"}
+              {isAdding ? t("page.domains.adding") : t("page.domains.add")}
             </Button>
           </form>
         </CardContent>
@@ -124,13 +142,10 @@ export function DomainListPage() {
             <div className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-emerald-500" />
               <CardTitle className="text-base">
-                域名已添加！请配置以下 DNS 解析记录
+                {t("page.domains.dns_title")}
               </CardTitle>
             </div>
-            <CardDescription>
-              前往您的域名注册商（如 Cloudflare,
-              阿里云）添加下列记录以完成邮件投递与 SPF/DKIM 认证
-            </CardDescription>
+            <CardDescription>{t("page.domains.dns_desc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 font-mono text-xs">
             <div className="p-3 bg-card border rounded flex items-center justify-between">
@@ -199,13 +214,13 @@ export function DomainListPage() {
       {/* Domain List Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">已绑定域名</CardTitle>
+          <CardTitle className="text-base">{t("page.domains.bound")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md divide-y">
             {domains.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">
-                暂无域名，请先添加域名
+                {t("page.domains.empty")}
               </div>
             ) : (
               domains.map((d) => (
@@ -221,7 +236,9 @@ export function DomainListPage() {
                         <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 rounded">
                           {d.status}
                         </span>
-                        <span>模式: {d.mode}</span>
+                        <span>
+                          {t("page.domains.mode")}: {d.mode}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -230,7 +247,7 @@ export function DomainListPage() {
                     size="sm"
                     variant="ghost"
                     className="text-destructive hover:bg-destructive/10"
-                    onClick={() => handleDelete(d.id)}
+                    onClick={() => setDeleteTarget(d)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -240,6 +257,25 @@ export function DomainListPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t("page.domains.delete_confirm_title")}
+        description={t("page.domains.delete_confirm")}
+        confirmLabel={t("action.delete")}
+        destructive
+        onConfirm={() =>
+          deleteTarget ? handleDelete(deleteTarget) : Promise.resolve()
+        }
+      />
+
+      <NoticeDialog
+        open={notice !== null}
+        onOpenChange={(open) => !open && setNotice(null)}
+        message={notice?.message ?? ""}
+        variant={notice?.variant}
+      />
     </div>
   );
 }
