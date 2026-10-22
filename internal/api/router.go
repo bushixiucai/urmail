@@ -134,6 +134,7 @@ func New(opts Options) *gin.Engine {
 			platform.Use(middleware.RequireAuth(authQueries))
 			platform.Use(middleware.RequirePlatformAdmin(authQueries))
 			platform.Use(middleware.RequireCSRF())
+			platform.Use(middleware.AuditPlatform(opts.Audit, opts.Logger))
 			{
 				platform.GET("/overview", platformHandler.Overview)
 				platform.GET("/tenants", platformHandler.ListTenants)
