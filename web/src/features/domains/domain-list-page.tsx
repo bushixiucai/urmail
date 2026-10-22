@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Globe, Plus, Trash2, CheckCircle, Copy, Check } from "lucide-react";
+import {
+  Globe,
+  Plus,
+  Trash2,
+  CheckCircle,
+  Copy,
+  Check,
+  Power,
+} from "lucide-react";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
@@ -96,6 +104,18 @@ export function DomainListPage() {
         variant: "error",
         message: t("page.domains.verify_failed") + ": " + errorMessage(err),
       });
+    }
+  };
+
+  const handleToggleStatus = async (domain: DomainItem) => {
+    try {
+      await request("/api/v1/domains/" + domain.id, {
+        method: "PATCH",
+        body: { status: domain.status === "disabled" ? "active" : "disabled" },
+      });
+      fetchDomains();
+    } catch (err: unknown) {
+      setNotice({ variant: "error", message: errorMessage(err) });
     }
   };
 
@@ -303,6 +323,18 @@ export function DomainListPage() {
                       >
                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
                         {t("page.domains.verify")}
+                      </Button>
+                    )}
+                    {(d.status === "active" || d.status === "disabled") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleToggleStatus(d)}
+                      >
+                        <Power className="h-3.5 w-3.5 mr-1" />
+                        {d.status === "active"
+                          ? t("page.domains.disable")
+                          : t("page.domains.enable")}
                       </Button>
                     )}
                     <Button
