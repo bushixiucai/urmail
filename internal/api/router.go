@@ -87,6 +87,13 @@ func New(opts Options) *gin.Engine {
 	auditHandler := handlers.NewAuditHandler(appQueries)
 	billingHandler := handlers.NewBillingHandler(appQueries)
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
+	legacyTenantID := int64(1)
+	if platformQueries != nil {
+		if tenants, err := platformQueries.PlatformListTenants(context.Background()); err == nil && len(tenants) > 0 {
+			legacyTenantID = tenants[0].ID
+		}
+	}
+	legacyHandler := handlers.NewLegacyHandler(authQueries, platformQueries, legacyTenantID, opts.Version)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -100,6 +107,21 @@ func New(opts Options) *gin.Engine {
 			// Second MFA login leg: authenticated by the short-lived
 			// one-time mfa_token, not a session.
 			authGroup.POST("/mfa/verify", authHandler.MFAVerify)
+		}
+
+		// Legacy Mail-in-a-Box API. Basic auth; platform administrators only.
+		if authQueries != nil && platformQueries != nil {
+			legacy := v1.Group("/admin")
+			{
+				legacy.GET("/system/status", legacyHandler.Status)
+				legacy.GET("/system/version", legacyHandler.VersionInfo)
+				legacy.GET("/mail/users", legacyHandler.MailUsers)
+				legacy.GET("/mail/domains", legacyHandler.MailDomains)
+				legacy.GET("/mail/aliases", legacyHandler.MailAliases)
+				legacy.GET("/dns/zones", legacyHandler.DNSZones)
+				legacy.POST("/mail/users/add", legacyHandler.AddMailUser)
+				legacy.POST("/mail/aliases/add", legacyHandler.AddMailAlias)
+			}
 		}
 
 		// Platform administration. These routes deliberately run outside
@@ -185,6 +207,21 @@ func New(opts Options) *gin.Engine {
 			protected.POST("/archive/:id/release", middleware.RequireRole("owner", "admin"), archiveHandler.ClearHold)
 			protected.DELETE("/archive/:id", middleware.RequireRole("owner", "admin"), archiveHandler.Delete)
 
+		}
+	}
+
+	// The legacy Mail-in-a-Box UI calls /admin/* directly, outside /api/v1.
+	if authQueries != nil && platformQueries != nil {
+		legacyRoot := engine.Group("/admin")
+		{
+			legacyRoot.GET("/system/status", legacyHandler.Status)
+			legacyRoot.GET("/system/version", legacyHandler.VersionInfo)
+			legacyRoot.GET("/mail/users", legacyHandler.MailUsers)
+			legacyRoot.GET("/mail/domains", legacyHandler.MailDomains)
+			legacyRoot.GET("/mail/aliases", legacyHandler.MailAliases)
+			legacyRoot.GET("/dns/zones", legacyHandler.DNSZones)
+			legacyRoot.POST("/mail/users/add", legacyHandler.AddMailUser)
+			legacyRoot.POST("/mail/aliases/add", legacyHandler.AddMailAlias)
 		}
 	}
 
