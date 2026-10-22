@@ -50,6 +50,7 @@ func Recover(logger *zap.Logger) gin.HandlerFunc {
 					zap.Any("panic", recovered),
 					zap.String("path", c.Request.URL.Path),
 					zap.String("request_id", c.GetString(string(RequestIDContextKey))),
+					zap.Stack("stack"),
 				)
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error": gin.H{"code": "INTERNAL_ERROR"},
@@ -66,14 +67,21 @@ func AccessLog(logger *zap.Logger) gin.HandlerFunc {
 		started := time.Now()
 		c.Next()
 
-		logger.Info("http request",
+		fields := []zap.Field{
 			zap.String("method", c.Request.Method),
 			zap.String("path", c.Request.URL.Path),
 			zap.Int("status", c.Writer.Status()),
 			zap.Duration("duration", time.Since(started)),
 			zap.String("request_id", c.GetString(string(RequestIDContextKey))),
 			zap.String("client_ip", c.ClientIP()),
-		)
+		}
+		if tenantID, ok := GetTenantID(c); ok {
+			fields = append(fields, zap.Int64("tenant_id", tenantID))
+		}
+		if userID, ok := GetUserID(c); ok {
+			fields = append(fields, zap.Int64("user_id", userID))
+		}
+		logger.Info("http request", fields...)
 	}
 }
 
