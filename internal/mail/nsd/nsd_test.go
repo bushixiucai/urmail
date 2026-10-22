@@ -243,3 +243,37 @@ func TestRecordValidationAcceptsValidRecords(t *testing.T) {
 		t.Fatalf("TXT value must be quoted: %s", zone)
 	}
 }
+
+func TestLongTXTSplitsIntoCharacterStrings(t *testing.T) {
+	node := defaultNodeConfig()
+	snap := nsd.Snapshot{Zones: []nsd.Zone{{
+		Domain: "long.example",
+		Mode:   "managed",
+		Serial: 2026102201,
+		Records: []nsd.Record{
+			{Name: "mail._domainkey", Type: "TXT", Value: "v=DKIM1; k=rsa; p=" + strings.Repeat("A", 300)},
+		},
+	}}}
+	out, err := nsd.Generate(node, snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var content string
+	for _, v := range out {
+		if strings.Contains(v, "mail._domainkey") {
+			content = v
+		}
+	}
+	if content == "" {
+		t.Fatal("zone content not generated")
+	}
+	line := ""
+	for _, candidate := range strings.Split(content, "\n") {
+		if strings.Contains(candidate, "mail._domainkey") {
+			line = candidate
+		}
+	}
+	if strings.Count(line, "\"") < 4 {
+		t.Fatalf("long TXT was not split: %s", line)
+	}
+}

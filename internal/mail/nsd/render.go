@@ -14,6 +14,30 @@ func escapeZoneQuoted(v string) string {
 	return v
 }
 
+// txtStrings renders a TXT value as one or more 255-octet character-strings.
+// DNS limits each character-string to 255 bytes; DKIM public keys routinely
+// exceed that and must be split or nsd-checkzone rejects the zone.
+func txtStrings(value string) string {
+	if len(value) <= 255 {
+		return "\"" + escapeZoneQuoted(value) + "\""
+	}
+	var b strings.Builder
+	for len(value) > 0 {
+		n := 255
+		if len(value) < n {
+			n = len(value)
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString("\"")
+		b.WriteString(escapeZoneQuoted(value[:n]))
+		b.WriteString("\"")
+		value = value[n:]
+	}
+	return b.String()
+}
+
 func renderZonesConf(snap Snapshot) string {
 	zones := make([]string, 0, len(snap.Zones))
 	for _, z := range snap.Zones {
@@ -102,7 +126,7 @@ func renderZoneFile(node NodeConfig, z Zone) string {
 			if r.Type == "MX" {
 				b.WriteString(fmt.Sprintf("%s %sIN MX %d %s\n", name, ttlStr, r.Prio, r.Value))
 			} else if r.Type == "TXT" {
-				b.WriteString(fmt.Sprintf("%s %sIN TXT \"%s\"\n", name, ttlStr, r.Value))
+				b.WriteString(fmt.Sprintf("%s %sIN TXT %s\n", name, ttlStr, txtStrings(r.Value)))
 			} else {
 				b.WriteString(fmt.Sprintf("%s %sIN %s %s\n", name, ttlStr, r.Type, r.Value))
 			}
