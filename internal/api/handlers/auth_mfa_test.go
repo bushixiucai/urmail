@@ -199,11 +199,13 @@ func newMFATestRouter(st *fakeAuthStore) *gin.Engine {
 	authed := r.Group("/api/v1")
 	authed.Use(func(c *gin.Context) {
 		c.Set(middleware.ContextUserID, st.currentUser)
+		c.Set(middleware.ContextSession, store.Sessions{ID: "current", UserID: st.currentUser})
 		c.Next()
 	})
 	authed.POST("/auth/mfa/setup", h.MFASetup)
 	authed.POST("/auth/mfa/enable", h.MFAEnable)
 	authed.POST("/auth/mfa/disable", h.MFADisable)
+	authed.POST("/auth/password", h.ChangePassword)
 	return r
 }
 
@@ -462,3 +464,45 @@ func generateDeterministicCode(t *testing.T) string {
 }
 
 var _ = bytes.MinRead // keep bytes import if unused by future edits
+
+func TestChangePasswordRevokesOtherSessions(t *testing.T) {
+	resetMFAState()
+	st := newFakeAuthStore()
+	id := st.addUser(t, "pw@example.test", false, "", nil)
+	st.currentUser = id
+	st.sessions["current"] = store.Sessions{ID: "current", UserID: id}
+	st.sessions["other"] = store.Sessions{ID: "other", UserID: id}
+
+	r := newMFATestRouter(st)
+	code, _ := postJSON(t, r, "/api/v1/auth/password",
+		`{"current_password":"correct-horse","new_password":"new-password-12345"}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if _, ok := st.sessions["other"]; ok {
+		t.Fatal("other session was not revoked")
+	}
+	if _, ok := st.sessions["current"]; !ok {
+		t.Fatal("current session must be kept")
+	}
+	user, _ := st.GetUserByID(context.Background(), id)
+	if !mail.VerifyPassword("new-password-12345", user.PasswordHash) {
+		t.Fatal("new password was not stored")
+	}
+	if mail.VerifyPassword("correct-horse", user.PasswordHash) {
+		t.Fatal("old password still works")
+	}
+}
+
+func TestChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
+	resetMFAState()
+	st := newFakeAuthStore()
+	id := st.addUser(t, "pw2@example.test", false, "", nil)
+	st.currentUser = id
+	r := newMFATestRouter(st)
+	code, _ := postJSON(t, r, "/api/v1/auth/password",
+		`{"current_password":"wrong","new_password":"new-password-12345"}`)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", code)
+	}
+}
