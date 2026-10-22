@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Mail, Plus, Trash2, KeyRound, HardDrive } from "lucide-react";
+import { Mail, Plus, Trash2, KeyRound, HardDrive, Power } from "lucide-react";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,18 @@ export function MailboxListPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const toggleStatus = async (m: MailboxItem) => {
+    try {
+      await request("/api/v1/mailboxes/" + m.id, {
+        method: "PATCH",
+        body: { status: m.status === "active" ? "disabled" : "active" },
+      });
+      fetchData();
+    } catch (err: unknown) {
+      setNotice({ variant: "error", message: errorMessage(err) });
+    }
+  };
 
   const handleQuota = async (e: FormEvent) => {
     e.preventDefault();
@@ -377,6 +389,16 @@ export function MailboxListPage() {
                     >
                       <HardDrive className="h-3.5 w-3.5 mr-1" />
                       {t("page.mailboxes.quota")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => toggleStatus(m)}
+                    >
+                      <Power className="h-3.5 w-3.5 mr-1" />
+                      {m.status === "active"
+                        ? t("page.mailboxes.disable")
+                        : t("page.mailboxes.enable")}
                     </Button>
                     <Button
                       size="sm"
