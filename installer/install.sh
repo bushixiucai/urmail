@@ -151,6 +151,7 @@ URMAIL_STORAGE_ROOT=/var/mail
 URMAIL_AGENT_SOCKET=/run/urmail/agent.sock
 URMAIL_POLICY_SOCKET=/run/urmail-policy/policy.sock
 URMAIL_POLICY_ENABLED=true
+URMAIL_ARCHIVE_ENABLED=true
 URMAIL_MASTER_KEY_PATH=/etc/urmail/master.key
 URMAIL_LOG_LEVEL=info
 URMAIL_LOCALE=zh-CN

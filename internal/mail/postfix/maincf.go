@@ -39,7 +39,12 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString(fmt.Sprintf("virtual_mailbox_base = %s/mail/mailboxes\n", strings.TrimRight(node.StorageRoot, "/")))
 	b.WriteString("virtual_mailbox_maps = hash:/etc/postfix/urmail/virtual_mailbox.map\n")
 	b.WriteString("virtual_alias_maps = hash:/etc/postfix/urmail/virtual_alias.map\n")
-	b.WriteString("virtual_transport = lmtp:unix:private/dovecot-lmtp\n\n")
+	b.WriteString("virtual_transport = lmtp:unix:private/dovecot-lmtp\n")
+	if node.ArchiveEnabled {
+		b.WriteString("recipient_bcc_maps = hash:/etc/postfix/urmail/archive_bcc.map\n")
+		b.WriteString("transport_maps = hash:/etc/postfix/urmail/archive_transport.map\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString("# SASL Authentication (Dovecot)\n")
 	b.WriteString("smtpd_sasl_type = dovecot\n")

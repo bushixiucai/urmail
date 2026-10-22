@@ -43,11 +43,8 @@ func validateNodeConfig(node NodeConfig) error {
 			return fmt.Errorf("%w: policy socket: %v", ErrInvalidConfig, err)
 		}
 	}
-	if node.ArchiveEnabled {
-		if err := validation.ValidateSocketPath(node.ArchiveSocket); err != nil {
-			return fmt.Errorf("%w: archive socket: %v", ErrInvalidConfig, err)
-		}
-	}
+	// The archive transport is a pipe with an argv path, not a socket; the
+	// legacy ArchiveSocket field is no longer required.
 	return nil
 }
 

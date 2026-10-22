@@ -2,11 +2,13 @@ package postfix
 
 // Target output file paths relative to /etc/postfix.
 const (
-	FileMainCF            = "main.cf"
-	FileMasterCF          = "master.cf"
-	FileVirtualMailboxMap = "urmail/virtual_mailbox.map"
-	FileVirtualAliasMap   = "urmail/virtual_alias.map"
-	FileSenderLoginMap    = "urmail/sender_login.map"
+	FileMainCF              = "main.cf"
+	FileMasterCF            = "master.cf"
+	FileVirtualMailboxMap   = "urmail/virtual_mailbox.map"
+	FileVirtualAliasMap     = "urmail/virtual_alias.map"
+	FileSenderLoginMap      = "urmail/sender_login.map"
+	FileArchiveBCCMap       = "urmail/archive_bcc.map"
+	FileArchiveTransportMap = "urmail/archive_transport.map"
 )
 
 // Generate is a pure function that validates the snapshot and node configuration,
@@ -18,12 +20,16 @@ func Generate(node NodeConfig, snap Snapshot) (map[string]string, error) {
 		return nil, err
 	}
 
-	result := make(map[string]string, 5)
+	result := make(map[string]string, 7)
 	result[FileMainCF] = renderMainCF(node, snap)
 	result[FileMasterCF] = renderMasterCF(node)
 	result[FileVirtualMailboxMap] = renderVirtualMailboxMap(snap)
 	result[FileVirtualAliasMap] = renderVirtualAliasMap(snap)
 	result[FileSenderLoginMap] = renderSenderLoginMap(snap)
+	if node.ArchiveEnabled {
+		result[FileArchiveBCCMap] = renderArchiveBCCMap(snap)
+		result[FileArchiveTransportMap] = renderArchiveTransportMap()
+	}
 
 	return result, nil
 }

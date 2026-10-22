@@ -109,6 +109,10 @@ type Querier interface {
 	// predicate per AGENTS.md (platform_*.sql).
 	// Effective branding source row for a tenant's brand.
 	PlatformGetBrandThemeByTenant(ctx context.Context, id int64) (PlatformGetBrandThemeByTenantRow, error)
+	// Platform-side archive writes. The archive pipe runs outside a tenant
+	// transaction, so these queries live in a platform_*.sql file.
+	PlatformGetMailboxByAddress(ctx context.Context, address string) (PlatformGetMailboxByAddressRow, error)
+	PlatformInsertArchiveEntry(ctx context.Context, arg PlatformInsertArchiveEntryParams) error
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
