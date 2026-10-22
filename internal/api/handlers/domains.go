@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,6 +24,7 @@ type DomainStore interface {
 	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]store.ListDomainsByTenantRow, error)
 	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
 	CreateDomain(ctx context.Context, arg store.CreateDomainParams) (store.CreateDomainRow, error)
+	UpdateDomainStatus(ctx context.Context, arg store.UpdateDomainStatusParams) (store.UpdateDomainStatusRow, error)
 	DeleteDomain(ctx context.Context, arg store.DeleteDomainParams) error
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
@@ -34,6 +38,16 @@ type ReconcileTrigger interface {
 type DomainHandler struct {
 	Store     DomainStore
 	Reconcile ReconcileTrigger
+	// Hostname is the MX target advertised in DNS guidance. It is injected
+	// from config so a non-default deployment does not publish box.urmail.cn.
+	Hostname string
+}
+
+func (h *DomainHandler) mxHost() string {
+	if h.Hostname != "" {
+		return h.Hostname
+	}
+	return "box.urmail.cn"
 }
 
 func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
@@ -57,10 +71,12 @@ type DomainResponse struct {
 // is created. Every value here is public; the DKIM entry is the published
 // public-key TXT record, never the private key.
 type DNSGuidanceResponse struct {
-	MX    string `json:"mx"`
-	SPF   string `json:"spf"`
-	DKIM  string `json:"dkim"`
-	DMARC string `json:"dmarc"`
+	MX                string `json:"mx"`
+	SPF               string `json:"spf"`
+	DKIM              string `json:"dkim"`
+	DMARC             string `json:"dmarc"`
+	VerificationName  string `json:"verification_name"`
+	VerificationValue string `json:"verification_value"`
 }
 
 func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt pgtype.Timestamptz) DomainResponse {
@@ -153,7 +169,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		TenantID:          tenantID,
 		Fqdn:              fqdn,
 		Mode:              mode,
-		Status:            "active",
+		Status:            "pending_dns",
 		VerificationToken: verifToken,
 		TlsMode:           "letsencrypt",
 		DkimSelector:      dkim.Selector,
@@ -176,12 +192,79 @@ func (h *DomainHandler) Create(c *gin.Context) {
 			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt,
 		),
 		"dns_guidance": DNSGuidanceResponse{
-			MX:    "10 box.urmail.cn.",
-			SPF:   "v=spf1 mx -all",
-			DKIM:  dkim.DNSTXT,
-			DMARC: "v=DMARC1; p=quarantine; sp=quarantine; adkim=r; aspf=r;",
+			MX:                fmt.Sprintf("10 %s.", h.mxHost()),
+			SPF:               "v=spf1 mx -all",
+			DKIM:              dkim.DNSTXT,
+			DMARC:             "v=DMARC1; p=quarantine; sp=quarantine; adkim=r; aspf=r;",
+			VerificationName:  "_urmail-verify." + fqdn,
+			VerificationValue: verifToken,
 		},
 	})
+}
+
+// Verify checks the per-domain TXT record and activates the domain. A
+// pending_dns domain is not rendered into Postfix/NSD/nginx until this
+// succeeds, so a tenant cannot claim a domain it does not control.
+func (h *DomainHandler) Verify(c *gin.Context) {
+	q := requestStore(c, h.Store)
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{TenantID: tenantID, ID: id})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "DOMAIN_NOT_FOUND"}})
+		return
+	}
+	if domain.Status == "active" {
+		c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt)})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	records, err := net.DefaultResolver.LookupTXT(ctx, "_urmail-verify."+domain.Fqdn)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{"code": "DOMAIN_VERIFICATION_FAILED", "message": "domain.verification_failed"},
+		})
+		return
+	}
+	verified := false
+	for _, record := range records {
+		if strings.TrimSpace(record) == domain.VerificationToken {
+			verified = true
+			break
+		}
+	}
+	if !verified {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{"code": "DOMAIN_NOT_VERIFIED", "message": "domain.verification_required"},
+		})
+		return
+	}
+
+	updated, err := q.UpdateDomainStatus(c, store.UpdateDomainStatusParams{
+		TenantID:   tenantID,
+		ID:         domain.ID,
+		Status:     "active",
+		VerifiedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if h.Reconcile != nil {
+		h.Reconcile.Trigger()
+	}
+	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt)})
 }
 
 func (h *DomainHandler) Delete(c *gin.Context) {

@@ -96,6 +96,7 @@ func run() error {
 		PlatformPool: platformPool,
 		Messages:     messages,
 		Version:      version,
+		MyHostname:   cfg.MyHostname,
 		Reconcile:    reconcilePipeline,
 	})
 

@@ -131,6 +131,14 @@ func (f *shapeFakeDomainStore) CreateDomain(_ context.Context, arg store.CreateD
 	return f.created, f.createErr
 }
 
+func (f *shapeFakeDomainStore) UpdateDomainStatus(_ context.Context, arg store.UpdateDomainStatusParams) (store.UpdateDomainStatusRow, error) {
+	return store.UpdateDomainStatusRow{
+		ID:       arg.ID,
+		TenantID: arg.TenantID,
+		Status:   arg.Status,
+	}, nil
+}
+
 func (f *shapeFakeDomainStore) DeleteDomain(_ context.Context, _ store.DeleteDomainParams) error {
 	return nil
 }
@@ -343,7 +351,7 @@ func TestDomainCreateResponseShapeHasNoSecrets(t *testing.T) {
 	}
 	assertNoSubstrings(t, raw,
 		"dkim_private_key", "DKIM-PRIVATE-KEY-MATERIAL",
-		"verification_token", "verification-token-secret",
+		"verification_token",
 	)
 
 	// The private key must still be persisted for signing, just not exposed.
@@ -361,7 +369,7 @@ func TestDomainCreateResponseShapeHasNoSecrets(t *testing.T) {
 		t.Fatalf("unexpected domain payload: %v", domain)
 	}
 	guidance := shapeObject(t, body, "dns_guidance")
-	assertKeys(t, guidance, "mx", "spf", "dkim", "dmarc")
+	assertKeys(t, guidance, "mx", "spf", "dkim", "dmarc", "verification_name", "verification_value")
 	if !strings.Contains(guidance["dkim"].(string), "v=DKIM1") {
 		t.Fatalf("expected a public DKIM TXT record, got %v", guidance["dkim"])
 	}

@@ -30,6 +30,8 @@ type Options struct {
 	Messages *i18n.Store
 	// Version is reported by /api/v1/healthz.
 	Version string
+	// MyHostname is the public MX host advertised in domain DNS guidance.
+	MyHostname string
 	// Reconcile is the configuration reconcile trigger.
 	Reconcile handlers.ReconcileTrigger
 }
@@ -69,6 +71,7 @@ func New(opts Options) *gin.Engine {
 	}
 	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
 	domainHandler := handlers.NewDomainHandler(appQueries, opts.Reconcile)
+	domainHandler.Hostname = opts.MyHostname
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 
@@ -117,6 +120,7 @@ func New(opts Options) *gin.Engine {
 			// Domains
 			protected.GET("/domains", domainHandler.List)
 			protected.POST("/domains", middleware.RequireRole("owner", "admin"), domainHandler.Create)
+			protected.POST("/domains/:id/verify", middleware.RequireRole("owner", "admin"), domainHandler.Verify)
 			protected.DELETE("/domains/:id", middleware.RequireRole("owner", "admin"), domainHandler.Delete)
 
 			// Mailboxes
