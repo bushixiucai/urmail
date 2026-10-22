@@ -507,3 +507,191 @@ func TestDovecotRolePermissions(t *testing.T) {
 		t.Fatal("urmail_dovecot must NOT have SELECT on tenants")
 	}
 }
+
+// TestTightenedRLSGrants proves the P0 security fixes from migration 0004:
+// 1. The app role can read its own tenant's audit_logs but can never write them.
+// 2. The app role cannot see another tenant's audit_logs rows.
+// 3. coupons and plans are read-only for the app role (REVOKE INSERT/UPDATE/DELETE).
+// 4. channels and announcements are read-only for the app role (WITH CHECK (false)).
+func TestTightenedRLSGrants(t *testing.T) {
+	url := testDatabaseURL(t)
+	ctx := context.Background()
+
+	applyMigrations(t, url)
+
+	platform, err := db.OpenPlatform(ctx, url)
+	if err != nil {
+		t.Fatalf("open platform pool: %v", err)
+	}
+	defer platform.Close()
+
+	app, err := db.OpenApp(ctx, url)
+	if err != nil {
+		t.Fatalf("open app pool: %v", err)
+	}
+	defer app.Close()
+
+	truncate(t, platform)
+
+	// Seed two tenants and one audit log per tenant via the platform role.
+	tx, err := platform.PlatformTx(ctx)
+	if err != nil {
+		t.Fatalf("begin seed transaction: %v", err)
+	}
+
+	var brandID int64
+	if err := tx.QueryRow(ctx, "INSERT INTO brands (slug, name) VALUES ('rls-brand', 'RLS Brand') RETURNING id").Scan(&brandID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert brand: %v", err)
+	}
+
+	var tenantID, otherTenantID int64
+	if err := tx.QueryRow(ctx, "INSERT INTO tenants (brand_id, name, slug) VALUES ($1, 'RLS Tenant', 'rls-tenant') RETURNING id", brandID).Scan(&tenantID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert tenant: %v", err)
+	}
+	if err := tx.QueryRow(ctx, "INSERT INTO tenants (brand_id, name, slug) VALUES ($1, 'Other Tenant', 'other-tenant') RETURNING id", brandID).Scan(&otherTenantID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert other tenant: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (tenant_id, action) VALUES ($1, 'test.own')", tenantID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert audit log: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (tenant_id, action) VALUES ($1, 'test.other')", otherTenantID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert other audit log: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO coupons (code, kind, value) VALUES ('RLSTEST', 'percent', 10) ON CONFLICT (code) DO NOTHING"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert coupon: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO plans (code, name, price_cents, quota_bytes, mailbox_limit, domain_limit, daily_send_limit) VALUES ('rls-test', '{\"en\":\"RLS\"}', 0, 1, 1, 1, 1) ON CONFLICT (code) DO NOTHING"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert plan: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO channels (brand_id, code, name) VALUES ($1, 'rls-channel', 'RLS Channel') ON CONFLICT (code) DO NOTHING", brandID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert channel: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO announcements (brand_id, title, body) VALUES ($1, '{\"en\":\"Hi\"}', '{\"en\":\"Body\"}')", brandID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("insert announcement: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	// 1. The app role reads its own tenant's audit logs, and only those.
+	tenantTx, err := app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	var count int
+	if err := tenantTx.QueryRow(ctx, "SELECT count(*) FROM audit_logs").Scan(&count); err != nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("tenant read audit_logs: %v", err)
+	}
+	if count != 1 {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("expected to see exactly 1 own audit log, got %d", count)
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 2. The app role can never write audit_logs (WITH CHECK (false)).
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	if _, err := tenantTx.Exec(ctx, "INSERT INTO audit_logs (tenant_id, action) VALUES ($1, 'evil.insert')", tenantID); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to insert audit_logs")
+	}
+	if _, err := tenantTx.Exec(ctx, "UPDATE audit_logs SET action = 'evil.update'"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to update audit_logs")
+	}
+	if _, err := tenantTx.Exec(ctx, "DELETE FROM audit_logs"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to delete audit_logs")
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 3. Another tenant's audit logs are invisible.
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	if err := tenantTx.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id = $1", otherTenantID).Scan(&count); err != nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("cross-tenant read audit_logs: %v", err)
+	}
+	if count != 0 {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("cross-tenant audit log must be invisible, saw %d", count)
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 4. coupons and plans are read-only for the app role.
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	if _, err := tenantTx.Exec(ctx, "INSERT INTO coupons (code, kind, value) VALUES ('EVIL', 'percent', 100)"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to insert coupons")
+	}
+	if _, err := tenantTx.Exec(ctx, "UPDATE coupons SET active = false WHERE code = 'RLSTEST'"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to update coupons")
+	}
+	if _, err := tenantTx.Exec(ctx, "DELETE FROM coupons WHERE code = 'RLSTEST'"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to delete coupons")
+	}
+	if _, err := tenantTx.Exec(ctx, "UPDATE plans SET active = false WHERE code = 'rls-test'"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to update plans")
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// SELECT on coupons and plans must still work.
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	if err := tenantTx.QueryRow(ctx, "SELECT count(*) FROM coupons").Scan(&count); err != nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("tenant read coupons: %v", err)
+	}
+	if err := tenantTx.QueryRow(ctx, "SELECT count(*) FROM plans").Scan(&count); err != nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatalf("tenant read plans: %v", err)
+	}
+	_ = tenantTx.Rollback(ctx)
+
+	// 5. channels and announcements are read-only for the app role.
+	tenantTx, err = app.TenantTx(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("begin tenant transaction: %v", err)
+	}
+	if _, err := tenantTx.Exec(ctx, "INSERT INTO channels (brand_id, code, name) VALUES ($1, 'evil-channel', 'Evil')", brandID); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to insert channels")
+	}
+	if _, err := tenantTx.Exec(ctx, "UPDATE channels SET active = false WHERE code = 'rls-channel'"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to update channels")
+	}
+	if _, err := tenantTx.Exec(ctx, "INSERT INTO announcements (brand_id, title, body) VALUES ($1, '{\"en\":\"Evil\"}', '{\"en\":\"Evil\"}')", brandID); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to insert announcements")
+	}
+	if _, err := tenantTx.Exec(ctx, "UPDATE announcements SET published_at = now()"); err == nil {
+		_ = tenantTx.Rollback(ctx)
+		t.Fatal("tenant MUST NOT be able to update announcements")
+	}
+	_ = tenantTx.Rollback(ctx)
+}
