@@ -42,6 +42,10 @@ func New(opts Options) *gin.Engine {
 
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
+	// The bundled assets are served with their real content type. Everything
+	// else falls through to the single-page application.
+	engine.GET("/assets/*filepath", gin.WrapH(web.AssetHandler()))
+
 	v1 := engine.Group("/api/v1")
 	{
 		v1.GET("/healthz", healthz(opts))
@@ -53,6 +57,11 @@ func New(opts Options) *gin.Engine {
 	engine.NoRoute(func(c *gin.Context) {
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
+			return
+		}
+		// A missing asset is a missing asset, not a client-side route.
+		if web.IsAssetPath(c.Request.URL.Path) {
+			c.Status(http.StatusNotFound)
 			return
 		}
 		web.ServeIndex(c)

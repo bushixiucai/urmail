@@ -27,6 +27,18 @@ func Handler() http.Handler {
 	return http.FileServer(http.FS(FS()))
 }
 
+// AssetHandler serves the embedded static assets.
+//
+// It is mounted under /assets/ so that the bundler's file names, which carry
+// a content hash, are served with their real content type.
+func AssetHandler() http.Handler {
+	sub, err := fs.Sub(distFS, "dist/assets")
+	if err != nil {
+		return http.NotFoundHandler()
+	}
+	return http.StripPrefix("/assets/", http.FileServer(http.FS(sub)))
+}
+
 // ServeIndex writes index.html for a client-side route.
 func ServeIndex(c *gin.Context) {
 	index, err := distFS.ReadFile("dist/index.html")
