@@ -7,6 +7,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
+	"github.com/bushixiucai/urmail/internal/mail/opendkim"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 )
 
@@ -22,6 +23,8 @@ type ConfigContext struct {
 
 	NginxNode nginx.NodeConfig
 	NginxSnap nginx.Snapshot
+
+	DKIM opendkim.Snapshot
 }
 
 // RenderAll renders configuration files for Postfix, Dovecot, NSD, and Nginx.
@@ -74,6 +77,15 @@ func RenderAll(ctx ConfigContext) (map[string]string, error) {
 	for rel, content := range ngFiles {
 		abs := filepath.Join("/etc/nginx", rel)
 		result[abs] = content
+	}
+
+	// 5. OpenDKIM: signing keys plus key/signing/trusted-host tables.
+	dkimFiles, err := opendkim.Generate(opendkim.NodeConfig{}, ctx.DKIM)
+	if err != nil {
+		return nil, fmt.Errorf("render opendkim: %w", err)
+	}
+	for path, content := range dkimFiles {
+		result[path] = content
 	}
 
 	return result, nil

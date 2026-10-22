@@ -6,13 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/config"
+	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/mail"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
+	"github.com/bushixiucai/urmail/internal/mail/opendkim"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -22,6 +25,7 @@ type StoreQuerier interface {
 	PlatformListDomains(ctx context.Context) ([]store.PlatformListDomainsRow, error)
 	PlatformListMailboxes(ctx context.Context) ([]store.PlatformListMailboxesRow, error)
 	PlatformListAliases(ctx context.Context) ([]store.PlatformListAliasesRow, error)
+	PlatformListDKIMDomains(ctx context.Context) ([]store.PlatformListDKIMDomainsRow, error)
 }
 
 // AssembleConfigContext builds the complete ConfigContext for all mail services
@@ -40,6 +44,28 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	aliases, err := q.PlatformListAliases(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list aliases for snapshot: %w", err)
+	}
+
+	dkimRows, err := q.PlatformListDKIMDomains(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list DKIM domains for snapshot: %w", err)
+	}
+	dkimDomains := make([]opendkim.DomainKey, 0, len(dkimRows))
+	dkimByDomain := make(map[string]opendkim.DomainKey, len(dkimRows))
+	for _, row := range dkimRows {
+		if !row.DkimPrivateKey.Valid || row.DkimPrivateKey.String == "" {
+			continue
+		}
+		dkimDomains = append(dkimDomains, opendkim.DomainKey{
+			Domain:     row.Fqdn,
+			Selector:   row.DkimSelector,
+			PrivateKey: row.DkimPrivateKey.String,
+		})
+		dkimByDomain[strings.ToLower(row.Fqdn)] = opendkim.DomainKey{
+			Domain:     row.Fqdn,
+			Selector:   row.DkimSelector,
+			PrivateKey: row.DkimPrivateKey.String,
+		}
 	}
 
 	hostname := cfg.MyHostname
@@ -98,10 +124,23 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		if d.UpdatedAt.Valid {
 			updated = d.UpdatedAt.Time.UTC()
 		}
+		var records []nsd.Record
+		if dk, ok := dkimByDomain[strings.ToLower(d.Fqdn)]; ok {
+			txt, err := domainMail.PublicKeyTXT(dk.PrivateKey)
+			if err != nil {
+				return nil, fmt.Errorf("derive DKIM public key for %s: %w", d.Fqdn, err)
+			}
+			records = append(records, nsd.Record{
+				Name:  dk.Selector + "._domainkey",
+				Type:  "TXT",
+				Value: txt,
+			})
+		}
 		nsdZones = append(nsdZones, nsd.Zone{
-			Domain: d.Fqdn,
-			Mode:   "managed",
-			Serial: ZoneSerial(updated),
+			Domain:  d.Fqdn,
+			Mode:    "managed",
+			Serial:  ZoneSerial(updated),
+			Records: records,
 		})
 	}
 
@@ -180,6 +219,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			BackendHTTP: withHTTPScheme(cfg.ListenAddr),
 		},
 		NginxSnap: nginx.Snapshot{Domains: nginxDomains},
+
+		DKIM: opendkim.Snapshot{Domains: dkimDomains},
 	}, nil
 }
 

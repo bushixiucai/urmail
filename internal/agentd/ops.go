@@ -26,6 +26,8 @@ var allowedWriteRoots = []string{
 	"/etc/nginx/conf.d/urmail",
 	"/etc/nsd/nsd.conf.d",
 	"/etc/nsd/zones",
+	"/etc/opendkim",
+	"/etc/opendkim/keys",
 	"/var/lib/urmail",
 }
 
@@ -95,30 +97,35 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	if strings.HasSuffix(written, "db.conf") {
-		if err := chownDovecot(written); err != nil {
+	switch {
+	case strings.HasSuffix(written, "db.conf"):
+		if err := chownGroup(written, "dovecot"); err != nil {
+			return "", "", err
+		}
+	case strings.HasSuffix(written, ".private") && strings.Contains(written, "/opendkim/keys/"):
+		if err := chownGroup(written, "opendkim"); err != nil {
 			return "", "", err
 		}
 	}
 	return written, "", nil
 }
 
-// chownDovecot gives the Dovecot auth worker read access to the credential
-// file. The file is 0640 root:dovecot, not 0600, because the SQL auth worker
-// runs as the dovecot user. The agent runs as root, so it can perform the
-// chown; if Dovecot is not installed the group is absent and the file stays
-// root:mailinabox (still 0640, never world-readable).
-func chownDovecot(path string) error {
-	group, err := user.LookupGroup("dovecot")
+// chownGroup gives a daemon read access to a secret file. The file is 0640
+// root:<group>, never 0600 root:root, because the consuming daemon runs
+// unprivileged. The agent runs as root, so it can perform the chown; if the
+// group is absent (e.g. on a development host) the file stays
+// root:mailinabox, still 0640 and never world-readable.
+func chownGroup(path, groupName string) error {
+	group, err := user.LookupGroup(groupName)
 	if err != nil {
 		return nil
 	}
 	gid, err := strconv.Atoi(group.Gid)
 	if err != nil {
-		return fmt.Errorf("%w: parse dovecot gid %q: %v", ErrFailed, group.Gid, err)
+		return fmt.Errorf("%w: parse %s gid %q: %v", ErrFailed, groupName, group.Gid, err)
 	}
 	if err := os.Chown(path, 0, gid); err != nil {
-		return fmt.Errorf("%w: chown %s to root:dovecot: %v", ErrFailed, path, err)
+		return fmt.Errorf("%w: chown %s to root:%s: %v", ErrFailed, path, groupName, err)
 	}
 	return nil
 }
@@ -308,11 +315,13 @@ func resolvePostmapFile(path, root string) (string, error) {
 // conflicting mode is rejected (M2 review P1-2). Separated from WriteFile so
 // it can be tested without touching the real filesystem.
 func enforceSensitiveFileMode(path string, mode os.FileMode, requested string) (os.FileMode, error) {
-	if !strings.HasSuffix(path, "db.conf") {
+	sensitive := strings.HasSuffix(path, "db.conf") ||
+		(strings.HasSuffix(path, ".private") && strings.Contains(path, "/opendkim/keys/"))
+	if !sensitive {
 		return mode, nil
 	}
-	// 0640 root:dovecot: the auth worker runs as dovecot and must read the
-	// SQL password, while other local users must not.
+	// 0640 root:<daemon group>: the consumer runs unprivileged and must read
+	// the secret, while other local users must not.
 	if requested == "" {
 		return 0o640, nil
 	}

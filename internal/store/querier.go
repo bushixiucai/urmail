@@ -113,6 +113,10 @@ type Querier interface {
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
 	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
+	// Platform query for DKIM signing configuration.
+	// Exempt from the tenant_id predicate per AGENTS.md (platform_*.sql): the
+	// reconcile worker needs every active domain's key to build the signing table.
+	PlatformListDKIMDomains(ctx context.Context) ([]PlatformListDKIMDomainsRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListDomains(ctx context.Context) ([]PlatformListDomainsRow, error)

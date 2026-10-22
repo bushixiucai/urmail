@@ -27,6 +27,13 @@ smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
 smtpd_sasl_auth_enable = yes
 
+# DKIM signing through OpenDKIM on loopback. If the milter is down,
+# accept the message unsigned instead of blocking mail delivery.
+milter_default_action = accept
+milter_protocol = 6
+smtpd_milters = inet:127.0.0.1:12301
+non_smtpd_milters = inet:127.0.0.1:12301
+
 # Sender login restrictions
 smtpd_sender_login_maps = hash:/etc/postfix/urmail/sender_login.map
 smtpd_sender_restrictions =

@@ -21,12 +21,14 @@ fi
 install -d "$STAGE/DEBIAN"
 install -d "$STAGE/usr/bin"
 install -d "$STAGE/lib/systemd/system"
+install -d "$STAGE/etc/systemd/system/opendkim.service.d"
 install -d "$STAGE/etc/urmail"
 install -d "$STAGE/etc/nginx/conf.d/urmail"
 install -d "$STAGE/etc/nginx/snippets"
 install -d "$STAGE/etc/dovecot/conf.d"
 install -d "$STAGE/etc/nsd/nsd.conf.d"
 install -d "$STAGE/etc/postfix/urmail"
+install -d "$STAGE/etc/opendkim/keys"
 install -d "$STAGE/usr/share/urmail"
 
 install -m 0755 "$ROOT/bin/urmaild" "$STAGE/usr/bin/urmaild"
@@ -35,6 +37,7 @@ install -m 0755 "$ROOT/bin/urmailctl" "$STAGE/usr/bin/urmailctl"
 
 install -m 0644 "$ROOT/packaging/systemd/urmaild.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmaild-agent.service" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/opendkim.service.d/urmail.conf" "$STAGE/etc/systemd/system/opendkim.service.d/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail-ssl.conf" "$STAGE/etc/nginx/snippets/urmail-ssl.conf"
@@ -71,6 +74,7 @@ install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/certs
 install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/backups
 install -d -o root -g mailinabox -m 0750 /etc/urmail
 install -d -m 0755 /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d /etc/postfix/urmail
+install -d -o root -g opendkim -m 0750 /etc/opendkim /etc/opendkim/keys
 
 # The Debian nsd package does not always include nsd.conf.d; add the drop-in
 # once so generated zones are loaded.

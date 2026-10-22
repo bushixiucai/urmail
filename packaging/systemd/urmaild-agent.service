@@ -43,7 +43,7 @@ RestrictAddressFamilies=AF_UNIX
 LockPersonality=yes
 SystemCallArchitectures=native
 
-ReadWritePaths=/etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /var/lib/urmail /run/urmail /var/mail
+ReadWritePaths=/etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /etc/opendkim /etc/opendkim/keys /var/lib/urmail /run/urmail /var/mail
 
 [Install]
 WantedBy=multi-user.target

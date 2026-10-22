@@ -43,6 +43,12 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("smtpd_sasl_type = dovecot\n")
 	b.WriteString("smtpd_sasl_path = private/auth\n")
 	b.WriteString("smtpd_sasl_auth_enable = yes\n\n")
+	b.WriteString("# DKIM signing through OpenDKIM on loopback. If the milter is down,\n")
+	b.WriteString("# accept the message unsigned instead of blocking mail delivery.\n")
+	b.WriteString("milter_default_action = accept\n")
+	b.WriteString("milter_protocol = 6\n")
+	b.WriteString("smtpd_milters = inet:127.0.0.1:12301\n")
+	b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
 
 	b.WriteString("# Sender login restrictions\n")
 	b.WriteString("smtpd_sender_login_maps = hash:/etc/postfix/urmail/sender_login.map\n")

@@ -174,7 +174,7 @@ func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger
 }
 
 // reloadUnits are the services affected by rendered configuration files.
-var reloadUnits = []string{"postfix", "dovecot", "nginx", "nsd"}
+var reloadUnits = []string{"opendkim", "postfix", "dovecot", "nginx", "nsd"}
 
 // pushRenderedConfigs writes every rendered file through the privileged
 // agent and restarts the mail services. Any failure aborts the push so the

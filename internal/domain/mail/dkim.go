@@ -17,6 +17,33 @@ type DKIMKeyPair struct {
 	DNSTXT     string // Full DNS TXT value e.g. "v=DKIM1; k=rsa; p=MIGfMA0GCS..."
 }
 
+// PublicKeyTXT derives the DKIM DNS TXT value from a stored PEM private key.
+func PublicKeyTXT(privatePEM string) (string, error) {
+	block, _ := pem.Decode([]byte(privatePEM))
+	if block == nil {
+		return "", fmt.Errorf("decode DKIM private key: no PEM block")
+	}
+	var key *rsa.PrivateKey
+	if parsed, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		key = parsed
+	} else {
+		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return "", fmt.Errorf("parse DKIM private key: %w", err)
+		}
+		rsaKey, ok := parsed.(*rsa.PrivateKey)
+		if !ok {
+			return "", fmt.Errorf("parse DKIM private key: not an RSA key")
+		}
+		key = rsaKey
+	}
+	pubBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("marshal DKIM public key: %w", err)
+	}
+	return "v=DKIM1; k=rsa; p=" + base64.StdEncoding.EncodeToString(pubBytes), nil
+}
+
 // GenerateDKIMKeypair generates a 2048-bit RSA keypair for DKIM signing.
 func GenerateDKIMKeypair(selector string) (*DKIMKeyPair, error) {
 	if selector == "" {

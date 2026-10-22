@@ -38,6 +38,10 @@ func (m *mockQuerier) PlatformListAliases(ctx context.Context) ([]store.Platform
 	}, nil
 }
 
+func (m *mockQuerier) PlatformListDKIMDomains(ctx context.Context) ([]store.PlatformListDKIMDomainsRow, error) {
+	return nil, nil
+}
+
 func TestAssembleConfigContextAndRender(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{
