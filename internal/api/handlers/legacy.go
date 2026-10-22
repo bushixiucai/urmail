@@ -8,13 +8,20 @@ package handlers
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -30,6 +37,10 @@ type LegacyStore interface {
 	GetDomainByFQDN(ctx context.Context, arg store.GetDomainByFQDNParams) (store.GetDomainByFQDNRow, error)
 	CreateMailbox(ctx context.Context, arg store.CreateMailboxParams) (store.Mailboxes, error)
 	CreateAlias(ctx context.Context, arg store.CreateAliasParams) (store.MailboxAliases, error)
+	GetMailboxByAddress(ctx context.Context, arg store.GetMailboxByAddressParams) (store.Mailboxes, error)
+	UpdateMailboxPassword(ctx context.Context, arg store.UpdateMailboxPasswordParams) (store.Mailboxes, error)
+	DeleteMailbox(ctx context.Context, arg store.DeleteMailboxParams) error
+	DeleteAlias(ctx context.Context, arg store.DeleteAliasParams) error
 }
 
 type LegacyHandler struct {
@@ -245,4 +256,130 @@ func (h *LegacyHandler) AddMailAlias(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"address": alias.LocalPart + "@" + domain.Fqdn, "forward_to": alias.Target})
+}
+
+func (h *LegacyHandler) RemoveMailUser(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(c.PostForm("email")))
+	box, err := h.Store.GetMailboxByAddress(c, store.GetMailboxByAddressParams{TenantID: h.TenantID, Address: email})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "mailbox not found"})
+		return
+	}
+	if err := h.Store.DeleteMailbox(c, store.DeleteMailboxParams{TenantID: h.TenantID, ID: box.ID}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *LegacyHandler) SetMailUserPassword(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(c.PostForm("email")))
+	password := c.PostForm("password")
+	if password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	box, err := h.Store.GetMailboxByAddress(c, store.GetMailboxByAddressParams{TenantID: h.TenantID, Address: email})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "mailbox not found"})
+		return
+	}
+	hash, err := mail.HashPassword(password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash"})
+		return
+	}
+	if _, err := h.Store.UpdateMailboxPassword(c, store.UpdateMailboxPasswordParams{
+		TenantID: h.TenantID, ID: box.ID, PasswordHash: hash,
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *LegacyHandler) RemoveMailAlias(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	address := strings.ToLower(strings.TrimSpace(c.PostForm("address")))
+	at := strings.LastIndexByte(address, '@')
+	if at <= 0 || at == len(address)-1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	domain, err := h.Store.GetDomainByFQDN(c, store.GetDomainByFQDNParams{TenantID: h.TenantID, Fqdn: address[at+1:]})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
+		return
+	}
+	aliases, err := h.Store.ListAliasesByTenant(c, h.TenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db"})
+		return
+	}
+	for _, alias := range aliases {
+		if alias.DomainID == domain.ID && alias.LocalPart == address[:at] {
+			if err := h.Store.DeleteAlias(c, store.DeleteAliasParams{TenantID: h.TenantID, ID: alias.ID}); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "alias not found"})
+}
+
+func (h *LegacyHandler) SSLStatus(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	matches, _ := filepath.Glob(filepath.Join(certs.DomainCertDir, "*.cert"))
+	out := make([]gin.H, 0, len(matches))
+	for _, path := range matches {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		block, _ := pem.Decode(raw)
+		if block == nil {
+			continue
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		out = append(out, gin.H{
+			"domain":      strings.TrimSuffix(filepath.Base(path), ".cert"),
+			"not_after":   leaf.NotAfter.UTC().Format(time.RFC3339),
+			"issuer":      leaf.Issuer.CommonName,
+			"self_signed": leaf.Issuer.CommonName == leaf.Subject.CommonName,
+		})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LegacyHandler) ZoneFile(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	zone := strings.ToLower(strings.TrimSpace(c.Param("zone")))
+	if !validation.IsValidHostname(zone) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid zone"})
+		return
+	}
+	path := filepath.Join("/etc/nsd/zones", zone+".txt")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "zone not found"})
+		return
+	}
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", raw)
 }

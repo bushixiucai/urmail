@@ -128,6 +128,11 @@ func New(opts Options) *gin.Engine {
 				legacy.GET("/dns/zones", legacyHandler.DNSZones)
 				legacy.POST("/mail/users/add", legacyHandler.AddMailUser)
 				legacy.POST("/mail/aliases/add", legacyHandler.AddMailAlias)
+				legacy.POST("/mail/users/remove", legacyHandler.RemoveMailUser)
+				legacy.POST("/mail/users/password", legacyHandler.SetMailUserPassword)
+				legacy.POST("/mail/aliases/remove", legacyHandler.RemoveMailAlias)
+				legacy.GET("/ssl/status", legacyHandler.SSLStatus)
+				legacy.GET("/dns/zonefile/:zone", legacyHandler.ZoneFile)
 			}
 		}
 
@@ -250,6 +255,11 @@ func New(opts Options) *gin.Engine {
 			legacyRoot.GET("/dns/zones", legacyHandler.DNSZones)
 			legacyRoot.POST("/mail/users/add", legacyHandler.AddMailUser)
 			legacyRoot.POST("/mail/aliases/add", legacyHandler.AddMailAlias)
+			legacyRoot.POST("/mail/users/remove", legacyHandler.RemoveMailUser)
+			legacyRoot.POST("/mail/users/password", legacyHandler.SetMailUserPassword)
+			legacyRoot.POST("/mail/aliases/remove", legacyHandler.RemoveMailAlias)
+			legacyRoot.GET("/ssl/status", legacyHandler.SSLStatus)
+			legacyRoot.GET("/dns/zonefile/:zone", legacyHandler.ZoneFile)
 		}
 	}
 
