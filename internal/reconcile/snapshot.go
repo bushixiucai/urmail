@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/config"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/mail"
@@ -147,8 +148,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	// 3. Nginx Snapshot
 	nginxDomains := make([]nginx.DomainConfig, 0, len(domains))
 	for _, d := range domains {
-		domainCert := filepath.Join(storageRoot, "ssl", d.Fqdn+".cert")
-		domainKey := filepath.Join(storageRoot, "ssl", d.Fqdn+".key")
+		domainCert := filepath.Join(certs.DomainCertDir, d.Fqdn+".cert")
+		domainKey := filepath.Join(certs.DomainCertDir, d.Fqdn+".key")
 		// Do not emit a server block whose certificate does not exist yet:
 		// nginx -t would fail and block every other tenant's configuration.
 		// The certificate worker (F3) adds the block after issuance.

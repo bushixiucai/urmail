@@ -22,6 +22,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
+	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/i18n"
@@ -115,6 +116,9 @@ func run() error {
 	// domain or mailbox changes and pushes them through the privileged
 	// agent, followed by the affected service reloads.
 	reconcilePipeline := reconcile.NewPipeline(cfg, store.New(platformPool.Pool), cfg.PublicIPv4, cfg.Nameservers).WithLogger(logger)
+	reconcilePipeline.WithCertificateEnsurer(func(ctx context.Context) error {
+		return ensureDomainCertificates(ctx, store.New(platformPool.Pool), cfg.MasterKeyPath, logger)
+	})
 	go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
 		return pushRenderedConfigs(ctx, cfg.AgentSocket, files, logger)
 	})
@@ -164,6 +168,25 @@ func run() error {
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	return nil
+}
+
+// ensureDomainCertificates creates a self-signed placeholder for every active
+// domain so nginx has a valid certificate while ACME is pending. ACME
+// certificates at the same paths are never overwritten.
+func ensureDomainCertificates(ctx context.Context, q *store.Queries, masterKeyPath string, logger *zap.Logger) error {
+	domains, err := q.PlatformListDomains(ctx)
+	if err != nil {
+		return fmt.Errorf("list domains for certificates: %w", err)
+	}
+	for _, d := range domains {
+		if d.Status != "active" {
+			continue
+		}
+		if _, _, err := certs.EnsureDomainCertificate(masterKeyPath, d.Fqdn); err != nil {
+			logger.Warn("ensure domain certificate", zap.String("domain", d.Fqdn), zap.Error(err))
+		}
 	}
 	return nil
 }

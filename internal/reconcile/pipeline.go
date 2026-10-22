@@ -18,6 +18,7 @@ type Pipeline struct {
 	publicIPv4  string
 	nameservers []string
 	log         *zap.Logger
+	ensureCerts func(context.Context) error
 
 	triggerCh chan struct{}
 	mu        sync.Mutex
@@ -52,6 +53,14 @@ func (p *Pipeline) WithLogger(l *zap.Logger) *Pipeline {
 	return p
 }
 
+// WithCertificateEnsurer runs before each render so newly verified domains
+// have a certificate before nginx server blocks are emitted. Errors are
+// logged and the render proceeds with whatever certificates exist.
+func (p *Pipeline) WithCertificateEnsurer(fn func(context.Context) error) *Pipeline {
+	p.ensureCerts = fn
+	return p
+}
+
 // Trigger queues a reconcile execution. It is non-blocking (coalesces rapid events).
 func (p *Pipeline) Trigger() {
 	select {
@@ -63,6 +72,11 @@ func (p *Pipeline) Trigger() {
 
 // RenderOnce executes one synchronous reconcile cycle, assembling DB snapshot and rendering configs.
 func (p *Pipeline) RenderOnce(ctx context.Context) (map[string]string, error) {
+	if p.ensureCerts != nil {
+		if err := p.ensureCerts(ctx); err != nil {
+			p.log.Warn("domain certificate ensure failed", zap.Error(err))
+		}
+	}
 	mailCtx, err := AssembleConfigContext(ctx, p.cfg, p.querier, p.publicIPv4, p.nameservers)
 	if err != nil {
 		return nil, fmt.Errorf("assemble config context: %w", err)

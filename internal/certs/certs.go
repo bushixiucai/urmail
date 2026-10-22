@@ -160,6 +160,84 @@ func waitForMasterKey(keyPath string) (*rsa.PrivateKey, error) {
 // (partially written by another process).
 var errIncompleteKey = errors.New("master key file incomplete")
 
+// LoadMasterKey reads the master key without changing its permissions. The
+// installer deliberately makes it group-readable by urmaild, so the
+// tightening behavior of LoadOrCreateMasterKey is not appropriate here.
+func LoadMasterKey(keyPath string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("master key is not PEM")
+	}
+	return x509.ParsePKCS1PrivateKey(block.Bytes)
+}
+
+// DomainCertDir is where urmaild keeps self-signed/ACME certificates for
+// tenant domains. It is under the service's ReadWritePaths.
+const DomainCertDir = "/var/lib/urmail/certs/domains"
+
+// EnsureDomainCertificate creates a self-signed certificate/key for fqdn if
+// neither exists. It never overwrites an ACME certificate.
+func EnsureDomainCertificate(masterKeyPath, fqdn string) (string, string, error) {
+	if err := os.MkdirAll(DomainCertDir, 0o750); err != nil {
+		return "", "", fmt.Errorf("create domain cert dir: %w", err)
+	}
+	certPath := filepath.Join(DomainCertDir, fqdn+".cert")
+	keyPath := filepath.Join(DomainCertDir, fqdn+".key")
+	if _, err := os.Stat(certPath); err == nil {
+		if _, err := os.Stat(keyPath); err == nil {
+			return certPath, keyPath, nil
+		}
+	}
+	if masterKeyPath == "" {
+		return "", "", errors.New("master key path is empty")
+	}
+	key, err := LoadMasterKey(masterKeyPath)
+	if err != nil {
+		return "", "", fmt.Errorf("load master key: %w", err)
+	}
+	certPEM, err := GenerateSelfSignedCert(key, fqdn, []string{fqdn}, 365*24*time.Hour)
+	if err != nil {
+		return "", "", err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	if err := writeCertFile(certPath, certPEM, 0o644); err != nil {
+		return "", "", err
+	}
+	if err := writeCertFile(keyPath, keyPEM, 0o600); err != nil {
+		return "", "", err
+	}
+	return certPath, keyPath, nil
+}
+
+func writeCertFile(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".urmail-cert-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
 // GenerateCSR creates a PKCS#10 Certificate Signing Request in PEM format for the given domains.
 func GenerateCSR(key *rsa.PrivateKey, primaryDomain string, sans []string) ([]byte, error) {
 	sanSet := make(map[string]bool)
