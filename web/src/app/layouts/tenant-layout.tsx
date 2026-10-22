@@ -10,8 +10,10 @@ import {
   Building2,
   ShieldCheck,
   Menu,
+  Languages,
 } from "lucide-react";
 import { useAuth } from "@/app/auth-context";
+import { useI18nLocale } from "@/app/providers";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -30,6 +32,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
   const { t } = useTranslation();
   const { user, tenants, currentTenant, switchTenant, logout, isAdmin } =
     useAuth();
+  const { locale, setLocale } = useI18nLocale();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navigation = [
@@ -99,6 +102,16 @@ export function TenantLayout({ children }: TenantLayoutProps) {
             </p>
           </div>
         </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-xs"
+          onClick={() => setLocale(locale === "zh-CN" ? "en" : "zh-CN")}
+        >
+          <Languages className="h-3.5 w-3.5 mr-2" />
+          {locale === "zh-CN" ? "English" : "中文"}
+        </Button>
 
         <Button
           variant="outline"

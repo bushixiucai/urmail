@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Mail, Lock, AlertCircle, ArrowRight } from "lucide-react";
 import { useAuth, User, TenantInfo } from "@/app/auth-context";
+import { useI18nLocale } from "@/app/providers";
 import { ApiRequestError, request } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { login } = useAuth();
+  const { setLocale } = useI18nLocale();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export function LoginPage() {
         data.is_admin,
         data.current_tenant_id,
       );
+      setLocale(data.user.locale || "zh-CN");
       navigate("/");
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
@@ -94,6 +97,7 @@ export function LoginPage() {
         data.is_admin,
         data.current_tenant_id,
       );
+      setLocale(data.user.locale || "zh-CN");
       navigate("/");
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {

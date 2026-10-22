@@ -16,10 +16,22 @@ import { request } from "@/lib/api/client";
  * back to the key when a message is missing.
  */
 export const FALLBACK_LOCALE = "zh-CN";
+export const LOCALE_STORAGE_KEY = "urmail.locale";
 
 interface I18nContextValue {
   locale: string;
   setLocale: (locale: string) => void;
+}
+
+function preferredLocale(): string {
+  try {
+    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (stored) return stored;
+    if (window.navigator.language.toLowerCase().startsWith("en")) return "en";
+  } catch {
+    // Ignore storage/security errors and use the default.
+  }
+  return FALLBACK_LOCALE;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -42,7 +54,17 @@ export function I18nProvider({
   children: ReactNode;
   initialLocale?: string;
 }) {
-  const [locale, setLocale] = useState(initialLocale);
+  const [locale, setLocaleState] = useState(() =>
+    initialLocale === FALLBACK_LOCALE ? preferredLocale() : initialLocale,
+  );
+  const setLocale = (next: string) => {
+    try {
+      window.localStorage.setItem(LOCALE_STORAGE_KEY, next);
+    } catch {
+      // Storage is optional.
+    }
+    setLocaleState(next);
+  };
 
   useEffect(() => {
     let cancelled = false;
