@@ -160,6 +160,47 @@ jobs:
             exit 1
           fi
 
+  package-smoke:
+    name: Package smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Embed frontend
+        run: |
+          rm -rf internal/web/dist
+          cp -R web/dist internal/web/dist
+          touch internal/web/dist/.gitkeep
+
+      - name: Build binaries and deb
+        run: |
+          make build-go
+          bash packaging/deb/build.sh 0.0.0-ci
+
+      - name: Inspect package contents
+        run: |
+          deb=$(ls dist/urmail_0.0.0-ci_*.deb | head -1)
+          dpkg-deb -I "$deb"
+          dpkg-deb -c "$deb" | grep -E 'urmaild$|urmaild-agent$|urmail-archive|urmail-cert-renew.timer|bootstrap.sql'
+          test -f dist/urmail_0.0.0-ci_*.deb
+
   shellcheck:
     name: Shell
     runs-on: ubuntu-24.04
