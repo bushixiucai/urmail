@@ -50,4 +50,13 @@ curl -fsSL https://urmail.cn/install.sh | sudo -E bash
 
 AGPL-3.0。见 [LICENSE](LICENSE)。
 
-> 本项目与 [Mail-in-a-Box](https://github.com/mail-in-a-box/mailinabox) 无隶属关系。仓库早期历史来自一个 Mail-in-a-Box fork，该 fork 的代码以 CC0 1.0 释置于公有领域，相关历史保留在 `legacy/miab-v77` 分支。
+> 本项目与 [Mail-in-a-Box](https://github.com/mail-in-a-box/mailinabox) 无隶属关系。
+>
+> 仓库早期历史来自一个 Mail-in-a-Box fork，其版本脉络为：
+> - **v77** — 上游 Mail-in-a-Box 的 release（见其
+>   [v77 release](https://github.com/mail-in-a-box/mailinabox/releases/tag/v77)），
+>   对应本仓库历史中的 `df7f245`；
+> - **v80** — 该 fork 自己的版本（v77 之上加 8 个提交），即 `9a3e9ca`，
+>   冻结保留在 [`v80` 分支](../../tree/v80)。
+>
+> 该 fork 的代码以 CC0 1.0 释置于公有领域。
