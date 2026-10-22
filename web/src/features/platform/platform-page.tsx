@@ -30,16 +30,25 @@ export function PlatformPage() {
   const errorMessage = useApiErrorMessage();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
+  const [plans, setPlans] = useState<string[]>([]);
+  const [coupons, setCoupons] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(() => {
     void Promise.all([
       request<{ overview: Overview }>("/api/v1/platform/overview"),
       request<{ tenants: Tenant[] }>("/api/v1/platform/tenants"),
+      request<{ brands: { name: string }[] }>("/api/v1/platform/brands"),
+      request<{ plans: { code: string }[] }>("/api/v1/platform/plans"),
+      request<{ coupons: { code: string }[] }>("/api/v1/platform/coupons"),
     ])
-      .then(([o, ts]) => {
+      .then(([o, ts, bs, ps, cs]) => {
         setOverview(o.overview);
         setTenants(ts.tenants ?? []);
+        setBrands((bs.brands ?? []).map((b) => b.name));
+        setPlans((ps.plans ?? []).map((p) => p.code));
+        setCoupons((cs.coupons ?? []).map((c) => c.code));
       })
       .catch((err: unknown) => setNotice(errorMessage(err)));
   }, [errorMessage]);
@@ -155,6 +164,23 @@ export function PlatformPage() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {[
+          { title: t("page.platform.brands"), items: brands },
+          { title: t("page.platform.plans"), items: plans },
+          { title: t("page.platform.coupons"), items: coupons },
+        ].map((group) => (
+          <Card key={group.title}>
+            <CardHeader>
+              <CardTitle className="text-base">{group.title}</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              {group.items.length === 0 ? "-" : group.items.join(", ")}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       <NoticeDialog
         open={notice !== null}
