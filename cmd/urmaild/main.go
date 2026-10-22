@@ -76,8 +76,9 @@ func run() error {
 
 	// Periodically purge expired sessions so the sessions table does not
 	// grow without bound. Expired sessions are already rejected at lookup
-	// time; this is pure housekeeping.
-	go purgeExpiredSessions(ctx, appPool, logger)
+	// time; this is pure housekeeping. The app role has no access to
+	// sessions (0008), so the platform pool performs the delete.
+	go purgeExpiredSessions(ctx, platformPool, logger)
 
 	// The reconcile pipeline re-renders all configuration files whenever a
 	// domain or mailbox changes and pushes them through the privileged
