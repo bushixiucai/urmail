@@ -27,6 +27,7 @@ Usage:
   urmailctl config render [--dry-run] [--out-dir <dir>]
   urmailctl cert issue <domain>     obtain an ACME certificate via certbot
   urmailctl cert renew              renew ACME certificates and install them
+  urmailctl backup [--out-dir DIR]  dump PostgreSQL and config/certificate files
 `
 
 func main() {
@@ -58,6 +59,8 @@ func run(args []string) error {
 		return runConfig(ctx, args[1:])
 	case "cert":
 		return runCert(ctx, args[1:])
+	case "backup":
+		return runBackup(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
