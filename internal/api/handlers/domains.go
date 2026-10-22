@@ -40,6 +40,40 @@ func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
 	return &DomainHandler{Store: s, Reconcile: r}
 }
 
+// DomainResponse is the explicit public shape of a domain. It deliberately
+// mirrors only a subset of the store row: the DKIM private key and the
+// verification token are server-side data and must never cross the HTTP
+// boundary.
+type DomainResponse struct {
+	ID        int64              `json:"id"`
+	FQDN      string             `json:"fqdn"`
+	Mode      string             `json:"mode"`
+	Status    string             `json:"status"`
+	Selector  string             `json:"selector"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// DNSGuidanceResponse is the copy-paste DNS record set returned when a domain
+// is created. Every value here is public; the DKIM entry is the published
+// public-key TXT record, never the private key.
+type DNSGuidanceResponse struct {
+	MX    string `json:"mx"`
+	SPF   string `json:"spf"`
+	DKIM  string `json:"dkim"`
+	DMARC string `json:"dmarc"`
+}
+
+func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt pgtype.Timestamptz) DomainResponse {
+	return DomainResponse{
+		ID:        id,
+		FQDN:      fqdn,
+		Mode:      mode,
+		Status:    status,
+		Selector:  selector,
+		CreatedAt: createdAt,
+	}
+}
+
 func (h *DomainHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -54,7 +88,12 @@ func (h *DomainHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"domains": domains})
+	items := make([]DomainResponse, 0, len(domains))
+	for _, d := range domains {
+		items = append(items, newDomainResponse(d.ID, d.Fqdn, d.Mode, d.Status, d.DkimSelector, d.CreatedAt))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"domains": items})
 }
 
 type CreateDomainRequest struct {
@@ -133,12 +172,14 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"domain": domain,
-		"dns_guidance": gin.H{
-			"mx":     "10 box.urmail.cn.",
-			"spf":    "v=spf1 mx -all",
-			"dkim":   dkim.DNSTXT,
-			"dmarc":  "v=DMARC1; p=quarantine; sp=quarantine; adkim=r; aspf=r;",
+		"domain": newDomainResponse(
+			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt,
+		),
+		"dns_guidance": DNSGuidanceResponse{
+			MX:    "10 box.urmail.cn.",
+			SPF:   "v=spf1 mx -all",
+			DKIM:  dkim.DNSTXT,
+			DMARC: "v=DMARC1; p=quarantine; sp=quarantine; adkim=r; aspf=r;",
 		},
 	})
 }

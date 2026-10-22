@@ -37,6 +37,44 @@ func NewTenantHandler(s TenantStore, p TenantPlatformStore) *TenantHandler {
 	return &TenantHandler{Store: s, Platform: p}
 }
 
+// TenantResponse is the explicit public shape of the current tenant. Only
+// fields the UI needs are exposed; brand/owner columns and raw settings JSON
+// from the store row stay server-side.
+type TenantResponse struct {
+	ID        int64              `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// TenantUsageResponse reports plan consumption for the current tenant.
+type TenantUsageResponse struct {
+	DomainsUsed       int64 `json:"domains_used"`
+	DomainsLimit      int32 `json:"domains_limit"`
+	MailboxesUsed     int64 `json:"mailboxes_used"`
+	MailboxesLimit    int32 `json:"mailboxes_limit"`
+	StorageBytesLimit int64 `json:"storage_bytes_limit"`
+}
+
+// TenantSubscriptionResponse is the plan summary shown on the dashboard.
+type TenantSubscriptionResponse struct {
+	PlanCode string `json:"plan_code"`
+	// PlanName is the plan's i18n JSON object (for example
+	// {"zh-CN":"标准版","en":"Standard"}); it is embedded as-is.
+	PlanName json.RawMessage `json:"plan_name"`
+	Status   string          `json:"status"`
+}
+
+// TenantCurrentResponse is the complete body of GET /api/v1/tenants/current.
+type TenantCurrentResponse struct {
+	Tenant       TenantResponse                 `json:"tenant"`
+	Settings     map[string]json.RawMessage     `json:"settings"`
+	Theme        *domainSettings.EffectiveTheme `json:"theme"`
+	Usage        TenantUsageResponse            `json:"usage"`
+	Subscription TenantSubscriptionResponse     `json:"subscription"`
+}
+
 func (h *TenantHandler) Current(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -70,7 +108,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 			Value:   json.RawMessage(s.Value),
 		})
 	}
-mergedSettings, _ := domainSettings.Merge3Layers(entries)
+	mergedSettings, _ := domainSettings.Merge3Layers(entries)
 
 	// Effective brand theme: the brand row (platform-scoped) deep-merged
 	// with the platform/brand/tenant settings entries keyed "theme".
@@ -99,27 +137,27 @@ mergedSettings, _ := domainSettings.Merge3Layers(entries)
 		plan, _ = q.GetPlanByCode(c, sub.PlanID)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"tenant": gin.H{
-			"id":         tenant.ID,
-			"name":       tenant.Name,
-			"slug":       tenant.Slug,
-			"status":     tenant.Status,
-			"created_at": tenant.CreatedAt,
+	c.JSON(http.StatusOK, TenantCurrentResponse{
+		Tenant: TenantResponse{
+			ID:        tenant.ID,
+			Name:      tenant.Name,
+			Slug:      tenant.Slug,
+			Status:    tenant.Status,
+			CreatedAt: tenant.CreatedAt,
 		},
-		"settings": mergedSettings,
-		"theme":    theme,
-		"usage": gin.H{
-			"domains_used":   domainCount,
-			"domains_limit":  plan.DomainLimit,
-			"mailboxes_used": mailboxCount,
-			"mailboxes_limit": plan.MailboxLimit,
-			"storage_bytes_limit": plan.QuotaBytes,
+		Settings: mergedSettings,
+		Theme:    theme,
+		Usage: TenantUsageResponse{
+			DomainsUsed:       domainCount,
+			DomainsLimit:      plan.DomainLimit,
+			MailboxesUsed:     mailboxCount,
+			MailboxesLimit:    plan.MailboxLimit,
+			StorageBytesLimit: plan.QuotaBytes,
 		},
-		"subscription": gin.H{
-			"plan_code": plan.Code,
-			"plan_name": plan.Name,
-			"status":    sub.Status,
+		Subscription: TenantSubscriptionResponse{
+			PlanCode: plan.Code,
+			PlanName: json.RawMessage(plan.Name),
+			Status:   sub.Status,
 		},
 	})
 }

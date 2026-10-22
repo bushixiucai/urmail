@@ -39,6 +39,35 @@ func NewMailboxHandler(s MailboxStore, r ReconcileTrigger) *MailboxHandler {
 	return &MailboxHandler{Store: s, Reconcile: r}
 }
 
+// MailboxResponse is the explicit public shape of a mailbox. The password
+// hash and the Sieve script stay server-side; display_name is flattened from
+// the nullable column into a plain string or null.
+type MailboxResponse struct {
+	ID          int64              `json:"id"`
+	DomainID    int64              `json:"domain_id"`
+	LocalPart   string             `json:"local_part"`
+	Address     string             `json:"address"`
+	DisplayName *string            `json:"display_name"`
+	QuotaBytes  int64              `json:"quota_bytes"`
+	Status      string             `json:"status"`
+	SendEnabled bool               `json:"send_enabled"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+func newMailboxResponse(m store.Mailboxes) MailboxResponse {
+	return MailboxResponse{
+		ID:          m.ID,
+		DomainID:    m.DomainID,
+		LocalPart:   m.LocalPart,
+		Address:     m.Address,
+		DisplayName: textPtr(m.DisplayName),
+		QuotaBytes:  m.QuotaBytes,
+		Status:      m.Status,
+		SendEnabled: m.SendEnabled,
+		CreatedAt:   m.CreatedAt,
+	}
+}
+
 func (h *MailboxHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -53,7 +82,12 @@ func (h *MailboxHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"mailboxes": mailboxes})
+	items := make([]MailboxResponse, 0, len(mailboxes))
+	for _, m := range mailboxes {
+		items = append(items, newMailboxResponse(m))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"mailboxes": items})
 }
 
 type CreateMailboxRequest struct {
@@ -128,7 +162,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		h.Reconcile.Trigger()
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"mailbox": mailbox})
+	c.JSON(http.StatusCreated, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 
 type UpdatePasswordRequest struct {
@@ -171,7 +205,7 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"mailbox": mailbox})
+	c.JSON(http.StatusOK, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 
 type UpdateQuotaRequest struct {
@@ -208,7 +242,7 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"mailbox": mailbox})
+	c.JSON(http.StatusOK, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 
 func (h *MailboxHandler) Delete(c *gin.Context) {

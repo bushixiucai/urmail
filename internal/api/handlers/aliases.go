@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -30,6 +31,32 @@ func NewAliasHandler(s AliasStore, r ReconcileTrigger) *AliasHandler {
 	return &AliasHandler{Store: s, Reconcile: r}
 }
 
+// AliasResponse is the explicit public shape of an alias. tenant_id is
+// implied by the request context, so it is not repeated in the body.
+type AliasResponse struct {
+	ID         int64              `json:"id"`
+	DomainID   int64              `json:"domain_id"`
+	DomainFQDN string             `json:"domain_fqdn"`
+	LocalPart  string             `json:"local_part"`
+	Target     string             `json:"target"`
+	Kind       string             `json:"kind"`
+	Active     bool               `json:"active"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+func newAliasResponse(id, domainID int64, domainFQDN, localPart, target, kind string, active bool, createdAt pgtype.Timestamptz) AliasResponse {
+	return AliasResponse{
+		ID:         id,
+		DomainID:   domainID,
+		DomainFQDN: domainFQDN,
+		LocalPart:  localPart,
+		Target:     target,
+		Kind:       kind,
+		Active:     active,
+		CreatedAt:  createdAt,
+	}
+}
+
 func (h *AliasHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -44,14 +71,21 @@ func (h *AliasHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"aliases": aliases})
+	items := make([]AliasResponse, 0, len(aliases))
+	for _, a := range aliases {
+		items = append(items, newAliasResponse(
+			a.ID, a.DomainID, a.DomainFqdn, a.LocalPart, a.Target, a.Kind, a.Active, a.CreatedAt,
+		))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"aliases": items})
 }
 
 type CreateAliasRequest struct {
 	DomainID  int64  `json:"domain_id" binding:"required"`
 	LocalPart string `json:"local_part"` // empty for catchall
 	Target    string `json:"target" binding:"required"`
-	Kind      string `json:"kind"`       // alias|catchall|forward
+	Kind      string `json:"kind"` // alias|catchall|forward
 }
 
 func (h *AliasHandler) Create(c *gin.Context) {
@@ -141,7 +175,11 @@ func (h *AliasHandler) Create(c *gin.Context) {
 		h.Reconcile.Trigger()
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"alias": alias})
+	c.JSON(http.StatusCreated, gin.H{
+		"alias": newAliasResponse(
+			alias.ID, alias.DomainID, domain.Fqdn, alias.LocalPart, alias.Target, alias.Kind, alias.Active, alias.CreatedAt,
+		),
+	})
 }
 
 func (h *AliasHandler) Delete(c *gin.Context) {
