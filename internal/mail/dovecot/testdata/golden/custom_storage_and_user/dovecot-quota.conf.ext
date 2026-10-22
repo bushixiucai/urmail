@@ -7,3 +7,8 @@ plugin {
   quota_status_nouser = DUNNO
   quota_status_overquota = "522 5.2.2 Mailbox is full"
 }
+
+protocol lmtp {
+  mail_plugins = $mail_plugins quota
+  lmtp_rcpt_check_quota = yes
+}
