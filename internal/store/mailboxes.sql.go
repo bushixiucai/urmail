@@ -302,6 +302,60 @@ func (q *Queries) UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuota
 	return i, err
 }
 
+const updateMailboxSettings = `-- name: UpdateMailboxSettings :one
+UPDATE mailboxes
+SET display_name = $3, status = $4, send_enabled = $5
+WHERE tenant_id = $1 AND id = $2
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, created_at
+`
+
+type UpdateMailboxSettingsParams struct {
+	TenantID    int64       `json:"tenant_id"`
+	ID          int64       `json:"id"`
+	DisplayName pgtype.Text `json:"display_name"`
+	Status      string      `json:"status"`
+	SendEnabled bool        `json:"send_enabled"`
+}
+
+type UpdateMailboxSettingsRow struct {
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	DomainID     int64              `json:"domain_id"`
+	LocalPart    string             `json:"local_part"`
+	Address      string             `json:"address"`
+	DisplayName  pgtype.Text        `json:"display_name"`
+	PasswordHash string             `json:"password_hash"`
+	QuotaBytes   int64              `json:"quota_bytes"`
+	Status       string             `json:"status"`
+	SendEnabled  bool               `json:"send_enabled"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) UpdateMailboxSettings(ctx context.Context, arg UpdateMailboxSettingsParams) (UpdateMailboxSettingsRow, error) {
+	row := q.db.QueryRow(ctx, updateMailboxSettings,
+		arg.TenantID,
+		arg.ID,
+		arg.DisplayName,
+		arg.Status,
+		arg.SendEnabled,
+	)
+	var i UpdateMailboxSettingsRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.DomainID,
+		&i.LocalPart,
+		&i.Address,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.QuotaBytes,
+		&i.Status,
+		&i.SendEnabled,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateMailboxStatus = `-- name: UpdateMailboxStatus :one
 UPDATE mailboxes
 SET status = $3

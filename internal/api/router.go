@@ -201,6 +201,7 @@ func New(opts Options) *gin.Engine {
 			protected.POST("/mailboxes", middleware.RequireRole("owner", "admin"), mailboxHandler.Create)
 			protected.POST("/mailboxes/:id/password", middleware.RequireRole("owner", "admin"), mailboxHandler.UpdatePassword)
 			protected.POST("/mailboxes/:id/quota", middleware.RequireRole("owner", "admin"), mailboxHandler.UpdateQuota)
+			protected.PATCH("/mailboxes/:id", middleware.RequireRole("owner", "admin"), mailboxHandler.UpdateSettings)
 			protected.DELETE("/mailboxes/:id", middleware.RequireRole("owner", "admin"), mailboxHandler.Delete)
 
 			// Aliases

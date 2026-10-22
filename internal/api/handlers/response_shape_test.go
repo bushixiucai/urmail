@@ -204,6 +204,16 @@ func (f *shapeFakeMailboxStore) UpdateMailboxQuota(_ context.Context, _ store.Up
 	return f.updated, f.updateErr
 }
 
+func (f *shapeFakeMailboxStore) UpdateMailboxSettings(_ context.Context, arg store.UpdateMailboxSettingsParams) (store.UpdateMailboxSettingsRow, error) {
+	return store.UpdateMailboxSettingsRow{
+		ID:          arg.ID,
+		TenantID:    arg.TenantID,
+		DisplayName: arg.DisplayName,
+		Status:      arg.Status,
+		SendEnabled: arg.SendEnabled,
+	}, f.updateErr
+}
+
 func (f *shapeFakeMailboxStore) DeleteMailbox(_ context.Context, _ store.DeleteMailboxParams) error {
 	return f.deleteErr
 }

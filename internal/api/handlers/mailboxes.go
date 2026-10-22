@@ -23,6 +23,7 @@ type MailboxStore interface {
 	CreateMailbox(ctx context.Context, arg store.CreateMailboxParams) (store.Mailboxes, error)
 	UpdateMailboxPassword(ctx context.Context, arg store.UpdateMailboxPasswordParams) (store.Mailboxes, error)
 	UpdateMailboxQuota(ctx context.Context, arg store.UpdateMailboxQuotaParams) (store.Mailboxes, error)
+	UpdateMailboxSettings(ctx context.Context, arg store.UpdateMailboxSettingsParams) (store.UpdateMailboxSettingsRow, error)
 	DeleteMailbox(ctx context.Context, arg store.DeleteMailboxParams) error
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
@@ -294,4 +295,74 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+type UpdateMailboxSettingsRequest struct {
+	DisplayName *string `json:"display_name"`
+	Status      string  `json:"status"`
+	SendEnabled *bool   `json:"send_enabled"`
+}
+
+func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
+	q := requestStore(c, h.Store)
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	current, err := q.GetMailboxByID(c, store.GetMailboxByIDParams{TenantID: tenantID, ID: id})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "MAILBOX_NOT_FOUND"}})
+		return
+	}
+	var req UpdateMailboxSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	status := req.Status
+	if status == "" {
+		status = current.Status
+	}
+	if status != "active" && status != "disabled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	display := current.DisplayName
+	if req.DisplayName != nil {
+		value := strings.TrimSpace(*req.DisplayName)
+		if value == "" {
+			display = pgtype.Text{}
+		} else if len(value) > 255 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+			return
+		} else {
+			display = pgtype.Text{String: value, Valid: true}
+		}
+	}
+	sendEnabled := current.SendEnabled
+	if req.SendEnabled != nil {
+		sendEnabled = *req.SendEnabled
+	}
+	updated, err := q.UpdateMailboxSettings(c, store.UpdateMailboxSettingsParams{
+		TenantID: tenantID, ID: id, DisplayName: display, Status: status, SendEnabled: sendEnabled,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if h.Reconcile != nil {
+		h.Reconcile.Trigger()
+	}
+	c.JSON(http.StatusOK, gin.H{"mailbox": MailboxResponse{
+		ID: updated.ID, DomainID: updated.DomainID, LocalPart: updated.LocalPart,
+		Address: updated.Address, DisplayName: textPtr(updated.DisplayName),
+		QuotaBytes: updated.QuotaBytes, Status: updated.Status,
+		SendEnabled: updated.SendEnabled, CreatedAt: updated.CreatedAt,
+	}})
 }

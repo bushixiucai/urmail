@@ -53,3 +53,10 @@ WHERE tenant_id = $1 AND id = $2;
 SELECT COUNT(*)
 FROM mailboxes
 WHERE tenant_id = $1;
+
+-- name: UpdateMailboxSettings :one
+UPDATE mailboxes
+SET display_name = $3, status = $4, send_enabled = $5
+WHERE tenant_id = $1 AND id = $2
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, created_at;
+

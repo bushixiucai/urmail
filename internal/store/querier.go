@@ -152,6 +152,7 @@ type Querier interface {
 	UpdateDomainStatus(ctx context.Context, arg UpdateDomainStatusParams) (UpdateDomainStatusRow, error)
 	UpdateMailboxPassword(ctx context.Context, arg UpdateMailboxPasswordParams) (Mailboxes, error)
 	UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuotaParams) (Mailboxes, error)
+	UpdateMailboxSettings(ctx context.Context, arg UpdateMailboxSettingsParams) (UpdateMailboxSettingsRow, error)
 	UpdateMailboxStatus(ctx context.Context, arg UpdateMailboxStatusParams) (Mailboxes, error)
 	UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusParams) (Orders, error)
 	UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error
