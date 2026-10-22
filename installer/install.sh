@@ -232,6 +232,7 @@ systemctl enable urmaild.service >/dev/null 2>&1 || true
 # binary and reload the newly written environment file.
 systemctl restart urmaild-agent.service
 systemctl restart urmaild.service
+systemctl enable --now urmail-cert-renew.timer >/dev/null 2>&1 || true
 systemctl reload nginx 2>/dev/null || systemctl restart nginx
 
 log "urMail.cn is installed."

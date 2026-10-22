@@ -358,7 +358,7 @@ func (q *Queries) UpdateSessionTenant(ctx context.Context, arg UpdateSessionTena
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
-UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1
+UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1
 `
 
 type UpdateUserPasswordParams struct {
