@@ -72,6 +72,10 @@ type Querier interface {
 	GetMailboxDailySentForUpdate(ctx context.Context, address string) (GetMailboxDailySentForUpdateRow, error)
 	GetOrderByID(ctx context.Context, arg GetOrderByIDParams) (Orders, error)
 	GetPlanByCode(ctx context.Context, code string) (Plans, error)
+	// Authentication is valid only while the user is active and, when the
+	// session is bound to a tenant, while that tenant is active or pending.
+	// This makes disabling a user / suspending a tenant take effect on the next
+	// request instead of waiting for the session to expire.
 	GetSessionByID(ctx context.Context, id string) (Sessions, error)
 	GetTenantByID(ctx context.Context, id int64) (Tenants, error)
 	GetTenantBySlug(ctx context.Context, arg GetTenantBySlugParams) (Tenants, error)

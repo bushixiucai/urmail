@@ -41,6 +41,7 @@ interface AuthState {
     user: User,
     tenants: TenantInfo[],
     isAdmin: boolean,
+    currentTenantId?: number | null,
   ) => void;
   logout: () => Promise<void>;
   switchTenant: (tenant: TenantInfo) => Promise<void>;
@@ -64,15 +65,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    request<{ user: User; tenants: TenantInfo[]; is_admin: boolean }>(
-      "/api/v1/auth/me",
-    )
+    request<{
+      user: User;
+      tenants: TenantInfo[];
+      is_admin: boolean;
+      current_tenant_id?: number | null;
+    }>("/api/v1/auth/me")
       .then((data) => {
         setUser(data.user);
         setTenants(data.tenants);
-        if (data.tenants.length > 0) {
-          setCurrentTenant(data.tenants[0]);
-        }
+        const current =
+          data.current_tenant_id != null
+            ? data.tenants.find((t) => t.id === data.current_tenant_id)
+            : undefined;
+        setCurrentTenant(current ?? data.tenants[0] ?? null);
         setIsAdmin(data.is_admin);
         setIsAuthenticated(true);
       })
@@ -91,14 +97,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     u: User,
     t: TenantInfo[],
     admin: boolean,
+    currentTenantId?: number | null,
   ) => {
     setSessionToken(token);
     setCSRFToken(csrfToken);
     setUser(u);
     setTenants(t);
-    if (t.length > 0) {
-      setCurrentTenant(t[0]);
-    }
+    const current =
+      currentTenantId != null
+        ? t.find((tenant) => tenant.id === currentTenantId)
+        : undefined;
+    setCurrentTenant(current ?? t[0] ?? null);
     setIsAdmin(admin);
     setIsAuthenticated(true);
   };
@@ -120,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Tenant switching is authoritative on the backend: the session's tenant
   // context only changes after POST /auth/switch-tenant succeeds.
   const switchTenant = async (tenant: TenantInfo) => {
-    setCurrentTenant(tenant);
+    const previous = currentTenant;
     try {
       await request("/api/v1/auth/switch-tenant", {
         method: "POST",
@@ -130,15 +139,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: User;
         tenants: TenantInfo[];
         is_admin: boolean;
+        current_tenant_id?: number | null;
       }>("/api/v1/auth/me");
       setUser(me.user);
       setTenants(me.tenants);
       setIsAdmin(me.is_admin);
-      const match = me.tenants.find((t) => t.id === tenant.id);
-      setCurrentTenant(match ?? me.tenants[0] ?? tenant);
+      const currentId = me.current_tenant_id ?? tenant.id;
+      const match = me.tenants.find((t) => t.id === currentId);
+      setCurrentTenant(match ?? tenant);
+      // Re-mount the current route so every page refetches under the new
+      // tenant context instead of showing the previous tenant's rows.
+      window.location.reload();
     } catch {
-      // Keep the optimistic selection; /tenants/current consumers will surface
-      // the backend error if the switch was rejected.
+      setCurrentTenant(previous);
     }
   };
 

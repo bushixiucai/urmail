@@ -86,21 +86,31 @@ func New(opts Options) *gin.Engine {
 			authGroup.POST("/mfa/verify", authHandler.MFAVerify)
 		}
 
-		// Protected Routes
+		// User-level routes need a session but not a tenant transaction.
+		// Keeping logout/me/switch here means a user removed from their
+		// current tenant can still switch or sign out instead of getting a
+		// permanent 403 from RequireTenantTx.
+		userLevel := v1.Group("")
+		userLevel.Use(middleware.RequireAuth(authQueries))
+		userLevel.Use(middleware.RequireCSRF())
+		{
+			userLevel.POST("/auth/logout", authHandler.Logout)
+			userLevel.GET("/auth/me", authHandler.Me)
+
+			// MFA management (any logged-in user, role-independent)
+			userLevel.POST("/auth/mfa/setup", authHandler.MFASetup)
+			userLevel.POST("/auth/mfa/enable", authHandler.MFAEnable)
+			userLevel.POST("/auth/mfa/disable", authHandler.MFADisable)
+
+			userLevel.POST("/auth/switch-tenant", authHandler.SwitchTenant)
+		}
+
+		// Tenant-scoped routes run inside the RLS transaction.
 		protected := v1.Group("")
 		protected.Use(middleware.RequireAuth(authQueries))
 		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
 		{
-			// Auth
-			protected.POST("/auth/logout", authHandler.Logout)
-			protected.GET("/auth/me", authHandler.Me)
-
-			// MFA management (any logged-in user, role-independent)
-			protected.POST("/auth/mfa/setup", authHandler.MFASetup)
-			protected.POST("/auth/mfa/enable", authHandler.MFAEnable)
-			protected.POST("/auth/mfa/disable", authHandler.MFADisable)
-
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
 
@@ -121,8 +131,6 @@ func New(opts Options) *gin.Engine {
 			protected.POST("/aliases", middleware.RequireRole("owner", "admin"), aliasHandler.Create)
 			protected.DELETE("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Delete)
 
-			// Tenant switching
-			protected.POST("/auth/switch-tenant", authHandler.SwitchTenant)
 		}
 	}
 

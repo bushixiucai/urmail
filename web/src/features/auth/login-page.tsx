@@ -20,6 +20,7 @@ interface LoginResponse {
   user: User;
   tenants: TenantInfo[];
   is_admin: boolean;
+  current_tenant_id?: number | null;
   mfa_required?: boolean;
   mfa_token?: string;
 }
@@ -58,6 +59,7 @@ export function LoginPage() {
         data.user,
         data.tenants,
         data.is_admin,
+        data.current_tenant_id,
       );
       navigate("/");
     } catch (err: unknown) {
@@ -90,6 +92,7 @@ export function LoginPage() {
         data.user,
         data.tenants,
         data.is_admin,
+        data.current_tenant_id,
       );
       navigate("/");
     } catch (err: unknown) {

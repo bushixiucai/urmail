@@ -30,9 +30,17 @@ INSERT INTO sessions (
 ) RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at;
 
 -- name: GetSessionByID :one
-SELECT id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at
-FROM sessions
-WHERE id = $1 AND expires_at > now();
+-- Authentication is valid only while the user is active and, when the
+-- session is bound to a tenant, while that tenant is active or pending.
+-- This makes disabling a user / suspending a tenant take effect on the next
+-- request instead of waiting for the session to expire.
+SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at
+FROM sessions s
+JOIN users u ON u.id = s.user_id AND u.status = 'active'
+LEFT JOIN tenants t ON t.id = s.tenant_id
+WHERE s.id = $1
+  AND s.expires_at > now()
+  AND (s.tenant_id IS NULL OR t.status IN ('active', 'pending'));
 
 -- name: DeleteSession :exec
 DELETE FROM sessions

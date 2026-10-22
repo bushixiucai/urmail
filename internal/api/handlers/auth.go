@@ -73,6 +73,10 @@ type LoginResponse struct {
 	Tenants []store.GetUserTenantsRow `json:"tenants"`
 	IsAdmin bool                      `json:"is_admin"`
 
+	// CurrentTenantID is the tenant the new session is bound to. The browser
+	// must use this value instead of assuming tenants[0].
+	CurrentTenantID *int64 `json:"current_tenant_id,omitempty"`
+
 	// Set on the first login leg when the user has MFA enabled: no session
 	// is created until the second factor is verified via /auth/mfa/verify.
 	MfaRequired bool   `json:"mfa_required,omitempty"`
@@ -187,6 +191,10 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		resp.User.DisplayName = displayName.String
 	}
 	resp.User.Locale = locale
+	if defaultTenantID.Valid {
+		tenantID := defaultTenantID.Int64
+		resp.CurrentTenantID = &tenantID
+	}
 
 	c.JSON(http.StatusOK, resp)
 }
@@ -217,6 +225,14 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	tenants, _ := h.Store.GetUserTenants(c, userID)
 	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
 
+	var currentTenantID *int64
+	if val, exists := c.Get(middleware.ContextSession); exists {
+		if session, ok := val.(store.Sessions); ok && session.TenantID.Valid {
+			id := session.TenantID.Int64
+			currentTenantID = &id
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
 			"id":           user.ID,
@@ -224,8 +240,9 @@ func (h *AuthHandler) Me(c *gin.Context) {
 			"display_name": user.DisplayName.String,
 			"locale":       user.Locale,
 		},
-		"tenants":  tenants,
-		"is_admin": isAdmin,
+		"tenants":           tenants,
+		"is_admin":          isAdmin,
+		"current_tenant_id": currentTenantID,
 	})
 }
 
@@ -283,5 +300,5 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "tenant_id": req.TenantID})
 }
