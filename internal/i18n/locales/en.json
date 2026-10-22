@@ -49,6 +49,7 @@
   "auth.invalid_credentials": "Invalid email or password",
   "auth.session_failed": "Failed to create session",
   "auth.no_tenant": "No tenant context selected",
+  "auth.rate_limited": "Too many login attempts, please retry in 15 minutes",
   "auth.csrf_missing": "Missing CSRF token",
   "auth.csrf_invalid": "Invalid CSRF token",
   "tenant.not_found": "Tenant not found",

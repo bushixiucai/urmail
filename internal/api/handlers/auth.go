@@ -15,6 +15,25 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// dummyPasswordHash is verified against whenever a login names an unknown
+// user, so that both failure paths perform the same expensive hash
+// computation and response timing cannot enumerate accounts.
+var dummyPasswordHash = func() string {
+	hash, err := mail.HashPassword("urmail-dummy-password-for-timing")
+	if err != nil {
+		panic("password hash: " + err.Error())
+	}
+	return hash
+}()
+
+func randomHexToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
 type AuthStore interface {
 	GetUserByEmail(ctx context.Context, email string) (store.GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id int64) (store.GetUserByIDRow, error)
@@ -59,21 +78,49 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	limiterKey := c.ClientIP() + "|" + req.Email
+	if !loginAttempts.allow(limiterKey) {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
+		})
+		return
+	}
+
 	user, err := h.Store.GetUserByEmail(c, req.Email)
-	if err != nil || !mail.VerifyPassword(req.Password, user.PasswordHash) {
+	if err != nil {
+		// Unknown user: burn the same hash cost as the verify path so the
+		// response time does not reveal whether the account exists.
+		_ = mail.VerifyPassword(req.Password, dummyPasswordHash)
+		loginAttempts.fail(limiterKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
 		return
 	}
+	if !mail.VerifyPassword(req.Password, user.PasswordHash) {
+		loginAttempts.fail(limiterKey)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
+		})
+		return
+	}
+	loginAttempts.reset(limiterKey)
 
-	tokenBytes := make([]byte, 32)
-	_, _ = rand.Read(tokenBytes)
-	token := hex.EncodeToString(tokenBytes)
+	token, err := randomHexToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{"code": "INTERNAL_ERROR"},
+		})
+		return
+	}
 
-	csrfBytes := make([]byte, 32)
-	_, _ = rand.Read(csrfBytes)
-	csrfToken := hex.EncodeToString(csrfBytes)
+	csrfToken, err := randomHexToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{"code": "INTERNAL_ERROR"},
+		})
+		return
+	}
 
 	tenants, _ := h.Store.GetUserTenants(c, user.ID)
 	isAdmin, _ := h.Store.CheckPlatformAdmin(c, user.ID)
@@ -84,7 +131,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	session, err := h.Store.CreateSession(c, store.CreateSessionParams{
-		ID:        token,
+		ID:        middleware.HashSessionToken(token),
 		UserID:    user.ID,
 		TenantID:  defaultTenantID,
 		CsrfToken: csrfToken,
@@ -99,7 +146,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	resp := LoginResponse{
-		Token:     session.ID,
+		Token:     token,
 		CSRFToken: session.CsrfToken,
 		Tenants:   tenants,
 		IsAdmin:   isAdmin,

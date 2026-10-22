@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"reflect"
 	"net/http"
 	"strings"
@@ -20,6 +22,14 @@ const (
 // SessionStore provides session lookup by token ID.
 type SessionStore interface {
 	GetSessionByID(ctx context.Context, id string) (store.Sessions, error)
+}
+
+// HashSessionToken derives the database identifier for a bearer token.
+// Only the SHA-256 hash is persisted, so a database leak does not expose
+// usable bearer tokens.
+func HashSessionToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 // RequireAuth validates the Bearer token in Authorization header.
@@ -48,7 +58,7 @@ func RequireAuth(store SessionStore) gin.HandlerFunc {
 			})
 			return
 		}
-		session, err := store.GetSessionByID(c.Request.Context(), token)
+		session, err := store.GetSessionByID(c.Request.Context(), HashSessionToken(token))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": gin.H{"code": "SESSION_EXPIRED", "message": "auth.session_expired"},

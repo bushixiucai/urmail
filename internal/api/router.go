@@ -49,12 +49,20 @@ func New(opts Options) *gin.Engine {
 	// Bundled web assets
 	engine.GET("/assets/*filepath", gin.WrapH(web.AssetHandler()))
 
+	// Authentication runs against the platform pool: users, sessions and
+	// tenants are covered by RLS, and the platform role bypasses it. All
+	// tenant-scoped handlers run inside the RequireTenantTx transaction
+	// instead, where the RLS context is published with SET LOCAL.
+	var authQueries *store.Queries
+	if opts.PlatformPool != nil {
+		authQueries = store.New(opts.PlatformPool.Pool)
+	}
 	var appQueries *store.Queries
 	if opts.AppPool != nil {
 		appQueries = store.New(opts.AppPool.Pool)
 	}
 
-	authHandler := handlers.NewAuthHandler(appQueries)
+	authHandler := handlers.NewAuthHandler(authQueries)
 	tenantHandler := handlers.NewTenantHandler(appQueries)
 	domainHandler := handlers.NewDomainHandler(appQueries, opts.Reconcile)
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
@@ -73,7 +81,8 @@ func New(opts Options) *gin.Engine {
 
 		// Protected Routes
 		protected := v1.Group("")
-		protected.Use(middleware.RequireAuth(appQueries))
+		protected.Use(middleware.RequireAuth(authQueries))
+		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
 		{
 			// Auth

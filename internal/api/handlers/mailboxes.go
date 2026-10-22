@@ -36,13 +36,14 @@ func NewMailboxHandler(s MailboxStore, r ReconcileTrigger) *MailboxHandler {
 }
 
 func (h *MailboxHandler) List(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
 
-	mailboxes, err := h.Store.ListMailboxesByTenant(c, tenantID)
+	mailboxes, err := q.ListMailboxesByTenant(c, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -60,6 +61,7 @@ type CreateMailboxRequest struct {
 }
 
 func (h *MailboxHandler) Create(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -72,7 +74,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		return
 	}
 
-	domain, err := h.Store.GetDomainByID(c, store.GetDomainByIDParams{
+	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{
 		TenantID: tenantID,
 		ID:       req.DomainID,
 	})
@@ -96,7 +98,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		return
 	}
 
-	mailbox, err := h.Store.CreateMailbox(c, store.CreateMailboxParams{
+	mailbox, err := q.CreateMailbox(c, store.CreateMailboxParams{
 		TenantID:     tenantID,
 		DomainID:     domain.ID,
 		LocalPart:    local,
@@ -126,6 +128,7 @@ type UpdatePasswordRequest struct {
 }
 
 func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -150,7 +153,7 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	mailbox, err := h.Store.UpdateMailboxPassword(c, store.UpdateMailboxPasswordParams{
+	mailbox, err := q.UpdateMailboxPassword(c, store.UpdateMailboxPasswordParams{
 		TenantID:     tenantID,
 		ID:           id,
 		PasswordHash: hash,
@@ -168,6 +171,7 @@ type UpdateQuotaRequest struct {
 }
 
 func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -186,7 +190,7 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 		return
 	}
 
-	mailbox, err := h.Store.UpdateMailboxQuota(c, store.UpdateMailboxQuotaParams{
+	mailbox, err := q.UpdateMailboxQuota(c, store.UpdateMailboxQuotaParams{
 		TenantID:   tenantID,
 		ID:         id,
 		QuotaBytes: req.QuotaBytes,
@@ -200,6 +204,7 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 }
 
 func (h *MailboxHandler) Delete(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -212,7 +217,7 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.Store.DeleteMailbox(c, store.DeleteMailboxParams{
+	if err := q.DeleteMailbox(c, store.DeleteMailboxParams{
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {

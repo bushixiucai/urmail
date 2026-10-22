@@ -21,6 +21,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".
@@ -70,6 +71,11 @@ func run() error {
 		return fmt.Errorf("load message catalogue: %w", err)
 	}
 
+	// Periodically purge expired sessions so the sessions table does not
+	// grow without bound. Expired sessions are already rejected at lookup
+	// time; this is pure housekeeping.
+	go purgeExpiredSessions(ctx, appPool, logger)
+
 	engine := api.New(api.Options{
 		Logger:       logger,
 		AppPool:      appPool,
@@ -110,4 +116,22 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	return nil
+}
+
+// purgeExpiredSessions deletes expired sessions once an hour until ctx is
+// cancelled.
+func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger) {
+	queries := store.New(pool.Pool)
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := queries.DeleteExpiredSessions(ctx); err != nil {
+				logger.Warn("purge expired sessions", zap.Error(err))
+			}
+		}
+	}
 }

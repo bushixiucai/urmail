@@ -30,6 +30,7 @@ func NewTenantHandler(s TenantStore) *TenantHandler {
 }
 
 func (h *TenantHandler) Current(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -38,7 +39,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		return
 	}
 
-	tenant, err := h.Store.GetTenantByID(c, tenantID)
+	tenant, err := q.GetTenantByID(c, tenantID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{"code": "TENANT_NOT_FOUND", "message": "tenant.not_found"},
@@ -47,7 +48,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	}
 
 	// 1. Fetch 3-layer settings: Platform (0), Brand (tenant.BrandID), Tenant (tenant.ID)
-	rawSettings, _ := h.Store.ListSettingsByScopes(c, store.ListSettingsByScopesParams{
+	rawSettings, _ := q.ListSettingsByScopes(c, store.ListSettingsByScopesParams{
 		ScopeID:   tenant.BrandID,
 		ScopeID_2: tenant.ID,
 	})
@@ -64,13 +65,13 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	mergedSettings, _ := domainSettings.Merge3Layers(entries)
 
 	// 2. Fetch resource usage and subscription
-	domainCount, _ := h.Store.CountDomainsByTenant(c, tenantID)
-	mailboxCount, _ := h.Store.CountMailboxesByTenant(c, tenantID)
-	sub, subErr := h.Store.GetActiveSubscriptionByTenant(c, tenantID)
+	domainCount, _ := q.CountDomainsByTenant(c, tenantID)
+	mailboxCount, _ := q.CountMailboxesByTenant(c, tenantID)
+	sub, subErr := q.GetActiveSubscriptionByTenant(c, tenantID)
 
 	var plan store.Plans
 	if subErr == nil {
-		plan, _ = h.Store.GetPlanByCode(c, sub.PlanID)
+		plan, _ = q.GetPlanByCode(c, sub.PlanID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

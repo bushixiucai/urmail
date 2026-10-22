@@ -31,13 +31,14 @@ func NewAliasHandler(s AliasStore, r ReconcileTrigger) *AliasHandler {
 }
 
 func (h *AliasHandler) List(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
 
-	aliases, err := h.Store.ListAliasesByTenant(c, tenantID)
+	aliases, err := q.ListAliasesByTenant(c, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -54,6 +55,7 @@ type CreateAliasRequest struct {
 }
 
 func (h *AliasHandler) Create(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -66,7 +68,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 		return
 	}
 
-	domain, err := h.Store.GetDomainByID(c, store.GetDomainByIDParams{
+	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{
 		TenantID: tenantID,
 		ID:       req.DomainID,
 	})
@@ -88,8 +90,8 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	target := strings.ToLower(strings.TrimSpace(req.Target))
 
 	// Validate rule against domainMail
-	existingAliases, _ := h.Store.ListAliasesByTenant(c, tenantID)
-	existingMailboxes, _ := h.Store.ListMailboxesByTenant(c, tenantID)
+	existingAliases, _ := q.ListAliasesByTenant(c, tenantID)
+	existingMailboxes, _ := q.ListMailboxesByTenant(c, tenantID)
 
 	mailboxAddrs := make([]string, 0, len(existingMailboxes))
 	for _, m := range existingMailboxes {
@@ -120,7 +122,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 		return
 	}
 
-	alias, err := h.Store.CreateAlias(c, store.CreateAliasParams{
+	alias, err := q.CreateAlias(c, store.CreateAliasParams{
 		TenantID:  tenantID,
 		DomainID:  domain.ID,
 		LocalPart: local,
@@ -143,6 +145,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 }
 
 func (h *AliasHandler) Delete(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -155,7 +158,7 @@ func (h *AliasHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.Store.DeleteAlias(c, store.DeleteAliasParams{
+	if err := q.DeleteAlias(c, store.DeleteAliasParams{
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {

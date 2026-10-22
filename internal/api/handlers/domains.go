@@ -37,13 +37,14 @@ func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
 }
 
 func (h *DomainHandler) List(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
 
-	domains, err := h.Store.ListDomainsByTenant(c, tenantID)
+	domains, err := q.ListDomainsByTenant(c, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -58,6 +59,7 @@ type CreateDomainRequest struct {
 }
 
 func (h *DomainHandler) Create(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -88,7 +90,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	_, _ = rand.Read(tokenBytes)
 	verifToken := hex.EncodeToString(tokenBytes)
 
-	domain, err := h.Store.CreateDomain(c, store.CreateDomainParams{
+	domain, err := q.CreateDomain(c, store.CreateDomainParams{
 		TenantID:          tenantID,
 		Fqdn:              fqdn,
 		Mode:              mode,
@@ -127,6 +129,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 }
 
 func (h *DomainHandler) Delete(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -140,7 +143,7 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.Store.DeleteDomain(c, store.DeleteDomainParams{
+	if err := q.DeleteDomain(c, store.DeleteDomainParams{
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {
