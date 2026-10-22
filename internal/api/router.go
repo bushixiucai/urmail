@@ -277,13 +277,24 @@ func New(opts Options) *gin.Engine {
 			legacyRoot.GET("/system/backup/status", legacyHandler.BackupStatus)
 			legacyRoot.GET("/web/domains", legacyHandler.WebDomains)
 			legacyRoot.GET("/mfa/status", legacyHandler.MFAStatus)
+			legacyRoot.GET("/system/latest-upstream-version", legacyHandler.LatestVersion)
+			legacyRoot.GET("/system/privacy", legacyHandler.Privacy)
+			legacyRoot.GET("/dns/custom", legacyHandler.EmptyList)
+			legacyRoot.GET("/mail/users/privileges", legacyHandler.EmptyList)
+			legacyRoot.POST("/system/reboot", legacyHandler.Unsupported)
+			legacyRoot.POST("/system/update-packages", legacyHandler.Unsupported)
+			legacyRoot.POST("/ssl/install", legacyHandler.Unsupported)
+			legacyRoot.POST("/ssl/provision", legacyHandler.Unsupported)
+			legacyRoot.POST("/web/update", legacyHandler.Unsupported)
+			legacyRoot.POST("/dns/update", legacyHandler.Unsupported)
+			legacyRoot.POST("/mail/users/privileges/add", legacyHandler.Unsupported)
 			legacyRoot.GET("/dns/zonefile/:zone", legacyHandler.ZoneFile)
 		}
 	}
 
 	// Single-Page Application Fallback
 	engine.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/admin/") ||
 			(c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead) {
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
 			return

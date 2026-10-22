@@ -424,3 +424,31 @@ func (h *LegacyHandler) MFAStatus(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"mfa_enabled": false})
 }
+
+func (h *LegacyHandler) LatestVersion(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"version": h.Version})
+}
+
+func (h *LegacyHandler) Privacy(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	c.JSON(http.StatusOK, []gin.H{})
+}
+
+func (h *LegacyHandler) EmptyList(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	c.JSON(http.StatusOK, []gin.H{})
+}
+
+func (h *LegacyHandler) Unsupported(c *gin.Context) {
+	if !h.authorize(c) {
+		return
+	}
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not supported by urMail.cn"})
+}
