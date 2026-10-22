@@ -122,10 +122,18 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 	}
 
 	local := strings.ToLower(strings.TrimSpace(req.LocalPart))
-	if !validation.LocalPartRegex.MatchString(local) {
+	if len(local) > 64 || !validation.LocalPartRegex.MatchString(local) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "INVALID_LOCAL_PART", "message": "mailbox.invalid_local_part"},
 		})
+		return
+	}
+	if req.QuotaBytes < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if len(req.DisplayName) > 255 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
 

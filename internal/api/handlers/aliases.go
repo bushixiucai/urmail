@@ -119,6 +119,14 @@ func (h *AliasHandler) Create(c *gin.Context) {
 			kind = "alias"
 		}
 	}
+	if kind != "alias" && kind != "catchall" && kind != "forward" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if len(req.LocalPart) > 64 || len(req.Target) > 320 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
 
 	local := strings.ToLower(strings.TrimSpace(req.LocalPart))
 	target := strings.ToLower(strings.TrimSpace(req.Target))

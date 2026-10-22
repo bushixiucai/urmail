@@ -140,8 +140,12 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	}
 
 	mode := req.Mode
-	if mode != "managed" && mode != "delegated" {
+	if mode == "" {
 		mode = "delegated"
+	}
+	if mode != "managed" && mode != "delegated" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
 	}
 
 	if !quotaCheck(c, requestStore[QuotaStore](c, nil), tenantID, "domain") {
