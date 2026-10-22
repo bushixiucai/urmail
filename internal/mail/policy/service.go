@@ -77,23 +77,30 @@ func NewService() *Service {
 // recipient, so evaluations sharing the same (identity, queue_id) are
 // counted exactly once.
 func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
+	// The policy service is attached to submission/smtps services only. A
+	// missing SASL username therefore means "not an authenticated submission";
+	// leave inbound mail alone instead of treating the client IP as a mailbox.
+	if req.SASLUsername == "" {
+		return Decision{Action: ActionDunno}
+	}
 	identity := req.SASLUsername
-	if identity == "" {
-		identity = req.ClientAddress
-	}
-	if identity == "" {
-		// No usable identity; leave the decision to the next restriction.
+	dedupKey := identity + "\x00" + req.QueueID
+
+	// Suppress duplicate accounting for the same message only after a
+	// successful permit. A rejected first recipient must not turn every later
+	// recipient of the same queue_id into DUNNO.
+	if s.dedup != nil && s.dedup.Seen(dedupKey) {
 		return Decision{Action: ActionDunno}
 	}
-
-	// 0. Suppress duplicate accounting for the same message.
-	if s.dedup != nil && s.dedup.Seen(identity+"\x00"+req.QueueID) {
-		return Decision{Action: ActionDunno}
+	forget := func() {
+		if s.dedup != nil {
+			s.dedup.Forget(dedupKey)
+		}
 	}
 
-	// 1. Check rate limit and daily quota for the identity.
 	if s.RateLimiter != nil {
 		if !s.RateLimiter.Allow(identity) {
+			forget()
 			return Decision{
 				Action: ActionReject,
 				Reason: "Rate limit exceeded, please retry later",
@@ -104,13 +111,14 @@ func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
 	if s.QuotaChecker != nil {
 		allowed, err := s.QuotaChecker.CheckAndIncrement(ctx, identity)
 		if err != nil {
-			// Fail closed or defer on DB error
+			forget()
 			return Decision{
 				Action: ActionDefer,
 				Reason: "Temporary quota service failure",
 			}
 		}
 		if !allowed {
+			forget()
 			return Decision{
 				Action: ActionReject,
 				Reason: "Daily message quota exceeded",
@@ -118,6 +126,5 @@ func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
 		}
 	}
 
-	// Default permit
 	return Decision{Action: ActionDunno}
 }

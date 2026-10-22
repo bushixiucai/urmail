@@ -11,16 +11,26 @@ import (
 
 const getMailboxDailySent = `-- name: GetMailboxDailySent :one
 
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent, m.id AS mailbox_id, m.tenant_id
+SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
+       m.id AS mailbox_id,
+       m.tenant_id,
+       COALESCE((
+           SELECT p.daily_send_limit
+           FROM subscriptions s
+           JOIN plans p ON p.code = s.plan_id
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing')
+           LIMIT 1
+       ), 0)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
 WHERE m.address = $1 AND m.status = 'active'
 `
 
 type GetMailboxDailySentRow struct {
-	MessagesSent int32 `json:"messages_sent"`
-	MailboxID    int64 `json:"mailbox_id"`
-	TenantID     int64 `json:"tenant_id"`
+	MessagesSent   int32 `json:"messages_sent"`
+	MailboxID      int64 `json:"mailbox_id"`
+	TenantID       int64 `json:"tenant_id"`
+	DailySendLimit int32 `json:"daily_send_limit"`
 }
 
 // Platform-side daily-sent usage queries used by the SMTP policy service
@@ -32,12 +42,26 @@ type GetMailboxDailySentRow struct {
 func (q *Queries) GetMailboxDailySent(ctx context.Context, address string) (GetMailboxDailySentRow, error) {
 	row := q.db.QueryRow(ctx, getMailboxDailySent, address)
 	var i GetMailboxDailySentRow
-	err := row.Scan(&i.MessagesSent, &i.MailboxID, &i.TenantID)
+	err := row.Scan(
+		&i.MessagesSent,
+		&i.MailboxID,
+		&i.TenantID,
+		&i.DailySendLimit,
+	)
 	return i, err
 }
 
 const getMailboxDailySentForUpdate = `-- name: GetMailboxDailySentForUpdate :one
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent, m.id AS mailbox_id, m.tenant_id
+SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
+       m.id AS mailbox_id,
+       m.tenant_id,
+       COALESCE((
+           SELECT p.daily_send_limit
+           FROM subscriptions s
+           JOIN plans p ON p.code = s.plan_id
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing')
+           LIMIT 1
+       ), 0)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
 WHERE m.address = $1 AND m.status = 'active'
@@ -45,16 +69,22 @@ FOR UPDATE OF m
 `
 
 type GetMailboxDailySentForUpdateRow struct {
-	MessagesSent int32 `json:"messages_sent"`
-	MailboxID    int64 `json:"mailbox_id"`
-	TenantID     int64 `json:"tenant_id"`
+	MessagesSent   int32 `json:"messages_sent"`
+	MailboxID      int64 `json:"mailbox_id"`
+	TenantID       int64 `json:"tenant_id"`
+	DailySendLimit int32 `json:"daily_send_limit"`
 }
 
 // Locks the mailbox row to serialize concurrent daily sent quota evaluation
 func (q *Queries) GetMailboxDailySentForUpdate(ctx context.Context, address string) (GetMailboxDailySentForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getMailboxDailySentForUpdate, address)
 	var i GetMailboxDailySentForUpdateRow
-	err := row.Scan(&i.MessagesSent, &i.MailboxID, &i.TenantID)
+	err := row.Scan(
+		&i.MessagesSent,
+		&i.MailboxID,
+		&i.TenantID,
+		&i.DailySendLimit,
+	)
 	return i, err
 }
 

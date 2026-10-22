@@ -153,7 +153,7 @@ func (c *Config) applyDefaults() {
 		c.AgentSocket = "/run/urmail/agent.sock"
 	}
 	if c.PolicySocket == "" {
-		c.PolicySocket = "/run/urmail/policy.sock"
+		c.PolicySocket = "/run/urmail-policy/policy.sock"
 	}
 	if c.MasterKeyPath == "" {
 		c.MasterKeyPath = "/etc/urmail/master.key"

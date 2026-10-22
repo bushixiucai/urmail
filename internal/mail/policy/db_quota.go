@@ -85,6 +85,7 @@ func NewAtomicDBQuotaChecker(s UsageStore, raw RawQuerier, dailyLimit int32) *DB
 func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress string) (bool, error) {
 	var messagesSent int32
 	var mailboxID, tenantID int64
+	limit := c.DailyLimit
 
 	if c.UseLock {
 		row, err := c.Store.GetMailboxDailySentForUpdate(ctx, mailboxAddress)
@@ -94,6 +95,9 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 		messagesSent = row.MessagesSent
 		mailboxID = row.MailboxID
 		tenantID = row.TenantID
+		if row.DailySendLimit > 0 {
+			limit = row.DailySendLimit
+		}
 	} else {
 		row, err := c.Store.GetMailboxDailySent(ctx, mailboxAddress)
 		if err != nil {
@@ -102,10 +106,20 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 		messagesSent = row.MessagesSent
 		mailboxID = row.MailboxID
 		tenantID = row.TenantID
+		if row.DailySendLimit > 0 {
+			limit = row.DailySendLimit
+		}
 	}
 
-	if c.DailyLimit > 0 && messagesSent >= c.DailyLimit {
+	if limit > 0 && messagesSent >= limit {
 		return false, nil
+	}
+
+	// DailyLimit <= 0 (and no plan limit) means unlimited: pass the largest
+	// counter value so the guarded UPSERT stays permissive.
+	atomicLimit := limit
+	if atomicLimit <= 0 {
+		atomicLimit = math.MaxInt32
 	}
 
 	if c.Raw != nil {
@@ -113,7 +127,7 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 		// the increment. ErrNoRows means the guarded UPDATE did not fire,
 		// i.e. the quota was exhausted by a concurrent worker in between.
 		var sent int32
-		err := c.Raw.QueryRow(ctx, atomicIncrementSQL, mailboxID, tenantID, c.DailyLimit).Scan(&sent)
+		err := c.Raw.QueryRow(ctx, atomicIncrementSQL, mailboxID, tenantID, atomicLimit).Scan(&sent)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
@@ -124,12 +138,8 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 	}
 
 	// The generated query is a guarded UPSERT: it refuses to increment past
-	// $3. DailyLimit <= 0 means unlimited, so pass the largest counter value
-	// to keep the legacy path permissive.
-	limit := c.DailyLimit
-	if limit <= 0 {
-		limit = math.MaxInt32
-	}
+	// $3.
+	limit = atomicLimit
 	if _, err := c.Store.IncrementMailboxDailySent(ctx, store.IncrementMailboxDailySentParams{
 		MailboxID:    mailboxID,
 		TenantID:     tenantID,

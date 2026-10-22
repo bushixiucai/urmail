@@ -6,14 +6,32 @@
 -- (moved verbatim from usage.sql)
 
 -- name: GetMailboxDailySent :one
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent, m.id AS mailbox_id, m.tenant_id
+SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
+       m.id AS mailbox_id,
+       m.tenant_id,
+       COALESCE((
+           SELECT p.daily_send_limit
+           FROM subscriptions s
+           JOIN plans p ON p.code = s.plan_id
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing')
+           LIMIT 1
+       ), 0)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
 WHERE m.address = $1 AND m.status = 'active';
 
 -- name: GetMailboxDailySentForUpdate :one
 -- Locks the mailbox row to serialize concurrent daily sent quota evaluation
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent, m.id AS mailbox_id, m.tenant_id
+SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
+       m.id AS mailbox_id,
+       m.tenant_id,
+       COALESCE((
+           SELECT p.daily_send_limit
+           FROM subscriptions s
+           JOIN plans p ON p.code = s.plan_id
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing')
+           LIMIT 1
+       ), 0)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
 WHERE m.address = $1 AND m.status = 'active'

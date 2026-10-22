@@ -6,6 +6,9 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/user"
+	"path/filepath"
+	"strconv"
 )
 
 // Server runs the unix socket policy listener.
@@ -25,6 +28,9 @@ func NewServer(socketPath string, svc *Service) *Server {
 
 // Start starts listening on the unix socket.
 func (s *Server) Start(ctx context.Context) error {
+	if err := os.MkdirAll(filepath.Dir(s.SocketPath), 0o755); err != nil {
+		return err
+	}
 	_ = os.Remove(s.SocketPath)
 	l, err := net.Listen("unix", s.SocketPath)
 	if err != nil {
@@ -32,8 +38,14 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.listener = l
 
-	// Restrict permissions to owner and group (postfix)
-	_ = os.Chmod(s.SocketPath, 0660)
+	// The socket is 0660 and belongs to the postfix group so smtpd can
+	// connect; urmaild must be in that group (SupplementaryGroups=postfix).
+	_ = os.Chmod(s.SocketPath, 0o660)
+	if group, err := user.LookupGroup("postfix"); err == nil {
+		if gid, err := strconv.Atoi(group.Gid); err == nil {
+			_ = os.Chown(s.SocketPath, -1, gid)
+		}
+	}
 
 	go func() {
 		<-ctx.Done()

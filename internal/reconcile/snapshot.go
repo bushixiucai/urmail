@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/config"
@@ -152,7 +151,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			TLSCertFile:    certFile,
 			TLSKeyFile:     keyFile,
 			PolicyEnabled:  cfg.PolicyEnabled,
-			PolicySocket:   strings.TrimPrefix(cfg.PolicySocket, "/run/urmail/"),
+			PolicySocket:   cfg.PolicySocket,
 			ArchiveEnabled: cfg.ArchiveEnabled,
 		},
 		PostfixSnap: pfSnap,

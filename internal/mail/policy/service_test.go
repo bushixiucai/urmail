@@ -38,7 +38,7 @@ func TestEvaluateSASLUsernamePreferred(t *testing.T) {
 	}
 }
 
-func TestEvaluateFallsBackToClientAddress(t *testing.T) {
+func TestEvaluateSkipsUnauthenticatedInbound(t *testing.T) {
 	q := &countingQuota{allowed: true}
 	svc := policy.NewService()
 	svc.QuotaChecker = q
@@ -50,8 +50,8 @@ func TestEvaluateFallsBackToClientAddress(t *testing.T) {
 	if d.Action != policy.ActionDunno {
 		t.Fatalf("expected DUNNO, got %v", d.Action)
 	}
-	if q.lastIdent != "203.0.113.9" {
-		t.Fatalf("expected client_address fallback, got %q", q.lastIdent)
+	if q.lastIdent != "" {
+		t.Fatalf("inbound mail must not be charged to a mailbox, got %q", q.lastIdent)
 	}
 }
 

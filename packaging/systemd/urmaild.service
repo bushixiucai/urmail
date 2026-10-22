@@ -38,7 +38,10 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/var/lib/urmail /run/urmail
+RuntimeDirectory=urmail-policy
+RuntimeDirectoryMode=0755
+SupplementaryGroups=postfix
+ReadWritePaths=/var/lib/urmail /run/urmail /run/urmail-policy
 
 LimitNOFILE=65536
 

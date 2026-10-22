@@ -66,6 +66,14 @@ func NewSeenCacheForTest(max int, ttl time.Duration) SeenSet {
 	return newSeenCache(max, ttl)
 }
 
+// Forget removes a key so the next recipient of the same message is
+// re-evaluated after a rejection or deferral.
+func (c *seenCache) Forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}
+
 func (c *seenCache) record(key string, now time.Time) {
 	if _, ok := c.entries[key]; !ok {
 		c.order = append(c.order, key)

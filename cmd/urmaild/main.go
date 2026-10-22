@@ -25,6 +25,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
+	"github.com/bushixiucai/urmail/internal/mail/policy"
 	"github.com/bushixiucai/urmail/internal/reconcile"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -82,13 +83,33 @@ func run() error {
 	// sessions (0008), so the platform pool performs the delete.
 	go purgeExpiredSessions(ctx, platformPool, logger)
 
+	// The Postfix submission/smtps services ask this socket whether an
+	// authenticated sender is still within their plan's daily send limit.
+	if cfg.PolicyEnabled {
+		svc := policy.NewService()
+		svc.RateLimiter = policy.NewRateLimiter(300, time.Minute)
+		svc.QuotaChecker = policy.NewAtomicDBQuotaChecker(
+			store.New(platformPool.Pool), platformPool.Pool, 0,
+		)
+		policyServer := policy.NewServer(cfg.PolicySocket, svc)
+		go func() {
+			logger.Info("policy service listening", zap.String("socket", cfg.PolicySocket))
+			if err := policyServer.Start(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("policy service stopped", zap.Error(err))
+			}
+		}()
+	}
+
 	// The reconcile pipeline re-renders all configuration files whenever a
 	// domain or mailbox changes and pushes them through the privileged
 	// agent, followed by the affected service reloads.
-	reconcilePipeline := reconcile.NewPipeline(cfg, store.New(platformPool.Pool), cfg.PublicIPv4, cfg.Nameservers)
+	reconcilePipeline := reconcile.NewPipeline(cfg, store.New(platformPool.Pool), cfg.PublicIPv4, cfg.Nameservers).WithLogger(logger)
 	go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
 		return pushRenderedConfigs(ctx, cfg.AgentSocket, files, logger)
 	})
+	// Render once on startup so a fresh install does not keep the stock
+	// distribution configuration until the first tenant write.
+	reconcilePipeline.Trigger()
 
 	engine := api.New(api.Options{
 		Logger:       logger,

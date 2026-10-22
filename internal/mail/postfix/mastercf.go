@@ -11,7 +11,7 @@ func policySocket(node NodeConfig) string {
 	if node.PolicySocket != "" {
 		return node.PolicySocket
 	}
-	return "private/policy"
+	return "/run/urmail-policy/policy.sock"
 }
 
 // recipientRestrictions renders the smtpd_recipient_restrictions override for
@@ -21,7 +21,9 @@ func policySocket(node NodeConfig) string {
 // configured in main.cf (M2 review P1-1).
 func recipientRestrictions(node NodeConfig) string {
 	if node.PolicyEnabled {
-		return "permit_sasl_authenticated,check_policy_service unix:" + policySocket(node) + ",reject"
+		// Policy must run before permit_sasl_authenticated: PERMIT terminates
+		// the restriction list, so a later check would never execute.
+		return "check_policy_service unix:" + policySocket(node) + ",permit_sasl_authenticated,reject"
 	}
 	return "permit_sasl_authenticated,reject"
 }
@@ -41,14 +43,14 @@ func renderMasterCF(node NodeConfig) string {
 	b.WriteString("#               (yes)   (yes)   (no)    (never) (100)\n")
 	b.WriteString("# ==========================================================================\n")
 	b.WriteString("smtp      inet  n       -       y       -       -       smtpd\n")
-	b.WriteString("submission inet n       -       y       -       -       smtpd\n")
+	b.WriteString("submission inet n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/submission\n")
 	b.WriteString("  -o smtpd_tls_security_level=encrypt\n")
 	b.WriteString("  -o smtpd_sasl_auth_enable=yes\n")
 	b.WriteString("  -o smtpd_reject_unlisted_recipient=no\n")
 	b.WriteString(fmt.Sprintf("  -o smtpd_recipient_restrictions=%s\n", restrictions))
 	b.WriteString("  -o milter_macro_daemon_name=ORIGINATING\n")
-	b.WriteString("smtps     inet  n       -       y       -       -       smtpd\n")
+	b.WriteString("smtps     inet  n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/smtps\n")
 	b.WriteString("  -o smtpd_tls_wrappermode=yes\n")
 	b.WriteString("  -o smtpd_sasl_auth_enable=yes\n")
