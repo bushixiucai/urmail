@@ -11,6 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const platformListAuditLogs = `-- name: PlatformListAuditLogs :many
+SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
+FROM audit_logs
+ORDER BY created_at DESC, id DESC
+LIMIT $1
+`
+
+func (q *Queries) PlatformListAuditLogs(ctx context.Context, limit int32) ([]AuditLogs, error) {
+	rows, err := q.db.Query(ctx, platformListAuditLogs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLogs{}
+	for rows.Next() {
+		var i AuditLogs
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.ActorUserID,
+			&i.ActorIp,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Detail,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const platformListBrands = `-- name: PlatformListBrands :many
 SELECT id, slug, name, logo_url, favicon_url, primary_color, theme, created_at
 FROM brands

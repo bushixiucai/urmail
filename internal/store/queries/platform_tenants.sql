@@ -110,3 +110,10 @@ ON CONFLICT (code) DO UPDATE SET
     active = EXCLUDED.active
 RETURNING id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at;
 
+
+-- name: PlatformListAuditLogs :many
+SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
+FROM audit_logs
+ORDER BY created_at DESC, id DESC
+LIMIT $1;
+

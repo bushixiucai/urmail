@@ -119,6 +119,7 @@ type Querier interface {
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
+	PlatformListAuditLogs(ctx context.Context, limit int32) ([]AuditLogs, error)
 	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
 	PlatformListBrands(ctx context.Context) ([]PlatformListBrandsRow, error)
 	PlatformListChannels(ctx context.Context) ([]Channels, error)

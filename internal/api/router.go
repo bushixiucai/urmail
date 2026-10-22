@@ -144,6 +144,7 @@ func New(opts Options) *gin.Engine {
 				platform.GET("/plans", platformHandler.Plans)
 				platform.GET("/coupons", platformHandler.Coupons)
 				platform.GET("/channels", platformHandler.Channels)
+				platform.GET("/audit", platformHandler.AuditLogs)
 				platform.POST("/channels", platformHandler.UpsertChannel)
 				platform.POST("/tenants/:id/suspend", platformHandler.SuspendTenant)
 				platform.POST("/tenants/:id/activate", platformHandler.ActivateTenant)

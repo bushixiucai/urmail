@@ -32,6 +32,7 @@ type PlatformStore interface {
 	PlatformUpsertBrand(ctx context.Context, arg store.PlatformUpsertBrandParams) (store.PlatformUpsertBrandRow, error)
 	PlatformListChannels(ctx context.Context) ([]store.Channels, error)
 	PlatformUpsertChannel(ctx context.Context, arg store.PlatformUpsertChannelParams) (store.Channels, error)
+	PlatformListAuditLogs(ctx context.Context, limit int32) ([]store.AuditLogs, error)
 }
 
 type PlatformHandler struct {
@@ -561,4 +562,19 @@ func (h *PlatformHandler) TransferOwner(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "owner_user_id": userID})
+}
+
+func (h *PlatformHandler) AuditLogs(c *gin.Context) {
+	limit := int32(100)
+	if raw := c.Query("limit"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 500 {
+			limit = int32(v)
+		}
+	}
+	logs, err := h.Store.PlatformListAuditLogs(c, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"logs": logs})
 }

@@ -34,6 +34,14 @@ export function PlatformPage() {
   const [brands, setBrands] = useState<string[]>([]);
   const [plans, setPlans] = useState<string[]>([]);
   const [coupons, setCoupons] = useState<string[]>([]);
+  const [auditLogs, setAuditLogs] = useState<
+    {
+      id: number;
+      action: string;
+      tenant_id?: number | null;
+      created_at: string;
+    }[]
+  >([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -52,13 +60,22 @@ export function PlatformPage() {
       request<{ brands: { name: string }[] }>("/api/v1/platform/brands"),
       request<{ plans: { code: string }[] }>("/api/v1/platform/plans"),
       request<{ coupons: { code: string }[] }>("/api/v1/platform/coupons"),
+      request<{
+        logs: {
+          id: number;
+          action: string;
+          tenant_id?: number | null;
+          created_at: string;
+        }[];
+      }>("/api/v1/platform/audit?limit=20"),
     ])
-      .then(([o, ts, bs, ps, cs]) => {
+      .then(([o, ts, bs, ps, cs, logs]) => {
         setOverview(o.overview);
         setTenants(ts.tenants ?? []);
         setBrands((bs.brands ?? []).map((b) => b.name));
         setPlans((ps.plans ?? []).map((p) => p.code));
         setCoupons((cs.coupons ?? []).map((c) => c.code));
+        setAuditLogs(logs.logs ?? []);
       })
       .catch((err: unknown) => setNotice(errorMessage(err)));
   }, [errorMessage]);
@@ -349,6 +366,32 @@ export function PlatformPage() {
         ))}
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("page.platform.audit")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {auditLogs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">-</p>
+          ) : (
+            <div className="border rounded-md divide-y">
+              {auditLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="p-3 flex items-center justify-between gap-3 text-sm"
+                >
+                  <span>{log.action}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {log.tenant_id ?? "-"} · {log.created_at}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
       <NoticeDialog
         open={notice !== null}
         onOpenChange={(open) => !open && setNotice(null)}
