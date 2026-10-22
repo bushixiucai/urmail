@@ -169,13 +169,14 @@ func TestEnforceDBConfMode(t *testing.T) {
 		wantMode  os.FileMode
 		wantErr   bool
 	}{
-		{"db.conf default mode forced to 0600", "/etc/dovecot/conf.d/urmail/db.conf", "", 0o600, false},
-		{"db.conf explicit 0600 accepted", "/etc/dovecot/conf.d/urmail/db.conf", "0600", 0o600, false},
+		{"db.conf default mode forced to 0640", "/etc/dovecot/conf.d/urmail/db.conf", "", 0o640, false},
+		{"db.conf explicit 0640 accepted", "/etc/dovecot/conf.d/urmail/db.conf", "0640", 0o640, false},
+		{"db.conf 0600 rejected (Dovecot auth cannot read it)", "/etc/dovecot/conf.d/urmail/db.conf", "0600", 0, true},
 		{"db.conf 0644 rejected", "/etc/dovecot/conf.d/urmail/db.conf", "0644", 0, true},
 		{"db.conf 0400 rejected", "/etc/dovecot/conf.d/urmail/db.conf", "0400", 0, true},
 		{"db.conf 0777 rejected", "/etc/dovecot/conf.d/urmail/db.conf", "0777", 0, true},
 		{"other files keep requested mode", "/etc/dovecot/conf.d/urmail/dovecot.conf", "0644", 0o644, false},
-		{"path merely ending in db.conf covered", "/etc/urmail/nested/db.conf", "", 0o600, false},
+		{"path merely ending in db.conf covered", "/etc/urmail/nested/db.conf", "", 0o640, false},
 	}
 
 	for _, tc := range cases {

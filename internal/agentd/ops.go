@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -91,7 +92,32 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	if strings.HasSuffix(written, "db.conf") {
+		if err := chownDovecot(written); err != nil {
+			return "", "", err
+		}
+	}
 	return written, "", nil
+}
+
+// chownDovecot gives the Dovecot auth worker read access to the credential
+// file. The file is 0640 root:dovecot, not 0600, because the SQL auth worker
+// runs as the dovecot user. The agent runs as root, so it can perform the
+// chown; if Dovecot is not installed the group is absent and the file stays
+// root:mailinabox (still 0640, never world-readable).
+func chownDovecot(path string) error {
+	group, err := user.LookupGroup("dovecot")
+	if err != nil {
+		return nil
+	}
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		return fmt.Errorf("%w: parse dovecot gid %q: %v", ErrFailed, group.Gid, err)
+	}
+	if err := os.Chown(path, 0, gid); err != nil {
+		return fmt.Errorf("%w: chown %s to root:dovecot: %v", ErrFailed, path, err)
+	}
+	return nil
 }
 
 // RestartUnitParams are the parameters of the systemctl.restart operation.
@@ -282,11 +308,13 @@ func enforceSensitiveFileMode(path string, mode os.FileMode, requested string) (
 	if !strings.HasSuffix(path, "db.conf") {
 		return mode, nil
 	}
+	// 0640 root:dovecot: the auth worker runs as dovecot and must read the
+	// SQL password, while other local users must not.
 	if requested == "" {
-		return 0o600, nil
+		return 0o640, nil
 	}
-	if mode != 0o600 {
-		return 0, fmt.Errorf("%w: %s carries credentials and must be written with mode 0600, got %s", ErrRejected, path, requested)
+	if mode != 0o640 {
+		return 0, fmt.Errorf("%w: %s carries credentials and must be written with mode 0640, got %s", ErrRejected, path, requested)
 	}
 	return mode, nil
 }
