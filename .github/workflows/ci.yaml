@@ -38,6 +38,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: sqlc drift check
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+          "$(go env GOPATH)/bin/sqlc" generate
+          git diff --exit-code -- internal/store
+
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 
