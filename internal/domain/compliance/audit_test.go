@@ -9,10 +9,10 @@ import (
 
 func TestMaskAuditDetail(t *testing.T) {
 	raw := map[string]any{
-		"action":        "user.create",
-		"username":      "alice",
-		"password":      "SuperSecretP@ss",
-		"private_key":   "-----BEGIN RSA PRIVATE KEY-----...",
+		"action":      "user.create",
+		"username":    "alice",
+		"password":    "SuperSecretP@ss",
+		"private_key": "-----BEGIN RSA PRIVATE KEY-----...",
 		"metadata": map[string]any{
 			"api_key": "sk-123456",
 			"note":    "test note",

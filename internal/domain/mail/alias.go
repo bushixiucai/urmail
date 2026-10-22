@@ -9,10 +9,10 @@ import (
 )
 
 var (
-	ErrInvalidAlias    = errors.New("invalid alias")
-	ErrAliasConflict   = errors.New("alias conflict")
-	ErrAliasCycle      = errors.New("alias cycle detected")
-	ErrInvalidAddress  = errors.New("invalid email address")
+	ErrInvalidAlias   = errors.New("invalid alias")
+	ErrAliasConflict  = errors.New("alias conflict")
+	ErrAliasCycle     = errors.New("alias cycle detected")
+	ErrInvalidAddress = errors.New("invalid email address")
 )
 
 // AliasRule represents an alias for verification and graph validation.

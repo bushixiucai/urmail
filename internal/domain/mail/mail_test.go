@@ -91,14 +91,14 @@ func TestPasswordHashKnownVectors(t *testing.T) {
 
 func TestVerifyPasswordRejectsInvalidHashes(t *testing.T) {
 	bad := []string{
-		"",                                        // empty
-		"$6$saltsalt$xyz",                         // missing Dovecot scheme prefix
-		"{SHA512-CRYPT}",                          // prefix only
-		"{SHA512-CRYPT}$6$saltsalt$",              // no body
-		"{SHA512-CRYPT}$6$saltsalt$short",         // truncated body
-		"{SHA512-CRYPT}$6$saltsalt$" + strings.Repeat("A", 86) + "extra", // oversized body
-		"{SHA512-CRYPT}$5$saltsalt$" + strings.Repeat("A", 86),           // wrong scheme (SHA256-crypt)
-		"{MD5}$1$saltsalt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",     // other scheme
+		"",                                // empty
+		"$6$saltsalt$xyz",                 // missing Dovecot scheme prefix
+		"{SHA512-CRYPT}",                  // prefix only
+		"{SHA512-CRYPT}$6$saltsalt$",      // no body
+		"{SHA512-CRYPT}$6$saltsalt$short", // truncated body
+		"{SHA512-CRYPT}$6$saltsalt$" + strings.Repeat("A", 86) + "extra",  // oversized body
+		"{SHA512-CRYPT}$5$saltsalt$" + strings.Repeat("A", 86),            // wrong scheme (SHA256-crypt)
+		"{MD5}$1$saltsalt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",      // other scheme
 		"{SHA512-CRYPT}$6$rounds=abc$saltsalt$" + strings.Repeat("A", 86), // malformed rounds
 		"{SHA512-CRYPT}$6$rounds=1$saltsalt$" + strings.Repeat("A", 86),   // rounds below minimum
 		"{SHA512-CRYPT}$6$$" + strings.Repeat("A", 86),                    // empty salt
