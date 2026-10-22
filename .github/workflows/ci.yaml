@@ -120,7 +120,7 @@ jobs:
       - name: Test against PostgreSQL
         env:
           URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail?sslmode=disable
-        run: go test -race ./internal/db/...
+        run: go test -race ./internal/db/... ./internal/api/middleware/... ./internal/api/handlers/...
 
   embed:
     name: Embedded frontend

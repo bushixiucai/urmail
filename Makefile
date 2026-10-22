@@ -65,6 +65,10 @@ test-go: ## 跑 Go 测试
 test-web: ## 跑前端测试
 	cd $(WEB) && $(NPM) test -- --run
 
+.PHONY: test-integration
+test-integration: ## 跑需要 PostgreSQL 的集成测试（需 URMAIL_TEST_DATABASE_URL）
+	$(GO) test -race ./internal/db/... ./internal/api/middleware/... ./internal/api/handlers/...
+
 .PHONY: lint
 lint: lint-go lint-web ## 跑全部静态检查
 

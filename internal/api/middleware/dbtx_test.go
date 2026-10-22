@@ -52,14 +52,14 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 	}
 	defer platformPool.Close()
 
-	// Seed two tenants with one domain each.
+	// Seed two tenants with one domain and one owner each.
 	ptx, err := platformPool.PlatformTx(ctx)
 	if err != nil {
 		t.Fatalf("platform tx: %v", err)
 	}
 	// No-op after a successful commit; ensures the pool can close on failure.
 	defer func() { _ = ptx.Rollback(ctx) }()
-	if _, err := ptx.Exec(ctx, "TRUNCATE domains, tenants, brands CASCADE"); err != nil {
+	if _, err := ptx.Exec(ctx, "TRUNCATE users, domains, tenants, brands CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	if _, err := ptx.Exec(ctx, "INSERT INTO brands (slug, name) VALUES ('acme-brand', 'Acme Brand')"); err != nil {
@@ -81,6 +81,25 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 		) AS d(fqdn, slug) WHERE t.slug = d.slug`); err != nil {
 		t.Fatalf("seed domains: %v", err)
 	}
+
+	var acmeUserID, betaUserID int64
+	if err := ptx.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, status)
+		VALUES ('acme-owner@example.test', 'x', 'active') RETURNING id`).Scan(&acmeUserID); err != nil {
+		t.Fatalf("seed acme user: %v", err)
+	}
+	if err := ptx.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, status)
+		VALUES ('beta-owner@example.test', 'x', 'active') RETURNING id`).Scan(&betaUserID); err != nil {
+		t.Fatalf("seed beta user: %v", err)
+	}
+	if _, err := ptx.Exec(ctx, `
+		INSERT INTO user_tenant_roles (user_id, tenant_id, role)
+		SELECT $1::bigint, id, 'owner' FROM tenants WHERE slug = 'acme'
+		UNION ALL
+		SELECT $2::bigint, id, 'owner' FROM tenants WHERE slug = 'beta'`, acmeUserID, betaUserID); err != nil {
+		t.Fatalf("seed roles: %v", err)
+	}
 	if err := ptx.Commit(ctx); err != nil {
 		t.Fatalf("commit seed: %v", err)
 	}
@@ -97,7 +116,7 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 	// whose handler asks for queriedTenant's domains. The RLS context must
 	// limit the result to sessionTenant's rows even when the query itself
 	// names another tenant.
-	domainsQueriedBy := func(t *testing.T, sessionTenant, queriedTenant int64) []string {
+	domainsQueriedBy := func(t *testing.T, sessionTenant, sessionUser, queriedTenant int64) []string {
 		t.Helper()
 		gin.SetMode(gin.TestMode)
 
@@ -105,7 +124,7 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 		engine := gin.New()
 		engine.Use(func(c *gin.Context) {
 			c.Set(middleware.ContextTenantID, sessionTenant)
-			c.Set(middleware.ContextUserID, int64(0))
+			c.Set(middleware.ContextUserID, sessionUser)
 			c.Next()
 		})
 		engine.Use(middleware.RequireTenantTx(appPool, zap.NewNop()))
@@ -136,13 +155,43 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 	}
 
 	// The handler names the other tenant's id; RLS must win.
-	if got := domainsQueriedBy(t, acmeID, acmeID); len(got) != 1 || got[0] != "acme.example" {
+	if got := domainsQueriedBy(t, acmeID, acmeUserID, acmeID); len(got) != 1 || got[0] != "acme.example" {
 		t.Fatalf("acme session querying its own id should see its domain, got %v", got)
 	}
-	if got := domainsQueriedBy(t, acmeID, betaID); len(got) != 0 {
+	if got := domainsQueriedBy(t, acmeID, acmeUserID, betaID); len(got) != 0 {
 		t.Fatalf("acme session querying beta's id must see nothing, got %v", got)
 	}
-	if got := domainsQueriedBy(t, betaID, betaID); len(got) != 1 || got[0] != "beta.example" {
+	if got := domainsQueriedBy(t, betaID, betaUserID, betaID); len(got) != 1 || got[0] != "beta.example" {
 		t.Fatalf("beta session querying its own id should see its domain, got %v", got)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		tenant int64
+		user   int64
+		status int
+	}{
+		{name: "missing membership is forbidden", tenant: acmeID, user: 999999, status: http.StatusForbidden},
+		{name: "missing tenant context is forbidden", tenant: 0, user: acmeUserID, status: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.Use(func(c *gin.Context) {
+				if tc.tenant > 0 {
+					c.Set(middleware.ContextTenantID, tc.tenant)
+				}
+				c.Set(middleware.ContextUserID, tc.user)
+				c.Next()
+			})
+			engine.Use(middleware.RequireTenantTx(appPool, zap.NewNop()))
+			engine.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+			if w.Code != tc.status {
+				t.Fatalf("status = %d, want %d; body %s", w.Code, tc.status, w.Body.String())
+			}
+		})
 	}
 }
