@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,9 @@ func New(opts Options) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
+	// The reverse proxy is the only trusted peer. Client-supplied
+	// X-Forwarded-For headers must not influence rate limiting or audit IPs.
+	_ = engine.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 	engine.Use(middleware.RequestID())
 	engine.Use(middleware.Recover(opts.Logger))
 	engine.Use(middleware.AccessLog(opts.Logger))
@@ -145,7 +149,8 @@ func New(opts Options) *gin.Engine {
 
 	// Single-Page Application Fallback
 	engine.NoRoute(func(c *gin.Context) {
-		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
+			(c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead) {
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
 			return
 		}
@@ -168,7 +173,7 @@ func healthz(opts Options) gin.HandlerFunc {
 		status := gin.H{"status": "ok", "version": opts.Version}
 		if err := ping(ctx, opts.AppPool); err != nil {
 			status["status"] = "degraded"
-			status["db"] = err.Error()
+			status["db"] = "unavailable"
 			c.JSON(http.StatusServiceUnavailable, status)
 			return
 		}

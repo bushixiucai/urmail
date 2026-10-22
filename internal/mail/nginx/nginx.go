@@ -69,7 +69,7 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 			b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.WebmailBackend))
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
-			b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
+			b.WriteString("        proxy_set_header X-Forwarded-For $remote_addr;\n")
 			b.WriteString("        proxy_set_header X-Forwarded-Proto $scheme;\n")
 			b.WriteString("    }\n\n")
 		}
@@ -79,16 +79,17 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 			b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.ZPushBackend))
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
-			b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
+			b.WriteString("        proxy_set_header X-Forwarded-For $remote_addr;\n")
 			b.WriteString("        proxy_set_header X-Forwarded-Proto $scheme;\n")
 			b.WriteString("    }\n\n")
 		}
 
+		b.WriteString("    location = /metrics { return 404; }\n\n")
 		b.WriteString("    location / {\n")
 		b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.BackendHTTP))
 		b.WriteString("        proxy_set_header Host $host;\n")
 		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
-		b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
+		b.WriteString("        proxy_set_header X-Forwarded-For $remote_addr;\n")
 		b.WriteString("        proxy_set_header X-Forwarded-Proto $scheme;\n")
 		b.WriteString("    }\n")
 		b.WriteString("}\n\n")
