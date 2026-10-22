@@ -80,6 +80,8 @@ install -d -o mailinabox -g mailinabox -m 0700 /var/lib/urmail/archive
 install -d -o root -g mailinabox -m 0750 /etc/urmail
 install -d -m 0755 /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d /etc/postfix/urmail
 install -d -o root -g opendkim -m 0750 /etc/opendkim /etc/opendkim/keys
+chown root:mailinabox /etc/postfix/urmail
+chmod 0755 /etc/postfix/urmail
 
 # The Debian nsd package does not always include nsd.conf.d; add the drop-in
 # once so generated zones are loaded.
