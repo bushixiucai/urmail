@@ -154,6 +154,7 @@ func New(opts Options) *gin.Engine {
 			userLevel.GET("/auth/me", authHandler.Me)
 
 			// MFA management (any logged-in user, role-independent)
+			userLevel.GET("/auth/mfa/status", authHandler.MFAStatus)
 			userLevel.POST("/auth/mfa/setup", authHandler.MFASetup)
 			userLevel.POST("/auth/mfa/enable", authHandler.MFAEnable)
 			userLevel.POST("/auth/mfa/disable", authHandler.MFADisable)

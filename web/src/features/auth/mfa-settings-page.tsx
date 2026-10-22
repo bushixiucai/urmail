@@ -1,4 +1,4 @@
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle2, ShieldCheck } from "lucide-react";
 import { ApiRequestError, getApiErrorKey, request } from "@/lib/api/client";
@@ -44,6 +44,14 @@ export function MfaSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    request<{ mfa_enabled: boolean; pending: boolean }>(
+      "/api/v1/auth/mfa/status",
+    )
+      .then((data) => setEnabled(data.mfa_enabled))
+      .catch(() => {});
+  }, []);
 
   const errorText = (err: unknown, fallback: string): string => {
     const { key } = getApiErrorKey(err, fallback);

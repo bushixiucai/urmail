@@ -399,3 +399,22 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 	loginAttempts.reset(ipKey)
 	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale)
 }
+
+// MFAStatus reports whether TOTP is enabled and whether a setup secret is
+// pending confirmation.
+func (h *AuthHandler) MFAStatus(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	user, err := h.Store.GetUserByID(c, userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"mfa_enabled": user.MfaEnabled,
+		"pending":     !user.MfaEnabled && user.MfaSecret.Valid && user.MfaSecret.String != "",
+	})
+}
