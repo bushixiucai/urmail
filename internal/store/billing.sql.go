@@ -323,6 +323,48 @@ func (q *Queries) ListActivePlans(ctx context.Context) ([]Plans, error) {
 	return items, nil
 }
 
+const listOrdersByTenant = `-- name: ListOrdersByTenant :many
+SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code,
+       channel_id, idempotency_key, created_at, paid_at
+FROM orders
+WHERE tenant_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 100
+`
+
+func (q *Queries) ListOrdersByTenant(ctx context.Context, tenantID int64) ([]Orders, error) {
+	rows, err := q.db.Query(ctx, listOrdersByTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Orders{}
+	for rows.Next() {
+		var i Orders
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OrderNo,
+			&i.Kind,
+			&i.Status,
+			&i.AmountCents,
+			&i.Currency,
+			&i.PlanCode,
+			&i.ChannelID,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.PaidAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateOrderStatus = `-- name: UpdateOrderStatus :one
 UPDATE orders
 SET status = $3, paid_at = $4

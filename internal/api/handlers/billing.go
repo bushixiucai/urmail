@@ -3,11 +3,14 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -20,6 +23,8 @@ type BillingStore interface {
 	ListInvoicesByTenant(ctx context.Context, tenantID int64) ([]store.Invoices, error)
 	GetCouponByCode(ctx context.Context, code string) (store.Coupons, error)
 	GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (store.ChannelAttribution, error)
+	CreateOrder(ctx context.Context, arg store.CreateOrderParams) (store.Orders, error)
+	ListOrdersByTenant(ctx context.Context, tenantID int64) ([]store.Orders, error)
 }
 
 type BillingHandler struct {
@@ -40,12 +45,13 @@ func (h *BillingHandler) Plans(c *gin.Context) {
 }
 
 func (h *BillingHandler) Subscription(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	sub, err := h.Store.GetActiveSubscriptionByTenant(c, tenantID)
+	sub, err := q.GetActiveSubscriptionByTenant(c, tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusOK, gin.H{"subscription": nil, "plan": nil})
 		return
@@ -54,7 +60,7 @@ func (h *BillingHandler) Subscription(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	plan, err := h.Store.GetPlanByCode(c, sub.PlanID)
+	plan, err := q.GetPlanByCode(c, sub.PlanID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -63,12 +69,13 @@ func (h *BillingHandler) Subscription(c *gin.Context) {
 }
 
 func (h *BillingHandler) Invoices(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	invoices, err := h.Store.ListInvoicesByTenant(c, tenantID)
+	invoices, err := q.ListInvoicesByTenant(c, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -107,12 +114,13 @@ func (h *BillingHandler) ValidateCoupon(c *gin.Context) {
 }
 
 func (h *BillingHandler) Distribution(c *gin.Context) {
+	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	attribution, err := h.Store.GetChannelAttributionByTenant(c, tenantID)
+	attribution, err := q.GetChannelAttributionByTenant(c, tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusOK, gin.H{"attribution": nil})
 		return
@@ -122,4 +130,65 @@ func (h *BillingHandler) Distribution(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"attribution": attribution})
+}
+
+type CheckoutRequest struct {
+	PlanCode string `json:"plan_code" binding:"required"`
+}
+
+func (h *BillingHandler) Checkout(c *gin.Context) {
+	q := requestStore(c, h.Store)
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	var req CheckoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.PlanCode) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	plan, err := q.GetPlanByCode(c, req.PlanCode)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "PLAN_NOT_FOUND"}})
+		return
+	}
+	var idempotency pgtype.Text
+	if key := c.GetHeader("Idempotency-Key"); key != "" {
+		idempotency = pgtype.Text{String: key, Valid: true}
+	}
+	order, err := q.CreateOrder(c, store.CreateOrderParams{
+		TenantID:       tenantID,
+		OrderNo:        fmt.Sprintf("ORD-%d-%d", tenantID, time.Now().UnixNano()),
+		Kind:           "new",
+		Status:         "pending",
+		AmountCents:    plan.PriceCents,
+		Currency:       plan.Currency,
+		PlanCode:       pgtype.Text{String: plan.Code, Valid: true},
+		IdempotencyKey: idempotency,
+	})
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "ORDER_EXISTS"}})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"order":          order,
+		"payment_method": "manual",
+		"message":        "order created; settle it from the platform console or a payment provider webhook",
+	})
+}
+
+func (h *BillingHandler) Orders(c *gin.Context) {
+	q := requestStore(c, h.Store)
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	orders, err := q.ListOrdersByTenant(c, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"orders": orders})
 }

@@ -65,3 +65,12 @@ INSERT INTO payment_events (
     $1, $2, $3
 ) ON CONFLICT (provider, provider_event_id) DO NOTHING
 RETURNING id, provider, provider_event_id, processed_at;
+
+-- name: ListOrdersByTenant :many
+SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code,
+       channel_id, idempotency_key, created_at, paid_at
+FROM orders
+WHERE tenant_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 100;
+

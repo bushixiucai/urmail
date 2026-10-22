@@ -812,3 +812,61 @@ func (h *PlatformHandler) VoidInvoice(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "void"})
 }
+
+func (h *PlatformHandler) MarkOrderPaid(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	tx, err := h.Pool.PlatformTx(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	defer func() { _ = tx.Rollback(c) }()
+	var tenantID, amount int64
+	var planCode, currency string
+	err = tx.QueryRow(c, `
+		SELECT tenant_id, amount_cents, COALESCE(plan_code, ''), currency
+		FROM orders WHERE id = $1 AND status = 'pending' FOR UPDATE`, id).
+		Scan(&tenantID, &amount, &planCode, &currency)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "ORDER_NOT_FOUND"}})
+		return
+	}
+	if _, err := tx.Exec(c, "UPDATE orders SET status = 'paid', paid_at = now() WHERE id = $1", id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if planCode != "" {
+		if _, err := tx.Exec(c, `
+			UPDATE subscriptions SET status = 'canceled'
+			WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')`, tenantID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+			return
+		}
+		if _, err := tx.Exec(c, `
+			INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end)
+			VALUES ($1, $2, 'active', now(), now() + interval '1 month')`, tenantID, planCode); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+			return
+		}
+	}
+	if _, err := tx.Exec(c, `
+		INSERT INTO invoices (tenant_id, number, period_start, period_end, amount_cents, currency, status, issued_at)
+		VALUES ($1, $2, now(), now() + interval '1 month', $3, $4, 'paid', now())`,
+		tenantID, fmt.Sprintf("INV-%d-%d", tenantID, time.Now().UnixNano()), amount, currency); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if err := tx.Commit(c); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "paid"})
+}

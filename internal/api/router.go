@@ -166,6 +166,7 @@ func New(opts Options) *gin.Engine {
 				platform.POST("/tenants/:id/subscription", platformHandler.AssignSubscription)
 				platform.POST("/tenants/:id/invoices", platformHandler.CreateInvoice)
 				platform.POST("/invoices/:id/paid", platformHandler.MarkInvoicePaid)
+				platform.POST("/orders/:id/paid", platformHandler.MarkOrderPaid)
 				platform.POST("/invoices/:id/void", platformHandler.VoidInvoice)
 			}
 		}
@@ -229,6 +230,8 @@ func New(opts Options) *gin.Engine {
 
 			// Billing and distribution (tenant-scoped reads)
 			protected.GET("/billing/plans", billingHandler.Plans)
+			protected.POST("/billing/checkout", middleware.RequireRole("owner", "admin"), billingHandler.Checkout)
+			protected.GET("/billing/orders", billingHandler.Orders)
 			protected.GET("/billing/subscription", billingHandler.Subscription)
 			protected.GET("/billing/invoices", billingHandler.Invoices)
 			protected.GET("/billing/distribution", billingHandler.Distribution)
