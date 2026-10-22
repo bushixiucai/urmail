@@ -640,3 +640,68 @@ func (h *PlatformHandler) AssignSubscription(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "plan_code": req.PlanCode, "period_end": periodEnd})
 }
+
+type RedeemCouponRequest struct {
+	TenantID int64  `json:"tenant_id" binding:"required"`
+	OrderID  *int64 `json:"order_id"`
+}
+
+func (h *PlatformHandler) RedeemCoupon(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	var req RedeemCouponRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.TenantID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	tx, err := h.Pool.PlatformTx(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	defer func() { _ = tx.Rollback(c) }()
+
+	var max pgtype.Int4
+	var count int32
+	if err := tx.QueryRow(c, `
+		SELECT max_redemptions, redeemed_count FROM coupons
+		WHERE code = $1 AND active = true
+		  AND (valid_to IS NULL OR valid_to > now())
+		  AND (valid_from IS NULL OR valid_from <= now())
+		FOR UPDATE`, c.Param("code")).Scan(&max, &count); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "COUPON_NOT_FOUND"}})
+		return
+	}
+	var exists bool
+	if err := tx.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM coupon_redemptions WHERE coupon_code = $1 AND tenant_id = $2)", c.Param("code"), req.TenantID).Scan(&exists); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusOK, gin.H{"status": "already_redeemed"})
+		return
+	}
+	if max.Valid && count >= max.Int32 {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "COUPON_EXHAUSTED"}})
+		return
+	}
+	var order pgtype.Int8
+	if req.OrderID != nil {
+		order = pgtype.Int8{Int64: *req.OrderID, Valid: true}
+	}
+	if _, err := tx.Exec(c, "INSERT INTO coupon_redemptions (coupon_code, tenant_id, order_id) VALUES ($1, $2, $3)", c.Param("code"), req.TenantID, order); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "COUPON_CONFLICT"}})
+		return
+	}
+	if _, err := tx.Exec(c, "UPDATE coupons SET redeemed_count = redeemed_count + 1 WHERE code = $1", c.Param("code")); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if err := tx.Commit(c); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "redeemed"})
+}
