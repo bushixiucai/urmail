@@ -27,6 +27,7 @@ type MailboxStore interface {
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
 	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
+	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
 }
 
 type MailboxHandler struct {
@@ -221,6 +222,20 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+
+	// Compliance: a mailbox with archive entries under legal hold must not
+	// be deleted.
+	held, err := mailboxUnderLegalHold(c, q, tenantID, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if held {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{"code": "LEGAL_HOLD", "message": "error.LEGAL_HOLD"},
+		})
 		return
 	}
 

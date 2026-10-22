@@ -8,18 +8,27 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail"
+	"go.uber.org/zap"
 )
 
 // Pipeline triggers configuration re-rendering and service reloads when domains or mailboxes change.
 type Pipeline struct {
-	cfg        *config.Config
-	querier    StoreQuerier
-	publicIPv4 string
+	cfg         *config.Config
+	querier     StoreQuerier
+	publicIPv4  string
 	nameservers []string
+	log         *zap.Logger
 
 	triggerCh chan struct{}
 	mu        sync.Mutex
 	running   bool
+
+	// Render failure bookkeeping: render errors are logged AND aggregated so
+	// callers/monitoring can observe that reconcile is failing instead of
+	// the error being silently dropped (M3 review P2).
+	failCount  int64
+	lastError  error
+	lastRender time.Time
 }
 
 // NewPipeline creates a reconcile trigger pipeline.
@@ -29,8 +38,18 @@ func NewPipeline(cfg *config.Config, q StoreQuerier, publicIPv4 string, nameserv
 		querier:     q,
 		publicIPv4:  publicIPv4,
 		nameservers: nameservers,
+		log:         zap.NewNop(),
 		triggerCh:   make(chan struct{}, 1),
 	}
+}
+
+// WithLogger sets the structured logger used for render failures. Passing nil
+// keeps the no-op logger.
+func (p *Pipeline) WithLogger(l *zap.Logger) *Pipeline {
+	if l != nil {
+		p.log = l
+	}
+	return p
 }
 
 // Trigger queues a reconcile execution. It is non-blocking (coalesces rapid events).
@@ -55,6 +74,14 @@ func (p *Pipeline) RenderOnce(ctx context.Context) (map[string]string, error) {
 	}
 
 	return files, nil
+}
+
+// Stats reports the render-failure aggregate: how many consecutive/total
+// failures happened and the most recent error.
+func (p *Pipeline) Stats() (failures int64, lastErr error, lastRender time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.failCount, p.lastError, p.lastRender
 }
 
 // StartWorker listens on the trigger channel with debouncing and executes reconcile cycles.
@@ -82,13 +109,33 @@ func (p *Pipeline) StartWorker(ctx context.Context, debounce time.Duration, onRe
 			}
 
 			files, err := p.RenderOnce(ctx)
+			p.mu.Lock()
+			p.lastRender = time.Now()
+			p.mu.Unlock()
 			if err != nil {
-				// Log or handle error in caller
+				// Aggregate and log; never silently drop a render failure.
+				p.mu.Lock()
+				p.failCount++
+				p.lastError = err
+				count := p.failCount
+				p.mu.Unlock()
+				p.log.Error("reconcile render failed",
+					zap.Error(err),
+					zap.Int64("consecutive_failures", count))
 				continue
 			}
 
 			if onRendered != nil {
-				_ = onRendered(files)
+				if err := onRendered(files); err != nil {
+					p.mu.Lock()
+					p.failCount++
+					p.lastError = fmt.Errorf("apply rendered files: %w", err)
+					count := p.failCount
+					p.mu.Unlock()
+					p.log.Error("reconcile apply failed",
+						zap.Error(err),
+						zap.Int64("consecutive_failures", count))
+				}
 			}
 		}
 	}

@@ -64,10 +64,10 @@ func (m *mockUsageStore) GetMailboxDailySentForUpdate(ctx context.Context, addre
 	}, nil
 }
 
-func (m *mockUsageStore) IncrementMailboxDailySent(ctx context.Context, arg store.IncrementMailboxDailySentParams) error {
+func (m *mockUsageStore) IncrementMailboxDailySent(ctx context.Context, arg store.IncrementMailboxDailySentParams) (int32, error) {
 	m.incremented = true
 	m.sentCount++
-	return nil
+	return arg.MessagesSent, nil
 }
 
 func TestDBQuotaChecker(t *testing.T) {

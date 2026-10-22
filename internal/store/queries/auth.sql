@@ -1,10 +1,12 @@
 -- name: GetUserByEmail :one
-SELECT id, email, password_hash, display_name, locale, timezone, status, mfa_enabled, created_at
+SELECT id, email, password_hash, display_name, locale, timezone, status,
+       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at
 FROM users
 WHERE email = $1 AND status = 'active';
 
 -- name: GetUserByID :one
-SELECT id, email, password_hash, display_name, locale, timezone, status, mfa_enabled, created_at
+SELECT id, email, password_hash, display_name, locale, timezone, status,
+       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at
 FROM users
 WHERE id = $1 AND status = 'active';
 
@@ -49,3 +51,30 @@ WHERE r.user_id = $1 AND r.tenant_id = $2;
 UPDATE sessions
 SET tenant_id = $2
 WHERE id = $1;
+
+-- name: SetMFASecret :exec
+UPDATE users
+SET mfa_secret = $2
+WHERE id = $1;
+
+-- name: EnableUserMFA :exec
+UPDATE users
+SET mfa_enabled = true, mfa_recovery_codes = $2
+WHERE id = $1;
+
+-- name: DisableUserMFA :exec
+UPDATE users
+SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'::jsonb
+WHERE id = $1;
+
+-- name: ConsumeRecoveryCode :execrows
+-- Removes one recovery code (given as its stored SHA-256 hex hash) from the
+-- user's code list. Zero rows affected means the code did not match.
+UPDATE users
+SET mfa_recovery_codes = COALESCE((
+    SELECT jsonb_agg(v ORDER BY ord)
+    FROM jsonb_array_elements(mfa_recovery_codes) WITH ORDINALITY AS t(v, ord)
+    WHERE v <> to_jsonb($2::text)
+), '[]'::jsonb)
+WHERE id = $1 AND mfa_recovery_codes @> to_jsonb($2::text);
+

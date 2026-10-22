@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainSettings "github.com/bushixiucai/urmail/internal/domain/settings"
@@ -21,12 +22,19 @@ type TenantStore interface {
 	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 }
 
-type TenantHandler struct {
-	Store TenantStore
+// TenantPlatformStore reads platform-scoped rows needed by the tenant view.
+// The brand row must bypass RLS because a tenant reads its brand's theme.
+type TenantPlatformStore interface {
+	PlatformGetBrandThemeByTenant(ctx context.Context, tenantID int64) (store.PlatformGetBrandThemeByTenantRow, error)
 }
 
-func NewTenantHandler(s TenantStore) *TenantHandler {
-	return &TenantHandler{Store: s}
+type TenantHandler struct {
+	Store    TenantStore
+	Platform TenantPlatformStore
+}
+
+func NewTenantHandler(s TenantStore, p TenantPlatformStore) *TenantHandler {
+	return &TenantHandler{Store: s, Platform: p}
 }
 
 func (h *TenantHandler) Current(c *gin.Context) {
@@ -62,7 +70,24 @@ func (h *TenantHandler) Current(c *gin.Context) {
 			Value:   json.RawMessage(s.Value),
 		})
 	}
-	mergedSettings, _ := domainSettings.Merge3Layers(entries)
+mergedSettings, _ := domainSettings.Merge3Layers(entries)
+
+	// Effective brand theme: the brand row (platform-scoped) deep-merged
+	// with the platform/brand/tenant settings entries keyed "theme".
+	var theme *domainSettings.EffectiveTheme
+	if h.Platform != nil {
+		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(c, tenantID); err == nil {
+			src := domainSettings.BrandThemeSource{
+				BrandID:      brandRow.BrandID,
+				BrandSlug:    brandRow.BrandSlug,
+				Theme:        json.RawMessage(brandRow.Theme),
+				LogoURL:      textPtr(brandRow.LogoUrl),
+				FaviconURL:   textPtr(brandRow.FaviconUrl),
+				PrimaryColor: textPtr(brandRow.PrimaryColor),
+			}
+			theme, _ = domainSettings.BuildEffectiveTheme(src, entries)
+		}
+	}
 
 	// 2. Fetch resource usage and subscription
 	domainCount, _ := q.CountDomainsByTenant(c, tenantID)
@@ -83,6 +108,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 			"created_at": tenant.CreatedAt,
 		},
 		"settings": mergedSettings,
+		"theme":    theme,
 		"usage": gin.H{
 			"domains_used":   domainCount,
 			"domains_limit":  plan.DomainLimit,
@@ -96,4 +122,13 @@ func (h *TenantHandler) Current(c *gin.Context) {
 			"status":    sub.Status,
 		},
 	})
+}
+
+// textPtr converts a nullable text column into an optional string.
+func textPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	value := t.String
+	return &value
 }

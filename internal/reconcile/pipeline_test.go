@@ -16,7 +16,7 @@ func TestPipelineTriggerAndDebounce(t *testing.T) {
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
-		ListenAddr:    "127.0.0.1:8080",
+		ListenAddr:    "http://127.0.0.1:8080",
 	}
 
 	p := reconcile.NewPipeline(cfg, &mockQuerier{}, "1.2.3.4", []string{"ns1.urmail.cn"})

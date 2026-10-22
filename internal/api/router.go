@@ -63,7 +63,11 @@ func New(opts Options) *gin.Engine {
 	}
 
 	authHandler := handlers.NewAuthHandler(authQueries)
-	tenantHandler := handlers.NewTenantHandler(appQueries)
+	var platformQueries *store.Queries
+	if opts.PlatformPool != nil {
+		platformQueries = store.New(opts.PlatformPool.Pool)
+	}
+	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
 	domainHandler := handlers.NewDomainHandler(appQueries, opts.Reconcile)
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)

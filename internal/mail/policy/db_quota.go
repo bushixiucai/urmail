@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/jackc/pgx/v5"
@@ -16,10 +17,9 @@ type UsageStore interface {
 	GetMailboxDailySentForUpdate(ctx context.Context, address string) (store.GetMailboxDailySentForUpdateRow, error)
 
 	// IncrementMailboxDailySent is only used by the legacy (non-atomic)
-	// path, i.e. when Raw is nil. With the guarded-UPSERT sqlc signature
-	// (:one + limit) this method must be regenerated; until then the raw
-	// atomicIncrementSQL path is preferred.
-	IncrementMailboxDailySent(ctx context.Context, arg store.IncrementMailboxDailySentParams) error
+	// path, i.e. when Raw is nil. It returns the new counter value; a
+	// pgx.ErrNoRows means the limit was already reached (guarded UPSERT).
+	IncrementMailboxDailySent(ctx context.Context, arg store.IncrementMailboxDailySentParams) (int32, error)
 }
 
 // RawQuerier executes raw SQL. It is satisfied by *store.Queries and by
@@ -123,9 +123,17 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 		return true, nil
 	}
 
-	if err := c.Store.IncrementMailboxDailySent(ctx, store.IncrementMailboxDailySentParams{
-		MailboxID: mailboxID,
-		TenantID:  tenantID,
+	// The generated query is a guarded UPSERT: it refuses to increment past
+	// $3. DailyLimit <= 0 means unlimited, so pass the largest counter value
+	// to keep the legacy path permissive.
+	limit := c.DailyLimit
+	if limit <= 0 {
+		limit = math.MaxInt32
+	}
+	if _, err := c.Store.IncrementMailboxDailySent(ctx, store.IncrementMailboxDailySentParams{
+		MailboxID:    mailboxID,
+		TenantID:     tenantID,
+		MessagesSent: limit,
 	}); err != nil {
 		return false, fmt.Errorf("increment daily sent: %w", err)
 	}

@@ -2,18 +2,17 @@ package billing_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/bushixiucai/urmail/internal/domain/billing"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 type mockSubExecutor struct {
-	canceled bool
-	created  bool
+	canceled       bool
+	created        bool
+	cancelStatuses string
 }
 
 func (m *mockSubExecutor) CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error {
@@ -21,14 +20,14 @@ func (m *mockSubExecutor) CancelActiveSubscriptionsForTenant(ctx context.Context
 	return nil
 }
 
-func (m *mockSubExecutor) CreateSubscription(ctx context.Context, arg store.CreateSubscriptionParams) (store.Subscriptions, error) {
+func (m *mockSubExecutor) CreateSubscription(ctx context.Context, arg billing.CreateSubscriptionParams) (billing.Subscription, error) {
 	m.created = true
-	return store.Subscriptions{
+	return billing.Subscription{
 		ID:        1,
 		TenantID:  arg.TenantID,
 		PlanID:    arg.PlanID,
 		Status:    arg.Status,
-		CreatedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		CreatedAt: time.Now(),
 	}, nil
 }
 
@@ -52,6 +51,15 @@ func TestAtomicSwitchPlan(t *testing.T) {
 	}
 	if sub.PlanID != "pro" || sub.Status != billing.StatusActive {
 		t.Errorf("unexpected subscription: %+v", sub)
+	}
+}
+
+// The domain contract must not leak store types: it is expressed purely with
+// billing-domain DTOs.
+func TestAtomicReplaceContractUsesDomainTypes(t *testing.T) {
+	var exec billing.AtomicReplaceContract = &mockSubExecutor{}
+	if exec == nil {
+		t.Fatal("contract should be satisfiable without internal/store")
 	}
 }
 
@@ -84,18 +92,39 @@ func TestApplyDiscount(t *testing.T) {
 	orig := int64(10000) // 100.00 CNY
 
 	// Fixed discount of 20.00 CNY
-	if got := billing.ApplyDiscount(orig, "fixed", 2000); got != 8000 {
-		t.Errorf("expected 8000, got %d", got)
+	if got, err := billing.ApplyDiscount(orig, "fixed", 2000); err != nil || got != 8000 {
+		t.Errorf("expected 8000, got %d (err=%v)", got, err)
 	}
 
 	// Percent discount of 15%
-	if got := billing.ApplyDiscount(orig, "percent", 15); got != 8500 {
-		t.Errorf("expected 8500, got %d", got)
+	if got, err := billing.ApplyDiscount(orig, "percent", 15); err != nil || got != 8500 {
+		t.Errorf("expected 8500, got %d (err=%v)", got, err)
 	}
 
 	// 100% discount
-	if got := billing.ApplyDiscount(orig, "percent", 100); got != 0 {
-		t.Errorf("expected 0, got %d", got)
+	if got, err := billing.ApplyDiscount(orig, "percent", 100); err != nil || got != 0 {
+		t.Errorf("expected 0, got %d (err=%v)", got, err)
+	}
+
+	// fixed coupon with value <= 0 must be rejected, not silently free
+	if _, err := billing.ApplyDiscount(orig, "fixed", 0); !errors.Is(err, billing.ErrInvalidCoupon) {
+		t.Errorf("expected ErrInvalidCoupon for fixed value 0, got %v", err)
+	}
+	if _, err := billing.ApplyDiscount(orig, "fixed", -5); !errors.Is(err, billing.ErrInvalidCoupon) {
+		t.Errorf("expected ErrInvalidCoupon for fixed value -5, got %v", err)
+	}
+
+	// percent coupon outside (0, 100] must be rejected
+	if _, err := billing.ApplyDiscount(orig, "percent", 0); !errors.Is(err, billing.ErrInvalidCoupon) {
+		t.Errorf("expected ErrInvalidCoupon for percent value 0, got %v", err)
+	}
+	if _, err := billing.ApplyDiscount(orig, "percent", 150); !errors.Is(err, billing.ErrInvalidCoupon) {
+		t.Errorf("expected ErrInvalidCoupon for percent value 150, got %v", err)
+	}
+
+	// trial_days coupon has no monetary effect
+	if got, err := billing.ApplyDiscount(orig, "trial_days", 14); err != nil || got != orig {
+		t.Errorf("expected trial_days to leave amount at %d, got %d (err=%v)", orig, got, err)
 	}
 }
 
@@ -108,5 +137,55 @@ func TestCanTransitionOrder(t *testing.T) {
 	}
 	if billing.CanTransitionOrder(billing.OrderStatusFailed, billing.OrderStatusPaid) {
 		t.Error("failed -> paid should not be allowed")
+	}
+}
+
+func TestInvoiceLifecycle(t *testing.T) {
+	now := time.Now()
+	p := billing.CreateInvoiceParams{
+		TenantID:    7,
+		Number:      billing.GenerateInvoiceNumber(7, now),
+		PeriodStart: &now,
+		PeriodEnd:   nil,
+		AmountCents: 9900,
+		Currency:    "CNY",
+	}
+	if err := billing.ValidateNewInvoice(p); err != nil {
+		t.Fatalf("ValidateNewInvoice: %v", err)
+	}
+	if len(p.Number) == 0 || p.Number[:4] != "INV-" {
+		t.Errorf("unexpected invoice number %q", p.Number)
+	}
+
+	inv := &billing.Invoice{Status: billing.InvoiceStatusIssued, AmountCents: 9900}
+	if err := inv.MarkInvoicePaid(); err != nil {
+		t.Fatalf("MarkInvoicePaid: %v", err)
+	}
+	if inv.Status != billing.InvoiceStatusPaid || inv.IssuedAt == nil {
+		t.Errorf("unexpected invoice after mark paid: %+v", inv)
+	}
+	if err := inv.MarkInvoicePaid(); !errors.Is(err, billing.ErrInvalidInvoiceStatus) {
+		t.Errorf("paid -> paid must be rejected, got %v", err)
+	}
+	voided := &billing.Invoice{Status: billing.InvoiceStatusDraft}
+	if !billing.CanTransitionInvoiceStatus(voided.Status, billing.InvoiceStatusVoid) {
+		t.Error("draft -> void should be allowed")
+	}
+	if billing.CanTransitionInvoiceStatus(billing.InvoiceStatusVoid, billing.InvoiceStatusPaid) {
+		t.Error("void -> paid must be rejected")
+	}
+}
+
+func TestValidateNewInvoiceRejectsBadInput(t *testing.T) {
+	if err := billing.ValidateNewInvoice(billing.CreateInvoiceParams{TenantID: 1, Number: "N", AmountCents: 0, Currency: ""}); err == nil {
+		t.Error("missing currency must be rejected")
+	}
+	if err := billing.ValidateNewInvoice(billing.CreateInvoiceParams{TenantID: 0, Number: "N", AmountCents: 100, Currency: "CNY"}); err == nil {
+		t.Error("missing tenant must be rejected")
+	}
+	bad := time.Now()
+	worse := bad.Add(-time.Hour)
+	if err := billing.ValidateNewInvoice(billing.CreateInvoiceParams{TenantID: 1, Number: "N", AmountCents: 100, Currency: "CNY", PeriodStart: &bad, PeriodEnd: &worse}); err == nil {
+		t.Error("period_end before period_start must be rejected")
 	}
 }

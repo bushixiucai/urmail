@@ -5,16 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
-
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 var (
 	ErrInvalidStatusTransition = errors.New("invalid subscription status transition")
-	ErrPlanNotFound             = errors.New("plan not found")
-	ErrQuotaExceeded            = errors.New("tenant resource usage exceeds new plan limits")
+	ErrPlanNotFound            = errors.New("plan not found")
+	ErrQuotaExceeded           = errors.New("tenant resource usage exceeds new plan limits")
 )
 
 // Valid subscription statuses
@@ -25,6 +21,34 @@ const (
 	StatusCanceled = "canceled"
 	StatusExpired  = "expired"
 )
+
+// Subscription is the billing domain's own representation of a subscription
+// row. The domain package must not import internal/store (AGENTS.md layering:
+// business logic depends on neither DB nor HTTP), so the DTO lives here and
+// the store layer maps its generated types onto it.
+type Subscription struct {
+	ID                int64
+	TenantID          int64
+	PlanID            string
+	Status            string
+	PeriodStart       time.Time
+	PeriodEnd         time.Time
+	CancelAtPeriodEnd bool
+	TrialEndsAt       *time.Time
+	CreatedAt         time.Time
+}
+
+// CreateSubscriptionParams carries the fields needed to insert a new
+// subscription, expressed with domain types only.
+type CreateSubscriptionParams struct {
+	TenantID          int64
+	PlanID            string
+	Status            string
+	PeriodStart       time.Time
+	PeriodEnd         time.Time
+	CancelAtPeriodEnd bool
+	TrialEndsAt       *time.Time
+}
 
 // SubscriptionManager handles atomic subscription changes and plan limit validations.
 type SubscriptionManager struct{}
@@ -59,9 +83,11 @@ func ValidateDowngrade(limits PlanLimits, currentDomains, currentMailboxes int64
 
 // AtomicReplaceContract defines the database operations executed inside a single transaction
 // to guarantee at most one active subscription per tenant (subscriptions_one_active_per_tenant).
+// It is expressed in domain types; the store adapter (internal/api or a future
+// internal/store bridge) maps these onto the sqlc-generated methods.
 type AtomicReplaceContract interface {
 	CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error
-	CreateSubscription(ctx context.Context, arg store.CreateSubscriptionParams) (store.Subscriptions, error)
+	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscription, error)
 }
 
 // AtomicSwitchPlan performs an atomic replacement of the tenant's subscription.
@@ -72,26 +98,21 @@ func (sm *SubscriptionManager) AtomicSwitchPlan(
 	planCode string,
 	periodStart, periodEnd time.Time,
 	trialEndsAt *time.Time,
-) (*store.Subscriptions, error) {
-	// Step 1: cancel any currently active or trialing subscriptions
+) (*Subscription, error) {
+	// Step 1: cancel any currently active, trialing or past_due subscription
 	if err := exec.CancelActiveSubscriptionsForTenant(ctx, tenantID); err != nil {
 		return nil, fmt.Errorf("cancel active subscriptions: %w", err)
 	}
 
-	var trialEnd pgtype.Timestamptz
-	if trialEndsAt != nil {
-		trialEnd = pgtype.Timestamptz{Time: *trialEndsAt, Valid: true}
-	}
-
 	// Step 2: insert the new active subscription
-	sub, err := exec.CreateSubscription(ctx, store.CreateSubscriptionParams{
+	sub, err := exec.CreateSubscription(ctx, CreateSubscriptionParams{
 		TenantID:          tenantID,
 		PlanID:            planCode,
 		Status:            StatusActive,
-		PeriodStart:       pgtype.Timestamptz{Time: periodStart, Valid: true},
-		PeriodEnd:         pgtype.Timestamptz{Time: periodEnd, Valid: true},
+		PeriodStart:       periodStart,
+		PeriodEnd:         periodEnd,
 		CancelAtPeriodEnd: false,
-		TrialEndsAt:       trialEnd,
+		TrialEndsAt:       trialEndsAt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create new subscription: %w", err)

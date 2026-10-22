@@ -3,6 +3,9 @@ package reconcile_test
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail"
@@ -10,9 +13,14 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
-type mockQuerier struct{}
+type mockQuerier struct {
+	domains []store.PlatformListDomainsRow
+}
 
 func (m *mockQuerier) PlatformListDomains(ctx context.Context) ([]store.PlatformListDomainsRow, error) {
+	if m.domains != nil {
+		return m.domains, nil
+	}
 	return []store.PlatformListDomainsRow{
 		{Fqdn: "example.com", Status: "active"},
 	}, nil
@@ -37,7 +45,7 @@ func TestAssembleConfigContextAndRender(t *testing.T) {
 		PrimaryDomain: "urmail.cn",
 		StorageRoot:   "/var/mail",
 		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
-		ListenAddr:    "127.0.0.1:8080",
+		ListenAddr:    "http://127.0.0.1:8080",
 	}
 
 	mailCtx, err := reconcile.AssembleConfigContext(ctx, cfg, &mockQuerier{}, "1.2.3.4", []string{"ns1.urmail.cn"})
@@ -66,5 +74,59 @@ func TestAssembleConfigContextAndRender(t *testing.T) {
 	}
 	if _, ok := files["/etc/dovecot/conf.d/urmail/dovecot.conf"]; !ok {
 		t.Error("missing /etc/dovecot/conf.d/urmail/dovecot.conf in rendered output")
+	}
+}
+
+func TestZoneSerialFormat(t *testing.T) {
+	s := reconcile.ZoneSerial(time.Date(2026, 10, 22, 8, 40, 0, 0, time.UTC))
+	// 8:40 => bucket (8*60+40)/15 = 34 => +1 = 35
+	if s != 2026102235 {
+		t.Errorf("expected 2026102235, got %d", s)
+	}
+	// End of day clamps at bucket 96
+	e := reconcile.ZoneSerial(time.Date(2026, 10, 22, 23, 59, 0, 0, time.UTC))
+	if e != 2026102296 {
+		t.Errorf("expected 2026102296, got %d", e)
+	}
+	// Strictly ordered within a day
+	if !(reconcile.ZoneSerial(time.Date(2026, 10, 22, 0, 1, 0, 0, time.UTC)) <
+		reconcile.ZoneSerial(time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)) &&
+		reconcile.ZoneSerial(time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)) < e) {
+		t.Error("serials must increase within a day")
+	}
+}
+
+func TestAssembleSkipsDelegatedZones(t *testing.T) {
+	ctx := context.Background()
+	cfg := &config.Config{
+		MyHostname:    "box.urmail.cn",
+		PrimaryDomain: "urmail.cn",
+		StorageRoot:   "/var/mail",
+	}
+
+	q := &mockQuerier{
+		domains: []store.PlatformListDomainsRow{
+			{Fqdn: "managed.example.com", Status: "active", Mode: "managed", UpdatedAt: pgtype.Timestamptz{Time: time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC), Valid: true}},
+			{Fqdn: "delegated.example.com", Status: "active", Mode: "delegated"},
+		},
+	}
+
+	mailCtx, err := reconcile.AssembleConfigContext(ctx, cfg, q, "1.2.3.4", nil)
+	if err != nil {
+		t.Fatalf("AssembleConfigContext: %v", err)
+	}
+	if len(mailCtx.NSDSnap.Zones) != 1 {
+		t.Fatalf("expected 1 nsd zone (delegated skipped), got %d", len(mailCtx.NSDSnap.Zones))
+	}
+	z := mailCtx.NSDSnap.Zones[0]
+	if z.Domain != "managed.example.com" {
+		t.Errorf("unexpected zone domain %q", z.Domain)
+	}
+	if z.Serial != 2026102237 {
+		t.Errorf("expected serial derived from updated_at (2026102237), got %d", z.Serial)
+	}
+	// postfix still sees both domains
+	if len(mailCtx.PostfixSnap.Domains) != 2 {
+		t.Errorf("postfix must still see all active domains, got %d", len(mailCtx.PostfixSnap.Domains))
 	}
 }

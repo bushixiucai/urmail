@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -16,6 +17,23 @@ type QuotaStore interface {
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
 	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
+}
+
+// mailboxUnderLegalHold reports whether any live archive entry of the
+// mailbox carries a legal hold.
+func mailboxUnderLegalHold(c *gin.Context, q interface {
+	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
+}, tenantID, mailboxID int64) (bool, error) {
+	holds, err := q.ListMailboxesWithLegalHold(c, tenantID)
+	if err != nil {
+		return false, err
+	}
+	for _, h := range holds {
+		if h.Valid && h.Int64 == mailboxID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // quotaCheck verifies that creating one more resource of kind stays within
@@ -49,7 +67,7 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 	case "mailbox":
 		used, err = q.CountMailboxesByTenant(c, tenantID)
 		limit = plan.MailboxLimit
-		exceededCode = "MAILBOX_QUOTA_EXCEEDED"
+		exceededCode = "MAILBOX_LIMIT_EXCEEDED"
 	default:
 		return true
 	}

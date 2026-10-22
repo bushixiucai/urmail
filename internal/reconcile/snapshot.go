@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail"
@@ -84,13 +86,22 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		Aliases:   pfAliases,
 	}
 
-	// 2. NSD Snapshot
+	// 2. NSD Snapshot. Delegated domains are DNS-hosted elsewhere and must
+	// not be rendered as managed zones. The SOA serial is derived from the
+	// domain row's updated_at (YYYYMMDDNN), never hardcoded.
 	nsdZones := make([]nsd.Zone, 0, len(domains))
 	for _, d := range domains {
+		if d.Mode == "delegated" {
+			continue
+		}
+		updated := time.Now().UTC()
+		if d.UpdatedAt.Valid {
+			updated = d.UpdatedAt.Time.UTC()
+		}
 		nsdZones = append(nsdZones, nsd.Zone{
 			Domain: d.Fqdn,
 			Mode:   "managed",
-			Serial: 2026102201,
+			Serial: ZoneSerial(updated),
 		})
 	}
 
@@ -152,4 +163,24 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		},
 		NginxSnap: nginx.Snapshot{Domains: nginxDomains},
 	}, nil
+}
+
+// ZoneSerial derives an NSD SOA serial from a timestamp in the YYYYMMDDNN
+// form: the UTC date plus a two-digit intra-day sequence (96 fifteen-minute
+// buckets). Buckets keep serials increasing within a day without a shared
+// counter, and a domain edit moves updated_at and therefore the serial.
+func ZoneSerial(t time.Time) uint32 {
+	date := t.Format("20060102")
+	bucket := (t.Hour()*60 + t.Minute()) / 15 // 0..95
+	if bucket < 0 {
+		bucket = 0
+	}
+	if bucket > 98 {
+		bucket = 98
+	}
+	n, err := strconv.ParseUint(fmt.Sprintf("%s%02d", date, bucket+1), 10, 32)
+	if err != nil {
+		return 1
+	}
+	return uint32(n)
 }
