@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -704,4 +705,110 @@ func (h *PlatformHandler) RedeemCoupon(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "redeemed"})
+}
+
+type InvoiceInput struct {
+	Number      string `json:"number"`
+	AmountCents int64  `json:"amount_cents" binding:"required"`
+	Currency    string `json:"currency"`
+	PeriodStart string `json:"period_start"`
+	PeriodEnd   string `json:"period_end"`
+}
+
+func parseTime(value string) (pgtype.Timestamptz, error) {
+	if value == "" {
+		return pgtype.Timestamptz{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return pgtype.Timestamptz{}, err
+	}
+	return pgtype.Timestamptz{Time: t, Valid: true}, nil
+}
+
+func (h *PlatformHandler) CreateInvoice(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	tenantID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	var in InvoiceInput
+	if err := c.ShouldBindJSON(&in); err != nil || in.AmountCents <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	start, err := parseTime(in.PeriodStart)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	end, err := parseTime(in.PeriodEnd)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if !start.Valid {
+		start = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	}
+	if !end.Valid {
+		end = pgtype.Timestamptz{Time: time.Now().AddDate(0, 1, 0), Valid: true}
+	}
+	number := strings.TrimSpace(in.Number)
+	if number == "" {
+		number = fmt.Sprintf("INV-%d-%d", tenantID, time.Now().Unix())
+	}
+	currency := in.Currency
+	if currency == "" {
+		currency = "CNY"
+	}
+	var id int64
+	err = h.Pool.QueryRow(c, `
+		INSERT INTO invoices (tenant_id, number, period_start, period_end, amount_cents, currency, status, issued_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'issued', now())
+		RETURNING id`, tenantID, number, start, end, in.AmountCents, currency).Scan(&id)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "INVOICE_EXISTS"}})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"id": id, "number": number})
+}
+
+func (h *PlatformHandler) MarkInvoicePaid(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	tag, err := h.Pool.Exec(c, "UPDATE invoices SET status = 'paid' WHERE id = $1 AND status IN ('draft','issued')", id)
+	if err != nil || tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "INVOICE_NOT_FOUND"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "paid"})
+}
+
+func (h *PlatformHandler) VoidInvoice(c *gin.Context) {
+	if h.Pool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	tag, err := h.Pool.Exec(c, "UPDATE invoices SET status = 'void' WHERE id = $1 AND status IN ('draft','issued')", id)
+	if err != nil || tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "INVOICE_NOT_FOUND"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "void"})
 }

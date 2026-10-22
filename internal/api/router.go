@@ -155,6 +155,9 @@ func New(opts Options) *gin.Engine {
 				platform.PATCH("/tenants/:id", platformHandler.UpdateTenant)
 				platform.POST("/tenants/:id/owner", platformHandler.TransferOwner)
 				platform.POST("/tenants/:id/subscription", platformHandler.AssignSubscription)
+				platform.POST("/tenants/:id/invoices", platformHandler.CreateInvoice)
+				platform.POST("/invoices/:id/paid", platformHandler.MarkInvoicePaid)
+				platform.POST("/invoices/:id/void", platformHandler.VoidInvoice)
 			}
 		}
 
