@@ -39,6 +39,11 @@ export function PlatformPage() {
   const [slug, setSlug] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [brandSlug, setBrandSlug] = useState("default");
+  const [brandName, setBrandName] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("#2563eb");
+  const [channelCode, setChannelCode] = useState("");
+  const [channelName, setChannelName] = useState("");
 
   const load = useCallback(() => {
     void Promise.all([
@@ -61,6 +66,44 @@ export function PlatformPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const saveBrand = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await request("/api/v1/platform/brands", {
+        method: "POST",
+        body: {
+          slug: brandSlug,
+          name: brandName || brandSlug,
+          primary_color: primaryColor,
+          theme: { primary: primaryColor },
+        },
+      });
+      load();
+    } catch (err: unknown) {
+      setNotice(errorMessage(err));
+    }
+  };
+
+  const saveChannel = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      await request("/api/v1/platform/channels", {
+        method: "POST",
+        body: {
+          code: channelCode,
+          name: channelName || channelCode,
+          kind: "agent",
+          commission_bps: 0,
+        },
+      });
+      setChannelCode("");
+      setChannelName("");
+      load();
+    } catch (err: unknown) {
+      setNotice(errorMessage(err));
+    }
+  };
 
   const createTenant = async (e: FormEvent) => {
     e.preventDefault();
@@ -143,6 +186,60 @@ export function PlatformPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {t("page.platform.brand_editor")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={saveBrand} className="grid gap-2">
+              <Input
+                placeholder="slug"
+                value={brandSlug}
+                onChange={(e) => setBrandSlug(e.target.value)}
+                required
+              />
+              <Input
+                placeholder={t("page.platform.name")}
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+              />
+              <Input
+                type="color"
+                value={primaryColor}
+                onChange={(e) => setPrimaryColor(e.target.value)}
+              />
+              <Button type="submit">{t("page.platform.save_brand")}</Button>
+            </form>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {t("page.platform.channel_editor")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={saveChannel} className="grid gap-2">
+              <Input
+                placeholder="code"
+                value={channelCode}
+                onChange={(e) => setChannelCode(e.target.value)}
+                required
+              />
+              <Input
+                placeholder={t("page.platform.name")}
+                value={channelName}
+                onChange={(e) => setChannelName(e.target.value)}
+              />
+              <Button type="submit">{t("page.platform.save_channel")}</Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>

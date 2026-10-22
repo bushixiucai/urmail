@@ -79,3 +79,34 @@ ON CONFLICT (code) DO UPDATE SET
     active = EXCLUDED.active
 RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active;
 
+
+-- name: PlatformUpsertBrand :one
+INSERT INTO brands (slug, name, theme, logo_url, favicon_url, primary_color, status)
+VALUES ($1, $2, $3, $4, $5, $6, 'active')
+ON CONFLICT (slug) DO UPDATE SET
+    name = EXCLUDED.name,
+    theme = EXCLUDED.theme,
+    logo_url = EXCLUDED.logo_url,
+    favicon_url = EXCLUDED.favicon_url,
+    primary_color = EXCLUDED.primary_color,
+    status = 'active'
+RETURNING id, slug, name, logo_url, favicon_url, primary_color, theme, created_at;
+
+-- name: PlatformListChannels :many
+SELECT id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at
+FROM channels
+ORDER BY code ASC;
+
+-- name: PlatformUpsertChannel :one
+INSERT INTO channels (brand_id, code, name, kind, commission_bps, parent_id, contact, active)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (code) DO UPDATE SET
+    brand_id = EXCLUDED.brand_id,
+    name = EXCLUDED.name,
+    kind = EXCLUDED.kind,
+    commission_bps = EXCLUDED.commission_bps,
+    parent_id = EXCLUDED.parent_id,
+    contact = EXCLUDED.contact,
+    active = EXCLUDED.active
+RETURNING id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at;
+

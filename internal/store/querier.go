@@ -121,6 +121,7 @@ type Querier interface {
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
 	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
 	PlatformListBrands(ctx context.Context) ([]PlatformListBrandsRow, error)
+	PlatformListChannels(ctx context.Context) ([]Channels, error)
 	PlatformListCoupons(ctx context.Context) ([]Coupons, error)
 	// Platform query for DKIM signing configuration.
 	// Exempt from the tenant_id predicate per AGENTS.md (platform_*.sql): the
@@ -137,6 +138,8 @@ type Querier interface {
 	// Platform administration queries (no tenant scope; platform role only).
 	PlatformOverview(ctx context.Context) (PlatformOverviewRow, error)
 	PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUpdateTenantStatusParams) (PlatformUpdateTenantStatusRow, error)
+	PlatformUpsertBrand(ctx context.Context, arg PlatformUpsertBrandParams) (PlatformUpsertBrandRow, error)
+	PlatformUpsertChannel(ctx context.Context, arg PlatformUpsertChannelParams) (Channels, error)
 	PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCouponParams) (Coupons, error)
 	PlatformUpsertPlan(ctx context.Context, arg PlatformUpsertPlanParams) (Plans, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)

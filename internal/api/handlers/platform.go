@@ -29,6 +29,9 @@ type PlatformStore interface {
 	PlatformListCoupons(ctx context.Context) ([]store.Coupons, error)
 	PlatformUpsertPlan(ctx context.Context, arg store.PlatformUpsertPlanParams) (store.Plans, error)
 	PlatformUpsertCoupon(ctx context.Context, arg store.PlatformUpsertCouponParams) (store.Coupons, error)
+	PlatformUpsertBrand(ctx context.Context, arg store.PlatformUpsertBrandParams) (store.PlatformUpsertBrandRow, error)
+	PlatformListChannels(ctx context.Context) ([]store.Channels, error)
+	PlatformUpsertChannel(ctx context.Context, arg store.PlatformUpsertChannelParams) (store.Channels, error)
 }
 
 type PlatformHandler struct {
@@ -357,4 +360,116 @@ func (h *PlatformHandler) UpsertCoupon(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"coupon": coupon})
+}
+
+type BrandInput struct {
+	Slug         string          `json:"slug" binding:"required"`
+	Name         string          `json:"name" binding:"required"`
+	Theme        json.RawMessage `json:"theme"`
+	LogoURL      string          `json:"logo_url"`
+	FaviconURL   string          `json:"favicon_url"`
+	PrimaryColor string          `json:"primary_color"`
+}
+
+func (h *PlatformHandler) UpsertBrand(c *gin.Context) {
+	var in BrandInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	theme := in.Theme
+	if len(theme) == 0 {
+		theme = json.RawMessage("{}")
+	}
+	if !json.Valid(theme) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	brand, err := h.Store.PlatformUpsertBrand(c, store.PlatformUpsertBrandParams{
+		Slug: in.Slug, Name: in.Name, Theme: theme,
+		LogoUrl: textOrNull(in.LogoURL), FaviconUrl: textOrNull(in.FaviconURL),
+		PrimaryColor: textOrNull(in.PrimaryColor),
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"brand": brand})
+}
+
+func textOrNull(value string) pgtype.Text {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
+}
+
+type ChannelInput struct {
+	Code          string          `json:"code" binding:"required"`
+	Name          string          `json:"name" binding:"required"`
+	Kind          string          `json:"kind"`
+	CommissionBps int32           `json:"commission_bps"`
+	BrandID       *int64          `json:"brand_id"`
+	ParentID      *int64          `json:"parent_id"`
+	Contact       json.RawMessage `json:"contact"`
+	Active        *bool           `json:"active"`
+}
+
+func (h *PlatformHandler) Channels(c *gin.Context) {
+	rows, err := h.Store.PlatformListChannels(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"channels": rows})
+}
+
+func (h *PlatformHandler) UpsertChannel(c *gin.Context) {
+	var in ChannelInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	kind := in.Kind
+	if kind == "" {
+		kind = "agent"
+	}
+	if kind != "self" && kind != "agent" && kind != "reseller" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if in.CommissionBps < 0 || in.CommissionBps > 10000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	contact := in.Contact
+	if len(contact) == 0 {
+		contact = json.RawMessage("{}")
+	}
+	if !json.Valid(contact) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	var brandID, parentID pgtype.Int8
+	if in.BrandID != nil {
+		brandID = pgtype.Int8{Int64: *in.BrandID, Valid: true}
+	}
+	if in.ParentID != nil {
+		parentID = pgtype.Int8{Int64: *in.ParentID, Valid: true}
+	}
+	active := true
+	if in.Active != nil {
+		active = *in.Active
+	}
+	row, err := h.Store.PlatformUpsertChannel(c, store.PlatformUpsertChannelParams{
+		BrandID: brandID, Code: in.Code, Name: in.Name, Kind: kind,
+		CommissionBps: in.CommissionBps, ParentID: parentID,
+		Contact: contact, Active: active,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"channel": row})
 }

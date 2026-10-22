@@ -57,6 +57,43 @@ func (q *Queries) PlatformListBrands(ctx context.Context) ([]PlatformListBrandsR
 	return items, nil
 }
 
+const platformListChannels = `-- name: PlatformListChannels :many
+SELECT id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at
+FROM channels
+ORDER BY code ASC
+`
+
+func (q *Queries) PlatformListChannels(ctx context.Context) ([]Channels, error) {
+	rows, err := q.db.Query(ctx, platformListChannels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channels{}
+	for rows.Next() {
+		var i Channels
+		if err := rows.Scan(
+			&i.ID,
+			&i.BrandID,
+			&i.Code,
+			&i.Name,
+			&i.Kind,
+			&i.CommissionBps,
+			&i.ParentID,
+			&i.Contact,
+			&i.Active,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const platformListCoupons = `-- name: PlatformListCoupons :many
 SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
 FROM coupons
@@ -255,6 +292,114 @@ func (q *Queries) PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUp
 		&i.Slug,
 		&i.Status,
 		&i.OwnerUserID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const platformUpsertBrand = `-- name: PlatformUpsertBrand :one
+INSERT INTO brands (slug, name, theme, logo_url, favicon_url, primary_color, status)
+VALUES ($1, $2, $3, $4, $5, $6, 'active')
+ON CONFLICT (slug) DO UPDATE SET
+    name = EXCLUDED.name,
+    theme = EXCLUDED.theme,
+    logo_url = EXCLUDED.logo_url,
+    favicon_url = EXCLUDED.favicon_url,
+    primary_color = EXCLUDED.primary_color,
+    status = 'active'
+RETURNING id, slug, name, logo_url, favicon_url, primary_color, theme, created_at
+`
+
+type PlatformUpsertBrandParams struct {
+	Slug         string      `json:"slug"`
+	Name         string      `json:"name"`
+	Theme        []byte      `json:"theme"`
+	LogoUrl      pgtype.Text `json:"logo_url"`
+	FaviconUrl   pgtype.Text `json:"favicon_url"`
+	PrimaryColor pgtype.Text `json:"primary_color"`
+}
+
+type PlatformUpsertBrandRow struct {
+	ID           int64              `json:"id"`
+	Slug         string             `json:"slug"`
+	Name         string             `json:"name"`
+	LogoUrl      pgtype.Text        `json:"logo_url"`
+	FaviconUrl   pgtype.Text        `json:"favicon_url"`
+	PrimaryColor pgtype.Text        `json:"primary_color"`
+	Theme        []byte             `json:"theme"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) PlatformUpsertBrand(ctx context.Context, arg PlatformUpsertBrandParams) (PlatformUpsertBrandRow, error) {
+	row := q.db.QueryRow(ctx, platformUpsertBrand,
+		arg.Slug,
+		arg.Name,
+		arg.Theme,
+		arg.LogoUrl,
+		arg.FaviconUrl,
+		arg.PrimaryColor,
+	)
+	var i PlatformUpsertBrandRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.LogoUrl,
+		&i.FaviconUrl,
+		&i.PrimaryColor,
+		&i.Theme,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const platformUpsertChannel = `-- name: PlatformUpsertChannel :one
+INSERT INTO channels (brand_id, code, name, kind, commission_bps, parent_id, contact, active)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (code) DO UPDATE SET
+    brand_id = EXCLUDED.brand_id,
+    name = EXCLUDED.name,
+    kind = EXCLUDED.kind,
+    commission_bps = EXCLUDED.commission_bps,
+    parent_id = EXCLUDED.parent_id,
+    contact = EXCLUDED.contact,
+    active = EXCLUDED.active
+RETURNING id, brand_id, code, name, kind, commission_bps, parent_id, contact, active, created_at
+`
+
+type PlatformUpsertChannelParams struct {
+	BrandID       pgtype.Int8 `json:"brand_id"`
+	Code          string      `json:"code"`
+	Name          string      `json:"name"`
+	Kind          string      `json:"kind"`
+	CommissionBps int32       `json:"commission_bps"`
+	ParentID      pgtype.Int8 `json:"parent_id"`
+	Contact       []byte      `json:"contact"`
+	Active        bool        `json:"active"`
+}
+
+func (q *Queries) PlatformUpsertChannel(ctx context.Context, arg PlatformUpsertChannelParams) (Channels, error) {
+	row := q.db.QueryRow(ctx, platformUpsertChannel,
+		arg.BrandID,
+		arg.Code,
+		arg.Name,
+		arg.Kind,
+		arg.CommissionBps,
+		arg.ParentID,
+		arg.Contact,
+		arg.Active,
+	)
+	var i Channels
+	err := row.Scan(
+		&i.ID,
+		&i.BrandID,
+		&i.Code,
+		&i.Name,
+		&i.Kind,
+		&i.CommissionBps,
+		&i.ParentID,
+		&i.Contact,
+		&i.Active,
 		&i.CreatedAt,
 	)
 	return i, err
