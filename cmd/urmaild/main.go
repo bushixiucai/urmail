@@ -92,6 +92,10 @@ func run() error {
 		if cfg.DNSPodToken != "" {
 			dnsProvider = dnsprovider.NewDNSPod(cfg.DNSPodToken)
 		}
+	case "aliyun":
+		if cfg.AliyunAccessKeyID != "" && cfg.AliyunAccessKeySecret != "" {
+			dnsProvider = dnsprovider.NewAliyun(cfg.AliyunAccessKeyID, cfg.AliyunAccessKeySecret)
+		}
 	}
 	var stripe *payment.Stripe
 	if cfg.StripeSecretKey != "" {

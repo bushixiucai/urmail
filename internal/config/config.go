@@ -97,6 +97,10 @@ type Config struct {
 	// DNSPodToken is the "id,token" pair used when DNSProvider is dnspod.
 	DNSPodToken string
 
+	// AliyunAccessKeyID/AliyunAccessKeySecret are used when DNSProvider is aliyun.
+	AliyunAccessKeyID     string
+	AliyunAccessKeySecret string
+
 	// StripeSecretKey enables Stripe Checkout when set.
 	StripeSecretKey string
 
@@ -131,28 +135,30 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		ListenAddr:          values["URMAIL_LISTEN_ADDR"],
-		DatabaseURL:         values["URMAIL_DATABASE_URL"],
-		DatabaseURLPlatform: values["URMAIL_DATABASE_URL_PLATFORM"],
-		DatabaseURLMigrate:  values["URMAIL_DATABASE_URL_MIGRATE"],
-		DatabaseURLDovecot:  values["URMAIL_DATABASE_URL_DOVECOT"],
-		MyHostname:          values["URMAIL_MYHOSTNAME"],
-		PrimaryDomain:       values["URMAIL_PRIMARY_DOMAIN"],
-		PolicyEnabled:       parseBool(values["URMAIL_POLICY_ENABLED"]),
-		ArchiveEnabled:      parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
-		StorageRoot:         values["URMAIL_STORAGE_ROOT"],
-		AgentSocket:         values["URMAIL_AGENT_SOCKET"],
-		PolicySocket:        values["URMAIL_POLICY_SOCKET"],
-		MasterKeyPath:       values["URMAIL_MASTER_KEY_PATH"],
-		LogLevel:            values["URMAIL_LOG_LEVEL"],
-		Locale:              values["URMAIL_LOCALE"],
-		PublicIPv4:          values["URMAIL_PUBLIC_IPV4"],
-		Nameservers:         splitCSV(values["URMAIL_NAMESERVERS"]),
-		DNSProvider:         strings.ToLower(strings.TrimSpace(values["URMAIL_DNS_PROVIDER"])),
-		CloudflareToken:     values["URMAIL_CLOUDFLARE_TOKEN"],
-		DNSPodToken:         values["URMAIL_DNSPOD_TOKEN"],
-		StripeSecretKey:     values["URMAIL_STRIPE_SECRET_KEY"],
-		StripeWebhookSecret: values["URMAIL_STRIPE_WEBHOOK_SECRET"],
+		ListenAddr:            values["URMAIL_LISTEN_ADDR"],
+		DatabaseURL:           values["URMAIL_DATABASE_URL"],
+		DatabaseURLPlatform:   values["URMAIL_DATABASE_URL_PLATFORM"],
+		DatabaseURLMigrate:    values["URMAIL_DATABASE_URL_MIGRATE"],
+		DatabaseURLDovecot:    values["URMAIL_DATABASE_URL_DOVECOT"],
+		MyHostname:            values["URMAIL_MYHOSTNAME"],
+		PrimaryDomain:         values["URMAIL_PRIMARY_DOMAIN"],
+		PolicyEnabled:         parseBool(values["URMAIL_POLICY_ENABLED"]),
+		ArchiveEnabled:        parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
+		StorageRoot:           values["URMAIL_STORAGE_ROOT"],
+		AgentSocket:           values["URMAIL_AGENT_SOCKET"],
+		PolicySocket:          values["URMAIL_POLICY_SOCKET"],
+		MasterKeyPath:         values["URMAIL_MASTER_KEY_PATH"],
+		LogLevel:              values["URMAIL_LOG_LEVEL"],
+		Locale:                values["URMAIL_LOCALE"],
+		PublicIPv4:            values["URMAIL_PUBLIC_IPV4"],
+		Nameservers:           splitCSV(values["URMAIL_NAMESERVERS"]),
+		DNSProvider:           strings.ToLower(strings.TrimSpace(values["URMAIL_DNS_PROVIDER"])),
+		CloudflareToken:       values["URMAIL_CLOUDFLARE_TOKEN"],
+		DNSPodToken:           values["URMAIL_DNSPOD_TOKEN"],
+		AliyunAccessKeyID:     values["URMAIL_ALIYUN_ACCESS_KEY_ID"],
+		AliyunAccessKeySecret: values["URMAIL_ALIYUN_ACCESS_KEY_SECRET"],
+		StripeSecretKey:       values["URMAIL_STRIPE_SECRET_KEY"],
+		StripeWebhookSecret:   values["URMAIL_STRIPE_WEBHOOK_SECRET"],
 	}
 	cfg.applyDefaults()
 
