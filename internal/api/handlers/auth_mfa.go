@@ -329,7 +329,8 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		})
 		return
 	}
-	if !loginAttempts.allow(pending.LimiterKey) {
+	ipKey := ipKeyFromLimiterKey(pending.LimiterKey)
+	if !loginAttempts.allow(pending.LimiterKey) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
 		})
@@ -357,6 +358,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 	}
 	if !authenticated {
 		loginAttempts.fail(pending.LimiterKey)
+		loginAttempts.fail(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "MFA_INVALID_CODE", "message": "auth.mfa_invalid_code"},
 		})
@@ -365,5 +367,6 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 
 	pendingMFATokens.take(req.MFAToken) // single use
 	loginAttempts.reset(pending.LimiterKey)
+	loginAttempts.reset(ipKey)
 	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale)
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,8 +17,10 @@ type loginLimiter struct {
 }
 
 const (
-	loginMaxFailures = 5
-	loginWindow      = 15 * time.Minute
+	loginMaxFailures   = 5
+	loginMaxIPFailures = 50
+	loginMaxEntries    = 10000
+	loginWindow        = 15 * time.Minute
 )
 
 var loginAttempts = newLoginLimiter()
@@ -28,10 +31,25 @@ func newLoginLimiter() *loginLimiter {
 
 // allow reports whether a new attempt for key is permitted.
 func (l *loginLimiter) allow(key string) bool {
+	return l.allowN(key, loginMaxFailures)
+}
+
+// allowN is allow with an explicit failure budget (used for the looser
+// per-IP budget that catches password spraying across many accounts).
+func (l *loginLimiter) allowN(key string, max int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.prune(key)
-	return len(l.tries[key]) < loginMaxFailures
+	return len(l.tries[key]) < max
+}
+
+// ipKeyFromLimiterKey turns "ip|email" into "ip|ip"; the login key already
+// starts with the client address.
+func ipKeyFromLimiterKey(limiterKey string) string {
+	if i := strings.IndexByte(limiterKey, '|'); i >= 0 {
+		return "ip|" + limiterKey[:i]
+	}
+	return "ip|" + limiterKey
 }
 
 // fail records a failed attempt for key.
@@ -39,6 +57,12 @@ func (l *loginLimiter) fail(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.prune(key)
+	if len(l.tries) >= loginMaxEntries {
+		if _, exists := l.tries[key]; !exists {
+			// Bound memory under a distributed spray of unique keys.
+			l.tries = make(map[string][]time.Time)
+		}
+	}
 	l.tries[key] = append(l.tries[key], time.Now())
 }
 

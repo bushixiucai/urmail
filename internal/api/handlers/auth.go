@@ -93,7 +93,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	limiterKey := c.ClientIP() + "|" + req.Email
-	if !loginAttempts.allow(limiterKey) {
+	ipKey := ipKeyFromLimiterKey(limiterKey)
+	if !loginAttempts.allow(limiterKey) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
 		})
@@ -106,6 +107,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		// response time does not reveal whether the account exists.
 		_ = mail.VerifyPassword(req.Password, dummyPasswordHash)
 		loginAttempts.fail(limiterKey)
+		loginAttempts.fail(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
@@ -113,6 +115,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	if !mail.VerifyPassword(req.Password, user.PasswordHash) {
 		loginAttempts.fail(limiterKey)
+		loginAttempts.fail(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
@@ -133,6 +136,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	loginAttempts.reset(limiterKey)
+	loginAttempts.reset(ipKey)
 	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale)
 }
 
