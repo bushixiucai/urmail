@@ -164,12 +164,11 @@ func runConfigRender(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	// Dry run or stdout display
+	if !dryRun {
+		return fmt.Errorf("refusing to print configuration files (db.conf contains credentials); use --out-dir or --dry-run")
+	}
 	for _, p := range paths {
 		fmt.Printf("=== %s ===\n", p)
-		if !dryRun {
-			fmt.Print(files[p])
-		}
 	}
 	return nil
 }

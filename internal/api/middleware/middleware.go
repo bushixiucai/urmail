@@ -86,8 +86,8 @@ func Timeout(budget time.Duration) gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 
-		if errors := c.Errors; len(errors) > 0 {
-			c.JSON(http.StatusGatewayTimeout, gin.H{
+		if ctx.Err() == context.DeadlineExceeded && !c.Writer.Written() {
+			c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{
 				"error": gin.H{"code": "REQUEST_TIMEOUT"},
 			})
 		}

@@ -110,7 +110,7 @@ if command -v nfpm >/dev/null 2>&1; then
 	cd "$STAGE/DEBIAN"
 	nfpm pack --packager deb --target "$PACKAGE" --name urmail --version "$VERSION" --arch "$ARCH" --config nfpm.yaml
 elif command -v dpkg-deb >/dev/null 2>&1; then
-	dpkg-deb --build "$STAGE" "$PACKAGE"
+	dpkg-deb --root-owner-group --build "$STAGE" "$PACKAGE"
 else
 	echo "Neither nfpm nor dpkg-deb is available." >&2
 	echo "Debian packages can only be built on Linux, or with nfpm installed." >&2
