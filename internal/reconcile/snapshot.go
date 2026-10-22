@@ -127,8 +127,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	}
 	dovecotDB := cfg.DatabaseURLDovecot
 	if dovecotDB == "" {
-		// Development fallback; production sets URMAIL_DATABASE_URL_DOVECOT.
+		// Development fallbacks; production sets URMAIL_DATABASE_URL_DOVECOT.
 		dovecotDB = cfg.DatabaseURLPlatform
+	}
+	if dovecotDB == "" {
+		dovecotDB = cfg.DatabaseURL
 	}
 
 	return &mail.ConfigContext{

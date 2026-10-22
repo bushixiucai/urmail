@@ -46,8 +46,8 @@ export DEBIAN_FRONTEND=noninteractive
 log "installing system dependencies"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-	nginx postfix dovecot-core postgresql ca-certificates curl gnupg \
-	openssl certbot rsync duplicity python3-venv
+	nginx postfix dovecot-core dovecot-pgsql nsd opendkim postgresql \
+	ca-certificates curl gnupg openssl certbot rsync duplicity python3-venv
 
 # ---------------------------------------------------------------------------
 # Package
@@ -175,6 +175,12 @@ chmod 0600 /root/urmail-initial-admin.txt
 # ---------------------------------------------------------------------------
 # Services
 # ---------------------------------------------------------------------------
+
+# NSD's Debian package does not include a conf.d drop-in by default. Ensure
+# the generated zone configuration is loaded before starting the service.
+if [ -f /etc/nsd/nsd.conf ] && ! grep -q 'nsd.conf.d' /etc/nsd/nsd.conf; then
+	printf '\ninclude: "/etc/nsd/nsd.conf.d/*.conf"\n' >>/etc/nsd/nsd.conf
+fi
 
 log "starting the services"
 systemctl daemon-reload

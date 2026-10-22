@@ -28,7 +28,7 @@ func renderDovecotConf(node NodeConfig) string {
 	b.WriteString("disable_plaintext_auth = yes\n")
 	b.WriteString("auth_mechanisms = plain login\n\n")
 
-	b.WriteString("!include urmail/dovecot-sql.conf.ext\n\n")
+	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-sql.conf.ext\n\n")
 
 	b.WriteString("# Mail Location and Permissions\n")
 	b.WriteString(fmt.Sprintf("mail_location = maildir:%s/mail/mailboxes/%%d/%%n\n", storageRoot))
@@ -61,8 +61,8 @@ func renderDovecotConf(node NodeConfig) string {
 	b.WriteString("  }\n")
 	b.WriteString("}\n\n")
 
-	b.WriteString("!include urmail/dovecot-mailboxes.conf.ext\n")
-	b.WriteString("!include urmail/dovecot-quota.conf.ext\n")
+	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-mailboxes.conf.ext\n")
+	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-quota.conf.ext\n")
 
 	return b.String()
 }

@@ -45,9 +45,11 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 
 		// Port 443 server block: TLS termination + proxy
 		b.WriteString("server {\n")
-		b.WriteString("    listen 443 ssl;\n")
-		b.WriteString("    listen [::]:443 ssl;\n")
-		b.WriteString("    http2 on;\n")
+		// "listen ... http2" works on nginx 1.18 (Ubuntu 22.04) and remains
+		// accepted (with a deprecation warning) on 1.25+. "http2 on;" is
+		// unavailable before 1.25.1, so it is deliberately not used here.
+		b.WriteString("    listen 443 ssl http2;\n")
+		b.WriteString("    listen [::]:443 ssl http2;\n")
 		b.WriteString(fmt.Sprintf("    server_name %s;\n\n", fqdn))
 		b.WriteString(fmt.Sprintf("    ssl_certificate %s;\n", d.TLSCertFile))
 		b.WriteString(fmt.Sprintf("    ssl_certificate_key %s;\n", d.TLSKeyFile))

@@ -75,6 +75,9 @@ func runConfigRender(ctx context.Context, args []string) error {
 	if dovecotDB == "" {
 		dovecotDB = cfg.DatabaseURLPlatform
 	}
+	if dovecotDB == "" {
+		dovecotDB = cfg.DatabaseURL
+	}
 
 	// Assemble the full context (node config + tenant snapshot) from the
 	// database when a platform connection is configured. Without a database

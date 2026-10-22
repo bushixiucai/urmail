@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -157,14 +159,35 @@ var reloadUnits = []string{"postfix", "dovecot", "nginx", "nsd"}
 // next trigger retries the whole cycle; renders are deterministic.
 func pushRenderedConfigs(ctx context.Context, agentSocket string, files map[string]string, logger *zap.Logger) error {
 	client := agent.NewClient(agentSocket)
-	for path, content := range files {
+
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	for _, path := range paths {
 		if _, err := client.Do(ctx, "file.write", agentd.WriteFileParams{
 			Path:    path,
-			Content: content,
+			Content: files[path],
 		}); err != nil {
 			return fmt.Errorf("write %s via agent: %w", path, err)
 		}
 	}
+
+	// Postfix hash: maps are not usable until postmap has built the .db file.
+	// Compile every map after all files are in place and before restarting
+	// Postfix, so a failed map build never leaves the daemon running with a
+	// half-written table.
+	for _, path := range paths {
+		if !strings.HasSuffix(path, ".map") {
+			continue
+		}
+		if _, err := client.Do(ctx, agentd.OpPostmap, agentd.PostmapParams{Path: path}); err != nil {
+			return fmt.Errorf("postmap %s via agent: %w", path, err)
+		}
+	}
+
 	for _, unit := range reloadUnits {
 		if _, err := client.Do(ctx, "systemctl.restart", agentd.RestartUnitParams{Unit: unit}); err != nil {
 			return fmt.Errorf("restart %s via agent: %w", unit, err)

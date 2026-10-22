@@ -23,6 +23,10 @@ install -d "$STAGE/usr/bin"
 install -d "$STAGE/lib/systemd/system"
 install -d "$STAGE/etc/urmail"
 install -d "$STAGE/etc/nginx/conf.d/urmail"
+install -d "$STAGE/etc/nginx/snippets"
+install -d "$STAGE/etc/dovecot/conf.d"
+install -d "$STAGE/etc/nsd/nsd.conf.d"
+install -d "$STAGE/etc/postfix/urmail"
 install -d "$STAGE/usr/share/urmail"
 
 install -m 0755 "$ROOT/bin/urmaild" "$STAGE/usr/bin/urmaild"
@@ -32,6 +36,9 @@ install -m 0755 "$ROOT/bin/urmailctl" "$STAGE/usr/bin/urmailctl"
 install -m 0644 "$ROOT/packaging/systemd/urmaild.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmaild-agent.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
+install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/99-urmail.conf"
+install -m 0644 "$ROOT/packaging/nginx/urmail-ssl.conf" "$STAGE/etc/nginx/snippets/urmail-ssl.conf"
+install -m 0644 "$ROOT/packaging/dovecot/99-urmail.conf" "$STAGE/etc/dovecot/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/internal/db/bootstrap.sql" "$STAGE/usr/share/urmail/bootstrap.sql"
 
 cat >"$STAGE/DEBIAN/control" <<EOF
@@ -41,7 +48,7 @@ Section: mail
 Priority: optional
 Architecture: $ARCH
 Maintainer: urMail.cn <support@urmail.cn>
-Depends: nginx, postfix, dovecot-core, postgresql, ca-certificates
+Depends: nginx, postfix, dovecot-core, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot
 Description: urMail.cn multi-tenant email SaaS platform
  A self-hosted platform for selling domain mailboxes: multi-tenancy, quotas,
  billing, payment, DNS onboarding, certificates, observability and compliance.
@@ -63,6 +70,13 @@ install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/acme
 install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/certs
 install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/backups
 install -d -o root -g mailinabox -m 0750 /etc/urmail
+install -d -m 0755 /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d /etc/postfix/urmail
+
+# The Debian nsd package does not always include nsd.conf.d; add the drop-in
+# once so generated zones are loaded.
+if [ -f /etc/nsd/nsd.conf ] && ! grep -q 'nsd.conf.d' /etc/nsd/nsd.conf; then
+	printf '\ninclude: "/etc/nsd/nsd.conf.d/*.conf"\n' >>/etc/nsd/nsd.conf
+fi
 
 systemctl daemon-reload
 systemctl enable urmaild-agent.service >/dev/null 2>&1 || true
