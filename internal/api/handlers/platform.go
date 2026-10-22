@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -25,6 +27,8 @@ type PlatformStore interface {
 	PlatformListBrands(ctx context.Context) ([]store.PlatformListBrandsRow, error)
 	PlatformListPlans(ctx context.Context) ([]store.Plans, error)
 	PlatformListCoupons(ctx context.Context) ([]store.Coupons, error)
+	PlatformUpsertPlan(ctx context.Context, arg store.PlatformUpsertPlanParams) (store.Plans, error)
+	PlatformUpsertCoupon(ctx context.Context, arg store.PlatformUpsertCouponParams) (store.Coupons, error)
 }
 
 type PlatformHandler struct {
@@ -238,4 +242,119 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"tenant": PlatformTenant{
 		ID: tenantID, BrandID: brandID, Name: name, Slug: slug, Status: "active",
 	}})
+}
+
+type PlanInput struct {
+	Code           string          `json:"code" binding:"required"`
+	Name           json.RawMessage `json:"name"`
+	Description    json.RawMessage `json:"description"`
+	PriceCents     int64           `json:"price_cents"`
+	Currency       string          `json:"currency"`
+	QuotaBytes     int64           `json:"quota_bytes"`
+	MailboxLimit   int32           `json:"mailbox_limit"`
+	DomainLimit    int32           `json:"domain_limit"`
+	DailySendLimit int32           `json:"daily_send_limit"`
+	Features       json.RawMessage `json:"features"`
+	SortOrder      int32           `json:"sort_order"`
+	Active         *bool           `json:"active"`
+}
+
+func (h *PlatformHandler) UpsertPlan(c *gin.Context) {
+	var in PlanInput
+	if err := c.ShouldBindJSON(&in); err != nil || strings.TrimSpace(in.Code) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	name := in.Name
+	if len(name) == 0 {
+		name = json.RawMessage(`{"en":"` + in.Code + `"}`)
+	}
+	description := in.Description
+	if len(description) == 0 {
+		description = json.RawMessage("{}")
+	}
+	features := in.Features
+	if len(features) == 0 {
+		features = json.RawMessage("[]")
+	}
+	if !json.Valid(name) || !json.Valid(description) || !json.Valid(features) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	currency := in.Currency
+	if currency == "" {
+		currency = "CNY"
+	}
+	active := true
+	if in.Active != nil {
+		active = *in.Active
+	}
+	plan, err := h.Store.PlatformUpsertPlan(c, store.PlatformUpsertPlanParams{
+		Code: in.Code, Name: name, Description: description,
+		PriceCents: in.PriceCents, Currency: currency, QuotaBytes: in.QuotaBytes,
+		MailboxLimit: in.MailboxLimit, DomainLimit: in.DomainLimit,
+		DailySendLimit: in.DailySendLimit, Features: features,
+		SortOrder: in.SortOrder, Active: active,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"plan": plan})
+}
+
+type CouponInput struct {
+	Code           string `json:"code" binding:"required"`
+	Kind           string `json:"kind" binding:"required"`
+	Value          int64  `json:"value"`
+	MaxRedemptions *int32 `json:"max_redemptions"`
+	ValidFrom      string `json:"valid_from"`
+	ValidTo        string `json:"valid_to"`
+	Active         *bool  `json:"active"`
+}
+
+func (h *PlatformHandler) UpsertCoupon(c *gin.Context) {
+	var in CouponInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if in.Kind != "percent" && in.Kind != "fixed" && in.Kind != "trial_days" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	var from, to pgtype.Timestamptz
+	if in.ValidFrom != "" {
+		t, err := time.Parse(time.RFC3339, in.ValidFrom)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+			return
+		}
+		from = pgtype.Timestamptz{Time: t, Valid: true}
+	}
+	if in.ValidTo != "" {
+		t, err := time.Parse(time.RFC3339, in.ValidTo)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+			return
+		}
+		to = pgtype.Timestamptz{Time: t, Valid: true}
+	}
+	max := pgtype.Int4{}
+	if in.MaxRedemptions != nil {
+		max = pgtype.Int4{Int32: *in.MaxRedemptions, Valid: true}
+	}
+	active := true
+	if in.Active != nil {
+		active = *in.Active
+	}
+	coupon, err := h.Store.PlatformUpsertCoupon(c, store.PlatformUpsertCouponParams{
+		Code: in.Code, Kind: in.Kind, Value: in.Value, MaxRedemptions: max,
+		ValidFrom: from, ValidTo: to, Active: active,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"coupon": coupon})
 }

@@ -259,3 +259,121 @@ func (q *Queries) PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUp
 	)
 	return i, err
 }
+
+const platformUpsertCoupon = `-- name: PlatformUpsertCoupon :one
+INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (code) DO UPDATE SET
+    kind = EXCLUDED.kind,
+    value = EXCLUDED.value,
+    max_redemptions = EXCLUDED.max_redemptions,
+    valid_from = EXCLUDED.valid_from,
+    valid_to = EXCLUDED.valid_to,
+    active = EXCLUDED.active
+RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+`
+
+type PlatformUpsertCouponParams struct {
+	Code           string             `json:"code"`
+	Kind           string             `json:"kind"`
+	Value          int64              `json:"value"`
+	MaxRedemptions pgtype.Int4        `json:"max_redemptions"`
+	ValidFrom      pgtype.Timestamptz `json:"valid_from"`
+	ValidTo        pgtype.Timestamptz `json:"valid_to"`
+	Active         bool               `json:"active"`
+}
+
+func (q *Queries) PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCouponParams) (Coupons, error) {
+	row := q.db.QueryRow(ctx, platformUpsertCoupon,
+		arg.Code,
+		arg.Kind,
+		arg.Value,
+		arg.MaxRedemptions,
+		arg.ValidFrom,
+		arg.ValidTo,
+		arg.Active,
+	)
+	var i Coupons
+	err := row.Scan(
+		&i.Code,
+		&i.Kind,
+		&i.Value,
+		&i.MaxRedemptions,
+		&i.RedeemedCount,
+		&i.ValidFrom,
+		&i.ValidTo,
+		&i.Active,
+	)
+	return i, err
+}
+
+const platformUpsertPlan = `-- name: PlatformUpsertPlan :one
+INSERT INTO plans (
+    code, name, description, price_cents, currency, quota_bytes,
+    mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+)
+ON CONFLICT (code) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    price_cents = EXCLUDED.price_cents,
+    currency = EXCLUDED.currency,
+    quota_bytes = EXCLUDED.quota_bytes,
+    mailbox_limit = EXCLUDED.mailbox_limit,
+    domain_limit = EXCLUDED.domain_limit,
+    daily_send_limit = EXCLUDED.daily_send_limit,
+    features = EXCLUDED.features,
+    sort_order = EXCLUDED.sort_order,
+    active = EXCLUDED.active
+RETURNING code, name, description, price_cents, currency, quota_bytes,
+          mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
+`
+
+type PlatformUpsertPlanParams struct {
+	Code           string `json:"code"`
+	Name           []byte `json:"name"`
+	Description    []byte `json:"description"`
+	PriceCents     int64  `json:"price_cents"`
+	Currency       string `json:"currency"`
+	QuotaBytes     int64  `json:"quota_bytes"`
+	MailboxLimit   int32  `json:"mailbox_limit"`
+	DomainLimit    int32  `json:"domain_limit"`
+	DailySendLimit int32  `json:"daily_send_limit"`
+	Features       []byte `json:"features"`
+	SortOrder      int32  `json:"sort_order"`
+	Active         bool   `json:"active"`
+}
+
+func (q *Queries) PlatformUpsertPlan(ctx context.Context, arg PlatformUpsertPlanParams) (Plans, error) {
+	row := q.db.QueryRow(ctx, platformUpsertPlan,
+		arg.Code,
+		arg.Name,
+		arg.Description,
+		arg.PriceCents,
+		arg.Currency,
+		arg.QuotaBytes,
+		arg.MailboxLimit,
+		arg.DomainLimit,
+		arg.DailySendLimit,
+		arg.Features,
+		arg.SortOrder,
+		arg.Active,
+	)
+	var i Plans
+	err := row.Scan(
+		&i.Code,
+		&i.Name,
+		&i.Description,
+		&i.PriceCents,
+		&i.Currency,
+		&i.QuotaBytes,
+		&i.MailboxLimit,
+		&i.DomainLimit,
+		&i.DailySendLimit,
+		&i.Features,
+		&i.SortOrder,
+		&i.Active,
+	)
+	return i, err
+}
