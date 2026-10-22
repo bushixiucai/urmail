@@ -1,6 +1,6 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, CheckCircle2, ShieldCheck } from "lucide-react";
+import { AlertCircle, CheckCircle2, ShieldCheck, KeyRound } from "lucide-react";
 import { ApiRequestError, getApiErrorKey, request } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +44,20 @@ export function MfaSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<
+    { id: string; user_agent: string; current: boolean }[]
+  >([]);
+
+  const loadSessions = () => {
+    request<{
+      sessions: { id: string; user_agent: string; current: boolean }[];
+    }>("/api/v1/auth/sessions")
+      .then((data) => setSessions(data.sessions ?? []))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     request<{ mfa_enabled: boolean; pending: boolean }>(
@@ -51,11 +65,38 @@ export function MfaSettingsPage() {
     )
       .then((data) => setEnabled(data.mfa_enabled))
       .catch(() => {});
+    loadSessions();
   }, []);
 
   const errorText = (err: unknown, fallback: string): string => {
     const { key } = getApiErrorKey(err, fallback);
     return t(key, { defaultValue: t(fallback) });
+  };
+
+  const handlePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setPasswordNotice(null);
+    try {
+      await request("/api/v1/auth/password", {
+        method: "POST",
+        body: { current_password: currentPassword, new_password: newPassword },
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordNotice(t("page.settings.password.changed"));
+      loadSessions();
+    } catch (err: unknown) {
+      setPasswordNotice(errorText(err, "common.invalid_params"));
+    }
+  };
+
+  const revokeSession = async (id: string) => {
+    try {
+      await request("/api/v1/auth/sessions/" + id, { method: "DELETE" });
+      loadSessions();
+    } catch (err: unknown) {
+      setPasswordNotice(errorText(err, "common.invalid_params"));
+    }
   };
 
   const handleSetup = async () => {
@@ -236,6 +277,74 @@ export function MfaSettingsPage() {
               </Button>
             </form>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <KeyRound className="h-4 w-4" />
+            {t("page.settings.password.title")}
+          </CardTitle>
+          <CardDescription>
+            {t("page.settings.password.subtitle")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={handlePassword} className="grid gap-2 sm:grid-cols-3">
+            <Input
+              type="password"
+              placeholder={t("page.settings.password.current")}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+            />
+            <Input
+              type="password"
+              placeholder={t("page.settings.password.new")}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              minLength={12}
+              required
+            />
+            <Button type="submit">{t("page.settings.password.submit")}</Button>
+          </form>
+          {passwordNotice && (
+            <p className="text-sm text-muted-foreground">{passwordNotice}</p>
+          )}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">
+              {t("page.settings.password.sessions")}
+            </p>
+            {sessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {t("page.settings.password.no_sessions")}
+              </p>
+            ) : (
+              sessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between gap-3 border rounded-md p-2 text-sm"
+                >
+                  <span className="truncate">
+                    {session.user_agent || session.id.slice(0, 12)}
+                    {session.current
+                      ? " · " + t("page.settings.password.current_session")
+                      : ""}
+                  </span>
+                  {!session.current && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => revokeSession(session.id)}
+                    >
+                      {t("page.settings.password.revoke")}
+                    </Button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

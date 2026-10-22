@@ -157,6 +157,24 @@ func (f *fakeAuthStore) DeleteOtherUserSessions(_ context.Context, arg store.Del
 	return nil
 }
 
+func (f *fakeAuthStore) ListSessionsForUser(_ context.Context, userID int64) ([]store.ListSessionsForUserRow, error) {
+	out := []store.ListSessionsForUserRow{}
+	for id, session := range f.sessions {
+		if session.UserID == userID {
+			out = append(out, store.ListSessionsForUserRow{ID: id, UserID: userID})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAuthStore) DeleteUserSession(_ context.Context, arg store.DeleteUserSessionParams) (int64, error) {
+	if session, ok := f.sessions[arg.ID]; ok && session.UserID == arg.UserID {
+		delete(f.sessions, arg.ID)
+		return 1, nil
+	}
+	return 0, nil
+}
+
 func (f *fakeAuthStore) ConsumeRecoveryCode(_ context.Context, arg store.ConsumeRecoveryCodeParams) (int64, error) {
 	u, ok := f.users[arg.ID]
 	if !ok {

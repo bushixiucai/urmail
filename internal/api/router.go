@@ -163,6 +163,8 @@ func New(opts Options) *gin.Engine {
 
 			userLevel.POST("/auth/switch-tenant", authHandler.SwitchTenant)
 			userLevel.POST("/auth/password", authHandler.ChangePassword)
+			userLevel.GET("/auth/sessions", authHandler.ListSessions)
+			userLevel.DELETE("/auth/sessions/:id", authHandler.RevokeSession)
 		}
 
 		// Tenant-scoped routes run inside the RLS transaction.

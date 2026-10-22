@@ -126,6 +126,23 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteUserSession = `-- name: DeleteUserSession :execrows
+DELETE FROM sessions WHERE user_id = $1 AND id = $2
+`
+
+type DeleteUserSessionParams struct {
+	UserID int64  `json:"user_id"`
+	ID     string `json:"id"`
+}
+
+func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserSession, arg.UserID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const disableUserMFA = `-- name: DisableUserMFA :exec
 UPDATE users
 SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'::jsonb
@@ -314,6 +331,49 @@ func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTe
 			&i.Slug,
 			&i.Status,
 			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionsForUser = `-- name: ListSessionsForUser :many
+SELECT id, user_id, tenant_id, user_agent, created_at, expires_at
+FROM sessions
+WHERE user_id = $1 AND expires_at > now()
+ORDER BY created_at DESC
+`
+
+type ListSessionsForUserRow struct {
+	ID        string             `json:"id"`
+	UserID    int64              `json:"user_id"`
+	TenantID  pgtype.Int8        `json:"tenant_id"`
+	UserAgent pgtype.Text        `json:"user_agent"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error) {
+	rows, err := q.db.Query(ctx, listSessionsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSessionsForUserRow{}
+	for rows.Next() {
+		var i ListSessionsForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.TenantID,
+			&i.UserAgent,
+			&i.CreatedAt,
+			&i.ExpiresAt,
 		); err != nil {
 			return nil, err
 		}

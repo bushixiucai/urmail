@@ -93,3 +93,13 @@ UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1;
 -- name: DeleteOtherUserSessions :exec
 DELETE FROM sessions WHERE user_id = $1 AND id <> $2;
 
+
+-- name: ListSessionsForUser :many
+SELECT id, user_id, tenant_id, user_agent, created_at, expires_at
+FROM sessions
+WHERE user_id = $1 AND expires_at > now()
+ORDER BY created_at DESC;
+
+-- name: DeleteUserSession :execrows
+DELETE FROM sessions WHERE user_id = $1 AND id = $2;
+

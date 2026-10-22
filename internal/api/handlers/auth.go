@@ -48,6 +48,8 @@ type AuthStore interface {
 	ConsumeRecoveryCode(ctx context.Context, arg store.ConsumeRecoveryCodeParams) (int64, error)
 	UpdateUserPassword(ctx context.Context, arg store.UpdateUserPasswordParams) error
 	DeleteOtherUserSessions(ctx context.Context, arg store.DeleteOtherUserSessionsParams) error
+	ListSessionsForUser(ctx context.Context, userID int64) ([]store.ListSessionsForUserRow, error)
+	DeleteUserSession(ctx context.Context, arg store.DeleteUserSessionParams) (int64, error)
 }
 
 type AuthHandler struct {

@@ -44,6 +44,7 @@ type Querier interface {
 	DeleteOtherUserSessions(ctx context.Context, arg DeleteOtherUserSessionsParams) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteTenantSetting(ctx context.Context, arg DeleteTenantSettingParams) error
+	DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error)
 	DisableUserMFA(ctx context.Context, id int64) error
 	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error
 	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (Subscriptions, error)
@@ -103,6 +104,7 @@ type Querier interface {
 	ListMailboxesByDomain(ctx context.Context, arg ListMailboxesByDomainParams) ([]Mailboxes, error)
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]Mailboxes, error)
 	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
+	ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error)
 	ListSettingsByScopes(ctx context.Context, arg ListSettingsByScopesParams) ([]Settings, error)
 	MarkInvoicePaid(ctx context.Context, arg MarkInvoicePaidParams) (Invoices, error)
 	// Platform queries for brand theming. Brand rows and the tenant -> brand
