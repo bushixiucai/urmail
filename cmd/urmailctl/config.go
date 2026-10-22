@@ -9,11 +9,14 @@ import (
 	"strings"
 
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
+	"github.com/bushixiucai/urmail/internal/reconcile"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // withHTTPScheme prefixes a bare host:port address with http:// unless it
@@ -69,36 +72,54 @@ func runConfigRender(ctx context.Context, args []string) error {
 		storageRoot = "/var/mail"
 	}
 
-	mailCtx := mail.ConfigContext{
-		PostfixNode: postfix.NodeConfig{
-			Hostname:       hostname,
-			PrimaryDomain:  cfg.PrimaryDomain,
-			StorageRoot:    storageRoot,
-			TLSCertFile:    filepath.Join(storageRoot, "ssl", hostname+".cert"),
-			TLSKeyFile:     filepath.Join(storageRoot, "ssl", hostname+".key"),
-			PolicyEnabled:  cfg.PolicyEnabled,
-			ArchiveEnabled: cfg.ArchiveEnabled,
-		},
-		DovecotNode: dovecot.NodeConfig{
-			Hostname:      hostname,
-			PrimaryDomain: cfg.PrimaryDomain,
-			StorageRoot:   storageRoot,
-			TLSCertFile:   filepath.Join(storageRoot, "ssl", hostname+".cert"),
-			TLSKeyFile:    filepath.Join(storageRoot, "ssl", hostname+".key"),
-			DatabaseURL:   cfg.DatabaseURL,
-		},
-		NSDNode: nsd.NodeConfig{
-			Hostname:      hostname,
-			PrimaryDomain: cfg.PrimaryDomain,
-			PublicIPv4:    "127.0.0.1",
-			Nameservers:   []string{"ns1." + cfg.PrimaryDomain},
-		},
-		NginxNode: nginx.NodeConfig{
-			PrimaryDomain: cfg.PrimaryDomain,
-			StorageRoot:   storageRoot,
-			// nginx backends are validated to carry an explicit scheme.
-			BackendHTTP: withHTTPScheme(cfg.ListenAddr),
-		},
+	// Assemble the full context (node config + tenant snapshot) from the
+	// database when a platform connection is configured. Without a database
+	// the render falls back to an empty skeleton, which is only useful for
+	// plumbing checks.
+	var mailCtx mail.ConfigContext
+	if cfg.DatabaseURLPlatform != "" {
+		pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+		if err != nil {
+			return fmt.Errorf("open platform database: %w", err)
+		}
+		defer pool.Close()
+		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, store.New(pool.Pool), cfg.PublicIPv4, cfg.Nameservers)
+		if err != nil {
+			return fmt.Errorf("assemble config context: %w", err)
+		}
+		mailCtx = *assembled
+	} else {
+		mailCtx = mail.ConfigContext{
+			PostfixNode: postfix.NodeConfig{
+				Hostname:       hostname,
+				PrimaryDomain:  cfg.PrimaryDomain,
+				StorageRoot:    storageRoot,
+				TLSCertFile:    filepath.Join(storageRoot, "ssl", hostname+".cert"),
+				TLSKeyFile:     filepath.Join(storageRoot, "ssl", hostname+".key"),
+				PolicyEnabled:  cfg.PolicyEnabled,
+				ArchiveEnabled: cfg.ArchiveEnabled,
+			},
+			DovecotNode: dovecot.NodeConfig{
+				Hostname:      hostname,
+				PrimaryDomain: cfg.PrimaryDomain,
+				StorageRoot:   storageRoot,
+				TLSCertFile:   filepath.Join(storageRoot, "ssl", hostname+".cert"),
+				TLSKeyFile:    filepath.Join(storageRoot, "ssl", hostname+".key"),
+				DatabaseURL:   cfg.DatabaseURL,
+			},
+			NSDNode: nsd.NodeConfig{
+				Hostname:      hostname,
+				PrimaryDomain: cfg.PrimaryDomain,
+				PublicIPv4:    "127.0.0.1",
+				Nameservers:   []string{"ns1." + cfg.PrimaryDomain},
+			},
+			NginxNode: nginx.NodeConfig{
+				PrimaryDomain: cfg.PrimaryDomain,
+				StorageRoot:   storageRoot,
+				// nginx backends are validated to carry an explicit scheme.
+				BackendHTTP: withHTTPScheme(cfg.ListenAddr),
+			},
+		}
 	}
 
 	files, err := mail.RenderAll(mailCtx)

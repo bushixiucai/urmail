@@ -159,7 +159,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		NginxNode: nginx.NodeConfig{
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,
-			BackendHTTP:   cfg.ListenAddr,
+			// nginx backends are validated to carry an explicit scheme.
+			BackendHTTP:   withHTTPScheme(cfg.ListenAddr),
 		},
 		NginxSnap: nginx.Snapshot{Domains: nginxDomains},
 	}, nil
