@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily urMail.cn ACME certificate renewal
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=6h
+Persistent=true
+Unit=urmail-cert-renew.service
+
+[Install]
+WantedBy=timers.target

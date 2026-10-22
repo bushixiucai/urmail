@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew urMail.cn ACME certificates
+Documentation=https://urmail.cn/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/urmailctl cert renew
+User=root
+Nice=10
+IOSchedulingClass=idle

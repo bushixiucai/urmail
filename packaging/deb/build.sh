@@ -39,6 +39,8 @@ install -m 0755 "$ROOT/bin/urmail-archive" "$STAGE/usr/lib/urmail/archive-pipe"
 
 install -m 0644 "$ROOT/packaging/systemd/urmaild.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmaild-agent.service" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.service" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/opendkim.service.d/urmail.conf" "$STAGE/etc/systemd/system/opendkim.service.d/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/99-urmail.conf"
@@ -88,6 +90,7 @@ fi
 systemctl daemon-reload
 systemctl enable urmaild-agent.service >/dev/null 2>&1 || true
 systemctl enable urmaild.service >/dev/null 2>&1 || true
+systemctl enable urmail-cert-renew.timer >/dev/null 2>&1 || true
 
 exit 0
 EOF
@@ -97,6 +100,7 @@ cat >"$STAGE/DEBIAN/prerm" <<'EOF'
 set -e
 systemctl disable --now urmaild.service >/dev/null 2>&1 || true
 systemctl disable --now urmaild-agent.service >/dev/null 2>&1 || true
+systemctl disable --now urmail-cert-renew.timer >/dev/null 2>&1 || true
 exit 0
 EOF
 

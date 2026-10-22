@@ -25,6 +25,8 @@ Usage:
   urmailctl setup --email E --password P [--brand B] [--tenant T]
   urmailctl status                 print the service status
   urmailctl config render [--dry-run] [--out-dir <dir>]
+  urmailctl cert issue <domain>     obtain an ACME certificate via certbot
+  urmailctl cert renew              renew ACME certificates and install them
 `
 
 func main() {
@@ -54,6 +56,8 @@ func run(args []string) error {
 		return runStatus(ctx)
 	case "config":
 		return runConfig(ctx, args[1:])
+	case "cert":
+		return runCert(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
