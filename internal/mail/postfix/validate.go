@@ -19,23 +19,43 @@ func isValidEmail(addr string) bool {
 	return validation.IsValidHostname(domain)
 }
 
-// Validate checks the node configuration and snapshot for consistency and correctness.
-func Validate(node NodeConfig, snap Snapshot) error {
-	// 1. Validate NodeConfig
+// validateNodeConfig enforces structural constraints on the node parameters
+// that end up verbatim inside main.cf / master.cf. Whitespace and control
+// characters would allow directive injection, so they are rejected here.
+func validateNodeConfig(node NodeConfig) error {
 	if !validation.IsValidHostname(node.Hostname) {
 		return fmt.Errorf("%w: invalid hostname %q", ErrInvalidConfig, node.Hostname)
 	}
 	if !validation.IsValidHostname(node.PrimaryDomain) {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
-	if strings.TrimSpace(node.StorageRoot) == "" {
-		return fmt.Errorf("%w: storage root cannot be empty", ErrInvalidConfig)
+	if err := validation.ValidateAbsolutePath(node.StorageRoot); err != nil {
+		return fmt.Errorf("%w: storage root: %v", ErrInvalidConfig, err)
 	}
-	if strings.TrimSpace(node.TLSCertFile) == "" {
-		return fmt.Errorf("%w: TLS certificate file path cannot be empty", ErrInvalidConfig)
+	if err := validation.ValidateAbsolutePath(node.TLSCertFile); err != nil {
+		return fmt.Errorf("%w: TLS certificate file: %v", ErrInvalidConfig, err)
 	}
-	if strings.TrimSpace(node.TLSKeyFile) == "" {
-		return fmt.Errorf("%w: TLS key file path cannot be empty", ErrInvalidConfig)
+	if err := validation.ValidateAbsolutePath(node.TLSKeyFile); err != nil {
+		return fmt.Errorf("%w: TLS key file: %v", ErrInvalidConfig, err)
+	}
+	if node.PolicyEnabled {
+		if err := validation.ValidateSocketPath(node.PolicySocket); err != nil {
+			return fmt.Errorf("%w: policy socket: %v", ErrInvalidConfig, err)
+		}
+	}
+	if node.ArchiveEnabled {
+		if err := validation.ValidateSocketPath(node.ArchiveSocket); err != nil {
+			return fmt.Errorf("%w: archive socket: %v", ErrInvalidConfig, err)
+		}
+	}
+	return nil
+}
+
+// Validate checks the node configuration and snapshot for consistency and correctness.
+func Validate(node NodeConfig, snap Snapshot) error {
+	// 1. Validate NodeConfig
+	if err := validateNodeConfig(node); err != nil {
+		return err
 	}
 
 	// 2. Validate Domains

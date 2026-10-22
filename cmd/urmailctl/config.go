@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail"
@@ -14,6 +15,16 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 )
+
+// withHTTPScheme prefixes a bare host:port address with http:// unless it
+// already carries a scheme (nginx.Generate validates backends with
+// ^https?://...).
+func withHTTPScheme(addr string) string {
+	if addr == "" || strings.Contains(addr, "://") {
+		return addr
+	}
+	return "http://" + addr
+}
 
 func runConfig(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -85,7 +96,8 @@ func runConfigRender(ctx context.Context, args []string) error {
 		NginxNode: nginx.NodeConfig{
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,
-			BackendHTTP:   cfg.ListenAddr,
+			// nginx backends are validated to carry an explicit scheme.
+			BackendHTTP: withHTTPScheme(cfg.ListenAddr),
 		},
 	}
 
@@ -106,8 +118,18 @@ func runConfigRender(ctx context.Context, args []string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
 			}
-			if err := os.WriteFile(target, []byte(files[p]), 0644); err != nil {
+			// CONTRACT: db.conf embeds the database URL (credentials) and is
+			// always persisted 0600, matching the dovecot render contract and
+			// the agentd file.write enforcement (M2 review P1-2).
+			mode := os.FileMode(0o644)
+			if filepath.Base(target) == "db.conf" {
+				mode = 0o600
+			}
+			if err := os.WriteFile(target, []byte(files[p]), mode); err != nil {
 				return fmt.Errorf("write %s: %w", target, err)
+			}
+			if err := os.Chmod(target, mode); err != nil {
+				return fmt.Errorf("chmod %s: %w", target, err)
 			}
 			fmt.Printf("wrote %s\n", target)
 		}

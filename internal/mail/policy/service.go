@@ -13,6 +13,14 @@ type QuotaChecker interface {
 	CheckAndIncrement(ctx context.Context, mailboxAddress string) (allowed bool, err error)
 }
 
+// dedupCacheSize and dedupCacheTTL bound the per-message deduplication window:
+// Postfix evaluates check_policy_service once per recipient, so a single
+// message (queue_id) must only consume quota/rate-limit once per identity.
+const (
+	dedupCacheSize = 4096
+	dedupCacheTTL  = 10 * time.Minute
+)
+
 // RateLimiter tracks requests per time window in memory.
 type RateLimiter struct {
 	mu        sync.Mutex
@@ -51,35 +59,61 @@ func (r *RateLimiter) Allow(key string) bool {
 type Service struct {
 	QuotaChecker QuotaChecker
 	RateLimiter  *RateLimiter
+
+	// dedup suppresses duplicate quota/rate accounting for the same
+	// (identity, queue_id) pair within a short window. nil disables dedup.
+	dedup *seenCache
+}
+
+// NewService creates a Service with per-message deduplication enabled.
+func NewService() *Service {
+	return &Service{dedup: newSeenCache(dedupCacheSize, dedupCacheTTL)}
 }
 
 // Evaluate evaluates an incoming Postfix request.
+//
+// The rate-limit/quota identity is the SASL username when present, otherwise
+// the client IP address. Postfix invokes the policy service once per
+// recipient, so evaluations sharing the same (identity, queue_id) are
+// counted exactly once.
 func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
-	// 1. If sending as authenticated user (SASL), check rate limit and daily quota
-	if req.SASLUsername != "" {
-		if s.RateLimiter != nil {
-			if !s.RateLimiter.Allow(req.SASLUsername) {
-				return Decision{
-					Action: ActionReject,
-					Reason: "Rate limit exceeded, please retry later",
-				}
+	identity := req.SASLUsername
+	if identity == "" {
+		identity = req.ClientAddress
+	}
+	if identity == "" {
+		// No usable identity; leave the decision to the next restriction.
+		return Decision{Action: ActionDunno}
+	}
+
+	// 0. Suppress duplicate accounting for the same message.
+	if s.dedup != nil && s.dedup.Seen(identity+"\x00"+req.QueueID) {
+		return Decision{Action: ActionDunno}
+	}
+
+	// 1. Check rate limit and daily quota for the identity.
+	if s.RateLimiter != nil {
+		if !s.RateLimiter.Allow(identity) {
+			return Decision{
+				Action: ActionReject,
+				Reason: "Rate limit exceeded, please retry later",
 			}
 		}
+	}
 
-		if s.QuotaChecker != nil {
-			allowed, err := s.QuotaChecker.CheckAndIncrement(ctx, req.SASLUsername)
-			if err != nil {
-				// Fail closed or defer on DB error
-				return Decision{
-					Action: ActionDefer,
-					Reason: "Temporary quota service failure",
-				}
+	if s.QuotaChecker != nil {
+		allowed, err := s.QuotaChecker.CheckAndIncrement(ctx, identity)
+		if err != nil {
+			// Fail closed or defer on DB error
+			return Decision{
+				Action: ActionDefer,
+				Reason: "Temporary quota service failure",
 			}
-			if !allowed {
-				return Decision{
-					Action: ActionReject,
-					Reason: "Daily message quota exceeded",
-				}
+		}
+		if !allowed {
+			return Decision{
+				Action: ActionReject,
+				Reason: "Daily message quota exceeded",
 			}
 		}
 	}

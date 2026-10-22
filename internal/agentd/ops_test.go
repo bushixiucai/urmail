@@ -159,3 +159,46 @@ func mustQuote(value string) string {
 	}
 	return string(encoded)
 }
+func TestEnforceDBConfMode(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		requested string
+		wantMode  os.FileMode
+		wantErr   bool
+	}{
+		{"db.conf default mode forced to 0600", "/etc/dovecot/conf.d/urmail/db.conf", "", 0o600, false},
+		{"db.conf explicit 0600 accepted", "/etc/dovecot/conf.d/urmail/db.conf", "0600", 0o600, false},
+		{"db.conf 0644 rejected", "/etc/dovecot/conf.d/urmail/db.conf", "0644", 0, true},
+		{"db.conf 0400 rejected", "/etc/dovecot/conf.d/urmail/db.conf", "0400", 0, true},
+		{"db.conf 0777 rejected", "/etc/dovecot/conf.d/urmail/db.conf", "0777", 0, true},
+		{"other files keep requested mode", "/etc/dovecot/conf.d/urmail/dovecot.conf", "0644", 0o644, false},
+		{"path merely ending in db.conf covered", "/etc/urmail/nested/db.conf", "", 0o600, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode := os.FileMode(0o644)
+			if tc.requested != "" {
+				parsed, err := parseOctal(tc.requested)
+				if err != nil {
+					t.Fatalf("parse mode: %v", err)
+				}
+				mode = parsed
+			}
+			got, err := enforceSensitiveFileMode(tc.path, mode, tc.requested)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "rejected") {
+					t.Fatalf("expected rejection, got err=%v mode=%o", err, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.wantMode {
+				t.Fatalf("expected mode %o, got %o", tc.wantMode, got)
+			}
+		})
+	}
+}

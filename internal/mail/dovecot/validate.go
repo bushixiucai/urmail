@@ -2,7 +2,6 @@ package dovecot
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
@@ -15,11 +14,17 @@ func Validate(node NodeConfig) error {
 	if !validation.IsValidHostname(node.PrimaryDomain) {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
-	if strings.TrimSpace(node.StorageRoot) == "" {
-		return fmt.Errorf("%w: storage root cannot be empty", ErrInvalidConfig)
+	if err := validation.ValidateAbsolutePath(node.StorageRoot); err != nil {
+		return fmt.Errorf("%w: storage root: %v", ErrInvalidConfig, err)
 	}
-	if strings.TrimSpace(node.DatabaseURL) == "" {
-		return fmt.Errorf("%w: database URL cannot be empty", ErrInvalidConfig)
+	if err := validation.ValidateAbsolutePath(node.TLSCertFile); err != nil {
+		return fmt.Errorf("%w: TLS certificate file: %v", ErrInvalidConfig, err)
+	}
+	if err := validation.ValidateAbsolutePath(node.TLSKeyFile); err != nil {
+		return fmt.Errorf("%w: TLS key file: %v", ErrInvalidConfig, err)
+	}
+	if err := validation.ValidateDatabaseURL(node.DatabaseURL); err != nil {
+		return fmt.Errorf("%w: database URL: %v", ErrInvalidConfig, err)
 	}
 	return nil
 }

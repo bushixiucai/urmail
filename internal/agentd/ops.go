@@ -69,6 +69,12 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 		mode = parsed
 	}
 
+	enforced, err := enforceSensitiveFileMode(cleaned, mode, args.Mode)
+	if err != nil {
+		return "", "", err
+	}
+	mode = enforced
+
 	if err := os.MkdirAll(filepath.Dir(cleaned), 0o755); err != nil {
 		return "", "", fmt.Errorf("%w: %v", ErrRejected, err)
 	}
@@ -155,6 +161,23 @@ func BuildPostconfArgs(keys map[string]string) ([]string, error) {
 		arguments = append(arguments, key+"="+value)
 	}
 	return arguments, nil
+}
+
+// enforceSensitiveFileMode forces mode 0600 for credential-bearing files
+// (dovecot db.conf) regardless of the default or requested mode; an explicit
+// conflicting mode is rejected (M2 review P1-2). Separated from WriteFile so
+// it can be tested without touching the real filesystem.
+func enforceSensitiveFileMode(path string, mode os.FileMode, requested string) (os.FileMode, error) {
+	if !strings.HasSuffix(path, "db.conf") {
+		return mode, nil
+	}
+	if requested == "" {
+		return 0o600, nil
+	}
+	if mode != 0o600 {
+		return 0, fmt.Errorf("%w: %s carries credentials and must be written with mode 0600, got %s", ErrRejected, path, requested)
+	}
+	return mode, nil
 }
 
 // safePath resolves a path and verifies that it stays inside an allowed root.

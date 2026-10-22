@@ -57,7 +57,11 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error)
 	GetUserTenants(ctx context.Context, userID int64) ([]GetUserTenantsRow, error)
 	IncrementCouponRedemption(ctx context.Context, code string) (Coupons, error)
-	IncrementMailboxDailySent(ctx context.Context, arg IncrementMailboxDailySentParams) error
+	// Atomic check-and-increment: the counter is only advanced while it stays
+	// below the daily limit ($3); returns pgx.ErrNoRows when the limit is
+	// already reached. NOTE: the generated store code must be regenerated with
+	// sqlc for this signature change (:one with limit parameter).
+	IncrementMailboxDailySent(ctx context.Context, arg IncrementMailboxDailySentParams) (int32, error)
 	InsertPaymentEventPlaceholder(ctx context.Context, arg InsertPaymentEventPlaceholderParams) (InsertPaymentEventPlaceholderRow, error)
 	ListActivePlans(ctx context.Context) ([]Plans, error)
 	ListAliasesByTenant(ctx context.Context, tenantID int64) ([]ListAliasesByTenantRow, error)

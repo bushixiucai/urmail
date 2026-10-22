@@ -164,3 +164,82 @@ func TestErrorPaths(t *testing.T) {
 		}
 	})
 }
+func TestRecordValidationRejectsInjection(t *testing.T) {
+	node := defaultNodeConfig()
+
+	cases := []struct {
+		name   string
+		record nsd.Record
+	}{
+		{"bad_type", nsd.Record{Name: "@", Type: "SOA", Value: "ns1.example.com. hostmaster.example.com. 1"}},
+		{"unknown_type", nsd.Record{Name: "@", Type: "PTR", Value: "x"}},
+		{"name_with_dot_injection", nsd.Record{Name: "a.example.com. IN TXT \"x\"", Type: "A", Value: "1.2.3.4"}},
+		{"name_empty_ok_but_long", nsd.Record{Name: string(make([]byte, 0)) + "a b", Type: "A", Value: "1.2.3.4"}},
+		{"txt_with_quote", nsd.Record{Name: "@", Type: "TXT", Value: "v=spf1\" IN TXT \"evil"}},
+		{"txt_with_newline", nsd.Record{Name: "@", Type: "TXT", Value: "line1\nline2"}},
+		{"txt_empty", nsd.Record{Name: "@", Type: "TXT", Value: ""}},
+		{"a_bad_ip", nsd.Record{Name: "@", Type: "A", Value: "999.1.1.1"}},
+		{"aaaa_bad_ip", nsd.Record{Name: "@", Type: "AAAA", Value: "1.2.3.4"}},
+		{"mx_bad_domain", nsd.Record{Name: "@", Type: "MX", Prio: 10, Value: "not a domain"}},
+		{"cname_bad_domain", nsd.Record{Name: "www", Type: "CNAME", Value: "-bad..domain"}},
+		{"srv_three_fields", nsd.Record{Name: "_sip._tcp", Type: "SRV", Value: "10 60 5060"}},
+		{"srv_bad_port", nsd.Record{Name: "_sip._tcp", Type: "SRV", Value: "10 60 99999 sip.example.com."}},
+		{"caa_two_fields", nsd.Record{Name: "@", Type: "CAA", Value: "0 issue"}},
+		{"caa_bad_tag", nsd.Record{Name: "@", Type: "CAA", Value: "0 bogus letsencrypt.org"}},
+		{"ns_bad_domain", nsd.Record{Name: "@", Type: "NS", Value: "ns..example.com"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := nsd.Snapshot{
+				Zones: []nsd.Zone{{
+					Domain:  "example.com",
+					Mode:    "delegated",
+					Serial:  1,
+					Records: []nsd.Record{tc.record},
+				}},
+			}
+			_, err := nsd.Generate(node, snap)
+			if err == nil {
+				t.Fatalf("record %+v must be rejected", tc.record)
+			}
+		})
+	}
+}
+
+func TestRecordValidationAcceptsValidRecords(t *testing.T) {
+	node := defaultNodeConfig()
+	snap := nsd.Snapshot{
+		Zones: []nsd.Zone{{
+			Domain: "example.com",
+			Mode:   "delegated",
+			Serial: 1,
+			Records: []nsd.Record{
+				{Name: "@", Type: "A", Value: "192.0.2.1"},
+				{Name: "@", Type: "AAAA", Value: "2001:db8::1"},
+				{Name: "www", Type: "CNAME", Value: "example.com."},
+				{Name: "@", Type: "MX", Prio: 10, Value: "box.urmail.cn."},
+				{Name: "ns2", Type: "NS", Value: "ns2.example.com."},
+				{Name: "_dmarc", Type: "TXT", Value: "v=DMARC1; p=none"},
+				{Name: "@", Type: "SPF", Value: "v=spf1 mx -all"},
+				{Name: "_sip._tcp", Type: "SRV", Value: "10 60 5060 sip.example.com."},
+				{Name: "@", Type: "CAA", Value: "0 issue letsencrypt.org"},
+				{Name: "x", Type: "CAA", Value: "128 iodef mailto:sec@example.com"},
+				{Name: "", Type: "TXT", Value: "apex defaults to @"},
+			},
+		}},
+	}
+	out, err := nsd.Generate(node, snap)
+	if err != nil {
+		t.Fatalf("valid records must be accepted: %v", err)
+	}
+	zone := out["zones/example.com.txt"]
+	for _, banned := range []string{"line1\nline2", "IN TXT \"evil"} {
+		if strings.Contains(zone, banned) {
+			t.Fatalf("zone file contains injected text %q", banned)
+		}
+	}
+	if !strings.Contains(zone, "IN TXT \"v=DMARC1; p=none\"") {
+		t.Fatalf("TXT value must be quoted: %s", zone)
+	}
+}

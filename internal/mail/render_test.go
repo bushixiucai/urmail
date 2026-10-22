@@ -24,6 +24,8 @@ func TestRenderAll(t *testing.T) {
 			Hostname:      "box.urmail.cn",
 			PrimaryDomain: "urmail.cn",
 			StorageRoot:   "/var/mail",
+			TLSCertFile:   "/var/mail/ssl/box.urmail.cn.cert",
+			TLSKeyFile:    "/var/mail/ssl/box.urmail.cn.key",
 			DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
 		},
 		NSDNode: nsd.NodeConfig{
@@ -35,7 +37,7 @@ func TestRenderAll(t *testing.T) {
 		NginxNode: nginx.NodeConfig{
 			PrimaryDomain: "urmail.cn",
 			StorageRoot:   "/var/mail",
-			BackendHTTP:   "127.0.0.1:8080",
+			BackendHTTP:   "http://127.0.0.1:8080",
 		},
 	}
 

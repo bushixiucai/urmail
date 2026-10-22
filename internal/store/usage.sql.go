@@ -51,19 +51,28 @@ func (q *Queries) GetMailboxDailySentForUpdate(ctx context.Context, address stri
 	return i, err
 }
 
-const incrementMailboxDailySent = `-- name: IncrementMailboxDailySent :exec
+const incrementMailboxDailySent = `-- name: IncrementMailboxDailySent :one
 INSERT INTO mailbox_usage (mailbox_id, tenant_id, day, messages_sent)
 VALUES ($1, $2, CURRENT_DATE, 1)
 ON CONFLICT (mailbox_id, day)
 DO UPDATE SET messages_sent = mailbox_usage.messages_sent + 1
+WHERE mailbox_usage.messages_sent < $3
+RETURNING messages_sent
 `
 
 type IncrementMailboxDailySentParams struct {
-	MailboxID int64 `json:"mailbox_id"`
-	TenantID  int64 `json:"tenant_id"`
+	MailboxID    int64 `json:"mailbox_id"`
+	TenantID     int64 `json:"tenant_id"`
+	MessagesSent int32 `json:"messages_sent"`
 }
 
-func (q *Queries) IncrementMailboxDailySent(ctx context.Context, arg IncrementMailboxDailySentParams) error {
-	_, err := q.db.Exec(ctx, incrementMailboxDailySent, arg.MailboxID, arg.TenantID)
-	return err
+// Atomic check-and-increment: the counter is only advanced while it stays
+// below the daily limit ($3); returns pgx.ErrNoRows when the limit is
+// already reached. NOTE: the generated store code must be regenerated with
+// sqlc for this signature change (:one with limit parameter).
+func (q *Queries) IncrementMailboxDailySent(ctx context.Context, arg IncrementMailboxDailySentParams) (int32, error) {
+	row := q.db.QueryRow(ctx, incrementMailboxDailySent, arg.MailboxID, arg.TenantID, arg.MessagesSent)
+	var messages_sent int32
+	err := row.Scan(&messages_sent)
+	return messages_sent, err
 }

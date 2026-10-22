@@ -10,6 +10,7 @@ import (
 // Request holds attributes passed from Postfix in an access policy request.
 type Request struct {
 	ClientAddress string // client_address
+	QueueID       string // queue_id
 	ClientName    string // client_name
 	ReverseClient string // reverse_client_name
 	Sender        string // sender
@@ -78,6 +79,7 @@ func ReadRequest(r *bufio.Reader) (*Request, error) {
 
 	req := &Request{
 		ClientAddress: attrs["client_address"],
+		QueueID:       attrs["queue_id"],
 		ClientName:    attrs["client_name"],
 		ReverseClient: attrs["reverse_client_name"],
 		Sender:        attrs["sender"],

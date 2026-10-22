@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+// escapeZoneQuoted escapes a value for inclusion inside a double-quoted
+// zone-file character string.
+func escapeZoneQuoted(v string) string {
+	v = strings.ReplaceAll(v, "\\\\", "\\\\")
+	v = strings.ReplaceAll(v, "\"", "\\\"")
+	return v
+}
+
 func renderZonesConf(snap Snapshot) string {
 	zones := make([]string, 0, len(snap.Zones))
 	for _, z := range snap.Zones {

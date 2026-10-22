@@ -18,9 +18,9 @@ func defaultNodeConfig() nginx.NodeConfig {
 	return nginx.NodeConfig{
 		PrimaryDomain:  "urmail.cn",
 		StorageRoot:    "/var/mail",
-		BackendHTTP:    "127.0.0.1:8080",
-		WebmailBackend: "127.0.0.1:8888",
-		ZPushBackend:   "127.0.0.1:8889",
+		BackendHTTP:    "http://127.0.0.1:8080",
+		WebmailBackend: "http://127.0.0.1:8888",
+		ZPushBackend:   "http://127.0.0.1:8889",
 	}
 }
 
@@ -151,6 +151,73 @@ func TestErrorPaths(t *testing.T) {
 		_, err := nginx.Generate(node, snap)
 		if err == nil || !strings.Contains(err.Error(), nginx.ErrInvalidDomain.Error()) {
 			t.Errorf("expected ErrInvalidDomain, got %v", err)
+		}
+	})
+}
+func TestValidateRejectsInjectionVectors(t *testing.T) {
+	snap := nginx.Snapshot{
+		Domains: []nginx.DomainConfig{
+			{FQDN: "mail.example.com", TLSCertFile: "/certs/a.cert", TLSKeyFile: "/certs/a.key"},
+		},
+	}
+
+	t.Run("backend_without_scheme", func(t *testing.T) {
+		bad := defaultNodeConfig()
+		bad.BackendHTTP = "127.0.0.1:8080"
+		_, err := nginx.Generate(bad, snap)
+		if err == nil || !strings.Contains(err.Error(), nginx.ErrInvalidConfig.Error()) {
+			t.Fatalf("backend without scheme must be rejected, got %v", err)
+		}
+	})
+
+	t.Run("backend_with_space", func(t *testing.T) {
+		bad := defaultNodeConfig()
+		bad.WebmailBackend = "http://127.0.0.1:8888; drop_me"
+		_, err := nginx.Generate(bad, snap)
+		if err == nil {
+			t.Fatal("backend with space must be rejected")
+		}
+	})
+
+	t.Run("backend_with_newline", func(t *testing.T) {
+		bad := defaultNodeConfig()
+		bad.ZPushBackend = "http://127.0.0.1:8889\nevilDirective on;"
+		_, err := nginx.Generate(bad, snap)
+		if err == nil {
+			t.Fatal("backend with newline must be rejected")
+		}
+	})
+
+	t.Run("bad_client_max_body_size", func(t *testing.T) {
+		bad := snap
+		bad.Domains = []nginx.DomainConfig{
+			{FQDN: "mail.example.com", TLSCertFile: "/c", TLSKeyFile: "/k", ClientMaxBodySize: "128M; evil on;"},
+		}
+		_, err := nginx.Generate(defaultNodeConfig(), bad)
+		if err == nil || !strings.Contains(err.Error(), nginx.ErrInvalidDomain.Error()) {
+			t.Fatalf("body size injection must be rejected, got %v", err)
+		}
+	})
+
+	t.Run("body_size_gigabytes_rejected", func(t *testing.T) {
+		bad := snap
+		bad.Domains = []nginx.DomainConfig{
+			{FQDN: "mail.example.com", TLSCertFile: "/c", TLSKeyFile: "/k", ClientMaxBodySize: "128G"},
+		}
+		if _, err := nginx.Generate(defaultNodeConfig(), bad); err == nil {
+			t.Fatal("128G body size must be rejected")
+		}
+	})
+
+	t.Run("valid_body_sizes_accepted", func(t *testing.T) {
+		for _, size := range []string{"", "64M", "512k", "1m", "1024"} {
+			good := snap
+			good.Domains = []nginx.DomainConfig{
+				{FQDN: "mail.example.com", TLSCertFile: "/c", TLSKeyFile: "/k", ClientMaxBodySize: size},
+			}
+			if _, err := nginx.Generate(defaultNodeConfig(), good); err != nil {
+				t.Fatalf("size %q must be accepted: %v", size, err)
+			}
 		}
 	})
 }

@@ -64,7 +64,7 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 
 		if d.EnableWebmail && node.WebmailBackend != "" {
 			b.WriteString("    location /mail {\n")
-			b.WriteString(fmt.Sprintf("        proxy_pass http://%s;\n", node.WebmailBackend))
+			b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.WebmailBackend))
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 			b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
@@ -74,7 +74,7 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 
 		if node.ZPushBackend != "" {
 			b.WriteString("    location /Microsoft-Server-ActiveSync {\n")
-			b.WriteString(fmt.Sprintf("        proxy_pass http://%s;\n", node.ZPushBackend))
+			b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.ZPushBackend))
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 			b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
@@ -83,7 +83,7 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		}
 
 		b.WriteString("    location / {\n")
-		b.WriteString(fmt.Sprintf("        proxy_pass http://%s;\n", node.BackendHTTP))
+		b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.BackendHTTP))
 		b.WriteString("        proxy_set_header Host $host;\n")
 		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 		b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
