@@ -24,13 +24,12 @@ import (
 )
 
 type fakeAuthStore struct {
-	users        map[int64]*store.GetUserByIDRow
-	byEmail      map[string]int64
-	sessions     map[string]store.Sessions
-	usedCodes    map[int64]map[string]bool
-	nextID       int64
-	currentUser  int64 // the user the fake auth middleware authenticates as
-	hashPassword bool
+	users       map[int64]*store.GetUserByIDRow
+	byEmail     map[string]int64
+	sessions    map[string]store.Sessions
+	usedCodes   map[int64]map[string]bool
+	nextID      int64
+	currentUser int64 // the user the fake auth middleware authenticates as
 }
 
 func newFakeAuthStore() *fakeAuthStore {
@@ -112,6 +111,10 @@ func (f *fakeAuthStore) CreateSession(_ context.Context, arg store.CreateSession
 	f.sessions[arg.ID] = s
 	return s, nil
 }
+
+func (f *fakeAuthStore) MarkSessionLegacyOnly(_ context.Context, _ string) error { return nil }
+
+func (f *fakeAuthStore) MarkSessionMFAVerified(_ context.Context, _ string) error { return nil }
 
 func (f *fakeAuthStore) DeleteSession(_ context.Context, id string) error {
 	delete(f.sessions, id)
@@ -229,7 +232,7 @@ func newMFATestRouter(st *fakeAuthStore) *gin.Engine {
 
 func postJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]any) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-For", "10.0.0.1")
 	w := httptest.NewRecorder()

@@ -25,6 +25,7 @@ type Cloudflare struct {
 	Base   string
 }
 
+// NewCloudflare creates a Cloudflare DNS client.
 func NewCloudflare(token string) *Cloudflare {
 	return &Cloudflare{
 		Token:  token,
@@ -62,7 +63,7 @@ func (c *Cloudflare) do(ctx context.Context, method, path string, body any) (jso
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out cfResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
@@ -94,6 +95,7 @@ func (c *Cloudflare) zoneID(ctx context.Context, zone string) (string, error) {
 	return zones[0].ID, nil
 }
 
+// EnsureTXT creates or updates a TXT record in the given zone.
 func (c *Cloudflare) EnsureTXT(ctx context.Context, zone, name, value string) error {
 	id, err := c.zoneID(ctx, zone)
 	if err != nil {

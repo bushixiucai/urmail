@@ -16,6 +16,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// MailboxStore defines the tenant mail management contract.
 type MailboxStore interface {
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]store.Mailboxes, error)
 	GetMailboxByID(ctx context.Context, arg store.GetMailboxByIDParams) (store.Mailboxes, error)
@@ -31,11 +32,13 @@ type MailboxStore interface {
 	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
 }
 
+// MailboxHandler defines the tenant mail management contract.
 type MailboxHandler struct {
 	Store     MailboxStore
 	Reconcile ReconcileTrigger
 }
 
+// NewMailboxHandler handles the tenant mail management request.
 func NewMailboxHandler(s MailboxStore, r ReconcileTrigger) *MailboxHandler {
 	return &MailboxHandler{Store: s, Reconcile: r}
 }
@@ -69,6 +72,7 @@ func newMailboxResponse(m store.Mailboxes) MailboxResponse {
 	}
 }
 
+// List handles the tenant mail management request.
 func (h *MailboxHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -79,6 +83,9 @@ func (h *MailboxHandler) List(c *gin.Context) {
 
 	mailboxes, err := q.ListMailboxesByTenant(c, tenantID)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -91,6 +98,7 @@ func (h *MailboxHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"mailboxes": items})
 }
 
+// CreateMailboxRequest defines the tenant mail management contract.
 type CreateMailboxRequest struct {
 	DomainID    int64  `json:"domain_id" binding:"required"`
 	LocalPart   string `json:"local_part" binding:"required"`
@@ -99,6 +107,7 @@ type CreateMailboxRequest struct {
 	QuotaBytes  int64  `json:"quota_bytes"` // 0 = unlimited or plan default
 }
 
+// Create handles the tenant mail management request.
 func (h *MailboxHandler) Create(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -118,18 +127,21 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		ID:       req.DomainID,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "DOMAIN_NOT_FOUND"}})
 		return
 	}
 
 	local := strings.ToLower(strings.TrimSpace(req.LocalPart))
-	if len(local) > 64 || !validation.LocalPartRegex.MatchString(local) {
+	if len(local) > 64 || !validation.LocalPartRegex.MatchString(local) || strings.ContainsAny(local, "*?/\\") || local == "." || local == ".." {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "INVALID_LOCAL_PART", "message": "mailbox.invalid_local_part"},
 		})
 		return
 	}
-	if req.QuotaBytes < 0 {
+	if req.QuotaBytes < -1 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
@@ -145,6 +157,9 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 	address := fmt.Sprintf("%s@%s", local, domain.Fqdn)
 	hash, err := domainMail.HashPassword(req.Password)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "HASH_FAILED"}})
 		return
 	}
@@ -161,6 +176,9 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 		SendEnabled:  true,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{"code": "MAILBOX_CONFLICT", "message": "mailbox.already_exists"},
 		})
@@ -168,16 +186,18 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 	}
 
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 
+// UpdatePasswordRequest defines the tenant mail management contract.
 type UpdatePasswordRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
 }
 
+// UpdatePassword handles the tenant mail management request.
 func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -188,6 +208,9 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
@@ -200,6 +223,9 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 
 	hash, err := domainMail.HashPassword(req.Password)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "HASH_FAILED"}})
 		return
 	}
@@ -210,6 +236,9 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 		PasswordHash: hash,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "MAILBOX_NOT_FOUND"}})
 		return
 	}
@@ -217,10 +246,12 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 
+// UpdateQuotaRequest defines the tenant mail management contract.
 type UpdateQuotaRequest struct {
-	QuotaBytes int64 `json:"quota_bytes" binding:"min=0"`
+	QuotaBytes int64 `json:"quota_bytes" binding:"min=-1"`
 }
 
+// UpdateQuota handles the tenant mail management request.
 func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -231,6 +262,9 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
@@ -247,6 +281,9 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 		QuotaBytes: req.QuotaBytes,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "MAILBOX_NOT_FOUND"}})
 		return
 	}
@@ -254,6 +291,7 @@ func (h *MailboxHandler) UpdateQuota(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 
+// Delete handles the tenant mail management request.
 func (h *MailboxHandler) Delete(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -264,6 +302,9 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
@@ -272,6 +313,9 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 	// be deleted.
 	held, err := mailboxUnderLegalHold(c, q, tenantID, id)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -286,23 +330,28 @@ func (h *MailboxHandler) Delete(c *gin.Context) {
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_FAILED"}})
 		return
 	}
 
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// UpdateMailboxSettingsRequest defines the tenant mail management contract.
 type UpdateMailboxSettingsRequest struct {
 	DisplayName *string `json:"display_name"`
 	Status      string  `json:"status"`
 	SendEnabled *bool   `json:"send_enabled"`
 }
 
+// UpdateSettings handles the tenant mail management request.
 func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -312,11 +361,17 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
 	current, err := q.GetMailboxByID(c, store.GetMailboxByIDParams{TenantID: tenantID, ID: id})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "MAILBOX_NOT_FOUND"}})
 		return
 	}
@@ -336,12 +391,13 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 	display := current.DisplayName
 	if req.DisplayName != nil {
 		value := strings.TrimSpace(*req.DisplayName)
-		if value == "" {
+		switch {
+		case value == "":
 			display = pgtype.Text{}
-		} else if len(value) > 255 {
+		case len(value) > 255:
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 			return
-		} else {
+		default:
 			display = pgtype.Text{String: value, Valid: true}
 		}
 	}
@@ -353,11 +409,14 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 		TenantID: tenantID, ID: id, DisplayName: display, Status: status, SendEnabled: sendEnabled,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 	c.JSON(http.StatusOK, gin.H{"mailbox": MailboxResponse{
 		ID: updated.ID, DomainID: updated.DomainID, LocalPart: updated.LocalPart,

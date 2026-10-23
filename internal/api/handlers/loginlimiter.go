@@ -36,11 +36,11 @@ func (l *loginLimiter) allow(key string) bool {
 
 // allowN is allow with an explicit failure budget (used for the looser
 // per-IP budget that catches password spraying across many accounts).
-func (l *loginLimiter) allowN(key string, max int) bool {
+func (l *loginLimiter) allowN(key string, budget int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.prune(key)
-	return len(l.tries[key]) < max
+	return len(l.tries[key]) < budget
 }
 
 // ipKeyFromLimiterKey turns "ip|email" into "ip|ip"; the login key already

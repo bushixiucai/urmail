@@ -15,6 +15,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// ArchiveStore defines the tenant mail management contract.
 type ArchiveStore interface {
 	ListArchiveEntriesByTenant(ctx context.Context, arg store.ListArchiveEntriesByTenantParams) ([]store.ArchiveEntries, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg store.SetArchiveEntryLegalHoldParams) (store.ArchiveEntries, error)
@@ -22,14 +23,17 @@ type ArchiveStore interface {
 	SoftDeleteArchiveEntry(ctx context.Context, arg store.SoftDeleteArchiveEntryParams) (int64, error)
 }
 
+// ArchiveHandler defines the tenant mail management contract.
 type ArchiveHandler struct {
 	Store ArchiveStore
 }
 
+// NewArchiveHandler handles the tenant mail management request.
 func NewArchiveHandler(s ArchiveStore) *ArchiveHandler {
 	return &ArchiveHandler{Store: s}
 }
 
+// ArchiveResponse defines the tenant mail management contract.
 type ArchiveResponse struct {
 	ID         int64              `json:"id"`
 	MailboxID  pgtype.Int8        `json:"mailbox_id"`
@@ -56,6 +60,7 @@ func newArchiveResponse(a store.ArchiveEntries) ArchiveResponse {
 	}
 }
 
+// List handles the tenant mail management request.
 func (h *ArchiveHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -66,12 +71,12 @@ func (h *ArchiveHandler) List(c *gin.Context) {
 	limit := int32(50)
 	offset := int32(0)
 	if raw := c.Query("limit"); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 200 {
+		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 && v <= 200 {
 			limit = int32(v)
 		}
 	}
 	if raw := c.Query("offset"); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v >= 0 {
 			offset = int32(v)
 		}
 	}
@@ -81,6 +86,9 @@ func (h *ArchiveHandler) List(c *gin.Context) {
 		Offset:   offset,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -91,10 +99,12 @@ func (h *ArchiveHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"entries": out})
 }
 
+// SetHold handles the tenant mail management request.
 func (h *ArchiveHandler) SetHold(c *gin.Context) {
 	h.mutateHold(c, true)
 }
 
+// ClearHold handles the tenant mail management request.
 func (h *ArchiveHandler) ClearHold(c *gin.Context) {
 	h.mutateHold(c, false)
 }
@@ -108,6 +118,9 @@ func (h *ArchiveHandler) mutateHold(c *gin.Context, held bool) {
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
@@ -122,12 +135,16 @@ func (h *ArchiveHandler) mutateHold(c *gin.Context, held bool) {
 		return
 	}
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"entry": newArchiveResponse(entry)})
 }
 
+// Delete handles the tenant mail management request.
 func (h *ArchiveHandler) Delete(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -137,6 +154,9 @@ func (h *ArchiveHandler) Delete(c *gin.Context) {
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
@@ -146,6 +166,9 @@ func (h *ArchiveHandler) Delete(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}

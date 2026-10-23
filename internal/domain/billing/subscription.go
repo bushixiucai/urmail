@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Subscription lifecycle and capacity validation errors.
 var (
 	ErrInvalidStatusTransition = errors.New("invalid subscription status transition")
 	ErrPlanNotFound            = errors.New("plan not found")
@@ -69,13 +70,13 @@ type PlanLimits struct {
 
 // ValidateDowngrade checks if current tenant usage fits within target plan limits.
 func ValidateDowngrade(limits PlanLimits, currentDomains, currentMailboxes int64, currentStorageBytes int64) error {
-	if int64(limits.DomainLimit) > 0 && currentDomains > int64(limits.DomainLimit) {
+	if int64(limits.DomainLimit) >= 0 && currentDomains > int64(limits.DomainLimit) {
 		return fmt.Errorf("%w: domains (%d) exceeds limit (%d)", ErrQuotaExceeded, currentDomains, limits.DomainLimit)
 	}
-	if int64(limits.MailboxLimit) > 0 && currentMailboxes > int64(limits.MailboxLimit) {
+	if int64(limits.MailboxLimit) >= 0 && currentMailboxes > int64(limits.MailboxLimit) {
 		return fmt.Errorf("%w: mailboxes (%d) exceeds limit (%d)", ErrQuotaExceeded, currentMailboxes, limits.MailboxLimit)
 	}
-	if limits.QuotaBytes > 0 && currentStorageBytes > limits.QuotaBytes {
+	if limits.QuotaBytes >= 0 && currentStorageBytes > limits.QuotaBytes {
 		return fmt.Errorf("%w: storage (%d bytes) exceeds limit (%d bytes)", ErrQuotaExceeded, currentStorageBytes, limits.QuotaBytes)
 	}
 	return nil

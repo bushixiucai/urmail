@@ -20,6 +20,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// DomainStore exposes tenant-scoped domain persistence.
 type DomainStore interface {
 	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]store.ListDomainsByTenantRow, error)
 	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
@@ -32,14 +33,17 @@ type DomainStore interface {
 	UpdateDomainModeStatus(ctx context.Context, arg store.UpdateDomainModeStatusParams) (store.UpdateDomainModeStatusRow, error)
 }
 
+// ReconcileTrigger schedules configuration regeneration after a commit.
 type ReconcileTrigger interface {
 	Trigger()
 }
 
+// DNSProvider publishes domain verification records.
 type DNSProvider interface {
 	EnsureTXT(ctx context.Context, zone, name, value string) error
 }
 
+// DomainHandler manages tenant domains and verification.
 type DomainHandler struct {
 	Store     DomainStore
 	Reconcile ReconcileTrigger
@@ -56,6 +60,7 @@ func (h *DomainHandler) mxHost() string {
 	return "box.urmail.cn"
 }
 
+// NewDomainHandler serves the tenant management operation.
 func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
 	return &DomainHandler{Store: s, Reconcile: r}
 }
@@ -96,6 +101,7 @@ func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt 
 	}
 }
 
+// List serves the tenant management operation.
 func (h *DomainHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -106,6 +112,9 @@ func (h *DomainHandler) List(c *gin.Context) {
 
 	domains, err := q.ListDomainsByTenant(c, tenantID)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -118,11 +127,13 @@ func (h *DomainHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"domains": items})
 }
 
+// CreateDomainRequest defines the tenant management contract.
 type CreateDomainRequest struct {
 	FQDN string `json:"fqdn" binding:"required"`
 	Mode string `json:"mode"` // managed or delegated (default)
 }
 
+// Create serves the tenant management operation.
 func (h *DomainHandler) Create(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -171,6 +182,9 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	// DNS TXT record published in the guidance below.
 	dkim, err := domainMail.GenerateDKIMKeypair("mail")
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
 		return
 	}
@@ -186,6 +200,9 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		DkimPrivateKey:    pgtype.Text{String: dkim.PrivateKey, Valid: true},
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{"code": "DOMAIN_CONFLICT", "message": "domain.already_exists"},
 		})
@@ -204,7 +221,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 
 	// Trigger async reconcile pipeline
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -236,11 +253,17 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
 	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{TenantID: tenantID, ID: id})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "DOMAIN_NOT_FOUND"}})
 		return
 	}
@@ -253,6 +276,9 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 	defer cancel()
 	records, err := net.DefaultResolver.LookupTXT(ctx, "_urmail-verify."+domain.Fqdn)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "DOMAIN_VERIFICATION_FAILED", "message": "domain.verification_failed"},
 		})
@@ -279,15 +305,19 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 		VerifiedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt)})
 }
 
+// Delete serves the tenant management operation.
 func (h *DomainHandler) Delete(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -299,6 +329,9 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
@@ -307,22 +340,27 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DELETE_FAILED"}})
 		return
 	}
 
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// UpdateDomainRequest defines the tenant management contract.
 type UpdateDomainRequest struct {
 	Mode   string `json:"mode"`
 	Status string `json:"status"`
 }
 
+// Update serves the tenant management operation.
 func (h *DomainHandler) Update(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -332,11 +370,17 @@ func (h *DomainHandler) Update(c *gin.Context) {
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
 	current, err := q.GetDomainByID(c, store.GetDomainByIDParams{TenantID: tenantID, ID: id})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "DOMAIN_NOT_FOUND"}})
 		return
 	}
@@ -369,11 +413,14 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		TenantID: tenantID, ID: id, Mode: mode, Status: status,
 	})
 	if err != nil {
+		if respondConstraintError(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(
 		updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt,

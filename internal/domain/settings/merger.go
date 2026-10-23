@@ -1,3 +1,4 @@
+// Package settings merges platform, brand, and tenant configuration.
 package settings
 
 import (
@@ -8,6 +9,7 @@ import (
 // Scope represents the level of a setting in the 3-layer model.
 type Scope string
 
+// Configuration inheritance scopes, from platform to tenant.
 const (
 	ScopePlatform Scope = "platform"
 	ScopeBrand    Scope = "brand"

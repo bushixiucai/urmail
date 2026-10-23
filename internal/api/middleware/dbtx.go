@@ -77,20 +77,41 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 
 		c.Set(ContextQueries, queries)
 
-		c.Next()
-
-		if err := tx.Commit(c.Request.Context()); err != nil {
-			logger.Error("commit tenant transaction",
-				zap.Error(err),
-				zap.String("path", c.Request.URL.Path),
-				zap.String("request_id", c.GetString(string(RequestIDContextKey))),
-			)
-			if !c.Writer.Written() {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": gin.H{"code": "INTERNAL_ERROR"},
-				})
+		originalWriter := c.Writer
+		buffered := newResponseBuffer(originalWriter)
+		c.Writer = buffered
+		defer func() { c.Writer = originalWriter }()
+		c.Set(contextTransaction, tx)
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			if _, err := tx.Exec(c.Request.Context(), "SELECT pg_advisory_xact_lock($1)", tenantID); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+				buffered.publish()
+				return
 			}
 		}
+		c.Next()
+		if failed, _ := c.Get("urmail.transaction_failed"); failed == true || buffered.overflow {
+			c.Writer = originalWriter
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "RESPONSE_TOO_LARGE"}})
+			return
+		}
+		if buffered.Status() >= 400 {
+			_ = tx.Rollback(context.Background())
+			buffered.publish()
+			return
+		}
+		if err := tx.Commit(c.Request.Context()); err != nil {
+			logger.Error("commit tenant transaction", zap.Error(err), zap.String("path", c.Request.URL.Path))
+			c.Writer = originalWriter
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+			return
+		}
+		if callbacks, ok := c.Get(contextAfterCommit); ok {
+			for _, fn := range callbacks.([]func()) {
+				fn()
+			}
+		}
+		buffered.publish()
 	}
 }
 

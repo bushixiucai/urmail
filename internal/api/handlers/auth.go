@@ -34,6 +34,7 @@ func randomHexToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// AuthStore is the platform-scoped authentication persistence boundary.
 type AuthStore interface {
 	GetUserByEmail(ctx context.Context, email string) (store.GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id int64) (store.GetUserByIDRow, error)
@@ -41,6 +42,8 @@ type AuthStore interface {
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
 	CreateSession(ctx context.Context, arg store.CreateSessionParams) (store.Sessions, error)
 	DeleteSession(ctx context.Context, id string) error
+	MarkSessionMFAVerified(ctx context.Context, id string) error
+	MarkSessionLegacyOnly(ctx context.Context, id string) error
 	UpdateSessionTenant(ctx context.Context, arg store.UpdateSessionTenantParams) error
 	SetMFASecret(ctx context.Context, arg store.SetMFASecretParams) error
 	EnableUserMFA(ctx context.Context, arg store.EnableUserMFAParams) error
@@ -52,9 +55,11 @@ type AuthStore interface {
 	DeleteUserSession(ctx context.Context, arg store.DeleteUserSessionParams) (int64, error)
 }
 
+// AuthHandler serves panel authentication and session management.
 type AuthHandler struct {
-	Store   AuthStore
-	Secrets SecretsBox
+	Store       AuthStore
+	Secrets     SecretsBox
+	Credentials ApplicationCredentialStore
 }
 
 // SecretsBox is the subset of secrets.Box used by the auth handler.
@@ -63,8 +68,13 @@ type SecretsBox interface {
 	DecryptString(value string) (string, error)
 }
 
+// NewAuthHandler wires authentication and optional application credentials.
 func NewAuthHandler(s AuthStore) *AuthHandler {
-	return &AuthHandler{Store: s}
+	h := &AuthHandler{Store: s}
+	if credentials, ok := s.(ApplicationCredentialStore); ok {
+		h.Credentials = credentials
+	}
+	return h
 }
 
 func (h *AuthHandler) decryptMFA(value string) (string, error) {
@@ -74,11 +84,13 @@ func (h *AuthHandler) decryptMFA(value string) (string, error) {
 	return h.Secrets.DecryptString(value)
 }
 
+// LoginRequest supplies the first authentication factor.
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 }
 
+// LoginResponse returns a session or a pending second-factor challenge.
 type LoginResponse struct {
 	Token     string `json:"token"`
 	CSRFToken string `json:"csrf_token"`
@@ -101,6 +113,7 @@ type LoginResponse struct {
 	MfaToken    string `json:"mfa_token,omitempty"`
 }
 
+// Login verifies the password and requires a second factor when enabled.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -155,13 +168,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	loginAttempts.reset(limiterKey)
 	loginAttempts.reset(ipKey)
-	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale)
+	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, false)
 }
 
 // establishSession creates the session row and writes the full login
 // response. It is shared by the single-factor login path and the second
 // MFA leg.
-func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email string, displayName pgtype.Text, locale string) {
+func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email string, displayName pgtype.Text, locale string, mfaVerified bool) {
+	c.Header("Cache-Control", "no-store")
 	token, err := randomHexToken()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -201,6 +215,14 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		return
 	}
 
+	if mfaVerified {
+		if err := h.Store.MarkSessionMFAVerified(c, session.ID); err != nil {
+			_ = h.Store.DeleteSession(c, session.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "SESSION_CREATE_FAILED"}})
+			return
+		}
+	}
+
 	resp := LoginResponse{
 		Token:     token,
 		CSRFToken: session.CsrfToken,
@@ -221,6 +243,7 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 	c.JSON(http.StatusOK, resp)
 }
 
+// Logout revokes the authenticated session.
 func (h *AuthHandler) Logout(c *gin.Context) {
 	val, exists := c.Get(middleware.ContextSession)
 	if exists {
@@ -231,6 +254,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// Me returns the authenticated identity and authorized tenant memberships.
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -268,6 +292,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	})
 }
 
+// SwitchTenantRequest identifies an authorized destination tenant.
 type SwitchTenantRequest struct {
 	TenantID int64 `json:"tenant_id" binding:"required"`
 }

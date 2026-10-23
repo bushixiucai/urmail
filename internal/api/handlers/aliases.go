@@ -14,6 +14,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// AliasStore exposes tenant-scoped alias operations.
 type AliasStore interface {
 	ListAliasesByTenant(ctx context.Context, tenantID int64) ([]store.ListAliasesByTenantRow, error)
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]store.Mailboxes, error)
@@ -22,11 +23,13 @@ type AliasStore interface {
 	DeleteAlias(ctx context.Context, arg store.DeleteAliasParams) error
 }
 
+// AliasHandler defines the tenant mail management contract.
 type AliasHandler struct {
 	Store     AliasStore
 	Reconcile ReconcileTrigger
 }
 
+// NewAliasHandler handles the tenant mail management request.
 func NewAliasHandler(s AliasStore, r ReconcileTrigger) *AliasHandler {
 	return &AliasHandler{Store: s, Reconcile: r}
 }
@@ -57,6 +60,7 @@ func newAliasResponse(id, domainID int64, domainFQDN, localPart, target, kind st
 	}
 }
 
+// List handles the tenant mail management request.
 func (h *AliasHandler) List(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -81,6 +85,7 @@ func (h *AliasHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"aliases": items})
 }
 
+// CreateAliasRequest defines the tenant mail management contract.
 type CreateAliasRequest struct {
 	DomainID  int64  `json:"domain_id" binding:"required"`
 	LocalPart string `json:"local_part"` // empty for catchall
@@ -88,6 +93,7 @@ type CreateAliasRequest struct {
 	Kind      string `json:"kind"` // alias|catchall|forward
 }
 
+// Create handles the tenant mail management request.
 func (h *AliasHandler) Create(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -180,7 +186,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	}
 
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -190,6 +196,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	})
 }
 
+// Delete handles the tenant mail management request.
 func (h *AliasHandler) Delete(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -213,8 +220,103 @@ func (h *AliasHandler) Delete(c *gin.Context) {
 	}
 
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+type aliasUpdateStore interface {
+	AliasStore
+	GetAliasByID(context.Context, store.GetAliasByIDParams) (store.GetAliasByIDRow, error)
+	UpdateAlias(context.Context, store.UpdateAliasParams) (store.MailboxAliases, error)
+}
+
+// Update validates the entire alias graph with the current rule replaced.
+func (h *AliasHandler) Update(c *gin.Context) {
+	tid, ok := middleware.GetTenantID(c)
+	if !ok {
+		c.JSON(401, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_ID"}})
+		return
+	}
+	q := requestStore[aliasUpdateStore](c, nil)
+	if q == nil {
+		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	existing, err := q.GetAliasByID(c, store.GetAliasByIDParams{TenantID: tid, ID: id})
+	if err != nil {
+		c.JSON(404, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
+		return
+	}
+	var in struct {
+		LocalPart *string `json:"local_part"`
+		Target    *string `json:"target"`
+		Kind      *string `json:"kind"`
+		Active    *bool   `json:"active"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	local, target, kind, active := existing.LocalPart, existing.Target, existing.Kind, existing.Active
+	if in.LocalPart != nil {
+		local = strings.ToLower(strings.TrimSpace(*in.LocalPart))
+	}
+	if in.Target != nil {
+		target = strings.ToLower(strings.TrimSpace(*in.Target))
+	}
+	if in.Kind != nil {
+		kind = *in.Kind
+	}
+	if in.Active != nil {
+		active = *in.Active
+	}
+	if len(local) > 64 || len(target) > 320 || (kind != "alias" && kind != "catchall" && kind != "forward") {
+		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	aliases, err := q.ListAliasesByTenant(c, tid)
+	if err != nil {
+		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	mailboxes, err := q.ListMailboxesByTenant(c, tid)
+	if err != nil {
+		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	rules := []domainMail.AliasRule{}
+	addresses := []string{}
+	for _, a := range aliases {
+		if a.ID != id && a.Active {
+			rules = append(rules, domainMail.AliasRule{Domain: a.DomainFqdn, LocalPart: a.LocalPart, Target: a.Target, Kind: a.Kind})
+		}
+	}
+	if active {
+		rules = append(rules, domainMail.AliasRule{Domain: existing.DomainFqdn, LocalPart: local, Target: target, Kind: kind})
+	}
+	for _, m := range mailboxes {
+		if m.Status != "deleted" {
+			addresses = append(addresses, m.Address)
+		}
+	}
+	if domainMail.ValidateAliases(rules, addresses) != nil {
+		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_ALIAS"}})
+		return
+	}
+	row, err := q.UpdateAlias(c, store.UpdateAliasParams{TenantID: tid, ID: id, LocalPart: local, Target: target, Kind: kind, Active: active})
+	if err != nil {
+		c.JSON(409, gin.H{"error": gin.H{"code": "ALIAS_CONFLICT"}})
+		return
+	}
+	if h.Reconcile != nil {
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
+	}
+	c.JSON(200, gin.H{"alias": newAliasResponse(row.ID, row.DomainID, existing.DomainFqdn, row.LocalPart, row.Target, row.Kind, row.Active, row.CreatedAt)})
 }

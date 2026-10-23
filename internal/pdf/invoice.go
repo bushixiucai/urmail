@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// InvoiceData contains the printable invoice fields.
 type InvoiceData struct {
 	Number      string
 	Tenant      string
@@ -67,6 +68,6 @@ func Invoice(data InvoiceData) ([]byte, error) {
 	for id := 1; id <= 5; id++ {
 		fmt.Fprintf(&b, "%010d 00000 n \n", offsets[id])
 	}
-	b.WriteString(fmt.Sprintf("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xref))
+	fmt.Fprintf(&b, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xref)
 	return b.Bytes(), nil
 }

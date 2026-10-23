@@ -86,12 +86,11 @@ func (s *mfaTokenStore) check(token string) (pendingMFALogin, bool) {
 		delete(s.entries, token)
 		return pendingMFALogin{}, false
 	}
-	p.Attempts++
 	if p.Attempts >= mfaMaxVerifyAttempts {
-		delete(s.entries, token)
-	} else {
-		s.entries[token] = p
+		return pendingMFALogin{}, false
 	}
+	p.Attempts++
+	s.entries[token] = p
 	return p, true
 }
 
@@ -144,6 +143,7 @@ func validateTOTP(code, secret string) bool {
 	return err == nil && ok
 }
 
+// MFACodeRequest supplies a TOTP or a one-time recovery code.
 type MFACodeRequest struct {
 	Code string `json:"code" binding:"required"`
 }
@@ -394,10 +394,13 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		return
 	}
 
-	pendingMFATokens.take(req.MFAToken) // single use
+	if _, consumed := pendingMFATokens.take(req.MFAToken); !consumed {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "MFA_TOKEN_INVALID", "message": "auth.mfa_invalid_token"}})
+		return
+	}
 	loginAttempts.reset(pending.LimiterKey)
 	loginAttempts.reset(ipKey)
-	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale)
+	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, true)
 }
 
 // MFAStatus reports whether TOTP is enabled and whether a setup secret is

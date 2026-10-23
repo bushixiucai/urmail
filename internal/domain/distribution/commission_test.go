@@ -40,3 +40,14 @@ func TestCalculateCommission(t *testing.T) {
 		})
 	}
 }
+
+func TestCommissionRejectsNegativeAndAvoidsOverflow(t *testing.T) {
+	if _, err := distribution.CalculateCommission(-1, 100); err == nil {
+		t.Fatal("negative amount accepted")
+	}
+	const maximumAmount int64 = 1<<63 - 1
+	got, err := distribution.CalculateCommission(maximumAmount, 10000)
+	if err != nil || got != maximumAmount {
+		t.Fatalf("full commission overflow: %d %v", got, err)
+	}
+}

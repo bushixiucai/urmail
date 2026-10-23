@@ -12,18 +12,22 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// AuditStore reads append-only audit records in the tenant transaction.
 type AuditStore interface {
 	ListAuditLogsByTenant(ctx context.Context, arg store.ListAuditLogsByTenantParams) ([]store.AuditLogs, error)
 }
 
+// AuditHandler serves tenant audit history.
 type AuditHandler struct {
 	Store AuditStore
 }
 
+// NewAuditHandler binds the audit query dependency.
 func NewAuditHandler(s AuditStore) *AuditHandler {
 	return &AuditHandler{Store: s}
 }
 
+// List returns the current tenant's most recent audit records.
 func (h *AuditHandler) List(c *gin.Context) {
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
@@ -32,11 +36,11 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	limit := int32(100)
 	if raw := c.Query("limit"); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 500 {
+		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 && v <= 500 {
 			limit = int32(v)
 		}
 	}
-	logs, err := h.Store.ListAuditLogsByTenant(c, store.ListAuditLogsByTenantParams{
+	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(c, store.ListAuditLogsByTenantParams{
 		TenantID: pgtype.Int8{Int64: tenantID, Valid: true},
 		Limit:    limit,
 	})

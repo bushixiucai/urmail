@@ -22,7 +22,6 @@ import (
 //	{SHA512-CRYPT}$6$rounds=<N>$<salt>$<86-char crypt body>
 const (
 	// hashRounds is the fixed cost parameter; it matches the glibc default.
-	hashRounds = 5000
 
 	// sha512CryptBodyLen is the length of the base64-encoded crypt body:
 	// 64 digest bytes encode to 86 characters in the SHA-crypt alphabet.

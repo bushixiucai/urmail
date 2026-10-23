@@ -150,7 +150,7 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil))
+		engine.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/domains", nil))
 		if w.Code != http.StatusOK {
 			t.Fatalf("request failed: status %d body %s", w.Code, w.Body.String())
 		}
@@ -191,7 +191,7 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 			engine.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 			w := httptest.NewRecorder()
-			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+			engine.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
 			if w.Code != tc.status {
 				t.Fatalf("status = %d, want %d; body %s", w.Code, tc.status, w.Body.String())
 			}

@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -87,7 +88,7 @@ func TestCSRFMiddleware(t *testing.T) {
 				c.Status(http.StatusOK)
 			})
 
-			req, _ := http.NewRequest(tt.method, "http://example.com/test", nil)
+			req, _ := http.NewRequestWithContext(context.Background(), tt.method, "http://example.com/test", nil)
 			if tt.origin != "" {
 				req.Header.Set("Origin", tt.origin)
 			}

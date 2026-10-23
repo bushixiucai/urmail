@@ -13,6 +13,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// TenantStore defines the tenant management contract.
 type TenantStore interface {
 	GetTenantByID(ctx context.Context, id int64) (store.Tenants, error)
 	ListSettingsByScopes(ctx context.Context, arg store.ListSettingsByScopesParams) ([]store.Settings, error)
@@ -28,11 +29,13 @@ type TenantPlatformStore interface {
 	PlatformGetBrandThemeByTenant(ctx context.Context, tenantID int64) (store.PlatformGetBrandThemeByTenantRow, error)
 }
 
+// TenantHandler defines the tenant management contract.
 type TenantHandler struct {
 	Store    TenantStore
 	Platform TenantPlatformStore
 }
 
+// NewTenantHandler serves the tenant management operation.
 func NewTenantHandler(s TenantStore, p TenantPlatformStore) *TenantHandler {
 	return &TenantHandler{Store: s, Platform: p}
 }
@@ -50,11 +53,16 @@ type TenantResponse struct {
 
 // TenantUsageResponse reports plan consumption for the current tenant.
 type TenantUsageResponse struct {
-	DomainsUsed       int64 `json:"domains_used"`
-	DomainsLimit      int32 `json:"domains_limit"`
-	MailboxesUsed     int64 `json:"mailboxes_used"`
-	MailboxesLimit    int32 `json:"mailboxes_limit"`
-	StorageBytesLimit int64 `json:"storage_bytes_limit"`
+	DomainsUsed           int64   `json:"domains_used"`
+	DomainsLimit          int32   `json:"domains_limit"`
+	MailboxesUsed         int64   `json:"mailboxes_used"`
+	MailboxesLimit        int32   `json:"mailboxes_limit"`
+	StorageBytesLimit     int64   `json:"storage_bytes_limit"`
+	StorageBytesUsed      *int64  `json:"storage_bytes_used"`
+	StorageBytesAllocated int64   `json:"storage_bytes_allocated"`
+	StorageMeasuredAt     any     `json:"storage_measured_at"`
+	StorageError          *string `json:"storage_error"`
+	StorageStatus         string  `json:"storage_status"`
 }
 
 // TenantSubscriptionResponse is the plan summary shown on the dashboard.
@@ -75,6 +83,7 @@ type TenantCurrentResponse struct {
 	Subscription TenantSubscriptionResponse     `json:"subscription"`
 }
 
+// Current serves the tenant management operation.
 func (h *TenantHandler) Current(c *gin.Context) {
 	q := requestStore(c, h.Store)
 	tenantID, ok := middleware.GetTenantID(c)
@@ -137,6 +146,30 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		plan, _ = q.GetPlanByCode(c, sub.PlanID)
 	}
 
+	usage := TenantUsageResponse{DomainsUsed: domainCount, DomainsLimit: plan.DomainLimit, MailboxesUsed: mailboxCount, MailboxesLimit: plan.MailboxLimit, StorageBytesLimit: plan.QuotaBytes, StorageStatus: "unknown"}
+	if usageStore := requestStore[interface {
+		GetTenantStorageUsage(context.Context, int64) (store.GetTenantStorageUsageRow, error)
+	}](c, nil); usageStore != nil {
+		row, err := usageStore.GetTenantStorageUsage(c, tenantID)
+		if err == nil {
+			usage.StorageBytesAllocated = row.BytesAllocated
+			usage.StorageMeasuredAt = row.MeasuredAt
+			if row.UnknownCount == 0 {
+				usage.StorageBytesUsed = &row.BytesUsed
+				usage.StorageStatus = "measured"
+			} else {
+				code := "STORAGE_USAGE_UNKNOWN"
+				usage.StorageError = &code
+			}
+			if row.Unlimited {
+				usage.StorageBytesAllocated = -1
+			}
+		} else {
+			code := "DB_ERROR"
+			usage.StorageError = &code
+		}
+	}
+
 	c.JSON(http.StatusOK, TenantCurrentResponse{
 		Tenant: TenantResponse{
 			ID:        tenant.ID,
@@ -147,13 +180,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		},
 		Settings: mergedSettings,
 		Theme:    theme,
-		Usage: TenantUsageResponse{
-			DomainsUsed:       domainCount,
-			DomainsLimit:      plan.DomainLimit,
-			MailboxesUsed:     mailboxCount,
-			MailboxesLimit:    plan.MailboxLimit,
-			StorageBytesLimit: plan.QuotaBytes,
-		},
+		Usage:    usage,
 		Subscription: TenantSubscriptionResponse{
 			PlanCode: plan.Code,
 			PlanName: json.RawMessage(plan.Name),

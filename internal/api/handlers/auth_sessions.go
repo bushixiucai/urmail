@@ -9,12 +9,14 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// SessionInfo describes a revocable session without its bearer token.
 type SessionInfo struct {
 	ID        string `json:"id"`
 	UserAgent string `json:"user_agent"`
 	Current   bool   `json:"current"`
 }
 
+// ListSessions returns only the authenticated user's sessions.
 func (h *AuthHandler) ListSessions(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -43,6 +45,7 @@ func (h *AuthHandler) ListSessions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"sessions": out})
 }
 
+// RevokeSession revokes only a session owned by the authenticated user.
 func (h *AuthHandler) RevokeSession(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {

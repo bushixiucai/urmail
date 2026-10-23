@@ -60,7 +60,7 @@ func TestEveryLocaleHasTheSameKeys(t *testing.T) {
 	}
 }
 
-// TestLocalesAreValidJSON guards against a malformed catalogue slipping in.
+// TestLocalesAreValidJSON guards against a malformed catalog slipping in.
 func TestLocalesAreValidJSON(t *testing.T) {
 	entries, err := os.ReadDir("locales")
 	if err != nil {
@@ -90,9 +90,9 @@ func TestLookupFallsBackToTheKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load store: %v", err)
 	}
-	catalogue := store.Get("zh-CN")
+	catalog := store.Get("zh-CN")
 
-	if got := catalogue.Lookup("does.not.exist", nil); got != "does.not.exist" {
+	if got := catalog.Lookup("does.not.exist", nil); got != "does.not.exist" {
 		t.Fatalf("expected the key to be returned, got %q", got)
 	}
 }
@@ -102,9 +102,9 @@ func TestLookupInterpolatesParameters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load store: %v", err)
 	}
-	catalogue := store.Get("zh-CN")
+	catalog := store.Get("zh-CN")
 
-	got := catalogue.Lookup("mailbox.quota_exceeded", map[string]any{
+	got := catalog.Lookup("mailbox.quota_exceeded", map[string]any{
 		"address": "a@example.com",
 		"limit":   1024,
 	})
@@ -118,7 +118,7 @@ func TestUnknownLocaleFallsBackToDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load store: %v", err)
 	}
-	if catalogue := store.Get("xx-YY"); catalogue.Locale != DefaultLocale {
-		t.Fatalf("expected fallback to %q, got %q", DefaultLocale, catalogue.Locale)
+	if catalog := store.Get("xx-YY"); catalog.Locale != DefaultLocale {
+		t.Fatalf("expected fallback to %q, got %q", DefaultLocale, catalog.Locale)
 	}
 }

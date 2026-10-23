@@ -2,7 +2,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -51,12 +55,22 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 
 	sub, err := q.GetActiveSubscriptionByTenant(c, tenantID)
 	if err != nil {
-		// No active subscription: no plan to enforce.
-		return true
+		code := "DB_ERROR"
+		if errors.Is(err, pgx.ErrNoRows) {
+			code = "SUBSCRIPTION_REQUIRED"
+		}
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": code}})
+		return false
+	}
+	now := time.Now()
+	if !sub.PeriodEnd.Valid || !sub.PeriodEnd.Time.After(now) || (sub.Status == "trialing" && sub.TrialEndsAt.Valid && !sub.TrialEndsAt.Time.After(now)) {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "SUBSCRIPTION_EXPIRED"}})
+		return false
 	}
 	plan, err := q.GetPlanByCode(c, sub.PlanID)
 	if err != nil {
-		return true
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return false
 	}
 
 	switch kind {

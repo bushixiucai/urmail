@@ -25,7 +25,7 @@ type Box struct {
 
 // Load derives the encryption key from the RSA master key at path.
 func Load(path string) (*Box, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // The master-key path is trusted operator configuration.
 	if err != nil {
 		return nil, fmt.Errorf("read master key: %w", err)
 	}
@@ -70,13 +70,13 @@ func (b *Box) EncryptString(plain string) (string, error) {
 	if b == nil {
 		return plain, nil
 	}
-	nonce := make([]byte, b.aead.NonceSize())
+	nonce := make([]byte, b.aead.NonceSize(), b.aead.NonceSize()+len(plain)+b.aead.Overhead())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("nonce: %w", err)
 	}
 	ciphertext := b.aead.Seal(nil, nonce, []byte(plain), nil)
-	payload := append(nonce, ciphertext...)
-	return prefix + base64.RawStdEncoding.EncodeToString(payload), nil
+	nonce = append(nonce, ciphertext...)
+	return prefix + base64.RawStdEncoding.EncodeToString(nonce), nil
 }
 
 // DecryptString accepts both encrypted values and legacy plaintext. The

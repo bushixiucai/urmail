@@ -1,6 +1,6 @@
-// Package i18n serves the message catalogue.
+// Package i18n serves the message catalog.
 //
-// The catalogue is the single source of truth for both the backend and the
+// The catalog is the single source of truth for both the backend and the
 // frontend: the frontend fetches it from this package over HTTP, so a
 // translation can never drift between the two.
 package i18n
@@ -21,14 +21,14 @@ var localeFS embed.FS
 // DefaultLocale is used when the request carries no usable preference.
 const DefaultLocale = "zh-CN"
 
-// Catalogue holds the parsed messages of one locale.
-type Catalogue struct {
+// Catalog holds the parsed messages of one locale.
+type Catalog struct {
 	Locale   string
 	messages map[string]string
 }
 
-// Catalogue returns the parsed messages of one locale.
-func (c *Catalogue) Message(key string) (string, bool) {
+// Message returns a message and whether it exists.
+func (c *Catalog) Message(key string) (string, bool) {
 	value, ok := c.messages[key]
 	return value, ok
 }
@@ -36,7 +36,7 @@ func (c *Catalogue) Message(key string) (string, bool) {
 // Lookup resolves a message key with parameters. The key itself is returned
 // when it is unknown, so a missing translation degrades into a readable
 // identifier rather than an empty string.
-func (c *Catalogue) Lookup(key string, params map[string]any) string {
+func (c *Catalog) Lookup(key string, params map[string]any) string {
 	message, ok := c.messages[key]
 	if !ok {
 		return key
@@ -57,15 +57,15 @@ func interpolate(message string, params map[string]any) string {
 	return message
 }
 
-// Store loads and caches catalogues.
+// Store loads and caches catalogs.
 type Store struct {
-	mu         sync.RWMutex
-	catalogues map[string]*Catalogue
+	mu       sync.RWMutex
+	catalogs map[string]*Catalog
 }
 
 // NewStore loads every embedded locale.
 func NewStore() (*Store, error) {
-	store := &Store{catalogues: map[string]*Catalogue{}}
+	store := &Store{catalogs: map[string]*Catalog{}}
 
 	entries, err := fs.ReadDir(localeFS, "locales")
 	if err != nil {
@@ -84,24 +84,24 @@ func NewStore() (*Store, error) {
 		if err := json.Unmarshal(raw, &messages); err != nil {
 			return nil, fmt.Errorf("parse locale %s: %w", locale, err)
 		}
-		store.catalogues[locale] = &Catalogue{Locale: locale, messages: messages}
+		store.catalogs[locale] = &Catalog{Locale: locale, messages: messages}
 	}
 	return store, nil
 }
 
-// Get returns the catalogue for a locale, falling back to the default locale
-// and finally to an empty catalogue.
-func (s *Store) Get(locale string) *Catalogue {
+// Get returns the catalog for a locale, falling back to the default locale
+// and finally to an empty catalog.
+func (s *Store) Get(locale string) *Catalog {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if catalogue, ok := s.catalogues[locale]; ok {
-		return catalogue
+	if catalog, ok := s.catalogs[locale]; ok {
+		return catalog
 	}
-	if catalogue, ok := s.catalogues[DefaultLocale]; ok {
-		return catalogue
+	if catalog, ok := s.catalogs[DefaultLocale]; ok {
+		return catalog
 	}
-	return &Catalogue{Locale: locale, messages: map[string]string{}}
+	return &Catalog{Locale: locale, messages: map[string]string{}}
 }
 
 // Locales returns the available locale identifiers, sorted.
@@ -109,8 +109,8 @@ func (s *Store) Locales() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	locales := make([]string, 0, len(s.catalogues))
-	for locale := range s.catalogues {
+	locales := make([]string, 0, len(s.catalogs))
+	for locale := range s.catalogs {
 		locales = append(locales, locale)
 	}
 	sort.Strings(locales)
@@ -119,9 +119,9 @@ func (s *Store) Locales() []string {
 
 // Raw returns the message map of a locale, for delivery to the frontend.
 func (s *Store) Raw(locale string) map[string]string {
-	catalogue := s.Get(locale)
-	out := make(map[string]string, len(catalogue.messages))
-	for key, value := range catalogue.messages {
+	catalog := s.Get(locale)
+	out := make(map[string]string, len(catalog.messages))
+	for key, value := range catalog.messages {
 		out[key] = value
 	}
 	return out
@@ -130,9 +130,9 @@ func (s *Store) Raw(locale string) map[string]string {
 // Keys returns every message key of the default locale. The CI check uses it
 // to prove that a newly referenced key exists in every locale.
 func (s *Store) Keys() []string {
-	catalogue := s.Get(DefaultLocale)
-	keys := make([]string, 0, len(catalogue.messages))
-	for key := range catalogue.messages {
+	catalog := s.Get(DefaultLocale)
+	keys := make([]string, 0, len(catalog.messages))
+	for key := range catalog.messages {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)

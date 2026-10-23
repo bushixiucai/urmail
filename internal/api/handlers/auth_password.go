@@ -10,6 +10,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// ChangePasswordRequest verifies the old password before rotating it.
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"required,min=12,max=256"`

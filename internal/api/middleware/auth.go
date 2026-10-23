@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	ContextUserID   = "urmail.user_id"
+	// ContextUserID carries the authenticated actor identifier.
+	ContextUserID = "urmail.user_id"
+	// ContextTenantID carries the authenticated session tenant identifier.
 	ContextTenantID = "urmail.tenant_id"
-	ContextSession  = "urmail.session"
+	// ContextSession carries the authenticated panel session.
+	ContextSession = "urmail.session"
 )
 
 // SessionStore provides session lookup by token ID.

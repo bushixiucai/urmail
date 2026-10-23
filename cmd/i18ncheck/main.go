@@ -1,8 +1,8 @@
-// Command i18ncheck verifies that every locale in the message catalogue has
+// Command i18ncheck verifies that every locale in the message catalog has
 // the same set of keys.
 //
 // It is the check that keeps the frontend and the backend in step: the
-// backend renders messages from the same catalogue the frontend downloads, so
+// backend renders messages from the same catalog the frontend downloads, so
 // a key that exists in one locale but not another would show up as a raw
 // identifier to a reader in that language.
 package main

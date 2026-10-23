@@ -1,0 +1,1091 @@
+openapi: 3.0.3
+info:
+  title: urMail v3 remediation API subset
+  version: 0.4.0-remediation-v3
+  description: Only the endpoints added or changed in the third remediation round. This is not a complete v1 specification
+    or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
+    Bearer and X-CSRF-Token; present Origin/Referer must match the host.
+servers:
+- url: /api/v1
+security:
+- Bearer: []
+paths:
+  /branding:
+    get:
+      summary: Resolve public visual branding; authorized Host wins over brand link, then default.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brand:
+                    $ref: '#/components/schemas/PublicBrand'
+                  source:
+                    type: string
+                    enum:
+                    - host
+                    - link
+                    - default
+                required:
+                - brand
+                - source
+        default:
+          $ref: '#/components/responses/Error'
+      security: []
+      parameters:
+      - name: brand
+        in: query
+        schema: &id001
+          type: string
+      description: Uses Request.Host, not an arbitrary X-Forwarded-Host. Brand selection never authenticates a user
+        or selects a tenant. Disabled and unknown links fall back to default. Response omits internal settings,
+        tenant IDs and unknown theme keys.
+  /auth/legacy-session:
+    post:
+      summary: Create an independent 15-minute legacy-only session after fresh MFA.
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegacySession'
+        default:
+          $ref: '#/components/responses/Error'
+      security: &id002
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FreshFactor'
+      description: Requires an active platform administrator with MFA enabled. Token is accepted by supported /admin/*
+        and /api/v1/admin/* routes, and rejected by general v1 Bearer authentication. Writes require its csrf_token
+        in X-CSRF-Token. It may be revoked through the existing session API.
+  /auth/application-credentials:
+    get:
+      summary: List this user's application credentials, including revoked records; never expose a verifier.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Credential'
+                required:
+                - credentials
+        default:
+          $ref: '#/components/responses/Error'
+      description: Any active panel session may list its own credentials even after platform demotion or MFA disablement.
+    post:
+      summary: Create a separately revocable legacy credential after fresh MFA.
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential:
+                    $ref: '#/components/schemas/Credential'
+                  token: *id001
+                required:
+                - credential
+                - token
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                scopes:
+                  type: array
+                  items: &id005
+                    type: string
+                    enum:
+                    - legacy:read
+                    - legacy:write
+                  minItems: 1
+                  maxItems: 2
+                  uniqueItems: true
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: Strictly in the future and no more than 365 days away.
+                code:
+                  type: string
+                  minLength: 1
+              required:
+              - name
+              - scopes
+              - expires_at
+              - code
+      description: Requires the current platform role and MFA enabled. token uses the public urmail_app_ marker
+        and is shown only in this response; only SHA-256 is stored. Use HTTP Basic email:token on supported legacy
+        endpoints. legacy:write does not imply legacy:read. Active owner, current platform role, expiry and revocation
+        are checked on every use. Password and panel-session revocation do not automatically revoke application
+        credentials.
+  /auth/application-credentials/{id}:
+    parameters:
+    - &id003
+      name: id
+      in: path
+      required: true
+      schema: &id004
+        type: integer
+        format: int64
+    delete:
+      summary: Revoke this user's credential; another user's ID returns 404.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      description: Does not require the owner to still be a platform administrator. Repeated revocation is safe.
+        Creation, use and revocation produce redacted audit events.
+  /platform/brands:
+    get:
+      summary: List managed brands, including disabled brands.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brands:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ManagedBrand'
+        default:
+          $ref: '#/components/responses/Error'
+      description: ' Requires the current platform administrator role.'
+    post:
+      summary: Create or replace editable fields of a brand by immutable slug.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brand:
+                    $ref: '#/components/schemas/ManagedBrand'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandInput'
+      description: ' Requires the current platform administrator role.'
+  /platform/brands/{id}:
+    parameters:
+    - *id003
+    delete:
+      summary: Delete an unreferenced non-default brand; tenant references return 409.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      description: ' Requires the current platform administrator role.'
+  /platform/brands/{id}/status:
+    parameters:
+    - *id003
+    patch:
+      summary: Enable or disable a non-default brand.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - active
+                  - disabled
+              required:
+              - status
+      description: ' Requires the current platform administrator role.'
+  /platform/brands/{id}/reset-theme:
+    parameters:
+    - *id003
+    post:
+      summary: Clear this brand's visual fields and brand-level theme override.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      description: Tenant-level overrides are separate settings and are not silently removed. Requires the current
+        platform administrator role.
+  /platform/brand-hosts:
+    get:
+      summary: List platform-authorized host bindings.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hosts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BrandHost'
+        default:
+          $ref: '#/components/responses/Error'
+      description: ' Requires the current platform administrator role.'
+    post:
+      summary: Authorize or replace a hostname binding to an active brand.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host:
+                    $ref: '#/components/schemas/BrandHost'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hostname:
+                  type: string
+                  description: DNS hostname only, without scheme, port or path.
+                brand_id: *id004
+              required:
+              - hostname
+              - brand_id
+      description: ' Requires the current platform administrator role.'
+  /platform/brand-hosts/{hostname}:
+    parameters:
+    - name: hostname
+      in: path
+      required: true
+      schema: *id001
+    delete:
+      summary: Remove an existing hostname binding.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      description: ' Requires the current platform administrator role.'
+  /platform/settings:
+    get:
+      summary: Read platform settings.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        default:
+          $ref: '#/components/responses/Error'
+      description: ' Requires the current platform administrator role.'
+    patch:
+      summary: Update or reset allowlisted platform settings.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatch'
+      description: Null removes the local override. Only locale, mailbox_default_quota_bytes and theme.primary are
+        accepted; runtime secrets are not accepted as settings fields. Requires the current platform administrator
+        role.
+  /tenants/current:
+    get:
+      summary: Read current tenant, inherited settings, branding and measured usage.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantCurrent'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Zero and -1 quota semantics follow the current plan contract; unknown storage usage is null with
+        an explicit status, never fabricated as zero.
+    patch:
+      summary: Owner/admin updates or resets current-tenant settings.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantCurrent'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatch'
+      description: Null removes the tenant override and restores inheritance. No platform or brand setting is writable
+        through this endpoint.
+  /aliases/{id}:
+    parameters:
+    - *id003
+    patch:
+      summary: Owner/admin updates an alias or catchall without changing its domain.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alias:
+                    $ref: '#/components/schemas/Alias'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                local_part:
+                  type: string
+                  maxLength: 64
+                target:
+                  type: string
+                  maxLength: 320
+                kind:
+                  type: string
+                  enum:
+                  - alias
+                  - catchall
+                  - forward
+                active:
+                  type: boolean
+      description: Missing fields preserve current values. Conflicts and loops are rejected; cross-tenant IDs return
+        404. Successful updates trigger reconcile after commit.
+  /platform/plans:
+    get:
+      summary: List platform plans, including inactive plans.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Plan'
+        default:
+          $ref: '#/components/responses/Error'
+      description: ' Requires the current platform administrator role.'
+    post:
+      summary: Create or update a plan, including active status; existing allocations remain protected.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan:
+                    $ref: '#/components/schemas/Plan'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Plan'
+      description: ' Requires the current platform administrator role.'
+  /platform/plans/{code}:
+    parameters:
+    - name: code
+      in: path
+      required: true
+      schema: *id001
+    delete:
+      summary: Delete an unused non-default plan; historical references return 409.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      description: ' Requires the current platform administrator role.'
+  /billing/checkout:
+    post:
+      summary: Create or resume an order for an active plan.
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    $ref: '#/components/schemas/Order'
+                  payment_method:
+                    type: string
+                    enum:
+                    - manual
+                    - stripe
+                  checkout_url:
+                    type: string
+                    format: uri
+                required:
+                - order
+                - payment_method
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        schema:
+          type: string
+          maxLength: 200
+        description: Recommended; scoped to the current tenant. Reuse with the same plan resumes the order; another
+          plan conflicts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_code: *id001
+              required:
+              - plan_code
+      description: A pending order commits before Stripe is contacted. Provider failure returns 502 with order_id;
+        retry with the same key. Stable provider idempotency protects retries while the provider retains its key
+        record. This is not a distributed transaction or a real-payment guarantee. An already-paid resumed order
+        has no checkout_url.
+  /billing/orders:
+    get:
+      summary: List up to 100 orders of the current tenant.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/orders/{id}/paid:
+    parameters:
+    - *id003
+    post:
+      summary: Manually settle an order exactly once; repeated paid requests succeed without a second invoice.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      description: ' Requires the current platform administrator role.'
+  /billing/invoices:
+    get:
+      summary: List current-tenant invoices.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/invoices/{id}/pdf:
+    parameters:
+    - *id003
+    get:
+      summary: Render the current tenant's invoice as a PDF attachment. Cross-tenant IDs return 404.
+      responses:
+        '200':
+          description: Derived PDF; no global filesystem cache is required.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: '#/components/responses/Error'
+  /compliance/recalls:
+    post:
+      summary: Request recall of one local mailbox copy as tenant owner or admin.
+      description: The archive entry determines the mailbox and message. Legal hold returns 409. A unique tenant/archive target makes duplicates idempotent. The request commits before the root agent resolves and expunges an exact local message. The compliance archive is preserved. Remote delivery cannot be recalled. Transport failure leaves pending for the same POST to retry.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [archive_entry_id]
+              properties:
+                archive_entry_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+      responses:
+        '200':
+          description: Existing or newly completed local outcome; inspect status and reason.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recall]
+                properties:
+                  recall:
+                    $ref: '#/components/schemas/Recall'
+        '202':
+          description: Durably pending; retry the same target or GET its status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recall]
+                properties:
+                  recall:
+                    $ref: '#/components/schemas/Recall'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      summary: List the latest hundred tenant recalls as owner or admin.
+      responses:
+        '200':
+          description: Local mailbox scope only.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    type: string
+                    enum: [local_mailbox]
+                  recalls:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recall'
+        default:
+          $ref: '#/components/responses/Error'
+  /compliance/recalls/{id}:
+    get:
+      summary: Read a tenant recall as owner or admin.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Current local mailbox outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recall:
+                    $ref: '#/components/schemas/Recall'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    Bearer:
+      type: http
+      scheme: bearer
+      description: Active panel-session token. A legacy-only session is rejected.
+    CSRF:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  responses:
+    Error:
+      description: 400 invalid input; 401 unauthenticated; 403 role/scope/CSRF/factor denial; 404 unknown or cross-tenant
+        object; 409 conflict; 429 rate limited; 5xx infrastructure/provider failure. The HTTP status and machine
+        code are preserved.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: *id001
+            message: *id001
+            params:
+              type: object
+              additionalProperties: true
+            details: {}
+          required:
+          - code
+      required:
+      - error
+    Status:
+      type: object
+      properties:
+        status: *id001
+      required:
+      - status
+    PublicBrand:
+      type: object
+      properties:
+        slug: *id001
+        name: *id001
+        theme:
+          type: object
+          additionalProperties: *id001
+        logo_url:
+          type: string
+          nullable: true
+        favicon_url:
+          type: string
+          nullable: true
+        primary_color:
+          type: string
+          nullable: true
+      required:
+      - slug
+      - name
+      - theme
+    Credential:
+      type: object
+      properties:
+        id: *id004
+        name: *id001
+        scopes:
+          type: array
+          items: *id005
+        expires_at: &id006
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at: *id006
+      required:
+      - id
+      - name
+      - scopes
+      - expires_at
+    FreshFactor:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+          description: Fresh TOTP or an unused recovery code.
+      required:
+      - code
+    LegacySession:
+      type: object
+      properties:
+        token: *id001
+        csrf_token: *id001
+        expires_at: *id006
+      required:
+      - token
+      - csrf_token
+      - expires_at
+    SettingsPatch:
+      type: object
+      properties:
+        settings:
+          type: object
+          properties:
+            locale:
+              type: string
+              enum:
+              - zh-CN
+              - en
+              nullable: true
+            mailbox_default_quota_bytes:
+              type: integer
+              format: int64
+              minimum: 1
+              nullable: true
+            theme:
+              type: object
+              properties:
+                primary:
+                  type: string
+                  pattern: ^#[0-9a-fA-F]{6}$
+              additionalProperties: false
+              nullable: true
+              required:
+              - primary
+          additionalProperties: false
+      required:
+      - settings
+    Settings:
+      type: object
+      properties:
+        settings:
+          type: object
+          additionalProperties: true
+      required:
+      - settings
+    Usage:
+      type: object
+      properties:
+        domains_used: *id004
+        domains_limit: *id004
+        mailboxes_used: *id004
+        mailboxes_limit: *id004
+        storage_bytes_limit: *id004
+        storage_bytes_allocated: *id004
+        storage_bytes_used:
+          type: integer
+          format: int64
+          nullable: true
+        storage_measured_at:
+          type: string
+          format: date-time
+          nullable: true
+        storage_error:
+          type: string
+          nullable: true
+        storage_status:
+          type: string
+          enum:
+          - measured
+          - unknown
+      required:
+      - domains_used
+      - domains_limit
+      - mailboxes_used
+      - mailboxes_limit
+      - storage_bytes_limit
+      - storage_bytes_allocated
+      - storage_bytes_used
+      - storage_measured_at
+      - storage_error
+      - storage_status
+    TenantCurrent:
+      type: object
+      properties:
+        tenant:
+          type: object
+          properties:
+            id: *id004
+            name: *id001
+            slug: *id001
+            status: *id001
+            created_at: *id006
+        settings:
+          type: object
+          additionalProperties: true
+        theme:
+          type: object
+          nullable: true
+          additionalProperties: true
+        usage:
+          $ref: '#/components/schemas/Usage'
+        subscription:
+          type: object
+          properties:
+            plan_code: *id001
+            plan_name:
+              type: object
+              additionalProperties: *id001
+            status: *id001
+      required:
+      - tenant
+      - settings
+      - theme
+      - usage
+      - subscription
+    BrandHost:
+      type: object
+      properties:
+        hostname: *id001
+        brand_id: *id004
+        created_at: *id006
+      required:
+      - hostname
+      - brand_id
+    BrandInput:
+      type: object
+      properties:
+        slug:
+          type: string
+          pattern: ^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$
+        name:
+          type: string
+          minLength: 1
+        theme:
+          type: object
+          additionalProperties: *id001
+          description: Only primary, secondary, background, foreground, accent, ring and radius; bounded color/radius
+            values.
+        logo_url: *id001
+        favicon_url: *id001
+        primary_color: *id001
+        status:
+          type: string
+          enum:
+          - active
+          - disabled
+          default: active
+      required:
+      - slug
+      - name
+    ManagedBrand:
+      allOf:
+      - $ref: '#/components/schemas/PublicBrand'
+      - type: object
+        properties:
+          id: *id004
+          status:
+            type: string
+            enum:
+            - active
+            - disabled
+          created_at: *id006
+        required:
+        - id
+        - status
+    Alias:
+      type: object
+      properties:
+        id: *id004
+        domain_id: *id004
+        domain_fqdn: *id001
+        local_part: *id001
+        target: *id001
+        kind:
+          type: string
+          enum:
+          - alias
+          - catchall
+          - forward
+        active:
+          type: boolean
+        created_at: *id006
+    Plan:
+      type: object
+      properties:
+        code: *id001
+        name:
+          type: object
+          additionalProperties: *id001
+        description:
+          type: object
+          additionalProperties: *id001
+        price_cents:
+          type: integer
+          minimum: 0
+        currency: *id001
+        quota_bytes:
+          type: integer
+          minimum: -1
+        mailbox_limit:
+          type: integer
+          minimum: -1
+        domain_limit:
+          type: integer
+          minimum: -1
+        daily_send_limit:
+          type: integer
+          minimum: -1
+        features: {}
+        sort_order:
+          type: integer
+        active:
+          type: boolean
+      required:
+      - code
+    Order:
+      type: object
+      properties:
+        id: *id004
+        tenant_id: *id004
+        order_no: *id001
+        plan_code:
+          type: string
+          nullable: true
+        status: *id001
+        amount_cents: *id004
+        currency: *id001
+        idempotency_key:
+          type: string
+          nullable: true
+        created_at: *id006
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - id
+      - tenant_id
+      - order_no
+      - status
+      - amount_cents
+      - currency
+    Invoice:
+      type: object
+      properties:
+        id: *id004
+        tenant_id: *id004
+        number: *id001
+        amount_cents: *id004
+        currency: *id001
+        status: *id001
+        period_start: *id006
+        period_end: *id006
+        issued_at: *id006
+      required:
+      - id
+      - number
+      - status
+    Recall:
+      type: object
+      required: [id, archive_entry_id, mailbox_id, status, scope, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        archive_entry_id:
+          type: integer
+          format: int64
+          nullable: true
+        mailbox_id:
+          type: integer
+          format: int64
+          nullable: true
+        status:
+          type: string
+          enum: [pending, local_recalled, failed, expired, delivered]
+          description: Only local_recalled confirms deletion of the exact local copy. Historical delivered is retained for compatibility and is never produced by this operation.
+        reason:
+          type: string
+          nullable: true
+        scope:
+          type: string
+          enum: [local_mailbox]
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true

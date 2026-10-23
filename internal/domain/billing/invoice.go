@@ -1,3 +1,4 @@
+// Package billing validates subscription, order, and invoice rules.
 package billing
 
 import (
@@ -16,6 +17,7 @@ const (
 	InvoiceStatusVoid   = "void"
 )
 
+// Invoice validation errors.
 var (
 	ErrInvalidInvoiceStatus = errors.New("invalid invoice status transition")
 	ErrInvalidInvoice       = errors.New("invalid invoice")
@@ -85,11 +87,11 @@ func ValidateNewInvoice(p CreateInvoiceParams) error {
 // INV-YYYYMMDD-<tenantID>-<4 random hex chars>. Randomness keeps the number
 // unique even when a tenant has several invoices per day.
 func GenerateInvoiceNumber(tenantID int64, now time.Time) string {
-	var buf [2]byte
+	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		// crypto/rand failing is catastrophic; fall back to time entropy
 		// rather than panicking.
-		hex.Encode(buf[:], []byte{byte(now.Nanosecond() >> 8), byte(now.Nanosecond())})
+		return fmt.Sprintf("INV-%s-%06d-%d", now.Format("20060102"), tenantID, now.UnixNano())
 	}
 	return fmt.Sprintf("INV-%s-%06d-%s", now.Format("20060102"), tenantID, hex.EncodeToString(buf[:]))
 }

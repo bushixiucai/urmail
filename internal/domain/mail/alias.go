@@ -1,3 +1,4 @@
+// Package mail validates mailbox credentials and alias routing graphs.
 package mail
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
 
+// Alias graph validation errors.
 var (
 	ErrInvalidAlias   = errors.New("invalid alias")
 	ErrAliasConflict  = errors.New("alias conflict")

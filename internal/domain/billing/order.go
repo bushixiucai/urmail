@@ -5,10 +5,12 @@ import (
 	"fmt"
 )
 
+// Order state validation errors.
 var (
 	ErrInvalidOrderStatus = errors.New("invalid order status transition")
 )
 
+// Supported order kinds and lifecycle states.
 const (
 	OrderKindNew       = "new"
 	OrderKindRenew     = "renew"
@@ -53,6 +55,9 @@ var ErrInvalidCoupon = errors.New("invalid coupon")
 // non-positive value (or a percent coupon outside (0, 100]) is rejected
 // instead of silently producing a full discount (M3 review P3).
 func ApplyDiscount(originalCents int64, couponKind string, couponValue int64) (int64, error) {
+	if originalCents < 0 {
+		return 0, ErrInvalidCoupon
+	}
 	switch couponKind {
 	case CouponKindFixed:
 		if couponValue <= 0 {
@@ -70,12 +75,12 @@ func ApplyDiscount(originalCents int64, couponKind string, couponValue int64) (i
 		if couponValue == 100 {
 			return 0, nil
 		}
-		discount := (originalCents * couponValue) / 100
+		discount := (originalCents/100)*couponValue + ((originalCents%100)*couponValue)/100
 		return originalCents - discount, nil
 	case CouponKindTrialDays:
 		// No monetary effect: the trial extension is handled by the caller.
 		return originalCents, nil
 	default:
-		return originalCents, nil
+		return 0, ErrInvalidCoupon
 	}
 }

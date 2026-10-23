@@ -1,9 +1,10 @@
+// Package dnsprovider implements supported DNS provider API clients.
 package dnsprovider
 
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // Alibaba Cloud DNS signature version 1 requires HMAC-SHA1.
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ type Aliyun struct {
 	Base            string
 }
 
+// NewAliyun creates the Alibaba Cloud DNS client.
 func NewAliyun(id, secret string) *Aliyun {
 	return &Aliyun{
 		AccessKeyID: id, AccessKeySecret: secret,
@@ -76,7 +78,7 @@ func (a *Aliyun) call(ctx context.Context, action string, params url.Values) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("aliyun dns: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -95,6 +97,7 @@ type aliyunRecords struct {
 	} `json:"DomainRecords"`
 }
 
+// EnsureTXT creates or updates a TXT record in the given zone.
 func (a *Aliyun) EnsureTXT(ctx context.Context, zone, name, value string) error {
 	rr := strings.TrimSuffix(name, "."+zone)
 	if rr == name {

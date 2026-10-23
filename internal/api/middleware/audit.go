@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
@@ -30,7 +31,7 @@ func Audit(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 			return
 		}
-		if writer == nil || c.Writer.Status() >= 500 {
+		if writer == nil || c.Writer.Status() >= 400 {
 			return
 		}
 		tenantID, ok := GetTenantID(c)
@@ -44,23 +45,20 @@ func Audit(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
 			actorIP = &addr
 		}
 
+		action := c.Request.Method + " " + c.FullPath()
+		if raw, ok := c.Get(contextTransaction); ok {
+			tx := raw.(pgx.Tx)
+			if _, err := tx.Exec(c.Request.Context(), "SELECT urmail_record_audit($1,$2,$3,$4,$5)", tenantID, userID, actorIP, action, c.Request.URL.Path); err != nil {
+				logger.Warn("write tenant audit log", zap.Error(err))
+				c.Set("urmail.transaction_failed", true)
+			}
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		action := c.Request.Method + " " + c.FullPath()
-		if _, err := writer.CreateAuditLog(ctx, store.CreateAuditLogParams{
-			TenantID:    pgtype.Int8{Int64: tenantID, Valid: true},
-			ActorUserID: pgtype.Int8{Int64: userID, Valid: userID > 0},
-			ActorIp:     actorIP,
-			Action:      action,
-			TargetType:  pgtype.Text{String: "http", Valid: true},
-			TargetID:    pgtype.Text{String: c.Request.URL.Path, Valid: true},
-			Detail:      []byte("{}"),
-		}); err != nil {
-			logger.Warn("write audit log",
-				zap.Error(err),
-				zap.String("action", action),
-				zap.String("request_id", c.GetString(string(RequestIDContextKey))),
-			)
+		_, err := writer.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, ActorUserID: pgtype.Int8{Int64: userID, Valid: userID > 0}, ActorIp: actorIP, Action: action, TargetType: pgtype.Text{String: "http", Valid: true}, TargetID: pgtype.Text{String: c.Request.URL.Path, Valid: true}, Detail: []byte("{}")})
+		if err != nil {
+			logger.Warn("write audit log", zap.Error(err))
 		}
 	}
 }

@@ -10,17 +10,16 @@ import (
 )
 
 type mockSubExecutor struct {
-	canceled       bool
-	created        bool
-	cancelStatuses string
+	canceled bool
+	created  bool
 }
 
-func (m *mockSubExecutor) CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error {
+func (m *mockSubExecutor) CancelActiveSubscriptionsForTenant(_ context.Context, _ int64) error {
 	m.canceled = true
 	return nil
 }
 
-func (m *mockSubExecutor) CreateSubscription(ctx context.Context, arg billing.CreateSubscriptionParams) (billing.Subscription, error) {
+func (m *mockSubExecutor) CreateSubscription(_ context.Context, arg billing.CreateSubscriptionParams) (billing.Subscription, error) {
 	m.created = true
 	return billing.Subscription{
 		ID:        1,
@@ -56,11 +55,9 @@ func TestAtomicSwitchPlan(t *testing.T) {
 
 // The domain contract must not leak store types: it is expressed purely with
 // billing-domain DTOs.
-func TestAtomicReplaceContractUsesDomainTypes(t *testing.T) {
+func TestAtomicReplaceContractUsesDomainTypes(_ *testing.T) {
 	var exec billing.AtomicReplaceContract = &mockSubExecutor{}
-	if exec == nil {
-		t.Fatal("contract should be satisfiable without internal/store")
-	}
+	_ = exec
 }
 
 func TestValidateDowngrade(t *testing.T) {
@@ -187,5 +184,28 @@ func TestValidateNewInvoiceRejectsBadInput(t *testing.T) {
 	worse := bad.Add(-time.Hour)
 	if err := billing.ValidateNewInvoice(billing.CreateInvoiceParams{TenantID: 1, Number: "N", AmountCents: 100, Currency: "CNY", PeriodStart: &bad, PeriodEnd: &worse}); err == nil {
 		t.Error("period_end before period_start must be rejected")
+	}
+}
+
+func TestZeroPlanLimitsDenyExistingResources(t *testing.T) {
+	for _, usage := range []struct{ domains, mailboxes, bytes int64 }{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}} {
+		if billing.ValidateDowngrade(billing.PlanLimits{}, usage.domains, usage.mailboxes, usage.bytes) == nil {
+			t.Fatal("zero limit accepted existing resource")
+		}
+	}
+	if err := billing.ValidateDowngrade(billing.PlanLimits{DomainLimit: -1, MailboxLimit: -1, QuotaBytes: -1}, 10, 10, 1000); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestDiscountRejectsInvalidAndHandlesLargeAmount(t *testing.T) {
+	if _, err := billing.ApplyDiscount(100, "unknown", 1); err == nil {
+		t.Fatal("unknown discount accepted")
+	}
+	if _, err := billing.ApplyDiscount(-1, "fixed", 1); err == nil {
+		t.Fatal("negative amount accepted")
+	}
+	const maximumAmount int64 = 1<<63 - 1
+	if got, err := billing.ApplyDiscount(maximumAmount, "percent", 50); err != nil || got <= 0 || got >= maximumAmount {
+		t.Fatalf("large discount: %d %v", got, err)
 	}
 }

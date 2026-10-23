@@ -51,7 +51,7 @@ func shapeRequest(t *testing.T, r *gin.Engine, method, path, body string) (int, 
 	if body != "" {
 		reader = strings.NewReader(body)
 	}
-	req := httptest.NewRequest(method, path, reader)
+	req := httptest.NewRequestWithContext(context.Background(), method, path, reader)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -571,7 +571,7 @@ func TestTenantCurrentResponseShape(t *testing.T) {
 		t.Fatalf("settings did not survive: %v", settings)
 	}
 	usage := shapeObject(t, body, "usage")
-	assertKeys(t, usage, "domains_used", "domains_limit", "mailboxes_used", "mailboxes_limit", "storage_bytes_limit")
+	assertKeys(t, usage, "domains_used", "domains_limit", "mailboxes_used", "mailboxes_limit", "storage_bytes_limit", "storage_bytes_used", "storage_bytes_allocated", "storage_measured_at", "storage_error", "storage_status")
 	if usage["domains_used"].(float64) != 2 || usage["mailboxes_used"].(float64) != 3 ||
 		usage["domains_limit"].(float64) != 5 || usage["mailboxes_limit"].(float64) != 50 {
 		t.Fatalf("unexpected usage payload: %v", usage)

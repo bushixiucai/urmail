@@ -13,7 +13,7 @@ type fakeLegalHoldReader struct {
 	err  error
 }
 
-func (f *fakeLegalHoldReader) GetArchiveEntryLegalHold(ctx context.Context, tenantID, entryID int64) (bool, error) {
+func (f *fakeLegalHoldReader) GetArchiveEntryLegalHold(_ context.Context, _ int64, entryID int64) (bool, error) {
 	if f.err != nil {
 		return false, f.err
 	}

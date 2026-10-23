@@ -1,3 +1,4 @@
+// Package compliance enforces audit redaction and legal preservation rules.
 package compliance
 
 import (

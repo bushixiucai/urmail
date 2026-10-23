@@ -18,6 +18,7 @@ import (
 	"time"
 )
 
+// Stripe implements the supported Checkout and webhook operations.
 type Stripe struct {
 	SecretKey     string
 	WebhookSecret string
@@ -25,6 +26,7 @@ type Stripe struct {
 	Client        *http.Client
 }
 
+// NewStripe creates a Stripe client with bounded request timeouts.
 func NewStripe(secretKey, webhookSecret string) *Stripe {
 	return &Stripe{
 		SecretKey: secretKey, WebhookSecret: webhookSecret,
@@ -33,11 +35,13 @@ func NewStripe(secretKey, webhookSecret string) *Stripe {
 	}
 }
 
+// CheckoutSession identifies a hosted checkout destination.
 type CheckoutSession struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
 }
 
+// CreateCheckoutSession creates a hosted payment session for an order.
 func (s *Stripe) CreateCheckoutSession(ctx context.Context, orderID int64, orderNo string, amountCents int64, currency, successURL, cancelURL string) (CheckoutSession, error) {
 	form := url.Values{}
 	form.Set("mode", "payment")
@@ -54,12 +58,13 @@ func (s *Stripe) CreateCheckoutSession(ctx context.Context, orderID int64, order
 		return CheckoutSession{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+s.SecretKey)
+	req.Header.Set("Idempotency-Key", "urmail-checkout-"+orderNo)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := s.Client.Do(req)
 	if err != nil {
 		return CheckoutSession{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return CheckoutSession{}, fmt.Errorf("stripe checkout: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -112,6 +117,7 @@ func (s *Stripe) VerifyWebhook(payload []byte, signature string, tolerance time.
 	return fmt.Errorf("stripe signature mismatch")
 }
 
+// Event contains the signed webhook fields used for settlement.
 type Event struct {
 	Type string `json:"type"`
 	Data struct {

@@ -24,12 +24,13 @@ import (
 
 // Options carries the dependencies of the HTTP server.
 type Options struct {
-	Logger *zap.Logger
+	DevMode bool
+	Logger  *zap.Logger
 	// AppPool is the tenant-scoped pool.
 	AppPool *db.Pool
 	// PlatformPool is the platform-scoped pool.
 	PlatformPool *db.Pool
-	// Messages is the message catalogue.
+	// Messages is the message catalog.
 	Messages *i18n.Store
 	// Version is reported by /api/v1/healthz.
 	Version string
@@ -37,6 +38,8 @@ type Options struct {
 	MyHostname string
 	// Reconcile is the configuration reconcile trigger.
 	Reconcile handlers.ReconcileTrigger
+	// Recall processes persisted local mailbox recalls through the root agent.
+	Recall handlers.RecallExpunger
 	// Audit receives one row per successful mutating tenant request.
 	Audit middleware.AuditWriter
 	// Secrets encrypts TOTP seeds at rest. Nil keeps legacy plaintext support.
@@ -94,11 +97,13 @@ func New(opts Options) *gin.Engine {
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
+	recallHandler := &handlers.RecallHandler{Store: appQueries, Platform: platformQueries, Expunger: opts.Recall}
 	auditHandler := handlers.NewAuditHandler(appQueries)
 	billingHandler := handlers.NewBillingHandler(appQueries)
 	billingHandler.Pool = opts.PlatformPool
 	billingHandler.Stripe = opts.Payment
 	billingHandler.BaseURL = opts.BaseURL
+	brandingHandler := handlers.NewBrandingHandler(platformQueries)
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
 	platformHandler.Pool = opts.PlatformPool
 	platformHandler.Reconcile = opts.Reconcile
@@ -113,7 +118,8 @@ func New(opts Options) *gin.Engine {
 	v1 := engine.Group("/api/v1")
 	{
 		v1.GET("/healthz", healthz(opts))
-		v1.GET("/i18n/:locale", i18nCatalogue(opts))
+		v1.GET("/branding", brandingHandler.Public)
+		v1.GET("/i18n/:locale", i18nCatalog(opts))
 
 		v1.POST("/billing/webhook/stripe", billingHandler.StripeWebhook)
 
@@ -156,14 +162,23 @@ func New(opts Options) *gin.Engine {
 			platform.Use(middleware.AuditPlatform(opts.Audit, opts.Logger))
 			{
 				platform.GET("/overview", platformHandler.Overview)
+				platform.GET("/settings", platformHandler.Settings)
+				platform.PATCH("/settings", platformHandler.UpdateSettings)
 				platform.GET("/tenants", platformHandler.ListTenants)
 				platform.POST("/tenants", platformHandler.CreateTenant)
 				platform.POST("/plans", platformHandler.UpsertPlan)
 				platform.POST("/coupons", platformHandler.UpsertCoupon)
 				platform.POST("/coupons/:code/redeem", platformHandler.RedeemCoupon)
-				platform.GET("/brands", platformHandler.Brands)
-				platform.POST("/brands", platformHandler.UpsertBrand)
+				platform.GET("/brands", brandingHandler.List)
+				platform.POST("/brands", brandingHandler.Save)
 				platform.GET("/plans", platformHandler.Plans)
+				platform.GET("/brand-hosts", brandingHandler.Hosts)
+				platform.POST("/brand-hosts", brandingHandler.BindHost)
+				platform.DELETE("/brand-hosts/:hostname", brandingHandler.UnbindHost)
+				platform.PATCH("/brands/:id/status", brandingHandler.SetStatus)
+				platform.DELETE("/brands/:id", brandingHandler.Delete)
+				platform.POST("/brands/:id/reset-theme", brandingHandler.ResetTheme)
+				platform.DELETE("/plans/:code", brandingHandler.DeletePlan)
 				platform.GET("/coupons", platformHandler.Coupons)
 				platform.GET("/channels", platformHandler.Channels)
 				platform.GET("/audit", platformHandler.AuditLogs)
@@ -200,6 +215,10 @@ func New(opts Options) *gin.Engine {
 
 			userLevel.POST("/auth/switch-tenant", authHandler.SwitchTenant)
 			userLevel.POST("/auth/password", authHandler.ChangePassword)
+			userLevel.POST("/auth/legacy-session", authHandler.CreateLegacySession)
+			userLevel.GET("/auth/application-credentials", authHandler.ListApplicationCredentials)
+			userLevel.POST("/auth/application-credentials", authHandler.CreateApplicationCredential)
+			userLevel.DELETE("/auth/application-credentials/:id", authHandler.RevokeApplicationCredential)
 			userLevel.GET("/auth/sessions", authHandler.ListSessions)
 			userLevel.DELETE("/auth/sessions/:id", authHandler.RevokeSession)
 		}
@@ -215,6 +234,7 @@ func New(opts Options) *gin.Engine {
 		{
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
+			protected.PATCH("/tenants/current", middleware.RequireRole("owner", "admin"), tenantHandler.UpdateSettings)
 
 			// Domains
 			protected.GET("/domains", domainHandler.List)
@@ -234,6 +254,7 @@ func New(opts Options) *gin.Engine {
 			// Aliases
 			protected.GET("/aliases", aliasHandler.List)
 			protected.POST("/aliases", middleware.RequireRole("owner", "admin"), aliasHandler.Create)
+			protected.PATCH("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Update)
 			protected.DELETE("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Delete)
 
 			protected.GET("/audit", auditHandler.List)
@@ -250,6 +271,9 @@ func New(opts Options) *gin.Engine {
 
 			// Archive / legal hold
 			protected.GET("/archive", archiveHandler.List)
+			protected.POST("/compliance/recalls", middleware.RequireRole("owner", "admin"), recallHandler.Create)
+			protected.GET("/compliance/recalls", middleware.RequireRole("owner", "admin"), recallHandler.List)
+			protected.GET("/compliance/recalls/:id", middleware.RequireRole("owner", "admin"), recallHandler.Get)
 			protected.POST("/archive/:id/hold", middleware.RequireRole("owner", "admin"), archiveHandler.SetHold)
 			protected.POST("/archive/:id/release", middleware.RequireRole("owner", "admin"), archiveHandler.ClearHold)
 			protected.DELETE("/archive/:id", middleware.RequireRole("owner", "admin"), archiveHandler.Delete)
@@ -315,7 +339,10 @@ func healthz(opts Options) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
 
-		status := gin.H{"status": "ok", "version": opts.Version}
+		status := gin.H{"status": "ok", "version": opts.Version, "mode": "production"}
+		if opts.DevMode {
+			status["mode"] = "development"
+		}
 		if err := ping(ctx, opts.AppPool); err != nil {
 			status["status"] = "degraded"
 			status["db"] = "unavailable"
@@ -334,7 +361,7 @@ func ping(ctx context.Context, pool *db.Pool) error {
 	return pool.Ping(ctx)
 }
 
-func i18nCatalogue(opts Options) gin.HandlerFunc {
+func i18nCatalog(opts Options) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		locale := c.Param("locale")
 		if locale == "" {

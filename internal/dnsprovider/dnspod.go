@@ -17,6 +17,7 @@ type DNSPod struct {
 	Base   string
 }
 
+// NewDNSPod creates a DNSPod client.
 func NewDNSPod(token string) *DNSPod {
 	return &DNSPod{
 		Token:  token,
@@ -53,7 +54,7 @@ func (d *DNSPod) call(ctx context.Context, path string, form url.Values) (dnspod
 	if err != nil {
 		return dnspodResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out dnspodResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return dnspodResponse{}, err
@@ -64,6 +65,7 @@ func (d *DNSPod) call(ctx context.Context, path string, form url.Values) (dnspod
 	return out, nil
 }
 
+// EnsureTXT creates or updates a TXT record in the given zone.
 func (d *DNSPod) EnsureTXT(ctx context.Context, zone, name, value string) error {
 	sub := strings.TrimSuffix(name, "."+zone)
 	if sub == name {
