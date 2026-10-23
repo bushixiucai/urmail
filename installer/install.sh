@@ -381,9 +381,9 @@ systemctl restart urmaild.service
 systemctl enable --now urmail-cert-renew.timer
 systemctl enable --now urmail-usage-sync.timer
 systemctl reload nginx 2>/dev/null || systemctl restart nginx
-# urmaild renders and reloads Dovecot/Postfix shortly after startup. Give the
-# first reconcile time to settle so IMAP/SMTP are immediately usable.
-urmailctl config status --wait 90s
+# Allow the bounded three-minute apply and initial snapshot/bootstrap to finish.
+# Readiness still requires the applied generation and successful daemon probes.
+urmailctl config status --wait 240s
 
 log "urMail.cn is installed."
 cat <<'EOF'

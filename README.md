@@ -84,7 +84,7 @@ AGPL-3.0。见 [LICENSE](LICENSE)。
 
 ## 本地运维验收
 
-`urmailctl config status --wait 90s` 只有在首次配置应用完成、必要服务探针成功且 desired/applied generation 一致时才成功。`/api/v1/healthz` 用于进程与数据库存活检查，两者用途不同。
+安装器最多等待 240 秒，覆盖三分钟的配置应用预算与启动准备；失败仍以非零退出。`urmailctl config status --wait 90s` 只有在首次配置应用完成、必要服务探针成功且 desired/applied generation 一致时才成功。`/api/v1/healthz` 用于进程与数据库存活检查，两者用途不同。
 
 `urmailctl backup` 默认是 metadata-only；完整本机恢复需要显式包含邮件并暂停写入：
 
