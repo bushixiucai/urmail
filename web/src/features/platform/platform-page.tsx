@@ -148,6 +148,9 @@ export function PlatformPage() {
         body: {
           slug: brandSlug,
           name: brandName || brandSlug,
+          status:
+            brandItems.find((brand) => brand.slug === brandSlug)?.status ??
+            "active",
           primary_color: primaryColor,
           logo_url: logoURL || null,
           favicon_url: faviconURL || null,

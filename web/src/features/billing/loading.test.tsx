@@ -1,4 +1,4 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BillingPage } from "./billing-page";
 import { AuditPage } from "../audit/audit-page";
@@ -20,6 +20,7 @@ vi.mock("@/lib/api/client", async (original) => ({
 afterEach(() => {
   cleanup();
   state.request.mockReset();
+  vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
 });
 
@@ -48,6 +49,57 @@ describe("checkout return is informational", () => {
       }
     });
   }
+});
+
+it("editing a disabled brand preserves its disabled status", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  state.request.mockImplementation((path: string) =>
+    Promise.resolve(
+      path.endsWith("settings")
+        ? { settings: {} }
+        : {
+            brands: [
+              {
+                id: 9,
+                slug: "disabled-brand",
+                name: "Disabled brand",
+                status: "disabled",
+              },
+            ],
+            tenants: [],
+            plans: [],
+            coupons: [],
+            logs: [],
+            hosts: [],
+            overview: {
+              tenants: 0,
+              active_tenants: 0,
+              users: 0,
+              domains: 0,
+              mailboxes: 0,
+              active_subscriptions: 0,
+            },
+          },
+    ),
+  );
+  const view = render(<PlatformPage />);
+  await act(async () => {
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "action.edit" }));
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: "page.platform.save_brand" }),
+    );
+  });
+  const save = state.request.mock.calls.find(
+    ([path, options]) =>
+      path === "/api/v1/platform/brands" && options?.method === "POST",
+  );
+  expect(save?.[1].body).toMatchObject({
+    slug: "disabled-brand",
+    status: "disabled",
+  });
 });
 
 describe("management loading remains bounded", () => {
