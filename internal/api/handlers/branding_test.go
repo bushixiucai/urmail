@@ -83,3 +83,7 @@ func TestBrandMutationValidationRejectsUnsafeInputs(t *testing.T) {
 		t.Fatal("valid theme rejected")
 	}
 }
+
+func (s publicBrandFixture) PlatformPublicThemeSettings(context.Context, int64) ([]store.PlatformPublicThemeSettingsRow, error) {
+	return nil, nil
+}

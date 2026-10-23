@@ -65,6 +65,10 @@ export function PlatformPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
   const [brandItems, setBrandItems] = useState<ManagedBrand[]>([]);
+  const [settingsBrand, setSettingsBrand] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
   const [planItems, setPlanItems] = useState<ManagedPlan[]>([]);
   const [planEdit, setPlanEdit] = useState<ManagedPlan>(emptyPlan);
   const [plans, setPlans] = useState<string[]>([]);
@@ -481,6 +485,15 @@ export function PlatformPage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  onClick={() =>
+                    setSettingsBrand({ id: brand.id, name: brand.name })
+                  }
+                >
+                  {t("page.settings.brand")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => {
                     setBrandSlug(brand.slug);
                     setBrandName(brand.name);
@@ -689,6 +702,21 @@ export function PlatformPage() {
           ))}
         </CardContent>
       </Card>
+      {settingsBrand && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium break-all">{settingsBrand.name}</p>
+            <Button variant="outline" onClick={() => setSettingsBrand(null)}>
+              {t("action.close")}
+            </Button>
+          </div>
+          <SettingsEditor
+            key={settingsBrand.id}
+            platform
+            brandId={settingsBrand.id}
+          />
+        </div>
+      )}
       <SettingsEditor platform />
       <Card>
         <CardHeader>

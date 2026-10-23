@@ -339,5 +339,6 @@
   "status.delegated": "委派",
   "error.INVALID_MAILBOX_IDENTITY": "邮箱地址、域名和目录名不一致",
   "error.MAILBOX_STORAGE_ADDRESS_RESERVED": "该地址仍保留历史邮件存储身份，需由运维审核清理后再处理",
-  "error.MAILBOX_STORAGE_IDENTITY_IMMUTABLE": "已有邮箱的存储身份不可更改"
+  "error.MAILBOX_STORAGE_IDENTITY_IMMUTABLE": "已有邮箱的存储身份不可更改",
+  "page.settings.brand": "品牌设置"
 }

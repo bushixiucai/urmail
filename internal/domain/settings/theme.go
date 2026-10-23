@@ -56,12 +56,20 @@ func BuildEffectiveTheme(src BrandThemeSource, entries []SettingEntry) (*Effecti
 		}
 	}
 
+	primary := src.PrimaryColor
+	var resolved map[string]json.RawMessage
+	if err := json.Unmarshal(merged, &resolved); err == nil {
+		var value string
+		if raw, ok := resolved["primary"]; ok && json.Unmarshal(raw, &value) == nil && value != "" {
+			primary = &value
+		}
+	}
 	return &EffectiveTheme{
 		BrandID:      src.BrandID,
 		BrandSlug:    src.BrandSlug,
 		LogoURL:      src.LogoURL,
 		FaviconURL:   src.FaviconURL,
-		PrimaryColor: src.PrimaryColor,
+		PrimaryColor: primary,
 		Theme:        merged,
 	}, nil
 }

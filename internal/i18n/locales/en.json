@@ -339,5 +339,6 @@
   "status.delegated": "Delegated",
   "error.INVALID_MAILBOX_IDENTITY": "Mailbox address, domain, and directory identity do not match",
   "error.MAILBOX_STORAGE_ADDRESS_RESERVED": "This address retains a historical storage identity; operator review is required",
-  "error.MAILBOX_STORAGE_IDENTITY_IMMUTABLE": "An existing mailbox storage identity cannot be changed"
+  "error.MAILBOX_STORAGE_IDENTITY_IMMUTABLE": "An existing mailbox storage identity cannot be changed",
+  "page.settings.brand": "Brand settings"
 }

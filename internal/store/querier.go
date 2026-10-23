@@ -127,6 +127,7 @@ type Querier interface {
 	PlatformCompleteRecall(ctx context.Context, arg PlatformCompleteRecallParams) (PlatformCompleteRecallRow, error)
 	PlatformDataIssues(ctx context.Context) ([]PlatformDataIssuesRow, error)
 	PlatformDeleteBrand(ctx context.Context, id int64) (int64, error)
+	PlatformDeleteBrandSetting(ctx context.Context, arg PlatformDeleteBrandSettingParams) error
 	PlatformDeleteSetting(ctx context.Context, key string) error
 	PlatformDeleteUnusedPlan(ctx context.Context, code string) (int64, error)
 	// Platform queries for brand theming. Brand rows and the tenant -> brand
@@ -144,6 +145,7 @@ type Querier interface {
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
 	PlatformListAuditLogs(ctx context.Context, limit int32) ([]AuditLogs, error)
 	PlatformListBrandHosts(ctx context.Context) ([]BrandHosts, error)
+	PlatformListBrandSettings(ctx context.Context, scopeID int64) ([]PlatformListBrandSettingsRow, error)
 	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
 	PlatformListBrands(ctx context.Context) ([]PlatformListBrandsRow, error)
 	PlatformListChannels(ctx context.Context) ([]Channels, error)
@@ -161,6 +163,7 @@ type Querier interface {
 	PlatformListPlans(ctx context.Context) ([]Plans, error)
 	PlatformListSettings(ctx context.Context) ([]PlatformListSettingsRow, error)
 	PlatformListTenants(ctx context.Context) ([]PlatformListTenantsRow, error)
+	PlatformLockBrandSettingsBrand(ctx context.Context, id int64) (int64, error)
 	PlatformLockRecallForExpunge(ctx context.Context, arg PlatformLockRecallForExpungeParams) (PlatformLockRecallForExpungeRow, error)
 	PlatformLockRecallTenant(ctx context.Context, dollar_1 int64) error
 	PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMailboxAccessStatesRow, error)
@@ -168,6 +171,7 @@ type Querier interface {
 	PlatformNextMailAccessBoundary(ctx context.Context) (pgtype.Timestamptz, error)
 	// Platform administration queries (no tenant scope; platform role only).
 	PlatformOverview(ctx context.Context) (PlatformOverviewRow, error)
+	PlatformPublicThemeSettings(ctx context.Context, scopeID int64) ([]PlatformPublicThemeSettingsRow, error)
 	PlatformRecordMailboxUsage(ctx context.Context, arg PlatformRecordMailboxUsageParams) error
 	PlatformRecordMailboxUsageError(ctx context.Context, arg PlatformRecordMailboxUsageErrorParams) error
 	PlatformResetBrandTheme(ctx context.Context, id int64) (int64, error)
@@ -176,6 +180,7 @@ type Querier interface {
 	PlatformUnbindBrandHost(ctx context.Context, hostname string) (int64, error)
 	PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUpdateTenantStatusParams) (PlatformUpdateTenantStatusRow, error)
 	PlatformUpsertBrand(ctx context.Context, arg PlatformUpsertBrandParams) (PlatformUpsertBrandRow, error)
+	PlatformUpsertBrandSetting(ctx context.Context, arg PlatformUpsertBrandSettingParams) error
 	PlatformUpsertChannel(ctx context.Context, arg PlatformUpsertChannelParams) (Channels, error)
 	PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCouponParams) (Coupons, error)
 	PlatformUpsertPlan(ctx context.Context, arg PlatformUpsertPlanParams) (Plans, error)

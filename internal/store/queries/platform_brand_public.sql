@@ -48,3 +48,7 @@ WITH cleared AS (
  DELETE FROM settings WHERE scope='brand' AND scope_id=$1 AND key='theme'
 )
 UPDATE brands SET theme='{}'::jsonb,logo_url=NULL,favicon_url=NULL,primary_color=NULL WHERE id=$1;
+
+-- name: PlatformPublicThemeSettings :many
+SELECT scope,scope_id,key,value FROM settings WHERE key='theme'
+AND ((scope='platform' AND scope_id=0) OR (scope='brand' AND scope_id=$1));

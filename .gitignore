@@ -50,3 +50,6 @@ web/blob-report/
 /output/
 scripts/__pycache__/
 /.playwright-cli/
+
+# Local release candidates
+/dist/

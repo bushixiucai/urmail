@@ -128,6 +128,43 @@ func (q *Queries) PlatformManagedBrands(ctx context.Context) ([]PlatformManagedB
 	return items, nil
 }
 
+const platformPublicThemeSettings = `-- name: PlatformPublicThemeSettings :many
+SELECT scope,scope_id,key,value FROM settings WHERE key='theme'
+AND ((scope='platform' AND scope_id=0) OR (scope='brand' AND scope_id=$1))
+`
+
+type PlatformPublicThemeSettingsRow struct {
+	Scope   string `json:"scope"`
+	ScopeID int64  `json:"scope_id"`
+	Key     string `json:"key"`
+	Value   []byte `json:"value"`
+}
+
+func (q *Queries) PlatformPublicThemeSettings(ctx context.Context, scopeID int64) ([]PlatformPublicThemeSettingsRow, error) {
+	rows, err := q.db.Query(ctx, platformPublicThemeSettings, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlatformPublicThemeSettingsRow{}
+	for rows.Next() {
+		var i PlatformPublicThemeSettingsRow
+		if err := rows.Scan(
+			&i.Scope,
+			&i.ScopeID,
+			&i.Key,
+			&i.Value,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const platformResetBrandTheme = `-- name: PlatformResetBrandTheme :execrows
 WITH cleared AS (
  DELETE FROM settings WHERE scope='brand' AND scope_id=$1 AND key='theme'

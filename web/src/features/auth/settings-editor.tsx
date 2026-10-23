@@ -7,7 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 /** Edits only this scope; clearing a field restores its inherited value. */
-export function SettingsEditor({ platform = false }: { platform?: boolean }) {
+export function SettingsEditor({
+  platform = false,
+  brandId,
+}: {
+  platform?: boolean;
+  brandId?: number;
+}) {
   const { t } = useTranslation();
   const errorMessage = useApiErrorMessage();
   const [locale, setLocale] = useState("");
@@ -17,9 +23,11 @@ export function SettingsEditor({ platform = false }: { platform?: boolean }) {
   const [pending, setPending] = useState(false);
   const [edited, setEdited] = useState<Set<string>>(new Set());
   const changed = (key: string) => setEdited((prev) => new Set([...prev, key]));
-  const path = platform
-    ? "/api/v1/platform/settings"
-    : "/api/v1/tenants/current";
+  const path = brandId
+    ? `/api/v1/platform/brands/${brandId}/settings`
+    : platform
+      ? "/api/v1/platform/settings"
+      : "/api/v1/tenants/current";
   useEffect(() => {
     const controller = new AbortController();
     request<{ settings: Record<string, unknown> }>(path, {
@@ -74,7 +82,13 @@ export function SettingsEditor({ platform = false }: { platform?: boolean }) {
     <Card>
       <CardHeader>
         <CardTitle>
-          {t(platform ? "page.settings.platform" : "page.settings.tenant")}
+          {t(
+            brandId
+              ? "page.settings.brand"
+              : platform
+                ? "page.settings.platform"
+                : "page.settings.tenant",
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>

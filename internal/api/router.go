@@ -169,6 +169,8 @@ func New(opts Options) *gin.Engine {
 				platform.POST("/plans", platformHandler.UpsertPlan)
 				platform.POST("/coupons", platformHandler.UpsertCoupon)
 				platform.POST("/coupons/:code/redeem", platformHandler.RedeemCoupon)
+				platform.GET("/brands/:id/settings", platformHandler.BrandSettings)
+				platform.PATCH("/brands/:id/settings", platformHandler.UpdateBrandSettings)
 				platform.GET("/brands", brandingHandler.List)
 				platform.POST("/brands", brandingHandler.Save)
 				platform.GET("/plans", platformHandler.Plans)

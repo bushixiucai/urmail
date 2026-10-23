@@ -16,12 +16,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	domainSettings "github.com/bushixiucai/urmail/internal/domain/settings"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // BrandingStore separates public visual lookups from platform-only mutations.
 type BrandingStore interface {
+	PlatformPublicThemeSettings(context.Context, int64) ([]store.PlatformPublicThemeSettingsRow, error)
 	PublicBrandByHost(context.Context, string) (store.PublicBrandByHostRow, error)
 	PublicBrandBySlug(context.Context, string) (store.PublicBrandBySlugRow, error)
 	PlatformManagedBrands(context.Context) ([]store.PlatformManagedBrandsRow, error)
@@ -107,8 +109,22 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"brand": fallback, "source": "default"})
 		return
 	}
-	theme, _ := sanitizeBrandTheme(row.Theme)
-	primary := textPtr(row.PrimaryColor)
+	rows, err := h.Store.PlatformPublicThemeSettings(c, row.ID)
+	if err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	entries := make([]domainSettings.SettingEntry, 0, len(rows))
+	for _, setting := range rows {
+		entries = append(entries, domainSettings.SettingEntry{Scope: domainSettings.Scope(setting.Scope), ScopeID: setting.ScopeID, Key: setting.Key, Value: setting.Value})
+	}
+	effective, err := domainSettings.BuildEffectiveTheme(domainSettings.BrandThemeSource{BrandID: row.ID, BrandSlug: row.Slug, Theme: row.Theme, PrimaryColor: textPtr(row.PrimaryColor)}, entries)
+	if err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	theme, _ := sanitizeBrandTheme(effective.Theme)
+	primary := effective.PrimaryColor
 	if primary != nil && !validBrandThemeValue("primary", *primary) {
 		primary = nil
 	}

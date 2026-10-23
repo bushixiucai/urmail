@@ -73,3 +73,18 @@ func TestBuildEffectiveThemeNoOverrides(t *testing.T) {
 		t.Errorf("brand theme should pass through, got %s", eff.Theme)
 	}
 }
+
+func TestEffectivePrimaryColorFollowsResolvedTheme(t *testing.T) {
+	color := "#111111"
+	src := settings.BrandThemeSource{Theme: json.RawMessage(`{"primary":"#222222"}`), PrimaryColor: &color}
+	entries := []settings.SettingEntry{{Scope: settings.ScopePlatform, Key: "theme", Value: json.RawMessage(`{"primary":"#333333"}`)}, {Scope: settings.ScopeBrand, Key: "theme", Value: json.RawMessage(`{"primary":"#444444"}`)}, {Scope: settings.ScopeTenant, Key: "theme", Value: json.RawMessage(`{"primary":"#555555"}`)}}
+	for i, want := range []string{"#222222", "#333333", "#444444", "#555555"} {
+		eff, err := settings.BuildEffectiveTheme(src, entries[:i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eff.PrimaryColor == nil || *eff.PrimaryColor != want {
+			t.Fatalf("scope depth %d: %+v", i, eff)
+		}
+	}
+}

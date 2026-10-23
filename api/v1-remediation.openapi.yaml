@@ -41,7 +41,7 @@ paths:
         schema: &id001
           type: string
       description: Uses Request.Host, not an arbitrary X-Forwarded-Host. Brand selection never authenticates a user
-        or selects a tenant. Disabled and unknown links fall back to default. Response omits internal settings,
+        or selects a tenant. Disabled and unknown links fall back to default. Visual theme resolves brand row plus platform and brand theme settings through the same helper as authenticated tenant views; tenant overrides never affect this public response. Response omits internal settings,
         tenant IDs and unknown theme keys.
   /auth/legacy-session:
     post:
@@ -207,6 +207,40 @@ paths:
             schema:
               $ref: '#/components/schemas/BrandInput'
       description: ' Requires the current platform administrator role.'
+  /platform/brands/{id}/settings:
+    parameters:
+    - *id003
+    get:
+      summary: Read only this brand's own editable setting overrides.
+      description: Requires the current platform administrator role. Missing brand returns 404. Omitted keys inherit platform defaults.
+      responses:
+        '200':
+          description: Brand overrides, without merging inherited platform defaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      summary: Atomically change this brand's allowlisted setting overrides.
+      description: Requires the current platform administrator role and CSRF token. Null removes this brand's override and restores platform inheritance. Tenant overrides retain priority. Unknown keys are rejected, including null values. Missing brand returns 404.
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatch'
+      responses:
+        '200':
+          description: Committed brand overrides.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        default:
+          $ref: '#/components/responses/Error'
   /platform/brands/{id}:
     parameters:
     - *id003

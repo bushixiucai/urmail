@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"strconv"
+
 	"regexp"
 	"sort"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,6 +29,9 @@ func validateSettings(values map[string]json.RawMessage) bool {
 		return false
 	}
 	for key, value := range values {
+		if key != "locale" && key != "theme" && key != "mailbox_default_quota_bytes" {
+			return false
+		}
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			continue
 		}
@@ -149,4 +157,69 @@ func (h *PlatformHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	h.Settings(c)
+}
+
+// BrandSettings returns the selected brand's own editable overrides.
+func (h *PlatformHandler) BrandSettings(c *gin.Context) { h.brandSettings(c, false) }
+
+// UpdateBrandSettings atomically changes only the selected brand's overrides.
+func (h *PlatformHandler) UpdateBrandSettings(c *gin.Context) { h.brandSettings(c, true) }
+func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	var input settingsPatch
+	if patch && (c.ShouldBindJSON(&input) != nil || !validateSettings(input.Settings)) {
+		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if h.Pool == nil {
+		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	tx, err := h.Pool.PlatformTx(c)
+	if err != nil {
+		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	q := store.New(tx)
+	if _, err = q.PlatformLockBrandSettingsBrand(c, id); err != nil {
+		status, code := 500, "DB_ERROR"
+		if errors.Is(err, pgx.ErrNoRows) {
+			status, code = 404, "NOT_FOUND"
+		}
+		c.JSON(status, gin.H{"error": gin.H{"code": code}})
+		return
+	}
+	if patch {
+		for _, key := range settingKeys(input.Settings) {
+			value := input.Settings[key]
+			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				err = q.PlatformDeleteBrandSetting(c, store.PlatformDeleteBrandSettingParams{ScopeID: id, Key: key})
+			} else {
+				err = q.PlatformUpsertBrandSetting(c, store.PlatformUpsertBrandSettingParams{ScopeID: id, Key: key, Value: value})
+			}
+			if err != nil {
+				c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+				return
+			}
+		}
+	}
+	rows, err := q.PlatformListBrandSettings(c, id)
+	if err != nil {
+		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if err = tx.Commit(c); err != nil {
+		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	values := map[string]json.RawMessage{}
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	c.JSON(200, gin.H{"settings": values})
 }
