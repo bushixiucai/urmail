@@ -34,16 +34,32 @@ type EffectiveTheme struct {
 // ThemeKey is the settings key under which theme overrides are stored.
 const ThemeKey = "theme"
 
-// BuildEffectiveTheme merges the brand's theme column with any "theme"
-// settings entries (platform -> brand -> tenant precedence, deep merge) and
-// returns the effective theme for the tenant.
+// BuildEffectiveTheme deep-merges platform settings, the brand row, brand
+// settings, and tenant settings in that order. Row theme.primary takes
+// precedence over the legacy row primary_color field.
 func BuildEffectiveTheme(src BrandThemeSource, entries []SettingEntry) (*EffectiveTheme, error) {
-	merged := []byte(src.Theme)
-	if len(merged) == 0 {
-		merged = json.RawMessage(`{}`)
-	}
+	merged := []byte(`{}`)
 
 	for _, scope := range []Scope{ScopePlatform, ScopeBrand, ScopeTenant} {
+		// The row is the brand layer, above platform defaults. Explicit row
+		// theme.primary wins over the legacy primary_color column.
+		if scope == ScopeBrand {
+			if src.PrimaryColor != nil {
+				base, _ := json.Marshal(map[string]string{"primary": *src.PrimaryColor})
+				var err error
+				merged, err = DeepMergeJSON(merged, base)
+				if err != nil {
+					return nil, fmt.Errorf("merge brand primary color: %w", err)
+				}
+			}
+			if len(src.Theme) > 0 {
+				var err error
+				merged, err = DeepMergeJSON(merged, src.Theme)
+				if err != nil {
+					return nil, fmt.Errorf("merge brand row theme: %w", err)
+				}
+			}
+		}
 		for _, e := range entries {
 			if e.Key != ThemeKey || e.Scope != scope {
 				continue

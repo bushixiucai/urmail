@@ -69,7 +69,7 @@ func TestBuildEffectiveThemeNoOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildEffectiveTheme: %v", err)
 	}
-	if string(eff.Theme) != `{"a": 1}` {
+	if string(eff.Theme) != `{"a":1}` {
 		t.Errorf("brand theme should pass through, got %s", eff.Theme)
 	}
 }
@@ -78,13 +78,34 @@ func TestEffectivePrimaryColorFollowsResolvedTheme(t *testing.T) {
 	color := "#111111"
 	src := settings.BrandThemeSource{Theme: json.RawMessage(`{"primary":"#222222"}`), PrimaryColor: &color}
 	entries := []settings.SettingEntry{{Scope: settings.ScopePlatform, Key: "theme", Value: json.RawMessage(`{"primary":"#333333"}`)}, {Scope: settings.ScopeBrand, Key: "theme", Value: json.RawMessage(`{"primary":"#444444"}`)}, {Scope: settings.ScopeTenant, Key: "theme", Value: json.RawMessage(`{"primary":"#555555"}`)}}
-	for i, want := range []string{"#222222", "#333333", "#444444", "#555555"} {
+	for i, want := range []string{"#222222", "#222222", "#444444", "#555555"} {
 		eff, err := settings.BuildEffectiveTheme(src, entries[:i])
 		if err != nil {
 			t.Fatal(err)
 		}
 		if eff.PrimaryColor == nil || *eff.PrimaryColor != want {
 			t.Fatalf("scope depth %d: %+v", i, eff)
+		}
+	}
+}
+
+func TestBrandRowAbovePlatformTheme(t *testing.T) {
+	platform := []settings.SettingEntry{{Scope: settings.ScopePlatform, Key: "theme", Value: json.RawMessage(`{"primary":"#123456"}`)}}
+	rowColor := "#654321"
+	for _, tc := range []struct {
+		source settings.BrandThemeSource
+		want   string
+	}{
+		{settings.BrandThemeSource{Theme: json.RawMessage(`{}`)}, "#123456"},
+		{settings.BrandThemeSource{PrimaryColor: &rowColor, Theme: json.RawMessage(`{}`)}, "#654321"},
+		{settings.BrandThemeSource{PrimaryColor: &rowColor, Theme: json.RawMessage(`{"primary":"#abcdef"}`)}, "#abcdef"},
+	} {
+		eff, err := settings.BuildEffectiveTheme(tc.source, platform)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eff.PrimaryColor == nil || *eff.PrimaryColor != tc.want {
+			t.Fatalf("resolved %+v want %s", eff, tc.want)
 		}
 	}
 }

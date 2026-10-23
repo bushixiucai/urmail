@@ -171,4 +171,25 @@ func TestBrandSettingsHTTPInheritanceAndIsolation(t *testing.T) {
 	patch("/tenants/current", map[string]any{"theme": nil})
 	assertPrimary(tenantTheme(), "#112233")
 
+	// Saving row-level branding must beat the configured platform primary.
+	call(http.MethodPost, "/platform/brands", "settings-admin", map[string]any{"slug": "brand-settings-a", "name": "A saved", "primary_color": "#654321", "theme": map[string]string{"primary": "#abcdef"}, "status": "active"}, 200)
+	assertPrimary(publicTheme(), "#abcdef")
+	assertPrimary(tenantTheme(), "#abcdef")
+	patch(brandA, map[string]any{"theme": map[string]any{"primary": "#102030"}})
+	patch("/tenants/current", map[string]any{"theme": map[string]any{"primary": "#334455"}})
+	assertPrimary(publicTheme(), "#102030")
+	assertPrimary(tenantTheme(), "#334455")
+	// Null removes the settings override, retaining the explicit brand row base.
+	patch(brandA, map[string]any{"theme": nil})
+	assertPrimary(publicTheme(), "#abcdef")
+	assertPrimary(tenantTheme(), "#334455")
+	patch("/tenants/current", map[string]any{"theme": nil})
+	assertPrimary(tenantTheme(), "#abcdef")
+	call(http.MethodPost, "/platform/brands", "settings-admin", map[string]any{"slug": "brand-settings-a", "name": "A saved", "primary_color": "#998877", "theme": map[string]string{}, "status": "active"}, 200)
+	assertPrimary(publicTheme(), "#998877")
+	assertPrimary(tenantTheme(), "#998877")
+	call(http.MethodPost, fmt.Sprintf("/platform/brands/%d/reset-theme", a), "settings-admin", map[string]any{}, 200)
+	assertPrimary(publicTheme(), "#112233")
+	assertPrimary(tenantTheme(), "#112233")
+
 }
