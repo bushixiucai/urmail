@@ -161,3 +161,30 @@ func TestDevelopmentModeRequiresLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDNSListenersExcludeWildcardResolverStubAndDeduplicate(t *testing.T) {
+	for _, input := range []string{"0.0.0.0", "::", "127.0.0.53", "127.0.0.54", "192.0.2.1:53", "fe80::1%eth0", "224.0.0.1", "192.0.2.1\nserver: evil"} {
+		if _, err := resolveDNSListenAddresses(input); err == nil {
+			t.Errorf("unsafe DNS override accepted %q", input)
+		}
+	}
+	addresses, err := resolveDNSListenAddresses("192.168.1.2,127.0.0.1,2001:db8::1,192.168.1.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(addresses, ",") != "127.0.0.1,192.168.1.2,2001:db8::1" {
+		t.Fatalf("listeners %v", addresses)
+	}
+	automatic, err := resolveDNSListenAddresses("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(automatic, ","), "127.0.0.1") {
+		t.Fatal("automatic loopback missing")
+	}
+	for _, address := range automatic {
+		if address == "0.0.0.0" || address == "::" || address == "127.0.0.53" || address == "127.0.0.54" {
+			t.Fatalf("automatic unsafe listener %s", address)
+		}
+	}
+}

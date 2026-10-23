@@ -3,11 +3,12 @@ package nsd
 
 // NodeConfig holds platform DNS node parameters.
 type NodeConfig struct {
-	Hostname      string   // Primary mail hostname (RFC 1123, e.g. box.urmail.cn)
-	PrimaryDomain string   // Primary platform domain (RFC 1123, e.g. urmail.cn)
-	PublicIPv4    string   // Host public IPv4 address (e.g. 1.2.3.4)
-	PublicIPv6    string   // Host public IPv6 address (optional)
-	Nameservers   []string // List of authoritative nameserver hostnames (e.g. ns1.urmail.cn, ns2.urmail.cn)
+	ListenAddresses []string // Concrete locally bound DNS interfaces; never wildcard or resolver stub addresses.
+	Hostname        string   // Primary mail hostname (RFC 1123, e.g. box.urmail.cn)
+	PrimaryDomain   string   // Primary platform domain (RFC 1123, e.g. urmail.cn)
+	PublicIPv4      string   // Host public IPv4 address (e.g. 1.2.3.4)
+	PublicIPv6      string   // Host public IPv6 address (optional)
+	Nameservers     []string // List of authoritative nameserver hostnames (e.g. ns1.urmail.cn, ns2.urmail.cn)
 }
 
 // Record represents an arbitrary custom or standard DNS resource record.

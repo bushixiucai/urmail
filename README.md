@@ -111,3 +111,5 @@ sudo systemctl start urmail-cert-renew.timer urmail-usage-sync.timer
 `urmailctl data-check` 只列出需审核的记录标识，不自动修复历史异常。邮箱存储身份不可改写；已删除地址的保留记录会阻止直接重建，避免旧 Maildir 被新邮箱继承。历史目录及地址释放必须经过运维数据审核，不由迁移自动删除或搬移。
 
 本地追回接口只处理请求租户内、指定归档记录对应邮箱中的精确邮件副本；保留归档原件，legal hold 阻止删除。`local_recalled` 不代表远端 SMTP 收件人已撤回；未确认或不支持的结果保持 pending/failed。
+
+NSD 默认绑定启动时本机启用网卡的具体单播地址和 `127.0.0.1`，保留系统 DNS stub；公网 DNS 记录仍使用配置的 public IP。复杂网络可由 root 在 `agent.env` 设置逗号分隔的 `URMAIL_DNS_LISTEN_ADDRESSES`，只接受明确 IP。网卡地址变化后重启服务以重新采集；安装升级保留 root 本级覆盖。

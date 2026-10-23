@@ -19,7 +19,7 @@ func Generate(node NodeConfig, snap Snapshot) (map[string]string, error) {
 	}
 
 	result := make(map[string]string, len(snap.Zones)+1)
-	result[FileZonesConf] = renderZonesConf(snap)
+	result[FileZonesConf] = renderZonesConf(node, snap)
 
 	for _, z := range snap.Zones {
 		domain := strings.ToLower(strings.TrimSuffix(z.Domain, "."))

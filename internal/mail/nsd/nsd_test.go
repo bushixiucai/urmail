@@ -16,11 +16,12 @@ var update = flag.Bool("update", false, "update golden files")
 
 func defaultNodeConfig() nsd.NodeConfig {
 	return nsd.NodeConfig{
-		Hostname:      "box.urmail.cn",
-		PrimaryDomain: "urmail.cn",
-		PublicIPv4:    "1.2.3.4",
-		PublicIPv6:    "2001:db8::1",
-		Nameservers:   []string{"ns1.urmail.cn", "ns2.urmail.cn"},
+		ListenAddresses: []string{"127.0.0.1", "192.0.2.10", "2001:db8::10"},
+		Hostname:        "box.urmail.cn",
+		PrimaryDomain:   "urmail.cn",
+		PublicIPv4:      "1.2.3.4",
+		PublicIPv6:      "2001:db8::1",
+		Nameservers:     []string{"ns1.urmail.cn", "ns2.urmail.cn"},
 	}
 }
 
@@ -275,5 +276,25 @@ func TestLongTXTSplitsIntoCharacterStrings(t *testing.T) {
 	}
 	if strings.Count(line, "\"") < 4 {
 		t.Fatalf("long TXT was not split: %s", line)
+	}
+}
+
+func TestDNSListenerInjectionAndResolverStubRejected(t *testing.T) {
+	for _, address := range []string{"0.0.0.0", "::", "127.0.0.53", "192.0.2.1@5353", "192.0.2.1\ninclude: /etc/shadow"} {
+		node := defaultNodeConfig()
+		node.ListenAddresses = []string{address}
+		if _, err := nsd.Generate(node, nsd.Snapshot{}); err == nil {
+			t.Errorf("accepted DNS listener %q", address)
+		}
+	}
+	node := defaultNodeConfig()
+	node.ListenAddresses = []string{"192.168.1.2", "127.0.0.1", "2001:db8::10"}
+	out, err := nsd.Generate(node, nsd.Snapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "server:\n  ip-address: 127.0.0.1\n  ip-address: 192.168.1.2\n  ip-address: 2001:db8::10\n"
+	if !strings.Contains(out[nsd.FileZonesConf], want) {
+		t.Fatalf("concrete IPv4/IPv6 listeners missing: %s", out[nsd.FileZonesConf])
 	}
 }

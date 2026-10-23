@@ -206,10 +206,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		},
 
 		NSDNode: nsd.NodeConfig{
-			Hostname:      hostname,
-			PrimaryDomain: cfg.PrimaryDomain,
-			PublicIPv4:    publicIPv4,
-			Nameservers:   nameservers,
+			ListenAddresses: cfg.DNSListenAddresses,
+			Hostname:        hostname,
+			PrimaryDomain:   cfg.PrimaryDomain,
+			PublicIPv4:      publicIPv4,
+			Nameservers:     nameservers,
 		},
 		NSDSnap: nsd.Snapshot{Zones: nsdZones},
 

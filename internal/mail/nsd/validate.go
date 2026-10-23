@@ -2,6 +2,7 @@ package nsd
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -150,6 +151,15 @@ func validateRecord(r Record) error {
 
 // Validate checks the node configuration and zones.
 func Validate(node NodeConfig, snap Snapshot) error {
+	if len(node.ListenAddresses) > 64 {
+		return fmt.Errorf("%w: too many DNS listeners", ErrInvalidConfig)
+	}
+	for _, address := range node.ListenAddresses {
+		ip := net.ParseIP(address)
+		if ip == nil || (!ip.IsGlobalUnicast() && !ip.Equal(net.ParseIP("127.0.0.1")) && !ip.Equal(net.IPv6loopback)) {
+			return fmt.Errorf("%w: invalid DNS listen IP", ErrInvalidConfig)
+		}
+	}
 	if !validation.IsValidHostname(node.Hostname) {
 		return fmt.Errorf("%w: invalid hostname %q", ErrInvalidConfig, node.Hostname)
 	}

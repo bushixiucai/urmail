@@ -199,6 +199,7 @@ su - postgres -c "psql -v ON_ERROR_STOP=1 -d $DB_NAME -f /usr/share/urmail/boots
 # Preserve operator configuration without evaluating the env file as shell code.
 ACME_SERVER_OVERRIDE="${URMAIL_ACME_SERVER+x}"
 ACME_ROOT_CA_OVERRIDE="${URMAIL_ACME_ROOT_CA+x}"
+DNS_LISTEN_OVERRIDE="${URMAIL_DNS_LISTEN_ADDRESSES+x}"
 for name in URMAIL_DATABASE_URL URMAIL_DATABASE_URL_PLATFORM URMAIL_DATABASE_URL_MIGRATE URMAIL_DATABASE_URL_DOVECOT URMAIL_MYHOSTNAME URMAIL_PRIMARY_DOMAIN URMAIL_PUBLIC_IPV4 URMAIL_NAMESERVERS URMAIL_STORAGE_ROOT URMAIL_DNS_PROVIDER URMAIL_CLOUDFLARE_TOKEN URMAIL_DNSPOD_TOKEN URMAIL_ALIYUN_ACCESS_KEY_ID URMAIL_ALIYUN_ACCESS_KEY_SECRET URMAIL_STRIPE_SECRET_KEY URMAIL_STRIPE_WEBHOOK_SECRET URMAIL_ACME_SERVER URMAIL_ACME_ROOT_CA; do
   if [ -z "${!name+x}" ] && [ -f /etc/urmail/urmaild.env ]; then
     value="$(python3 - /etc/urmail/urmaild.env "$name" <<'PYCODE'
@@ -284,9 +285,9 @@ path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
 PYCODE
 # Root service configuration is not shared with the unprivileged daemon.
 install -o root -g root -m 0600 "$ENV_FILE" /etc/urmail/agent.env
-# Root-only ACME trust settings remain authoritative across an upgrade unless
+# Root-only ACME trust and DNS listen settings remain authoritative unless
 # the operator supplied an explicit replacement to this installer.
-python3 - /etc/urmail/agent.env "${BACKUP_DIR:-}/agent.env" "$ACME_SERVER_OVERRIDE" "$ACME_ROOT_CA_OVERRIDE" <<'PYCODE'
+python3 - /etc/urmail/agent.env "${BACKUP_DIR:-}/agent.env" "$ACME_SERVER_OVERRIDE" "$ACME_ROOT_CA_OVERRIDE" "$DNS_LISTEN_OVERRIDE" <<'PYCODE'
 import os, pathlib, sys
 current, previous = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 def read(path):
@@ -298,9 +299,13 @@ def read(path):
                 values[key] = value.strip().strip('"').strip("'")
     return values
 values, old = read(current), read(previous)
-for key, explicit in zip(("URMAIL_ACME_SERVER", "URMAIL_ACME_ROOT_CA"), sys.argv[3:]):
-    if not explicit and key in old:
+for key, explicit in zip(("URMAIL_ACME_SERVER", "URMAIL_ACME_ROOT_CA", "URMAIL_DNS_LISTEN_ADDRESSES"), sys.argv[3:]):
+    if explicit:
+        values[key] = os.environ[key]
+    elif key in old:
         values[key] = old[key]
+if any("\n" in value or "\r" in value for value in values.values()):
+    raise SystemExit("Environment values must not contain line breaks")
 current.write_text("".join(key + "=" + value + "\n" for key, value in values.items()))
 os.chmod(current, 0o600)
 PYCODE

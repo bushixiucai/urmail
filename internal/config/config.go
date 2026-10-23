@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -22,9 +23,10 @@ const EnvFile = "/etc/urmail/urmaild.env"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
-	DevMode    bool
-	ACMEServer string
-	ACMERootCA string
+	DNSListenAddresses []string
+	DevMode            bool
+	ACMEServer         string
+	ACMERootCA         string
 	// ListenAddr is the address the HTTP server binds to. It must stay on
 	// loopback: nginx terminates TLS and is the only thing that should be
 	// reachable from the network.
@@ -168,6 +170,10 @@ func Load() (*Config, error) {
 		StripeWebhookSecret:   values["URMAIL_STRIPE_WEBHOOK_SECRET"],
 	}
 	cfg.applyDefaults()
+	cfg.DNSListenAddresses, err = resolveDNSListenAddresses(values["URMAIL_DNS_LISTEN_ADDRESSES"])
+	if err != nil {
+		return nil, err
+	}
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -312,4 +318,54 @@ func EnsureDir(path string, perm os.FileMode) error {
 		return fmt.Errorf("create directory %s: %w", path, err)
 	}
 	return nil
+}
+
+// resolveDNSListenAddresses binds concrete interfaces without taking over the
+// system resolver's loopback stub or assuming a NAT public IP is local.
+func resolveDNSListenAddresses(override string) ([]string, error) {
+	var ips []net.IP
+	if override != "" {
+		entries := splitCSV(override)
+		if len(entries) == 0 || len(entries) > 64 {
+			return nil, fmt.Errorf("invalid URMAIL_DNS_LISTEN_ADDRESSES")
+		}
+		for _, entry := range entries {
+			ip := net.ParseIP(entry)
+			if ip == nil || (!ip.IsGlobalUnicast() && !ip.Equal(net.ParseIP("127.0.0.1")) && !ip.Equal(net.IPv6loopback)) {
+				return nil, fmt.Errorf("invalid URMAIL_DNS_LISTEN_ADDRESSES")
+			}
+			ips = append(ips, ip)
+		}
+	} else {
+		ips = append(ips, net.ParseIP("127.0.0.1"))
+		interfaces, err := net.Interfaces()
+		if err != nil {
+			return nil, fmt.Errorf("enumerate DNS listen interfaces: %w", err)
+		}
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			addresses, err := iface.Addrs()
+			if err != nil {
+				return nil, fmt.Errorf("enumerate DNS listen addresses: %w", err)
+			}
+			for _, address := range addresses {
+				ip, _, parseErr := net.ParseCIDR(address.String())
+				if parseErr == nil && ip.IsGlobalUnicast() {
+					ips = append(ips, ip)
+				}
+			}
+		}
+	}
+	unique := map[string]bool{}
+	for _, ip := range ips {
+		unique[ip.String()] = true
+	}
+	result := make([]string, 0, len(unique))
+	for ip := range unique {
+		result = append(result, ip)
+	}
+	sort.Strings(result)
+	return result, nil
 }
