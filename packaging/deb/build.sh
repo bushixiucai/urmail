@@ -8,15 +8,25 @@
 set -euo pipefail
 
 VERSION="${1:-0.1.0}"
-ARCH="${ARCH:-amd64}"
+ARCH="${ARCH:-$(go env GOARCH)}"
+case "$ARCH" in amd64|arm64) ;; *) echo "Unsupported package architecture: $ARCH" >&2; exit 1 ;; esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BIN_DIR="${URMAIL_BIN_DIR:-$ROOT/bin}"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-if [ ! -x "$ROOT/bin/urmaild" ]; then
+if [ ! -x "$BIN_DIR/urmaild" ]; then
 	echo "bin/urmaild is missing; run 'make build' first." >&2
 	exit 1
 fi
+
+# The package metadata must describe the executable architecture, not the host.
+for binary in urmaild urmaild-agent urmailctl urmail-archive; do
+  magic=$(od -An -tx1 -N4 "$BIN_DIR/$binary" | tr -d ' \n')
+  machine=$(od -An -tu1 -j18 -N2 "$BIN_DIR/$binary" | xargs)
+  [ "$magic" = 7f454c46 ] || { echo "$binary is not a Linux ELF executable" >&2; exit 1; }
+  case "$ARCH:$machine" in "amd64:62 0"|"arm64:183 0") ;; *) echo "$binary architecture does not match $ARCH" >&2; exit 1 ;; esac
+done
 
 install -d "$STAGE/DEBIAN"
 install -d "$STAGE/usr/bin"
@@ -32,15 +42,17 @@ install -d "$STAGE/etc/postfix/urmail"
 install -d "$STAGE/etc/opendkim/keys"
 install -d "$STAGE/usr/share/urmail"
 
-install -m 0755 "$ROOT/bin/urmaild" "$STAGE/usr/bin/urmaild"
-install -m 0755 "$ROOT/bin/urmaild-agent" "$STAGE/usr/bin/urmaild-agent"
-install -m 0755 "$ROOT/bin/urmailctl" "$STAGE/usr/bin/urmailctl"
-install -m 0755 "$ROOT/bin/urmail-archive" "$STAGE/usr/lib/urmail/archive-pipe"
+install -m 0755 "$BIN_DIR/urmaild" "$STAGE/usr/bin/urmaild"
+install -m 0755 "$BIN_DIR/urmaild-agent" "$STAGE/usr/bin/urmaild-agent"
+install -m 0755 "$BIN_DIR/urmailctl" "$STAGE/usr/bin/urmailctl"
+install -m 0755 "$BIN_DIR/urmail-archive" "$STAGE/usr/lib/urmail/archive-pipe"
 
 install -m 0644 "$ROOT/packaging/systemd/urmaild.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmaild-agent.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.timer" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.service" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/opendkim.service.d/urmail.conf" "$STAGE/etc/systemd/system/opendkim.service.d/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/99-urmail.conf"
@@ -73,13 +85,18 @@ if ! getent passwd mailinabox >/dev/null; then
 fi
 
 install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail
-install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/acme
-install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/certs
 install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/backups
 install -d -o mailinabox -g mailinabox -m 0700 /var/lib/urmail/archive
 install -d -o root -g mailinabox -m 0750 /etc/urmail
 install -d -m 0755 /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d /etc/postfix/urmail
 install -d -o root -g opendkim -m 0750 /etc/opendkim /etc/opendkim/keys
+# Seed the canonical file before the service drop-in is loaded, so a failed
+# first generation can restore a valid stock configuration atomically.
+if [ ! -e /etc/opendkim/opendkim.conf ] && [ -f /etc/opendkim.conf ]; then
+  install -o root -g opendkim -m 0644 /etc/opendkim.conf /etc/opendkim/opendkim.conf
+fi
+install -d -o root -g root -m 0755 /etc/nsd/zones /var/lib/urmail-acme
+install -d -o root -g root -m 0700 /var/lib/urmail-agent /etc/letsencrypt /var/log/letsencrypt
 chown root:mailinabox /etc/postfix/urmail
 chmod 0755 /etc/postfix/urmail
 
@@ -112,14 +129,11 @@ OUTPUT="$ROOT/dist"
 mkdir -p "$OUTPUT"
 PACKAGE="$OUTPUT/urmail_${VERSION}_${ARCH}.deb"
 
-if command -v nfpm >/dev/null 2>&1; then
-	cd "$STAGE/DEBIAN"
-	nfpm pack --packager deb --target "$PACKAGE" --name urmail --version "$VERSION" --arch "$ARCH" --config nfpm.yaml
-elif command -v dpkg-deb >/dev/null 2>&1; then
+if command -v dpkg-deb >/dev/null 2>&1; then
 	dpkg-deb --root-owner-group --build "$STAGE" "$PACKAGE"
 else
-	echo "Neither nfpm nor dpkg-deb is available." >&2
-	echo "Debian packages can only be built on Linux, or with nfpm installed." >&2
+	echo "dpkg-deb is required." >&2
+	echo "Build Debian packages in a Linux environment." >&2
 	exit 1
 fi
 

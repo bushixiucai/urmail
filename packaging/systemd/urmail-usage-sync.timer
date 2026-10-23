@@ -1,0 +1,8 @@
+[Unit]
+Description=Collect mailbox storage usage periodically
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Persistent=true
+[Install]
+WantedBy=timers.target

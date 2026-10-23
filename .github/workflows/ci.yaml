@@ -48,10 +48,9 @@ jobs:
         run: go test -race -coverprofile=coverage.out ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v2.1
-          args: --timeout=10m
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout=10m
 
       - name: Message catalogue consistency
         run: go run ./cmd/i18ncheck
@@ -120,7 +119,7 @@ jobs:
       - name: Test against PostgreSQL
         env:
           URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail?sslmode=disable
-        run: go test -race ./internal/db/... ./internal/api/middleware/... ./internal/api/handlers/...
+        run: go test -race -p 1 ./internal/db/... ./internal/api/... ./internal/reconcile/...
 
   embed:
     name: Embedded frontend
@@ -212,8 +211,95 @@ jobs:
 
       - name: Lint the shell scripts
         run: |
-          find installer packaging -name '*.sh' -print0 \
+          find installer packaging scripts -name '*.sh' -print0 \
             | xargs -0 -r shellcheck --severity=warning --external-sources
 
       - name: Syntax check
         run: find . -name '*.sh' -not -path './web/*' -print0 | xargs -0 -r -n1 bash -n
+
+  browser:
+    name: Development stack and browser
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend and browser
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Start development stack
+        run: |
+          make dev > /tmp/urmail-dev.log 2>&1 &
+          for attempt in $(seq 1 180); do
+            if curl -fsS http://127.0.0.1:5173/ >/dev/null && curl -fsS http://127.0.0.1:8080/api/v1/healthz >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/urmail-dev.log
+          exit 1
+      - name: Exercise real HTTP and browser
+        run: |
+          export URMAIL_ACCEPTANCE_EMAIL=admin@example.test
+          export URMAIL_ACCEPTANCE_PASSWORD="$(cat tmp/dev/admin-password)"
+          python3 scripts/remediation-http-smoke.py --disposable --base-url http://127.0.0.1:8080
+          cd web
+          URMAIL_E2E_BASE_URL=http://127.0.0.1:5173 URMAIL_E2E_EMAIL="$URMAIL_ACCEPTANCE_EMAIL" URMAIL_E2E_PASSWORD="$URMAIL_ACCEPTANCE_PASSWORD" npx playwright test
+          npm run lint
+      - name: Stop development stack
+        if: always()
+        run: make dev-down
+
+  install:
+    name: Linux installation (${{ matrix.os }}, ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: amd64
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the installable candidate
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          cd web
+          npm ci
+          cd ..
+          make build VERSION=0.0.0-ci
+          bash packaging/deb/build.sh 0.0.0-ci
+      - name: Exercise installer and release download contracts
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          sudo env URMAIL_MYHOSTNAME=box.example.test URMAIL_PRIMARY_DOMAIN=example.test \
+            URMAIL_PUBLIC_IPV4=127.0.0.1 URMAIL_NAMESERVERS=ns1.example.test \
+            URMAIL_ADMIN_EMAIL=admin@example.test URMAIL_ADMIN_PASSWORD=CIOnlyPassword123 \
+            python3 scripts/test-release-installer.py --disposable \
+            --package "$(pwd)/dist/urmail_0.0.0-ci_${ARCH}.deb" --version 0.0.0-ci
+          sudo urmailctl config status --wait 90s
+      - name: Preserve service diagnostics
+        if: failure()
+        run: sudo journalctl -u urmaild -u urmaild-agent --no-pager -n 100

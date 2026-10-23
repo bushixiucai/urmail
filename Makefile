@@ -75,7 +75,7 @@ lint: lint-go lint-web ## 跑全部静态检查
 
 .PHONY: lint-go
 lint-go: ## golangci-lint
-	golangci-lint run
+	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run; else "$$(go env GOPATH)/bin/golangci-lint" run; fi
 
 .PHONY: lint-web
 lint-web: ## eslint + prettier
@@ -124,11 +124,11 @@ i18n-check: ## 校验所有 locale 的 key 集合一致
 
 .PHONY: dev
 dev: ## 启动本地全栈（PG + 服务 + 前端）
-	docker compose -f docker-compose.dev.yml up --build
+	bash scripts/dev.sh up
 
 .PHONY: dev-down
 dev-down: ## 停止本地全栈
-	docker compose -f docker-compose.dev.yml down -v
+	bash scripts/dev.sh down
 
 # ---------------------------------------------------------------------------
 # Package

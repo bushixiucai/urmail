@@ -37,6 +37,8 @@ linters:
 
   exclusions:
     generated: lax
+    paths:
+      - web/node_modules/
     rules:
       - path: _test\.go
         linters:

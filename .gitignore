@@ -45,3 +45,8 @@ api/docs/api-docs.html
 web/test-results/
 web/playwright-report/
 web/blob-report/
+
+# Local acceptance artifacts
+/output/
+scripts/__pycache__/
+/.playwright-cli/

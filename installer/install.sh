@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO="${URMAIL_REPO:-https://github.com/bushixiucai/urmail}"
-VERSION="${URMAIL_VERSION:-latest}"
+RELEASE_VERSION="${URMAIL_VERSION:-latest}"
 MIRROR="${URMAIL_MIRROR:-}"          # optional mirror base URL
 APT_MIRROR="${URMAIL_APT_MIRROR:-}"  # optional Ubuntu mirror
 
@@ -63,23 +63,47 @@ if [ -n "${URMAIL_PACKAGE:-}" ]; then
 	TMP_DEB="$URMAIL_PACKAGE"
 	log "using the local package ${TMP_DEB}"
 else
-	if [ "$VERSION" = "latest" ]; then
-		MIRROR_BASE="${MIRROR:-${REPO}}"
-		PKG_URL="${MIRROR_BASE}/releases/latest/download/urmail_latest_${ARCH}.deb"
+	MIRROR_BASE="${MIRROR:-${REPO}}"
+	if [ "$RELEASE_VERSION" = "latest" ]; then
+		RELEASE_BASE="${MIRROR_BASE}/releases/latest/download"
 	else
-		MIRROR_BASE="${MIRROR:-${REPO}}"
-		PKG_URL="${MIRROR_BASE}/releases/download/v${VERSION}/urmail_${VERSION}_${ARCH}.deb"
+		RELEASE_VERSION="${RELEASE_VERSION#v}"
+		RELEASE_BASE="${MIRROR_BASE}/releases/download/v${RELEASE_VERSION}"
 	fi
-
+	TMP_DIR="$(mktemp -d)"
+	trap 'rm -rf "$TMP_DIR"' EXIT
+	curl -fLsS --retry 3 --connect-timeout 20 --max-time 60 "$RELEASE_BASE/manifest-${ARCH}.json" -o "$TMP_DIR/manifest.json"
+	mapfile -t ASSET < <(python3 - "$TMP_DIR/manifest.json" "$ARCH" "$RELEASE_VERSION" <<'PYCODE'
+import json, re, sys
+m = json.load(open(sys.argv[1]))
+assert m["architecture"] == sys.argv[2], "architecture mismatch"
+assert sys.argv[3] == "latest" or m["version"] == sys.argv[3], "version mismatch"
+assert re.fullmatch(r"urmail_[A-Za-z0-9.+~-]+_(amd64|arm64)\.deb", m["filename"]), "invalid filename"
+assert re.fullmatch(r"[0-9a-f]{64}", m["sha256"]), "invalid checksum"
+print(m["filename"])
+print(m["sha256"])
+PYCODE
+)
+	[ "${#ASSET[@]}" -eq 2 ] || die "Invalid release manifest."
+	PKG_URL="$RELEASE_BASE/${ASSET[0]}"
+	TMP_DEB="$TMP_DIR/${ASSET[0]}"
 	log "downloading ${PKG_URL}"
-	TMP_DEB="$(mktemp -d)/urmail.deb"
-	if ! curl -fLsS --retry 3 --connect-timeout 20 --max-time 600 "$PKG_URL" -o "$TMP_DEB"; then
-		warn "the release could not be downloaded from ${PKG_URL}"
-		die "Set URMAIL_MIRROR to a reachable mirror, or install the .deb manually."
-	fi
+	curl -fLsS --retry 3 --connect-timeout 20 --max-time 600 "$PKG_URL" -o "$TMP_DEB" || die "Release download failed; configure URMAIL_MIRROR or URMAIL_PACKAGE."
+	printf '%s  %s\n' "${ASSET[1]}" "$TMP_DEB" | sha256sum -c - || die "Package checksum mismatch."
+
 fi
 
 log "installing the package"
+if [ -f /etc/urmail/urmaild.env ]; then
+  install -d -o root -g root -m 0700 /root/urmail-upgrade-backups
+  BACKUP_DIR="$(mktemp -d /root/urmail-upgrade-backups/config.XXXXXX)"
+  install -o root -g root -m 0600 /etc/urmail/urmaild.env "$BACKUP_DIR/urmaild.env"
+  if [ -f /etc/urmail/agent.env ]; then
+    install -o root -g root -m 0600 /etc/urmail/agent.env "$BACKUP_DIR/agent.env"
+  fi
+fi
+# Stop the old protocol pair before installing either replacement binary.
+systemctl stop urmaild.service urmaild-agent.service 2>/dev/null || true
 dpkg -i "$TMP_DEB"
 
 # ---------------------------------------------------------------------------
@@ -87,21 +111,77 @@ dpkg -i "$TMP_DEB"
 # ---------------------------------------------------------------------------
 
 log "preparing PostgreSQL"
-systemctl enable --now postgresql >/dev/null 2>&1 || true
+systemctl daemon-reload
+systemctl enable --now postgresql >/dev/null 2>&1 || die "Cannot start PostgreSQL service."
+if ! pg_isready -q -h /var/run/postgresql -p 5432; then
+  mapfile -t PG_CLUSTERS < <(pg_lsclusters --no-header | awk '$3 == 5432 { print $1 " " $2 }')
+  [ "${#PG_CLUSTERS[@]}" -eq 1 ] || die "Expected exactly one PostgreSQL cluster on port 5432."
+  read -r PG_MAJOR PG_CLUSTER <<<"${PG_CLUSTERS[0]}"
+  [[ "$PG_MAJOR" =~ ^[0-9]+$ && "$PG_CLUSTER" =~ ^[A-Za-z0-9_-]+$ ]] || die "Invalid PostgreSQL cluster identity."
+  systemctl start "postgresql@${PG_MAJOR}-${PG_CLUSTER}" || die "Cannot start PostgreSQL cluster."
+fi
+for _attempt in $(seq 1 60); do
+  pg_isready -q -h /var/run/postgresql -p 5432 && break
+  sleep 1
+done
+pg_isready -q -h /var/run/postgresql -p 5432 || die "PostgreSQL did not become ready."
+
+if [ -n "${BACKUP_DIR:-}" ]; then
+  log "saving the pre-upgrade database"
+  python3 - "$BACKUP_DIR/urmaild.env" "$BACKUP_DIR/database.dump" <<'PYCODE'
+import os, subprocess, sys, urllib.parse
+values = {}
+for line in open(sys.argv[1]):
+    key, sep, value = line.strip().partition("=")
+    if sep and not key.startswith("#"):
+        values[key] = value.strip().strip('"').strip("'")
+uri = values.get("URMAIL_DATABASE_URL_PLATFORM")
+if not uri:
+    raise SystemExit("Pre-upgrade backup requires the platform database role")
+parsed = urllib.parse.urlsplit(uri)
+environment = dict(os.environ)
+if parsed.password is not None:
+    environment["PGPASSWORD"] = urllib.parse.unquote(parsed.password)
+netloc = parsed.netloc.rsplit("@", 1)[-1]
+if parsed.username is not None:
+    netloc = urllib.parse.quote(urllib.parse.unquote(parsed.username), safe="") + "@" + netloc
+safe_uri = urllib.parse.urlunsplit(parsed._replace(netloc=netloc))
+fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+os.close(fd)
+subprocess.run(["pg_dump", "--no-owner", "--format=custom", "--file=" + sys.argv[2], safe_uri],
+               env=environment, check=True)
+PYCODE
+fi
 
 DB_NAME=urmail
-DB_APP_PASS="$(openssl rand -hex 24)"
-DB_PLATFORM_PASS="$(openssl rand -hex 24)"
-DB_MIGRATE_PASS="$(openssl rand -hex 24)"
-DB_DOVECOT_PASS="$(openssl rand -hex 24)"
+# Keep runtime credentials stable across upgrades so rollback configurations
+# continue to authenticate. New installations receive random credentials.
+read_database_password() {
+  python3 - "${BACKUP_DIR:-}/urmaild.env" "$1" <<'PYCODE'
+import pathlib, secrets, sys, urllib.parse
+values = {}
+source = pathlib.Path(sys.argv[1])
+if source.is_file():
+    for line in source.read_text().splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and not key.startswith("#"):
+            values[key] = value.strip().strip('"').strip("'")
+password = urllib.parse.urlsplit(values.get(sys.argv[2], "")).password
+print(urllib.parse.unquote(password) if password else secrets.token_hex(24))
+PYCODE
+}
+DB_APP_PASS="$(read_database_password URMAIL_DATABASE_URL)"
+DB_PLATFORM_PASS="$(read_database_password URMAIL_DATABASE_URL_PLATFORM)"
+DB_MIGRATE_PASS="$(read_database_password URMAIL_DATABASE_URL_MIGRATE)"
+DB_DOVECOT_PASS="$(read_database_password URMAIL_DATABASE_URL_DOVECOT)"
 
 create_role() {
 	role="$1"
-	pass="$2"
+	pass="$(printf '%s' "$2" | sed "s/'/''/g")"
 	if su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$role'\"" | grep -q 1; then
-		su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"ALTER ROLE $role LOGIN PASSWORD '$pass'\"" >/dev/null
+		printf "ALTER ROLE %s LOGIN PASSWORD '%s';\n" "$role" "$pass" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 >/dev/null
 	else
-		su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"CREATE ROLE $role LOGIN PASSWORD '$pass'\"" >/dev/null
+		printf "CREATE ROLE %s LOGIN PASSWORD '%s';\n" "$role" "$pass" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 >/dev/null
 	fi
 }
 
@@ -116,6 +196,24 @@ su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'
 su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"ALTER DATABASE $DB_NAME OWNER TO urmail_migrate\"" >/dev/null
 su - postgres -c "psql -v ON_ERROR_STOP=1 -d $DB_NAME -f /usr/share/urmail/bootstrap.sql" >/dev/null
 
+# Preserve operator configuration without evaluating the env file as shell code.
+ACME_SERVER_OVERRIDE="${URMAIL_ACME_SERVER+x}"
+ACME_ROOT_CA_OVERRIDE="${URMAIL_ACME_ROOT_CA+x}"
+for name in URMAIL_DATABASE_URL URMAIL_DATABASE_URL_PLATFORM URMAIL_DATABASE_URL_MIGRATE URMAIL_DATABASE_URL_DOVECOT URMAIL_MYHOSTNAME URMAIL_PRIMARY_DOMAIN URMAIL_PUBLIC_IPV4 URMAIL_NAMESERVERS URMAIL_STORAGE_ROOT URMAIL_DNS_PROVIDER URMAIL_CLOUDFLARE_TOKEN URMAIL_DNSPOD_TOKEN URMAIL_ALIYUN_ACCESS_KEY_ID URMAIL_ALIYUN_ACCESS_KEY_SECRET URMAIL_STRIPE_SECRET_KEY URMAIL_STRIPE_WEBHOOK_SECRET URMAIL_ACME_SERVER URMAIL_ACME_ROOT_CA; do
+  if [ -z "${!name+x}" ] && [ -f /etc/urmail/urmaild.env ]; then
+    value="$(python3 - /etc/urmail/urmaild.env "$name" <<'PYCODE'
+import sys
+values = {}
+for line in open(sys.argv[1]):
+    key, sep, value = line.strip().partition("=")
+    if sep and not key.startswith("#"):
+        values[key] = value.strip().strip('"').strip("'")
+print(values.get(sys.argv[2], ""))
+PYCODE
+)"
+    export "$name=$value"
+  fi
+done
 MYHOSTNAME="${URMAIL_MYHOSTNAME:-$(hostname -f 2>/dev/null || hostname)}"
 [ -n "$MYHOSTNAME" ] || die "Cannot determine the panel hostname; set URMAIL_MYHOSTNAME."
 PRIMARY_DOMAIN="${URMAIL_PRIMARY_DOMAIN:-}"
@@ -147,7 +245,7 @@ URMAIL_DATABASE_URL_PLATFORM=$DB_PLATFORM_URL
 URMAIL_DATABASE_URL_MIGRATE=$DB_MIGRATE_URL
 URMAIL_DATABASE_URL_DOVECOT=$DB_DOVECOT_URL
 URMAIL_LISTEN_ADDR=127.0.0.1:8080
-URMAIL_STORAGE_ROOT=/var/mail
+URMAIL_STORAGE_ROOT=${URMAIL_STORAGE_ROOT:-/var/mail}
 URMAIL_AGENT_SOCKET=/run/urmail/agent.sock
 URMAIL_POLICY_SOCKET=/run/urmail-policy/policy.sock
 URMAIL_POLICY_ENABLED=true
@@ -169,6 +267,43 @@ URMAIL_NAMESERVERS=$NAMESERVERS
 EOF
 chown root:mailinabox "$ENV_FILE"
 chmod 0640 "$ENV_FILE"
+python3 - "$ENV_FILE" <<'PYCODE'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+values = {}
+for line in path.read_text().splitlines():
+    key, sep, value = line.partition("=")
+    if sep and not key.startswith("#"):
+        values[key] = value
+for key in ("URMAIL_DNS_PROVIDER", "URMAIL_CLOUDFLARE_TOKEN", "URMAIL_DNSPOD_TOKEN", "URMAIL_ALIYUN_ACCESS_KEY_ID", "URMAIL_ALIYUN_ACCESS_KEY_SECRET", "URMAIL_STRIPE_SECRET_KEY", "URMAIL_STRIPE_WEBHOOK_SECRET", "URMAIL_ACME_SERVER", "URMAIL_ACME_ROOT_CA"):
+    if key in os.environ:
+        values[key] = os.environ[key]
+if any("\n" in value or "\r" in value for value in values.values()):
+    raise SystemExit("Environment values must not contain line breaks")
+path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+PYCODE
+# Root service configuration is not shared with the unprivileged daemon.
+install -o root -g root -m 0600 "$ENV_FILE" /etc/urmail/agent.env
+# Root-only ACME trust settings remain authoritative across an upgrade unless
+# the operator supplied an explicit replacement to this installer.
+python3 - /etc/urmail/agent.env "${BACKUP_DIR:-}/agent.env" "$ACME_SERVER_OVERRIDE" "$ACME_ROOT_CA_OVERRIDE" <<'PYCODE'
+import os, pathlib, sys
+current, previous = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+def read(path):
+    values = {}
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and not key.startswith("#"):
+                values[key] = value.strip().strip('"').strip("'")
+    return values
+values, old = read(current), read(previous)
+for key, explicit in zip(("URMAIL_ACME_SERVER", "URMAIL_ACME_ROOT_CA"), sys.argv[3:]):
+    if not explicit and key in old:
+        values[key] = old[key]
+current.write_text("".join(key + "=" + value + "\n" for key, value in values.items()))
+os.chmod(current, 0o600)
+PYCODE
 
 if [ ! -f /etc/urmail/master.key ]; then
 	log "generating the master key"
@@ -179,10 +314,12 @@ chmod 0640 /etc/urmail/master.key
 
 # Self-signed certificates are a bootstrap fallback so nginx/Postfix/Dovecot can
 # start before ACME succeeds. The renewal path replaces them later.
-PANEL_CERT_DIR=/var/lib/urmail/certs/panel
-MAIL_CERT_DIR=/var/mail/ssl
-install -d -o mailinabox -g mailinabox -m 0750 "$PANEL_CERT_DIR"
-install -d -o root -g mailinabox -m 0755 "$MAIL_CERT_DIR"
+PANEL_CERT_DIR=/var/lib/urmail-agent/certs/panel
+MAIL_CERT_DIR=/var/lib/urmail-agent/certs/mail
+install -d -o root -g root -m 0700 /var/lib/urmail-agent
+install -d -o root -g root -m 0700 "$PANEL_CERT_DIR"
+install -d -o root -g root -m 0700 "$MAIL_CERT_DIR"
+install -d -o root -g root -m 0755 /var/lib/urmail-acme
 if [ ! -f "$PANEL_CERT_DIR/fullchain.pem" ]; then
 	log "generating the bootstrap panel certificate for ${MYHOSTNAME}"
 	openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
@@ -190,7 +327,7 @@ if [ ! -f "$PANEL_CERT_DIR/fullchain.pem" ]; then
 		-out "$PANEL_CERT_DIR/fullchain.pem" \
 		-subj "/CN=$MYHOSTNAME" \
 		-addext "subjectAltName=DNS:$MYHOSTNAME" >/dev/null 2>&1
-	chown root:mailinabox "$PANEL_CERT_DIR/privkey.pem" "$PANEL_CERT_DIR/fullchain.pem"
+	chown root:root "$PANEL_CERT_DIR/privkey.pem" "$PANEL_CERT_DIR/fullchain.pem"
 	chmod 0600 "$PANEL_CERT_DIR/privkey.pem"
 	chmod 0644 "$PANEL_CERT_DIR/fullchain.pem"
 fi
@@ -211,14 +348,16 @@ urmailctl migrate up
 ADMIN_EMAIL="${URMAIL_ADMIN_EMAIL:-admin@$PRIMARY_DOMAIN}"
 ADMIN_PASSWORD="${URMAIL_ADMIN_PASSWORD:-$(openssl rand -hex 12)}"
 log "creating the initial administrator ${ADMIN_EMAIL}"
-urmailctl setup --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --reset-password --brand default --tenant default --tenant-name "Default"
+URMAIL_SETUP_PASSWORD="$ADMIN_PASSWORD" urmailctl setup --email "$ADMIN_EMAIL" --brand default --tenant default --tenant-name "Default"
 umask 077
+if [ ! -f /root/urmail-initial-admin.txt ]; then
 cat >/root/urmail-initial-admin.txt <<EOF
 email=$ADMIN_EMAIL
 password=$ADMIN_PASSWORD
 panel=https://$MYHOSTNAME
 EOF
 chmod 0600 /root/urmail-initial-admin.txt
+fi
 
 
 # ---------------------------------------------------------------------------
@@ -239,11 +378,12 @@ systemctl enable urmaild.service >/dev/null 2>&1 || true
 # binary and reload the newly written environment file.
 systemctl restart urmaild-agent.service
 systemctl restart urmaild.service
-systemctl enable --now urmail-cert-renew.timer >/dev/null 2>&1 || true
+systemctl enable --now urmail-cert-renew.timer
+systemctl enable --now urmail-usage-sync.timer
 systemctl reload nginx 2>/dev/null || systemctl restart nginx
 # urmaild renders and reloads Dovecot/Postfix shortly after startup. Give the
 # first reconcile time to settle so IMAP/SMTP are immediately usable.
-sleep 5
+urmailctl config status --wait 90s
 
 log "urMail.cn is installed."
 cat <<'EOF'

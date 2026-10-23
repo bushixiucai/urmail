@@ -1,7 +1,7 @@
 [Unit]
 Description=urMail.cn privileged agent
 Documentation=https://urmail.cn/docs
-After=network.target
+After=network.target postgresql.service
 
 [Service]
 Type=exec
@@ -12,7 +12,8 @@ ExecStartPre=/bin/chmod 0770 /run/urmail
 ExecStart=/usr/bin/urmaild-agent
 Restart=always
 RestartSec=3s
-EnvironmentFile=-/etc/urmail/urmaild.env
+EnvironmentFile=/etc/urmail/agent.env
+Environment=URMAIL_ENV_FILE=/etc/urmail/agent.env
 
 # The agent runs as root because it has to write system configuration and
 # reload services. It has no network listener at all: it is reached only
@@ -24,7 +25,9 @@ EnvironmentFile=-/etc/urmail/urmaild.env
 # unprivileged writer.
 RuntimeDirectory=urmail
 RuntimeDirectoryMode=0770
-UMask=0007
+UMask=0022
+StateDirectory=urmail-agent
+StateDirectoryMode=0700
 
 NoNewPrivileges=no
 ProtectSystem=full
@@ -39,11 +42,11 @@ ProtectClock=yes
 ProtectHostname=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
-RestrictAddressFamilies=AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=yes
 SystemCallArchitectures=native
 
-ReadWritePaths=/etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /etc/opendkim /etc/opendkim/keys /var/lib/urmail /run/urmail /var/mail
+ReadWritePaths=/var/spool/postfix /var/lib/postfix /etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /etc/opendkim /etc/opendkim/keys /var/lib/urmail-agent /var/lib/urmail-acme /run/urmail /var/mail /etc/letsencrypt /var/log/letsencrypt
 
 [Install]
 WantedBy=multi-user.target

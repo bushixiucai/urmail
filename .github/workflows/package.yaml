@@ -2,9 +2,11 @@ name: Package
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 env:
   GO_VERSION: "1.27.3"
@@ -13,54 +15,46 @@ env:
 
 jobs:
   package:
-    name: Build the deb
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      - name: Build the frontend
-        working-directory: web
+      - name: Build frontend and binaries
         run: |
-          npm ci
-          npm run build
-
-      - name: Copy the bundle into the embed directory
+          version=$(cat VERSION)
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then version=${GITHUB_REF_NAME#v}; fi
+          make build VERSION="$version"
+      - name: Build versioned package and release manifest
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          rm -rf internal/web/dist
-          cp -R web/dist internal/web/dist
-
-      - name: Build the binaries
-        run: make build-go
-
-      - name: Build the package
-        run: bash packaging/deb/build.sh "${GITHUB_REF_NAME#v}"
-
-      - name: Checksum
-        run: |
-          cd dist
-          sha256sum urmail_*.deb > urmail_*.deb.sha256
-
-      - name: Upload the artifact
+          version=$(cat VERSION)
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then version=${GITHUB_REF_NAME#v}; fi
+          bash packaging/deb/build.sh "$version"
+          python3 scripts/release-manifest.py "$version" "$ARCH" dist
+      - name: Upload package and manifest
         uses: actions/upload-artifact@v4
         with:
-          name: urmail-deb
+          name: urmail-deb-${{ matrix.arch }}
           path: dist/*
-
-      - name: Publish to GitHub Releases
+      - name: Publish release assets
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/urmail_*.deb
-            dist/urmail_*.deb.sha256
+          files: dist/*

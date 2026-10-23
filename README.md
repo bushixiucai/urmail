@@ -19,7 +19,11 @@ urMail.cn 把「域名邮箱」这件事做成一个**可售卖、可自助开�
 | 合规 | 归档、追回、审计留痕、合法保留（legal hold） |
 | 多语言 | 后端与前端**共享同一份消息目录**，不会出现前后端文案不一致 |
 
-## 当前实施状态（v0.4.0 修复线）
+## 实施与验收状态
+
+第三轮修复覆盖权限、认证、事务、配置应用、配额、管理面和交付工具。当前验证记录见本机 `docs/acceptance/m1-m4-v3.md`；正式发布版本须在验收后确定，源码实现和本地测试不等于生产上线。新增的 v1 接口子集契约在 `api/v1-remediation.openapi.yaml`。
+
+以下是第二轮（test23 / schema 11）的历史记录，不作为第三轮结果：
 
 - 已在 Ubuntu 22.04 / 24.04 真机安装验证（test23）：PostgreSQL bootstrap、RLS、Dovecot/Postfix/NSD/OpenDKIM、nginx tenant vhost、归档管道、审计、平台/租户 API。
 - 邮件链路已实测：SMTP AUTH、LMTP、DKIM 签名、日发信配额（554）、邮箱存储配额（LMTP 552）、archive-pipe 落库。
@@ -42,11 +46,16 @@ urMail.cn 把「域名邮箱」这件事做成一个**可售卖、可自助开�
 ## 快速开始（开发环境）
 
 ```bash
-make dev        # 起 PG + 全栈本地环境
+make dev        # 前台运行 PG、API 与 Vite；退出时清理自身进程
+make dev-down   # 停止本地 API/Vite，保留开发数据库
 make build      # 前端构建 + Go 构建（含前端 embed）
 make test       # 全部测试
 make lint       # golangci-lint + eslint + prettier
 ```
+
+开发要求 Go 1.27.3、Node.js 22+、Docker Compose、OpenSSL 和 curl。固定端口为 PG 55432、API 8080、Vite 5173；冲突会明确失败。首次初始化专用 `urmail_development` 数据库，账号为 `admin@example.test`，随机密码保存在 `tmp/dev/admin-password`（0600）。开发模式不应用系统邮件配置。
+
+`make lint` 要求 golangci-lint v2.15.0；可使用 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` 安装。
 
 生产安装：
 
@@ -72,3 +81,33 @@ AGPL-3.0。见 [LICENSE](LICENSE)。
 >   冻结保留在 [`v80` 分支](../../tree/v80)。
 >
 > 该 fork 的代码以 CC0 1.0 释置于公有领域。
+
+## 本地运维验收
+
+`urmailctl config status --wait 90s` 只有在首次配置应用完成、必要服务探针成功且 desired/applied generation 一致时才成功。`/api/v1/healthz` 用于进程与数据库存活检查，两者用途不同。
+
+`urmailctl backup` 默认是 metadata-only；完整本机恢复需要显式包含邮件并暂停写入：
+
+```bash
+sudo urmailctl backup --include-mail --maintenance
+```
+
+默认备份目录为 root 私有的 `/var/backups/urmail`。完整备份包含数据库、配置、主密钥、消费者证书及本机 Maildir/归档原文，生成版本化 manifest 与校验值；不包含远端收件人的副本，不提供加密或签名。
+
+恢复目标先通过同版本安装器建立四个数据库角色，确认目标环境文件中的四个连接有效。停止写入后执行恢复，使用实际备份文件名：
+
+```bash
+sudo systemctl stop urmail-cert-renew.timer urmail-usage-sync.timer
+sudo systemctl stop urmaild postfix dovecot urmaild-agent
+sudo urmailctl restore --dump DATABASE.dump --config CONFIG.tar.gz \
+  --mail MAIL.tar.gz --manifest BACKUP.manifest.json --force
+sudo systemctl start urmaild-agent dovecot postfix urmaild
+sudo urmailctl config status --wait 90s
+sudo systemctl start urmail-cert-renew.timer urmail-usage-sync.timer
+```
+
+恢复会验证 manifest、归档路径与运行角色权限，保留目标数据库连接凭据，按目标用户名解析邮件文件的 UID/GID。恢复后的实际登录、原邮件附件读取和新邮件收发仍需验证。不要把 metadata-only 备份称为邮件内容恢复。
+
+`urmailctl data-check` 只列出需审核的记录标识，不自动修复历史异常。邮箱存储身份不可改写；已删除地址的保留记录会阻止直接重建，避免旧 Maildir 被新邮箱继承。历史目录及地址释放必须经过运维数据审核，不由迁移自动删除或搬移。
+
+本地追回接口只处理请求租户内、指定归档记录对应邮箱中的精确邮件副本；保留归档原件，legal hold 阻止删除。`local_recalled` 不代表远端 SMTP 收件人已撤回；未确认或不支持的结果保持 pending/failed。
