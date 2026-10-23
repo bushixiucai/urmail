@@ -1,3 +1,4 @@
+// Package migrations embeds the ordered database schema migrations.
 package migrations
 
 import "embed"

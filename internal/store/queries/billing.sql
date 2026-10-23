@@ -14,7 +14,7 @@ ORDER BY sort_order ASC, price_cents ASC;
 -- name: GetActiveSubscriptionByTenant :one
 SELECT id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at
 FROM subscriptions
-WHERE tenant_id = $1 AND status IN ('active', 'trialing');
+WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due');
 
 -- name: CancelActiveSubscriptionsForTenant :exec
 -- Step 1 in atomic upgrade/downgrade replacement. past_due subscriptions must
@@ -74,3 +74,6 @@ WHERE tenant_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT 100;
 
+
+-- name: GetCheckoutOrderByIdempotencyKey :one
+SELECT * FROM orders WHERE tenant_id=$1 AND idempotency_key=$2;

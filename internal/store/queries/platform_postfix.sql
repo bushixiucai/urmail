@@ -13,6 +13,7 @@ ORDER BY d.fqdn ASC;
 SELECT m.address, m.status
 FROM mailboxes m
 JOIN tenants t ON t.id = m.tenant_id
+JOIN domains d ON d.id=m.domain_id AND d.tenant_id=m.tenant_id AND d.status='active'
 WHERE m.status = 'active' AND t.status = 'active'
 ORDER BY m.address ASC;
 

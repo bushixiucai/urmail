@@ -55,7 +55,7 @@ INSERT INTO sessions (
     id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at
+) RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind
 `
 
 type CreateSessionParams struct {
@@ -88,6 +88,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.Ip,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.MfaVerifiedAt,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -171,11 +173,11 @@ func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) er
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at
+SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 LEFT JOIN tenants t ON t.id = s.tenant_id
-WHERE s.id = $1
+WHERE s.id = $1 AND s.kind = 'panel'
   AND s.expires_at > now()
   AND (s.tenant_id IS NULL OR t.status IN ('active', 'pending'))
 `
@@ -196,6 +198,8 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Sessions, erro
 		&i.Ip,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.MfaVerifiedAt,
+		&i.Kind,
 	)
 	return i, err
 }

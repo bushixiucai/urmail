@@ -18,12 +18,12 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
            SELECT p.daily_send_limit
            FROM subscriptions s
            JOIN plans p ON p.code = s.plan_id
-           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing')
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND s.period_end > now() AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
            LIMIT 1
        ), 0)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
-WHERE m.address = $1 AND m.status = 'active'
+WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id)
 `
 
 type GetMailboxDailySentRow struct {
@@ -59,12 +59,12 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
            SELECT p.daily_send_limit
            FROM subscriptions s
            JOIN plans p ON p.code = s.plan_id
-           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing')
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND s.period_end > now() AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
            LIMIT 1
        ), 0)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
-WHERE m.address = $1 AND m.status = 'active'
+WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id)
 FOR UPDATE OF m
 `
 
@@ -111,4 +111,26 @@ func (q *Queries) IncrementMailboxDailySent(ctx context.Context, arg IncrementMa
 	var messages_sent int32
 	err := row.Scan(&messages_sent)
 	return messages_sent, err
+}
+
+const platformCommissionRate = `-- name: PlatformCommissionRate :one
+SELECT commission_bps FROM channels WHERE id=$1
+`
+
+func (q *Queries) PlatformCommissionRate(ctx context.Context, id int64) (int32, error) {
+	row := q.db.QueryRow(ctx, platformCommissionRate, id)
+	var commission_bps int32
+	err := row.Scan(&commission_bps)
+	return commission_bps, err
+}
+
+const platformInboundAllowed = `-- name: PlatformInboundAllowed :one
+SELECT COALESCE((SELECT urmail_mail_allowed(d.tenant_id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed
+`
+
+func (q *Queries) PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error) {
+	row := q.db.QueryRow(ctx, platformInboundAllowed, splitPart)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
 }

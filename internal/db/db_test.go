@@ -54,7 +54,7 @@ func truncate(t *testing.T, pool *db.Pool) {
 		t.Fatalf("begin transaction: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		TRUNCATE mailboxes, mailbox_aliases, mailbox_usage, domains,
+		TRUNCATE mailbox_storage_reservations,mailboxes, mailbox_aliases, mailbox_usage, domains,
 		         tenants, brands, users, settings CASCADE`); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("truncate: %v", err)
@@ -152,7 +152,7 @@ func TestTenantIsolation(t *testing.T) {
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO mailboxes (tenant_id, domain_id, local_part, address, password_hash)
-			VALUES ($1, $2, 'user', $3, '{SHA512-CRYPT}$6$saltsalt$hashhash')`,
+			VALUES ($1, $2, split_part($3,'@',1), $3, '{SHA512-CRYPT}$6$saltsalt$hashhash')`,
 			tenantID, domainID, spec.address); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("insert mailbox %s: %v", spec.address, err)
@@ -398,8 +398,8 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
-	_, err = tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'site_name'`)
-	if err == nil {
+	changed, err := tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'site_name'`)
+	if err == nil && changed.RowsAffected() != 0 {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatal("tenant MUST NOT be able to update platform settings")
 	}

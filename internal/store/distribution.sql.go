@@ -43,7 +43,8 @@ INSERT INTO commissions (
     channel_id, tenant_id, order_id, amount_cents, bps, status
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-) RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at
+) ON CONFLICT(channel_id,order_id) DO UPDATE SET amount_cents=commissions.amount_cents
+RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at
 `
 
 type CreateCommissionParams struct {

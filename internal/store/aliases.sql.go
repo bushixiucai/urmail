@@ -201,23 +201,25 @@ func (q *Queries) ListAliasesByTenant(ctx context.Context, tenantID int64) ([]Li
 
 const updateAlias = `-- name: UpdateAlias :one
 UPDATE mailbox_aliases
-SET target = $3, kind = $4, active = $5
+SET local_part = $3, target = $4, kind = $5, active = $6
 WHERE tenant_id = $1 AND id = $2
 RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at
 `
 
 type UpdateAliasParams struct {
-	TenantID int64  `json:"tenant_id"`
-	ID       int64  `json:"id"`
-	Target   string `json:"target"`
-	Kind     string `json:"kind"`
-	Active   bool   `json:"active"`
+	TenantID  int64  `json:"tenant_id"`
+	ID        int64  `json:"id"`
+	LocalPart string `json:"local_part"`
+	Target    string `json:"target"`
+	Kind      string `json:"kind"`
+	Active    bool   `json:"active"`
 }
 
 func (q *Queries) UpdateAlias(ctx context.Context, arg UpdateAliasParams) (MailboxAliases, error) {
 	row := q.db.QueryRow(ctx, updateAlias,
 		arg.TenantID,
 		arg.ID,
+		arg.LocalPart,
 		arg.Target,
 		arg.Kind,
 		arg.Active,

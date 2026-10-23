@@ -8,9 +8,12 @@ import (
 	"io/fs"
 
 	"github.com/bushixiucai/urmail/migrations"
+
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+
+	// Register the pgx driver for the migration library's database/sql adapter.
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 

@@ -170,7 +170,7 @@ func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscription
 const getActiveSubscriptionByTenant = `-- name: GetActiveSubscriptionByTenant :one
 SELECT id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at
 FROM subscriptions
-WHERE tenant_id = $1 AND status IN ('active', 'trialing')
+WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')
 `
 
 func (q *Queries) GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (Subscriptions, error) {
@@ -186,6 +186,35 @@ func (q *Queries) GetActiveSubscriptionByTenant(ctx context.Context, tenantID in
 		&i.CancelAtPeriodEnd,
 		&i.TrialEndsAt,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCheckoutOrderByIdempotencyKey = `-- name: GetCheckoutOrderByIdempotencyKey :one
+SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at FROM orders WHERE tenant_id=$1 AND idempotency_key=$2
+`
+
+type GetCheckoutOrderByIdempotencyKeyParams struct {
+	TenantID       int64       `json:"tenant_id"`
+	IdempotencyKey pgtype.Text `json:"idempotency_key"`
+}
+
+func (q *Queries) GetCheckoutOrderByIdempotencyKey(ctx context.Context, arg GetCheckoutOrderByIdempotencyKeyParams) (Orders, error) {
+	row := q.db.QueryRow(ctx, getCheckoutOrderByIdempotencyKey, arg.TenantID, arg.IdempotencyKey)
+	var i Orders
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderNo,
+		&i.Kind,
+		&i.Status,
+		&i.AmountCents,
+		&i.Currency,
+		&i.PlanCode,
+		&i.ChannelID,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.PaidAt,
 	)
 	return i, err
 }

@@ -34,6 +34,17 @@ type ApiTokens struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type ApplicationCredentials struct {
+	ID        int64              `json:"id"`
+	UserID    int64              `json:"user_id"`
+	Name      string             `json:"name"`
+	TokenHash string             `json:"token_hash"`
+	Scopes    []string           `json:"scopes"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type ArchiveEntries struct {
 	ID         int64              `json:"id"`
 	TenantID   int64              `json:"tenant_id"`
@@ -60,6 +71,12 @@ type AuditLogs struct {
 	TargetID    pgtype.Text        `json:"target_id"`
 	Detail      []byte             `json:"detail"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type BrandHosts struct {
+	Hostname  string             `json:"hostname"`
+	BrandID   int64              `json:"brand_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type Brands struct {
@@ -124,6 +141,13 @@ type Coupons struct {
 	Active         bool               `json:"active"`
 }
 
+type DnsZoneVersions struct {
+	Domain      string             `json:"domain"`
+	ContentHash string             `json:"content_hash"`
+	Serial      int64              `json:"serial"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Domains struct {
 	ID                int64              `json:"id"`
 	TenantID          int64              `json:"tenant_id"`
@@ -167,6 +191,11 @@ type MailboxAliases struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type MailboxStorageReservations struct {
+	Address   string `json:"address"`
+	MailboxID int64  `json:"mailbox_id"`
+}
+
 type MailboxUsage struct {
 	MailboxID    int64       `json:"mailbox_id"`
 	TenantID     int64       `json:"tenant_id"`
@@ -177,18 +206,21 @@ type MailboxUsage struct {
 }
 
 type Mailboxes struct {
-	ID           int64              `json:"id"`
-	TenantID     int64              `json:"tenant_id"`
-	DomainID     int64              `json:"domain_id"`
-	LocalPart    string             `json:"local_part"`
-	Address      string             `json:"address"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	PasswordHash string             `json:"password_hash"`
-	QuotaBytes   int64              `json:"quota_bytes"`
-	Status       string             `json:"status"`
-	SendEnabled  bool               `json:"send_enabled"`
-	SieveScript  pgtype.Text        `json:"sieve_script"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID              int64              `json:"id"`
+	TenantID        int64              `json:"tenant_id"`
+	DomainID        int64              `json:"domain_id"`
+	LocalPart       string             `json:"local_part"`
+	Address         string             `json:"address"`
+	DisplayName     pgtype.Text        `json:"display_name"`
+	PasswordHash    string             `json:"password_hash"`
+	QuotaBytes      int64              `json:"quota_bytes"`
+	Status          string             `json:"status"`
+	SendEnabled     bool               `json:"send_enabled"`
+	SieveScript     pgtype.Text        `json:"sieve_script"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	BytesUsed       int64              `json:"bytes_used"`
+	UsageMeasuredAt pgtype.Timestamptz `json:"usage_measured_at"`
+	UsageError      pgtype.Text        `json:"usage_error"`
 }
 
 type OrderItems struct {
@@ -261,24 +293,29 @@ type PlatformAdmins struct {
 }
 
 type RecallRequests struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	MessageID   string             `json:"message_id"`
-	RequestedBy int64              `json:"requested_by"`
-	Status      string             `json:"status"`
-	Reason      pgtype.Text        `json:"reason"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID             int64              `json:"id"`
+	TenantID       int64              `json:"tenant_id"`
+	MessageID      string             `json:"message_id"`
+	RequestedBy    int64              `json:"requested_by"`
+	Status         string             `json:"status"`
+	Reason         pgtype.Text        `json:"reason"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ArchiveEntryID pgtype.Int8        `json:"archive_entry_id"`
+	MailboxID      pgtype.Int8        `json:"mailbox_id"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
 }
 
 type Sessions struct {
-	ID        string             `json:"id"`
-	UserID    int64              `json:"user_id"`
-	TenantID  pgtype.Int8        `json:"tenant_id"`
-	CsrfToken string             `json:"csrf_token"`
-	UserAgent pgtype.Text        `json:"user_agent"`
-	Ip        *netip.Addr        `json:"ip"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID            string             `json:"id"`
+	UserID        int64              `json:"user_id"`
+	TenantID      pgtype.Int8        `json:"tenant_id"`
+	CsrfToken     string             `json:"csrf_token"`
+	UserAgent     pgtype.Text        `json:"user_agent"`
+	Ip            *netip.Addr        `json:"ip"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	MfaVerifiedAt pgtype.Timestamptz `json:"mfa_verified_at"`
+	Kind          string             `json:"kind"`
 }
 
 type Settings struct {

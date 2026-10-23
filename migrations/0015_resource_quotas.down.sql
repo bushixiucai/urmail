@@ -1,0 +1,15 @@
+DROP TRIGGER subscription_resource_guard ON subscriptions;
+DROP TRIGGER mailbox_resource_guard ON mailboxes;
+DROP TRIGGER domain_resource_guard ON domains;
+DROP TRIGGER tenant_default_subscription ON tenants;
+DROP FUNCTION urmail_subscription_guard();
+DROP FUNCTION urmail_resource_guard();
+DROP FUNCTION urmail_default_subscription();
+DROP FUNCTION urmail_mail_allowed(bigint);
+GRANT UPDATE ON mailboxes TO urmail_app;
+ALTER TABLE mailboxes DROP COLUMN bytes_used,DROP COLUMN usage_measured_at,DROP COLUMN usage_error;
+ALTER TABLE mailboxes DROP CONSTRAINT mailboxes_status_check;
+ALTER TABLE mailboxes ADD CONSTRAINT mailboxes_status_check CHECK(status IN('active','disabled','locked')) NOT VALID;
+ALTER TABLE mailboxes DROP CONSTRAINT mailboxes_quota_bytes_check;
+ALTER TABLE mailboxes ADD CONSTRAINT mailboxes_quota_bytes_check CHECK(quota_bytes>=0) NOT VALID;
+ALTER TABLE plans DROP CONSTRAINT plans_limits_check;

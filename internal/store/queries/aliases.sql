@@ -26,7 +26,7 @@ INSERT INTO mailbox_aliases (
 
 -- name: UpdateAlias :one
 UPDATE mailbox_aliases
-SET target = $3, kind = $4, active = $5
+SET local_part = $3, target = $4, kind = $5, active = $6
 WHERE tenant_id = $1 AND id = $2
 RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at;
 
