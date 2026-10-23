@@ -1,7 +1,10 @@
 package agentd
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -15,6 +18,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/certs"
 )
 
 func certificateAuthority(t *testing.T) (*x509.Certificate, *rsa.PrivateKey, []byte) {
@@ -233,4 +238,73 @@ func TestCertificateNetworkWaitDoesNotBlockConfiguration(t *testing.T) {
 	}
 	close(release)
 	<-done
+}
+
+func TestCertificateRenewsImportedECDSAIdentityWithoutChangingKey(t *testing.T) {
+	m := testManager(t)
+	ca, caKey, caPEM := certificateAuthority(t)
+	caPath := filepath.Join(m.root, "ca.pem")
+	if err := os.WriteFile(caPath, caPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.cfg.ACMERootCA = caPath
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, err := certs.GenerateCSR(key, m.hostname(), []string{m.hostname()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	old := signedCSR(t, csr, ca, caKey, caPEM, m.hostname(), time.Now().Add(time.Hour))
+	if err = m.installCertificateFiles(m.hostname(), old, keyPEM); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	m.run = func(_ context.Context, path string, args ...string) error {
+		if path != "/usr/bin/certbot" {
+			return nil
+		}
+		requests++
+		values := map[string]string{}
+		for i := 0; i+1 < len(args); i++ {
+			values[args[i]] = args[i+1]
+		}
+		request, readErr := os.ReadFile(values["--csr"])
+		if readErr != nil {
+			return readErr
+		}
+		block, _ := pem.Decode(request)
+		parsed, parseErr := x509.ParseCertificateRequest(block.Bytes)
+		if parseErr != nil {
+			return parseErr
+		}
+		if parsed.SignatureAlgorithm != x509.ECDSAWithSHA256 {
+			t.Fatalf("wrong CSR algorithm %v", parsed.SignatureAlgorithm)
+		}
+		public, ok := parsed.PublicKey.(*ecdsa.PublicKey)
+		if !ok || !public.Equal(&key.PublicKey) {
+			t.Fatal("CSR changed legacy ECDSA identity")
+		}
+		issued := signedCSR(t, request, ca, caKey, caPEM, m.hostname(), time.Now().Add(90*24*time.Hour))
+		return os.WriteFile(values["--fullchain-path"], issued, 0600)
+	}
+	if _, _, err = m.RenewCertificates(json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("renew requests %d", requests)
+	}
+	actual, err := os.ReadFile(certificateKeyPath(m.certificatePaths(m.hostname())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(actual, keyPEM) {
+		t.Fatal("renewal changed imported ECDSA key")
+	}
 }

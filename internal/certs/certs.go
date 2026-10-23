@@ -2,6 +2,7 @@
 package certs
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -240,7 +241,7 @@ func writeCertFile(path string, data []byte, mode os.FileMode) error {
 }
 
 // GenerateCSR creates a PKCS#10 Certificate Signing Request in PEM format for the given domains.
-func GenerateCSR(key *rsa.PrivateKey, primaryDomain string, sans []string) ([]byte, error) {
+func GenerateCSR(key crypto.Signer, primaryDomain string, sans []string) ([]byte, error) {
 	sanSet := make(map[string]bool)
 	var dnsNames []string
 	for _, d := range append([]string{primaryDomain}, sans...) {
@@ -255,9 +256,8 @@ func GenerateCSR(key *rsa.PrivateKey, primaryDomain string, sans []string) ([]by
 	}
 
 	template := x509.CertificateRequest{
-		Subject:            subj,
-		DNSNames:           dnsNames,
-		SignatureAlgorithm: x509.SHA256WithRSA,
+		Subject:  subj,
+		DNSNames: dnsNames,
 	}
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &template, key)

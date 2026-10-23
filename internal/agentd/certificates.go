@@ -3,6 +3,7 @@ package agentd
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -251,17 +252,16 @@ func (m *ApplyManager) issueCertificateContext(ctx context.Context, domain strin
 	if block == nil {
 		return fmt.Errorf("invalid private key")
 	}
-	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		parsed, e := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if e != nil {
-			return err
-		}
-		var ok bool
-		key, ok = parsed.(*rsa.PrivateKey)
-		if !ok {
-			return fmt.Errorf("expected RSA key")
-		}
+	var key crypto.Signer
+	if parsed, e := x509.ParsePKCS1PrivateKey(block.Bytes); e == nil {
+		key = parsed
+	} else if parsed, e := x509.ParsePKCS8PrivateKey(block.Bytes); e == nil {
+		key, _ = parsed.(crypto.Signer)
+	} else if parsed, e := x509.ParseECPrivateKey(block.Bytes); e == nil {
+		key = parsed
+	}
+	if key == nil {
+		return fmt.Errorf("unsupported private key")
 	}
 	csr, err := certs.GenerateCSR(key, domain, []string{domain})
 	if err != nil {
