@@ -179,7 +179,7 @@ export function DomainListPage() {
       {dnsGuidance && (
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader>
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2 lg:shrink-0">
               <CheckCircle className="h-5 w-5 text-emerald-500" />
               <CardTitle className="text-base">
                 {t("page.domains.dns_title")}
@@ -297,24 +297,24 @@ export function DomainListPage() {
               domains.map((d) => (
                 <div
                   key={d.id}
-                  className="p-4 flex items-center justify-between"
+                  className="p-4 flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 max-w-full items-center gap-3">
                     <Globe className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <div className="font-medium">{d.fqdn}</div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                    <div className="min-w-0">
+                      <div className="font-medium break-all">{d.fqdn}</div>
+                      <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2 mt-0.5">
                         <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 rounded">
-                          {d.status}
+                          {t(`status.${d.status}`)}
                         </span>
                         <span>
-                          {t("page.domains.mode")}: {d.mode}
+                          {t("page.domains.mode")}: {t(`status.${d.mode}`)}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex max-w-full flex-wrap items-center gap-2 lg:shrink-0">
                     {d.status !== "active" && (
                       <Button
                         size="sm"
@@ -340,6 +340,7 @@ export function DomainListPage() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      aria-label={t("action.delete")}
                       className="text-destructive hover:bg-destructive/10"
                       onClick={() => setDeleteTarget(d)}
                     >

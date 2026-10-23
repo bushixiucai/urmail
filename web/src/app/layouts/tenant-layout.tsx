@@ -1,3 +1,7 @@
+import {
+  BrandAppearance,
+  usePublicBrand,
+} from "@/components/brand/public-brand";
 import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -33,6 +37,7 @@ interface TenantLayoutProps {
 
 export function TenantLayout({ children }: TenantLayoutProps) {
   const location = useLocation();
+  const publicBrand = usePublicBrand();
   const { t } = useTranslation();
   const { user, tenants, currentTenant, switchTenant, logout, isAdmin } =
     useAuth();
@@ -120,7 +125,9 @@ export function TenantLayout({ children }: TenantLayoutProps) {
             </div>
           )}
           <div>
-            <h1 className="text-base font-semibold leading-tight">urMail.cn</h1>
+            <h1 className="text-base font-semibold leading-tight">
+              {publicBrand?.name ?? "urMail.cn"}
+            </h1>
             <p className="text-xs text-muted-foreground truncate max-w-[130px]">
               {currentTenant ? currentTenant.name : t("layout.tenant_console")}
             </p>
@@ -173,6 +180,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
 
   return (
     <div className="flex min-h-screen bg-muted/20">
+      <BrandAppearance brand={publicBrand} applyTheme={false} />
       <ThemeInjector theme={brandTheme} />
       {/* Mobile drawer */}
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -203,7 +211,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        <header className="h-14 border-b bg-card flex items-center justify-between px-6 shrink-0">
+        <header className="min-h-14 border-b bg-card flex flex-wrap gap-2 items-center justify-between pl-14 pr-3 md:px-6 py-2 shrink-0">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building2 className="h-4 w-4" />
             <span>{t("layout.tenant")}</span>
@@ -223,7 +231,8 @@ export function TenantLayout({ children }: TenantLayoutProps) {
               >
                 {tenants.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>
-                    {tenant.name} ({tenant.role})
+                    {tenant.name} (
+                    {t(`status.${tenant.role}`, { defaultValue: tenant.role })})
                   </option>
                 ))}
               </select>
@@ -242,7 +251,9 @@ export function TenantLayout({ children }: TenantLayoutProps) {
           )}
         </header>
 
-        <div className="flex-1 p-6 max-w-6xl w-full mx-auto">{children}</div>
+        <div className="flex-1 p-3 sm:p-6 max-w-6xl w-full mx-auto">
+          {children}
+        </div>
       </main>
     </div>
   );

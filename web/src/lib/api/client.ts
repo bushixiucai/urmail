@@ -3,7 +3,7 @@ import { z } from "zod";
 export const apiErrorSchema = z.object({
   error: z.object({
     code: z.string(),
-    message: z.string(),
+    message: z.string().optional(),
     params: z.record(z.string(), z.unknown()).optional(),
     details: z.unknown().optional(),
   }),
@@ -30,7 +30,7 @@ export class ApiRequestError extends Error {
     this.name = "ApiRequestError";
     this.status = status;
     this.code = body.error.code;
-    this.messageKey = body.error.message;
+    this.messageKey = body.error.message ?? "";
     this.params = body.error.params ?? {};
   }
 }
@@ -93,6 +93,49 @@ export interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
+}
+
+/** Download a protected PDF without putting a session token in its URL. */
+export async function downloadInvoice(id: number): Promise<void> {
+  const token = getSessionToken();
+  const response = await fetch(`/api/v1/billing/invoices/${id}/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    const body = apiErrorSchema.safeParse(
+      await response.json().catch(() => null),
+    );
+    throw new ApiRequestError(
+      response.status,
+      body.success
+        ? body.data
+        : {
+            error: { code: "REQUEST_FAILED" },
+          },
+    );
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `invoice-${id}.pdf`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function checkoutDestination(value: string): string {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "checkout.stripe.com" ||
+    url.username ||
+    url.password
+  ) {
+    throw new ApiRequestError(502, {
+      error: { code: "PAYMENT_PROVIDER_ERROR" },
+    });
+  }
+  return url.href;
 }
 
 export async function request<T>(

@@ -21,9 +21,16 @@ export function AuditPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    request<{ logs: AuditLog[] }>("/api/v1/audit?limit=200")
-      .then((res) => setLogs(res.logs ?? []))
-      .catch((err: unknown) => setNotice(errorMessage(err)));
+    const controller = new AbortController();
+    request<{ logs: AuditLog[] }>("/api/v1/audit?limit=200", {
+      signal: controller.signal,
+    })
+      .then((res) => !controller.signal.aborted && setLogs(res.logs ?? []))
+      .catch(
+        (err: unknown) =>
+          !controller.signal.aborted && setNotice(errorMessage(err)),
+      );
+    return () => controller.abort();
   }, [errorMessage]);
 
   return (

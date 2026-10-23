@@ -1,3 +1,4 @@
+import { SettingsEditor } from "@/features/auth/settings-editor";
 import { useCallback, useEffect, useState, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Building2, Globe, Mail, Users } from "lucide-react";
@@ -17,6 +18,37 @@ interface Overview {
   active_subscriptions: number;
 }
 
+interface ManagedBrand {
+  id: number;
+  slug: string;
+  name: string;
+  status: string;
+  logo_url?: string | null;
+  favicon_url?: string | null;
+  primary_color?: string | null;
+}
+interface ManagedPlan {
+  code: string;
+  name: Record<string, string>;
+  price_cents: number;
+  currency: string;
+  quota_bytes: number;
+  mailbox_limit: number;
+  domain_limit: number;
+  daily_send_limit: number;
+  active: boolean;
+}
+const emptyPlan: ManagedPlan = {
+  code: "",
+  name: { en: "", "zh-CN": "" },
+  price_cents: 0,
+  currency: "CNY",
+  quota_bytes: 1073741824,
+  mailbox_limit: 5,
+  domain_limit: 1,
+  daily_send_limit: 100,
+  active: true,
+};
 interface Tenant {
   id: number;
   name: string;
@@ -32,6 +64,9 @@ export function PlatformPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
+  const [brandItems, setBrandItems] = useState<ManagedBrand[]>([]);
+  const [planItems, setPlanItems] = useState<ManagedPlan[]>([]);
+  const [planEdit, setPlanEdit] = useState<ManagedPlan>(emptyPlan);
   const [plans, setPlans] = useState<string[]>([]);
   const [coupons, setCoupons] = useState<string[]>([]);
   const [auditLogs, setAuditLogs] = useState<
@@ -42,13 +77,22 @@ export function PlatformPage() {
       created_at: string;
     }[]
   >([]);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    variant: "error" | "success";
+    message: string;
+  } | null>(null);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
   const [brandSlug, setBrandSlug] = useState("default");
   const [brandName, setBrandName] = useState("");
+  const [logoURL, setLogoURL] = useState("");
+  const [faviconURL, setFaviconURL] = useState("");
+  const [brandHosts, setBrandHosts] = useState("");
+  const [hostItems, setHostItems] = useState<
+    { hostname: string; brand_id: number }[]
+  >([]);
   const [primaryColor, setPrimaryColor] = useState("#2563eb");
   const [channelCode, setChannelCode] = useState("");
   const [channelName, setChannelName] = useState("");
@@ -57,8 +101,8 @@ export function PlatformPage() {
     void Promise.all([
       request<{ overview: Overview }>("/api/v1/platform/overview"),
       request<{ tenants: Tenant[] }>("/api/v1/platform/tenants"),
-      request<{ brands: { name: string }[] }>("/api/v1/platform/brands"),
-      request<{ plans: { code: string }[] }>("/api/v1/platform/plans"),
+      request<{ brands: ManagedBrand[] }>("/api/v1/platform/brands"),
+      request<{ plans: ManagedPlan[] }>("/api/v1/platform/plans"),
       request<{ coupons: { code: string }[] }>("/api/v1/platform/coupons"),
       request<{
         logs: {
@@ -68,16 +112,24 @@ export function PlatformPage() {
           created_at: string;
         }[];
       }>("/api/v1/platform/audit?limit=20"),
+      request<{ hosts: { hostname: string; brand_id: number }[] }>(
+        "/api/v1/platform/brand-hosts",
+      ),
     ])
-      .then(([o, ts, bs, ps, cs, logs]) => {
+      .then(([o, ts, bs, ps, cs, logs, hs]) => {
         setOverview(o.overview);
+        setHostItems(hs.hosts ?? []);
         setTenants(ts.tenants ?? []);
+        setBrandItems(bs.brands ?? []);
+        setPlanItems(ps.plans ?? []);
         setBrands((bs.brands ?? []).map((b) => b.name));
         setPlans((ps.plans ?? []).map((p) => p.code));
         setCoupons((cs.coupons ?? []).map((c) => c.code));
         setAuditLogs(logs.logs ?? []);
       })
-      .catch((err: unknown) => setNotice(errorMessage(err)));
+      .catch((err: unknown) =>
+        setNotice({ variant: "error", message: errorMessage(err) }),
+      );
   }, [errorMessage]);
 
   useEffect(() => {
@@ -93,12 +145,14 @@ export function PlatformPage() {
           slug: brandSlug,
           name: brandName || brandSlug,
           primary_color: primaryColor,
+          logo_url: logoURL || null,
+          favicon_url: faviconURL || null,
           theme: { primary: primaryColor },
         },
       });
       load();
     } catch (err: unknown) {
-      setNotice(errorMessage(err));
+      setNotice({ variant: "error", message: errorMessage(err) });
     }
   };
 
@@ -118,7 +172,7 @@ export function PlatformPage() {
       setChannelName("");
       load();
     } catch (err: unknown) {
-      setNotice(errorMessage(err));
+      setNotice({ variant: "error", message: errorMessage(err) });
     }
   };
 
@@ -140,7 +194,7 @@ export function PlatformPage() {
       setOwnerPassword("");
       load();
     } catch (err: unknown) {
-      setNotice(errorMessage(err));
+      setNotice({ variant: "error", message: errorMessage(err) });
     }
   };
 
@@ -151,7 +205,7 @@ export function PlatformPage() {
       });
       load();
     } catch (err: unknown) {
-      setNotice(errorMessage(err));
+      setNotice({ variant: "error", message: errorMessage(err) });
     }
   };
 
@@ -215,7 +269,8 @@ export function PlatformPage() {
           <CardContent>
             <form onSubmit={saveBrand} className="grid gap-2">
               <Input
-                placeholder="slug"
+                placeholder={t("page.platform.brand_slug")}
+                aria-label={t("page.platform.brand_slug")}
                 value={brandSlug}
                 onChange={(e) => setBrandSlug(e.target.value)}
                 required
@@ -230,6 +285,22 @@ export function PlatformPage() {
                 value={primaryColor}
                 onChange={(e) => setPrimaryColor(e.target.value)}
               />
+              <label className="grid gap-1 text-sm">
+                {t("page.platform.logo_url")}
+                <Input
+                  type="url"
+                  value={logoURL}
+                  onChange={(e) => setLogoURL(e.target.value)}
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                {t("page.platform.favicon_url")}
+                <Input
+                  type="url"
+                  value={faviconURL}
+                  onChange={(e) => setFaviconURL(e.target.value)}
+                />
+              </label>
               <Button type="submit">{t("page.platform.save_brand")}</Button>
             </form>
           </CardContent>
@@ -392,11 +463,312 @@ export function PlatformPage() {
           )}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("page.platform.manage_brands")}</CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y">
+          {brandItems.map((brand) => (
+            <div
+              key={brand.id}
+              className="flex flex-wrap justify-between gap-2 py-3"
+            >
+              <span className="break-all">
+                {brand.name} ·{" "}
+                {t(`status.${brand.status}`, { defaultValue: brand.status })}
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setBrandSlug(brand.slug);
+                    setBrandName(brand.name);
+                    setLogoURL(brand.logo_url ?? "");
+                    setFaviconURL(brand.favicon_url ?? "");
+                    setPrimaryColor(brand.primary_color ?? "#2563eb");
+                    window.scrollTo({ top: 0 });
+                  }}
+                >
+                  {t("action.edit")}
+                </Button>
+                {brand.slug !== "default" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void request(
+                        `/api/v1/platform/brands/${brand.id}/status`,
+                        {
+                          method: "PATCH",
+                          body: {
+                            status:
+                              brand.status === "active" ? "disabled" : "active",
+                          },
+                        },
+                      )
+                        .then(load)
+                        .catch((err: unknown) =>
+                          setNotice({
+                            variant: "error",
+                            message: errorMessage(err),
+                          }),
+                        );
+                    }}
+                  >
+                    {t(
+                      brand.status === "active"
+                        ? "action.disable"
+                        : "action.enable",
+                    )}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    void request(
+                      `/api/v1/platform/brands/${brand.id}/reset-theme`,
+                      { method: "POST" },
+                    )
+                      .then(load)
+                      .catch((err: unknown) =>
+                        setNotice({
+                          variant: "error",
+                          message: errorMessage(err),
+                        }),
+                      );
+                  }}
+                >
+                  {t("page.settings.reset_theme")}
+                </Button>
+                {brand.slug !== "default" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void request(`/api/v1/platform/brands/${brand.id}`, {
+                        method: "DELETE",
+                      })
+                        .then(load)
+                        .catch((err: unknown) =>
+                          setNotice({
+                            variant: "error",
+                            message: errorMessage(err),
+                          }),
+                        );
+                    }}
+                  >
+                    {t("action.delete")}
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("page.platform.plan_editor")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form
+            className="grid gap-3 sm:grid-cols-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void request("/api/v1/platform/plans", {
+                method: "POST",
+                body: planEdit,
+              })
+                .then(() => {
+                  setPlanEdit(emptyPlan);
+                  load();
+                })
+                .catch((err: unknown) =>
+                  setNotice({ variant: "error", message: errorMessage(err) }),
+                );
+            }}
+          >
+            <label className="grid gap-1">
+              {t("page.platform.plan_code")}
+              <Input
+                value={planEdit.code}
+                onChange={(e) =>
+                  setPlanEdit({ ...planEdit, code: e.target.value })
+                }
+                required
+              />
+            </label>
+            <label className="grid gap-1">
+              {t("page.platform.name")}
+              <Input
+                value={planEdit.name["zh-CN"] ?? planEdit.name.en ?? ""}
+                onChange={(e) =>
+                  setPlanEdit({
+                    ...planEdit,
+                    name: { en: e.target.value, "zh-CN": e.target.value },
+                  })
+                }
+                required
+              />
+            </label>
+            {(
+              [
+                "price_cents",
+                "quota_bytes",
+                "mailbox_limit",
+                "domain_limit",
+                "daily_send_limit",
+              ] as const
+            ).map((field) => (
+              <label key={field} className="grid gap-1">
+                {t(`page.platform.${field}`)}
+                <Input
+                  type="number"
+                  min={field === "price_cents" ? 0 : -1}
+                  step="1"
+                  value={planEdit[field]}
+                  onChange={(e) =>
+                    setPlanEdit({
+                      ...planEdit,
+                      [field]: Number(e.target.value),
+                    })
+                  }
+                  required
+                />
+              </label>
+            ))}
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={planEdit.active}
+                onChange={(e) =>
+                  setPlanEdit({ ...planEdit, active: e.target.checked })
+                }
+              />
+              {t("state.active")}
+            </label>
+            <Button type="submit">{t("action.save")}</Button>
+          </form>
+          {planItems.map((plan) => (
+            <div
+              key={plan.code}
+              className="flex flex-wrap items-center justify-between gap-2 border-t py-3"
+            >
+              <span>{plan.code}</span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPlanEdit(plan)}
+                >
+                  {t("action.edit")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={plan.code === "free"}
+                  onClick={() => {
+                    void request(
+                      `/api/v1/platform/plans/${encodeURIComponent(plan.code)}`,
+                      { method: "DELETE" },
+                    )
+                      .then(load)
+                      .catch((err: unknown) =>
+                        setNotice({
+                          variant: "error",
+                          message: errorMessage(err),
+                        }),
+                      );
+                  }}
+                >
+                  {t("action.delete")}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <SettingsEditor platform />
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("page.platform.brand_hosts")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-wrap gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void request("/api/v1/platform/brand-hosts", {
+                method: "POST",
+                body: {
+                  brand_id: brandItems.find((b) => b.slug === brandSlug)?.id,
+                  hostname: brandHosts,
+                },
+              })
+                .then(() => {
+                  setNotice({
+                    variant: "success",
+                    message: t("page.settings.saved"),
+                  });
+                  load();
+                })
+                .catch((err: unknown) =>
+                  setNotice({ variant: "error", message: errorMessage(err) }),
+                );
+            }}
+          >
+            <Input
+              aria-label={t("page.platform.brand_slug")}
+              value={brandSlug}
+              onChange={(e) => setBrandSlug(e.target.value)}
+              required
+            />
+            <Input
+              aria-label={t("page.platform.hostname")}
+              value={brandHosts}
+              onChange={(e) => setBrandHosts(e.target.value)}
+              placeholder="mail.example.com"
+              required
+            />
+            <Button type="submit">{t("action.save")}</Button>
+          </form>
+          <div className="mt-3 divide-y">
+            {hostItems.map((host) => (
+              <div
+                key={host.hostname}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <span className="break-all">{host.hostname}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void request(
+                      `/api/v1/platform/brand-hosts/${encodeURIComponent(host.hostname)}`,
+                      { method: "DELETE" },
+                    )
+                      .then(load)
+                      .catch((err: unknown) =>
+                        setNotice({
+                          variant: "error",
+                          message: errorMessage(err),
+                        }),
+                      );
+                  }}
+                >
+                  {t("page.platform.unbind")}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
       <NoticeDialog
         open={notice !== null}
         onOpenChange={(open) => !open && setNotice(null)}
-        message={notice ?? ""}
-        variant="error"
+        message={notice?.message ?? ""}
+        variant={notice?.variant ?? "error"}
       />
     </div>
   );

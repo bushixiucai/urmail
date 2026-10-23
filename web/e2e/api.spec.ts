@@ -64,4 +64,5 @@ test("legacy basic-auth status works", async ({ request }) => {
     },
   });
   expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toContain("application/json");
 });

@@ -1,3 +1,8 @@
+import {
+  BrandAppearance,
+  safeBrandURL,
+  usePublicBrand,
+} from "@/components/brand/public-brand";
 import { useState, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -28,6 +33,7 @@ interface LoginResponse {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const brand = usePublicBrand();
   const { t } = useTranslation();
   const { login } = useAuth();
   const { setLocale } = useI18nLocale();
@@ -116,12 +122,23 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen bg-muted/40 flex items-center justify-center p-4">
+      <BrandAppearance brand={brand} />
       <Card className="w-full max-w-md shadow-lg border-muted">
         <CardHeader className="space-y-1 text-center">
-          <div className="h-12 w-12 rounded-xl bg-primary text-primary-foreground mx-auto flex items-center justify-center font-bold text-xl mb-2">
-            U
-          </div>
-          <CardTitle className="text-2xl font-bold">urMail.cn</CardTitle>
+          {safeBrandURL(brand?.logo_url) ? (
+            <img
+              src={safeBrandURL(brand?.logo_url)}
+              alt={brand?.name ?? ""}
+              className="mx-auto mb-2 h-12 max-w-full object-contain"
+            />
+          ) : (
+            <div className="h-12 w-12 rounded-xl bg-primary text-primary-foreground mx-auto flex items-center justify-center font-bold text-xl mb-2">
+              {brand?.name?.charAt(0) ?? "U"}
+            </div>
+          )}
+          <CardTitle className="text-2xl font-bold">
+            {brand?.name ?? "urMail.cn"}
+          </CardTitle>
           <CardDescription>{t("login.subtitle")}</CardDescription>
         </CardHeader>
         <CardContent>

@@ -1,3 +1,6 @@
+import { ApplicationCredentials } from "./application-credentials";
+import { useAuth } from "@/app/auth-context";
+import { SettingsEditor } from "./settings-editor";
 import { useEffect, useState, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, CheckCircle2, ShieldCheck, KeyRound } from "lucide-react";
@@ -36,6 +39,7 @@ interface MFADisableResponse {
  */
 export function MfaSettingsPage() {
   const { t } = useTranslation();
+  const { isAdmin } = useAuth();
   const [secret, setSecret] = useState<string | null>(null);
   const [otpauthUrl, setOtpauthUrl] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -172,6 +176,8 @@ export function MfaSettingsPage() {
 
   return (
     <div className="max-w-xl mx-auto p-4 space-y-4">
+      <SettingsEditor />
+      <ApplicationCredentials canCreate={isAdmin && enabled} />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">

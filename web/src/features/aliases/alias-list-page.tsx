@@ -39,6 +39,8 @@ export function AliasListPage() {
   const [target, setTarget] = useState("");
   const [isCatchall, setIsCatchall] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [editing, setEditing] = useState<AliasItem | null>(null);
+  const [editTarget, setEditTarget] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AliasItem | null>(null);
   const [notice, setNotice] = useState<{
     variant: "error" | "info";
@@ -106,6 +108,29 @@ export function AliasListPage() {
         variant: "error",
         message: `${t("page.aliases.delete_failed")}: ${errorMessage(err)}`,
       });
+    }
+  };
+
+  const saveAlias = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editing || isAdding) return;
+    setIsAdding(true);
+    try {
+      await request(`/api/v1/aliases/${editing.id}`, {
+        method: "PATCH",
+        body: {
+          target: editTarget,
+          active: editing.active,
+          kind: editing.kind,
+          local_part: editing.local_part,
+        },
+      });
+      setEditing(null);
+      fetchData();
+    } catch (err: unknown) {
+      setNotice({ variant: "error", message: errorMessage(err) });
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -217,12 +242,12 @@ export function AliasListPage() {
               aliases.map((a) => (
                 <div
                   key={a.id}
-                  className="p-4 flex items-center justify-between"
+                  className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex items-center gap-3">
                     <Share2 className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <div className="font-medium flex items-center gap-2">
+                      <div className="font-medium flex flex-wrap items-center gap-2 break-all">
                         {a.local_part
                           ? `${a.local_part}@${a.domain_fqdn}`
                           : `@${a.domain_fqdn} (Catchall)`}
@@ -233,20 +258,33 @@ export function AliasListPage() {
                       </div>
                       <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                         <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-600 rounded">
-                          {a.kind}
+                          {t(`alias.kind.${a.kind}`, { defaultValue: a.kind })}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:bg-destructive/10"
-                    onClick={() => setDeleteTarget(a)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setEditing(a);
+                        setEditTarget(a.target);
+                      }}
+                    >
+                      {t("action.edit")}
+                    </Button>
+                    <Button
+                      aria-label={t("action.delete")}
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteTarget(a)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
@@ -254,6 +292,47 @@ export function AliasListPage() {
         </CardContent>
       </Card>
 
+      {editing && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("page.aliases.edit_title")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={saveAlias} className="space-y-3">
+              <label className="grid gap-1">
+                {t("page.aliases.field_target")}
+                <Input
+                  value={editTarget}
+                  onChange={(e) => setEditTarget(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="flex gap-2">
+                <input
+                  type="checkbox"
+                  checked={editing.active}
+                  onChange={(e) =>
+                    setEditing({ ...editing, active: e.target.checked })
+                  }
+                />
+                {t("state.active")}
+              </label>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={isAdding}>
+                  {t("action.save")}
+                </Button>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setEditing(null)}
+                >
+                  {t("action.cancel")}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}

@@ -44,7 +44,7 @@ export function MailboxListPage() {
   const [resetId, setResetId] = useState<number | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
-  // Quota edit state (MB; 0 means unlimited)
+  // Quota edit state: MB, 0 inherits, and -1 requests an unlimited plan allocation.
   const [quotaId, setQuotaId] = useState<number | null>(null);
   const [quotaMB, setQuotaMB] = useState("");
 
@@ -92,11 +92,13 @@ export function MailboxListPage() {
     e.preventDefault();
     if (!quotaId) return;
     const value = Number(quotaMB);
-    if (!Number.isFinite(value) || value < 0) return;
+    if (!Number.isFinite(value) || value < -1) return;
     try {
       await request("/api/v1/mailboxes/" + quotaId + "/quota", {
         method: "POST",
-        body: { quota_bytes: Math.floor(value * 1024 * 1024) },
+        body: {
+          quota_bytes: value === -1 ? -1 : Math.floor(value * 1024 * 1024),
+        },
       });
       setQuotaId(null);
       setQuotaMB("");
@@ -304,7 +306,7 @@ export function MailboxListPage() {
             <form onSubmit={handleQuota} className="flex gap-3 max-w-sm">
               <Input
                 type="number"
-                min="0"
+                min="-1"
                 placeholder={t("page.mailboxes.quota_placeholder")}
                 value={quotaMB}
                 onChange={(e) => setQuotaMB(e.target.value)}
@@ -343,27 +345,31 @@ export function MailboxListPage() {
               mailboxes.map((m) => (
                 <div
                   key={m.id}
-                  className="p-4 flex items-center justify-between"
+                  className="p-4 flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 max-w-full items-center gap-3">
                     <Mail className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <div className="font-medium">{m.address}</div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                    <div className="min-w-0">
+                      <div className="font-medium break-all">{m.address}</div>
+                      <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2 mt-0.5">
                         <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 rounded">
-                          {m.status}
+                          {t(`status.${m.status}`)}
                         </span>
                         <span>
                           {t("page.mailboxes.quota")}:{" "}
                           {m.quota_bytes > 0
                             ? `${(m.quota_bytes / 1024 / 1024).toFixed(0)} MB`
-                            : t("page.mailboxes.unlimited")}
+                            : t(
+                                m.quota_bytes === -1
+                                  ? "page.mailboxes.unlimited"
+                                  : "page.settings.inherit",
+                              )}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex max-w-full flex-wrap items-center gap-2 lg:shrink-0">
                     <Button
                       size="sm"
                       variant="outline"
@@ -383,7 +389,7 @@ export function MailboxListPage() {
                         setQuotaMB(
                           m.quota_bytes > 0
                             ? String(Math.round(m.quota_bytes / 1024 / 1024))
-                            : "0",
+                            : String(m.quota_bytes),
                         );
                       }}
                     >
@@ -403,6 +409,7 @@ export function MailboxListPage() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      aria-label={t("action.delete")}
                       className="text-destructive hover:bg-destructive/10"
                       onClick={() => setDeleteTarget(m)}
                     >

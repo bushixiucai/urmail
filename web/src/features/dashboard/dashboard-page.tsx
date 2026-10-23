@@ -27,6 +27,10 @@ interface TenantCurrentData {
     mailboxes_used: number;
     mailboxes_limit: number;
     storage_bytes_limit: number;
+    storage_bytes_used?: number | null;
+    storage_bytes_allocated?: number;
+    storage_measured_at?: string | null;
+    storage_error?: string | null;
   };
   subscription: {
     plan_code: string;
@@ -67,9 +71,14 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {data?.usage?.domains_used ?? 0}
+              {data?.usage?.domains_used ?? "—"}
               <span className="text-sm font-normal text-muted-foreground ml-1">
-                / {data?.usage?.domains_limit ? data.usage.domains_limit : "∞"}
+                /{" "}
+                {data
+                  ? data.usage.domains_limit === -1
+                    ? "∞"
+                    : data.usage.domains_limit
+                  : "—"}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
@@ -88,12 +97,14 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {data?.usage?.mailboxes_used ?? 0}
+              {data?.usage?.mailboxes_used ?? "—"}
               <span className="text-sm font-normal text-muted-foreground ml-1">
                 /{" "}
-                {data?.usage?.mailboxes_limit
-                  ? data.usage.mailboxes_limit
-                  : "∞"}
+                {data
+                  ? data.usage.mailboxes_limit === -1
+                    ? "∞"
+                    : data.usage.mailboxes_limit
+                  : "—"}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
@@ -111,16 +122,47 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold uppercase">
-              {data?.subscription?.plan_code || "STANDARD"}
+              {data?.subscription?.plan_code || "—"}
             </div>
             <p className="text-xs text-emerald-600 font-medium mt-1">
               {t("page.dashboard.status")}:{" "}
-              {data?.subscription?.status || "active"}
+              {t(`status.${data?.subscription?.status}`, { defaultValue: "—" })}
             </p>
           </CardContent>
         </Card>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("page.usage.storage")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p>
+            {t("page.usage.used")}:{" "}
+            {data?.usage.storage_bytes_used == null
+              ? t("page.usage.unknown")
+              : data.usage.storage_bytes_used.toLocaleString()}{" "}
+            {t("page.usage.bytes")}
+          </p>
+          <p>
+            {t("page.usage.allocated")}:{" "}
+            {data?.usage.storage_bytes_allocated?.toLocaleString() ??
+              t("page.usage.unknown")}{" "}
+            /{" "}
+            {data?.usage.storage_bytes_limit === -1
+              ? "∞"
+              : (data?.usage.storage_bytes_limit?.toLocaleString() ?? "—")}{" "}
+            {t("page.usage.bytes")}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {t("page.usage.measured")}:{" "}
+            {data?.usage.storage_measured_at ?? t("page.usage.unknown")}
+          </p>
+          {data?.usage.storage_error && (
+            <p role="alert">{t("page.usage.unavailable")}</p>
+          )}
+        </CardContent>
+      </Card>
       {/* Quick Actions */}
       <Card>
         <CardHeader>

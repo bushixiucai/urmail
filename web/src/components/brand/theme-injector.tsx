@@ -107,6 +107,7 @@ export function ThemeInjector({ theme }: ThemeInjectorProps) {
       .join(" ");
 
     styleEl.textContent = `:root { ${cssRules} }`;
+    return () => styleEl?.remove();
   }, [theme]);
 
   return null;

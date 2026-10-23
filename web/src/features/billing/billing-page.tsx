@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Receipt } from "lucide-react";
-import { request } from "@/lib/api/client";
+import {
+  checkoutDestination,
+  downloadInvoice,
+  request,
+} from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { useI18nLocale } from "@/app/providers";
 import { Button } from "@/components/ui/button";
@@ -51,33 +55,60 @@ export function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
     void Promise.all([
       request<{ subscription: Subscription | null; plan: Plan | null }>(
         "/api/v1/billing/subscription",
+        { signal: controller.signal },
       ),
-      request<{ invoices: Invoice[] }>("/api/v1/billing/invoices"),
-      request<{ plans: Plan[] }>("/api/v1/billing/plans"),
+      request<{ invoices: Invoice[] }>("/api/v1/billing/invoices", {
+        signal: controller.signal,
+      }),
+      request<{ plans: Plan[] }>("/api/v1/billing/plans", {
+        signal: controller.signal,
+      }),
     ])
       .then(([s, i, p]) => {
+        if (controller.signal.aborted) return;
         setSubscription(s.subscription);
         setPlan(s.plan);
         setInvoices(i.invoices ?? []);
         setPlans(p.plans ?? []);
       })
-      .catch((err: unknown) => setNotice(errorMessage(err)));
+      .catch(
+        (err: unknown) =>
+          !controller.signal.aborted && setNotice(errorMessage(err)),
+      );
+    return () => controller.abort();
   }, [errorMessage]);
 
   const checkout = async (code: string) => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
-      await request("/api/v1/billing/checkout", {
+      const result = await request<{
+        checkout_url?: string;
+        order?: { order_no: string };
+      }>("/api/v1/billing/checkout", {
         method: "POST",
         body: { plan_code: code },
       });
-      setNotice(t("page.billing.order_created"));
+      if (result.checkout_url) {
+        window.location.assign(checkoutDestination(result.checkout_url));
+      } else {
+        setNotice(
+          t("page.billing.manual_order", {
+            number: result.order?.order_no ?? "",
+          }),
+        );
+      }
     } catch (err: unknown) {
       setNotice(errorMessage(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -105,7 +136,10 @@ export function BillingPage() {
                 {localized(plan.name, locale)}
               </div>
               <div className="text-sm text-muted-foreground">
-                {subscription?.status} · {plan.mailbox_limit}{" "}
+                {t(`status.${subscription?.status}`, {
+                  defaultValue: subscription?.status ?? "",
+                })}{" "}
+                · {plan.mailbox_limit === -1 ? "∞" : plan.mailbox_limit}{" "}
                 {t("page.billing.mailboxes")} · {plan.domain_limit}{" "}
                 {t("page.billing.domains")} · {plan.daily_send_limit}{" "}
                 {t("page.billing.daily_send")}
@@ -154,8 +188,21 @@ export function BillingPage() {
                       {invoice.currency}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {invoice.status}
+                      {t(`status.${invoice.status}`, {
+                        defaultValue: invoice.status,
+                      })}
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void downloadInvoice(invoice.id).catch((err: unknown) =>
+                          setNotice(errorMessage(err)),
+                        );
+                      }}
+                    >
+                      {t("page.billing.download_pdf")}
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -184,7 +231,11 @@ export function BillingPage() {
                   <span className="text-sm">
                     {(p.price_cents / 100).toFixed(2)} {p.currency}
                   </span>
-                  <Button size="sm" onClick={() => checkout(p.code)}>
+                  <Button
+                    size="sm"
+                    disabled={submitting}
+                    onClick={() => checkout(p.code)}
+                  >
                     {t("page.billing.select")}
                   </Button>
                 </div>
