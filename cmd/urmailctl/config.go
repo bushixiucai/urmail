@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/bushixiucai/urmail/internal/agent"
+	"github.com/bushixiucai/urmail/internal/agentd"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
@@ -35,6 +39,8 @@ func runConfig(ctx context.Context, args []string) error {
 	}
 
 	switch args[0] {
+	case "status":
+		return runConfigStatus(ctx, args[1:])
 	case "render":
 		return runConfigRender(ctx, args[1:])
 	default:
@@ -90,7 +96,7 @@ func runConfigRender(ctx context.Context, args []string) error {
 			return fmt.Errorf("open platform database: %w", err)
 		}
 		defer pool.Close()
-		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, store.New(pool.Pool), cfg.PublicIPv4, cfg.Nameservers)
+		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: store.New(pool.Pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
 		if err != nil {
 			return fmt.Errorf("assemble config context: %w", err)
 		}
@@ -101,8 +107,8 @@ func runConfigRender(ctx context.Context, args []string) error {
 				Hostname:       hostname,
 				PrimaryDomain:  cfg.PrimaryDomain,
 				StorageRoot:    storageRoot,
-				TLSCertFile:    filepath.Join(storageRoot, "ssl", hostname+".cert"),
-				TLSKeyFile:     filepath.Join(storageRoot, "ssl", hostname+".key"),
+				TLSCertFile:    filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
+				TLSKeyFile:     filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
 				PolicyEnabled:  cfg.PolicyEnabled,
 				ArchiveEnabled: cfg.ArchiveEnabled,
 			},
@@ -110,8 +116,8 @@ func runConfigRender(ctx context.Context, args []string) error {
 				Hostname:      hostname,
 				PrimaryDomain: cfg.PrimaryDomain,
 				StorageRoot:   storageRoot,
-				TLSCertFile:   filepath.Join(storageRoot, "ssl", hostname+".cert"),
-				TLSKeyFile:    filepath.Join(storageRoot, "ssl", hostname+".key"),
+				TLSCertFile:   filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
+				TLSKeyFile:    filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
 				DatabaseURL:   dovecotDB,
 			},
 			NSDNode: nsd.NodeConfig{
@@ -141,25 +147,11 @@ func runConfigRender(ctx context.Context, args []string) error {
 	sort.Strings(paths)
 
 	if outDir != "" {
+		if err := mail.ExportFiles(outDir, files); err != nil {
+			return fmt.Errorf("export configs: %w", err)
+		}
 		for _, p := range paths {
-			target := filepath.Join(outDir, p)
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
-			}
-			// CONTRACT: db.conf embeds the database URL (credentials) and is
-			// always persisted 0600, matching the dovecot render contract and
-			// the agentd file.write enforcement (M2 review P1-2).
-			mode := os.FileMode(0o644)
-			if filepath.Base(target) == "db.conf" {
-				mode = 0o600
-			}
-			if err := os.WriteFile(target, []byte(files[p]), mode); err != nil {
-				return fmt.Errorf("write %s: %w", target, err)
-			}
-			if err := os.Chmod(target, mode); err != nil {
-				return fmt.Errorf("chmod %s: %w", target, err)
-			}
-			fmt.Printf("wrote %s\n", target)
+			fmt.Printf("wrote %s\n", filepath.Join(outDir, p))
 		}
 		return nil
 	}
@@ -171,4 +163,48 @@ func runConfigRender(ctx context.Context, args []string) error {
 		fmt.Printf("=== %s ===\n", p)
 	}
 	return nil
+}
+
+func runConfigStatus(ctx context.Context, args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	wait := time.Duration(0)
+	if len(args) > 0 {
+		if len(args) != 2 || args[0] != "--wait" {
+			return fmt.Errorf("usage: config status [--wait duration]")
+		}
+		wait, err = time.ParseDuration(args[1])
+		if err != nil {
+			return err
+		}
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		resp, err := agent.NewClient(cfg.AgentSocket).Do(attemptCtx, agentd.OpConfigStatus, struct{}{})
+		cancel()
+		if err == nil {
+			var status agentd.ApplyStatus
+			if err = json.Unmarshal([]byte(resp.Stdout), &status); err == nil {
+				if status.Ready && !status.Degraded && status.Desired == status.Applied && status.Applied != "" {
+					fmt.Println(resp.Stdout)
+					return nil
+				}
+				if wait == 0 || time.Now().After(deadline) {
+					fmt.Println(resp.Stdout)
+					return fmt.Errorf("configuration is not ready: %s", status.Step)
+				}
+			}
+		}
+		if wait == 0 || time.Now().After(deadline) {
+			return fmt.Errorf("configuration readiness timed out: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
 }

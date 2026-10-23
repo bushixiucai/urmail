@@ -43,7 +43,7 @@ func runBootstrap(ctx context.Context, args []string) error {
 func runSetup(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	email := fs.String("email", "", "initial administrator email")
-	password := fs.String("password", "", "initial administrator password")
+	password := fs.String("password", os.Getenv("URMAIL_SETUP_PASSWORD"), "initial administrator password (or URMAIL_SETUP_PASSWORD)")
 	brandSlug := fs.String("brand", "default", "brand slug")
 	tenantSlug := fs.String("tenant", "default", "tenant slug")
 	tenantName := fs.String("tenant-name", "Default", "tenant display name")

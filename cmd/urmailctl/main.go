@@ -27,6 +27,8 @@ Usage:
   urmailctl config render [--dry-run] [--out-dir <dir>]
   urmailctl cert issue <domain>     obtain an ACME certificate via certbot
   urmailctl cert renew              renew ACME certificates and install them
+  urmailctl usage sync             collect canonical Dovecot storage usage
+  urmailctl data-check             report tenant reference/allocation problems
   urmailctl backup [--out-dir DIR]  dump PostgreSQL and config/certificate files
   urmailctl restore --dump FILE --force [--config FILE] [--database-url URL]
 `
@@ -60,6 +62,10 @@ func run(args []string) error {
 		return runConfig(ctx, args[1:])
 	case "cert":
 		return runCert(ctx, args[1:])
+	case "usage":
+		return runUsageSync(ctx, args[1:])
+	case "data-check":
+		return runDataCheck(ctx)
 	case "backup":
 		return runBackup(ctx, args[1:])
 	case "restore":
