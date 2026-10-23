@@ -77,8 +77,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	if storageRoot == "" {
 		storageRoot = "/var/mail"
 	}
-	certFile := filepath.Join(storageRoot, "ssl", hostname+".cert")
-	keyFile := filepath.Join(storageRoot, "ssl", hostname+".key")
+	certFile := filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert")
+	keyFile := filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key")
 
 	// 1. Postfix Snapshot
 	pfDomains := make([]postfix.Domain, 0, len(domains))
@@ -183,7 +183,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		dovecotDB = cfg.DatabaseURL
 	}
 
-	return &mail.ConfigContext{
+	result := &mail.ConfigContext{
 		PostfixNode: postfix.NodeConfig{
 			Hostname:       hostname,
 			PrimaryDomain:  cfg.PrimaryDomain,
@@ -222,7 +222,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		NginxSnap: nginx.Snapshot{Domains: nginxDomains},
 
 		DKIM: opendkim.Snapshot{Domains: dkimDomains},
-	}, nil
+	}
+	if err := reserveZoneSerials(ctx, q, result.NSDNode, &result.NSDSnap); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // ZoneSerial derives an NSD SOA serial from a timestamp in the YYYYMMDDNN

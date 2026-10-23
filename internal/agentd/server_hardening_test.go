@@ -32,8 +32,8 @@ func TestServerRecoversFromOperationPanic(t *testing.T) {
 	client := agent.NewClient(socket)
 
 	response, err := client.Do(ctx, "panic", nil)
-	if err != nil {
-		t.Fatalf("a panicking operation must produce a response, got transport error: %v", err)
+	if err == nil || response == nil {
+		t.Fatalf("operation failure must return response and error: %v", err)
 	}
 	if response.OK {
 		t.Fatal("a panicking operation must not report success")

@@ -18,7 +18,7 @@ type mockQuotaChecker struct {
 	err     error
 }
 
-func (m *mockQuotaChecker) CheckAndIncrement(ctx context.Context, mailbox string) (bool, error) {
+func (m *mockQuotaChecker) CheckAndIncrement(_ context.Context, _ string) (bool, error) {
 	return m.allowed, m.err
 }
 
@@ -112,7 +112,7 @@ func TestServerRoundTrip(t *testing.T) {
 	// Wait for socket to become ready
 	time.Sleep(50 * time.Millisecond)
 
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", sockPath)
 	if err != nil {
 		t.Fatalf("dial socket: %v", err)
 	}

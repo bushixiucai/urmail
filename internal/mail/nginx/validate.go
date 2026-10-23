@@ -29,7 +29,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if err := validation.ValidateAbsolutePath(node.StorageRoot); err != nil {
-		return fmt.Errorf("%w: storage root: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: storage root: %w", ErrInvalidConfig, err)
 	}
 	if err := validateBackend("backend HTTP", node.BackendHTTP); err != nil {
 		return err
@@ -56,10 +56,10 @@ func Validate(node NodeConfig, snap Snapshot) error {
 		}
 		seen[fqdn] = true
 		if err := validation.ValidateAbsolutePath(d.TLSCertFile); err != nil {
-			return fmt.Errorf("%w: domain %s TLS cert file: %v", ErrInvalidDomain, d.FQDN, err)
+			return fmt.Errorf("%w: domain %s TLS cert file: %w", ErrInvalidDomain, d.FQDN, err)
 		}
 		if err := validation.ValidateAbsolutePath(d.TLSKeyFile); err != nil {
-			return fmt.Errorf("%w: domain %s TLS key file: %v", ErrInvalidDomain, d.FQDN, err)
+			return fmt.Errorf("%w: domain %s TLS key file: %w", ErrInvalidDomain, d.FQDN, err)
 		}
 		size := d.ClientMaxBodySize
 		if size == "" {

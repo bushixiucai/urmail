@@ -10,8 +10,7 @@ import (
 const FileLocalConf = "conf.d/urmail/local.conf"
 
 func renderLocalConf(node NodeConfig, snap Snapshot) string {
-	storageRoot := strings.TrimRight(node.StorageRoot, "/")
-	acmeRoot := fmt.Sprintf("%s/ssl/acme-challenges", storageRoot)
+	acmeRoot := ACMEWebroot
 
 	// Sort domains alphabetically by FQDN for deterministic output
 	domains := make([]DomainConfig, len(snap.Domains))
@@ -34,9 +33,9 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		b.WriteString("server {\n")
 		b.WriteString("    listen 80;\n")
 		b.WriteString("    listen [::]:80;\n")
-		b.WriteString(fmt.Sprintf("    server_name %s;\n\n", fqdn))
+		fmt.Fprintf(&b, "    server_name %s;\n\n", fqdn)
 		b.WriteString("    location /.well-known/acme-challenge/ {\n")
-		b.WriteString(fmt.Sprintf("        root %s;\n", acmeRoot))
+		fmt.Fprintf(&b, "        root %s;\n", acmeRoot)
 		b.WriteString("    }\n\n")
 		b.WriteString("    location / {\n")
 		b.WriteString("        return 301 https://$host$request_uri;\n")
@@ -50,9 +49,9 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		// unavailable before 1.25.1, so it is deliberately not used here.
 		b.WriteString("    listen 443 ssl http2;\n")
 		b.WriteString("    listen [::]:443 ssl http2;\n")
-		b.WriteString(fmt.Sprintf("    server_name %s;\n\n", fqdn))
-		b.WriteString(fmt.Sprintf("    ssl_certificate %s;\n", d.TLSCertFile))
-		b.WriteString(fmt.Sprintf("    ssl_certificate_key %s;\n", d.TLSKeyFile))
+		fmt.Fprintf(&b, "    server_name %s;\n\n", fqdn)
+		fmt.Fprintf(&b, "    ssl_certificate %s;\n", d.TLSCertFile)
+		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", d.TLSKeyFile)
 		b.WriteString("    ssl_protocols TLSv1.2 TLSv1.3;\n")
 		b.WriteString("    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;\n")
 		b.WriteString("    ssl_prefer_server_ciphers off;\n")
@@ -62,11 +61,11 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		b.WriteString("    add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains; preload\" always;\n")
 		b.WriteString("    add_header X-Content-Type-Options nosniff always;\n")
 		b.WriteString("    add_header X-Frame-Options SAMEORIGIN always;\n\n")
-		b.WriteString(fmt.Sprintf("    client_max_body_size %s;\n\n", bodySize))
+		fmt.Fprintf(&b, "    client_max_body_size %s;\n\n", bodySize)
 
 		if d.EnableWebmail && node.WebmailBackend != "" {
 			b.WriteString("    location /mail {\n")
-			b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.WebmailBackend))
+			fmt.Fprintf(&b, "        proxy_pass %s;\n", node.WebmailBackend)
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 			b.WriteString("        proxy_set_header X-Forwarded-For $remote_addr;\n")
@@ -76,7 +75,7 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 
 		if node.ZPushBackend != "" {
 			b.WriteString("    location /Microsoft-Server-ActiveSync {\n")
-			b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.ZPushBackend))
+			fmt.Fprintf(&b, "        proxy_pass %s;\n", node.ZPushBackend)
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 			b.WriteString("        proxy_set_header X-Forwarded-For $remote_addr;\n")
@@ -86,7 +85,7 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 
 		b.WriteString("    location = /metrics { return 404; }\n\n")
 		b.WriteString("    location / {\n")
-		b.WriteString(fmt.Sprintf("        proxy_pass %s;\n", node.BackendHTTP))
+		fmt.Fprintf(&b, "        proxy_pass %s;\n", node.BackendHTTP)
 		b.WriteString("        proxy_set_header Host $host;\n")
 		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 		b.WriteString("        proxy_set_header X-Forwarded-For $remote_addr;\n")

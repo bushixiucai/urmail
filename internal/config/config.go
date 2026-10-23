@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +22,9 @@ const EnvFile = "/etc/urmail/urmaild.env"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
+	DevMode    bool
+	ACMEServer string
+	ACMERootCA string
 	// ListenAddr is the address the HTTP server binds to. It must stay on
 	// loopback: nginx terminates TLS and is the only thing that should be
 	// reachable from the network.
@@ -135,6 +139,9 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
+		DevMode:               parseBool(values["URMAIL_DEV_MODE"]),
+		ACMEServer:            values["URMAIL_ACME_SERVER"],
+		ACMERootCA:            values["URMAIL_ACME_ROOT_CA"],
 		ListenAddr:            values["URMAIL_LISTEN_ADDR"],
 		DatabaseURL:           values["URMAIL_DATABASE_URL"],
 		DatabaseURLPlatform:   values["URMAIL_DATABASE_URL_PLATFORM"],
@@ -214,6 +221,12 @@ func (c *Config) applyDefaults() {
 // falling back to a local socket would hide a misconfigured install behind a
 // confusing runtime error.
 func (c *Config) validate() error {
+	if c.DevMode {
+		host, _, err := net.SplitHostPort(c.ListenAddr)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return fmt.Errorf("development mode requires a loopback listener")
+		}
+	}
 	var missing []string
 	if c.DatabaseURL == "" {
 		missing = append(missing, "URMAIL_DATABASE_URL")
@@ -245,14 +258,14 @@ func loadEnvFile(path string) (map[string]string, error) {
 	if path == "" {
 		path = EnvFile
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 G703 -- operator-selected configuration file, never request data.
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return values, nil
 		}
 		return nil, fmt.Errorf("open config file %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

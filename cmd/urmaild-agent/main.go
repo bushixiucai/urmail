@@ -25,6 +25,15 @@ func main() {
 }
 
 func run() error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("privileged agent must run as root")
+	}
+	if os.Getenv("URMAIL_ENV_FILE") == "" {
+		_ = os.Setenv("URMAIL_ENV_FILE", "/etc/urmail/agent.env")
+	}
+	if err := agentd.ValidateRootEnvironment(os.Getenv("URMAIL_ENV_FILE")); err != nil {
+		return err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -35,11 +44,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	registry := agentd.NewRegistry()
-	registry.Register("file.write", agentd.WriteFile)
-	registry.Register("systemctl.restart", agentd.RestartUnit)
-	registry.Register("postconf.set", agentd.PostconfSet)
-	registry.Register(agentd.OpPostmap, agentd.Postmap)
+	manager, err := agentd.NewApplyManager(cfg)
+	if err != nil {
+		return err
+	}
+	defer manager.Close()
+	stopAccessWatcher := manager.StartMailAccessWatcher(ctx, logger)
+	defer stopAccessWatcher()
+	registry := agentd.NewProductionRegistry(manager)
 
 	server := agentd.NewServer(cfg.AgentSocket, registry, logger)
 	if err := server.Listen(ctx); err != nil {

@@ -14,7 +14,7 @@ type countingQuota struct {
 	lastIdent string
 }
 
-func (c *countingQuota) CheckAndIncrement(ctx context.Context, mailboxAddress string) (bool, error) {
+func (c *countingQuota) CheckAndIncrement(_ context.Context, mailboxAddress string) (bool, error) {
 	c.calls++
 	c.lastIdent = mailboxAddress
 	return c.allowed, c.err
@@ -110,7 +110,7 @@ func TestEvaluateQuotaExceededAndDeferred(t *testing.T) {
 
 func TestSeenCacheCapacityAndTTL(t *testing.T) {
 	// Exercise through the exported Service: use a big number of keys and
-	// confirm capacity bound via repeated behaviour is deterministic. The
+	// confirm capacity bound via repeated behavior is deterministic. The
 	// cache itself is tested indirectly here (standard library only).
 	c := policy.NewSeenCacheForTest(2, 60_000_000_000) // 1 minute in ns
 	if c.Seen("a") {
@@ -123,5 +123,24 @@ func TestSeenCacheCapacityAndTTL(t *testing.T) {
 	c.Seen("c") // evicts "a" (FIFO, capacity 2)
 	if c.Seen("a") {
 		t.Fatal("a must have been evicted")
+	}
+}
+
+type fixedInbound struct {
+	allowed bool
+	err     error
+}
+
+func (f fixedInbound) CheckRecipient(_ context.Context, _ string) (bool, error) {
+	return f.allowed, f.err
+}
+func TestRecipientSubscriptionCheckedBeforeAuthenticatedBypass(t *testing.T) {
+	for _, identity := range []string{"", "sender@example.test"} {
+		svc := policy.NewService()
+		svc.InboundChecker = fixedInbound{allowed: false}
+		decision := svc.Evaluate(context.Background(), &policy.Request{SASLUsername: identity, Recipient: "expired@example.test", Attrs: map[string]string{"protocol_state": "RCPT"}})
+		if decision.Action != policy.ActionDefer {
+			t.Fatalf("expired recipient allowed for identity %q: %+v", identity, decision)
+		}
 	}
 }

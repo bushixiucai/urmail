@@ -1,3 +1,4 @@
+// Package nginx generates canonical tenant reverse proxy configuration.
 package nginx
 
 // NodeConfig holds global node web server options.
@@ -22,3 +23,6 @@ type DomainConfig struct {
 type Snapshot struct {
 	Domains []DomainConfig
 }
+
+// ACMEWebroot is root-owned and publicly traversable by nginx workers.
+const ACMEWebroot = "/var/lib/urmail-acme"

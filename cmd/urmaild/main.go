@@ -11,8 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sort"
-	"strings"
 	"syscall"
 	"time"
 
@@ -22,7 +20,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
-	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
@@ -79,7 +76,7 @@ func run() error {
 
 	messages, err := i18n.NewStore()
 	if err != nil {
-		return fmt.Errorf("load message catalogue: %w", err)
+		return fmt.Errorf("load message catalog: %w", err)
 	}
 
 	var dnsProvider dnsprovider.Provider
@@ -125,6 +122,7 @@ func run() error {
 	// authenticated sender is still within their plan's daily send limit.
 	if cfg.PolicyEnabled {
 		svc := policy.NewService()
+		svc.InboundChecker = &policy.DBInboundChecker{Store: store.New(platformPool.Pool)}
 		svc.RateLimiter = policy.NewRateLimiter(300, time.Minute)
 		svc.QuotaChecker = policy.NewAtomicDBQuotaChecker(
 			store.New(platformPool.Pool), platformPool.Pool, 0,
@@ -141,18 +139,31 @@ func run() error {
 	// The reconcile pipeline re-renders all configuration files whenever a
 	// domain or mailbox changes and pushes them through the privileged
 	// agent, followed by the affected service reloads.
-	reconcilePipeline := reconcile.NewPipeline(cfg, store.New(platformPool.Pool), cfg.PublicIPv4, cfg.Nameservers).WithLogger(logger)
-	reconcilePipeline.WithCertificateEnsurer(func(ctx context.Context) error {
-		return ensureDomainCertificates(ctx, store.New(platformPool.Pool), cfg.MasterKeyPath, logger)
-	})
+	reconcilePipeline := reconcile.NewPipeline(cfg, &reconcile.VersionedStore{StoreQuerier: store.New(platformPool.Pool), DB: platformPool.Pool}, cfg.PublicIPv4, cfg.Nameservers).WithLogger(logger)
 	go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
-		return pushRenderedConfigs(ctx, cfg.AgentSocket, files, logger)
+		if cfg.DevMode {
+			logger.Info("development configuration rendered without privileged apply", zap.Int("files", len(files)))
+			return nil
+		}
+		snapshot := reconcilePipeline.CurrentSnapshot()
+		if snapshot == nil {
+			return fmt.Errorf("configuration snapshot unavailable")
+		}
+		_, err := agent.NewClient(cfg.AgentSocket).Do(ctx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM})
+		return err
 	})
+
 	// Render once on startup so a fresh install does not keep the stock
 	// distribution configuration until the first tenant write.
 	reconcilePipeline.Trigger()
 
+	var recallClient handlers.RecallExpunger
+	if !cfg.DevMode {
+		recallClient = agent.NewClient(cfg.AgentSocket)
+	}
 	engine := api.New(api.Options{
+		Recall:       recallClient,
+		DevMode:      cfg.DevMode,
 		Logger:       logger,
 		AppPool:      appPool,
 		PlatformPool: platformPool,
@@ -201,27 +212,8 @@ func run() error {
 	return nil
 }
 
-// ensureDomainCertificates creates a self-signed placeholder for every active
-// domain so nginx has a valid certificate while ACME is pending. ACME
-// certificates at the same paths are never overwritten.
-func ensureDomainCertificates(ctx context.Context, q *store.Queries, masterKeyPath string, logger *zap.Logger) error {
-	domains, err := q.PlatformListDomains(ctx)
-	if err != nil {
-		return fmt.Errorf("list domains for certificates: %w", err)
-	}
-	for _, d := range domains {
-		if d.Status != "active" {
-			continue
-		}
-		if _, _, err := certs.EnsureDomainCertificate(masterKeyPath, d.Fqdn); err != nil {
-			logger.Warn("ensure domain certificate", zap.String("domain", d.Fqdn), zap.Error(err))
-		}
-	}
-	return nil
-}
-
 // purgeExpiredSessions deletes expired sessions once an hour until ctx is
-// cancelled.
+// canceled.
 func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger) {
 	queries := store.New(pool.Pool)
 	ticker := time.NewTicker(time.Hour)
@@ -236,52 +228,4 @@ func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger
 			}
 		}
 	}
-}
-
-// reloadUnits are the services affected by rendered configuration files.
-// dovecot must be up before postfix: smtpd needs the SASL auth socket at
-// startup, otherwise submission fails with "no SASL authentication mechanisms".
-var reloadUnits = []string{"opendkim", "dovecot", "postfix", "nginx", "nsd"}
-
-// pushRenderedConfigs writes every rendered file through the privileged
-// agent and restarts the mail services. Any failure aborts the push so the
-// next trigger retries the whole cycle; renders are deterministic.
-func pushRenderedConfigs(ctx context.Context, agentSocket string, files map[string]string, logger *zap.Logger) error {
-	client := agent.NewClient(agentSocket)
-
-	paths := make([]string, 0, len(files))
-	for path := range files {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-
-	for _, path := range paths {
-		if _, err := client.Do(ctx, "file.write", agentd.WriteFileParams{
-			Path:    path,
-			Content: files[path],
-		}); err != nil {
-			return fmt.Errorf("write %s via agent: %w", path, err)
-		}
-	}
-
-	// Postfix hash: maps are not usable until postmap has built the .db file.
-	// Compile every map after all files are in place and before restarting
-	// Postfix, so a failed map build never leaves the daemon running with a
-	// half-written table.
-	for _, path := range paths {
-		if !strings.HasSuffix(path, ".map") {
-			continue
-		}
-		if _, err := client.Do(ctx, agentd.OpPostmap, agentd.PostmapParams{Path: path}); err != nil {
-			return fmt.Errorf("postmap %s via agent: %w", path, err)
-		}
-	}
-
-	for _, unit := range reloadUnits {
-		if _, err := client.Do(ctx, "systemctl.restart", agentd.RestartUnitParams{Unit: unit}); err != nil {
-			return fmt.Errorf("restart %s via agent: %w", unit, err)
-		}
-	}
-	logger.Info("rendered configuration pushed", zap.Int("files", len(files)))
-	return nil
 }

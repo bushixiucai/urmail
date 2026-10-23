@@ -70,11 +70,11 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []stri
 	// The allowed root is trusted and normally already exists. Create it when
 	// the installer has not done so yet, then work only with its resolved form.
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", fmt.Errorf("%w: create allowed root %s: %v", ErrFailed, root, err)
+		return "", fmt.Errorf("%w: create allowed root %s: %w", ErrFailed, root, err)
 	}
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve allowed root %s: %v", ErrFailed, root, err)
+		return "", fmt.Errorf("%w: resolve allowed root %s: %w", ErrFailed, root, err)
 	}
 
 	resolvedTarget := filepath.Join(resolvedRoot, rel)
@@ -88,7 +88,7 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []stri
 	// even when a path component existed before the lexical check ran.
 	resolvedDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve parent directory %s: %v", ErrFailed, dir, err)
+		return "", fmt.Errorf("%w: resolve parent directory %s: %w", ErrFailed, dir, err)
 	}
 	if !pathInside(resolvedDir, resolvedRoot) {
 		return "", fmt.Errorf("%w: parent directory %s resolves outside the allowed root %s", ErrRejected, dir, resolvedRoot)
@@ -99,12 +99,12 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []stri
 			return "", fmt.Errorf("%w: destination %s is a directory", ErrRejected, cleaned)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("%w: inspect destination %s: %v", ErrFailed, cleaned, err)
+		return "", fmt.Errorf("%w: inspect destination %s: %w", ErrFailed, cleaned, err)
 	}
 
 	tmp, err := os.CreateTemp(resolvedDir, ".urmail-write-*")
 	if err != nil {
-		return "", fmt.Errorf("%w: create temporary file in %s: %v", ErrFailed, resolvedDir, err)
+		return "", fmt.Errorf("%w: create temporary file in %s: %w", ErrFailed, resolvedDir, err)
 	}
 	tmpName := tmp.Name()
 	cleanup := true
@@ -116,27 +116,27 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []stri
 	}()
 
 	if _, err := tmp.Write(content); err != nil {
-		return "", fmt.Errorf("%w: write temporary file: %v", ErrFailed, err)
+		return "", fmt.Errorf("%w: write temporary file: %w", ErrFailed, err)
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		return "", fmt.Errorf("%w: set mode on temporary file: %v", ErrFailed, err)
+		return "", fmt.Errorf("%w: set mode on temporary file: %w", ErrFailed, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		return "", fmt.Errorf("%w: sync temporary file: %v", ErrFailed, err)
+		return "", fmt.Errorf("%w: sync temporary file: %w", ErrFailed, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("%w: close temporary file: %v", ErrFailed, err)
+		return "", fmt.Errorf("%w: close temporary file: %w", ErrFailed, err)
 	}
 
 	// rename(2) never follows a symlink in the final component: an attacker
 	// supplied symlink at the destination is replaced by the new file.
 	if err := os.Rename(tmpName, resolvedTarget); err != nil {
-		return "", fmt.Errorf("%w: replace %s: %v", ErrFailed, cleaned, err)
+		return "", fmt.Errorf("%w: replace %s: %w", ErrFailed, cleaned, err)
 	}
 	cleanup = false
 
 	if err := syncDir(resolvedDir); err != nil {
-		return "", fmt.Errorf("%w: sync directory %s: %v", ErrFailed, resolvedDir, err)
+		return "", fmt.Errorf("%w: sync directory %s: %w", ErrFailed, resolvedDir, err)
 	}
 	return cleaned, nil
 }
@@ -147,7 +147,7 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []stri
 func ensureDirNoSymlinks(root, dir string) error {
 	rel, err := filepath.Rel(root, dir)
 	if err != nil {
-		return fmt.Errorf("%w: cannot make %s relative to %s: %v", ErrRejected, dir, root, err)
+		return fmt.Errorf("%w: cannot make %s relative to %s: %w", ErrRejected, dir, root, err)
 	}
 	if rel == "." {
 		return nil
@@ -166,12 +166,12 @@ func ensureDirNoSymlinks(root, dir string) error {
 		info, err := os.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
 			if err := os.Mkdir(current, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
-				return fmt.Errorf("%w: create directory %s: %v", ErrFailed, current, err)
+				return fmt.Errorf("%w: create directory %s: %w", ErrFailed, current, err)
 			}
 			info, err = os.Lstat(current)
 		}
 		if err != nil {
-			return fmt.Errorf("%w: inspect directory %s: %v", ErrRejected, current, err)
+			return fmt.Errorf("%w: inspect directory %s: %w", ErrRejected, current, err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("%w: intermediate path component %s is a symlink", ErrRejected, current)
@@ -193,11 +193,11 @@ func pathInside(path, root string) bool {
 // supported on every platform (Darwin returns EINVAL); those errors are
 // treated as best effort there, but a real I/O error is reported.
 func syncDir(dir string) error {
-	handle, err := os.Open(dir)
+	handle, err := os.Open(dir) // #nosec G304 -- fsync the previously validated managed parent directory.
 	if err != nil {
 		return err
 	}
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 
 	if err := handle.Sync(); err != nil {
 		if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.ENOSYS) {

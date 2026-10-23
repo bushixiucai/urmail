@@ -25,6 +25,7 @@ type Request struct {
 // Action represents a policy decision.
 type Action string
 
+// Postfix policy protocol actions.
 const (
 	ActionDunno  Action = "DUNNO"
 	ActionReject Action = "REJECT"
@@ -45,7 +46,7 @@ func (d Decision) String() string {
 }
 
 // ReadRequest parses a Postfix policy request from a reader.
-// Returns (nil, nil) if EOF is reached before a new request starts.
+// Returns io.EOF if the stream ends before a request starts.
 func ReadRequest(r *bufio.Reader) (*Request, error) {
 	attrs := make(map[string]string)
 	hasAttrs := false
@@ -59,7 +60,7 @@ func ReadRequest(r *bufio.Reader) (*Request, error) {
 		if trimmed == "" {
 			// Empty line marks end of request
 			if !hasAttrs && err == io.EOF {
-				return nil, nil
+				return nil, io.EOF
 			}
 			break
 		}
@@ -74,7 +75,7 @@ func ReadRequest(r *bufio.Reader) (*Request, error) {
 	}
 
 	if !hasAttrs {
-		return nil, nil
+		return nil, io.EOF
 	}
 
 	req := &Request{

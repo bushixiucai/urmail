@@ -50,7 +50,7 @@ func (p *peerPolicy) allows(uid uint32) bool {
 // clear warning, but the agent's own UID stays allowed: the daemon remains
 // reachable by root (and by the test user) while the account is repaired.
 func loadPeerPolicy() (*peerPolicy, error) {
-	current := uint32(os.Geteuid())
+	current := uint32(os.Geteuid()) // #nosec G115 -- Linux/Darwin UID values use uint32.
 
 	account, err := user.Lookup("mailinabox")
 	if err != nil {

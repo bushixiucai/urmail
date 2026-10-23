@@ -1,3 +1,4 @@
+// Package dovecot generates canonical Dovecot configuration.
 package dovecot
 
 // NodeConfig holds the node-level configuration required for Dovecot generation.

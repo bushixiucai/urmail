@@ -1,3 +1,4 @@
+// Package postfix renders canonical Postfix configuration.
 package postfix
 
 import "errors"

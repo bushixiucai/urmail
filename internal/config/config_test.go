@@ -148,3 +148,16 @@ func TestLoadMailConfig(t *testing.T) {
 		t.Errorf("expected ArchiveEnabled true, got false")
 	}
 }
+
+func TestDevelopmentModeRequiresLoopback(t *testing.T) {
+	for _, addr := range []string{"0.0.0.0:8080", "[::]:8080", "example.com:8080"} {
+		cfg := Config{DevMode: true, ListenAddr: addr, DatabaseURL: "app", DatabaseURLPlatform: "platform"}
+		if err := cfg.validate(); err == nil {
+			t.Fatalf("accepted public development listener %s", addr)
+		}
+	}
+	cfg := Config{DevMode: true, ListenAddr: "127.0.0.1:8080", DatabaseURL: "app", DatabaseURLPlatform: "platform"}
+	if err := cfg.validate(); err != nil {
+		t.Fatal(err)
+	}
+}

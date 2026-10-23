@@ -7,7 +7,7 @@ import (
 )
 
 func renderMainCF(node NodeConfig, snap Snapshot) string {
-	var domains []string
+	domains := make([]string, 0, len(snap.Domains))
 	for _, d := range snap.Domains {
 		domains = append(domains, strings.ToLower(d.FQDN))
 	}
@@ -21,8 +21,8 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("compatibility_level = 3.6\n\n")
 
 	b.WriteString("# Network & Host identity\n")
-	b.WriteString(fmt.Sprintf("myhostname = %s\n", node.Hostname))
-	b.WriteString(fmt.Sprintf("mydomain = %s\n", node.PrimaryDomain))
+	fmt.Fprintf(&b, "myhostname = %s\n", node.Hostname)
+	fmt.Fprintf(&b, "mydomain = %s\n", node.PrimaryDomain)
 	b.WriteString("myorigin = $mydomain\n")
 	b.WriteString("mydestination =\n")
 	b.WriteString("inet_interfaces = all\n")
@@ -35,8 +35,8 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("recipient_delimiter = +\n\n")
 
 	b.WriteString("# Virtual domains, mailboxes and aliases\n")
-	b.WriteString(fmt.Sprintf("virtual_mailbox_domains = %s\n", virtualMailboxDomains))
-	b.WriteString(fmt.Sprintf("virtual_mailbox_base = %s/mail/mailboxes\n", strings.TrimRight(node.StorageRoot, "/")))
+	fmt.Fprintf(&b, "virtual_mailbox_domains = %s\n", virtualMailboxDomains)
+	fmt.Fprintf(&b, "virtual_mailbox_base = %s/mail/mailboxes\n", strings.TrimRight(node.StorageRoot, "/"))
 	b.WriteString("virtual_mailbox_maps = hash:/etc/postfix/urmail/virtual_mailbox.map\n")
 	b.WriteString("virtual_alias_maps = hash:/etc/postfix/urmail/virtual_alias.map\n")
 	b.WriteString("virtual_transport = lmtp:unix:private/dovecot-lmtp\n")
@@ -60,24 +60,26 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("# Sender login restrictions\n")
 	b.WriteString("smtpd_sender_login_maps = hash:/etc/postfix/urmail/sender_login.map\n")
 	b.WriteString("smtpd_sender_restrictions =\n")
-	if node.PolicyEnabled {
-		// Sender restrictions run for authenticated submission and are not
-		// skipped by the relay-restriction permit path. Unauthenticated
-		// inbound returns DUNNO from the policy service.
-		b.WriteString(fmt.Sprintf("    check_policy_service unix:%s\n", socket))
-	}
+	b.WriteString("    reject_authenticated_sender_login_mismatch\n")
+
 	b.WriteString("    permit_mynetworks\n")
 	b.WriteString("    reject_sender_login_mismatch\n\n")
 
+	if node.PolicyEnabled {
+		fmt.Fprintf(&b, "smtpd_data_restrictions = check_policy_service unix:%s\n\n", socket)
+	}
 	b.WriteString("# Recipient & Relay restrictions\n")
 	b.WriteString("smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination\n")
 	b.WriteString("smtpd_recipient_restrictions =\n")
+	if node.PolicyEnabled {
+		fmt.Fprintf(&b, "    check_policy_service unix:%s\n", socket)
+	}
 	b.WriteString("    permit_sasl_authenticated\n")
 	b.WriteString("    permit_mynetworks\n")
 	b.WriteString("    reject_unauth_destination\n")
 	b.WriteString("    reject_non_fqdn_recipient\n")
-	// Policy is attached to the submission/smtps services in master.cf, not
-	// to port 25. Inbound mail must never be evaluated as a mailbox quota.
+	// RCPT policy checks inbound subscription eligibility. Authenticated daily
+	// accounting is evaluated once at DATA on submission/smtps (master.cf).
 	b.WriteString("\n")
 
 	b.WriteString("# TLS Settings\n")
@@ -85,8 +87,8 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("smtpd_tls_mandatory_protocols = >=TLSv1.2\n")
 	b.WriteString("smtpd_tls_protocols = >=TLSv1.2\n")
 	b.WriteString("smtpd_tls_exclude_ciphers = aNULL, RC4, 3DES\n")
-	b.WriteString(fmt.Sprintf("smtpd_tls_cert_file = %s\n", node.TLSCertFile))
-	b.WriteString(fmt.Sprintf("smtpd_tls_key_file = %s\n", node.TLSKeyFile))
+	fmt.Fprintf(&b, "smtpd_tls_cert_file = %s\n", node.TLSCertFile)
+	fmt.Fprintf(&b, "smtpd_tls_key_file = %s\n", node.TLSKeyFile)
 	b.WriteString("smtp_tls_security_level = may\n")
 	b.WriteString("smtp_tls_loglevel = 1\n")
 

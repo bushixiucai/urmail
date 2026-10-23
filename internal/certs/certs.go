@@ -1,3 +1,4 @@
+// Package certs provides key and certificate primitives.
 package certs
 
 import (
@@ -22,7 +23,7 @@ const KeySize = 2048
 // loadMasterKey reads and parses the key file. It tightens the file mode to
 // 0600 when the key exists but is readable by group/other.
 func loadMasterKey(keyPath string) (*rsa.PrivateKey, error) {
-	data, err := os.ReadFile(keyPath)
+	data, err := os.ReadFile(keyPath) // #nosec G304 -- key path is supplied by trusted root configuration.
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +70,7 @@ func LoadOrCreateMasterKey(keyPath string) (*rsa.PrivateKey, error) {
 	}
 
 	// Claim the destination atomically.
-	claim, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	claim, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- trusted operator-selected master key path.
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			// Another process is creating the key right now: load theirs.
@@ -112,15 +113,15 @@ func writeKeyAtomic(keyPath string, data []byte) error {
 	}()
 
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("chmod temp key file: %w", err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("write temp key file: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("fsync temp key file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
@@ -131,7 +132,7 @@ func writeKeyAtomic(keyPath string, data []byte) error {
 		return fmt.Errorf("rename master key into place: %w", err)
 	}
 
-	if d, err := os.Open(dir); err == nil {
+	if d, err := os.Open(dir); err == nil { // #nosec G304 -- fsync the trusted master key directory.
 		_ = d.Sync()
 		_ = d.Close()
 	}
@@ -164,7 +165,7 @@ var errIncompleteKey = errors.New("master key file incomplete")
 // installer deliberately makes it group-readable by urmaild, so the
 // tightening behavior of LoadOrCreateMasterKey is not appropriate here.
 func LoadMasterKey(keyPath string) (*rsa.PrivateKey, error) {
-	data, err := os.ReadFile(keyPath)
+	data, err := os.ReadFile(keyPath) // #nosec G304 -- key path is supplied by trusted root configuration.
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +178,7 @@ func LoadMasterKey(keyPath string) (*rsa.PrivateKey, error) {
 
 // DomainCertDir is where urmaild keeps self-signed/ACME certificates for
 // tenant domains. It is under the service's ReadWritePaths.
-const DomainCertDir = "/var/lib/urmail/certs/domains"
+const DomainCertDir = "/var/lib/urmail-agent/certs/domains"
 
 // EnsureDomainCertificate creates a self-signed certificate/key for fqdn if
 // neither exists. It never overwrites an ACME certificate.

@@ -70,8 +70,8 @@ func Generate(node NodeConfig, snap Snapshot) (map[string]string, error) {
 		selector := strings.ToLower(d.Selector)
 		keyPath := KeyPath(domain, selector)
 		identity := selector + "._domainkey." + domain
-		keyTable.WriteString(fmt.Sprintf("%s %s:%s:%s\n", identity, domain, selector, keyPath))
-		signingTable.WriteString(fmt.Sprintf("*@%s %s\n", domain, identity))
+		fmt.Fprintf(&keyTable, "%s %s:%s:%s\n", identity, domain, selector, keyPath)
+		fmt.Fprintf(&signingTable, "*@%s %s\n", domain, identity)
 		result[keyPath] = d.PrivateKey
 	}
 	result[KeyTablePath] = keyTable.String()
@@ -108,11 +108,11 @@ func validate(snap Snapshot) error {
 	seen := make(map[string]struct{}, len(snap.Domains))
 	for _, d := range snap.Domains {
 		domain := strings.ToLower(strings.TrimSpace(d.Domain))
-		if !validation.IsValidHostname(domain) {
+		if d.Domain != strings.TrimSpace(d.Domain) || !validation.IsValidHostname(domain) {
 			return fmt.Errorf("opendkim: invalid domain %q", d.Domain)
 		}
 		selector := strings.ToLower(strings.TrimSpace(d.Selector))
-		if !validSelector(selector) {
+		if d.Selector != strings.TrimSpace(d.Selector) || !validSelector(selector) {
 			return fmt.Errorf("opendkim: invalid selector %q", d.Selector)
 		}
 		if strings.TrimSpace(d.PrivateKey) == "" {

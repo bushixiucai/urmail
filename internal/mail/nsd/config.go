@@ -1,3 +1,4 @@
+// Package nsd renders canonical authoritative DNS zones.
 package nsd
 
 // NodeConfig holds platform DNS node parameters.

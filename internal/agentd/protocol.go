@@ -12,7 +12,7 @@ import (
 	"fmt"
 )
 
-// Protocol version. The agent refuses requests with an unknown version so
+// ProtocolVersion identifies the supported protocol version. The agent refuses requests with an unknown version so
 // that a newer urmaild cannot silently drive an older agent into an
 // unexpected operation.
 const ProtocolVersion = 1
@@ -124,4 +124,15 @@ func (r *Registry) Execute(req Request) Response {
 	resp.Stdout = stdout
 	resp.Stderr = stderr
 	return resp
+}
+
+// NewProductionRegistry exposes only typed, root-controlled capabilities.
+func NewProductionRegistry(manager *ApplyManager) *Registry {
+	registry := NewRegistry()
+	registry.Register(OpMailboxExpunge, manager.ExpungeRecall)
+	registry.Register(OpConfigApply, manager.Apply)
+	registry.Register(OpConfigStatus, manager.Status)
+	registry.Register(OpCertificateIssue, manager.IssueCertificate)
+	registry.Register(OpCertificateRenew, manager.RenewCertificates)
+	return registry
 }

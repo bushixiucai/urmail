@@ -9,22 +9,22 @@ import (
 // standard library only. It answers "was this key recorded within the TTL?"
 // and evicts oldest-inserted entries once capacity is reached.
 type seenCache struct {
-	mu      sync.Mutex
-	max     int
-	ttl     time.Duration
-	entries map[string]time.Time
-	order   []string // insertion order, for FIFO eviction
+	mu       sync.Mutex
+	capacity int
+	ttl      time.Duration
+	entries  map[string]time.Time
+	order    []string // insertion order, for FIFO eviction
 }
 
-func newSeenCache(max int, ttl time.Duration) *seenCache {
-	if max <= 0 {
-		max = 1
+func newSeenCache(capacity int, ttl time.Duration) *seenCache {
+	if capacity <= 0 {
+		capacity = 1
 	}
 	return &seenCache{
-		max:     max,
-		ttl:     ttl,
-		entries: make(map[string]time.Time, max),
-		order:   make([]string, 0, max),
+		capacity: capacity,
+		ttl:      ttl,
+		entries:  make(map[string]time.Time, capacity),
+		order:    make([]string, 0, capacity),
 	}
 }
 
@@ -62,8 +62,8 @@ type SeenSet interface {
 }
 
 // NewSeenCacheForTest exposes the dedup cache for package-external tests.
-func NewSeenCacheForTest(max int, ttl time.Duration) SeenSet {
-	return newSeenCache(max, ttl)
+func NewSeenCacheForTest(capacity int, ttl time.Duration) SeenSet {
+	return newSeenCache(capacity, ttl)
 }
 
 // Forget removes a key so the next recipient of the same message is
@@ -80,7 +80,7 @@ func (c *seenCache) record(key string, now time.Time) {
 	}
 	c.entries[key] = now
 
-	for len(c.order) > c.max {
+	for len(c.order) > c.capacity {
 		oldest := c.order[0]
 		c.order = c.order[1:]
 		delete(c.entries, oldest)

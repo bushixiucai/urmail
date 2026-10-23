@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Whitelists for the M1 operations. Every value that reaches the filesystem
@@ -22,7 +24,7 @@ var allowedWriteRoots = []string{
 	// urmail/ subdirectory. The agent is the only writer of either.
 	"/etc/postfix",
 	"/etc/postfix/urmail",
-	"/etc/dovecot/conf.d/urmail",
+	"/etc/dovecot/conf.d",
 	"/etc/nginx/conf.d/urmail",
 	"/etc/nsd/nsd.conf.d",
 	"/etc/nsd/zones",
@@ -33,12 +35,11 @@ var allowedWriteRoots = []string{
 
 // allowedUnits lists the systemd units the agent may restart.
 var allowedUnits = map[string]struct{}{
-	"postfix":       {},
-	"dovecot":       {},
-	"nginx":         {},
-	"nsd":           {},
-	"urmaild":       {},
-	"urmaild-agent": {},
+	"postfix":  {},
+	"dovecot":  {},
+	"nginx":    {},
+	"nsd":      {},
+	"opendkim": {},
 }
 
 // postfixKeyPattern matches a Postfix configuration parameter name.
@@ -56,7 +57,7 @@ type WriteFileParams struct {
 }
 
 // maxWriteContentBytes bounds a single file.write payload. The server already
-// bounds the JSON request line; this is defence in depth for direct callers.
+// bounds the JSON request line; this is defense in depth for direct callers.
 const maxWriteContentBytes = 8 << 20
 
 // WriteFile writes a file inside an allowed directory.
@@ -67,7 +68,7 @@ const maxWriteContentBytes = 8 << 20
 func WriteFile(params json.RawMessage) (string, string, error) {
 	var args WriteFileParams
 	if err := json.Unmarshal(params, &args); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return "", "", fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	if len(args.Content) > maxWriteContentBytes {
 		return "", "", fmt.Errorf("%w: content is larger than %d bytes", ErrRejected, maxWriteContentBytes)
@@ -82,7 +83,7 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 	if args.Mode != "" {
 		parsed, err := parseOctal(args.Mode)
 		if err != nil {
-			return "", "", fmt.Errorf("%w: %v", ErrRejected, err)
+			return "", "", fmt.Errorf("%w: %w", ErrRejected, err)
 		}
 		mode = parsed
 	}
@@ -113,7 +114,7 @@ func WriteFile(params json.RawMessage) (string, string, error) {
 			return "", "", err
 		}
 		if err := os.Chmod(dir, 0o750); err != nil {
-			return "", "", fmt.Errorf("%w: chmod %s: %v", ErrFailed, dir, err)
+			return "", "", fmt.Errorf("%w: chmod %s: %w", ErrFailed, dir, err)
 		}
 	}
 	return written, "", nil
@@ -131,10 +132,10 @@ func chownGroup(path, groupName string) error {
 	}
 	gid, err := strconv.Atoi(group.Gid)
 	if err != nil {
-		return fmt.Errorf("%w: parse %s gid %q: %v", ErrFailed, groupName, group.Gid, err)
+		return fmt.Errorf("%w: parse %s gid %q: %w", ErrFailed, groupName, group.Gid, err)
 	}
 	if err := os.Chown(path, 0, gid); err != nil {
-		return fmt.Errorf("%w: chown %s to root:%s: %v", ErrFailed, path, groupName, err)
+		return fmt.Errorf("%w: chown %s to root:%s: %w", ErrFailed, path, groupName, err)
 	}
 	return nil
 }
@@ -148,16 +149,18 @@ type RestartUnitParams struct {
 func RestartUnit(params json.RawMessage) (string, string, error) {
 	var args RestartUnitParams
 	if err := json.Unmarshal(params, &args); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return "", "", fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 	if err := ValidateUnit(args.Unit); err != nil {
 		return "", "", err
 	}
 
-	cmd := exec.Command("systemctl", "restart", args.Unit)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/systemctl", "restart", args.Unit) // #nosec G204 -- unit is checked against the fixed allowlist.
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", string(output), fmt.Errorf("%w: systemctl restart %s: %v", ErrFailed, args.Unit, err)
+		return "", string(output), fmt.Errorf("%w: systemctl restart %s: %w", ErrFailed, args.Unit, err)
 	}
 	return string(output), "", nil
 }
@@ -179,7 +182,7 @@ type PostconfSetParams struct {
 func PostconfSet(params json.RawMessage) (string, string, error) {
 	var args PostconfSetParams
 	if err := json.Unmarshal(params, &args); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return "", "", fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	arguments, err := BuildPostconfArgs(args.Keys)
@@ -187,10 +190,12 @@ func PostconfSet(params json.RawMessage) (string, string, error) {
 		return "", "", err
 	}
 
-	cmd := exec.Command("postconf", arguments...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/sbin/postconf", arguments...) // #nosec G204 -- legacy helper arguments are validated and this operation is not registered.
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", string(output), fmt.Errorf("%w: postconf: %v", ErrFailed, err)
+		return "", string(output), fmt.Errorf("%w: postconf: %w", ErrFailed, err)
 	}
 	return string(output), "", nil
 }
@@ -242,7 +247,7 @@ type PostmapParams struct {
 func Postmap(params json.RawMessage) (string, string, error) {
 	var args PostmapParams
 	if err := json.Unmarshal(params, &args); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrBadRequest, err)
+		return "", "", fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	target, err := resolvePostmapFile(args.Path, postmapRoot)
@@ -250,10 +255,12 @@ func Postmap(params json.RawMessage) (string, string, error) {
 		return "", "", err
 	}
 
-	cmd := exec.Command("postmap", target)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/sbin/postmap", target) // #nosec G204 -- target is an allowlisted map path, never shell input.
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", string(output), fmt.Errorf("%w: postmap: %v", ErrFailed, err)
+		return "", string(output), fmt.Errorf("%w: postmap: %w", ErrFailed, err)
 	}
 	return string(output), "", nil
 }
@@ -295,11 +302,11 @@ func resolvePostmapFile(path, root string) (string, error) {
 
 	resolvedRoot, err := filepath.EvalSymlinks(filepath.Clean(root))
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve postmap root %s: %v", ErrRejected, root, err)
+		return "", fmt.Errorf("%w: resolve postmap root %s: %w", ErrRejected, root, err)
 	}
 	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(cleaned))
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve postmap directory: %v", ErrRejected, err)
+		return "", fmt.Errorf("%w: resolve postmap directory: %w", ErrRejected, err)
 	}
 	if resolvedParent != resolvedRoot {
 		return "", fmt.Errorf("%w: postmap path %q escapes %s", ErrRejected, path, root)
@@ -308,7 +315,7 @@ func resolvePostmapFile(path, root string) (string, error) {
 	target := filepath.Join(resolvedRoot, filepath.Base(cleaned))
 	info, err := os.Lstat(target)
 	if err != nil {
-		return "", fmt.Errorf("%w: inspect postmap file %s: %v", ErrRejected, target, err)
+		return "", fmt.Errorf("%w: inspect postmap file %s: %w", ErrRejected, target, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("%w: postmap file %s is a symlink", ErrRejected, target)

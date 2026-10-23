@@ -27,3 +27,19 @@ func observeRender(start time.Time, err error) {
 	renderTotal.WithLabelValues(result).Inc()
 	renderDuration.Observe(time.Since(start).Seconds())
 }
+
+var applyTotal = promauto.NewCounterVec(prometheus.CounterOpts{Name: "urmail_reconcile_applies_total", Help: "Configuration apply attempts by result."}, []string{"result"})
+var consecutiveFailures = promauto.NewGauge(prometheus.GaugeOpts{Name: "urmail_reconcile_consecutive_failures", Help: "Consecutive configuration failures."})
+var applyReady = promauto.NewGauge(prometheus.GaugeOpts{Name: "urmail_reconcile_ready", Help: "Whether the last desired configuration applied successfully."})
+
+func observeApply(err error, failures int64) {
+	result := "ok"
+	ready := float64(1)
+	if err != nil {
+		result = "error"
+		ready = 0
+	}
+	applyTotal.WithLabelValues(result).Inc()
+	consecutiveFailures.Set(float64(failures))
+	applyReady.Set(ready)
+}

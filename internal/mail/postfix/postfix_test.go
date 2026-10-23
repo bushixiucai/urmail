@@ -32,7 +32,7 @@ func defaultNodeConfig() postfix.NodeConfig {
 // database/sql or os/exec.
 func TestPureFunctionConstraint(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly)
+	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly) //nolint:staticcheck // Source-only import policy intentionally includes all build variants.
 	if err != nil {
 		t.Fatalf("parse postfix package: %v", err)
 	}

@@ -185,7 +185,7 @@ func Validate(node NodeConfig, snap Snapshot) error {
 
 		for _, r := range z.Records {
 			if err := validateRecord(r); err != nil {
-				return fmt.Errorf("%w: zone %s: %v", ErrInvalidZone, domain, err)
+				return fmt.Errorf("%w: zone %s: %w", ErrInvalidZone, domain, err)
 			}
 		}
 	}

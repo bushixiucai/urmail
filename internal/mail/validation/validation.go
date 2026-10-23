@@ -1,3 +1,4 @@
+// Package validation defines the grammar shared by configuration generators.
 package validation
 
 import (

@@ -2,6 +2,7 @@ package reconcile_test
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestPipelineTriggerAndDebounce(t *testing.T) {
 	defer cancel()
 
 	var renderCount int32
-	go p.StartWorker(ctx, 20*time.Millisecond, func(files map[string]string) error {
+	go p.StartWorker(ctx, 20*time.Millisecond, func(_ map[string]string) error {
 		atomic.AddInt32(&renderCount, 1)
 		return nil
 	})
@@ -51,4 +52,35 @@ func TestPipelineTriggerAndDebounce(t *testing.T) {
 	if count != 2 {
 		t.Errorf("expected 2 total renders, got %d", count)
 	}
+}
+
+func TestPipelineRetriesWithoutAnotherTriggerAndClearsFailure(t *testing.T) {
+	cfg := &config.Config{MyHostname: "box.urmail.cn", PrimaryDomain: "urmail.cn", StorageRoot: "/var/mail", DatabaseURL: "host=127.0.0.1 dbname=urmail", ListenAddr: "127.0.0.1:8080"}
+	p := reconcile.NewPipeline(cfg, &mockQuerier{}, "192.0.2.1", []string{"ns.urmail.cn"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	done := make(chan struct{})
+	go p.StartWorker(ctx, 0, func(map[string]string) error {
+		if calls.Add(1) == 1 {
+			return fmt.Errorf("temporary apply failure")
+		}
+		close(done)
+		return nil
+	})
+	p.Trigger()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("failed apply was not retried")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		failures, _, err := p.Stats()
+		if failures == 0 && err == nil {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("successful retry did not clear failure")
 }

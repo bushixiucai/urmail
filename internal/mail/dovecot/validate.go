@@ -15,16 +15,16 @@ func Validate(node NodeConfig) error {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if err := validation.ValidateAbsolutePath(node.StorageRoot); err != nil {
-		return fmt.Errorf("%w: storage root: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: storage root: %w", ErrInvalidConfig, err)
 	}
 	if err := validation.ValidateAbsolutePath(node.TLSCertFile); err != nil {
-		return fmt.Errorf("%w: TLS certificate file: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: TLS certificate file: %w", ErrInvalidConfig, err)
 	}
 	if err := validation.ValidateAbsolutePath(node.TLSKeyFile); err != nil {
-		return fmt.Errorf("%w: TLS key file: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: TLS key file: %w", ErrInvalidConfig, err)
 	}
 	if err := validation.ValidateDatabaseURL(node.DatabaseURL); err != nil {
-		return fmt.Errorf("%w: database URL: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: database URL: %w", ErrInvalidConfig, err)
 	}
 	return nil
 }

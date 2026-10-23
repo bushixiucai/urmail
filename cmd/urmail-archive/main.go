@@ -8,8 +8,8 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -153,9 +153,8 @@ func decodeHeader(value string) string {
 }
 
 func fallbackMessageID(raw []byte) string {
-	encoded, _ := json.Marshal(len(raw))
-	sum := hex.EncodeToString([]byte(fmt.Sprintf("%x", encoded)))
-	return "archive-" + sum
+	sum := sha256.Sum256(raw)
+	return "archive-" + hex.EncodeToString(sum[:])
 }
 
 func sanitize(value string) string {
@@ -185,7 +184,8 @@ func randomSuffix() string {
 }
 
 func writePrivate(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// The caller constructs this path from a fixed archive root, numeric IDs, and a sanitized basename.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- fixed archive root and validated path components.
 	if err != nil {
 		return err
 	}

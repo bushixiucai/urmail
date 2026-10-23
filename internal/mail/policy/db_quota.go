@@ -1,3 +1,4 @@
+// Package policy implements Postfix access and per-mailbox quota decisions.
 package policy
 
 import (
@@ -6,8 +7,9 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // UsageStore abstracts the lookups needed to resolve a mailbox address to its
@@ -85,40 +87,42 @@ func NewAtomicDBQuotaChecker(s UsageStore, raw RawQuerier, dailyLimit int32) *DB
 func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress string) (bool, error) {
 	var messagesSent int32
 	var mailboxID, tenantID int64
-	limit := c.DailyLimit
+	var limit int32
 
 	if c.UseLock {
 		row, err := c.Store.GetMailboxDailySentForUpdate(ctx, mailboxAddress)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
 		if err != nil {
 			return false, fmt.Errorf("query mailbox daily sent (for update): %w", err)
 		}
 		messagesSent = row.MessagesSent
 		mailboxID = row.MailboxID
 		tenantID = row.TenantID
-		if row.DailySendLimit > 0 {
-			limit = row.DailySendLimit
-		}
+		limit = row.DailySendLimit
 	} else {
 		row, err := c.Store.GetMailboxDailySent(ctx, mailboxAddress)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
 		if err != nil {
 			return false, fmt.Errorf("query mailbox daily sent: %w", err)
 		}
 		messagesSent = row.MessagesSent
 		mailboxID = row.MailboxID
 		tenantID = row.TenantID
-		if row.DailySendLimit > 0 {
-			limit = row.DailySendLimit
-		}
+		limit = row.DailySendLimit
 	}
 
-	if limit > 0 && messagesSent >= limit {
+	if limit == 0 || (limit > 0 && messagesSent >= limit) {
 		return false, nil
 	}
 
 	// DailyLimit <= 0 (and no plan limit) means unlimited: pass the largest
 	// counter value so the guarded UPSERT stays permissive.
 	atomicLimit := limit
-	if atomicLimit <= 0 {
+	if atomicLimit == -1 {
 		atomicLimit = math.MaxInt32
 	}
 

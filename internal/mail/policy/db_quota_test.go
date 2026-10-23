@@ -15,11 +15,10 @@ import (
 type fakeRawQuerier struct {
 	err        error
 	sentAfter  int32
-	limitSeen  int32
 	queryCount int
 }
 
-func (f *fakeRawQuerier) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
+func (f *fakeRawQuerier) QueryRow(_ context.Context, _ string, _ ...interface{}) pgx.Row {
 	f.queryCount++
 	return &fakeRow{err: f.err, sent: f.sentAfter}
 }
@@ -43,28 +42,31 @@ func (r *fakeRow) Scan(dest ...interface{}) error {
 
 type mockUsageStore struct {
 	sentCount   int32
+	dailyLimit  int32
 	incremented bool
 	locked      bool
 }
 
-func (m *mockUsageStore) GetMailboxDailySent(ctx context.Context, address string) (store.GetMailboxDailySentRow, error) {
+func (m *mockUsageStore) GetMailboxDailySent(_ context.Context, _ string) (store.GetMailboxDailySentRow, error) {
 	return store.GetMailboxDailySentRow{
-		MessagesSent: m.sentCount,
-		MailboxID:    101,
-		TenantID:     1,
+		MessagesSent:   m.sentCount,
+		MailboxID:      101,
+		TenantID:       1,
+		DailySendLimit: m.dailyLimit,
 	}, nil
 }
 
-func (m *mockUsageStore) GetMailboxDailySentForUpdate(ctx context.Context, address string) (store.GetMailboxDailySentForUpdateRow, error) {
+func (m *mockUsageStore) GetMailboxDailySentForUpdate(_ context.Context, _ string) (store.GetMailboxDailySentForUpdateRow, error) {
 	m.locked = true
 	return store.GetMailboxDailySentForUpdateRow{
-		MessagesSent: m.sentCount,
-		MailboxID:    101,
-		TenantID:     1,
+		MessagesSent:   m.sentCount,
+		MailboxID:      101,
+		TenantID:       1,
+		DailySendLimit: m.dailyLimit,
 	}, nil
 }
 
-func (m *mockUsageStore) IncrementMailboxDailySent(ctx context.Context, arg store.IncrementMailboxDailySentParams) (int32, error) {
+func (m *mockUsageStore) IncrementMailboxDailySent(_ context.Context, arg store.IncrementMailboxDailySentParams) (int32, error) {
 	m.incremented = true
 	m.sentCount++
 	return arg.MessagesSent, nil
@@ -74,7 +76,7 @@ func TestDBQuotaChecker(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("within_limit_standard", func(t *testing.T) {
-		mock := &mockUsageStore{sentCount: 10}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 10}
 		checker := policy.NewDBQuotaChecker(mock, 100)
 
 		allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -93,7 +95,7 @@ func TestDBQuotaChecker(t *testing.T) {
 	})
 
 	t.Run("within_limit_with_lock", func(t *testing.T) {
-		mock := &mockUsageStore{sentCount: 10}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 10}
 		checker := policy.NewLockingDBQuotaChecker(mock, 100)
 
 		allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -112,7 +114,7 @@ func TestDBQuotaChecker(t *testing.T) {
 	})
 
 	t.Run("limit_reached", func(t *testing.T) {
-		mock := &mockUsageStore{sentCount: 100}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 100}
 		checker := policy.NewDBQuotaChecker(mock, 100)
 
 		allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -132,7 +134,7 @@ func TestDBQuotaCheckerAtomic(t *testing.T) {
 
 	t.Run("atomic_increment_allowed", func(t *testing.T) {
 		fake := &fakeRawQuerier{sentAfter: 11}
-		mock := &mockUsageStore{sentCount: 10}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 10}
 		checker := policy.NewAtomicDBQuotaChecker(mock, fake, 100)
 
 		allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -148,7 +150,7 @@ func TestDBQuotaCheckerAtomic(t *testing.T) {
 		// ErrNoRows from the guarded UPSERT means a concurrent worker
 		// consumed the last slot: must report allowed=false, not an error.
 		fake := &fakeRawQuerier{err: pgx.ErrNoRows}
-		mock := &mockUsageStore{sentCount: 99}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 99}
 		checker := policy.NewAtomicDBQuotaChecker(mock, fake, 100)
 
 		allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -162,7 +164,7 @@ func TestDBQuotaCheckerAtomic(t *testing.T) {
 
 	t.Run("atomic_db_error_defers", func(t *testing.T) {
 		fake := &fakeRawQuerier{err: errors.New("boom")}
-		mock := &mockUsageStore{sentCount: 10}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 10}
 		checker := policy.NewAtomicDBQuotaChecker(mock, fake, 100)
 
 		_, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -173,7 +175,7 @@ func TestDBQuotaCheckerAtomic(t *testing.T) {
 
 	t.Run("fast_fail_before_upsert", func(t *testing.T) {
 		fake := &fakeRawQuerier{sentAfter: 101}
-		mock := &mockUsageStore{sentCount: 100}
+		mock := &mockUsageStore{dailyLimit: 100, sentCount: 100}
 		checker := policy.NewAtomicDBQuotaChecker(mock, fake, 100)
 
 		allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
@@ -184,4 +186,18 @@ func TestDBQuotaCheckerAtomic(t *testing.T) {
 			t.Fatalf("limit reached must not hit the DB, got %d queries", fake.queryCount)
 		}
 	})
+}
+
+func TestExplicitDailyQuotaZeroAndUnlimited(t *testing.T) {
+	for _, tc := range []struct {
+		limit   int32
+		allowed bool
+	}{{0, false}, {-1, true}, {1, true}} {
+		mock := &mockUsageStore{dailyLimit: tc.limit}
+		checker := policy.NewAtomicDBQuotaChecker(mock, &fakeRawQuerier{sentAfter: 1}, 100)
+		allowed, err := checker.CheckAndIncrement(context.Background(), "one@example.test")
+		if err != nil || allowed != tc.allowed {
+			t.Fatalf("limit %d: allowed=%v err=%v", tc.limit, allowed, err)
+		}
+	}
 }

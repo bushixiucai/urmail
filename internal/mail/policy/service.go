@@ -2,6 +2,8 @@ package policy
 
 import (
 	"context"
+	"hash/fnv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -57,7 +59,11 @@ func (r *RateLimiter) Allow(key string) bool {
 
 // Service handles Postfix policy evaluation.
 type Service struct {
-	QuotaChecker QuotaChecker
+	QuotaChecker   QuotaChecker
+	InboundChecker interface {
+		CheckRecipient(context.Context, string) (bool, error)
+	}
+	messageLocks [64]sync.Mutex
 	RateLimiter  *RateLimiter
 
 	// dedup suppresses duplicate quota/rate accounting for the same
@@ -77,12 +83,28 @@ func NewService() *Service {
 // recipient, so evaluations sharing the same (identity, queue_id) are
 // counted exactly once.
 func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
-	// The policy service is attached to submission/smtps services only. A
-	// missing SASL username therefore means "not an authenticated submission";
-	// leave inbound mail alone instead of treating the client IP as a mailbox.
+	state := strings.ToUpper(req.Attrs["protocol_state"])
+	if s.InboundChecker != nil && req.Recipient != "" && (state == "RCPT" || (state == "" && req.SASLUsername == "")) {
+		allowed, err := s.InboundChecker.CheckRecipient(ctx, req.Recipient)
+		if err != nil {
+			return Decision{Action: ActionDefer, Reason: "Temporary subscription lookup failure"}
+		}
+		if !allowed {
+			return Decision{Action: ActionDefer, Reason: "Recipient subscription expired or suspended; renewal required"}
+		}
+	}
 	if req.SASLUsername == "" {
 		return Decision{Action: ActionDunno}
 	}
+	// Only DATA is charged: MAIL has no reliable queue id and RCPT repeats.
+	if state != "" && state != "DATA" {
+		return Decision{Action: ActionDunno}
+	}
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(req.SASLUsername + "\x00" + req.QueueID))
+	lock := &s.messageLocks[hash.Sum32()%uint32(len(s.messageLocks))]
+	lock.Lock()
+	defer lock.Unlock()
 	identity := req.SASLUsername
 	// smtpd_sender_restrictions runs at MAIL FROM, before Postfix assigns a
 	// queue id. In that phase a missing queue id means "one message per MAIL

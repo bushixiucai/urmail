@@ -1,3 +1,4 @@
+// Package reconcile assembles and applies desired mail service state.
 package reconcile
 
 import "strings"

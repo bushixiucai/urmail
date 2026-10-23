@@ -27,12 +27,18 @@ func renderMasterCF(node NodeConfig) string {
 	b.WriteString("  -o smtpd_sasl_auth_enable=yes\n")
 	b.WriteString("  -o smtpd_reject_unlisted_recipient=no\n")
 	b.WriteString("  -o milter_macro_daemon_name=ORIGINATING\n")
+	if node.PolicyEnabled {
+		b.WriteString("  -o smtpd_data_restrictions=check_policy_service,unix:" + policySocket(node) + "\n")
+	}
 	b.WriteString("smtps     inet  n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/smtps\n")
 	b.WriteString("  -o smtpd_tls_wrappermode=yes\n")
 	b.WriteString("  -o smtpd_sasl_auth_enable=yes\n")
 	b.WriteString("  -o smtpd_reject_unlisted_recipient=no\n")
 	b.WriteString("  -o milter_macro_daemon_name=ORIGINATING\n")
+	if node.PolicyEnabled {
+		b.WriteString("  -o smtpd_data_restrictions=check_policy_service,unix:" + policySocket(node) + "\n")
+	}
 	b.WriteString("pickup    unix  n       -       y       60      1       pickup\n")
 	b.WriteString("cleanup   unix  n       -       y       -       0       cleanup\n")
 	b.WriteString("qmgr      unix  n       -       n       300     1       qmgr\n")

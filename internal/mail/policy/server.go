@@ -32,7 +32,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	_ = os.Remove(s.SocketPath)
-	l, err := net.Listen("unix", s.SocketPath)
+	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", s.SocketPath)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	r := bufio.NewReader(conn)
 
 	for {

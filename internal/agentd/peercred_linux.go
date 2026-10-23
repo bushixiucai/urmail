@@ -17,7 +17,7 @@ import (
 func authorizePeer(conn *net.UnixConn, policy *peerPolicy) error {
 	uid, err := peerUID(conn)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrRejected, err)
+		return fmt.Errorf("%w: %w", ErrRejected, err)
 	}
 	if !policy.allows(uid) {
 		return fmt.Errorf("%w: peer uid %d is not allowed to use the agent", ErrRejected, uid)

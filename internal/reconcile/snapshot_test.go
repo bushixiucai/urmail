@@ -17,7 +17,7 @@ type mockQuerier struct {
 	domains []store.PlatformListDomainsRow
 }
 
-func (m *mockQuerier) PlatformListDomains(ctx context.Context) ([]store.PlatformListDomainsRow, error) {
+func (m *mockQuerier) PlatformListDomains(_ context.Context) ([]store.PlatformListDomainsRow, error) {
 	if m.domains != nil {
 		return m.domains, nil
 	}
@@ -26,19 +26,19 @@ func (m *mockQuerier) PlatformListDomains(ctx context.Context) ([]store.Platform
 	}, nil
 }
 
-func (m *mockQuerier) PlatformListMailboxes(ctx context.Context) ([]store.PlatformListMailboxesRow, error) {
+func (m *mockQuerier) PlatformListMailboxes(_ context.Context) ([]store.PlatformListMailboxesRow, error) {
 	return []store.PlatformListMailboxesRow{
 		{Address: "user@example.com", Status: "active"},
 	}, nil
 }
 
-func (m *mockQuerier) PlatformListAliases(ctx context.Context) ([]store.PlatformListAliasesRow, error) {
+func (m *mockQuerier) PlatformListAliases(_ context.Context) ([]store.PlatformListAliasesRow, error) {
 	return []store.PlatformListAliasesRow{
 		{Domain: "example.com", LocalPart: "info", Target: "user@example.com", Kind: "alias"},
 	}, nil
 }
 
-func (m *mockQuerier) PlatformListDKIMDomains(ctx context.Context) ([]store.PlatformListDKIMDomainsRow, error) {
+func (m *mockQuerier) PlatformListDKIMDomains(_ context.Context) ([]store.PlatformListDKIMDomainsRow, error) {
 	return nil, nil
 }
 
@@ -93,6 +93,7 @@ func TestZoneSerialFormat(t *testing.T) {
 		t.Errorf("expected 2026102296, got %d", e)
 	}
 	// Strictly ordered within a day
+	//nolint:staticcheck // The positive ordering assertion is easier to audit as written.
 	if !(reconcile.ZoneSerial(time.Date(2026, 10, 22, 0, 1, 0, 0, time.UTC)) <
 		reconcile.ZoneSerial(time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)) &&
 		reconcile.ZoneSerial(time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)) < e) {

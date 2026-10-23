@@ -13,7 +13,7 @@ func isValidEmail(addr string) bool {
 		return false
 	}
 	local, domain := parts[0], parts[1]
-	if len(local) == 0 || len(local) > 64 || !validation.LocalPartRegex.MatchString(local) {
+	if len(local) == 0 || len(local) > 64 || !validation.LocalPartRegex.MatchString(local) || strings.ContainsAny(local, "*?\\/") {
 		return false
 	}
 	return validation.IsValidHostname(domain)
@@ -30,17 +30,17 @@ func validateNodeConfig(node NodeConfig) error {
 		return fmt.Errorf("%w: invalid primary domain %q", ErrInvalidConfig, node.PrimaryDomain)
 	}
 	if err := validation.ValidateAbsolutePath(node.StorageRoot); err != nil {
-		return fmt.Errorf("%w: storage root: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: storage root: %w", ErrInvalidConfig, err)
 	}
 	if err := validation.ValidateAbsolutePath(node.TLSCertFile); err != nil {
-		return fmt.Errorf("%w: TLS certificate file: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: TLS certificate file: %w", ErrInvalidConfig, err)
 	}
 	if err := validation.ValidateAbsolutePath(node.TLSKeyFile); err != nil {
-		return fmt.Errorf("%w: TLS key file: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: TLS key file: %w", ErrInvalidConfig, err)
 	}
 	if node.PolicyEnabled {
 		if err := validation.ValidateSocketPath(node.PolicySocket); err != nil {
-			return fmt.Errorf("%w: policy socket: %v", ErrInvalidConfig, err)
+			return fmt.Errorf("%w: policy socket: %w", ErrInvalidConfig, err)
 		}
 	}
 	// The archive transport is a pipe with an argv path, not a socket; the

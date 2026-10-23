@@ -42,6 +42,7 @@ type Server struct {
 	listener   net.Listener
 	peerPolicy *peerPolicy
 	wg         sync.WaitGroup
+	slots      chan struct{}
 }
 
 // NewServer builds a server bound to a socket path.
@@ -58,6 +59,7 @@ func NewServer(socketPath string, registry *Registry, logger *slog.Logger) *Serv
 		registry:   registry,
 		logger:     logger,
 		peerPolicy: policy,
+		slots:      make(chan struct{}, 32),
 	}
 }
 
@@ -76,7 +78,7 @@ func (s *Server) Listen(ctx context.Context) error {
 		return fmt.Errorf("remove stale socket: %w", err)
 	}
 
-	listener, err := net.Listen("unix", s.socketPath)
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "unix", s.socketPath)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", s.socketPath, err)
 	}
@@ -121,8 +123,15 @@ func (s *Server) Serve() error {
 			continue
 		}
 
+		select {
+		case s.slots <- struct{}{}:
+		default:
+			_ = conn.Close()
+			continue
+		}
 		s.wg.Add(1)
 		go func() {
+			defer func() { <-s.slots }()
 			defer s.wg.Done()
 			s.handle(conn)
 		}()
@@ -135,7 +144,7 @@ func (s *Server) Wait() { s.wg.Wait() }
 // handle serves one connection. The protocol is one JSON request per line
 // and one JSON response per line.
 func (s *Server) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	encoder := json.NewEncoder(conn)

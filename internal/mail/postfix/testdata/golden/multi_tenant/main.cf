@@ -37,6 +37,7 @@ non_smtpd_milters = inet:127.0.0.1:12301
 # Sender login restrictions
 smtpd_sender_login_maps = hash:/etc/postfix/urmail/sender_login.map
 smtpd_sender_restrictions =
+    reject_authenticated_sender_login_mismatch
     permit_mynetworks
     reject_sender_login_mismatch
 

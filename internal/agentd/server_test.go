@@ -74,8 +74,8 @@ func TestServerRejectsUnknownOperation(t *testing.T) {
 
 	client := agent.NewClient(socket)
 	response, err := client.Do(ctx, "shell.exec", map[string]string{"cmd": "id"})
-	if err != nil {
-		t.Fatalf("do: %v", err)
+	if err == nil {
+		t.Fatal("rejected operation must return an error")
 	}
 	if response.OK {
 		t.Fatal("an unknown operation must not succeed")

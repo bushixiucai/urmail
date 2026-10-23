@@ -31,7 +31,7 @@ func defaultNodeConfig() dovecot.NodeConfig {
 // database/sql or os/exec.
 func TestPureFunctionConstraint(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly)
+	pkgs, err := parser.ParseDir(fset, ".", nil, parser.ImportsOnly) //nolint:staticcheck // Source-only import policy intentionally includes all build variants.
 	if err != nil {
 		t.Fatalf("parse dovecot package: %v", err)
 	}
@@ -82,6 +82,8 @@ func TestGoldenCases(t *testing.T) {
 		key      string
 		filename string
 	}{
+		{dovecot.FileGlobalACL, "global-acls"},
+		{dovecot.FileAuthConf, "10-auth.conf"},
 		{dovecot.FileDovecotConf, "dovecot.conf"},
 		{dovecot.FileDovecotSQL, "dovecot-sql.conf.ext"},
 		{dovecot.FileDBConf, "db.conf"},
@@ -96,8 +98,8 @@ func TestGoldenCases(t *testing.T) {
 				t.Fatalf("Generate failed: %v", err)
 			}
 
-			if len(out) != 5 {
-				t.Fatalf("expected 5 files, got %d", len(out))
+			if len(out) != 7 {
+				t.Fatalf("expected 7 files, got %d", len(out))
 			}
 
 			goldenDir := filepath.Join("testdata", "golden", tc.name)
