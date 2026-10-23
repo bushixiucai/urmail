@@ -25,6 +25,7 @@ func testManager(t *testing.T) *ApplyManager {
 	}
 	m := &ApplyManager{root: state, targetRoot: filepath.Join(root, "system"), webroot: filepath.Join(root, "acme"), cfg: &config.Config{MyHostname: "box.example.com", PrimaryDomain: "example.com", StorageRoot: filepath.Join(root, "mail"), DatabaseURLDovecot: "host=127.0.0.1 user=dovecot password=secret", ListenAddr: "127.0.0.1:8080", PublicIPv4: "192.0.2.1", Nameservers: []string{"ns.example.com"}}}
 	m.run = func(_ context.Context, path string, args ...string) error { return testCommand(m, path, args...) }
+	m.readinessProbe = func(context.Context) error { return nil }
 	return m
 }
 func emptyApply() json.RawMessage {

@@ -95,6 +95,7 @@ type ApplyManager struct {
 	cfg                   *config.Config
 	root                  string
 	run                   CommandRunner
+	readinessProbe        func(context.Context) error
 	output                func(context.Context, ...string) ([]byte, error)
 	status                ApplyStatus
 	paths                 []string
@@ -212,6 +213,15 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	}
 	generation := hex.EncodeToString(sum.Sum(nil))
 	if m.status.Ready && m.status.Applied == generation {
+		m.status.Ready = false
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := m.checkMailReadiness(ctx); err != nil {
+			m.status.Error = "configuration readiness failed at " + m.status.Step + ": " + err.Error()
+			return "", "", fmt.Errorf("%w: %s", ErrFailed, m.status.Error)
+		}
+		m.status.Step = "ready"
+		m.status.Ready = true
 		return generation, "", nil
 	}
 	previous := m.status
@@ -323,6 +333,9 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 			if err := m.run(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit); err != nil {
 				return fmt.Errorf("probe %s: %w", unit, err)
 			}
+		}
+		if err := m.checkMailReadiness(ctx); err != nil {
+			return err
 		}
 		return nil
 	}()
