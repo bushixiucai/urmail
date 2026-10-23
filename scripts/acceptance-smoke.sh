@@ -32,7 +32,6 @@ curl -sS -f -H 'Content-Type: application/json' \
 	-d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
 	"$BASE/api/v1/auth/login" >"$tmp/login.json"
 token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$tmp/login.json")"
-csrf="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["csrf_token"])' "$tmp/login.json")"
 
 auth_check() {
 	local path="$1"
