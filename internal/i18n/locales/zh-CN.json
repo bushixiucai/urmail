@@ -340,5 +340,7 @@
   "error.INVALID_MAILBOX_IDENTITY": "邮箱地址、域名和目录名不一致",
   "error.MAILBOX_STORAGE_ADDRESS_RESERVED": "该地址仍保留历史邮件存储身份，需由运维审核清理后再处理",
   "error.MAILBOX_STORAGE_IDENTITY_IMMUTABLE": "已有邮箱的存储身份不可更改",
-  "page.settings.brand": "品牌设置"
+  "page.settings.brand": "品牌设置",
+  "page.billing.checkout_canceled": "已从取消的结账页面返回。此次返回不会结算订单；未付款订单仍保留为待付款，可联系管理员处理或重新发起结账。",
+  "page.billing.checkout_returned": "已从结账页面返回。支付结果仍需支付方确认，仅返回本页不会开通订阅；请以下方订阅和账单中的已确认结果为准。"
 }

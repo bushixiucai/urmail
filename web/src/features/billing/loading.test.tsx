@@ -20,6 +20,34 @@ vi.mock("@/lib/api/client", async (original) => ({
 afterEach(() => {
   cleanup();
   state.request.mockReset();
+  window.history.replaceState({}, "", "/");
+});
+
+describe("checkout return is informational", () => {
+  for (const [query, key] of [
+    ["paid=1", "page.billing.checkout_returned"],
+    ["canceled=1", "page.billing.checkout_canceled"],
+    ["paid=1&canceled=1", "page.billing.checkout_canceled"],
+  ]) {
+    it(`${query} never settles or creates an order`, async () => {
+      window.history.replaceState({}, "", `/billing?${query}`);
+      state.request.mockResolvedValue({
+        subscription: null,
+        plan: null,
+        invoices: [],
+        plans: [],
+      });
+      const view = render(<BillingPage />);
+      await act(async () => {
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+      expect(view.getByRole("status").textContent).toBe(key);
+      expect(state.request).toHaveBeenCalledTimes(3);
+      for (const [, options] of state.request.mock.calls) {
+        expect(options.method ?? "GET").toBe("GET");
+      }
+    });
+  }
 });
 
 describe("management loading remains bounded", () => {

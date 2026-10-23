@@ -55,7 +55,15 @@ export function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeVariant, setNoticeVariant] = useState<"error" | "info">("info");
   const [submitting, setSubmitting] = useState(false);
+  const returnParams = new URLSearchParams(window.location.search);
+  const returnNotice =
+    returnParams.get("canceled") === "1"
+      ? "page.billing.checkout_canceled"
+      : returnParams.get("paid") === "1"
+        ? "page.billing.checkout_returned"
+        : null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -78,10 +86,11 @@ export function BillingPage() {
         setInvoices(i.invoices ?? []);
         setPlans(p.plans ?? []);
       })
-      .catch(
-        (err: unknown) =>
-          !controller.signal.aborted && setNotice(errorMessage(err)),
-      );
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setNoticeVariant("error");
+        setNotice(errorMessage(err));
+      });
     return () => controller.abort();
   }, [errorMessage]);
 
@@ -99,6 +108,7 @@ export function BillingPage() {
       if (result.checkout_url) {
         window.location.assign(checkoutDestination(result.checkout_url));
       } else {
+        setNoticeVariant("info");
         setNotice(
           t("page.billing.manual_order", {
             number: result.order?.order_no ?? "",
@@ -106,6 +116,7 @@ export function BillingPage() {
         );
       }
     } catch (err: unknown) {
+      setNoticeVariant("error");
       setNotice(errorMessage(err));
     } finally {
       setSubmitting(false);
@@ -122,6 +133,12 @@ export function BillingPage() {
           {t("page.billing.subtitle")}
         </p>
       </div>
+
+      {returnNotice && (
+        <p role="status" className="rounded-md border bg-muted p-4 text-sm">
+          {t(returnNotice)}
+        </p>
+      )}
 
       <Card>
         <CardHeader>
@@ -248,7 +265,7 @@ export function BillingPage() {
         open={notice !== null}
         onOpenChange={(open) => !open && setNotice(null)}
         message={notice ?? ""}
-        variant="error"
+        variant={noticeVariant}
       />
     </div>
   );
