@@ -71,7 +71,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 	var found bool
 	source := "default"
 	if host, ok := normalizeBrandHost(c.Request.Host); ok {
-		byHost, err := h.Store.PublicBrandByHost(c, host)
+		byHost, err := requestStore(c, h.Store).PublicBrandByHost(c, host)
 		if err == nil {
 			row = store.PublicBrandBySlugRow(byHost)
 			found = true
@@ -85,7 +85,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 		slug := c.Query("brand")
 		if slug != "" && slugPattern.MatchString(slug) {
 			var err error
-			row, err = h.Store.PublicBrandBySlug(c, slug)
+			row, err = requestStore(c, h.Store).PublicBrandBySlug(c, slug)
 			if err == nil {
 				found = true
 				source = "link"
@@ -97,7 +97,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 	}
 	if !found {
 		var err error
-		row, err = h.Store.PublicBrandBySlug(c, "default")
+		row, err = requestStore(c, h.Store).PublicBrandBySlug(c, "default")
 		if err == nil {
 			found = true
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -109,7 +109,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"brand": fallback, "source": "default"})
 		return
 	}
-	rows, err := h.Store.PlatformPublicThemeSettings(c, row.ID)
+	rows, err := requestStore(c, h.Store).PlatformPublicThemeSettings(c, row.ID)
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
@@ -215,7 +215,7 @@ func managedBrand(row store.PlatformManagedBrandsRow) ManagedBrand {
 
 // List returns platform-managed brands without raw settings.
 func (h *BrandingHandler) List(c *gin.Context) {
-	rows, err := h.Store.PlatformManagedBrands(c)
+	rows, err := requestStore(c, h.Store).PlatformManagedBrands(c)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -250,7 +250,7 @@ func (h *BrandingHandler) Save(c *gin.Context) {
 		return
 	}
 	encoded, _ := json.Marshal(theme)
-	brand, err := h.Store.PlatformSaveBrand(c, store.PlatformSaveBrandParams{Slug: req.Slug, Name: strings.TrimSpace(req.Name), Theme: encoded, LogoUrl: textOrNull(req.LogoURL), FaviconUrl: textOrNull(req.FaviconURL), PrimaryColor: textOrNull(req.PrimaryColor), Status: req.Status})
+	brand, err := requestStore(c, h.Store).PlatformSaveBrand(c, store.PlatformSaveBrandParams{Slug: req.Slug, Name: strings.TrimSpace(req.Name), Theme: encoded, LogoUrl: textOrNull(req.LogoURL), FaviconUrl: textOrNull(req.FaviconURL), PrimaryColor: textOrNull(req.PrimaryColor), Status: req.Status})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -260,7 +260,7 @@ func (h *BrandingHandler) Save(c *gin.Context) {
 
 // Hosts lists authorized host mappings for platform administrators.
 func (h *BrandingHandler) Hosts(c *gin.Context) {
-	rows, err := h.Store.PlatformListBrandHosts(c)
+	rows, err := requestStore(c, h.Store).PlatformListBrandHosts(c)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -283,7 +283,7 @@ func (h *BrandingHandler) BindHost(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	host, err := h.Store.PlatformBindBrandHost(c, store.PlatformBindBrandHostParams{Hostname: hostname, ID: req.BrandID})
+	host, err := requestStore(c, h.Store).PlatformBindBrandHost(c, store.PlatformBindBrandHostParams{Hostname: hostname, ID: req.BrandID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, http.StatusNotFound, "NOT_FOUND")
 		return
@@ -302,7 +302,7 @@ func (h *BrandingHandler) UnbindHost(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	affected, err := h.Store.PlatformUnbindBrandHost(c, host)
+	affected, err := requestStore(c, h.Store).PlatformUnbindBrandHost(c, host)
 	brandMutationResult(c, affected, err)
 }
 
@@ -316,7 +316,7 @@ func (h *BrandingHandler) SetStatus(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	n, err := h.Store.PlatformSetBrandStatus(c, store.PlatformSetBrandStatusParams{ID: id, Status: req.Status})
+	n, err := requestStore(c, h.Store).PlatformSetBrandStatus(c, store.PlatformSetBrandStatusParams{ID: id, Status: req.Status})
 	brandMutationResult(c, n, err)
 }
 
@@ -327,7 +327,7 @@ func (h *BrandingHandler) Delete(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	n, err := h.Store.PlatformDeleteBrand(c, id)
+	n, err := requestStore(c, h.Store).PlatformDeleteBrand(c, id)
 	brandMutationResult(c, n, err)
 }
 
@@ -338,13 +338,13 @@ func (h *BrandingHandler) ResetTheme(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	n, err := h.Store.PlatformResetBrandTheme(c, id)
+	n, err := requestStore(c, h.Store).PlatformResetBrandTheme(c, id)
 	brandMutationResult(c, n, err)
 }
 
 // DeletePlan removes only an unused, non-default plan.
 func (h *BrandingHandler) DeletePlan(c *gin.Context) {
-	n, err := h.Store.PlatformDeleteUnusedPlan(c, c.Param("code"))
+	n, err := requestStore(c, h.Store).PlatformDeleteUnusedPlan(c, c.Param("code"))
 	if err == nil && n == 0 {
 		authError(c, http.StatusConflict, "CONFLICT")
 		return

@@ -1,12 +1,15 @@
 package agentd
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -161,5 +164,63 @@ func TestReadinessUnchangedGenerationStillChecksWorkers(t *testing.T) {
 	}
 	if m.status.Ready || m.status.Applied != old || m.status.Error == "" {
 		t.Fatalf("false deduplicated ready %+v", m.status)
+	}
+}
+
+func TestSubmissionReadinessRequiresSTARTTLSAndInstalledSAN(t *testing.T) {
+	pair, certificate := readinessCertificate(t, "mail.platform.test", 2*time.Hour)
+	config, expected, err := installedTLSConfig(certificate, "mail.platform.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wrongHost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wrong-SAN-%v", wrongHost), func(t *testing.T) {
+			var listen net.ListenConfig
+			listener, err := listen.Listen(t.Context(), "tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				connection, e := listener.Accept()
+				if e != nil {
+					return
+				}
+				defer connection.Close()
+				_ = connection.SetDeadline(time.Now().Add(2 * time.Second))
+				reader := bufio.NewReader(connection)
+				_, _ = io.WriteString(connection, "220 fixture\r\n")
+				if _, e = reader.ReadString('\n'); e != nil {
+					return
+				}
+				_, _ = io.WriteString(connection, "250-fixture\r\n250 STARTTLS\r\n")
+				if _, e = reader.ReadString('\n'); e != nil {
+					return
+				}
+				_, _ = io.WriteString(connection, "220 Start TLS\r\n")
+				secure := tls.Server(connection, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}})
+				if secure.HandshakeContext(t.Context()) != nil {
+					return
+				}
+				reader = bufio.NewReader(secure)
+				if _, e = reader.ReadString('\n'); e != nil {
+					return
+				}
+				_, _ = io.WriteString(secure, "250 fixture\r\n")
+			}()
+			cfg := config.Clone()
+			if wrongHost {
+				cfg.ServerName = "different.example.test"
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			err = probeSubmissionTLS(ctx, listener.Addr().String(), cfg, expected)
+			if (err != nil) != wrongHost {
+				t.Fatalf("STARTTLS err=%v", err)
+			}
+			<-done
+		})
 	}
 }

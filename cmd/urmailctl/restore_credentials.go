@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -31,10 +32,14 @@ func targetDatabaseURLs(cfg *config.Config, migrationURL string) (map[string]str
 		values[key] = uri.String()
 	}
 	values["URMAIL_DATABASE_URL_MIGRATE"] = migrationURL
+	if cfg.RoundcubeBridgeKey != "" {
+		values["URMAIL_ROUNDCUBE_BRIDGE_KEY"] = cfg.RoundcubeBridgeKey
+	}
 	return values, nil
 }
 func mergeTargetDatabaseURLs(raw []byte, values map[string]string) []byte {
 	lines := strings.Split(string(raw), "\n")
+	seen := map[string]bool{}
 	for i, line := range lines {
 		key, _, found := strings.Cut(line, "=")
 		if !found {
@@ -42,7 +47,18 @@ func mergeTargetDatabaseURLs(raw []byte, values map[string]string) []byte {
 		}
 		if replacement, ok := values[strings.TrimSpace(key)]; ok {
 			lines[i] = key + "=" + replacement
+			seen[strings.TrimSpace(key)] = true
 		}
+	}
+	missing := []string{}
+	for key := range values {
+		if !seen[key] {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	for _, key := range missing {
+		lines = append(lines, key+"="+values[key])
 	}
 	return []byte(strings.Join(lines, "\n"))
 }

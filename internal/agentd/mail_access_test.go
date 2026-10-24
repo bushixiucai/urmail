@@ -63,3 +63,35 @@ func TestKickAddressRejectsGlobAndArgumentInjection(t *testing.T) {
 		}
 	}
 }
+
+func TestPasswordRevocationSurvivesWatcherRestartAndRetriesBeforeAcknowledgement(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	row := MailAccess{Address: "alice@example.test", Allowed: true, TenantID: 7, MailboxID: 9, PasswordVersion: 3, PasswordRevokePending: true}
+	kicks, acks := 0, 0
+	watchMailAccess(ctx, func(context.Context) ([]MailAccess, time.Time, error) {
+		return []MailAccess{row}, time.Now().Add(time.Millisecond), nil
+	}, func(_ context.Context, command string, args ...string) error {
+		kicks++
+		if command != "/usr/bin/doveadm" || !reflect.DeepEqual(args, []string{"kick", "--", row.Address}) {
+			t.Fatal("unexpected password revocation command")
+		}
+		if kicks == 1 {
+			return errors.New("offline")
+		}
+		return nil
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)), func(_ context.Context, actual MailAccess) error {
+		acks++
+		if actual.PasswordVersion != 3 || actual.MailboxID != 9 || actual.TenantID != 7 {
+			t.Fatal("credential acknowledgement lost exact binding")
+		}
+		if acks == 1 {
+			return errors.New("database unavailable")
+		}
+		cancel()
+		return nil
+	})
+	if kicks != 3 || acks != 2 {
+		t.Fatalf("kick failure or ack failure lost durable work kicks=%d acks=%d", kicks, acks)
+	}
+}

@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 
 // StoreQuerier abstracts the platform queries needed to assemble snapshots.
 type StoreQuerier interface {
+	PlatformListManagedDNS(context.Context) ([]store.PlatformListManagedDNSRow, error)
 	PlatformListDomains(ctx context.Context) ([]store.PlatformListDomainsRow, error)
 	PlatformListMailboxes(ctx context.Context) ([]store.PlatformListMailboxesRow, error)
 	PlatformListAliases(ctx context.Context) ([]store.PlatformListAliasesRow, error)
@@ -92,6 +94,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	pfMailboxes := make([]postfix.Mailbox, 0, len(mailboxes))
 	for _, m := range mailboxes {
 		pfMailboxes = append(pfMailboxes, postfix.Mailbox{
+			ID: m.ID, TenantID: m.TenantID,
 			Address: m.Address,
 			Status:  m.Status,
 		})
@@ -100,10 +103,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	pfAliases := make([]postfix.Alias, 0, len(aliases))
 	for _, a := range aliases {
 		pfAliases = append(pfAliases, postfix.Alias{
-			Domain:    a.Domain,
-			LocalPart: a.LocalPart,
-			Target:    a.Target,
-			Kind:      a.Kind,
+			Domain:       a.Domain,
+			LocalPart:    a.LocalPart,
+			Target:       a.Target,
+			Kind:         a.Kind,
+			SenderLogins: a.SenderLogins,
 		})
 	}
 
@@ -116,9 +120,21 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	// 2. NSD Snapshot. Delegated domains are DNS-hosted elsewhere and must
 	// not be rendered as managed zones. The SOA serial is derived from the
 	// domain row's updated_at (YYYYMMDDNN), never hardcoded.
+	managedRows, err := q.PlatformListManagedDNS(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list confirmed managed DNS: %w", err)
+	}
+	managedRecords := map[string][]nsd.Record{}
+	for _, row := range managedRows {
+		var records []nsd.Record
+		if json.Unmarshal(row.Records, &records) != nil {
+			return nil, fmt.Errorf("invalid confirmed managed DNS records")
+		}
+		managedRecords[row.Fqdn] = records
+	}
 	nsdZones := make([]nsd.Zone, 0, len(domains))
 	for _, d := range domains {
-		if d.Mode == "delegated" {
+		if d.Mode == "delegated" || (d.ProvisioningState == "pending" && !d.DnsExplicit) {
 			continue
 		}
 		updated := time.Now().UTC()
@@ -126,7 +142,14 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			updated = d.UpdatedAt.Time.UTC()
 		}
 		var records []nsd.Record
-		if dk, ok := dkimByDomain[strings.ToLower(d.Fqdn)]; ok {
+		if d.DnsExplicit {
+			var found bool
+			records, found = managedRecords[d.Fqdn]
+			if !found {
+				return nil, fmt.Errorf("confirmed DNS zone missing")
+			}
+		}
+		if dk, ok := dkimByDomain[strings.ToLower(d.Fqdn)]; ok && !d.DnsExplicit {
 			txt, err := domainMail.PublicKeyTXT(dk.PrivateKey)
 			if err != nil {
 				return nil, fmt.Errorf("derive DKIM public key for %s: %w", d.Fqdn, err)
@@ -138,10 +161,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			})
 		}
 		nsdZones = append(nsdZones, nsd.Zone{
-			Domain:  d.Fqdn,
-			Mode:    "managed",
-			Serial:  ZoneSerial(updated),
-			Records: records,
+			Domain:   d.Fqdn,
+			Mode:     "managed",
+			Serial:   ZoneSerial(updated),
+			Records:  records,
+			Explicit: d.DnsExplicit,
 		})
 	}
 
@@ -185,18 +209,21 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 
 	result := &mail.ConfigContext{
 		PostfixNode: postfix.NodeConfig{
-			Hostname:       hostname,
-			PrimaryDomain:  cfg.PrimaryDomain,
-			StorageRoot:    storageRoot,
-			TLSCertFile:    certFile,
-			TLSKeyFile:     keyFile,
-			PolicyEnabled:  cfg.PolicyEnabled,
-			PolicySocket:   cfg.PolicySocket,
-			ArchiveEnabled: cfg.ArchiveEnabled,
+			Hostname:                 hostname,
+			PrimaryDomain:            cfg.PrimaryDomain,
+			StorageRoot:              storageRoot,
+			TLSCertFile:              certFile,
+			TLSKeyFile:               keyFile,
+			PolicyEnabled:            cfg.PolicyEnabled,
+			V80Preserve:              cfg.PostfixV80Preserve,
+			PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM,
+			PolicySocket:             cfg.PolicySocket,
+			ArchiveEnabled:           cfg.ArchiveEnabled,
 		},
 		PostfixSnap: pfSnap,
 
 		DovecotNode: dovecot.NodeConfig{
+			V80Preserve:   cfg.PostfixV80Preserve,
 			Hostname:      hostname,
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,
@@ -218,7 +245,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,
 			// nginx backends are validated to carry an explicit scheme.
-			BackendHTTP: withHTTPScheme(cfg.ListenAddr),
+			BackendHTTP:    withHTTPScheme(cfg.ListenAddr),
+			WebmailBackend: webmailBackend(cfg),
 		},
 		NginxSnap: nginx.Snapshot{Domains: nginxDomains},
 
@@ -248,4 +276,11 @@ func ZoneSerial(t time.Time) uint32 {
 		return 1
 	}
 	return uint32(n)
+}
+
+func webmailBackend(cfg *config.Config) string {
+	if cfg.RoundcubeEnabled {
+		return "http://127.0.0.1:8888"
+	}
+	return ""
 }

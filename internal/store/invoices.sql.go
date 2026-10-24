@@ -14,14 +14,15 @@ import (
 const createInvoice = `-- name: CreateInvoice :one
 
 INSERT INTO invoices (
-    tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at
+    tenant_id, order_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
-) RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
 `
 
 type CreateInvoiceParams struct {
 	TenantID    int64              `json:"tenant_id"`
+	OrderID     pgtype.Int8        `json:"order_id"`
 	Number      string             `json:"number"`
 	PeriodStart pgtype.Timestamptz `json:"period_start"`
 	PeriodEnd   pgtype.Timestamptz `json:"period_end"`
@@ -33,9 +34,12 @@ type CreateInvoiceParams struct {
 }
 
 // Invoices (tenant-scoped). M3 checklist gap: CRUD for the invoices table.
+// order_id keeps every invoice traceable to the order that produced it, so a
+// bill stays reproducible after a later plan price edit (M5 review 3.31).
 func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoices, error) {
 	row := q.db.QueryRow(ctx, createInvoice,
 		arg.TenantID,
+		arg.OrderID,
 		arg.Number,
 		arg.PeriodStart,
 		arg.PeriodEnd,
@@ -58,12 +62,15 @@ func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (I
 		&i.PdfPath,
 		&i.IssuedAt,
 		&i.CreatedAt,
+		&i.OrderID,
+		&i.DocumentSnapshot,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }
 
 const getInvoiceByID = `-- name: GetInvoiceByID :one
-SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
 FROM invoices
 WHERE tenant_id = $1 AND id = $2
 `
@@ -88,12 +95,15 @@ func (q *Queries) GetInvoiceByID(ctx context.Context, arg GetInvoiceByIDParams) 
 		&i.PdfPath,
 		&i.IssuedAt,
 		&i.CreatedAt,
+		&i.OrderID,
+		&i.DocumentSnapshot,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }
 
 const getInvoiceByNumber = `-- name: GetInvoiceByNumber :one
-SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
 FROM invoices
 WHERE tenant_id = $1 AND number = $2
 `
@@ -118,12 +128,80 @@ func (q *Queries) GetInvoiceByNumber(ctx context.Context, arg GetInvoiceByNumber
 		&i.PdfPath,
 		&i.IssuedAt,
 		&i.CreatedAt,
+		&i.OrderID,
+		&i.DocumentSnapshot,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }
 
+const invoiceCompletedRefundTotal = `-- name: InvoiceCompletedRefundTotal :one
+SELECT COALESCE(sum(amount_cents),0)::bigint AS amount_cents
+FROM refunds
+WHERE tenant_id=$1 AND payment_id=$2 AND status='completed'
+`
+
+type InvoiceCompletedRefundTotalParams struct {
+	TenantID  int64       `json:"tenant_id"`
+	PaymentID pgtype.Int8 `json:"payment_id"`
+}
+
+func (q *Queries) InvoiceCompletedRefundTotal(ctx context.Context, arg InvoiceCompletedRefundTotalParams) (int64, error) {
+	row := q.db.QueryRow(ctx, invoiceCompletedRefundTotal, arg.TenantID, arg.PaymentID)
+	var amount_cents int64
+	err := row.Scan(&amount_cents)
+	return amount_cents, err
+}
+
+const listInvoicesByOrder = `-- name: ListInvoicesByOrder :many
+SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
+FROM invoices
+WHERE tenant_id = $1 AND order_id = $2
+ORDER BY created_at DESC, id DESC
+`
+
+type ListInvoicesByOrderParams struct {
+	TenantID int64       `json:"tenant_id"`
+	OrderID  pgtype.Int8 `json:"order_id"`
+}
+
+func (q *Queries) ListInvoicesByOrder(ctx context.Context, arg ListInvoicesByOrderParams) ([]Invoices, error) {
+	rows, err := q.db.Query(ctx, listInvoicesByOrder, arg.TenantID, arg.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Invoices{}
+	for rows.Next() {
+		var i Invoices
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Number,
+			&i.PeriodStart,
+			&i.PeriodEnd,
+			&i.AmountCents,
+			&i.Currency,
+			&i.Status,
+			&i.PdfPath,
+			&i.IssuedAt,
+			&i.CreatedAt,
+			&i.OrderID,
+			&i.DocumentSnapshot,
+			&i.SourcePaymentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicesByTenant = `-- name: ListInvoicesByTenant :many
-SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+SELECT id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
 FROM invoices
 WHERE tenant_id = $1
 ORDER BY created_at DESC, id DESC
@@ -150,6 +228,9 @@ func (q *Queries) ListInvoicesByTenant(ctx context.Context, tenantID int64) ([]I
 			&i.PdfPath,
 			&i.IssuedAt,
 			&i.CreatedAt,
+			&i.OrderID,
+			&i.DocumentSnapshot,
+			&i.SourcePaymentID,
 		); err != nil {
 			return nil, err
 		}
@@ -165,7 +246,7 @@ const markInvoicePaid = `-- name: MarkInvoicePaid :one
 UPDATE invoices
 SET status = 'paid', issued_at = COALESCE(issued_at, now())
 WHERE tenant_id = $1 AND id = $2 AND status IN ('draft', 'issued')
-RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
 `
 
 type MarkInvoicePaidParams struct {
@@ -188,6 +269,9 @@ func (q *Queries) MarkInvoicePaid(ctx context.Context, arg MarkInvoicePaidParams
 		&i.PdfPath,
 		&i.IssuedAt,
 		&i.CreatedAt,
+		&i.OrderID,
+		&i.DocumentSnapshot,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }
@@ -211,7 +295,7 @@ const voidInvoice = `-- name: VoidInvoice :one
 UPDATE invoices
 SET status = 'void'
 WHERE tenant_id = $1 AND id = $2 AND status IN ('draft', 'issued')
-RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+RETURNING id, tenant_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, order_id, document_snapshot, source_payment_id
 `
 
 type VoidInvoiceParams struct {
@@ -234,6 +318,9 @@ func (q *Queries) VoidInvoice(ctx context.Context, arg VoidInvoiceParams) (Invoi
 		&i.PdfPath,
 		&i.IssuedAt,
 		&i.CreatedAt,
+		&i.OrderID,
+		&i.DocumentSnapshot,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }

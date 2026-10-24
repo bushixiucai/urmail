@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// OpSieveActivate compiles and atomically activates one persisted structured script.
+const OpSieveActivate = "mailbox.sieve.activate"
+
 // Whitelists for the M1 operations. Every value that reaches the filesystem
 // or a command line passes through one of these.
 

@@ -1,0 +1,13 @@
+DROP FUNCTION urmail_soft_delete_archive(bigint,bigint);
+DROP TRIGGER retention_confirmation_guard ON retention_policies;
+DROP FUNCTION urmail_retention_confirmation_guard();
+DROP TRIGGER archive_physical_purge_guard ON archive_content;
+DROP TRIGGER archive_physical_hold_guard ON archive_entries;
+DROP FUNCTION urmail_archive_purge_guard();
+ALTER TABLE retention_policies DROP COLUMN confirmed_preview;
+ALTER TABLE retention_policies ALTER COLUMN active SET DEFAULT true;
+DROP TABLE retention_previews;
+DROP TABLE archive_content;
+ALTER TABLE archive_entries DROP CONSTRAINT archive_entries_tenant_mailbox_message_uniq;
+ALTER TABLE archive_entries ADD CONSTRAINT archive_entries_tenant_mailbox_message_uniq UNIQUE(tenant_id,mailbox_id,message_id);
+ALTER TABLE archive_entries DROP COLUMN raw_sha256;

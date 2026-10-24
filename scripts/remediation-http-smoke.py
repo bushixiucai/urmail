@@ -107,31 +107,25 @@ def main():
     owner.call("POST", "/api/v1/platform/brand-hosts", {
         "hostname": f"unauthorized-{suffix}.example.test", "brand_id": 1,
     }, expected=403)
-    order = owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=201, key=code)
-    if order["payment_method"] != "manual":
-        raise RuntimeError("this smoke requires payment providers disabled; no real hosted checkout is followed")
-    retry = owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=201, key=code)
-    if retry["order"]["id"] != order["order"]["id"]:
-        raise RuntimeError("idempotency retry created another order")
-    settlement = f'/api/v1/platform/orders/{order["order"]["id"]}/paid'
-    admin.call("POST", settlement)
-    admin.call("POST", settlement)
-    invoices = owner.call("GET", "/api/v1/billing/invoices")["invoices"]
-    if len(invoices) != 1:
-        raise RuntimeError("settlement was not exactly once")
-    invoice = f'/api/v1/billing/invoices/{invoices[0]["id"]}/pdf'
-    owner.call("GET", invoice)
-    other.call("GET", invoice, expected=404)
-    admin.call("DELETE", "/api/v1/platform/plans/" + code, expected=409)
+    # A newly created tenant has neither a gifted plan nor ownership proof.
+    # The public API must not bypass that prerequisite through legacy checkout.
+    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=409, key=code)
+    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=409, key=code)
+    if owner.call("GET", "/api/v1/billing/orders")["orders"]:
+        raise RuntimeError("unverified checkout created an order")
+    if owner.call("GET", "/api/v1/billing/invoices")["invoices"]:
+        raise RuntimeError("unverified checkout created an invoice")
     plan["active"] = False
     admin.call("POST", "/api/v1/platform/plans", plan)
-    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=404, key=code + "-disabled")
+    if any(item["code"] == code for item in owner.call("GET", "/api/v1/billing/plans")["plans"]):
+        raise RuntimeError("inactive plan remained publicly purchasable")
+    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=409, key=code + "-disabled")
     if args.fixture_out:
         raw = json.dumps({"base_url": args.base_url, "accounts": accounts, "plan_code": code}, indent=2).encode()
         fd = os.open(args.fixture_out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as output:
             output.write(raw)
-    print("PASS: real HTTP settings, manual checkout retry/settlement, tenant PDF isolation, inactive plan and role boundaries")
+    print("PASS: real HTTP settings, restricted new-tenant checkout, inactive plan and role boundaries")
     if args.fixture_out:
         print("Generated browser accounts saved to the requested private fixture file")
 

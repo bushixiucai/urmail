@@ -26,7 +26,7 @@ func (q *Queries) PlatformDeleteBrandSetting(ctx context.Context, arg PlatformDe
 }
 
 const platformListBrandSettings = `-- name: PlatformListBrandSettings :many
-SELECT key,value,updated_at FROM settings WHERE scope='brand' AND scope_id=$1 ORDER BY key
+SELECT key,value,updated_at FROM settings WHERE scope='brand' AND scope_id=$1 AND key IN('locale','theme','mailbox_default_quota_bytes','business_timezone') ORDER BY key
 `
 
 type PlatformListBrandSettingsRow struct {

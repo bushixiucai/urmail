@@ -20,6 +20,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // OpCertificateIssue issues for a registered domain using an agent-owned key.
@@ -92,9 +93,14 @@ func (m *ApplyManager) ensureBootstrap(p ApplyParams) error {
 	deadline := time.Now().Add(30 * time.Second)
 	domains := []string{m.hostname()}
 	for _, d := range p.Postfix.Domains {
-		domains = append(domains, d.FQDN)
+		if m.customWebEnabled(d.FQDN) {
+			domains = append(domains, d.FQDN)
+		}
 	}
 	for _, domain := range domains {
+		if !m.certificateProvisioningAllowed(domain) {
+			continue
+		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("certificate bootstrap time budget exhausted")
 		}
@@ -156,7 +162,7 @@ func (m *ApplyManager) IssueCertificate(raw json.RawMessage) (string, string, er
 	m.mu.Lock()
 	allowed := m.certificateAllowed(p.Domain)
 	m.mu.Unlock()
-	if !allowed || !validation.IsValidHostname(p.Domain) {
+	if !allowed || !validation.IsValidHostname(p.Domain) || !m.certificateProvisioningAllowed(p.Domain) {
 		return "", "", fmt.Errorf("%w: certificate domain is not registered", ErrRejected)
 	}
 	m.certMu.Lock()
@@ -202,6 +208,9 @@ func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, e
 	var failed bool
 	deadline := time.Now().Add(3 * time.Minute)
 	for _, domain := range domains {
+		if !m.certificateProvisioningAllowed(domain) {
+			continue
+		}
 		if time.Now().After(deadline) {
 			failed = true
 			break
@@ -422,4 +431,23 @@ func (m *ApplyManager) acmeWebroot() string {
 		return m.webroot
 	}
 	return nginx.ACMEWebroot
+}
+
+func (m *ApplyManager) customWebEnabled(domain string) bool {
+	if domain == m.hostname() || m.pool == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	enabled, err := store.New(m.pool.Pool).PlatformCustomWebEnabled(ctx, domain)
+	return err == nil && enabled
+}
+func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
+	if domain == m.hostname() || m.pool == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	allowed, err := store.New(m.pool.Pool).PlatformProvisioningCertificateAllowed(ctx, domain)
+	return err == nil && allowed
 }

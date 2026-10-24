@@ -1,0 +1,6 @@
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM payment_checkout_intents WHERE restore_hold) THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_HOLD_REQUIRES_RECONCILIATION' USING ERRCODE='23514';
+ END IF;
+END $$;
+ALTER TABLE payment_checkout_intents DROP COLUMN restore_hold;

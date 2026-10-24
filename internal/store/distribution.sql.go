@@ -40,20 +40,21 @@ func (q *Queries) CreateChannelAttribution(ctx context.Context, arg CreateChanne
 
 const createCommission = `-- name: CreateCommission :one
 INSERT INTO commissions (
-    channel_id, tenant_id, order_id, amount_cents, bps, status
+    channel_id, tenant_id, order_id, amount_cents, bps, status,source_payment_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6,$7
 ) ON CONFLICT(channel_id,order_id) DO UPDATE SET amount_cents=commissions.amount_cents
-RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at
+RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at,source_payment_id
 `
 
 type CreateCommissionParams struct {
-	ChannelID   int64  `json:"channel_id"`
-	TenantID    int64  `json:"tenant_id"`
-	OrderID     int64  `json:"order_id"`
-	AmountCents int64  `json:"amount_cents"`
-	Bps         int32  `json:"bps"`
-	Status      string `json:"status"`
+	ChannelID       int64       `json:"channel_id"`
+	TenantID        int64       `json:"tenant_id"`
+	OrderID         int64       `json:"order_id"`
+	AmountCents     int64       `json:"amount_cents"`
+	Bps             int32       `json:"bps"`
+	Status          string      `json:"status"`
+	SourcePaymentID pgtype.Int8 `json:"source_payment_id"`
 }
 
 func (q *Queries) CreateCommission(ctx context.Context, arg CreateCommissionParams) (Commissions, error) {
@@ -64,6 +65,7 @@ func (q *Queries) CreateCommission(ctx context.Context, arg CreateCommissionPara
 		arg.AmountCents,
 		arg.Bps,
 		arg.Status,
+		arg.SourcePaymentID,
 	)
 	var i Commissions
 	err := row.Scan(
@@ -75,6 +77,7 @@ func (q *Queries) CreateCommission(ctx context.Context, arg CreateCommissionPara
 		&i.Bps,
 		&i.Status,
 		&i.CreatedAt,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }

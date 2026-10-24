@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/bushixiucai/urmail/internal/config"
 )
 
 // ProtocolVersion identifies the supported protocol version. The agent refuses requests with an unknown version so
@@ -75,12 +77,13 @@ type Operation func(params json.RawMessage) (stdout string, stderr string, err e
 
 // Registry holds the whitelist of privileged operations.
 type Registry struct {
-	ops map[string]Operation
+	ops         map[string]Operation
+	quarantined func() bool
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{ops: map[string]Operation{}}
+	return &Registry{ops: map[string]Operation{}, quarantined: config.RestoreQuarantined}
 }
 
 // Register adds an operation to the whitelist.
@@ -109,6 +112,10 @@ func (r *Registry) Execute(req Request) Response {
 		return resp
 	}
 
+	if r.quarantined != nil && r.quarantined() && !quarantineReadOnly(req.Op) {
+		resp.Error = &Error{Code: CodeRejected, Message: "restore quarantine blocks privileged mutation"}
+		return resp
+	}
 	stdout, stderr, err := op(req.Params)
 	if err != nil {
 		code := CodeFailed
@@ -129,10 +136,27 @@ func (r *Registry) Execute(req Request) Response {
 // NewProductionRegistry exposes only typed, root-controlled capabilities.
 func NewProductionRegistry(manager *ApplyManager) *Registry {
 	registry := NewRegistry()
+	registry.quarantined = func() bool {
+		return config.RestoreQuarantined() || (manager != nil && manager.cfg != nil && manager.cfg.Quarantined)
+	}
+	registry.Register(OpHostObserve, manager.ObserveHost)
+	registry.Register(OpMailLogRead, ReadMailLog)
+	registry.Register(OpPostfixQueue, ReadPostfixQueue)
 	registry.Register(OpMailboxExpunge, manager.ExpungeRecall)
+	registry.Register(OpSieveActivate, manager.ActivateSieve)
 	registry.Register(OpConfigApply, manager.Apply)
 	registry.Register(OpConfigStatus, manager.Status)
+	registry.Register(OpCertificateStatus, manager.CertificateStatus)
 	registry.Register(OpCertificateIssue, manager.IssueCertificate)
 	registry.Register(OpCertificateRenew, manager.RenewCertificates)
 	return registry
+}
+
+func quarantineReadOnly(op string) bool {
+	switch op {
+	case OpConfigStatus, OpMailLogRead, OpPostfixQueue, OpHostObserve, OpCertificateStatus:
+		return true
+	default:
+		return false
+	}
 }

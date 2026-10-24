@@ -74,6 +74,7 @@ func (a *Aliyun) call(ctx context.Context, action string, params url.Values) ([]
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "urMail DNS onboarding")
 	resp, err := a.Client.Do(req)
 	if err != nil {
 		return nil, err

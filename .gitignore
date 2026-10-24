@@ -53,3 +53,5 @@ scripts/__pycache__/
 
 # Local release candidates
 /dist/
+
+packaging/**/__pycache__/

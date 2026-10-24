@@ -93,6 +93,7 @@ export interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
+  idempotencyKey?: string;
 }
 
 /** Download a protected PDF without putting a session token in its URL. */
@@ -142,10 +143,11 @@ export async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = "GET", body, signal } = options;
+  const { method = "GET", body, signal, idempotencyKey } = options;
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
 
   const token = getSessionToken();
   if (token) headers.Authorization = `Bearer ${token}`;

@@ -1,0 +1,13 @@
+# Replace the local receiver with the approved receiver before enabling its unit.
+# No external address, credential, or enabled receiver is shipped by default.
+route:
+  receiver: operator-configure-before-enabling
+  group_by: ['alertname', 'kind']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+receivers:
+  - name: operator-configure-before-enabling
+    webhook_configs:
+      - url: http://127.0.0.1:9099/alerts
+        send_resolved: true

@@ -22,6 +22,7 @@ interface AliasItem {
   target: string;
   kind: string;
   active: boolean;
+  sender_logins?: string[];
 }
 
 interface DomainItem {
@@ -256,6 +257,13 @@ export function AliasListPage() {
                           {a.target}
                         </span>
                       </div>
+                      {!!a.sender_logins?.length && (
+                        <p className="text-xs text-muted-foreground break-all mt-1">
+                          {t("page.aliases.sender_logins", {
+                            logins: a.sender_logins.join(", "),
+                          })}
+                        </p>
+                      )}
                       <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                         <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-600 rounded">
                           {t(`alias.kind.${a.kind}`, { defaultValue: a.kind })}
@@ -299,6 +307,12 @@ export function AliasListPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={saveAlias} className="space-y-3">
+              {!!editing.sender_logins?.length &&
+                editTarget.trim().toLowerCase() !== editing.target && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {t("page.aliases.sender_grants_revoked_on_edit")}
+                  </p>
+                )}
               <label className="grid gap-1">
                 {t("page.aliases.field_target")}
                 <Input

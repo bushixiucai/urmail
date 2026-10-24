@@ -6,17 +6,17 @@ INSERT INTO archive_entries (
     tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at;
+) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
 
 -- name: ListArchiveEntriesByTenant :many
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = $1 AND deleted_at IS NULL
 ORDER BY received_at DESC, id DESC
 LIMIT $2 OFFSET $3;
 
 -- name: GetArchiveEntryByID :one
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = $1 AND id = $2;
 
@@ -27,22 +27,18 @@ WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL;
 
 -- name: SetArchiveEntryLegalHold :one
 UPDATE archive_entries
-SET legal_hold = true
+SET legal_hold = true, deleted_at = NULL
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at;
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
 
 -- name: ClearArchiveEntryLegalHold :one
 UPDATE archive_entries
 SET legal_hold = false
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at;
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
 
 -- name: SoftDeleteArchiveEntry :one
--- Refuses to soft-delete entries under legal hold (returns no rows when held).
-UPDATE archive_entries
-SET deleted_at = now()
-WHERE tenant_id = $1 AND id = $2 AND legal_hold = false AND deleted_at IS NULL
-RETURNING id;
+SELECT result::bigint AS id FROM urmail_soft_delete_archive(@tenant_id::bigint,@id::bigint) AS result WHERE result IS NOT NULL;
 
 -- name: ListMailboxesWithLegalHold :many
 SELECT DISTINCT mailbox_id

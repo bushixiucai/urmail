@@ -118,6 +118,13 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		})
 	}
 	mergedSettings, _ := domainSettings.Merge3Layers(entries)
+	for key := range mergedSettings {
+		switch key {
+		case "locale", "theme", "mailbox_default_quota_bytes", "business_timezone":
+		default:
+			delete(mergedSettings, key)
+		}
+	}
 
 	// Effective brand theme: the brand row (platform-scoped) deep-merged
 	// with the platform/brand/tenant settings entries keyed "theme".
@@ -143,7 +150,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 
 	var plan store.Plans
 	if subErr == nil {
-		plan, _ = q.GetPlanByCode(c, sub.PlanID)
+		plan, _ = subscriptionPlan(c, q, sub)
 	}
 
 	usage := TenantUsageResponse{DomainsUsed: domainCount, DomainsLimit: plan.DomainLimit, MailboxesUsed: mailboxCount, MailboxesLimit: plan.MailboxLimit, StorageBytesLimit: plan.QuotaBytes, StorageStatus: "unknown"}

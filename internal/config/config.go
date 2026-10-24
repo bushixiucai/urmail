@@ -23,10 +23,15 @@ const EnvFile = "/etc/urmail/urmaild.env"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
-	DNSListenAddresses []string
-	DevMode            bool
-	ACMEServer         string
-	ACMERootCA         string
+	DNSListenAddresses   []string
+	DevMode              bool
+	MarketingEnabled     bool
+	RegistrationEnabled  bool
+	NotificationsEnabled bool
+	RefundsEnabled       bool
+	Quarantined          bool
+	ACMEServer           string
+	ACMERootCA           string
 	// ListenAddr is the address the HTTP server binds to. It must stay on
 	// loopback: nginx terminates TLS and is the only thing that should be
 	// reachable from the network.
@@ -60,6 +65,21 @@ type Config struct {
 
 	// PolicyEnabled controls whether Postfix queries the policy service.
 	PolicyEnabled bool
+
+	// PostfixV80Preserve enables the fixed, reviewed v80 SMTP compatibility profile.
+	// It requires the SaaS policy service and never accepts raw restrictions.
+	PostfixV80Preserve bool
+
+	// PreserveExternalNSD keeps an existing authoritative NSD tree untouched.
+	// Used for v80 same-box mail cutover while source zones/DNSSEC remain live.
+	PreserveExternalNSD bool
+
+	// PreserveExternalWeb keeps existing nginx site/TLS layout untouched.
+	PreserveExternalWeb bool
+
+	// PreserveExternalOpenDKIM keeps the live OpenDKIM milter/config untouched
+	// so Postfix can keep signing through the source milter without dual-sign.
+	PreserveExternalOpenDKIM bool
 
 	// ArchiveEnabled controls whether Postfix routes incoming mail through
 	// the archive transport.
@@ -107,11 +127,28 @@ type Config struct {
 	AliyunAccessKeyID     string
 	AliyunAccessKeySecret string
 
+	// DNSManagedZones lists the DNS zones the provider credentials may write.
+	// A domain is only auto-verified through the provider when it falls inside
+	// one of these zones; anything else must verify manually. Without this
+	// allowlist a tenant could aim the platform credentials at an arbitrary
+	// zone before ownership verification (M5 review 3.11).
+	DNSManagedZones []string
+
 	// StripeSecretKey enables Stripe Checkout when set.
 	StripeSecretKey string
 
 	// StripeWebhookSecret verifies /billing/webhook/stripe.
 	StripeWebhookSecret string
+
+	// QuoteHMACKey signs billing quote snapshots; it has no insecure default.
+	QuoteHMACKey string
+	// MarketingUnsubscribeHMACKey signs recipient opt-out tokens; no default.
+	MarketingUnsubscribeHMACKey string
+	RoundcubeBridgeKey          string
+	RoundcubeEnabled            bool
+	MetricsToken                string
+	AICloudEndpoints            []string
+	AILocalEndpoints            []string
 }
 
 // parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
@@ -140,34 +177,81 @@ func Load() (*Config, error) {
 		}
 	}
 
+	var preserveV80 bool
+	if raw := values["URMAIL_POSTFIX_V80_PRESERVE"]; raw != "" {
+		preserveV80, err = strconv.ParseBool(raw)
+		if err != nil {
+			return nil, errors.New("URMAIL_POSTFIX_V80_PRESERVE must be a boolean")
+		}
+	}
+	parsePreserve := func(key string) (bool, error) {
+		raw := values[key]
+		if raw == "" {
+			return false, nil
+		}
+		value, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			return false, fmt.Errorf("%s must be a boolean", key)
+		}
+		return value, nil
+	}
+	preserveNSD, err := parsePreserve("URMAIL_PRESERVE_EXTERNAL_NSD")
+	if err != nil {
+		return nil, err
+	}
+	preserveWeb, err := parsePreserve("URMAIL_PRESERVE_EXTERNAL_WEB")
+	if err != nil {
+		return nil, err
+	}
+	preserveDKIM, err := parsePreserve("URMAIL_PRESERVE_EXTERNAL_OPENDKIM")
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
-		DevMode:               parseBool(values["URMAIL_DEV_MODE"]),
-		ACMEServer:            values["URMAIL_ACME_SERVER"],
-		ACMERootCA:            values["URMAIL_ACME_ROOT_CA"],
-		ListenAddr:            values["URMAIL_LISTEN_ADDR"],
-		DatabaseURL:           values["URMAIL_DATABASE_URL"],
-		DatabaseURLPlatform:   values["URMAIL_DATABASE_URL_PLATFORM"],
-		DatabaseURLMigrate:    values["URMAIL_DATABASE_URL_MIGRATE"],
-		DatabaseURLDovecot:    values["URMAIL_DATABASE_URL_DOVECOT"],
-		MyHostname:            values["URMAIL_MYHOSTNAME"],
-		PrimaryDomain:         values["URMAIL_PRIMARY_DOMAIN"],
-		PolicyEnabled:         parseBool(values["URMAIL_POLICY_ENABLED"]),
-		ArchiveEnabled:        parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
-		StorageRoot:           values["URMAIL_STORAGE_ROOT"],
-		AgentSocket:           values["URMAIL_AGENT_SOCKET"],
-		PolicySocket:          values["URMAIL_POLICY_SOCKET"],
-		MasterKeyPath:         values["URMAIL_MASTER_KEY_PATH"],
-		LogLevel:              values["URMAIL_LOG_LEVEL"],
-		Locale:                values["URMAIL_LOCALE"],
-		PublicIPv4:            values["URMAIL_PUBLIC_IPV4"],
-		Nameservers:           splitCSV(values["URMAIL_NAMESERVERS"]),
-		DNSProvider:           strings.ToLower(strings.TrimSpace(values["URMAIL_DNS_PROVIDER"])),
-		CloudflareToken:       values["URMAIL_CLOUDFLARE_TOKEN"],
-		DNSPodToken:           values["URMAIL_DNSPOD_TOKEN"],
-		AliyunAccessKeyID:     values["URMAIL_ALIYUN_ACCESS_KEY_ID"],
-		AliyunAccessKeySecret: values["URMAIL_ALIYUN_ACCESS_KEY_SECRET"],
-		StripeSecretKey:       values["URMAIL_STRIPE_SECRET_KEY"],
-		StripeWebhookSecret:   values["URMAIL_STRIPE_WEBHOOK_SECRET"],
+		DevMode:                     parseBool(values["URMAIL_DEV_MODE"]),
+		MarketingEnabled:            parseBool(values["URMAIL_MARKETING_ENABLED"]),
+		RegistrationEnabled:         parseBool(values["URMAIL_REGISTRATION_ENABLED"]),
+		NotificationsEnabled:        parseBool(values["URMAIL_NOTIFICATIONS_ENABLED"]),
+		RefundsEnabled:              parseBool(values["URMAIL_REFUNDS_ENABLED"]),
+		Quarantined:                 parseBool(values["URMAIL_QUARANTINED"]) || restoreQuarantinePresent(RestoreQuarantineMarker),
+		ACMEServer:                  values["URMAIL_ACME_SERVER"],
+		ACMERootCA:                  values["URMAIL_ACME_ROOT_CA"],
+		ListenAddr:                  values["URMAIL_LISTEN_ADDR"],
+		DatabaseURL:                 values["URMAIL_DATABASE_URL"],
+		DatabaseURLPlatform:         values["URMAIL_DATABASE_URL_PLATFORM"],
+		DatabaseURLMigrate:          values["URMAIL_DATABASE_URL_MIGRATE"],
+		DatabaseURLDovecot:          values["URMAIL_DATABASE_URL_DOVECOT"],
+		MyHostname:                  values["URMAIL_MYHOSTNAME"],
+		PrimaryDomain:               values["URMAIL_PRIMARY_DOMAIN"],
+		PolicyEnabled:               parseBool(values["URMAIL_POLICY_ENABLED"]),
+		PostfixV80Preserve:          preserveV80,
+		PreserveExternalNSD:         preserveNSD,
+		PreserveExternalWeb:         preserveWeb,
+		PreserveExternalOpenDKIM:    preserveDKIM,
+		ArchiveEnabled:              parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
+		StorageRoot:                 values["URMAIL_STORAGE_ROOT"],
+		AgentSocket:                 values["URMAIL_AGENT_SOCKET"],
+		PolicySocket:                values["URMAIL_POLICY_SOCKET"],
+		MasterKeyPath:               values["URMAIL_MASTER_KEY_PATH"],
+		LogLevel:                    values["URMAIL_LOG_LEVEL"],
+		Locale:                      values["URMAIL_LOCALE"],
+		PublicIPv4:                  values["URMAIL_PUBLIC_IPV4"],
+		Nameservers:                 splitCSV(values["URMAIL_NAMESERVERS"]),
+		DNSProvider:                 strings.ToLower(strings.TrimSpace(values["URMAIL_DNS_PROVIDER"])),
+		DNSManagedZones:             splitCSV(values["URMAIL_DNS_MANAGED_ZONES"]),
+		CloudflareToken:             values["URMAIL_CLOUDFLARE_TOKEN"],
+		DNSPodToken:                 values["URMAIL_DNSPOD_TOKEN"],
+		AliyunAccessKeyID:           values["URMAIL_ALIYUN_ACCESS_KEY_ID"],
+		AliyunAccessKeySecret:       values["URMAIL_ALIYUN_ACCESS_KEY_SECRET"],
+		StripeSecretKey:             values["URMAIL_STRIPE_SECRET_KEY"],
+		StripeWebhookSecret:         values["URMAIL_STRIPE_WEBHOOK_SECRET"],
+		QuoteHMACKey:                values["URMAIL_QUOTE_HMAC_KEY"],
+		MarketingUnsubscribeHMACKey: values["URMAIL_MARKETING_UNSUBSCRIBE_HMAC_KEY"],
+		RoundcubeBridgeKey:          values["URMAIL_ROUNDCUBE_BRIDGE_KEY"],
+		RoundcubeEnabled:            parseBool(values["URMAIL_ROUNDCUBE_ENABLED"]),
+		MetricsToken:                values["URMAIL_METRICS_TOKEN"],
+		AICloudEndpoints:            splitCSV(values["URMAIL_AI_CLOUD_ENDPOINTS"]),
+		AILocalEndpoints:            splitCSV(values["URMAIL_AI_LOCAL_ENDPOINTS"]),
 	}
 	cfg.applyDefaults()
 	cfg.DNSListenAddresses, err = resolveDNSListenAddresses(values["URMAIL_DNS_LISTEN_ADDRESSES"])
@@ -227,6 +311,9 @@ func (c *Config) applyDefaults() {
 // falling back to a local socket would hide a misconfigured install behind a
 // confusing runtime error.
 func (c *Config) validate() error {
+	if c.PostfixV80Preserve && !c.PolicyEnabled {
+		return errors.New("v80 SMTP preservation requires URMAIL_POLICY_ENABLED")
+	}
 	if c.DevMode {
 		host, _, err := net.SplitHostPort(c.ListenAddr)
 		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {

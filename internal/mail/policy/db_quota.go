@@ -127,6 +127,13 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 	}
 
 	if c.Raw != nil {
+		if durable, ok := c.Store.(interface {
+			PlatformTakeMailboxDailyQuota(context.Context, store.PlatformTakeMailboxDailyQuotaParams) (bool, error)
+		}); ok {
+			return durable.PlatformTakeMailboxDailyQuota(ctx, store.PlatformTakeMailboxDailyQuotaParams{TenantID: tenantID, MailboxID: mailboxID})
+		}
+	}
+	if c.Raw != nil {
 		// Atomic path: a single guarded UPSERT decides both the check and
 		// the increment. ErrNoRows means the guarded UPDATE did not fire,
 		// i.e. the quota was exhausted by a concurrent worker in between.

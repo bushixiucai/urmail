@@ -128,14 +128,36 @@ func TestPostgresCommandsNeverExposePasswordsInArgv(t *testing.T) {
 	}
 }
 func TestRestoreKeepsTargetRoleCredentialsAndRestoresOtherSettings(t *testing.T) {
-	cfg := &config.Config{DatabaseURL: "postgres://urmail_app:new-app@127.0.0.1/old", DatabaseURLPlatform: "postgres://urmail_platform:new-platform@127.0.0.1/old", DatabaseURLMigrate: "postgres://urmail_migrate:new-migrate@127.0.0.1/old", DatabaseURLDovecot: "postgres://urmail_dovecot:new-dovecot@127.0.0.1/old"}
+	cfg := &config.Config{DatabaseURL: "postgres://urmail_app:new-app@127.0.0.1/old", DatabaseURLPlatform: "postgres://urmail_platform:new-platform@127.0.0.1/old", DatabaseURLMigrate: "postgres://urmail_migrate:new-migrate@127.0.0.1/old", DatabaseURLDovecot: "postgres://urmail_dovecot:new-dovecot@127.0.0.1/old", RoundcubeBridgeKey: "target-private-bridge-key-that-must-survive"}
 	values, err := targetDatabaseURLs(cfg, "postgres://urmail_migrate:new-migrate@127.0.0.1/restored")
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw := []byte("URMAIL_DATABASE_URL=postgres://urmail_app:old-source-secret@127.0.0.1/source\nURMAIL_MYHOSTNAME=source.example.test\n")
 	merged := string(mergeTargetDatabaseURLs(raw, values))
-	if strings.Contains(merged, "old-source-secret") || !strings.Contains(merged, "new-app@127.0.0.1/restored") || !strings.Contains(merged, "URMAIL_MYHOSTNAME=source.example.test") {
+	if strings.Contains(merged, "old-source-secret") || !strings.Contains(merged, "new-app@127.0.0.1/restored") || !strings.Contains(merged, "URMAIL_MYHOSTNAME=source.example.test") || !strings.Contains(merged, "URMAIL_ROUNDCUBE_BRIDGE_KEY=target-private-bridge-key-that-must-survive") {
 		t.Fatal("source DB credentials replaced validated target credentials or other source settings were lost")
+	}
+}
+
+func TestCompleteBackupRetainsExistingArchiveAndSpoolWhenDisabled(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{"var/lib/urmail/archive", "var/lib/urmail/archive-spool"} {
+		if err := os.MkdirAll(filepath.Join(root, path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := archiveBackupPaths(root, false)
+	if err != nil || len(paths) != 2 {
+		t.Fatalf("feature toggle omitted existing archive data: %v %v", paths, err)
+	}
+	if err = os.Remove(filepath.Join(root, "var/lib/urmail/archive-spool")); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink("archive", filepath.Join(root, "var/lib/urmail/archive-spool")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = archiveBackupPaths(root, false); err == nil {
+		t.Fatal("symlinked spool backup accepted")
 	}
 }

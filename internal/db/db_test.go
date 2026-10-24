@@ -2,35 +2,22 @@ package db_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
-// testDatabaseURL returns the connection string of the database used by the
-// integration tests. The tests are skipped when it is not set, so that a
-// plain `go test ./...` on a laptop does not need a database.
-//
-// The URL must point at a throwaway database: the tests create roles and
-// tables.
+// testDatabaseURL creates an owned, bootstrapped database for each test.
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set; skipping the database integration tests")
-	}
-	return url
+	return testdb.New(t)
 }
 
 // applyMigrations brings the database up to the current schema.
 func applyMigrations(t *testing.T, url string) {
 	t.Helper()
-
-	if err := db.Bootstrap(context.Background(), url); err != nil {
-		t.Fatalf("bootstrap cluster roles: %v", err)
-	}
 
 	migrator, err := db.NewMigrator(url)
 	if err != nil {
@@ -77,9 +64,6 @@ func TestMigrationIsReversible(t *testing.T) {
 	}
 	defer func() { _ = migrator.Close() }()
 
-	if err := db.Bootstrap(ctx, url); err != nil {
-		t.Fatalf("bootstrap cluster roles: %v", err)
-	}
 	if err := migrator.Up(ctx); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
@@ -144,8 +128,8 @@ func TestTenantIsolation(t *testing.T) {
 			t.Fatalf("insert tenant %s: %v", spec.slug, err)
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token)
-			VALUES ($1, $2, 'delegated', 'active', 'token-' || $2) RETURNING id`,
+			INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token, verified_at)
+			VALUES ($1, $2, 'delegated', 'active', 'token-' || $2, now()) RETURNING id`,
 			tenantID, spec.fqdn).Scan(&domainID); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("insert domain %s: %v", spec.fqdn, err)
@@ -360,7 +344,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	}
 
 	// Insert a platform setting via platform
-	if _, err := tx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('platform', 0, 'site_name', '"urMail"'::jsonb)`); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('platform', 0, 'locale', '"en"'::jsonb)`); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert platform setting: %v", err)
 	}
@@ -375,7 +359,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
 	var val string
-	if err := tenantTx.QueryRow(ctx, "SELECT value::text FROM settings WHERE scope = 'platform' AND key = 'site_name'").Scan(&val); err != nil {
+	if err := tenantTx.QueryRow(ctx, "SELECT value::text FROM settings WHERE scope = 'platform' AND key = 'locale'").Scan(&val); err != nil {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatalf("tenant read platform setting: %v", err)
 	}
@@ -398,7 +382,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
-	changed, err := tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'site_name'`)
+	changed, err := tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'locale'`)
 	if err == nil && changed.RowsAffected() != 0 {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatal("tenant MUST NOT be able to update platform settings")
@@ -410,7 +394,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
-	_, err = tenantTx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('tenant', $1, 'custom_theme', '"dark"'::jsonb)`, tenantID)
+	_, err = tenantTx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('tenant', $1, 'theme', '{"primary":"#123456"}'::jsonb)`, tenantID)
 	if err != nil {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatalf("tenant should be able to insert tenant setting: %v", err)
@@ -462,7 +446,7 @@ func TestDovecotRolePermissions(t *testing.T) {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert tenant: %v", err)
 	}
-	if err := tx.QueryRow(ctx, "INSERT INTO domains (tenant_id, fqdn, status, verification_token) VALUES ($1, 'd.com', 'active', 'tok') RETURNING id", tenantID).Scan(&domainID); err != nil {
+	if err := tx.QueryRow(ctx, "INSERT INTO domains (tenant_id, fqdn, status, verification_token, verified_at) VALUES ($1, 'd.com', 'active', 'tok', now()) RETURNING id", tenantID).Scan(&domainID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert domain: %v", err)
 	}

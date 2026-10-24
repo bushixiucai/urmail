@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -13,16 +12,13 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
-// integrationURL skips unless the database integration environment is set.
+// integrationURL creates an owned, bootstrapped database for each test.
 func integrationURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set; skipping the database integration tests")
-	}
-	return url
+	return testdb.New(t)
 }
 
 // TestRequireTenantTxScopesQueries proves the API middleware publishes the
@@ -32,9 +28,6 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 	url := integrationURL(t)
 	ctx := context.Background()
 
-	if err := db.Bootstrap(ctx, url); err != nil {
-		t.Fatalf("bootstrap cluster roles: %v", err)
-	}
 	migrator, err := db.NewMigrator(url)
 	if err != nil {
 		t.Fatalf("create migrator: %v", err)
@@ -77,8 +70,8 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 		t.Fatalf("seed tenants: %v", err)
 	}
 	if _, err := ptx.Exec(ctx, `
-		INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token, tls_mode)
-		SELECT t.id, d.fqdn, 'delegated', 'active', 'seed-' || d.fqdn, 'letsencrypt' FROM tenants t, (VALUES
+		INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token, tls_mode, verified_at)
+		SELECT t.id, d.fqdn, 'delegated', 'active', 'seed-' || d.fqdn, 'letsencrypt', now() FROM tenants t, (VALUES
 			('acme.example', 'acme'),
 			('beta.example', 'beta')
 		) AS d(fqdn, slug) WHERE t.slug = d.slug`); err != nil {

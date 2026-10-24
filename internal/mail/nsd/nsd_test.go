@@ -221,7 +221,7 @@ func TestRecordValidationAcceptsValidRecords(t *testing.T) {
 				{Name: "www", Type: "CNAME", Value: "example.com."},
 				{Name: "@", Type: "MX", Prio: 10, Value: "box.urmail.cn."},
 				{Name: "ns2", Type: "NS", Value: "ns2.example.com."},
-				{Name: "_dmarc", Type: "TXT", Value: "v=DMARC1; p=none"},
+				{Name: "_dmarc", Type: "TXT", Value: "v=DMARC1; p=quarantine"},
 				{Name: "@", Type: "SPF", Value: "v=spf1 mx -all"},
 				{Name: "_sip._tcp", Type: "SRV", Value: "10 60 5060 sip.example.com."},
 				{Name: "@", Type: "CAA", Value: "0 issue letsencrypt.org"},
@@ -240,7 +240,7 @@ func TestRecordValidationAcceptsValidRecords(t *testing.T) {
 			t.Fatalf("zone file contains injected text %q", banned)
 		}
 	}
-	if !strings.Contains(zone, "IN TXT \"v=DMARC1; p=none\"") {
+	if !strings.Contains(zone, "IN TXT \"v=DMARC1; p=quarantine\"") {
 		t.Fatalf("TXT value must be quoted: %s", zone)
 	}
 }

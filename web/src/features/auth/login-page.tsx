@@ -4,7 +4,8 @@ import {
   usePublicBrand,
 } from "@/components/brand/public-brand";
 import { useState, FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { usePublicStatus } from "./public-status";
+import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Mail, Lock, AlertCircle, ArrowRight } from "lucide-react";
 import { useAuth, User, TenantInfo } from "@/app/auth-context";
@@ -33,6 +34,7 @@ interface LoginResponse {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const publicStatus = usePublicStatus();
   const brand = usePublicBrand();
   const { t } = useTranslation();
   const { login } = useAuth();
@@ -142,6 +144,11 @@ export function LoginPage() {
           <CardDescription>{t("login.subtitle")}</CardDescription>
         </CardHeader>
         <CardContent>
+          {publicStatus.quarantined && (
+            <p role="alert" className="mb-3 text-sm">
+              {t("restore.quarantine_banner")}
+            </p>
+          )}
           {mfaToken ? (
             <form onSubmit={handleMfaVerify} className="space-y-4">
               {error && (
@@ -232,6 +239,14 @@ export function LoginPage() {
                 {!isLoading && <ArrowRight className="h-4 w-4 ml-2" />}
               </Button>
             </form>
+          )}
+          <Link className="block text-sm underline" to="/pricing">
+            {t("pricing.title")}
+          </Link>
+          {publicStatus.registration && (
+            <Link className="inline-block text-sm underline" to="/register">
+              {t("registration.action")}
+            </Link>
           )}
         </CardContent>
       </Card>

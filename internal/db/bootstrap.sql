@@ -19,6 +19,12 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_platform') THEN
         CREATE ROLE urmail_platform NOLOGIN;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_roundcube') THEN
+        CREATE ROLE urmail_roundcube NOLOGIN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_nextcloud') THEN
+        CREATE ROLE urmail_nextcloud NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_dovecot') THEN
         CREATE ROLE urmail_dovecot NOLOGIN;
     END IF;
@@ -47,3 +53,35 @@ GRANT USAGE ON SCHEMA public TO urmail_dovecot;
 -- 0001 transfers table ownership to urmail_platform. The migration role must
 -- be a member of the owning role to perform that ALTER TABLE ... OWNER TO.
 DO $$ BEGIN IF NOT pg_has_role('urmail_migrate','urmail_platform','MEMBER') THEN GRANT urmail_platform TO urmail_migrate; END IF; END $$;
+
+-- pg_trgm is an untrusted extension: only a superuser can create it, and the
+-- migration role is deliberately NOSUPERUSER. Compliance substring search
+-- (migration 0028) degrades to the slower tsvector path when it is missing,
+-- so the installer creates it here, in the superuser stage, BEFORE migrations
+-- run. Skip silently when the host already provides it.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'could not install pg_trgm (%); compliance substring search will be slower', SQLERRM;
+END
+$$;
+
+-- Roundcube owns only its vendor metadata schema, never public mail tables.
+DO $$ BEGIN IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN GRANT urmail_roundcube TO urmail_migrate; END IF; END $$;
+-- The migration role creates isolated service schemas inside this database.
+DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO urmail_migrate',current_database()); END $$;
+ALTER ROLE urmail_roundcube SET search_path=roundcube;
+
+-- Nextcloud is confined to its application metadata schema in this database.
+-- Repeated bootstrap must not disable a separately reviewed active login.
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud' AND (rolsuper OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
+ OR EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='urmail_nextcloud')
+ THEN RAISE EXCEPTION 'NEXTCLOUD_ROLE_PRIVILEGES_UNSAFE'; END IF;
+ IF NOT pg_has_role('urmail_migrate','urmail_nextcloud','MEMBER') THEN GRANT urmail_nextcloud TO urmail_migrate; END IF;
+END $$;
+ALTER ROLE urmail_nextcloud SET search_path=nextcloud;

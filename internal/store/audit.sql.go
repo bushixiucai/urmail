@@ -13,6 +13,7 @@ import (
 )
 
 const createAuditLog = `-- name: CreateAuditLog :one
+
 INSERT INTO audit_logs (
     tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail
 ) VALUES (
@@ -30,6 +31,7 @@ type CreateAuditLogParams struct {
 	Detail      []byte      `json:"detail"`
 }
 
+// Append-only audit trail for tenant-visible history.
 func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLogs, error) {
 	row := q.db.QueryRow(ctx, createAuditLog,
 		arg.TenantID,
@@ -55,21 +57,41 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 	return i, err
 }
 
-const listAuditLogsByTenant = `-- name: ListAuditLogsByTenant :many
+const exportAuditLogsByTenant = `-- name: ExportAuditLogsByTenant :many
 SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
 FROM audit_logs
 WHERE tenant_id = $1
-ORDER BY created_at DESC
-LIMIT $2
+  AND ($2::bigint IS NULL OR actor_user_id = $2)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::text IS NULL OR target_type = $4)
+  AND ($5::text IS NULL OR target_id = $5)
+  AND ($6::timestamptz IS NULL OR created_at >= $6)
+  AND ($7::timestamptz IS NULL OR created_at < $7)
+ORDER BY created_at DESC, id DESC LIMIT 10001
 `
 
-type ListAuditLogsByTenantParams struct {
-	TenantID pgtype.Int8 `json:"tenant_id"`
-	Limit    int32       `json:"limit"`
+type ExportAuditLogsByTenantParams struct {
+	TenantID    pgtype.Int8        `json:"tenant_id"`
+	ActorUserID pgtype.Int8        `json:"actor_user_id"`
+	Action      pgtype.Text        `json:"action"`
+	TargetType  pgtype.Text        `json:"target_type"`
+	TargetID    pgtype.Text        `json:"target_id"`
+	FromTime    pgtype.Timestamptz `json:"from_time"`
+	ToTime      pgtype.Timestamptz `json:"to_time"`
 }
 
-func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsByTenantParams) ([]AuditLogs, error) {
-	rows, err := q.db.Query(ctx, listAuditLogsByTenant, arg.TenantID, arg.Limit)
+// A single bounded statement gives a consistent export snapshot. The extra
+// row lets the API reject oversized exports without silently truncating them.
+func (q *Queries) ExportAuditLogsByTenant(ctx context.Context, arg ExportAuditLogsByTenantParams) ([]AuditLogs, error) {
+	rows, err := q.db.Query(ctx, exportAuditLogsByTenant,
+		arg.TenantID,
+		arg.ActorUserID,
+		arg.Action,
+		arg.TargetType,
+		arg.TargetID,
+		arg.FromTime,
+		arg.ToTime,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -96,4 +118,124 @@ func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsBy
 		return nil, err
 	}
 	return items, nil
+}
+
+const getAuditCursorAnchor = `-- name: GetAuditCursorAnchor :one
+SELECT created_at FROM audit_logs WHERE tenant_id = $1 AND id = $2
+`
+
+type GetAuditCursorAnchorParams struct {
+	TenantID pgtype.Int8 `json:"tenant_id"`
+	ID       int64       `json:"id"`
+}
+
+func (q *Queries) GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, getAuditCursorAnchor, arg.TenantID, arg.ID)
+	var created_at pgtype.Timestamptz
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
+const listAuditLogsByTenant = `-- name: ListAuditLogsByTenant :many
+SELECT audit.id, audit.tenant_id, audit.actor_user_id, audit.actor_ip, audit.action, audit.target_type, audit.target_id, audit.detail, audit.created_at
+FROM audit_logs AS audit
+WHERE audit.tenant_id = $1
+  AND ($2::bigint IS NULL OR audit.actor_user_id = $2)
+  AND ($3::text IS NULL OR audit.action = $3)
+  AND ($4::text IS NULL OR audit.target_type = $4)
+  AND ($5::text IS NULL OR audit.target_id = $5)
+  AND ($6::timestamptz IS NULL OR audit.created_at >= $6)
+  AND ($7::timestamptz IS NULL OR audit.created_at < $7)
+  AND ($8::bigint IS NULL OR
+       (audit.created_at, audit.id) < (
+           COALESCE($9::timestamptz,
+                    (SELECT cursor.created_at FROM audit_logs cursor
+                     WHERE cursor.tenant_id = $1 AND cursor.id = $8)),
+           $8::bigint))
+ORDER BY audit.created_at DESC, audit.id DESC
+LIMIT $10
+`
+
+type ListAuditLogsByTenantParams struct {
+	TenantID    pgtype.Int8        `json:"tenant_id"`
+	ActorUserID pgtype.Int8        `json:"actor_user_id"`
+	Action      pgtype.Text        `json:"action"`
+	TargetType  pgtype.Text        `json:"target_type"`
+	TargetID    pgtype.Text        `json:"target_id"`
+	FromTime    pgtype.Timestamptz `json:"from_time"`
+	ToTime      pgtype.Timestamptz `json:"to_time"`
+	BeforeID    pgtype.Int8        `json:"before_id"`
+	BeforeTime  pgtype.Timestamptz `json:"before_time"`
+	Limit       int32              `json:"limit"`
+}
+
+// id is the pagination tiebreaker: created_at alone is not stable because
+// several audit rows can share the same timestamp (M6 review D11).
+// The remaining filters are optional (NULL = unfiltered) so the tenant UI can
+// narrow by actor, action or time range without separate endpoints.
+func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsByTenantParams) ([]AuditLogs, error) {
+	rows, err := q.db.Query(ctx, listAuditLogsByTenant,
+		arg.TenantID,
+		arg.ActorUserID,
+		arg.Action,
+		arg.TargetType,
+		arg.TargetID,
+		arg.FromTime,
+		arg.ToTime,
+		arg.BeforeID,
+		arg.BeforeTime,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLogs{}
+	for rows.Next() {
+		var i AuditLogs
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.ActorUserID,
+			&i.ActorIp,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Detail,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recordTenantAudit = `-- name: RecordTenantAudit :exec
+SELECT urmail_record_audit($1::bigint, $2::bigint,
+    $3::inet, $4::text, $5::text, $6::integer)
+`
+
+type RecordTenantAuditParams struct {
+	TenantID int64       `json:"tenant_id"`
+	UserID   int64       `json:"user_id"`
+	ActorIp  *netip.Addr `json:"actor_ip"`
+	Action   string      `json:"action"`
+	Target   string      `json:"target"`
+	Status   int32       `json:"status"`
+}
+
+func (q *Queries) RecordTenantAudit(ctx context.Context, arg RecordTenantAuditParams) error {
+	_, err := q.db.Exec(ctx, recordTenantAudit,
+		arg.TenantID,
+		arg.UserID,
+		arg.ActorIp,
+		arg.Action,
+		arg.Target,
+		arg.Status,
+	)
+	return err
 }

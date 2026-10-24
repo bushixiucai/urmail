@@ -11,36 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createCouponRedemption = `-- name: CreateCouponRedemption :one
-INSERT INTO coupon_redemptions (
-    coupon_code, tenant_id, order_id
-) VALUES (
-    $1, $2, $3
-) RETURNING coupon_code, tenant_id, order_id, created_at
-`
-
-type CreateCouponRedemptionParams struct {
-	CouponCode string      `json:"coupon_code"`
-	TenantID   int64       `json:"tenant_id"`
-	OrderID    pgtype.Int8 `json:"order_id"`
-}
-
-func (q *Queries) CreateCouponRedemption(ctx context.Context, arg CreateCouponRedemptionParams) (CouponRedemptions, error) {
-	row := q.db.QueryRow(ctx, createCouponRedemption, arg.CouponCode, arg.TenantID, arg.OrderID)
-	var i CouponRedemptions
-	err := row.Scan(
-		&i.CouponCode,
-		&i.TenantID,
-		&i.OrderID,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getCouponByCode = `-- name: GetCouponByCode :one
-SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active, currency, bound_tenant_id, source_coupon_code, source_tenant_id, reissue_reason, reissued_by, reissued_at
 FROM coupons
-WHERE code = $1 AND active = true AND (valid_to IS NULL OR valid_to > now()) AND (valid_from IS NULL OR valid_from <= now())
+WHERE code = $1 AND (bound_tenant_id IS NULL OR bound_tenant_id=nullif(current_setting('urmail.tenant_id',true),'')::bigint) AND active = true AND (valid_to IS NULL OR valid_to > now()) AND (valid_from IS NULL OR valid_from <= now())
 `
 
 func (q *Queries) GetCouponByCode(ctx context.Context, code string) (Coupons, error) {
@@ -55,53 +29,52 @@ func (q *Queries) GetCouponByCode(ctx context.Context, code string) (Coupons, er
 		&i.ValidFrom,
 		&i.ValidTo,
 		&i.Active,
+		&i.Currency,
+		&i.BoundTenantID,
+		&i.SourceCouponCode,
+		&i.SourceTenantID,
+		&i.ReissueReason,
+		&i.ReissuedBy,
+		&i.ReissuedAt,
 	)
 	return i, err
 }
 
-const getCouponForUpdate = `-- name: GetCouponForUpdate :one
-SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
-FROM coupons
-WHERE code = $1 AND active = true AND (valid_to IS NULL OR valid_to > now()) AND (valid_from IS NULL OR valid_from <= now())
-FOR UPDATE
+const getCouponRedemptionForOrder = `-- name: GetCouponRedemptionForOrder :one
+SELECT coupon_code, tenant_id, order_id, created_at
+FROM coupon_redemptions
+WHERE tenant_id = $1 AND order_id = $2
 `
 
-// Locks the coupon row for concurrent redemption serialization
-func (q *Queries) GetCouponForUpdate(ctx context.Context, code string) (Coupons, error) {
-	row := q.db.QueryRow(ctx, getCouponForUpdate, code)
-	var i Coupons
+type GetCouponRedemptionForOrderParams struct {
+	TenantID int64       `json:"tenant_id"`
+	OrderID  pgtype.Int8 `json:"order_id"`
+}
+
+func (q *Queries) GetCouponRedemptionForOrder(ctx context.Context, arg GetCouponRedemptionForOrderParams) (CouponRedemptions, error) {
+	row := q.db.QueryRow(ctx, getCouponRedemptionForOrder, arg.TenantID, arg.OrderID)
+	var i CouponRedemptions
 	err := row.Scan(
-		&i.Code,
-		&i.Kind,
-		&i.Value,
-		&i.MaxRedemptions,
-		&i.RedeemedCount,
-		&i.ValidFrom,
-		&i.ValidTo,
-		&i.Active,
+		&i.CouponCode,
+		&i.TenantID,
+		&i.OrderID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
-const incrementCouponRedemption = `-- name: IncrementCouponRedemption :one
-UPDATE coupons
-SET redeemed_count = redeemed_count + 1
-WHERE code = $1 AND (max_redemptions IS NULL OR redeemed_count < max_redemptions)
-RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+const redeemCoupon = `-- name: RedeemCoupon :one
+SELECT urmail_redeem_coupon($1::text, $2::bigint)::text AS result
 `
 
-func (q *Queries) IncrementCouponRedemption(ctx context.Context, code string) (Coupons, error) {
-	row := q.db.QueryRow(ctx, incrementCouponRedemption, code)
-	var i Coupons
-	err := row.Scan(
-		&i.Code,
-		&i.Kind,
-		&i.Value,
-		&i.MaxRedemptions,
-		&i.RedeemedCount,
-		&i.ValidFrom,
-		&i.ValidTo,
-		&i.Active,
-	)
-	return i, err
+type RedeemCouponParams struct {
+	Code    string      `json:"code"`
+	OrderID pgtype.Int8 `json:"order_id"`
+}
+
+func (q *Queries) RedeemCoupon(ctx context.Context, arg RedeemCouponParams) (string, error) {
+	row := q.db.QueryRow(ctx, redeemCoupon, arg.Code, arg.OrderID)
+	var result string
+	err := row.Scan(&result)
+	return result, err
 }

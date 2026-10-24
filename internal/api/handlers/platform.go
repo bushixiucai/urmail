@@ -15,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/domain/billing"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -28,6 +30,7 @@ type PlatformStore interface {
 	PlatformListBrands(ctx context.Context) ([]store.PlatformListBrandsRow, error)
 	PlatformListPlans(ctx context.Context) ([]store.Plans, error)
 	PlatformListCoupons(ctx context.Context) ([]store.Coupons, error)
+	PlatformRedeemCoupon(ctx context.Context, arg store.PlatformRedeemCouponParams) (string, error)
 	PlatformUpsertPlan(ctx context.Context, arg store.PlatformUpsertPlanParams) (store.Plans, error)
 	PlatformUpsertCoupon(ctx context.Context, arg store.PlatformUpsertCouponParams) (store.Coupons, error)
 	PlatformUpsertBrand(ctx context.Context, arg store.PlatformUpsertBrandParams) (store.PlatformUpsertBrandRow, error)
@@ -62,7 +65,7 @@ type PlatformTenant struct {
 
 // Overview returns aggregate platform resource counts.
 func (h *PlatformHandler) Overview(c *gin.Context) {
-	row, err := h.Store.PlatformOverview(c)
+	row, err := requestStore(c, h.Store).PlatformOverview(c)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -75,7 +78,7 @@ func (h *PlatformHandler) Overview(c *gin.Context) {
 
 // ListTenants lists tenants with resource counts.
 func (h *PlatformHandler) ListTenants(c *gin.Context) {
-	rows, err := h.Store.PlatformListTenants(c)
+	rows, err := requestStore(c, h.Store).PlatformListTenants(c)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -123,7 +126,15 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	row, err := h.Store.PlatformUpdateTenantStatus(c, store.PlatformUpdateTenantStatusParams{
+	if lock, ok := requestStore(c, h.Store).(interface {
+		PlatformLockBillingTenant(context.Context, int64) error
+	}); ok {
+		if err := lock.PlatformLockBillingTenant(c, id); err != nil {
+			authError(c, 500, "DB_ERROR")
+			return
+		}
+	}
+	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(c, store.PlatformUpdateTenantStatusParams{
 		ID:     id,
 		Status: status,
 	})
@@ -135,7 +146,7 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 		return
 	}
 	if h.Reconcile != nil {
-		h.Reconcile.Trigger()
+		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 	c.JSON(http.StatusOK, gin.H{"tenant": PlatformTenant{
 		ID:        row.ID,
@@ -149,7 +160,7 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 
 // Brands lists the compatibility brand administration view.
 func (h *PlatformHandler) Brands(c *gin.Context) {
-	rows, err := h.Store.PlatformListBrands(c)
+	rows, err := requestStore(c, h.Store).PlatformListBrands(c)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -162,7 +173,7 @@ func (h *PlatformHandler) Brands(c *gin.Context) {
 
 // Plans lists active and inactive plans with structured JSON metadata.
 func (h *PlatformHandler) Plans(c *gin.Context) {
-	rows, err := h.Store.PlatformListPlans(c)
+	rows, err := requestStore(c, h.Store).PlatformListPlans(c)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -175,7 +186,7 @@ func (h *PlatformHandler) Plans(c *gin.Context) {
 
 // Coupons lists platform-managed coupons.
 func (h *PlatformHandler) Coupons(c *gin.Context) {
-	rows, err := h.Store.PlatformListCoupons(c)
+	rows, err := requestStore(c, h.Store).PlatformListCoupons(c)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -195,6 +206,8 @@ type CreateTenantRequest struct {
 	BrandSlug     string `json:"brand_slug"`
 	OwnerEmail    string `json:"owner_email" binding:"required"`
 	OwnerPassword string `json:"owner_password" binding:"required,min=12,max=256"`
+	FreeUntil     string `json:"free_until"`
+	FreeReason    string `json:"free_reason"`
 }
 
 // CreateTenant creates a brand (if needed), tenant and owner account in one
@@ -224,6 +237,20 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
+	status := "pending"
+	freeEnd := pgtype.Timestamptz{}
+	if req.FreeUntil != "" {
+		until, e := time.Parse(time.RFC3339, req.FreeUntil)
+		if e != nil || !until.After(time.Now()) || strings.TrimSpace(req.FreeReason) == "" || len(req.FreeReason) > 2000 {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		status = "active"
+		freeEnd = pgtype.Timestamptz{Time: until.UTC(), Valid: true}
+	} else if strings.TrimSpace(req.FreeReason) != "" {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
 	hash, err := domainMail.HashPassword(req.OwnerPassword)
 	if err != nil {
 		if respondConstraintError(c, err) {
@@ -233,69 +260,52 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.Pool.PlatformTx(c)
+	q, finish, rollback, err := platformMutationQueries(c, h.Pool)
 	if err != nil {
-		if respondConstraintError(c, err) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		authError(c, 500, "DB_ERROR")
 		return
 	}
-	defer func() { _ = tx.Rollback(c) }()
-
-	var brandID int64
-	if err := tx.QueryRow(c, `
-		INSERT INTO brands (slug, name)
-		VALUES ($1, $2)
-		ON CONFLICT (slug) DO UPDATE SET slug=EXCLUDED.slug WHERE brands.status='active'
-		RETURNING id`, brandSlug, req.Name).Scan(&brandID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	defer rollback()
+	brandID, err := q.PlatformEnsureManagedBrand(c, store.PlatformEnsureManagedBrandParams{Slug: brandSlug, Name: req.Name})
+	if supportError(c, err) {
 		return
 	}
-	var tenantID int64
-	err = tx.QueryRow(c, `
-		INSERT INTO tenants (brand_id, name, slug, status)
-		VALUES ($1, $2, $3, 'active')
-		RETURNING id`, brandID, name, slug).Scan(&tenantID)
+	tenantID, err := q.PlatformCreateManagedTenant(c, store.PlatformCreateManagedTenantParams{BrandID: brandID, Name: name, Slug: slug, Status: status})
 	if err != nil {
-		if respondConstraintError(c, err) {
-			return
+		if !respondConstraintError(c, err) {
+			authError(c, 409, "TENANT_EXISTS")
 		}
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "TENANT_EXISTS"}})
 		return
 	}
-	var userID int64
-	err = tx.QueryRow(c, "SELECT id FROM users WHERE email = $1", owner).Scan(&userID)
+	userID, err := q.PlatformFindManagedUser(c, owner)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		if err := tx.QueryRow(c, `
-			INSERT INTO users (email, password_hash, display_name, status)
-			VALUES ($1, $2, $3, 'active')
-			RETURNING id`, owner, hash, name).Scan(&userID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		userID, err = q.PlatformCreateManagedUser(c, store.PlatformCreateManagedUserParams{Email: owner, PasswordHash: hash, DisplayName: pgtype.Text{String: name, Valid: true}})
+	case err != nil:
+	}
+	if supportError(c, err) {
+		return
+	}
+	if supportError(c, q.PlatformGrantTenantOwner(c, store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: tenantID})) {
+		return
+	}
+	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: tenantID, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
+		return
+	}
+	if freeEnd.Valid {
+		if supportError(c, q.PlatformSetManagedFreeTerm(c, store.PlatformSetManagedFreeTermParams{TenantID: tenantID, PeriodEnd: freeEnd})) {
 			return
 		}
-	case err != nil:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		middleware.SetPlatformAuditDetail(c, map[string]any{"free_until": freeEnd.Time.Format(time.RFC3339), "grant_reason": strings.TrimSpace(req.FreeReason)})
+	} else if supportError(c, q.PlatformRemoveRegistrationGift(c, tenantID)) {
 		return
 	}
-	if _, err := tx.Exec(c, `
-		INSERT INTO user_tenant_roles (user_id, tenant_id, role)
-		VALUES ($1, $2, 'owner')
-		ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = 'owner'`, userID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if _, err := tx.Exec(c, `UPDATE tenants SET owner_user_id = $2 WHERE id = $1`, tenantID, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if err := tx.Commit(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	middleware.SetPlatformAuditTenant(c, tenantID)
+	if supportError(c, finish()) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"tenant": PlatformTenant{
-		ID: tenantID, BrandID: brandID, Name: name, Slug: slug, Status: "active",
+		ID: tenantID, BrandID: brandID, Name: name, Slug: slug, Status: status,
 	}})
 }
 
@@ -322,7 +332,7 @@ func (h *PlatformHandler) UpsertPlan(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	if in.PriceCents < 0 || in.QuotaBytes < -1 || in.MailboxLimit < -1 || in.DomainLimit < -1 || in.DailySendLimit < -1 {
+	if in.PriceCents < 0 || in.PriceCents > 9007199254740991 || in.QuotaBytes < -1 || in.MailboxLimit < -1 || in.DomainLimit < -1 || in.DailySendLimit < -1 {
 		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
@@ -336,21 +346,37 @@ func (h *PlatformHandler) UpsertPlan(c *gin.Context) {
 	}
 	features := in.Features
 	if len(features) == 0 {
-		features = json.RawMessage("[]")
+		features = json.RawMessage("{}")
 	}
 	if !json.Valid(name) || !json.Valid(description) || !json.Valid(features) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	currency := in.Currency
+	currency := strings.ToUpper(strings.TrimSpace(in.Currency))
 	if currency == "" {
 		currency = "CNY"
+	}
+	if currency != "CNY" && currency != "USD" {
+		authError(c, 400, "INVALID_PARAMS")
+		return
 	}
 	active := true
 	if in.Active != nil {
 		active = *in.Active
 	}
-	plan, err := h.Store.PlatformUpsertPlan(c, store.PlatformUpsertPlanParams{
+	queries := requestStore(c, h.Store)
+	var finish func() error
+	if _, scoped := middleware.QueriesFromCtx(c); !scoped && h.Pool != nil {
+		tx, beginErr := h.Pool.PlatformTx(c.Request.Context())
+		if beginErr != nil {
+			authError(c, 500, "DB_ERROR")
+			return
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		queries = store.New(tx)
+		finish = func() error { return tx.Commit(c.Request.Context()) }
+	}
+	plan, err := queries.PlatformUpsertPlan(c, store.PlatformUpsertPlanParams{
 		Code: in.Code, Name: name, Description: description,
 		PriceCents: in.PriceCents, Currency: currency, QuotaBytes: in.QuotaBytes,
 		MailboxLimit: in.MailboxLimit, DomainLimit: in.DomainLimit,
@@ -364,11 +390,26 @@ func (h *PlatformHandler) UpsertPlan(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
+	if priceStore, ok := queries.(interface {
+		PlatformSetPlanPrice(context.Context, store.PlatformSetPlanPriceParams) (store.PlatformSetPlanPriceRow, error)
+	}); ok {
+		if _, priceErr := priceStore.PlatformSetPlanPrice(c, store.PlatformSetPlanPriceParams{PlanCode: plan.Code, Currency: plan.Currency, BillingCycle: "monthly", AmountCents: plan.PriceCents}); priceErr != nil {
+			authError(c, 500, "DB_ERROR")
+			return
+		}
+	}
+	if finish != nil {
+		if commitErr := finish(); commitErr != nil {
+			authError(c, 500, "DB_ERROR")
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"plan": newPlanResponse(plan)})
 }
 
 // CouponInput defines an editable coupon and its redemption limits.
 type CouponInput struct {
+	Currency       string `json:"currency"`
 	Code           string `json:"code" binding:"required"`
 	Kind           string `json:"kind" binding:"required"`
 	Value          int64  `json:"value"`
@@ -387,6 +428,10 @@ func (h *PlatformHandler) UpsertCoupon(c *gin.Context) {
 	}
 	if in.Kind != "percent" && in.Kind != "fixed" && in.Kind != "trial_days" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	if in.Value <= 0 || (in.Kind == "percent" && in.Value > 100) || (in.Kind == "trial_days" && in.Value > 365) || (in.Kind == "fixed" && in.Currency != "CNY" && in.Currency != "USD") {
+		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
 	var from, to pgtype.Timestamptz
@@ -414,8 +459,9 @@ func (h *PlatformHandler) UpsertCoupon(c *gin.Context) {
 	if in.Active != nil {
 		active = *in.Active
 	}
-	coupon, err := h.Store.PlatformUpsertCoupon(c, store.PlatformUpsertCouponParams{
+	coupon, err := requestStore(c, h.Store).PlatformUpsertCoupon(c, store.PlatformUpsertCouponParams{
 		Code: in.Code, Kind: in.Kind, Value: in.Value, MaxRedemptions: redemptionLimit,
+		Currency:  pgtype.Text{String: in.Currency, Valid: in.Currency != ""},
 		ValidFrom: from, ValidTo: to, Active: active,
 	})
 	if err != nil {
@@ -453,7 +499,7 @@ func (h *PlatformHandler) UpsertBrand(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	brand, err := h.Store.PlatformUpsertBrand(c, store.PlatformUpsertBrandParams{
+	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(c, store.PlatformUpsertBrandParams{
 		Slug: in.Slug, Name: in.Name, Theme: theme,
 		LogoUrl: textOrNull(in.LogoURL), FaviconUrl: textOrNull(in.FaviconURL),
 		PrimaryColor: textOrNull(in.PrimaryColor),
@@ -490,7 +536,7 @@ type ChannelInput struct {
 
 // Channels lists platform-managed distribution channels.
 func (h *PlatformHandler) Channels(c *gin.Context) {
-	rows, err := h.Store.PlatformListChannels(c)
+	rows, err := requestStore(c, h.Store).PlatformListChannels(c)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -539,7 +585,7 @@ func (h *PlatformHandler) UpsertChannel(c *gin.Context) {
 	if in.Active != nil {
 		active = *in.Active
 	}
-	row, err := h.Store.PlatformUpsertChannel(c, store.PlatformUpsertChannelParams{
+	row, err := requestStore(c, h.Store).PlatformUpsertChannel(c, store.PlatformUpsertChannelParams{
 		BrandID: brandID, Code: in.Code, Name: in.Name, Kind: kind,
 		CommissionBps: in.CommissionBps, ParentID: parentID,
 		Contact: contact, Active: active,
@@ -578,7 +624,7 @@ func (h *PlatformHandler) UpdateTenant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	if _, err := h.Pool.Exec(c, "UPDATE tenants SET name = $2 WHERE id = $1", id, strings.TrimSpace(req.Name)); err != nil {
+	if _, err := requestStore(c, store.New(h.Pool.Pool)).PlatformRenameTenant(c, store.PlatformRenameTenantParams{ID: id, Name: strings.TrimSpace(req.Name)}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -610,39 +656,29 @@ func (h *PlatformHandler) TransferOwner(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	tx, err := h.Pool.PlatformTx(c)
+	q, finish, rollback, err := platformMutationQueries(c, h.Pool)
+	if supportError(c, err) {
+		return
+	}
+	defer rollback()
+	if supportError(c, q.PlatformLockBillingTenant(c, id)) {
+		return
+	}
+	userID, err := q.PlatformFindManagedUser(c, email)
 	if err != nil {
-		if respondConstraintError(c, err) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		authError(c, 404, "USER_NOT_FOUND")
 		return
 	}
-	defer func() { _ = tx.Rollback(c) }()
-	var userID int64
-	if err := tx.QueryRow(c, "SELECT id FROM users WHERE email = $1", email).Scan(&userID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
+	if supportError(c, q.PlatformDemotePreviousOwners(c, store.PlatformDemotePreviousOwnersParams{TenantID: id, UserID: userID})) {
 		return
 	}
-	if _, err := tx.Exec(c, `
-		UPDATE user_tenant_roles SET role = 'admin'
-		WHERE tenant_id = $1 AND role = 'owner' AND user_id <> $2`, id, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if supportError(c, q.PlatformGrantTenantOwner(c, store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: id})) {
 		return
 	}
-	if _, err := tx.Exec(c, `
-		INSERT INTO user_tenant_roles (user_id, tenant_id, role)
-		VALUES ($1, $2, 'owner')
-		ON CONFLICT (user_id, tenant_id) DO UPDATE SET role = 'owner'`, userID, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: id, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
 		return
 	}
-	if _, err := tx.Exec(c, "UPDATE tenants SET owner_user_id = $2 WHERE id = $1", id, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if err := tx.Commit(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if supportError(c, finish()) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "owner_user_id": userID})
@@ -656,7 +692,7 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 			limit = int32(v)
 		}
 	}
-	logs, err := h.Store.PlatformListAuditLogs(c, limit)
+	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(c, limit)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -664,7 +700,7 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"logs": logs})
+	c.JSON(http.StatusOK, gin.H{"logs": auditResponses(logs)})
 }
 
 // AssignSubscriptionRequest selects a plan and subscription period.
@@ -707,41 +743,35 @@ func (h *PlatformHandler) AssignSubscription(c *gin.Context) {
 		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	tx, err := h.Pool.PlatformTx(c)
-	if err != nil {
-		if respondConstraintError(c, err) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	q, finish, rollback, err := platformMutationQueries(c, h.Pool)
+	if supportError(c, err) {
 		return
 	}
-	defer func() { _ = tx.Rollback(c) }()
-	if _, err = tx.Exec(c, "SELECT pg_advisory_xact_lock($1)", id); err != nil {
-		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	defer rollback()
+	if supportError(c, q.PlatformLockBillingTenant(c, id)) {
 		return
 	}
-	var exists bool
-	if err := tx.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM plans WHERE code = $1 AND active)", req.PlanCode).Scan(&exists); err != nil || !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "PLAN_NOT_FOUND"}})
+	current, currentErr := q.PlatformGetSubscriptionForSettlement(c, id)
+	if currentErr != nil && !errors.Is(currentErr, pgx.ErrNoRows) {
+		authError(c, 500, "DB_ERROR")
 		return
 	}
-	if _, err := tx.Exec(c, `
-		UPDATE subscriptions SET status = 'canceled'
-		WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')`, id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if currentErr == nil && current.EntitlementSource == billing.EntitlementMigration {
+		authError(c, 409, "MIGRATION_ENTITLEMENT_PRESERVED")
 		return
 	}
-	if _, err := tx.Exec(c, `
-		INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end)
-		VALUES ($1, $2, 'active', now(), $3)`, id, req.PlanCode, periodEnd); err != nil {
-		if respondConstraintError(c, err) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	available, err := q.PlatformManagedPlanAvailable(c, req.PlanCode)
+	if err != nil || !available {
+		authError(c, 404, "PLAN_NOT_FOUND")
 		return
 	}
-	if err := tx.Commit(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if _, err = q.PlatformCancelActiveSubscriptions(c, id); supportError(c, err) {
+		return
+	}
+	if supportError(c, q.PlatformGrantManagedSubscription(c, store.PlatformGrantManagedSubscriptionParams{TenantID: id, PlanID: req.PlanCode, PeriodEnd: pgtype.Timestamptz{Time: periodEnd, Valid: true}})) {
+		return
+	}
+	if supportError(c, finish()) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "plan_code": req.PlanCode, "period_end": periodEnd})
@@ -749,22 +779,19 @@ func (h *PlatformHandler) AssignSubscription(c *gin.Context) {
 
 // RedeemCouponRequest identifies a tenant for coupon redemption.
 type RedeemCouponRequest struct {
-	TenantID int64  `json:"tenant_id" binding:"required"`
-	OrderID  *int64 `json:"order_id"`
+	TenantID int64 `json:"tenant_id" binding:"required"`
+	OrderID  int64 `json:"order_id" binding:"required,gt=0"`
 }
 
 // RedeemCoupon atomically records a permitted coupon redemption.
 func (h *PlatformHandler) RedeemCoupon(c *gin.Context) {
-	if h.Pool == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
 	var req RedeemCouponRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.TenantID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	tx, err := h.Pool.PlatformTx(c)
+	order := pgtype.Int8{Int64: req.OrderID, Valid: true}
+	result, err := requestStore(c, h.Store).PlatformRedeemCoupon(c, store.PlatformRedeemCouponParams{Code: c.Param("code"), TenantID: req.TenantID, OrderID: order})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -772,49 +799,16 @@ func (h *PlatformHandler) RedeemCoupon(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	defer func() { _ = tx.Rollback(c) }()
-
-	var redemptionLimit pgtype.Int4
-	var count int32
-	if err := tx.QueryRow(c, `
-		SELECT max_redemptions, redeemed_count FROM coupons
-		WHERE code = $1 AND active = true
-		  AND (valid_to IS NULL OR valid_to > now())
-		  AND (valid_from IS NULL OR valid_from <= now())
-		FOR UPDATE`, c.Param("code")).Scan(&redemptionLimit, &count); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "COUPON_NOT_FOUND"}})
-		return
-	}
-	var exists bool
-	if err := tx.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM coupon_redemptions WHERE coupon_code = $1 AND tenant_id = $2)", c.Param("code"), req.TenantID).Scan(&exists); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if exists {
+	switch result {
+	case "redeemed":
+		c.JSON(http.StatusOK, gin.H{"status": "redeemed"})
+	case "already_redeemed":
 		c.JSON(http.StatusOK, gin.H{"status": "already_redeemed"})
-		return
-	}
-	if redemptionLimit.Valid && count >= redemptionLimit.Int32 {
+	case "exhausted":
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "COUPON_EXHAUSTED"}})
-		return
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "COUPON_NOT_FOUND"}})
 	}
-	var order pgtype.Int8
-	if req.OrderID != nil {
-		order = pgtype.Int8{Int64: *req.OrderID, Valid: true}
-	}
-	if _, err := tx.Exec(c, "INSERT INTO coupon_redemptions (coupon_code, tenant_id, order_id) VALUES ($1, $2, $3)", c.Param("code"), req.TenantID, order); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "COUPON_CONFLICT"}})
-		return
-	}
-	if _, err := tx.Exec(c, "UPDATE coupons SET redeemed_count = redeemed_count + 1 WHERE code = $1", c.Param("code")); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if err := tx.Commit(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "redeemed"})
 }
 
 // InvoiceInput defines the invoice period, amount and currency.
@@ -886,16 +880,32 @@ func (h *PlatformHandler) CreateInvoice(c *gin.Context) {
 	if currency == "" {
 		currency = "CNY"
 	}
-	var id int64
-	err = h.Pool.QueryRow(c, `
-		INSERT INTO invoices (tenant_id, number, period_start, period_end, amount_cents, currency, status, issued_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'issued', now())
-		RETURNING id`, tenantID, number, start, end, in.AmountCents, currency).Scan(&id)
+	q, finish, rollback, err := platformMutationQueries(c, h.Pool)
+	if supportError(c, err) {
+		return
+	}
+	defer rollback()
+	id, err := q.PlatformCreateManagedInvoice(c, store.PlatformCreateManagedInvoiceParams{TenantID: tenantID, Number: number, PeriodStart: start, PeriodEnd: end, AmountCents: in.AmountCents, Currency: currency})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
 		}
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "INVOICE_EXISTS"}})
+		return
+	}
+	snapshot, err := CaptureInvoiceDocumentSnapshot(c, q, tenantID, in.AmountCents, currency, "observed_at_issuance")
+	if supportError(c, err) {
+		return
+	}
+	frozen, err := q.PlatformFreezeInvoiceDocumentSnapshot(c, store.PlatformFreezeInvoiceDocumentSnapshotParams{TenantID: tenantID, ID: id, DocumentSnapshot: snapshot})
+	if supportError(c, err) {
+		return
+	}
+	if frozen != 1 {
+		authError(c, 500, "DB_ERROR")
+		return
+	}
+	if supportError(c, finish()) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"id": id, "number": number})
@@ -915,8 +925,8 @@ func (h *PlatformHandler) MarkInvoicePaid(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	tag, err := h.Pool.Exec(c, "UPDATE invoices SET status = 'paid' WHERE id = $1 AND status IN ('draft','issued')", id)
-	if err != nil || tag.RowsAffected() == 0 {
+	affected, err := requestStore(c, store.New(h.Pool.Pool)).PlatformMarkManagedInvoicePaid(c, id)
+	if err != nil || affected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "INVOICE_NOT_FOUND"}})
 		return
 	}
@@ -937,8 +947,8 @@ func (h *PlatformHandler) VoidInvoice(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	tag, err := h.Pool.Exec(c, "UPDATE invoices SET status = 'void' WHERE id = $1 AND status IN ('draft','issued')", id)
-	if err != nil || tag.RowsAffected() == 0 {
+	affected, err := requestStore(c, store.New(h.Pool.Pool)).PlatformVoidManagedInvoice(c, id)
+	if err != nil || affected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "INVOICE_NOT_FOUND"}})
 		return
 	}
@@ -959,7 +969,8 @@ func (h *PlatformHandler) MarkOrderPaid(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	if err := SettleOrder(c, h.Pool, id); err != nil {
+	uid, _ := middleware.GetUserID(c)
+	if err := SettleOrderWithDetails(c, h.Pool, id, SettleOptions{Provider: "manual", ActorUserID: uid, AuditAction: "APPROVE order.manual_payment"}); err != nil {
 		if errors.Is(err, ErrOrderNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "ORDER_NOT_FOUND"}})
 			return

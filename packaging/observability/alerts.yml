@@ -1,0 +1,67 @@
+groups:
+  - name: urmail-operational
+    rules:
+      - alert: UrmailObservationCondition
+        expr: urmail_operational_condition == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'urMail condition {{ $labels.kind }} is firing'
+          description: 'Review the platform alert ledger and collector diagnostics; do not infer successful mail delivery from process liveness.'
+      - alert: UrmailDaemonUnreachable
+        expr: up{job="urmail"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'urMail metrics target is unavailable'
+      - alert: UrmailObservationStale
+        expr: time() - urmail_observation_last_success_timestamp_seconds > 120
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'urMail operational observation stopped advancing'
+      - alert: UrmailCollectorStopped
+        expr: time() - urmail_collector_last_success_timestamp_seconds > 120
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'urMail durable mail-log collector stopped advancing'
+      - alert: UrmailConfigurationDegraded
+        expr: urmail_reconcile_consecutive_failures >= 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'urMail desired configuration repeatedly failed to apply'
+      - alert: UrmailFinancialManualReview
+        expr: urmail_payment_manual_reviews_open > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Verified payment receipts require manual resolution'
+      - alert: UrmailDatabaseUnavailable
+        expr: urmail_database_reachable == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'urMail operational database is unavailable'
+      - alert: UrmailHTTPFailures
+        expr: sum(rate(urmail_http_requests_total{status_class="5xx"}[5m])) / clamp_min(sum(rate(urmail_http_requests_total[5m])), 0.001) > 0.05 and sum(increase(urmail_http_requests_total[5m])) >= 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'urMail HTTP server error ratio exceeded its threshold'
+      - alert: UrmailAuditGap
+        expr: sum(increase(urmail_audit_write_failures_total[5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'urMail audit persistence failed; sensitive access must remain blocked'

@@ -3,7 +3,6 @@ package reconcile_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -12,13 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bushixiucai/urmail/internal/reconcile"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
 func TestPersistentZoneVersionsAreAtomicAndWrap(t *testing.T) {
-	url := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set")
-	}
+	url := testdb.New(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, url)
 	if err != nil {

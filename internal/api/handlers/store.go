@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -20,4 +22,18 @@ func requestStore[T any](c *gin.Context, fallback T) T {
 		}
 	}
 	return fallback
+}
+
+// parseTimeParam accepts an RFC 3339 timestamp or a date for the audit list
+// filters; an unparsable value leaves the filter unset rather than failing
+// the whole listing.
+func parseTimeParam(raw string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC(), nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", raw, time.UTC)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t, nil
 }

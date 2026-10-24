@@ -14,7 +14,7 @@ import (
 var HostnameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
 
 // LocalPartRegex validates the local part of an email address per RFC 5321.
-var LocalPartRegex = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^`{|}~-]+$")
+var LocalPartRegex = regexp.MustCompile("^[a-zA-Z0-9_.!#$%&'*+/=?^`{|}~-]+$")
 
 // DomainNameRegex accepts a DNS name with an optional trailing dot, as it
 // appears in zone files.

@@ -34,6 +34,8 @@ install -d "$STAGE/usr/lib/urmail"
 install -d "$STAGE/lib/systemd/system"
 install -d "$STAGE/etc/systemd/system/opendkim.service.d"
 install -d "$STAGE/etc/urmail"
+install -d "$STAGE/etc/rsyslog.d"
+install -m 0644 "$ROOT/packaging/rsyslog/10-urmail-mail.conf" "$STAGE/etc/rsyslog.d/10-urmail-mail.conf"
 install -d "$STAGE/etc/nginx/conf.d/urmail"
 install -d "$STAGE/etc/nginx/snippets"
 install -d "$STAGE/etc/dovecot/conf.d"
@@ -53,12 +55,18 @@ install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.service" "$STAGE/lib/
 install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.timer" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/urmail-prometheus.service" "$ROOT/packaging/systemd/urmail-alertmanager.service" "$STAGE/lib/systemd/system/"
+install -d "$STAGE/etc/urmail/observability"
+install -m 0644 "$ROOT/packaging/observability/"*.yml "$STAGE/etc/urmail/observability/"
 install -m 0644 "$ROOT/packaging/systemd/opendkim.service.d/urmail.conf" "$STAGE/etc/systemd/system/opendkim.service.d/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail-ssl.conf" "$STAGE/etc/nginx/snippets/urmail-ssl.conf"
 install -m 0644 "$ROOT/packaging/dovecot/99-urmail.conf" "$STAGE/etc/dovecot/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/internal/db/bootstrap.sql" "$STAGE/usr/share/urmail/bootstrap.sql"
+install -d "$STAGE/usr/share/urmail/roundcube" "$STAGE/usr/share/urmail/locales"
+cp -R "$ROOT/packaging/roundcube/." "$STAGE/usr/share/urmail/roundcube/"
+install -m 0644 "$ROOT/internal/i18n/locales/en.json" "$ROOT/internal/i18n/locales/zh-CN.json" "$STAGE/usr/share/urmail/locales/"
 
 cat >"$STAGE/DEBIAN/control" <<EOF
 Package: urmail
@@ -67,10 +75,27 @@ Section: mail
 Priority: optional
 Architecture: $ARCH
 Maintainer: urMail.cn <support@urmail.cn>
-Depends: nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot
+Depends: rsyslog, nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot
 Description: urMail.cn multi-tenant email SaaS platform
  A self-hosted platform for selling domain mailboxes: multi-tenancy, quotas,
  billing, payment, DNS onboarding, certificates, observability and compliance.
+EOF
+
+cat >"$STAGE/DEBIAN/preinst" <<'EOF'
+#!/bin/sh
+set -e
+die() { printf '%s\n' "$*" >&2; exit 1; }
+# BEGIN LEGACY INSTALLATION GUARD
+# Legacy MIAB data is not a PostgreSQL backup and cannot use this installer.
+# Guard legacy source data before this entry point mutates installation state,
+# including mixed installations with a partially created urMail environment.
+for legacy_input in /etc/mailinabox.conf /home/user-data/mail/users.sqlite /var/lib/mailinabox/mail/users.sqlite; do
+  if [ -e "$legacy_input" ] || [ -L "$legacy_input" ]; then
+    die "Legacy Mail-in-a-Box data detected. In-place installation is blocked: use the reviewed M8 inventory, import dry-run and migration procedure; preserve the source installation."
+  fi
+done
+# END LEGACY INSTALLATION GUARD
+exit 0
 EOF
 
 cat >"$STAGE/DEBIAN/postinst" <<'EOF'
@@ -107,6 +132,8 @@ if [ -f /etc/nsd/nsd.conf ] && ! grep -q 'nsd.conf.d' /etc/nsd/nsd.conf; then
 fi
 
 systemctl daemon-reload
+systemctl enable rsyslog.service >/dev/null 2>&1 || true
+systemctl try-restart rsyslog.service >/dev/null 2>&1 || true
 systemctl enable urmaild-agent.service >/dev/null 2>&1 || true
 systemctl enable urmaild.service >/dev/null 2>&1 || true
 systemctl enable urmail-cert-renew.timer >/dev/null 2>&1 || true
@@ -123,7 +150,7 @@ systemctl disable --now urmail-cert-renew.timer >/dev/null 2>&1 || true
 exit 0
 EOF
 
-chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
+chmod 0755 "$STAGE/DEBIAN/preinst" "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 
 OUTPUT="$ROOT/dist"
 mkdir -p "$OUTPUT"

@@ -55,7 +55,7 @@ func TestRecallHTTPWithRealRoles(t *testing.T) {
 	a := scalar("INSERT INTO tenants(brand_id,name,slug) VALUES($1,'A','a') RETURNING id", brand)
 	b := scalar("INSERT INTO tenants(brand_id,name,slug) VALUES($1,'B','b') RETURNING id", brand)
 	exec("INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'owner'),($5,$2,'member')", owner, a, other, b, member)
-	domain := scalar("INSERT INTO domains(tenant_id,fqdn,verification_token) VALUES($1,'recall.example.test','fixture-token') RETURNING id", a)
+	domain := scalar("INSERT INTO domains(tenant_id,fqdn,verification_token,status,verified_at,provisioning_state) VALUES($1,'recall.example.test','fixture-token','active',now(),'ready') RETURNING id", a)
 	mailbox := scalar("INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes) VALUES($1,$2,'one','one@recall.example.test','placeholder',1) RETURNING id", a, domain)
 	archive := func(message string, box any, held bool) int64 {
 		return scalar("INSERT INTO archive_entries(tenant_id,mailbox_id,message_id,path,received_at,legal_hold) VALUES($1,$2,$3,'/archive/fixture',now(),$4) RETURNING id", a, box, message, held)

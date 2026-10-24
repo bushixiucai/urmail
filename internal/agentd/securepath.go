@@ -53,6 +53,12 @@ func resolveAllowedPath(path string, roots []string) (string, string, error) {
 // The destination is replaced atomically. A symlink already present at the
 // destination is replaced, not followed. Intermediate symlinks are rejected.
 func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []string) (string, error) {
+	return writeFileAtomicOwned(path, content, mode, roots, -1, -1)
+}
+
+// writeFileAtomicOwned applies ownership before publication, avoiding a window
+// in which the consuming daemon cannot read its newly active private file.
+func writeFileAtomicOwned(path string, content []byte, mode os.FileMode, roots []string, uid, gid int) (string, error) {
 	if mode > 0o777 {
 		return "", fmt.Errorf("%w: mode %04o is not allowed", ErrRejected, mode)
 	}
@@ -117,6 +123,11 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode, roots []stri
 
 	if _, err := tmp.Write(content); err != nil {
 		return "", fmt.Errorf("%w: write temporary file: %w", ErrFailed, err)
+	}
+	if uid >= 0 || gid >= 0 {
+		if err := tmp.Chown(uid, gid); err != nil {
+			return "", fmt.Errorf("%w: set temporary file ownership: %w", ErrFailed, err)
+		}
 	}
 	if err := tmp.Chmod(mode); err != nil {
 		return "", fmt.Errorf("%w: set mode on temporary file: %w", ErrFailed, err)

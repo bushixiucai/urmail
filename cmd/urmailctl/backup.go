@@ -19,6 +19,11 @@ import (
 )
 
 func runBackup(ctx context.Context, args []string) (returnErr error) {
+	if _, selected, err := selectedFileProfile(args); err != nil {
+		return err
+	} else if selected {
+		return runV80Backup(ctx, args, os.Stdout)
+	}
 	outDir := "/var/backups/urmail"
 	includeMail, maintenance := false, false
 	for i := 0; i < len(args); i++ {
@@ -43,14 +48,11 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	// The platform role owns the tables and has BYPASSRLS, which pg_dump
-	// needs to read audit/tenant rows.
-	dbURL := cfg.DatabaseURLPlatform
-	if dbURL == "" {
-		dbURL = cfg.DatabaseURLMigrate
-	}
-	if dbURL == "" {
-		return fmt.Errorf("no database URL configured")
+	// A full archive includes FORCE-RLS tables and the isolated Roundcube schema.
+	// Root peer authentication supplies both without widening runtime roles.
+	dbURL, err := backupPeerDatabaseURL(cfg.DatabaseURLMigrate)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(outDir, 0o700); err != nil { // #nosec G703 -- destination is explicitly selected by the root administrator and checked as a real private directory.
 		return err
@@ -73,15 +75,26 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	dump := filepath.Join(outDir, "urmail-"+stamp+".dump")
-	cmd, err := postgresCommand(ctx, "pg_dump", dbURL, "--no-owner", "--format=custom", "--file="+dump)
+	cmd, err := backupDatabaseCommand(ctx, dbURL)
 	if err != nil {
 		return err
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	dumpFile, err := os.OpenFile(dump, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 G703 -- root-authorized private backup artifact, never opened by the postgres account.
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dumpFile.Close() }()
+	cmd.Stdout = dumpFile
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pg_dump: %w", err)
+		return fmt.Errorf("database backup failed: %w", err)
+	}
+	if err = dumpFile.Sync(); err != nil {
+		return err
+	}
+	if err = dumpFile.Close(); err != nil {
+		return err
 	}
 	if err := os.Chmod(dump, 0o600); err != nil { // #nosec G703 -- root-authorized artifact is inside the private backup directory.
 		return err
@@ -115,10 +128,13 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	scope := "metadata-only"
 	if includeMail {
 		mailArchive := filepath.Join(outDir, "urmail-mail-"+stamp+".tar.gz")
-		mailPaths := []string{strings.TrimPrefix(filepath.Join(cfg.StorageRoot, "mail"), "/")}
-		if cfg.ArchiveEnabled {
-			mailPaths = append(mailPaths, "var/lib/urmail/archive")
+		archivePaths, archiveErr := archiveBackupPaths("/", cfg.ArchiveEnabled)
+		if archiveErr != nil {
+			return archiveErr
 		}
+		mailPaths := make([]string, 0, 1+len(archivePaths))
+		mailPaths = append(mailPaths, strings.TrimPrefix(filepath.Join(cfg.StorageRoot, "mail"), "/"))
+		mailPaths = append(mailPaths, archivePaths...)
 		for _, path := range mailPaths {
 			if _, err = os.Stat("/" + path); err != nil {
 				return fmt.Errorf("required mail input %s: %w", path, err)
@@ -145,7 +161,7 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	fmt.Printf("backup complete (scope=%s, maintenance=%t)\n  manifest: %s\n", scope, maintenance, manifest)
 	if !includeMail {
-		fmt.Println("mailbox contents and archived message bodies are NOT included")
+		fmt.Println("mailbox contents, archived message bodies and pending archive spool are NOT included")
 	}
 
 	return nil
@@ -236,7 +252,7 @@ func pauseBackupWriters(ctx context.Context) (func() error, error) {
 	if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
 		return nil, fmt.Errorf("maintenance requires systemd: %w", err)
 	}
-	for _, unit := range []string{"urmail-cert-renew.timer", "urmail-usage-sync.timer", "urmail-cert-renew.service", "urmail-usage-sync.service", "urmaild", "postfix", "dovecot", "urmaild-agent"} {
+	for _, unit := range restoreWriterUnits {
 		if exec.CommandContext(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit).Run() == nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
 			if err := exec.CommandContext(ctx, "/usr/bin/systemctl", "stop", unit).Run(); err != nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
 				_ = resume()
@@ -282,4 +298,24 @@ func validateBackupInputs(paths []string) error {
 		}
 	}
 	return nil
+}
+
+// Archive copies and pending spool are data even after the feature is disabled.
+// Never silently drop an existing spool from a complete maintenance backup.
+func archiveBackupPaths(base string, enabled bool) ([]string, error) {
+	var paths []string
+	for _, relative := range []string{"var/lib/urmail/archive", "var/lib/urmail/archive-spool"} {
+		info, err := os.Lstat(filepath.Join(base, relative)) // #nosec G304 G703 -- production uses only the two fixed data paths under root; tests provide an isolated root.
+		if errors.Is(err, os.ErrNotExist) && (!enabled || strings.HasSuffix(relative, "archive-spool")) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("required archive backup input %s: %w", relative, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("archive backup input must be a real directory")
+		}
+		paths = append(paths, relative)
+	}
+	return paths, nil
 }

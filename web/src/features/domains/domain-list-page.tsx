@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, FormEvent } from "react";
+import { useEffect, useState, useCallback, useRef, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Globe,
@@ -9,6 +9,8 @@ import {
   Check,
   Power,
 } from "lucide-react";
+import { useAuth } from "@/app/auth-context";
+import { DomainDNSPanel } from "./domain-dns-panel";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,7 @@ interface DomainItem {
   mode: string;
   status: string;
   created_at: string;
+  provisioning_state?: string;
 }
 
 interface DNSGuidance {
@@ -41,7 +44,13 @@ interface DNSGuidance {
 
 export function DomainListPage() {
   const { t } = useTranslation();
+  const { currentTenant } = useAuth();
+  const canManage =
+    currentTenant?.role === "owner" || currentTenant?.role === "admin";
+  const [selectedDNS, setSelectedDNS] = useState<number | null>(null);
+  const [mode, setMode] = useState("delegated");
   const errorMessage = useApiErrorMessage();
+  const domainFetch = useRef({ version: 0 });
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [newFqdn, setNewFqdn] = useState("");
   const [dnsGuidance, setDnsGuidance] = useState<DNSGuidance | null>(null);
@@ -53,14 +62,32 @@ export function DomainListPage() {
     message: string;
   } | null>(null);
 
+  useEffect(() => {
+    setSelectedDNS(null);
+    setDnsGuidance(null);
+    setDomains([]);
+  }, [currentTenant?.id]);
+
   const fetchDomains = useCallback(() => {
+    if (!currentTenant?.id) {
+      setDomains([]);
+      return;
+    }
+    const version = ++domainFetch.current.version;
     request<{ domains: DomainItem[] }>("/api/v1/domains")
-      .then((res) => setDomains(res.domains || []))
+      .then((res) => {
+        if (version === domainFetch.current.version)
+          setDomains(res.domains || []);
+      })
       .catch(() => {});
-  }, []);
+  }, [currentTenant?.id]);
 
   useEffect(() => {
+    const counter = domainFetch.current;
     fetchDomains();
+    return () => {
+      counter.version++;
+    };
   }, [fetchDomains]);
 
   const handleAddDomain = async (e: FormEvent) => {
@@ -74,7 +101,7 @@ export function DomainListPage() {
         dns_guidance: DNSGuidance;
       }>("/api/v1/domains", {
         method: "POST",
-        body: { fqdn: newFqdn.trim() },
+        body: { fqdn: newFqdn.trim(), mode },
       });
       setNewFqdn("");
       setDnsGuidance(res.dns_guidance);
@@ -160,13 +187,25 @@ export function DomainListPage() {
           <CardDescription>{t("page.domains.add_desc")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAddDomain} className="flex gap-3 max-w-md">
+          <form
+            onSubmit={handleAddDomain}
+            className="flex flex-wrap gap-3 max-w-xl"
+          >
             <Input
               placeholder="example.com"
               value={newFqdn}
               onChange={(e) => setNewFqdn(e.target.value)}
               required
             />
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              aria-label={t("page.dns.mode")}
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+            >
+              <option value="delegated">{t("page.dns.delegated")}</option>
+              <option value="managed">{t("page.dns.managed")}</option>
+            </select>
             <Button type="submit" disabled={isAdding}>
               <Plus className="h-4 w-4 mr-1" />
               {isAdding ? t("page.domains.adding") : t("page.domains.add")}
@@ -297,12 +336,18 @@ export function DomainListPage() {
               domains.map((d) => (
                 <div
                   key={d.id}
+                  data-testid={`domain-row-${d.id}`}
                   className="p-4 flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between"
                 >
                   <div className="flex min-w-0 max-w-full items-center gap-3">
                     <Globe className="h-5 w-5 text-muted-foreground" />
                     <div className="min-w-0">
                       <div className="font-medium break-all">{d.fqdn}</div>
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          `page.dns.provision.${d.provisioning_state ?? "unknown"}`,
+                        )}
+                      </p>
                       <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2 mt-0.5">
                         <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 rounded">
                           {t(`status.${d.status}`)}
@@ -323,6 +368,17 @@ export function DomainListPage() {
                       >
                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
                         {t("page.domains.verify")}
+                      </Button>
+                    )}
+                    {canManage && ["active", "disabled"].includes(d.status) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setSelectedDNS(selectedDNS === d.id ? null : d.id)
+                        }
+                      >
+                        {t("page.dns.open")}
                       </Button>
                     )}
                     {(d.status === "active" || d.status === "disabled") && (
@@ -353,6 +409,16 @@ export function DomainListPage() {
           </div>
         </CardContent>
       </Card>
+
+      {canManage &&
+        domains
+          .filter((d) => d.id === selectedDNS)
+          .map((d) => (
+            <DomainDNSPanel
+              key={`${currentTenant?.id}:${d.id}:${d.mode}`}
+              domain={d}
+            />
+          ))}
 
       <ConfirmDialog
         open={deleteTarget !== null}

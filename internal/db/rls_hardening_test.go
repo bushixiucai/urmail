@@ -64,7 +64,7 @@ func TestRLSHardening(t *testing.T) {
 	if err := tx.QueryRow(ctx, "INSERT INTO tickets (tenant_id, opened_by, subject) VALUES ($1,$2,'b') RETURNING id", tenantB, userB).Scan(&ticketB); err != nil {
 		t.Fatalf("ticket B: %v", err)
 	}
-	if _, err := tx.Exec(ctx, "INSERT INTO ticket_messages (ticket_id, author_id, body) VALUES ($1,$2,'hello')", ticketA, userA); err != nil {
+	if _, err := tx.Exec(ctx, "INSERT INTO ticket_messages (tenant_id, ticket_id, author_id, body) VALUES ($1,$2,$3,'hello')", tenantA, ticketA, userA); err != nil {
 		t.Fatalf("ticket message: %v", err)
 	}
 	if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (tenant_id, action) VALUES ($1,'a'),($2,'b')", tenantA, tenantB); err != nil {
@@ -79,13 +79,16 @@ func TestRLSHardening(t *testing.T) {
 	if _, err := tx.Exec(ctx, "INSERT INTO sessions (id,user_id,tenant_id,csrf_token,expires_at) VALUES ('rls8-a',$1,$2,'c',now()+interval '1 day'),('rls8-b',$3,$4,'c',now()+interval '1 day')", userA, tenantA, userB, tenantB); err != nil {
 		t.Fatalf("sessions: %v", err)
 	}
+	if _, err := tx.Exec(ctx, "UPDATE announcements SET state='published',published_at=now()"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit seed: %v", err)
 	}
 
 	withTenant := func(t *testing.T, fn func(pgx.Tx)) {
 		t.Helper()
-		tx, err := app.TenantTx(ctx, tenantA)
+		tx, err := app.UserTx(ctx, tenantA, userA)
 		if err != nil {
 			t.Fatalf("tenant tx: %v", err)
 		}
@@ -103,7 +106,7 @@ func TestRLSHardening(t *testing.T) {
 
 	expectRejected := func(t *testing.T, sql string, args ...any) {
 		t.Helper()
-		tx, err := app.TenantTx(ctx, tenantA)
+		tx, err := app.UserTx(ctx, tenantA, userA)
 		if err != nil {
 			t.Fatalf("tenant tx: %v", err)
 		}
@@ -118,16 +121,11 @@ func TestRLSHardening(t *testing.T) {
 			if got := count(t, tx, "SELECT count(*) FROM tickets"); got != 1 {
 				t.Fatalf("tickets visible = %d, want 1", got)
 			}
-			tag, err := tx.Exec(ctx, "DELETE FROM tickets WHERE tenant_id=$1", tenantB)
-			if err != nil {
-				t.Fatalf("cross-tenant delete: %v", err)
-			}
-			if tag.RowsAffected() != 0 {
-				t.Fatalf("cross-tenant delete affected %d rows", tag.RowsAffected())
-			}
+
 		})
+		expectRejected(t, "DELETE FROM tickets WHERE tenant_id=$1", tenantB)
 		expectRejected(t, "INSERT INTO tickets (tenant_id, opened_by, subject) VALUES ($1,$2,'x')", tenantB, userB)
-		expectRejected(t, "INSERT INTO ticket_messages (ticket_id, author_id, body) VALUES ($1,$2,'x')", ticketB, userA)
+		expectRejected(t, "INSERT INTO ticket_messages (tenant_id, ticket_id, author_id, body) VALUES ($1,$2,$3,'x')", tenantA, ticketB, userA)
 	})
 
 	t.Run("audit and reference data are read-only", func(t *testing.T) {

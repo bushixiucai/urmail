@@ -1,0 +1,14 @@
+DROP TRIGGER support_reply_notification ON ticket_messages;
+DROP FUNCTION urmail_support_reply_notification();
+DROP POLICY announcements_visibility ON announcements;
+ALTER TABLE announcements DROP CONSTRAINT announcements_time_order,DROP COLUMN ends_at,DROP COLUMN state;
+DROP TRIGGER ticket_messages_open_guard ON ticket_messages;
+DROP FUNCTION urmail_require_open_ticket();
+DROP TABLE ticket_attachments;
+DROP POLICY ticket_messages_isolation ON ticket_messages;
+CREATE POLICY ticket_messages_isolation ON ticket_messages USING(ticket_id IN(SELECT id FROM tickets WHERE tenant_id=nullif(current_setting('urmail.tenant_id',true),'')::bigint));
+ALTER TABLE ticket_messages DROP CONSTRAINT ticket_messages_tenant_fk,DROP CONSTRAINT ticket_messages_tenant_id_id_unique,DROP CONSTRAINT ticket_messages_body_bounded,DROP COLUMN tenant_id;
+DROP POLICY tickets_isolation ON tickets;
+CREATE POLICY tickets_isolation ON tickets USING(tenant_id=nullif(current_setting('urmail.tenant_id',true),'')::bigint);
+ALTER TABLE tickets DROP CONSTRAINT tickets_tenant_id_id_unique,DROP CONSTRAINT tickets_subject_bounded,DROP CONSTRAINT tickets_priority_allowed,DROP COLUMN assigned_to,DROP COLUMN updated_at;
+GRANT INSERT,UPDATE,DELETE ON tickets,ticket_messages TO urmail_app;

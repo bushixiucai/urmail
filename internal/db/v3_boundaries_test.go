@@ -37,7 +37,7 @@ func v3Seed(t *testing.T) (*db.Pool, *db.Pool, int64, int64) {
 	if err = platform.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'V3','v3','active') RETURNING id", brand).Scan(&tenant); err != nil {
 		t.Fatal(err)
 	}
-	if err = platform.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,verification_token) VALUES($1,'v3.example.test','x') RETURNING id", tenant).Scan(&domain); err != nil {
+	if err = platform.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,verification_token,status,verified_at,provisioning_state) VALUES($1,'v3.example.test','x','active',now(),'ready') RETURNING id", tenant).Scan(&domain); err != nil {
 		t.Fatal(err)
 	}
 	return platform, app, tenant, domain
@@ -53,7 +53,7 @@ func v3Code(t *testing.T, err error, code string) {
 func TestV3SettingsDeleteAndTenantReferences(t *testing.T) {
 	p, a, tid, did := v3Seed(t)
 	ctx := context.Background()
-	if _, err := p.Exec(ctx, `INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'v3','true'),('tenant',$1,'v3','true')`, tid); err != nil {
+	if _, err := p.Exec(ctx, `INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'theme','{}'),('tenant',$1,'theme','{}')`, tid); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := a.TenantTx(ctx, tid)
@@ -228,10 +228,6 @@ func TestV3BillingAndRecallModels(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			if _, err = tx.Exec(ctx, "UPDATE coupons SET redeemed_count=redeemed_count+1 WHERE code='V3-MODEL'"); err != nil {
-				t.Error(err)
-				return
-			}
 			if err = tx.Commit(ctx); err != nil {
 				t.Error(err)
 				return
@@ -242,6 +238,10 @@ func TestV3BillingAndRecallModels(t *testing.T) {
 	group.Wait()
 	if successes.Load() != 1 {
 		t.Fatalf("coupon successes=%d", successes.Load())
+	}
+	var redeemed, rows int
+	if err := p.QueryRow(ctx, "SELECT redeemed_count,(SELECT count(*) FROM coupon_redemptions WHERE coupon_code='V3-MODEL') FROM coupons WHERE code='V3-MODEL'").Scan(&redeemed, &rows); err != nil || redeemed != 1 || rows != 1 {
+		t.Fatalf("coupon counter diverged: redeemed=%d rows=%d err=%v", redeemed, rows, err)
 	}
 	var recall int64
 	if err := p.QueryRow(ctx, "INSERT INTO recall_requests(tenant_id,message_id,requested_by) VALUES($1,'remote', $2) RETURNING id", tid, user).Scan(&recall); err != nil {

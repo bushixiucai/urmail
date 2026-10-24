@@ -22,10 +22,11 @@ type Record struct {
 
 // Zone represents a domain zone configuration.
 type Zone struct {
-	Domain  string   // Domain name (e.g. example.com)
-	Mode    string   // "managed" (full authority) or "delegated" (subdomain/minimal)
-	Serial  uint32   // SOA serial number; caller (reconcile layer) must increment on each zone update
-	Records []Record // Custom or additional records (e.g. DKIM, verification tokens)
+	Domain   string   // Domain name (e.g. example.com)
+	Mode     string   // "managed" (full authority) or "delegated" (subdomain/minimal)
+	Serial   uint32   // SOA serial number; caller (reconcile layer) must increment on each zone update
+	Explicit bool     // Use only confirmed records; never synthesize an apex website address.
+	Records  []Record // Custom or additional records (e.g. DKIM, verification tokens)
 }
 
 // Snapshot contains all active DNS zones to be rendered.
