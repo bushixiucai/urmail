@@ -473,21 +473,23 @@ type MailboxUsage struct {
 }
 
 type Mailboxes struct {
-	ID              int64              `json:"id"`
-	TenantID        int64              `json:"tenant_id"`
-	DomainID        int64              `json:"domain_id"`
-	LocalPart       string             `json:"local_part"`
-	Address         string             `json:"address"`
-	DisplayName     pgtype.Text        `json:"display_name"`
-	PasswordHash    string             `json:"password_hash"`
-	QuotaBytes      int64              `json:"quota_bytes"`
-	Status          string             `json:"status"`
-	SendEnabled     bool               `json:"send_enabled"`
-	SieveScript     pgtype.Text        `json:"sieve_script"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	BytesUsed       int64              `json:"bytes_used"`
-	UsageMeasuredAt pgtype.Timestamptz `json:"usage_measured_at"`
-	UsageError      pgtype.Text        `json:"usage_error"`
+	ID                    int64              `json:"id"`
+	TenantID              int64              `json:"tenant_id"`
+	DomainID              int64              `json:"domain_id"`
+	LocalPart             string             `json:"local_part"`
+	Address               string             `json:"address"`
+	DisplayName           pgtype.Text        `json:"display_name"`
+	PasswordHash          string             `json:"password_hash"`
+	QuotaBytes            int64              `json:"quota_bytes"`
+	Status                string             `json:"status"`
+	SendEnabled           bool               `json:"send_enabled"`
+	SieveScript           pgtype.Text        `json:"sieve_script"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	BytesUsed             int64              `json:"bytes_used"`
+	UsageMeasuredAt       pgtype.Timestamptz `json:"usage_measured_at"`
+	UsageError            pgtype.Text        `json:"usage_error"`
+	PasswordVersion       int64              `json:"password_version"`
+	PasswordRevokePending bool               `json:"password_revoke_pending"`
 }
 
 type ManagedDnsZones struct {

@@ -228,6 +228,7 @@ type Querier interface {
 	PendingRefundForTerm(ctx context.Context, arg PendingRefundForTermParams) (bool, error)
 	PlanSnapshotFitsResources(ctx context.Context, arg PlanSnapshotFitsResourcesParams) (bool, error)
 	PlatformAIUsage(ctx context.Context, tenantID int64) ([]PlatformAIUsageRow, error)
+	PlatformAckMailboxPasswordRevocation(ctx context.Context, arg PlatformAckMailboxPasswordRevocationParams) (int64, error)
 	PlatformAcknowledgeCollectorGap(ctx context.Context, arg PlatformAcknowledgeCollectorGapParams) (int64, error)
 	PlatformAdjustCommissionForRefund(ctx context.Context, id int64) error
 	PlatformAdvanceCollectorCheckpoint(ctx context.Context, arg PlatformAdvanceCollectorCheckpointParams) error
@@ -253,6 +254,7 @@ type Querier interface {
 	PlatformCancelActiveSubscriptions(ctx context.Context, tenantID int64) (int64, error)
 	PlatformCancelArchivePurgeIntent(ctx context.Context, arg PlatformCancelArchivePurgeIntentParams) error
 	PlatformCancelPendingOrder(ctx context.Context, id int64) (Orders, error)
+	PlatformChangeMailboxPasswordCAS(ctx context.Context, arg PlatformChangeMailboxPasswordCASParams) (int64, error)
 	PlatformChangeSupportTicket(ctx context.Context, arg PlatformChangeSupportTicketParams) (Tickets, error)
 	PlatformClaimApprovedRefund(ctx context.Context) (Refunds, error)
 	PlatformClaimDNSPlan(ctx context.Context, leaseOwner pgtype.Text) (DnsChangePlans, error)
@@ -451,6 +453,9 @@ type Querier interface {
 	PlatformLockRegistrationEmail(ctx context.Context, dollar_1 string) error
 	PlatformLockRetentionPurgePolicy(ctx context.Context, arg PlatformLockRetentionPurgePolicyParams) (bool, error)
 	PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMailboxAccessStatesRow, error)
+	PlatformMailboxPasswordFailures(ctx context.Context, arg PlatformMailboxPasswordFailuresParams) (int64, error)
+	// Mailbox self-service is bound to the independently authenticated webmail session.
+	PlatformMailboxPasswordForSession(ctx context.Context, arg PlatformMailboxPasswordForSessionParams) (PlatformMailboxPasswordForSessionRow, error)
 	PlatformManagedBrands(ctx context.Context) ([]PlatformManagedBrandsRow, error)
 	PlatformManagedPlanAvailable(ctx context.Context, code string) (bool, error)
 	PlatformMarkCheckoutClosed(ctx context.Context, arg PlatformMarkCheckoutClosedParams) error
@@ -528,6 +533,7 @@ type Querier interface {
 	PlatformRestoreReviewOrderPending(ctx context.Context, arg PlatformRestoreReviewOrderPendingParams) (int64, error)
 	PlatformReviewByReceipt(ctx context.Context, arg PlatformReviewByReceiptParams) (PaymentManualReviews, error)
 	PlatformReviewDNSPlan(ctx context.Context, arg PlatformReviewDNSPlanParams) (int64, error)
+	PlatformRevokeMailboxCredentials(ctx context.Context, arg PlatformRevokeMailboxCredentialsParams) error
 	PlatformRevokeMailboxSession(ctx context.Context, tokenHash string) error
 	PlatformRevokeRefundTerm(ctx context.Context, arg PlatformRevokeRefundTermParams) error
 	PlatformRevokeRegistrationRequests(ctx context.Context, email string) error
