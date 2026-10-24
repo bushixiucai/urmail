@@ -52,16 +52,24 @@ func CalculateRenewalPeriod(now, currentPeriodEnd time.Time, cycle string) (time
 // AddCycle adds the specified billing cycle duration to a timestamp,
 // cleanly respecting calendar month and year boundaries.
 func AddCycle(t time.Time, cycle string) (time.Time, error) {
+	months := 0
 	switch cycle {
 	case CycleMonthly:
-		return t.AddDate(0, 1, 0), nil
+		months = 1
 	case CycleQuarterly:
-		return t.AddDate(0, 3, 0), nil
+		months = 3
 	case CycleAnnual, "yearly":
-		return t.AddDate(1, 0, 0), nil
+		months = 12
 	default:
 		return time.Time{}, fmt.Errorf("%w: %s", ErrInvalidCycle, cycle)
 	}
+	// Construct from the first of the month to avoid AddDate normalizing
+	// January 31 into March. This primitive clamps one step; retaining an
+	// original day across multiple periods requires explicit lifecycle state.
+	target := time.Date(t.Year(), t.Month()+time.Month(months), 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+	last := time.Date(target.Year(), target.Month()+1, 0, 0, 0, 0, 0, t.Location()).Day()
+	day := min(t.Day(), last)
+	return time.Date(target.Year(), target.Month(), day, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location()), nil
 }
 
 // CycleMultiplier returns the number of months and standard discount basis points
@@ -96,7 +104,7 @@ func CalculateBasePrice(monthlyPriceCents int64, cycle string) (int64, error) {
 			return 0, ErrInvalidPlanPrice
 		}
 		nominal := monthlyPriceCents * 3
-		discount := (nominal * 500) / 10000
+		discount := new(big.Int).Quo(new(big.Int).Mul(big.NewInt(nominal), big.NewInt(500)), big.NewInt(10000)).Int64()
 		return nominal - discount, nil
 	case CycleAnnual, "yearly":
 		// 12 months charged as 10 months: 10 * price
@@ -174,7 +182,12 @@ func CalculateUpgradeProration(
 
 // Quote carries an immutable pricing snapshot with an integrity digest.
 type Quote struct {
+	DomainID            int64     `json:"domain_id,omitempty"`
 	TenantID            int64     `json:"tenant_id"`
+	Kind                string    `json:"kind,omitempty"`
+	PriceVersion        int64     `json:"price_version,omitempty"`
+	PlanAmountCents     int64     `json:"plan_amount_cents,omitempty"`
+	SubscriptionVersion int64     `json:"subscription_version,omitempty"`
 	CouponCode          string    `json:"coupon_code,omitempty"`
 	PlanCode            string    `json:"plan_code"`
 	BillingCycle        string    `json:"billing_cycle"`
@@ -216,6 +229,23 @@ func BuildQuote(
 		return Quote{}, err
 	}
 
+	return BuildPricedQuote(tenantID, couponCode, planCode, basePrice, cycle, currency, couponKind, couponValue, creditCents, periodStart, periodEnd, ttl, key)
+}
+
+// BuildPricedQuote signs a configured total; it never derives a quarterly or annual price.
+func BuildPricedQuote(tenantID int64, couponCode, planCode string, basePrice int64, cycle, currency, couponKind string, couponValue, creditCents int64, periodStart, periodEnd time.Time, ttl time.Duration, key []byte) (Quote, error) {
+	if len(key) < 32 {
+		return Quote{}, ErrQuoteKeyMissing
+	}
+	if tenantID <= 0 || planCode == "" || (currency != "CNY" && currency != "USD") || basePrice < 0 || basePrice > 9007199254740991 {
+		return Quote{}, ErrInvalidPlanPrice
+	}
+	if _, err := AddCycle(periodStart, cycle); err != nil {
+		return Quote{}, err
+	}
+	if !periodEnd.After(periodStart) {
+		return Quote{}, ErrInvalidPeriod
+	}
 	discountCents := int64(0)
 	if creditCents < 0 || creditCents > basePrice {
 		return Quote{}, ErrInvalidPlanPrice
@@ -267,8 +297,13 @@ func BuildQuote(
 // time outside the HMAC, so a quote could be shifted by up to a second
 // without invalidating the signature (M5 review 3.25).
 func (q *Quote) canonical() string {
-	return fmt.Sprintf("%d|%q|%q|%q|%q|%d|%d|%d|%d|%d|%d|%d|%d",
+	return fmt.Sprintf("%d|%d|%q|%d|%d|%d|%q|%q|%q|%q|%d|%d|%d|%d|%d|%d|%d|%d",
+		q.DomainID,
 		q.TenantID,
+		q.Kind,
+		q.PriceVersion,
+		q.PlanAmountCents,
+		q.SubscriptionVersion,
 		q.CouponCode,
 		q.PlanCode,
 		q.BillingCycle,
@@ -316,4 +351,33 @@ func (q *Quote) VerifyIntegrity(now time.Time, key []byte) error {
 		return ErrQuoteTampered
 	}
 	return nil
+}
+
+// VerifySignature authenticates an existing intent without applying a new-order expiry check.
+func (q *Quote) VerifySignature(key []byte) error {
+	if len(key) < 32 {
+		return ErrQuoteKeyMissing
+	}
+	if !hmac.Equal([]byte(q.ComputeDigest(key)), []byte(q.Digest)) {
+		return ErrQuoteTampered
+	}
+	return nil
+}
+
+// UpgradeDifference preserves existing discounts and rounds the remaining
+// catalog-price difference exactly once, in the currency's smallest unit.
+func UpgradeDifference(currentBase, targetBase int64, start, end, now time.Time) (int64, error) {
+	if currentBase < 0 || targetBase < currentBase || targetBase > 9007199254740991 {
+		return 0, ErrInvalidPlanPrice
+	}
+	if !end.After(start) || now.Before(start) || !now.Before(end) {
+		return 0, ErrInvalidPeriod
+	}
+	numerator := new(big.Int).Mul(big.NewInt(targetBase-currentBase), big.NewInt(end.Sub(now).Nanoseconds()))
+	denominator := big.NewInt(end.Sub(start).Nanoseconds())
+	rounded, remainder := new(big.Int).QuoRem(numerator, denominator, new(big.Int))
+	if new(big.Int).Lsh(remainder, 1).Cmp(denominator) >= 0 {
+		rounded.Add(rounded, big.NewInt(1))
+	}
+	return rounded.Int64(), nil
 }

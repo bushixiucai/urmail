@@ -225,3 +225,23 @@ func TestQuoteIntegrityAndExpiration(t *testing.T) {
 		t.Error("digest identical across different keys")
 	}
 }
+
+func TestCycleClampsMonthEndWithoutSkippingAWholeMonth(t *testing.T) {
+	for _, test := range []struct{ start, cycle, want string }{
+		{"2027-01-31T12:34:56Z", billing.CycleMonthly, "2027-02-28T12:34:56Z"},
+		{"2028-01-31T12:34:56Z", billing.CycleMonthly, "2028-02-29T12:34:56Z"},
+		{"2028-02-29T12:34:56Z", billing.CycleAnnual, "2029-02-28T12:34:56Z"},
+		{"2027-01-31T12:34:56Z", billing.CycleQuarterly, "2027-04-30T12:34:56Z"},
+	} {
+		t.Run(test.start+test.cycle, func(t *testing.T) {
+			start, err := time.Parse(time.RFC3339, test.start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := billing.AddCycle(start, test.cycle)
+			if err != nil || got.Format(time.RFC3339) != test.want {
+				t.Fatalf("got=%s want=%s err=%v", got, test.want, err)
+			}
+		})
+	}
+}
