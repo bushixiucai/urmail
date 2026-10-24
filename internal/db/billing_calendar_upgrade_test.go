@@ -181,6 +181,20 @@ func TestBillingCalendarRollbackRefusesFacts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Down advances exactly one migration. Reach the calendar migration
+			// explicitly so later schema additions cannot bypass this assertion.
+			for {
+				version, dirty, versionErr := m.Version()
+				if versionErr != nil || dirty || version < 64 {
+					t.Fatalf("cannot reach clean schema64: version=%d dirty=%t err=%v", version, dirty, versionErr)
+				}
+				if version == 64 {
+					break
+				}
+				if err = m.Down(t.Context()); err != nil {
+					t.Fatal("reach schema64 without changing calendar facts", err)
+				}
+			}
 			err = m.Down(t.Context())
 			if err == nil || !strings.Contains(err.Error(), "BILLING_CALENDAR_REQUIRES_CONTROLLED_ROLLBACK") {
 				t.Fatalf("rollback dropped protected calendar facts: %v", err)
