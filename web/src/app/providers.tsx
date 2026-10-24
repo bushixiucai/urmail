@@ -1,3 +1,4 @@
+import { adaptCatalogue } from "./catalogue";
 import {
   createContext,
   useContext,
@@ -41,7 +42,7 @@ async function loadCatalogue(locale: string): Promise<Record<string, string>> {
     const response = await request<Record<string, string>>(
       `/api/v1/i18n/${encodeURIComponent(locale)}`,
     );
-    return response;
+    return adaptCatalogue(response);
   } catch {
     return {};
   }
