@@ -16,11 +16,11 @@
         const identity = JSON.stringify([rcmail.env.mailbox, uid, operation, language, policy.configuration_digest]);
         if (!requests.has(identity)) requests.set(identity, window.crypto.randomUUID());
         rcmail.http_post("plugin.urmail_context", {_uid: uid, _mbox: rcmail.env.mailbox,
-          _operation: operation, _language: language, _request_key: requests.get(identity), _configuration_digest: policy.configuration_digest, _cloud_confirmed: policy.requires_confirmation ? "1" : "0"}, rcmail.set_busy(true));
+          _operation: operation, _language: language, _request_key: requests.get(identity), _configuration_digest: policy.configuration_digest, _cloud_confirmed: policy.requires_confirmation ? "1" : "0"}, rcmail.set_busy(true, "loading"));
       }, true);
     });
     rcmail.register_command("plugin.urmail_sieve", function () {
-      rcmail.http_post("plugin.urmail_sieve", {}, rcmail.set_busy(true));
+      rcmail.http_post("plugin.urmail_sieve", {}, rcmail.set_busy(true, "loading"));
     }, true);
   });
   rcmail.addEventListener("plugin.urmail_result", function (result) {
