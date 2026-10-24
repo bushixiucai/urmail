@@ -359,3 +359,90 @@ func TestBillingCalendarWallGuardsAndInheritedTimezonePreserveQuotaWindow(t *tes
 		t.Fatalf("timezone mutation changed counter: %d %v", used, err)
 	}
 }
+
+func TestLegacyCurrentEntitlementMigrationRollbackGate(t *testing.T) {
+	for _, active := range []bool{true, false} {
+		name := "boundary-past"
+		if active {
+			name = "current-fallback"
+		}
+		t.Run(name, func(t *testing.T) {
+			dsn, conn, _, tenant := calendarDatabaseAt63(t)
+			ctx := t.Context()
+			source, err := iofs.New(db.FS(), ".")
+			if err != nil {
+				t.Fatal(err)
+			}
+			u, err := url.Parse(dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			params := u.Query()
+			params.Set("role", "urmail_migrate")
+			u.RawQuery = params.Encode()
+			sqlDB, err := sql.Open("pgx", u.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			driver, err := migratepgx.WithInstance(sqlDB, &migratepgx.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := migrate.NewWithInstance("iofs", source, "pgx5", driver)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _, _ = m.Close() }()
+			if err = m.Migrate(65); err != nil {
+				t.Fatal(err)
+			}
+			first := time.Now().UTC().Add(-15 * 24 * time.Hour).Truncate(time.Second)
+			if !active {
+				first = first.Add(-30 * 24 * time.Hour)
+			}
+			boundary := first.Add(30 * 24 * time.Hour)
+			exec := func(query string, args ...any) {
+				t.Helper()
+				if _, err := conn.Exec(ctx, query, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			exec("INSERT INTO plans(code,name,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit) VALUES('legacy-down','{}',100,'CNY',1073741824,5,2,100)")
+			exec("UPDATE subscriptions SET plan_id='legacy-down',status='active',period_start=$2,period_end=$3,plan_snapshot=(SELECT to_jsonb(p) FROM plans p WHERE code='legacy-down') WHERE tenant_id=$1", tenant, first, boundary.Add(30*24*time.Hour))
+			var order int64
+			if err = conn.QueryRow(ctx, "INSERT INTO orders(tenant_id,order_no,status,kind,amount_cents,currency,plan_code,billing_cycle) VALUES($1,'LEGACY-65-ROLLBACK','paid','renew',100,'CNY','legacy-down','monthly') RETURNING id", tenant).Scan(&order); err != nil {
+				t.Fatal(err)
+			}
+			exec("INSERT INTO subscription_terms(order_id,tenant_id,period_start,period_end,billing_period_start,plan_snapshot,base_amount_cents,currency,billing_cycle) SELECT $1,$2,$3,$4,$3,to_jsonb(p),100,'CNY','monthly' FROM plans p WHERE code='legacy-down'", order, tenant, boundary, boundary.Add(30*24*time.Hour))
+			before := calendarUpgradeFacts(t, conn, tenant)
+			var legacyEnd *time.Time
+			if err = conn.QueryRow(ctx, "SELECT urmail_legacy_current_entitlement_end($1)", tenant).Scan(&legacyEnd); err != nil || (legacyEnd != nil) != active {
+				t.Fatalf("fixture fallback=%v active=%t err=%v", legacyEnd, active, err)
+			}
+			err = m.Migrate(64)
+			if active {
+				if err == nil || !strings.Contains(err.Error(), "LEGACY_CURRENT_RIGHTS_REQUIRE_CONTROLLED_ROLLBACK") {
+					t.Fatalf("down dropped an active legacy coverage dependency: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				var removed bool
+				if err = conn.QueryRow(ctx, "SELECT to_regprocedure('urmail_legacy_current_entitlement_end(bigint)') IS NULL").Scan(&removed); err != nil || !removed {
+					t.Fatalf("down65 did not remove helper: %t %v", removed, err)
+				}
+				if err = m.Migrate(65); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if after := calendarUpgradeFacts(t, conn, tenant); after != before {
+				t.Fatal("rollback gate/down-up rewrote paid entitlement facts")
+			}
+			var allowed bool
+			if err = conn.QueryRow(ctx, "SELECT urmail_mail_allowed($1)", tenant).Scan(&allowed); err != nil || !allowed {
+				t.Fatalf("rollback check changed current service: %t %v", allowed, err)
+			}
+		})
+	}
+}

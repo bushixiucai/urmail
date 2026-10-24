@@ -32,6 +32,7 @@ func (q *Queries) BindOrderQuote(ctx context.Context, arg BindOrderQuoteParams) 
 const currentPaidEntitlementAllowed = `-- name: CurrentPaidEntitlementAllowed :one
 SELECT NOT EXISTS(SELECT 1 FROM subscription_terms a WHERE a.tenant_id=$1::bigint)
 OR EXISTS(SELECT 1 FROM subscription_terms b WHERE b.tenant_id=$1::bigint AND b.period_start<=now() AND b.period_end>now() AND (b.revoked_at IS NULL OR b.revoked_at>now()))
+OR COALESCE(urmail_legacy_current_entitlement_end($1::bigint)>now(),false)
 `
 
 func (q *Queries) CurrentPaidEntitlementAllowed(ctx context.Context, tenantID int64) (pgtype.Bool, error) {

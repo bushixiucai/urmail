@@ -30,7 +30,8 @@ ORDER BY period_start DESC,order_id DESC LIMIT 1;
 
 -- name: CurrentPaidEntitlementAllowed :one
 SELECT NOT EXISTS(SELECT 1 FROM subscription_terms a WHERE a.tenant_id=sqlc.arg(tenant_id)::bigint)
-OR EXISTS(SELECT 1 FROM subscription_terms b WHERE b.tenant_id=sqlc.arg(tenant_id)::bigint AND b.period_start<=now() AND b.period_end>now() AND (b.revoked_at IS NULL OR b.revoked_at>now()));
+OR EXISTS(SELECT 1 FROM subscription_terms b WHERE b.tenant_id=sqlc.arg(tenant_id)::bigint AND b.period_start<=now() AND b.period_end>now() AND (b.revoked_at IS NULL OR b.revoked_at>now()))
+OR COALESCE(urmail_legacy_current_entitlement_end(sqlc.arg(tenant_id)::bigint)>now(),false);
 
 -- name: PendingRefundForTerm :one
 SELECT EXISTS(SELECT 1 FROM refunds WHERE tenant_id=$1 AND target_term_order_id=$2 AND entitlement_action<>'none' AND status IN('approved','processing','uncertain'));

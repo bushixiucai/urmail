@@ -49,7 +49,7 @@ UPDATE subscription_terms SET revoked_at=now(),revoked_by_refund=$3
 WHERE tenant_id=$1 AND (order_id=$2 OR basis_order_id=$2) AND revoked_at IS NULL;
 
 -- name: PlatformRecomputePaidEntitlementEnd :exec
-UPDATE subscriptions s SET period_end=GREATEST(s.period_start+interval '1 microsecond',COALESCE((SELECT max(t.period_end) FROM subscription_terms t WHERE t.tenant_id=s.tenant_id AND t.basis_order_id IS NULL AND t.revoked_at IS NULL),now()))
+UPDATE subscriptions s SET period_end=GREATEST(s.period_start+interval '1 microsecond',COALESCE(urmail_legacy_current_entitlement_end(s.tenant_id),now()),COALESCE((SELECT max(t.period_end) FROM subscription_terms t WHERE t.tenant_id=s.tenant_id AND t.basis_order_id IS NULL AND t.revoked_at IS NULL),now()))
 WHERE s.tenant_id=$1 AND s.status IN('active','trialing','past_due');
 
 -- name: PlatformMarkRefundEntitlementApplied :exec
