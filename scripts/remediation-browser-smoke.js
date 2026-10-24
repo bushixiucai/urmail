@@ -32,7 +32,23 @@ async (page) => {
   if(new URL(page.url()).pathname!==route)throw Error('English mobile authenticated route redirected '+route+' to '+new URL(page.url()).pathname);
   await page.locator('main').getByText(englishCatalogue[titleKey],{exact:true}).first().waitFor();
   await page.getByRole('button',{name:'Open menu',exact:true}).waitFor();
-  const visibleText=await page.locator('body').innerText();
+  let visibleText=await page.locator('body').innerText();
+  const technicalAuditActions=[];
+  if(route==='/audit'){
+   // AuditWorkspace deliberately displays exact action identifiers (audit-page.tsx)
+   // for exact-match filtering. Exclude only this verified full action line;
+   // any unrelated label containing billing.calendar still fails the raw-key scan.
+   const rows=(await portalGet('/api/v1/audit?limit=100')).logs;
+   const records=rows.filter(row=>row.action==='VERIFY billing.calendar'&&row.target_type==='tenants'&&Number(row.target_id)===account.tenant_id);
+   const action=page.locator('main p.break-words.font-medium').filter({hasText:/^VERIFY billing\.calendar$/});
+   if(records.length!==1||await action.count()!==1)throw Error('Unverified technical audit action exclusion');
+   const detail=records[0].detail;
+   if(!detail||typeof detail!=='object'||detail.status!==200||detail.outcome!=='succeeded')throw Error('Tenant audit outcome is not a JSON object');
+   const recordText=await action.locator('xpath=../..').innerText();
+   if(!recordText.includes(englishCatalogue['page.audit.outcome_succeeded'])||!recordText.includes('200'))throw Error('Known audit outcome still rendered as historical unknown');
+   visibleText=visibleText.split('\n').filter(line=>line!=='VERIFY billing.calendar').join('\n');
+   technicalAuditActions.push({action:'VERIFY billing.calendar',verifiedTenant:account.tenant_id,outcomeJSON:true});
+  }
   const rawTranslationKeys=[...new Set(visibleText.match(/\b(?:page|layout|nav|error|state|billing|archive|delivery|support|marketing|notify|ai|status|action|auth|common|form|label|unit|validation|mfa|branding|settings|compliance|table)\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*/g)||[])];
   if(rawTranslationKeys.length)throw Error('Raw translation keys on English mobile '+route+': '+rawTranslationKeys.join(','));
   const dimensions=await page.evaluate(()=>({viewport:innerWidth,page:document.documentElement.scrollWidth}));
@@ -40,7 +56,7 @@ async (page) => {
   const routeFailures=requests.slice(requestStart).filter(r=>r.status>=500&&!(r.path==='/api/v1/mail/queue'&&r.status===503));
   if(routeFailures.length||errors.length!==errorStart)throw Error('English mobile request/runtime failure '+route+' '+JSON.stringify(routeFailures));
   if(englishScreenshotRoutes.has(route)){await page.screenshot({path:evidence+'/english-mobile-'+route.slice(1)+'.png',fullPage:true});englishMobileAria.push({route,snapshot:await page.locator('main').first().ariaSnapshot()})}
-  englishMobileChecks.push({route,title:englishCatalogue[titleKey],locale:'en',viewport:375,documentWidth:dimensions.page,rawTranslationKeys,authenticated:true});
+  englishMobileChecks.push({route,title:englishCatalogue[titleKey],locale:'en',viewport:375,documentWidth:dimensions.page,rawTranslationKeys,technicalAuditActions,authenticated:true});
  }
  await page.getByRole('button',{name:'Open menu',exact:true}).click();
  const chineseCatalogueResponse=page.waitForResponse(r=>r.url()===base+'/api/v1/i18n/zh-CN'&&r.status()===200);
@@ -130,6 +146,29 @@ await page.setViewportSize({width:375,height:812});if(await page.evaluate(()=>do
  const must=['/api/v1/platform/payment-merchants','/api/v1/platform/payment-reviews','/api/v1/platform/refunds','/api/v1/platform/alerts','/api/v1/platform/billing-document-profile'];
  for(const path of must)if(!requests.some(r=>r.path===path&&r.status===200))throw Error('Platform endpoint not rendered '+path);
 
+ const calendarPanel=page.getByTestId('billing-calendar-admin');
+ const calendarRead=page.waitForResponse(r=>r.url().endsWith(`/platform/tenants/${account.tenant_id}/billing-calendar`)&&r.request().method()==='GET');
+ await calendarPanel.getByRole('combobox').selectOption(String(account.tenant_id));
+ const originalCalendarState=await(await calendarRead).json();
+ if(!originalCalendarState.calendar||originalCalendarState.review_required||originalCalendarState.calendar.timezone!=='Asia/Shanghai')throw Error('Platform did not read the verified legacy calendar');
+ await calendarPanel.getByText(chineseCatalogue['calendar.admin.readonly'],{exact:true}).waitFor();
+ if(await calendarPanel.locator('form').count())throw Error('Existing billing calendar exposes a rewrite form');
+ await calendarPanel.screenshot({path:evidence+'/billing-calendar-readonly-desktop.png'});
+ await page.setViewportSize({width:375,height:812});if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Billing calendar mobile overflow');await calendarPanel.screenshot({path:evidence+'/billing-calendar-readonly-mobile.png'});await page.setViewportSize({width:1440,height:1000});
+ const knownTenants=(await portalGet('/api/v1/platform/tenants')).tenants;
+ const newTenant=knownTenants.find(tenant=>tenant.id!==account.tenant_id);
+ if(!newTenant)throw Error('No existing fresh tenant fixture for calendar automatic state');
+ const newCalendarRead=page.waitForResponse(r=>r.url().endsWith(`/platform/tenants/${newTenant.id}/billing-calendar`)&&r.request().method()==='GET');
+ await calendarPanel.getByRole('combobox').selectOption(String(newTenant.id));
+ const newCalendarState=await(await newCalendarRead).json();
+ if(newCalendarState.calendar!==null||newCalendarState.review_required)throw Error('Fresh fixture unexpectedly requires legacy calendar verification');
+ await calendarPanel.getByText(chineseCatalogue['calendar.admin.automatic'],{exact:true}).waitFor();if(await calendarPanel.locator('form').count())throw Error('Fresh customer exposes a manual billing calendar seed');
+ const calendarAdminGUI={existingCalendarRead:true,platformAuditOutcomeJSON:true,firstTimezonePreserved:true,existingCalendarReadOnly:true,newCustomerAutomatic:true,newCustomerNoManualSeed:true,manualLegacyVerificationGUI:'NOT_RUN_NO_UNREVIEWED_LEGACY_FIXTURE',manualLegacyVerificationEvidence:'billing-calendar-admin/pg-race.log + ui-tests.log'};
+
+ const platformAudit=(await portalGet('/api/v1/platform/audit?limit=100')).logs;
+ const platformCalendarAudit=platformAudit.find(row=>row.action==='VERIFY billing.calendar'&&Number(row.tenant_id)===account.tenant_id);
+ if(!platformCalendarAudit?.detail||typeof platformCalendarAudit.detail!=='object'||platformCalendarAudit.detail.status!==200||platformCalendarAudit.detail.outcome!=='succeeded')throw Error('Platform audit outcome is not a JSON object');
+
  const aiPanel=page.getByTestId('platform-ai-admin');await aiPanel.getByRole('combobox').first().selectOption(String(account.tenant_id));await aiPanel.locator('input[name="api_key"]').waitFor();
  if(!(await aiPanel.getByRole('button',{name:'仅检查已保存目标健康',exact:true}).isDisabled()))throw Error('Cloud health enabled without tenant consent');
  const aiForm=aiPanel.locator('form').filter({has:page.locator('input[name="api_key"]')});await aiForm.locator('input[name="model"]').fill('browser-model');await aiForm.locator('input[name="endpoint"]').fill('https://models.example.test/v1');await aiForm.locator('input[name="api_key"]').fill(fixture.ai_api_key);await aiForm.locator('select[name="currency"]').selectOption('USD');await aiForm.locator('input[name="input_rate"]').fill('1000000');await aiForm.locator('input[name="output_rate"]').fill('2000000');await aiForm.locator('input[type="checkbox"][required]').check();
@@ -183,5 +222,5 @@ await page.setViewportSize({width:375,height:812});if(await page.evaluate(()=>do
  const knownUnavailable=requests.filter(r=>r.path==='/api/v1/mail/queue'&&r.status===503);const failing=requests.filter(r=>r.status>=500&&!(r.path==='/api/v1/mail/queue'&&r.status===503));if(failing.length)throw Error('Unexpected server failures '+JSON.stringify(failing));if(errors.length)throw Error('Browser exceptions '+errors.join(';'));
 
 
- return {routes:16,bilingualMobile,financialGUI,aiAdminChain,ticketChain,marketingChain,dnsChain:{previewReadOnly:true,unknownWriteCount:unknownDNS.writes-beforeDNS.writes,uncertainNotReplayed:true,finalProviderWriteCount:afterDNS.writes,rollbackOwnChangesOnly:true,websitePreserved:true,onboardingRetryRequested:true},timezonePersisted:true,quarantineRegistrationDisabled:true,platformReads:must,knownUnavailable,errors,requests};
+ return {routes:16,bilingualMobile,financialGUI,calendarAdminGUI,aiAdminChain,ticketChain,marketingChain,dnsChain:{previewReadOnly:true,unknownWriteCount:unknownDNS.writes-beforeDNS.writes,uncertainNotReplayed:true,finalProviderWriteCount:afterDNS.writes,rollbackOwnChangesOnly:true,websitePreserved:true,onboardingRetryRequested:true},timezonePersisted:true,quarantineRegistrationDisabled:true,platformReads:must,knownUnavailable,errors,requests};
 }

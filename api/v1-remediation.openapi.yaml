@@ -1001,7 +1001,7 @@ paths:
       - {name: before_id, in: query, schema: {type: integer}, description: Legacy cursor; resolves the anchor timestamp within this tenant. Cannot be combined with cursor.}
       responses:
         '200':
-          description: logs plus next_cursor; cursor binds tenant and filters and validates its persisted timestamp/id anchor.
+          description: logs plus next_cursor. Each detail is a JSON object containing only status/outcome/phase, or null for missing/invalid metadata; never base64. Cursor binds tenant and filters and validates its persisted timestamp/id anchor.
         '400':
           description: Invalid range, cursor, or cursor/filter mismatch.
         default:
