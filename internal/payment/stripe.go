@@ -69,6 +69,7 @@ func (s *Stripe) CreateCheckoutSession(ctx context.Context, orderID int64, order
 	form.Set("cancel_url", cancelURL)
 	form.Set("client_reference_id", orderNo)
 	form.Set("metadata[order_id]", strconv.FormatInt(orderID, 10))
+	form.Set("payment_intent_data[metadata][order_id]", strconv.FormatInt(orderID, 10))
 	form.Set("line_items[0][quantity]", "1")
 	form.Set("line_items[0][price_data][currency]", strings.ToLower(currency))
 	form.Set("line_items[0][price_data][unit_amount]", strconv.FormatInt(amountCents, 10))
@@ -255,7 +256,7 @@ func (s *Stripe) ParseAndVerifyWebhook(_ context.Context, header http.Header, bo
 		}, nil
 	}
 
-	// Any other event type is recognised but carries no settlement signal.
+	// Any other event type is recognized but carries no settlement signal.
 	return WebhookEvent{
 		Provider:   ProviderStripe,
 		EventID:    event.ID,
@@ -293,6 +294,7 @@ func (s *Stripe) QueryPayment(ctx context.Context, _ string, providerTxnID strin
 	var session struct {
 		ID            string `json:"id"`
 		PaymentStatus string `json:"payment_status"`
+		PaymentIntent string `json:"payment_intent"`
 		Status        string `json:"status"`
 		AmountTotal   int64  `json:"amount_total"`
 		Amount        int64  `json:"amount"`
@@ -303,6 +305,9 @@ func (s *Stripe) QueryPayment(ctx context.Context, _ string, providerTxnID strin
 	}
 
 	status := StatusPending
+	if session.Status == "expired" || session.Status == "canceled" {
+		status = StatusFailed
+	}
 	if session.PaymentStatus == "paid" || session.Status == "succeeded" {
 		status = StatusSucceeded
 	}
@@ -312,8 +317,12 @@ func (s *Stripe) QueryPayment(ctx context.Context, _ string, providerTxnID strin
 		amount = session.Amount
 	}
 
+	txnID := session.ID
+	if session.PaymentIntent != "" {
+		txnID = session.PaymentIntent
+	}
 	return StatusResult{
-		ProviderTxnID: session.ID,
+		ProviderTxnID: txnID,
 		Status:        status,
 		AmountCents:   amount,
 		Currency:      strings.ToUpper(session.Currency),
@@ -369,4 +378,34 @@ func (s *Stripe) Refund(ctx context.Context, params RefundParams) (RefundResult,
 		ProviderRefundID: res.ID,
 		Status:           res.Status,
 	}, nil
+}
+
+// CloseCheckout expires an unpaid hosted session. A racing payment is resolved
+// by QueryPayment; an error is never interpreted as a confirmed cancellation.
+func (s *Stripe) CloseCheckout(ctx context.Context, _ string, sessionID string) error {
+	if !strings.HasPrefix(sessionID, "cs_") {
+		return ErrUnsupportedOperation
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(s.Base, "/")+"/v1/checkout/sessions/"+url.PathEscape(sessionID)+"/expire", strings.NewReader(""))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.SecretKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Idempotency-Key", "urmail-close-"+sessionID)
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("stripe close: status %d", resp.StatusCode)
+	}
+	var result struct {
+		Status string `json:"status"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result) != nil || result.Status != "expired" {
+		return ErrInvalidPayload
+	}
+	return nil
 }

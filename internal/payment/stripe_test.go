@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -127,6 +128,9 @@ func TestCreateCheckoutSession(t *testing.T) {
 		if err := r.ParseForm(); err != nil {
 			t.Error(err)
 		}
+		if r.PostForm.Get("payment_intent_data[metadata][order_id]") != "42" {
+			t.Error("payment intent metadata was not copied by checkout request")
+		}
 		if r.PostForm.Get("metadata[order_id]") != "42" {
 			t.Errorf("order metadata = %q", r.PostForm.Get("metadata[order_id]"))
 		}
@@ -193,5 +197,61 @@ func TestQueryPaymentAndRefund(t *testing.T) {
 	}
 	if refundRes.ProviderRefundID != "re_123" || refundRes.Status != "succeeded" {
 		t.Errorf("unexpected refund result: %+v", refundRes)
+	}
+}
+
+func TestCheckoutConstructedMetadataProducesResolvablePaymentIntent(t *testing.T) {
+	var intentOrder string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		intentOrder = r.PostForm.Get("payment_intent_data[metadata][order_id]")
+		_, _ = w.Write([]byte(`{"id":"cs_metadata","url":"https://checkout.stripe.test/cs_metadata"}`))
+	}))
+	defer srv.Close()
+	s := NewStripe("test-key", "test-webhook")
+	s.Base = srv.URL
+	if _, err := s.CreateCheckoutSession(context.Background(), 42, "ORDER42", 1000, "CNY", "https://panel.test/success", "https://panel.test/cancel"); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]any{"id": "evt_constructed", "type": "payment_intent.succeeded", "data": map[string]any{"object": map[string]any{"id": "pi_constructed", "status": "succeeded", "amount_received": 1000, "currency": "cny", "metadata": map[string]string{"order_id": intentOrder}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := http.Header{}
+	header.Set("Stripe-Signature", sign("test-webhook", time.Now().Unix(), payload))
+	event, err := s.ParseAndVerifyWebhook(context.Background(), header, payload)
+	if err != nil || event.OrderID != 42 || event.ProviderTxnID != "pi_constructed" {
+		t.Fatalf("constructed PI metadata was not usable: %+v %v", event, err)
+	}
+}
+
+func TestStripeCloseAndQueryUseStableSessionAndPaymentIdentity(t *testing.T) {
+	closed := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/checkout/sessions/cs_close/expire":
+			if r.Method != http.MethodPost || r.Header.Get("Idempotency-Key") != "urmail-close-cs_close" {
+				t.Error("unstable session close request")
+			}
+			closed = true
+			_, _ = w.Write([]byte(`{"id":"cs_close","status":"expired"}`))
+		case "/v1/checkout/sessions/cs_paid":
+			_, _ = w.Write([]byte(`{"id":"cs_paid","payment_intent":"pi_original","payment_status":"paid","amount_total":1000,"currency":"cny"}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s := NewStripe("test-key", "test-webhook")
+	s.Base = srv.URL
+	if err := s.CloseCheckout(context.Background(), "ORDER42", "cs_close"); err != nil || !closed {
+		t.Fatalf("close %v %v", closed, err)
+	}
+	status, err := s.QueryPayment(context.Background(), "ORDER42", "cs_paid")
+	if err != nil || status.ProviderTxnID != "pi_original" || status.Status != StatusSucceeded {
+		t.Fatalf("query lost original refundable payment identity: %+v %v", status, err)
 	}
 }
