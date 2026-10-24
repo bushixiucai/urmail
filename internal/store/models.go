@@ -423,14 +423,15 @@ type Invoices struct {
 }
 
 type MailboxAliases struct {
-	ID        int64              `json:"id"`
-	TenantID  int64              `json:"tenant_id"`
-	DomainID  int64              `json:"domain_id"`
-	LocalPart string             `json:"local_part"`
-	Target    string             `json:"target"`
-	Kind      string             `json:"kind"`
-	Active    bool               `json:"active"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	DomainID     int64              `json:"domain_id"`
+	LocalPart    string             `json:"local_part"`
+	Target       string             `json:"target"`
+	Kind         string             `json:"kind"`
+	Active       bool               `json:"active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SenderLogins []string           `json:"sender_logins"`
 }
 
 type MailboxOperationTickets struct {
@@ -490,6 +491,7 @@ type Mailboxes struct {
 	UsageError            pgtype.Text        `json:"usage_error"`
 	PasswordVersion       int64              `json:"password_version"`
 	PasswordRevokePending bool               `json:"password_revoke_pending"`
+	SieveMode             string             `json:"sieve_mode"`
 }
 
 type ManagedDnsZones struct {

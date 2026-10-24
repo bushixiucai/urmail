@@ -226,7 +226,7 @@ func (q *Queries) PlatformGetAIRequest(ctx context.Context, arg PlatformGetAIReq
 }
 
 const platformGetMailboxSieve = `-- name: PlatformGetMailboxSieve :one
-SELECT id,tenant_id,address,sieve_script FROM mailboxes WHERE tenant_id=$1 AND id=$2 AND status='active'
+SELECT id,tenant_id,address,sieve_script,sieve_mode FROM mailboxes WHERE tenant_id=$1 AND id=$2 AND status='active'
 `
 
 type PlatformGetMailboxSieveParams struct {
@@ -239,6 +239,7 @@ type PlatformGetMailboxSieveRow struct {
 	TenantID    int64       `json:"tenant_id"`
 	Address     string      `json:"address"`
 	SieveScript pgtype.Text `json:"sieve_script"`
+	SieveMode   string      `json:"sieve_mode"`
 }
 
 func (q *Queries) PlatformGetMailboxSieve(ctx context.Context, arg PlatformGetMailboxSieveParams) (PlatformGetMailboxSieveRow, error) {
@@ -249,12 +250,13 @@ func (q *Queries) PlatformGetMailboxSieve(ctx context.Context, arg PlatformGetMa
 		&i.TenantID,
 		&i.Address,
 		&i.SieveScript,
+		&i.SieveMode,
 	)
 	return i, err
 }
 
 const platformGetSieveActivationTarget = `-- name: PlatformGetSieveActivationTarget :one
-SELECT m.id,m.tenant_id,m.address,m.sieve_script FROM mailboxes m
+SELECT m.id,m.tenant_id,m.address,m.sieve_script,m.sieve_mode FROM mailboxes m
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.tenant_id=$1 AND m.id=$2 AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_mail_allowed(m.tenant_id) FOR UPDATE OF m
 `
@@ -269,6 +271,7 @@ type PlatformGetSieveActivationTargetRow struct {
 	TenantID    int64       `json:"tenant_id"`
 	Address     string      `json:"address"`
 	SieveScript pgtype.Text `json:"sieve_script"`
+	SieveMode   string      `json:"sieve_mode"`
 }
 
 func (q *Queries) PlatformGetSieveActivationTarget(ctx context.Context, arg PlatformGetSieveActivationTargetParams) (PlatformGetSieveActivationTargetRow, error) {
@@ -279,6 +282,7 @@ func (q *Queries) PlatformGetSieveActivationTarget(ctx context.Context, arg Plat
 		&i.TenantID,
 		&i.Address,
 		&i.SieveScript,
+		&i.SieveMode,
 	)
 	return i, err
 }
@@ -286,7 +290,7 @@ func (q *Queries) PlatformGetSieveActivationTarget(ctx context.Context, arg Plat
 const platformListSieveScripts = `-- name: PlatformListSieveScripts :many
 SELECT m.id,m.tenant_id,m.sieve_script FROM mailboxes m
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
-WHERE m.sieve_script IS NOT NULL AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_mail_allowed(m.tenant_id)
+WHERE m.sieve_mode='managed' AND m.sieve_script IS NOT NULL AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_mail_allowed(m.tenant_id)
 `
 
 type PlatformListSieveScriptsRow struct {
@@ -568,7 +572,7 @@ func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIPr
 }
 
 const platformSetMailboxSieve = `-- name: PlatformSetMailboxSieve :execrows
-UPDATE mailboxes SET sieve_script=$1 WHERE tenant_id=$2 AND id=$3 AND status='active' AND coalesce(sieve_script,'')=$4::text
+UPDATE mailboxes SET sieve_script=$1 WHERE tenant_id=$2 AND id=$3 AND status='active' AND sieve_mode='managed' AND coalesce(sieve_script,'')=$4::text
 `
 
 type PlatformSetMailboxSieveParams struct {

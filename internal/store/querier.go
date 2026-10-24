@@ -280,6 +280,9 @@ type Querier interface {
 	PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error)
 	PlatformCreateCheckoutIntent(ctx context.Context, arg PlatformCreateCheckoutIntentParams) (PaymentCheckoutIntents, error)
 	PlatformCreateDNSAction(ctx context.Context, arg PlatformCreateDNSActionParams) error
+	PlatformCreateLegacyAlias(ctx context.Context, arg PlatformCreateLegacyAliasParams) (MailboxAliases, error)
+	PlatformCreateLegacyDomain(ctx context.Context, arg PlatformCreateLegacyDomainParams) (int64, error)
+	PlatformCreateLegacyMailbox(ctx context.Context, arg PlatformCreateLegacyMailboxParams) (int64, error)
 	PlatformCreateMailboxSession(ctx context.Context, arg PlatformCreateMailboxSessionParams) (MailboxSessions, error)
 	PlatformCreateMailboxTicket(ctx context.Context, arg PlatformCreateMailboxTicketParams) (MailboxOperationTickets, error)
 	PlatformCreateManagedInvoice(ctx context.Context, arg PlatformCreateManagedInvoiceParams) (int64, error)
@@ -401,6 +404,7 @@ type Querier interface {
 	PlatformInsertArchiveEntry(ctx context.Context, arg PlatformInsertArchiveEntryParams) error
 	PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error)
 	PlatformIssueReplacementCoupon(ctx context.Context, arg PlatformIssueReplacementCouponParams) (Coupons, error)
+	PlatformLegacyImportTargetFacts(ctx context.Context, tenantID int64) (PlatformLegacyImportTargetFactsRow, error)
 	PlatformLegacyPeriodRepairCandidate(ctx context.Context, arg PlatformLegacyPeriodRepairCandidateParams) (PlatformLegacyPeriodRepairCandidateRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
@@ -442,11 +446,16 @@ type Querier interface {
 	PlatformListSupportMessages(ctx context.Context, arg PlatformListSupportMessagesParams) ([]TicketMessages, error)
 	PlatformListSupportTickets(ctx context.Context, beforeID int64) ([]Tickets, error)
 	PlatformListTenants(ctx context.Context) ([]PlatformListTenantsRow, error)
+	PlatformLockAliasSenderMailboxes(ctx context.Context, arg PlatformLockAliasSenderMailboxesParams) ([]string, error)
+	// Privileged, audited maintenance of explicit sender identities; no content access.
+	PlatformLockAliasSenderTarget(ctx context.Context, arg PlatformLockAliasSenderTargetParams) (PlatformLockAliasSenderTargetRow, error)
 	PlatformLockArchivePurgeCandidate(ctx context.Context, arg PlatformLockArchivePurgeCandidateParams) (PlatformLockArchivePurgeCandidateRow, error)
 	PlatformLockBillingTenant(ctx context.Context, dollar_1 int64) error
 	PlatformLockBrandSettingsBrand(ctx context.Context, id int64) (int64, error)
 	PlatformLockCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
 	PlatformLockCouponRedemptionForAuthority(ctx context.Context, arg PlatformLockCouponRedemptionForAuthorityParams) (string, error)
+	// Explicit migration operator authority; runtime API callers cannot invoke this workflow.
+	PlatformLockLegacyImportTarget(ctx context.Context, arg PlatformLockLegacyImportTargetParams) (int64, error)
 	PlatformLockPaymentMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
 	PlatformLockRecallForExpunge(ctx context.Context, arg PlatformLockRecallForExpungeParams) (PlatformLockRecallForExpungeRow, error)
 	PlatformLockRecallTenant(ctx context.Context, dollar_1 int64) error
@@ -544,6 +553,7 @@ type Querier interface {
 	PlatformSaveMerchantCheckout(ctx context.Context, arg PlatformSaveMerchantCheckoutParams) (int64, error)
 	PlatformSaveVerifiedContact(ctx context.Context, arg PlatformSaveVerifiedContactParams) error
 	PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIProviderParams) (AiProviderConfigs, error)
+	PlatformSetAliasSenderLogins(ctx context.Context, arg PlatformSetAliasSenderLoginsParams) (int64, error)
 	PlatformSetArchiveOriginalHash(ctx context.Context, arg PlatformSetArchiveOriginalHashParams) error
 	PlatformSetBrandStatus(ctx context.Context, arg PlatformSetBrandStatusParams) (int64, error)
 	PlatformSetDocumentProfile(ctx context.Context, arg PlatformSetDocumentProfileParams) error

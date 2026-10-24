@@ -29,10 +29,10 @@ WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(id) AND status='reserved';
 SELECT id,mailbox_id,request_key,period_start,period_end,mode,provider,model,cost_currency,status,reserved_tokens,reserved_cost_micros,actual_tokens,actual_cost_micros,created_at FROM ai_usage_requests WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100;
 
 -- name: PlatformGetMailboxSieve :one
-SELECT id,tenant_id,address,sieve_script FROM mailboxes WHERE tenant_id=$1 AND id=$2 AND status='active';
+SELECT id,tenant_id,address,sieve_script,sieve_mode FROM mailboxes WHERE tenant_id=$1 AND id=$2 AND status='active';
 
 -- name: PlatformSetMailboxSieve :execrows
-UPDATE mailboxes SET sieve_script=sqlc.arg(sieve_script) WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(id) AND status='active' AND coalesce(sieve_script,'')=sqlc.arg(expected_script)::text;
+UPDATE mailboxes SET sieve_script=sqlc.arg(sieve_script) WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(id) AND status='active' AND sieve_mode='managed' AND coalesce(sieve_script,'')=sqlc.arg(expected_script)::text;
 
 -- name: PlatformExpireAIReservations :exec
 UPDATE ai_usage_requests SET status='uncertain',updated_at=now() WHERE tenant_id=$1 AND status='reserved' AND updated_at<now()-interval '2 minutes';
@@ -41,14 +41,14 @@ UPDATE ai_usage_requests SET status='uncertain',updated_at=now() WHERE tenant_id
 SELECT urmail_configure_tenant_ai(sqlc.arg(mode)::text,sqlc.arg(provider)::text,sqlc.arg(endpoint)::text,sqlc.arg(model)::text,sqlc.arg(encrypted_key)::text,sqlc.arg(enabled)::boolean,sqlc.arg(local_only)::boolean);
 
 -- name: PlatformGetSieveActivationTarget :one
-SELECT m.id,m.tenant_id,m.address,m.sieve_script FROM mailboxes m
+SELECT m.id,m.tenant_id,m.address,m.sieve_script,m.sieve_mode FROM mailboxes m
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.tenant_id=$1 AND m.id=$2 AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_mail_allowed(m.tenant_id) FOR UPDATE OF m;
 
 -- name: PlatformListSieveScripts :many
 SELECT m.id,m.tenant_id,m.sieve_script FROM mailboxes m
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
-WHERE m.sieve_script IS NOT NULL AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_mail_allowed(m.tenant_id);
+WHERE m.sieve_mode='managed' AND m.sieve_script IS NOT NULL AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_mail_allowed(m.tenant_id);
 
 
 -- name: PlatformResolveAIUsage :one

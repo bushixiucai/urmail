@@ -12,7 +12,10 @@ import (
 )
 
 const platformListAliases = `-- name: PlatformListAliases :many
-SELECT d.fqdn AS domain, a.local_part, a.target, a.kind
+SELECT d.fqdn AS domain, a.local_part, a.target, a.kind,
+ ARRAY(SELECT m.address FROM mailboxes m JOIN domains md ON md.id=m.domain_id AND md.tenant_id=m.tenant_id
+       WHERE m.tenant_id=a.tenant_id AND m.address=ANY(a.sender_logins) AND m.status='active' AND m.send_enabled
+       AND md.status='active' AND md.provisioning_state='ready' ORDER BY m.address)::text[] AS sender_logins
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
 JOIN tenants t ON t.id = a.tenant_id
@@ -21,10 +24,11 @@ ORDER BY d.fqdn ASC, a.local_part ASC
 `
 
 type PlatformListAliasesRow struct {
-	Domain    string `json:"domain"`
-	LocalPart string `json:"local_part"`
-	Target    string `json:"target"`
-	Kind      string `json:"kind"`
+	Domain       string   `json:"domain"`
+	LocalPart    string   `json:"local_part"`
+	Target       string   `json:"target"`
+	Kind         string   `json:"kind"`
+	SenderLogins []string `json:"sender_logins"`
 }
 
 // Platform query for Postfix configuration generator.
@@ -43,6 +47,7 @@ func (q *Queries) PlatformListAliases(ctx context.Context) ([]PlatformListAliase
 			&i.LocalPart,
 			&i.Target,
 			&i.Kind,
+			&i.SenderLogins,
 		); err != nil {
 			return nil, err
 		}

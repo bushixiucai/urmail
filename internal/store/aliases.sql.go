@@ -16,7 +16,7 @@ INSERT INTO mailbox_aliases (
     tenant_id, domain_id, local_part, target, kind, active
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-) RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at
+) RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at, sender_logins
 `
 
 type CreateAliasParams struct {
@@ -47,6 +47,7 @@ func (q *Queries) CreateAlias(ctx context.Context, arg CreateAliasParams) (Mailb
 		&i.Kind,
 		&i.Active,
 		&i.CreatedAt,
+		&i.SenderLogins,
 	)
 	return i, err
 }
@@ -67,7 +68,7 @@ func (q *Queries) DeleteAlias(ctx context.Context, arg DeleteAliasParams) error 
 }
 
 const getAliasByDomainAndLocalPart = `-- name: GetAliasByDomainAndLocalPart :one
-SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, d.fqdn AS domain_fqdn
+SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, a.sender_logins, d.fqdn AS domain_fqdn
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
 WHERE a.tenant_id = $1 AND a.domain_id = $2 AND a.local_part = $3
@@ -80,15 +81,16 @@ type GetAliasByDomainAndLocalPartParams struct {
 }
 
 type GetAliasByDomainAndLocalPartRow struct {
-	ID         int64              `json:"id"`
-	TenantID   int64              `json:"tenant_id"`
-	DomainID   int64              `json:"domain_id"`
-	LocalPart  string             `json:"local_part"`
-	Target     string             `json:"target"`
-	Kind       string             `json:"kind"`
-	Active     bool               `json:"active"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	DomainFqdn string             `json:"domain_fqdn"`
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	DomainID     int64              `json:"domain_id"`
+	LocalPart    string             `json:"local_part"`
+	Target       string             `json:"target"`
+	Kind         string             `json:"kind"`
+	Active       bool               `json:"active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SenderLogins []string           `json:"sender_logins"`
+	DomainFqdn   string             `json:"domain_fqdn"`
 }
 
 func (q *Queries) GetAliasByDomainAndLocalPart(ctx context.Context, arg GetAliasByDomainAndLocalPartParams) (GetAliasByDomainAndLocalPartRow, error) {
@@ -103,13 +105,14 @@ func (q *Queries) GetAliasByDomainAndLocalPart(ctx context.Context, arg GetAlias
 		&i.Kind,
 		&i.Active,
 		&i.CreatedAt,
+		&i.SenderLogins,
 		&i.DomainFqdn,
 	)
 	return i, err
 }
 
 const getAliasByID = `-- name: GetAliasByID :one
-SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, d.fqdn AS domain_fqdn
+SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, a.sender_logins, d.fqdn AS domain_fqdn
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
 WHERE a.tenant_id = $1 AND a.id = $2
@@ -121,15 +124,16 @@ type GetAliasByIDParams struct {
 }
 
 type GetAliasByIDRow struct {
-	ID         int64              `json:"id"`
-	TenantID   int64              `json:"tenant_id"`
-	DomainID   int64              `json:"domain_id"`
-	LocalPart  string             `json:"local_part"`
-	Target     string             `json:"target"`
-	Kind       string             `json:"kind"`
-	Active     bool               `json:"active"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	DomainFqdn string             `json:"domain_fqdn"`
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	DomainID     int64              `json:"domain_id"`
+	LocalPart    string             `json:"local_part"`
+	Target       string             `json:"target"`
+	Kind         string             `json:"kind"`
+	Active       bool               `json:"active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SenderLogins []string           `json:"sender_logins"`
+	DomainFqdn   string             `json:"domain_fqdn"`
 }
 
 func (q *Queries) GetAliasByID(ctx context.Context, arg GetAliasByIDParams) (GetAliasByIDRow, error) {
@@ -144,13 +148,14 @@ func (q *Queries) GetAliasByID(ctx context.Context, arg GetAliasByIDParams) (Get
 		&i.Kind,
 		&i.Active,
 		&i.CreatedAt,
+		&i.SenderLogins,
 		&i.DomainFqdn,
 	)
 	return i, err
 }
 
 const listAliasesByTenant = `-- name: ListAliasesByTenant :many
-SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, d.fqdn AS domain_fqdn
+SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, a.sender_logins, d.fqdn AS domain_fqdn
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
 WHERE a.tenant_id = $1
@@ -158,15 +163,16 @@ ORDER BY d.fqdn ASC, a.local_part ASC
 `
 
 type ListAliasesByTenantRow struct {
-	ID         int64              `json:"id"`
-	TenantID   int64              `json:"tenant_id"`
-	DomainID   int64              `json:"domain_id"`
-	LocalPart  string             `json:"local_part"`
-	Target     string             `json:"target"`
-	Kind       string             `json:"kind"`
-	Active     bool               `json:"active"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	DomainFqdn string             `json:"domain_fqdn"`
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	DomainID     int64              `json:"domain_id"`
+	LocalPart    string             `json:"local_part"`
+	Target       string             `json:"target"`
+	Kind         string             `json:"kind"`
+	Active       bool               `json:"active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SenderLogins []string           `json:"sender_logins"`
+	DomainFqdn   string             `json:"domain_fqdn"`
 }
 
 func (q *Queries) ListAliasesByTenant(ctx context.Context, tenantID int64) ([]ListAliasesByTenantRow, error) {
@@ -187,6 +193,7 @@ func (q *Queries) ListAliasesByTenant(ctx context.Context, tenantID int64) ([]Li
 			&i.Kind,
 			&i.Active,
 			&i.CreatedAt,
+			&i.SenderLogins,
 			&i.DomainFqdn,
 		); err != nil {
 			return nil, err
@@ -203,7 +210,7 @@ const updateAlias = `-- name: UpdateAlias :one
 UPDATE mailbox_aliases
 SET local_part = $3, target = $4, kind = $5, active = $6
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at
+RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at, sender_logins
 `
 
 type UpdateAliasParams struct {
@@ -234,6 +241,7 @@ func (q *Queries) UpdateAlias(ctx context.Context, arg UpdateAliasParams) (Mailb
 		&i.Kind,
 		&i.Active,
 		&i.CreatedAt,
+		&i.SenderLogins,
 	)
 	return i, err
 }
