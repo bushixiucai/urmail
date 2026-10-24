@@ -151,7 +151,10 @@ func TestRemediationCheckoutHTTPWithRealRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := api.Options{Logger: zap.NewNop(), Messages: messages, AppPool: app, PlatformPool: platform, Version: "test", Audit: q, BaseURL: "https://panel.example.test"}
+	// QuoteHMACKey must be configured: checkout prices every order through a
+	// signed quote, including the legacy plan_code body, which is priced
+	// server-side (M5 review 3.2).
+	options := api.Options{Logger: zap.NewNop(), Messages: messages, AppPool: app, PlatformPool: platform, Version: "test", Audit: q, BaseURL: "https://panel.example.test", QuoteHMACKey: "test-quote-signing-key-at-least-32-bytes"}
 	server := httptest.NewServer(api.New(options))
 	defer server.Close()
 	call := func(base, method, path, token, key string, body any) (int, []byte, http.Header) {
@@ -337,7 +340,11 @@ func TestRemediationCheckoutHTTPWithRealRoles(t *testing.T) {
 	if int64(completed["order"].(map[string]any)["id"].(float64)) != pendingID || completed["checkout_url"] == nil || providerCalls.Load() != 2 {
 		t.Fatal("provider retry did not resume the original order")
 	}
-	event := []byte(fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"order_id":"%d"}}}}`, pendingID))
+	// A realistic completed event: payment_status present and amount_total
+	// equal to the order. A MINIMAL event without payment_status is treated
+	// as not-paid by design (M5 review 3.3), so the fixture must not rely on
+	// the old fail-open behaviour.
+	event := []byte(fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"order_id":"%d"},"payment_status":"paid","amount_total":100,"currency":"cny"}}}`, pendingID))
 	stamp := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte("local-webhook-secret"))
 	_, _ = mac.Write([]byte(stamp + "."))
@@ -359,8 +366,8 @@ func TestRemediationCheckoutHTTPWithRealRoles(t *testing.T) {
 			t.Fatalf("webhook replay status=%d", resp.StatusCode)
 		}
 	}
-	if scalar("SELECT count(*) FROM invoices WHERE tenant_id=$1", tenantA) != 2 {
-		t.Fatal("provider callback replay duplicated invoice")
+	if got := scalar("SELECT count(*) FROM invoices WHERE tenant_id=$1", tenantA); got != 2 {
+		t.Fatalf("provider callback replay duplicated invoice: invoice count=%d", got)
 	}
 	// The same HTTP-only smoke can seed private accounts for a browser run.
 	python, err := osexec.LookPath("python3")
