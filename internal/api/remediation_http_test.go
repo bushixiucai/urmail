@@ -420,6 +420,20 @@ func holdRemediationBrowser(t *testing.T, platform *db.Pool, options api.Options
 	if grantErr == nil {
 		_, grantErr = grantTx.Exec(ctx, "INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end,plan_snapshot) SELECT $1,code,'active',now(),now()+interval '1 month',to_jsonb(p) FROM plans p WHERE code='browser-marketing'", browserTenant)
 	}
+	if grantErr == nil {
+		// This positive browser scenario declares verified legacy paid history.
+		// Its known original instant and timezone are audited fixture facts;
+		// production legacy rows remain blocked until platform verification.
+		var legacyStart time.Time
+		grantErr = grantTx.QueryRow(ctx, "SELECT period_start FROM subscriptions WHERE tenant_id=$1 AND status='active'", browserTenant).Scan(&legacyStart)
+		if grantErr == nil {
+			_, grantErr = store.New(grantTx).PlatformInitializeBillingCalendar(ctx, store.PlatformInitializeBillingCalendarParams{TenantID: browserTenant, Timezone: "Asia/Shanghai", FirstPaidAt: pgtype.Timestamptz{Time: legacyStart, Valid: true}, AnchorAt: pgtype.Timestamptz{Time: legacyStart, Valid: true}, Source: "manual_legacy", ReviewReason: "Known original paid timestamp and timezone verified for the isolated positive browser fixture", CreatedBy: pgtype.Int8{Int64: userA, Valid: true}})
+		}
+		if grantErr == nil {
+			detail, _ := json.Marshal(map[string]any{"source": "manual_legacy", "reason": "Known original paid timestamp and timezone verified for the isolated positive browser fixture", "status": 200, "outcome": "succeeded"})
+			_, grantErr = store.New(grantTx).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: browserTenant, Valid: true}, ActorUserID: pgtype.Int8{Int64: userA, Valid: true}, Action: "VERIFY billing.calendar", TargetType: pgtype.Text{String: "tenants", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(browserTenant, 10), Valid: true}, Detail: detail})
+		}
+	}
 	if grantErr != nil {
 		_ = grantTx.Rollback(ctx)
 		t.Fatal(grantErr)

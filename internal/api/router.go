@@ -276,6 +276,8 @@ func New(opts Options) *gin.Engine {
 				platform.PATCH("/settings", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpdateSettings)
 				platform.GET("/tenants", platformHandler.ListTenants)
 				platform.POST("/tenants", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.CreateTenant)
+				platform.GET("/tenants/:id/billing-calendar", (&handlers.BillingCalendarAdminHandler{Store: platformQueries}).Get)
+				platform.PUT("/tenants/:id/billing-calendar", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), (&handlers.BillingCalendarAdminHandler{Store: platformQueries}).Put)
 				platform.POST("/plans", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpsertPlan)
 				platform.POST("/plan-prices", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.SetPlanPrice)
 				platform.POST("/coupons", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpsertCoupon)

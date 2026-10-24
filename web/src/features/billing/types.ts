@@ -51,6 +51,13 @@ export interface Invoice {
 
 /** Signed quote returned by the backend; sent back verbatim at checkout. */
 export interface Quote {
+  calendar?: {
+    timezone: string;
+    anchor_at: string;
+    version: number;
+    reanchor: boolean;
+    provisional: boolean;
+  };
   tenant_id: number;
   coupon_code?: string;
   plan_code: string;

@@ -1,3 +1,4 @@
+import { formatQuoteDate } from "./quote-date";
 import { BillingLifecycle } from "./lifecycle";
 import { DocumentProfile } from "./document-profile";
 import { useEffect, useRef, useState } from "react";
@@ -544,6 +545,21 @@ export function BillingPage() {
             <p className="mb-4" role="status">
               {t("page.billing.confirm_quote_help")}
             </p>
+            <div
+              className="mb-4 space-y-2 text-sm"
+              data-testid="quote-calendar"
+            >
+              <p>
+                {t("page.billing.calendar", {
+                  timezone: quote.calendar?.timezone ?? "UTC",
+                })}
+              </p>
+              {quote.calendar?.provisional && (
+                <p className="text-muted-foreground">
+                  {t("page.billing.calendar_provisional")}
+                </p>
+              )}
+            </div>
             <dl className="grid gap-1 text-sm sm:grid-cols-[auto_1fr]">
               <dt className="text-muted-foreground">
                 {t("page.billing.cycle_" + quote.billing_cycle, {
@@ -551,7 +567,17 @@ export function BillingPage() {
                 })}
               </dt>
               <dd>
-                {quote.period_start} → {quote.period_end}
+                {formatQuoteDate(
+                  quote.period_start,
+                  locale,
+                  quote.calendar?.timezone,
+                )}{" "}
+                →{" "}
+                {formatQuoteDate(
+                  quote.period_end,
+                  locale,
+                  quote.calendar?.timezone,
+                )}
               </dd>
               <dt className="text-muted-foreground">
                 {t("page.billing.quote_base")}

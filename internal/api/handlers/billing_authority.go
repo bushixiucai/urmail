@@ -84,6 +84,16 @@ func (h *BillingHandler) authorizePersistedOrder(ctx context.Context, order stor
 	if quote.TenantID != order.TenantID || quote.PlanCode != order.PlanCode.String || quote.Kind != order.Kind || quote.FinalAmountCents != order.AmountCents || quote.Currency != order.Currency || quote.BillingCycle != order.BillingCycle || !order.QuoteDigest.Valid || quote.Digest != order.QuoteDigest.String {
 		return billing.ErrQuoteTampered
 	}
+	if order.Status == "pending" {
+		_, intentErr := q.PlatformGetCheckoutIntent(ctx, store.PlatformGetCheckoutIntentParams{TenantID: order.TenantID, OrderID: order.ID})
+		if errors.Is(intentErr, pgx.ErrNoRows) {
+			if err = verifyQuoteBillingCalendar(ctx, q, order.TenantID, quote.Calendar); err != nil {
+				return err
+			}
+		} else if intentErr != nil {
+			return intentErr
+		}
+	}
 	role, err := q.GetUserRoleForTenant(ctx, store.GetUserRoleForTenantParams{UserID: actor, TenantID: order.TenantID})
 	if err != nil || (role != "owner" && role != "admin" && role != "billing") {
 		return billing.ErrQuoteTampered

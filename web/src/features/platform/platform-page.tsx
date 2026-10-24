@@ -1,3 +1,4 @@
+import { BillingCalendarAdmin } from "./billing-calendar-admin";
 import { PlatformAIAdmin } from "./platform-ai-admin";
 import { CouponReissueAdmin } from "./coupon-reissue-admin";
 import { FinancialReviewAdmin } from "./financial-review-admin";
@@ -836,6 +837,7 @@ export function PlatformPage() {
       <FinancialReviewAdmin />
       <CouponReissueAdmin />
       <PlatformAIAdmin tenants={tenants} />
+      <BillingCalendarAdmin tenants={tenants} />
       <NotificationAdmin />
       <DocumentProfile platform />
       <NoticeDialog

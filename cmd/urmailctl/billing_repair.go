@@ -96,11 +96,31 @@ func repairLegacyPeriod(ctx context.Context, pool *db.Pool, request legacyPeriod
 	if request.NominalBasis < row.AmountCents || !row.PaidAt.Valid || len(row.PlanSnapshot) == 0 || string(row.PlanSnapshot) == "{}" {
 		return nil, errors.New("historical nominal basis or recognized plan snapshot requires operator investigation")
 	}
-	correctedEnd, err := billing.AddCycle(row.PaidAt.Time.UTC(), row.BillingCycle)
+	calendar, err := q.GetBillingCalendar(ctx, request.TenantID)
+	if err != nil {
+		return nil, errors.New("legacy period repair requires an audited platform calendar determination; no historical timezone is inferred")
+	}
+	if calendar.Source != "manual_legacy" || !calendar.CreatedBy.Valid || len(strings.TrimSpace(calendar.ReviewReason)) < 20 || calendar.Version != 1 || !calendar.FirstPaidAt.Valid || !calendar.FirstPaidAt.Time.Equal(row.PaidAt.Time) || !calendar.AnchorAt.Valid || !calendar.AnchorAt.Time.Equal(row.PaidAt.Time) {
+		return nil, errors.New("calendar determination does not prove the unique original payment anchor; review continuity before repair")
+	}
+	var wall, firstWall billing.CalendarAnchor
+	if len(calendar.AnchorWall) == 0 || len(calendar.FirstAnchorWall) == 0 || json.Unmarshal(calendar.AnchorWall, &wall) != nil || json.Unmarshal(calendar.FirstAnchorWall, &firstWall) != nil || wall != firstWall {
+		return nil, errors.New("persisted original calendar wall clock is missing or inconsistent")
+	}
+	spec := billing.CalendarSpec{Wall: &wall, Timezone: calendar.Timezone, AnchorAt: calendar.AnchorAt.Time, Version: calendar.Version}
+	anchor, err := spec.Anchor()
+	if err != nil {
+		return nil, fmt.Errorf("validate reviewed billing calendar: %w", err)
+	}
+	calendarSnapshot, err := json.Marshal(spec)
 	if err != nil {
 		return nil, err
 	}
-	detail := map[string]any{"actor_type": "root_operator", "source": "legacy_period_repair", "reason": strings.TrimSpace(request.Reason), "subscription_id": row.SubscriptionID, "source_order_id": row.OrderID, "source_payment_id": row.PaymentID, "old_start": row.PeriodStart.Time, "old_end": row.PeriodEnd.Time, "corrected_start": row.PaidAt.Time, "corrected_end": correctedEnd, "nominal_basis_cents": request.NominalBasis, "snapshot_provenance": "observed_existing_snapshot_operator_confirmed", "historical_invoice_unchanged": true, "status": 200, "outcome": "succeeded"}
+	correctedEnd, err := billing.AddAnchoredCycle(row.PaidAt.Time, row.BillingCycle, anchor)
+	if err != nil {
+		return nil, err
+	}
+	detail := map[string]any{"actor_type": "root_operator", "source": "legacy_period_repair", "reason": strings.TrimSpace(request.Reason), "subscription_id": row.SubscriptionID, "source_order_id": row.OrderID, "source_payment_id": row.PaymentID, "old_start": row.PeriodStart.Time, "old_end": row.PeriodEnd.Time, "corrected_start": row.PaidAt.Time, "corrected_end": correctedEnd, "nominal_basis_cents": request.NominalBasis, "snapshot_provenance": "observed_existing_snapshot_operator_confirmed", "historical_invoice_unchanged": true, "calendar_snapshot": spec, "status": 200, "outcome": "succeeded"}
 	result := map[string]any{"changed": apply, "tenant_id": row.TenantID, "correction": detail, "already_expired": !correctedEnd.After(time.Now())}
 	if !apply {
 		return result, nil
@@ -114,7 +134,7 @@ func repairLegacyPeriod(ctx context.Context, pool *db.Pool, request legacyPeriod
 	if changed != 1 {
 		return nil, errors.New("subscription changed during repair")
 	}
-	if err = q.PlatformRecordSubscriptionTerm(ctx, store.PlatformRecordSubscriptionTermParams{TenantID: row.TenantID, OrderID: row.OrderID, PeriodStart: start, PeriodEnd: end, PlanSnapshot: row.PlanSnapshot, BaseAmountCents: request.NominalBasis, Currency: row.Currency, BillingCycle: row.BillingCycle, BillingPeriodStart: start}); err != nil {
+	if err = q.PlatformRecordSubscriptionTerm(ctx, store.PlatformRecordSubscriptionTermParams{TenantID: row.TenantID, OrderID: row.OrderID, PeriodStart: start, PeriodEnd: end, PlanSnapshot: row.PlanSnapshot, BaseAmountCents: request.NominalBasis, Currency: row.Currency, BillingCycle: row.BillingCycle, BillingPeriodStart: start, CalendarSnapshot: calendarSnapshot}); err != nil {
 		return nil, err
 	}
 	raw, err := json.Marshal(detail)

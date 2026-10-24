@@ -6,7 +6,8 @@ import { BillingPage } from "./billing-page";
 const state = vi.hoisted(() => ({
   request: vi.fn(),
   lifecycleLoads: 0,
-  t: (key: string) => key,
+  t: (key: string, params?: { timezone?: string }) =>
+    params?.timezone ? `${key}:${params.timezone}` : key,
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: state.t }),
@@ -222,3 +223,49 @@ describe("confirmed checkout uses its real settlement state", () => {
     });
   }
 });
+
+for (const provisional of [false, true]) {
+  it(`displays the signed billing timezone and provisional=${provisional} notice on restored quotes`, async () => {
+    sessionStorage.setItem(
+      "urmail.purchase.1",
+      JSON.stringify({
+        key: "calendar-display",
+        quote: {
+          ...quote,
+          calendar: {
+            timezone: "America/New_York",
+            anchor_at: quote.period_start,
+            version: 1,
+            reanchor: provisional,
+            provisional,
+          },
+        },
+      }),
+    );
+    state.request.mockImplementation(async (path: string) =>
+      path.endsWith("/subscription")
+        ? { tenant_id: 1, can_manage_billing: true, subscription: null, plan }
+        : path.endsWith("/plans")
+          ? { plans: [plan] }
+          : path.endsWith("/payment-methods")
+            ? { methods: [] }
+            : { domains: [], invoices: [] },
+    );
+    const view = render(<BillingPage />);
+    await waitFor(() =>
+      expect(view.getByTestId("quote-calendar")).not.toBeNull(),
+    );
+    expect(view.getByTestId("quote-calendar").textContent).toContain(
+      "page.billing.calendar",
+    );
+    expect(view.getByText(/Dec 31, 2026/).textContent).toContain("7:00");
+    expect(view.queryByText("page.billing.calendar_provisional") !== null).toBe(
+      provisional,
+    );
+    expect(
+      state.request.mock.calls.some(
+        ([, options]) => options?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+}

@@ -2240,8 +2240,9 @@ paths:
       tags:
       - M5-M7 managed operations
       summary: Read tenant marketing channel readiness
-      description: 'No credentials/ciphertext; unsupported dedicated_ip transport reports
-        unavailable rather than falling back. Access: tenant owner/admin.'
+      description: 'This release offers dedicated SMTP gateways only. No credentials/ciphertext.
+        Legacy dedicated_ip metadata is unavailable and must not be selectable;
+        no transactional relay fallback. Access: tenant owner/admin.'
       security:
       - Bearer: []
       responses:
@@ -2401,7 +2402,8 @@ paths:
       - M5-M7 managed operations
       summary: Configure independent marketing transport
       description: 'Platform-only encrypted independent gateway; default off, no ordinary
-        mailbox relay fallback. dedicated_ip is capability-unavailable until implemented.
+        mailbox relay fallback. Dedicated-IP transport is outside this release and is not
+        offered by the UI or this configuration contract; enabling it is rejected.
         Successful config and audit atomic; saving never sends. Access: platform admin.'
       security:
       - Bearer: []
@@ -2436,7 +2438,6 @@ paths:
                   type: string
                   enum:
                   - dedicated_gateway
-                  - dedicated_ip
                 enabled:
                   type: boolean
                 smtp:
@@ -2453,7 +2454,8 @@ paths:
       - M5-M7 managed operations
       summary: Configure independent marketing transport
       description: 'Platform-only encrypted independent gateway; default off, no ordinary
-        mailbox relay fallback. dedicated_ip is capability-unavailable until implemented.
+        mailbox relay fallback. Dedicated-IP transport is outside this release and is not
+        offered by the UI or this configuration contract; enabling it is rejected.
         Successful config and audit atomic; saving never sends. Access: platform admin.'
       security:
       - Bearer: []
@@ -2495,7 +2497,6 @@ paths:
                   type: string
                   enum:
                   - dedicated_gateway
-                  - dedicated_ip
                 enabled:
                   type: boolean
                 smtp:
@@ -3382,6 +3383,79 @@ paths:
         '200': {description: Observed accounting persisted with an audit record.}
         '409': {description: Not uncertain, stale or incompatible resolution.}
         default: {$ref: '#/components/responses/Error'}
+  /platform/tenants/{id}/billing-calendar:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+    get:
+      tags: [M5-M7 managed operations]
+      summary: Read verified billing calendar and legacy review state
+      description: >-
+        Platform staff only. Existing calendars are read-only. Missing legacy
+        calendar facts never revoke existing paid entitlements; review is required
+        before a new quote. Current business timezone is displayed as a present
+        setting, never inferred as the original paid timezone. No provider calls.
+      security: [{Bearer: []}]
+      responses:
+        '200':
+          description: Verified facts or explicit missing-calendar state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenant_id, calendar, review_required, current_business_timezone]
+                properties:
+                  tenant_id: {type: integer, format: int64}
+                  review_required: {type: boolean}
+                  current_business_timezone: {type: string}
+                  calendar:
+                    type: object
+                    nullable: true
+                    properties:
+                      timezone: {type: string}
+                      first_paid_at: {type: string, format: date-time}
+                      anchor_at: {type: string, format: date-time}
+                      version: {type: integer, format: int64}
+                      source: {type: string, enum: [first_paid, manual_legacy, reactivation]}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      tags: [M5-M7 managed operations]
+      summary: Verify a missing legacy paid calendar exactly once
+      description: >-
+        Platform staff with CSRF only. Requires a missing calendar and protected
+        paid history under the tenant billing lock. Initializes source=manual_legacy,
+        anchor_at=first_paid_at and server-owned staff identity. A reason and valid
+        past/current RFC3339 timestamp with an explicit offset are required. Current
+        settings and last short-month boundaries are not historical proof. Calendar
+        insertion and mandatory successful audit commit atomically; audit failure
+        rolls back both. Existing calendar returns 409 and cannot overwrite its first
+        timezone or first paid instant. New customers without legacy paid history
+        return 409; their first completed commercial purchase establishes the calendar.
+        This never changes paid terms, invoices, subscriptions or external funds.
+      security: [{Bearer: [], CSRF: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [timezone, first_paid_at, reason]
+              properties:
+                timezone: {type: string, maxLength: 64, example: Asia/Shanghai}
+                first_paid_at: {type: string, format: date-time, example: '2024-01-31T09:00:00+08:00'}
+                reason: {type: string, minLength: 20, maxLength: 1000, writeOnly: true}
+      responses:
+        '200': {description: Verified state, with the same response shape as GET.}
+        '400': {description: Invalid timezone/timestamp/reason.}
+        '401': {description: Authentication required.}
+        '403': {description: Platform staff authorization or CSRF rejected.}
+        '404': {description: Tenant not found.}
+        '409': {description: Calendar already exists or no legacy paid history requires review.}
+        '500': {description: Mandatory audit or transaction failed; no calendar committed.}
+        default: {$ref: '#/components/responses/Error'}
+
 components:
   securitySchemes:
     Bearer:
@@ -3758,9 +3832,41 @@ components:
       - id
       - number
       - status
+    PaidCalendarSpec:
+      type: object
+      description: HMAC-bound paid-service calendar. First activation or an expired-service restart has provisional dates until fulfillment; established timezones and historical paid terms never change.
+      required: [timezone, anchor_at, version, reanchor, provisional]
+      properties:
+        timezone:
+          type: string
+          example: Asia/Shanghai
+        anchor_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        reanchor:
+          type: boolean
+          description: A complete new cycle after service interruption resets the date anchor, preserving the first billing timezone.
+        provisional:
+          type: boolean
+        wall:
+          type: object
+          description: Persisted local wall-clock fields, preserving the original day even after a short-month clamp or a later timezone-database update.
+          properties:
+            timezone: {type: string}
+            day: {type: integer, minimum: 1, maximum: 31}
+            hour: {type: integer, minimum: 0, maximum: 23}
+            minute: {type: integer, minimum: 0, maximum: 59}
+            second: {type: integer, minimum: 0, maximum: 59}
+            nanosecond: {type: integer, minimum: 0, maximum: 999999999}
     Quote:
       type: object
       properties:
+        calendar:
+          $ref: '#/components/schemas/PaidCalendarSpec'
         plan_snapshot_digest:
           type: string
           pattern: '^[a-f0-9]{64}$'

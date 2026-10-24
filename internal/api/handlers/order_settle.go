@@ -318,7 +318,7 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 		return quoteErr
 	}
 
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	var curEndTime time.Time
 	if periodErr == nil && currentCode != "free" && current.Status != "trialing" && (order.Kind == "renew" || order.Kind == "downgrade") && current.PeriodEnd.Valid {
 		curEndTime = current.PeriodEnd.Time.UTC()
@@ -327,9 +327,14 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 	if manualRecovery && order.Kind != "upgrade" && periodErr == nil && currentCode != "free" && current.Status != "trialing" && current.PeriodEnd.Valid && current.PeriodEnd.Time.After(now) {
 		curEndTime = current.PeriodEnd.Time.UTC()
 	}
-	periodStart, periodEnd, err := billing.CalculateRenewalPeriod(now, curEndTime, billingCycle)
-	if err != nil {
-		return fmt.Errorf("invalid billing cycle %q for order %d: %w", billingCycle, id, err)
+	var periodStart, periodEnd time.Time
+	switch billingCycle {
+	case billing.CycleMonthly, billing.CycleQuarterly, billing.CycleAnnual:
+	default:
+		if opts.Provider != payment.ProviderManual && !manualRecovery {
+			return recordManualReceipt(ctx, tx, order, opts, "billing_cycle_invalid")
+		}
+		return ErrPaymentVerificationFailed
 	}
 
 	if order.Kind == "upgrade" {
@@ -364,6 +369,7 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 	var documentSnapshot []byte
 	var quoteBase int64
 	var quoteDomainID int64
+	var agreedQuote *billing.Quote
 	if quoted, quoteErr := queries.PlatformGetOrderQuote(ctx, id); quoteErr == nil {
 		snapshot = quoted.PlanSnapshot
 		documentSnapshot = quoted.DocumentSnapshot
@@ -371,6 +377,7 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 		if json.Unmarshal(quoted.Payload, &agreed) != nil {
 			return errors.New("invalid persisted billing quote")
 		}
+		agreedQuote = &agreed
 		quoteDomainID = agreed.DomainID
 		quoteBase = agreed.PlanAmountCents
 		if quoteBase == 0 {
@@ -438,6 +445,33 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 			return recordManualReceipt(ctx, tx, order, opts, "plan_capacity_exceeded")
 		}
 	}
+	continuousCalendar := (!curEndTime.IsZero() && curEndTime.After(now)) || order.Kind == "upgrade"
+	saleCalendar, calendarErr := settlementBillingCalendar(ctx, queries, tenantID, id, now, continuousCalendar, manualRecovery, agreedQuote)
+	if calendarErr != nil {
+		if errors.Is(calendarErr, errBillingCalendarReview) || errors.Is(calendarErr, errBillingCalendarChanged) {
+			if manualRecovery || opts.Provider == payment.ProviderManual {
+				return fmt.Errorf("%w: %w", ErrPaymentVerificationFailed, calendarErr)
+			}
+			return recordManualReceipt(ctx, tx, order, opts, "billing_calendar_requires_review")
+		}
+		return calendarErr
+	}
+	if order.Kind != "upgrade" {
+		anchor, anchorErr := saleCalendar.Anchor()
+		if anchorErr != nil {
+			return anchorErr
+		}
+		periodStart, periodEnd, err = billing.CalculateAnchoredRenewalPeriod(now, curEndTime, billingCycle, anchor)
+		if err != nil {
+			return err
+		}
+		billingStart = periodStart
+		entitlementStart = periodStart
+		if !curEndTime.IsZero() && curEndTime.After(now) && current.PeriodStart.Valid && !current.PeriodStart.Time.After(now) {
+			entitlementStart = current.PeriodStart.Time
+		}
+	}
+	calendarSnapshot, _ := json.Marshal(saleCalendar)
 	if manualRecovery {
 		restored, restoreErr := queries.PlatformRestoreReviewOrderPending(ctx, store.PlatformRestoreReviewOrderPendingParams{TenantID: tenantID, ID: id})
 		if restoreErr != nil {
@@ -458,7 +492,7 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 	}
 
 	if len(snapshot) > 0 {
-		if err := queries.PlatformRecordSubscriptionTerm(ctx, store.PlatformRecordSubscriptionTermParams{OrderID: id, TenantID: tenantID, BasisOrderID: basisOrderID, PeriodStart: pgtype.Timestamptz{Time: periodStart, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: periodEnd, Valid: true}, PlanSnapshot: snapshot, BaseAmountCents: quoteBase, Currency: currency, BillingCycle: billingCycle, BillingPeriodStart: pgtype.Timestamptz{Time: billingStart, Valid: true}}); err != nil {
+		if err := queries.PlatformRecordSubscriptionTerm(ctx, store.PlatformRecordSubscriptionTermParams{OrderID: id, TenantID: tenantID, BasisOrderID: basisOrderID, PeriodStart: pgtype.Timestamptz{Time: periodStart, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: periodEnd, Valid: true}, PlanSnapshot: snapshot, BaseAmountCents: quoteBase, Currency: currency, BillingCycle: billingCycle, BillingPeriodStart: pgtype.Timestamptz{Time: billingStart, Valid: true}, CalendarSnapshot: calendarSnapshot}); err != nil {
 			return err
 		}
 	}

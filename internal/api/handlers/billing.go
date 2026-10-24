@@ -347,7 +347,7 @@ func (h *BillingHandler) buildQuoteCurrency(c *gin.Context, q BillingStore, tena
 			return billing.Quote{}, false
 		}
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	var curEndTime time.Time
 	sub, subErr := q.GetActiveSubscriptionByTenant(c, tenantID)
 	if subErr != nil && !errors.Is(subErr, pgx.ErrNoRows) {
@@ -402,7 +402,27 @@ func (h *BillingHandler) buildQuoteCurrency(c *gin.Context, q BillingStore, tena
 	if paidCurrent && (effectiveCode == plan.Code || scheduledChange || futureContinuation) {
 		curEndTime = sub.PeriodEnd.Time.UTC()
 	}
+	var saleCalendar *billing.CalendarSpec
+	if queries, ok := q.(*store.Queries); ok {
+		saleCalendar, err = quoteBillingCalendar(c.Request.Context(), queries, tenantID, now, paidCurrent)
+		if err != nil {
+			if errors.Is(err, errBillingCalendarReview) {
+				authError(c, 409, "BILLING_CALENDAR_REVIEW_REQUIRED")
+			} else {
+				authError(c, 500, "BILLING_CALENDAR_INVALID")
+			}
+			return billing.Quote{}, false
+		}
+	}
 	periodStart, periodEnd, err := billing.CalculateRenewalPeriod(now, curEndTime, cycle)
+	if saleCalendar != nil {
+		anchor, anchorErr := saleCalendar.Anchor()
+		if anchorErr != nil {
+			err = anchorErr
+		} else {
+			periodStart, periodEnd, err = billing.CalculateAnchoredRenewalPeriod(now, curEndTime, cycle, anchor)
+		}
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_CYCLE", "detail": err.Error()}})
 		return billing.Quote{}, false
@@ -560,6 +580,7 @@ func (h *BillingHandler) buildQuoteCurrency(c *gin.Context, q BillingStore, tena
 		return billing.Quote{}, false
 	}
 
+	quote.Calendar = saleCalendar
 	quote.DomainID = domainID
 	quote.Kind = kind
 	quote.PlanAmountCents = configuredTotal
@@ -737,9 +758,30 @@ func (h *BillingHandler) Checkout(c *gin.Context) {
 		}
 		idempotency = pgtype.Text{String: key, Valid: true}
 	}
+	if queries, ok := q.(*store.Queries); ok {
+		if calendarErr := verifyQuoteBillingCalendar(c.Request.Context(), queries, tenantID, quote.Calendar); calendarErr != nil {
+			if errors.Is(calendarErr, errBillingCalendarReview) {
+				authError(c, 409, "BILLING_CALENDAR_REVIEW_REQUIRED")
+			} else {
+				authError(c, 409, "BILLING_CALENDAR_CHANGED")
+			}
+			return
+		}
+	}
 	_, priceErr := billing.AddCycle(quote.PeriodStart, quote.BillingCycle)
+	calendarLimit := quote.PeriodStart.AddDate(1, 0, 0)
+	if quote.Calendar != nil {
+		anchor, calendarErr := quote.Calendar.Anchor()
+		if calendarErr == nil {
+			calendarLimit, calendarErr = billing.AddAnchoredCycle(quote.PeriodStart, quote.BillingCycle, anchor)
+		}
+		if calendarErr != nil {
+			priceErr = calendarErr
+		}
+	}
+
 	discountsExceedBase := quote.DiscountCents > quote.BaseAmountCents || quote.ProratedCreditCents > quote.BaseAmountCents-quote.DiscountCents
-	if priceErr != nil || quote.FinalAmountCents < 0 || quote.BaseAmountCents < 0 || quote.DiscountCents < 0 || quote.ProratedCreditCents < 0 || discountsExceedBase || quote.FinalAmountCents != quote.BaseAmountCents-quote.DiscountCents-quote.ProratedCreditCents || !quote.PeriodEnd.After(quote.PeriodStart) || quote.GeneratedAt.After(time.Now().UTC().Add(time.Minute)) || quote.PeriodStart.Before(quote.GeneratedAt.Add(-time.Minute)) || quote.PeriodEnd.After(quote.PeriodStart.AddDate(1, 0, 0)) {
+	if priceErr != nil || quote.FinalAmountCents < 0 || quote.BaseAmountCents < 0 || quote.DiscountCents < 0 || quote.ProratedCreditCents < 0 || discountsExceedBase || quote.FinalAmountCents != quote.BaseAmountCents-quote.DiscountCents-quote.ProratedCreditCents || !quote.PeriodEnd.After(quote.PeriodStart) || quote.GeneratedAt.After(time.Now().UTC().Add(time.Minute)) || quote.PeriodStart.Before(quote.GeneratedAt.Add(-time.Minute)) || quote.PeriodEnd.After(calendarLimit) {
 		authError(c, http.StatusConflict, "QUOTE_INVALID")
 		return
 	}
@@ -1190,9 +1232,14 @@ func (h *BillingHandler) finishCheckout(c *gin.Context, order store.Orders) {
 		if order.Status == "pending" {
 			uid, _ := middleware.GetUserID(c)
 			if err := h.authorizePersistedOrder(c.Request.Context(), order, uid); err != nil {
-				if errors.Is(err, billing.ErrQuoteTampered) {
+				switch {
+				case errors.Is(err, errBillingCalendarReview):
+					authError(c, 409, "BILLING_CALENDAR_REVIEW_REQUIRED")
+				case errors.Is(err, errBillingCalendarChanged):
+					authError(c, 409, "BILLING_CALENDAR_CHANGED")
+				case errors.Is(err, billing.ErrQuoteTampered):
 					authError(c, 409, "QUOTE_INVALID")
-				} else {
+				default:
 					authError(c, 503, "BILLING_AUTHORITY_UNAVAILABLE")
 				}
 				return
