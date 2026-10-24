@@ -58,6 +58,7 @@ func newCalendarHarness(t *testing.T) calendarHarness {
 	r.Use(func(c *gin.Context) { c.Set(middleware.ContextTenantID, tenant); c.Set(middleware.ContextUserID, user) }, middleware.RequireTenantTx(app, zap.NewNop()))
 	r.POST("/quote", h.Quote)
 	r.POST("/checkout", h.Checkout)
+	r.PATCH("/tenant", NewTenantHandler(store.New(app.Pool), store.New(platform.Pool)).UpdateSettings)
 	return calendarHarness{t, platform, tenant, user, r}
 }
 
@@ -277,5 +278,27 @@ func TestBillingCalendarExpiredServiceStartsFullCycleWithoutChangingFirstTimezon
 	next := h.quote("monthly")
 	if next.Calendar.Reanchor || next.Calendar.Provisional || !next.Calendar.AnchorAt.Equal(start) || next.Calendar.Version != 2 {
 		t.Fatalf("new date anchor was not retained: %+v", next.Calendar)
+	}
+}
+
+func TestBillingCalendarEmptyBusinessTimezoneCannotReplaceExistingSetting(t *testing.T) {
+	h := newCalendarHarness(t)
+	h.exec("INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'business_timezone','\"Asia/Shanghai\"')", h.tenant)
+	for _, body := range []string{`{"settings":{"business_timezone":""}}`, `{"settings":{"business_timezone":"Local"}}`} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPatch, "/tenant", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		h.router.ServeHTTP(rec, req)
+		if rec.Code != 400 {
+			t.Fatalf("invalid timezone mutated settings: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	zone, err := store.New(h.platform.Pool).GetBillingBusinessTimezone(t.Context(), h.tenant)
+	if err != nil || zone != "Asia/Shanghai" {
+		t.Fatalf("previous timezone lost: %s %v", zone, err)
+	}
+	quote := h.quote("monthly")
+	if quote.Calendar.Timezone != "Asia/Shanghai" {
+		t.Fatal("invalid setting changed first-payment estimate")
 	}
 }

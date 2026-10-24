@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/domain/billing"
@@ -117,6 +118,11 @@ func settlementBillingCalendar(ctx context.Context, q *store.Queries, tenantID, 
 		return nil, err
 	}
 	missing := errors.Is(err, pgx.ErrNoRows)
+	if !missing {
+		if _, anchorErr := calendarSpec(row).Anchor(); anchorErr != nil {
+			return nil, anchorErr
+		}
+	}
 	var spec *billing.CalendarSpec
 	if agreed != nil {
 		spec = agreed.Calendar
@@ -134,6 +140,10 @@ func settlementBillingCalendar(ctx context.Context, q *store.Queries, tenantID, 
 		}
 		zone, e := q.GetBillingBusinessTimezone(ctx, tenantID)
 		if e != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(e, &pgErr) && pgErr.Code == "23514" && pgErr.Message == "INVALID_TIMEZONE" {
+				return nil, errBillingCalendarChanged
+			}
 			return nil, e
 		}
 		if !manualRecovery && spec != nil && (spec.Version != 0 || spec.Timezone != zone) {

@@ -39,7 +39,7 @@ func validateSettings(values map[string]json.RawMessage) bool {
 		switch key {
 		case "business_timezone":
 			var zone string
-			if json.Unmarshal(value, &zone) != nil || len(zone) > 64 || zone == "Local" {
+			if json.Unmarshal(value, &zone) != nil || zone == "" || len(zone) > 64 || zone == "Local" {
 				return false
 			}
 			if _, err := time.LoadLocation(zone); err != nil {

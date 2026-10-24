@@ -448,7 +448,7 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 	continuousCalendar := (!curEndTime.IsZero() && curEndTime.After(now)) || order.Kind == "upgrade"
 	saleCalendar, calendarErr := settlementBillingCalendar(ctx, queries, tenantID, id, now, continuousCalendar, manualRecovery, agreedQuote)
 	if calendarErr != nil {
-		if errors.Is(calendarErr, errBillingCalendarReview) || errors.Is(calendarErr, errBillingCalendarChanged) {
+		if errors.Is(calendarErr, errBillingCalendarReview) || errors.Is(calendarErr, errBillingCalendarChanged) || errors.Is(calendarErr, billing.ErrInvalidCalendarAnchor) {
 			if manualRecovery || opts.Provider == payment.ProviderManual {
 				return fmt.Errorf("%w: %w", ErrPaymentVerificationFailed, calendarErr)
 			}
