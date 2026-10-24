@@ -120,7 +120,7 @@ func calendarUpgradeFacts(t *testing.T, conn *pgx.Conn, tenant int64) string {
 	t.Helper()
 	var facts string
 	err := conn.QueryRow(t.Context(), `SELECT jsonb_build_object(
- 'subscription',(SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM subscriptions s WHERE tenant_id=$1),
+ 'subscription',(SELECT jsonb_agg(to_jsonb(s)-'entitlement_source'-'migration_manifest_sha256' ORDER BY id) FROM subscriptions s WHERE tenant_id=$1),
  'orders',(SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM orders o WHERE tenant_id=$1),
  'terms',(SELECT jsonb_agg(to_jsonb(st)-'calendar_snapshot' ORDER BY order_id) FROM subscription_terms st WHERE tenant_id=$1),
  'quotes',(SELECT jsonb_agg(to_jsonb(q) ORDER BY digest) FROM billing_quotes q WHERE tenant_id=$1),
@@ -145,6 +145,10 @@ func TestBillingCalendarUpgradePreservesPaidFactsAndRequiresReview(t *testing.T)
 	}
 	if after := calendarUpgradeFacts(t, conn, tenant); after != before {
 		t.Fatal("migration rewrote historical paid dates, immutable snapshots, quote payload or invoice")
+	}
+	var standard bool
+	if err = conn.QueryRow(t.Context(), "SELECT bool_and(entitlement_source='standard' AND migration_manifest_sha256 IS NULL) FROM subscriptions WHERE tenant_id=$1", tenant).Scan(&standard); err != nil || !standard {
+		t.Fatal("historical paid facts were reclassified as a migration grant", err)
 	}
 	var count int
 	if err = conn.QueryRow(t.Context(), "SELECT count(*) FROM billing_calendars").Scan(&count); err != nil || count != 0 {
