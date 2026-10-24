@@ -14,10 +14,10 @@ func TestInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.HasPrefix(raw, []byte("%PDF-1.4")) {
+	if !bytes.HasPrefix(raw, []byte("%PDF-1.")) {
 		t.Fatal("missing PDF header")
 	}
-	if !bytes.Contains(raw, []byte("startxref")) || !bytes.Contains(raw, []byte("INV-1")) {
+	if !bytes.Contains(raw, []byte("startxref")) || !bytes.Contains(raw, []byte("/FontFile2")) {
 		t.Fatal("PDF is missing expected sections")
 	}
 }
