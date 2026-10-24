@@ -104,7 +104,7 @@ func (q *Queries) GetConfiguredPlanPrice(ctx context.Context, arg GetConfiguredP
 }
 
 const getCurrentSubscriptionTerm = `-- name: GetCurrentSubscriptionTerm :one
-SELECT order_id,basis_order_id,period_start,period_end,billing_period_start,base_amount_cents,currency,billing_cycle,plan_snapshot
+SELECT order_id,basis_order_id,period_start,period_end,billing_period_start,base_amount_cents,currency,billing_cycle,plan_snapshot,calendar_snapshot
 FROM subscription_terms WHERE tenant_id=$1 AND period_start<=now() AND period_end>now() AND (revoked_at IS NULL OR revoked_at>now())
 ORDER BY period_start DESC,order_id DESC LIMIT 1
 `
@@ -119,6 +119,7 @@ type GetCurrentSubscriptionTermRow struct {
 	Currency           string             `json:"currency"`
 	BillingCycle       string             `json:"billing_cycle"`
 	PlanSnapshot       []byte             `json:"plan_snapshot"`
+	CalendarSnapshot   []byte             `json:"calendar_snapshot"`
 }
 
 func (q *Queries) GetCurrentSubscriptionTerm(ctx context.Context, tenantID int64) (GetCurrentSubscriptionTermRow, error) {
@@ -134,6 +135,7 @@ func (q *Queries) GetCurrentSubscriptionTerm(ctx context.Context, tenantID int64
 		&i.Currency,
 		&i.BillingCycle,
 		&i.PlanSnapshot,
+		&i.CalendarSnapshot,
 	)
 	return i, err
 }

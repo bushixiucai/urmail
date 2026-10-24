@@ -248,7 +248,7 @@ func (q *Queries) PlatformGetRefundPayment(ctx context.Context, arg PlatformGetR
 }
 
 const platformGetRefundTargetTerm = `-- name: PlatformGetRefundTargetTerm :one
-SELECT order_id, tenant_id, period_start, billing_period_start, period_end, plan_snapshot, base_amount_cents, currency, billing_cycle, basis_order_id, revoked_at, revoked_by_refund FROM subscription_terms WHERE tenant_id=$1 AND order_id=$2
+SELECT order_id, tenant_id, period_start, billing_period_start, period_end, plan_snapshot, base_amount_cents, currency, billing_cycle, basis_order_id, revoked_at, revoked_by_refund, calendar_snapshot FROM subscription_terms WHERE tenant_id=$1 AND order_id=$2
 `
 
 type PlatformGetRefundTargetTermParams struct {
@@ -272,6 +272,7 @@ func (q *Queries) PlatformGetRefundTargetTerm(ctx context.Context, arg PlatformG
 		&i.BasisOrderID,
 		&i.RevokedAt,
 		&i.RevokedByRefund,
+		&i.CalendarSnapshot,
 	)
 	return i, err
 }

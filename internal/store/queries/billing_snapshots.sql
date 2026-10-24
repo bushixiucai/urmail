@@ -24,7 +24,7 @@ SELECT plan_code,currency,billing_cycle,amount_cents,version FROM plan_prices
 WHERE plan_code=$1 ORDER BY currency,billing_cycle;
 
 -- name: GetCurrentSubscriptionTerm :one
-SELECT order_id,basis_order_id,period_start,period_end,billing_period_start,base_amount_cents,currency,billing_cycle,plan_snapshot
+SELECT order_id,basis_order_id,period_start,period_end,billing_period_start,base_amount_cents,currency,billing_cycle,plan_snapshot,calendar_snapshot
 FROM subscription_terms WHERE tenant_id=$1 AND period_start<=now() AND period_end>now() AND (revoked_at IS NULL OR revoked_at>now())
 ORDER BY period_start DESC,order_id DESC LIMIT 1;
 

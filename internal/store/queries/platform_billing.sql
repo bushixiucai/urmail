@@ -55,8 +55,8 @@ ON CONFLICT(plan_code,currency,billing_cycle) DO UPDATE SET amount_cents=EXCLUDE
 RETURNING plan_code,currency,billing_cycle,amount_cents,version;
 
 -- name: PlatformRecordSubscriptionTerm :exec
-INSERT INTO subscription_terms(order_id,tenant_id,period_start,period_end,plan_snapshot,base_amount_cents,currency,billing_cycle,billing_period_start,basis_order_id)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);
+INSERT INTO subscription_terms(order_id,tenant_id,period_start,period_end,plan_snapshot,base_amount_cents,currency,billing_cycle,billing_period_start,basis_order_id,calendar_snapshot)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);
 -- name: PlatformBindInvoicePayment :exec
 UPDATE invoices SET source_payment_id=$3 WHERE tenant_id=$1 AND order_id=$2 AND source_payment_id IS NULL;
 

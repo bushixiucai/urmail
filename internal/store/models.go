@@ -141,6 +141,21 @@ type AuditLogs struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type BillingCalendars struct {
+	TenantID        int64              `json:"tenant_id"`
+	Timezone        string             `json:"timezone"`
+	FirstPaidAt     pgtype.Timestamptz `json:"first_paid_at"`
+	AnchorAt        pgtype.Timestamptz `json:"anchor_at"`
+	AnchorWall      []byte             `json:"anchor_wall"`
+	FirstAnchorWall []byte             `json:"first_anchor_wall"`
+	Version         int64              `json:"version"`
+	Source          string             `json:"source"`
+	ReviewReason    string             `json:"review_reason"`
+	CreatedBy       pgtype.Int8        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
 type BillingOrderAuthorizations struct {
 	OrderID         int64              `json:"order_id"`
 	TenantID        int64              `json:"tenant_id"`
@@ -893,6 +908,7 @@ type SubscriptionTerms struct {
 	BasisOrderID       pgtype.Int8        `json:"basis_order_id"`
 	RevokedAt          pgtype.Timestamptz `json:"revoked_at"`
 	RevokedByRefund    pgtype.Int8        `json:"revoked_by_refund"`
+	CalendarSnapshot   []byte             `json:"calendar_snapshot"`
 }
 
 type Subscriptions struct {

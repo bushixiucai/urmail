@@ -21,6 +21,7 @@ type Querier interface {
 	ArchiveRetentionCandidateDigest(ctx context.Context, arg ArchiveRetentionCandidateDigestParams) (ArchiveRetentionCandidateDigestRow, error)
 	AuditLegacyCredentialUse(ctx context.Context, arg AuditLegacyCredentialUseParams) error
 	AuthenticateApplicationCredential(ctx context.Context, arg AuthenticateApplicationCredentialParams) (AuthenticateApplicationCredentialRow, error)
+	BillingCalendarReviewRequired(ctx context.Context, dollar_1 int64) (bool, error)
 	BindOrderQuote(ctx context.Context, arg BindOrderQuoteParams) (int64, error)
 	CanCreatePendingDomain(ctx context.Context, tenantID int64) (bool, error)
 	CancelDNSPlan(ctx context.Context, arg CancelDNSPlanParams) error
@@ -94,6 +95,8 @@ type Querier interface {
 	GetArchiveEntryLegalHold(ctx context.Context, arg GetArchiveEntryLegalHoldParams) (bool, error)
 	GetArchiveOriginalForRecovery(ctx context.Context, arg GetArchiveOriginalForRecoveryParams) (GetArchiveOriginalForRecoveryRow, error)
 	GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (pgtype.Timestamptz, error)
+	GetBillingBusinessTimezone(ctx context.Context, dollar_1 int64) (string, error)
+	GetBillingCalendar(ctx context.Context, tenantID int64) (BillingCalendars, error)
 	GetBillingQuote(ctx context.Context, arg GetBillingQuoteParams) (GetBillingQuoteRow, error)
 	GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (ChannelAttribution, error)
 	GetChannelByCode(ctx context.Context, code string) (Channels, error)
@@ -241,6 +244,7 @@ type Querier interface {
 	PlatformAuthorizeBillingOrder(ctx context.Context, arg PlatformAuthorizeBillingOrderParams) (int64, error)
 	PlatformAuthorizeMarketingSend(ctx context.Context, arg PlatformAuthorizeMarketingSendParams) (string, error)
 	PlatformBeginArchivePurge(ctx context.Context, arg PlatformBeginArchivePurgeParams) error
+	PlatformBillingCalendarReviewExcludingOrder(ctx context.Context, arg PlatformBillingCalendarReviewExcludingOrderParams) (bool, error)
 	PlatformBillingLegacyIssues(ctx context.Context) ([]PlatformBillingLegacyIssuesRow, error)
 	PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (BrandHosts, error)
 	PlatformBindInvoicePayment(ctx context.Context, arg PlatformBindInvoicePaymentParams) error
@@ -269,6 +273,7 @@ type Querier interface {
 	PlatformConfirmDomainRecovery(ctx context.Context, arg PlatformConfirmDomainRecoveryParams) (int64, error)
 	PlatformConsumeMailboxTicket(ctx context.Context, arg PlatformConsumeMailboxTicketParams) (PlatformConsumeMailboxTicketRow, error)
 	PlatformConsumeRegistrationRequest(ctx context.Context, tokenHash string) error
+	PlatformCountBillingCalendarReviewTenants(ctx context.Context) (int64, error)
 	PlatformCountOpenPaymentReviews(ctx context.Context) (int64, error)
 	PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error)
 	PlatformCreateCheckoutIntent(ctx context.Context, arg PlatformCreateCheckoutIntentParams) (PaymentCheckoutIntents, error)
@@ -388,6 +393,7 @@ type Querier interface {
 	PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error)
 	PlatformIndexArchiveContent(ctx context.Context, arg PlatformIndexArchiveContentParams) error
 	PlatformIndexArchiveCopy(ctx context.Context, arg PlatformIndexArchiveCopyParams) (PlatformIndexArchiveCopyRow, error)
+	PlatformInitializeBillingCalendar(ctx context.Context, arg PlatformInitializeBillingCalendarParams) (BillingCalendars, error)
 	PlatformInsertArchiveEntry(ctx context.Context, arg PlatformInsertArchiveEntryParams) error
 	PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error)
 	PlatformIssueReplacementCoupon(ctx context.Context, arg PlatformIssueReplacementCouponParams) (Coupons, error)
@@ -399,6 +405,7 @@ type Querier interface {
 	PlatformListArchivePurgeCandidates(ctx context.Context) ([]PlatformListArchivePurgeCandidatesRow, error)
 	PlatformListArchiveUnindexedOriginals(ctx context.Context, afterID int64) ([]PlatformListArchiveUnindexedOriginalsRow, error)
 	PlatformListAuditLogs(ctx context.Context, limit int32) ([]AuditLogs, error)
+	PlatformListBillingCalendarReviewTenants(ctx context.Context) ([]int64, error)
 	PlatformListBrandHosts(ctx context.Context) ([]BrandHosts, error)
 	PlatformListBrandSettings(ctx context.Context, scopeID int64) ([]PlatformListBrandSettingsRow, error)
 	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
@@ -468,6 +475,7 @@ type Querier interface {
 	PlatformPublicThemeSettings(ctx context.Context, scopeID int64) ([]PlatformPublicThemeSettingsRow, error)
 	PlatformPutDeliveryQueueContext(ctx context.Context, arg PlatformPutDeliveryQueueContextParams) error
 	PlatformQueueAuthenticatedTenant(ctx context.Context, arg PlatformQueueAuthenticatedTenantParams) (int64, error)
+	PlatformReanchorBillingCalendar(ctx context.Context, arg PlatformReanchorBillingCalendarParams) (BillingCalendars, error)
 	PlatformRecomputePaidEntitlementEnd(ctx context.Context, tenantID int64) error
 	PlatformReconfirmObservedRefund(ctx context.Context, arg PlatformReconfirmObservedRefundParams) (int64, error)
 	PlatformRecordCollectedDeliveryEvent(ctx context.Context, arg PlatformRecordCollectedDeliveryEventParams) (int64, error)

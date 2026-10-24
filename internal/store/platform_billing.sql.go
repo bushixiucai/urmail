@@ -397,8 +397,8 @@ func (q *Queries) PlatformLockCouponRedemptionForAuthority(ctx context.Context, 
 }
 
 const platformRecordSubscriptionTerm = `-- name: PlatformRecordSubscriptionTerm :exec
-INSERT INTO subscription_terms(order_id,tenant_id,period_start,period_end,plan_snapshot,base_amount_cents,currency,billing_cycle,billing_period_start,basis_order_id)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+INSERT INTO subscription_terms(order_id,tenant_id,period_start,period_end,plan_snapshot,base_amount_cents,currency,billing_cycle,billing_period_start,basis_order_id,calendar_snapshot)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 `
 
 type PlatformRecordSubscriptionTermParams struct {
@@ -412,6 +412,7 @@ type PlatformRecordSubscriptionTermParams struct {
 	BillingCycle       string             `json:"billing_cycle"`
 	BillingPeriodStart pgtype.Timestamptz `json:"billing_period_start"`
 	BasisOrderID       pgtype.Int8        `json:"basis_order_id"`
+	CalendarSnapshot   []byte             `json:"calendar_snapshot"`
 }
 
 func (q *Queries) PlatformRecordSubscriptionTerm(ctx context.Context, arg PlatformRecordSubscriptionTermParams) error {
@@ -426,6 +427,7 @@ func (q *Queries) PlatformRecordSubscriptionTerm(ctx context.Context, arg Platfo
 		arg.BillingCycle,
 		arg.BillingPeriodStart,
 		arg.BasisOrderID,
+		arg.CalendarSnapshot,
 	)
 	return err
 }

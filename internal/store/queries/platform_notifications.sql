@@ -44,10 +44,9 @@ WITH configured_days AS (
  FROM subscriptions s JOIN tenants t ON t.id=s.tenant_id
  LEFT JOIN tenant_contacts tc ON tc.tenant_id=s.tenant_id
  CROSS JOIN configured_days d
- LEFT JOIN settings tz ON tz.scope='tenant' AND tz.scope_id=s.tenant_id AND tz.key='business_timezone'
  WHERE s.status IN('active','trialing','past_due') AND t.status IN('active','pending') AND d.days IS NOT NULL
- AND (s.period_end AT TIME ZONE COALESCE(tz.value#>>'{}','Asia/Shanghai'))::date
-     =(now() AT TIME ZONE COALESCE(tz.value#>>'{}','Asia/Shanghai'))::date+d.days
+ AND (s.period_end AT TIME ZONE urmail_business_timezone(s.tenant_id))::date
+     =(now() AT TIME ZONE urmail_business_timezone(s.tenant_id))::date+d.days
 )
 INSERT INTO notification_outbox(tenant_id,user_id,kind,message_key,params,dedupe_key,channel,state,recipient,recipient_verified)
 SELECT r.tenant_id,r.owner_user_id,'subscription_expiry','notification.subscription_expiry',jsonb_build_object('days',r.days,'plan',r.plan_id,'period_end',r.period_end),
