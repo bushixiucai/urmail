@@ -92,3 +92,38 @@ func New(t testing.TB) string {
 	}
 	return target.String()
 }
+
+// OpenMigrated creates one owned fixture and opens the two production roles.
+func OpenMigrated(t testing.TB) (*db.Pool, *db.Pool) {
+	t.Helper()
+	dsn := New(t)
+	target, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := target.Query()
+	params.Set("role", "urmail_migrate")
+	target.RawQuery = params.Encode()
+	migrator, err := db.NewMigrator(target.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = migrator.Up(context.Background()); err != nil {
+		_ = migrator.Close()
+		t.Fatal(err)
+	}
+	if err = migrator.Close(); err != nil {
+		t.Fatal(err)
+	}
+	platform, err := db.OpenPlatform(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(platform.Close)
+	app, err := db.OpenApp(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Close)
+	return platform, app
+}

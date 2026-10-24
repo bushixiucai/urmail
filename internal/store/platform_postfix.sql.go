@@ -16,7 +16,7 @@ SELECT d.fqdn AS domain, a.local_part, a.target, a.kind
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
 JOIN tenants t ON t.id = a.tenant_id
-WHERE a.active = true AND d.status = 'active' AND t.status = 'active'
+WHERE a.active = true AND d.status = 'active' AND d.provisioning_state='ready' AND t.status = 'active'
 ORDER BY d.fqdn ASC, a.local_part ASC
 `
 
@@ -55,7 +55,7 @@ func (q *Queries) PlatformListAliases(ctx context.Context) ([]PlatformListAliase
 }
 
 const platformListDomains = `-- name: PlatformListDomains :many
-SELECT d.fqdn, d.status, d.mode, d.updated_at
+SELECT d.fqdn, d.status, d.mode, d.updated_at,d.provisioning_state,d.dns_explicit
 FROM domains d
 JOIN tenants t ON t.id = d.tenant_id
 WHERE d.status = 'active' AND t.status = 'active'
@@ -63,10 +63,12 @@ ORDER BY d.fqdn ASC
 `
 
 type PlatformListDomainsRow struct {
-	Fqdn      string             `json:"fqdn"`
-	Status    string             `json:"status"`
-	Mode      string             `json:"mode"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Fqdn              string             `json:"fqdn"`
+	Status            string             `json:"status"`
+	Mode              string             `json:"mode"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ProvisioningState string             `json:"provisioning_state"`
+	DnsExplicit       bool               `json:"dns_explicit"`
 }
 
 // Platform query for Postfix configuration generator.
@@ -85,6 +87,8 @@ func (q *Queries) PlatformListDomains(ctx context.Context) ([]PlatformListDomain
 			&i.Status,
 			&i.Mode,
 			&i.UpdatedAt,
+			&i.ProvisioningState,
+			&i.DnsExplicit,
 		); err != nil {
 			return nil, err
 		}
@@ -97,17 +101,19 @@ func (q *Queries) PlatformListDomains(ctx context.Context) ([]PlatformListDomain
 }
 
 const platformListMailboxes = `-- name: PlatformListMailboxes :many
-SELECT m.address, m.status
+SELECT m.id, m.tenant_id, m.address, m.status
 FROM mailboxes m
 JOIN tenants t ON t.id = m.tenant_id
-JOIN domains d ON d.id=m.domain_id AND d.tenant_id=m.tenant_id AND d.status='active'
+JOIN domains d ON d.id=m.domain_id AND d.tenant_id=m.tenant_id AND d.status='active' AND d.provisioning_state='ready'
 WHERE m.status = 'active' AND t.status = 'active'
 ORDER BY m.address ASC
 `
 
 type PlatformListMailboxesRow struct {
-	Address string `json:"address"`
-	Status  string `json:"status"`
+	ID       int64  `json:"id"`
+	TenantID int64  `json:"tenant_id"`
+	Address  string `json:"address"`
+	Status   string `json:"status"`
 }
 
 // Platform query for Postfix configuration generator.
@@ -121,7 +127,12 @@ func (q *Queries) PlatformListMailboxes(ctx context.Context) ([]PlatformListMail
 	items := []PlatformListMailboxesRow{}
 	for rows.Next() {
 		var i PlatformListMailboxesRow
-		if err := rows.Scan(&i.Address, &i.Status); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Address,
+			&i.Status,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

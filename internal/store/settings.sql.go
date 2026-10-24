@@ -51,9 +51,9 @@ func (q *Queries) GetTenantSetting(ctx context.Context, arg GetTenantSettingPara
 const listSettingsByScopes = `-- name: ListSettingsByScopes :many
 SELECT scope, scope_id, key, value, updated_at
 FROM settings
-WHERE (scope = 'platform' AND scope_id = 0)
+WHERE key<>'billing_document_profile' AND ((scope = 'platform' AND scope_id = 0)
    OR (scope = 'brand' AND scope_id = $1)
-   OR (scope = 'tenant' AND scope_id = $2)
+   OR (scope = 'tenant' AND scope_id = $2))
 ORDER BY key ASC
 `
 

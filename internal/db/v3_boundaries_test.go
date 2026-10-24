@@ -37,7 +37,7 @@ func v3Seed(t *testing.T) (*db.Pool, *db.Pool, int64, int64) {
 	if err = platform.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'V3','v3','active') RETURNING id", brand).Scan(&tenant); err != nil {
 		t.Fatal(err)
 	}
-	if err = platform.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,verification_token) VALUES($1,'v3.example.test','x') RETURNING id", tenant).Scan(&domain); err != nil {
+	if err = platform.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,verification_token,status,verified_at,provisioning_state) VALUES($1,'v3.example.test','x','active',now(),'ready') RETURNING id", tenant).Scan(&domain); err != nil {
 		t.Fatal(err)
 	}
 	return platform, app, tenant, domain
@@ -53,7 +53,7 @@ func v3Code(t *testing.T, err error, code string) {
 func TestV3SettingsDeleteAndTenantReferences(t *testing.T) {
 	p, a, tid, did := v3Seed(t)
 	ctx := context.Background()
-	if _, err := p.Exec(ctx, `INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'v3','true'),('tenant',$1,'v3','true')`, tid); err != nil {
+	if _, err := p.Exec(ctx, `INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'theme','{}'),('tenant',$1,'theme','{}')`, tid); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := a.TenantTx(ctx, tid)

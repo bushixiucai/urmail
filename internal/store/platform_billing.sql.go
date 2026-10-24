@@ -11,6 +11,46 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const platformAuthorizeBillingOrder = `-- name: PlatformAuthorizeBillingOrder :execrows
+INSERT INTO billing_order_authorizations(tenant_id,order_id,authority_digest,authorized_by)
+VALUES($1,$2,$3,$4) ON CONFLICT(order_id) DO NOTHING
+`
+
+type PlatformAuthorizeBillingOrderParams struct {
+	TenantID        int64       `json:"tenant_id"`
+	OrderID         int64       `json:"order_id"`
+	AuthorityDigest string      `json:"authority_digest"`
+	AuthorizedBy    pgtype.Int8 `json:"authorized_by"`
+}
+
+func (q *Queries) PlatformAuthorizeBillingOrder(ctx context.Context, arg PlatformAuthorizeBillingOrderParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformAuthorizeBillingOrder,
+		arg.TenantID,
+		arg.OrderID,
+		arg.AuthorityDigest,
+		arg.AuthorizedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformBindInvoicePayment = `-- name: PlatformBindInvoicePayment :exec
+UPDATE invoices SET source_payment_id=$3 WHERE tenant_id=$1 AND order_id=$2 AND source_payment_id IS NULL
+`
+
+type PlatformBindInvoicePaymentParams struct {
+	TenantID        int64       `json:"tenant_id"`
+	OrderID         pgtype.Int8 `json:"order_id"`
+	SourcePaymentID pgtype.Int8 `json:"source_payment_id"`
+}
+
+func (q *Queries) PlatformBindInvoicePayment(ctx context.Context, arg PlatformBindInvoicePaymentParams) error {
+	_, err := q.db.Exec(ctx, platformBindInvoicePayment, arg.TenantID, arg.OrderID, arg.SourcePaymentID)
+	return err
+}
+
 const platformCancelActiveSubscriptions = `-- name: PlatformCancelActiveSubscriptions :execrows
 UPDATE subscriptions SET status = 'canceled'
 WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')
@@ -27,7 +67,7 @@ func (q *Queries) PlatformCancelActiveSubscriptions(ctx context.Context, tenantI
 const platformCancelPendingOrder = `-- name: PlatformCancelPendingOrder :one
 UPDATE orders SET status = 'canceled'
 WHERE id = $1 AND status = 'pending'
-RETURNING id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at, billing_cycle
+RETURNING id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at, billing_cycle, quote_digest
 `
 
 func (q *Queries) PlatformCancelPendingOrder(ctx context.Context, id int64) (Orders, error) {
@@ -47,6 +87,7 @@ func (q *Queries) PlatformCancelPendingOrder(ctx context.Context, id int64) (Ord
 		&i.CreatedAt,
 		&i.PaidAt,
 		&i.BillingCycle,
+		&i.QuoteDigest,
 	)
 	return i, err
 }
@@ -54,7 +95,7 @@ func (q *Queries) PlatformCancelPendingOrder(ctx context.Context, id int64) (Ord
 const platformCreateSettlementInvoice = `-- name: PlatformCreateSettlementInvoice :one
 INSERT INTO invoices (tenant_id, order_id, number, period_start, period_end, amount_cents, currency, status, issued_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, 'paid', now())
-RETURNING id, tenant_id, order_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at
+RETURNING id, tenant_id, order_id, number, period_start, period_end, amount_cents, currency, status, pdf_path, issued_at, created_at, document_snapshot, source_payment_id
 `
 
 type PlatformCreateSettlementInvoiceParams struct {
@@ -68,18 +109,20 @@ type PlatformCreateSettlementInvoiceParams struct {
 }
 
 type PlatformCreateSettlementInvoiceRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	OrderID     pgtype.Int8        `json:"order_id"`
-	Number      string             `json:"number"`
-	PeriodStart pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd   pgtype.Timestamptz `json:"period_end"`
-	AmountCents int64              `json:"amount_cents"`
-	Currency    string             `json:"currency"`
-	Status      string             `json:"status"`
-	PdfPath     pgtype.Text        `json:"pdf_path"`
-	IssuedAt    pgtype.Timestamptz `json:"issued_at"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID               int64              `json:"id"`
+	TenantID         int64              `json:"tenant_id"`
+	OrderID          pgtype.Int8        `json:"order_id"`
+	Number           string             `json:"number"`
+	PeriodStart      pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd        pgtype.Timestamptz `json:"period_end"`
+	AmountCents      int64              `json:"amount_cents"`
+	Currency         string             `json:"currency"`
+	Status           string             `json:"status"`
+	PdfPath          pgtype.Text        `json:"pdf_path"`
+	IssuedAt         pgtype.Timestamptz `json:"issued_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	DocumentSnapshot []byte             `json:"document_snapshot"`
+	SourcePaymentID  pgtype.Int8        `json:"source_payment_id"`
 }
 
 func (q *Queries) PlatformCreateSettlementInvoice(ctx context.Context, arg PlatformCreateSettlementInvoiceParams) (PlatformCreateSettlementInvoiceRow, error) {
@@ -106,14 +149,16 @@ func (q *Queries) PlatformCreateSettlementInvoice(ctx context.Context, arg Platf
 		&i.PdfPath,
 		&i.IssuedAt,
 		&i.CreatedAt,
+		&i.DocumentSnapshot,
+		&i.SourcePaymentID,
 	)
 	return i, err
 }
 
 const platformCreateSubscriptionForOrder = `-- name: PlatformCreateSubscriptionForOrder :one
-INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end, billing_cycle)
-VALUES ($1, $2, 'active', $3, $4, $5)
-RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle
+INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end, billing_cycle, plan_snapshot)
+VALUES ($1, $2, 'active', $3, $4, $5, $6)
+RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot
 `
 
 type PlatformCreateSubscriptionForOrderParams struct {
@@ -122,6 +167,7 @@ type PlatformCreateSubscriptionForOrderParams struct {
 	PeriodStart  pgtype.Timestamptz `json:"period_start"`
 	PeriodEnd    pgtype.Timestamptz `json:"period_end"`
 	BillingCycle string             `json:"billing_cycle"`
+	PlanSnapshot []byte             `json:"plan_snapshot"`
 }
 
 func (q *Queries) PlatformCreateSubscriptionForOrder(ctx context.Context, arg PlatformCreateSubscriptionForOrderParams) (Subscriptions, error) {
@@ -131,6 +177,7 @@ func (q *Queries) PlatformCreateSubscriptionForOrder(ctx context.Context, arg Pl
 		arg.PeriodStart,
 		arg.PeriodEnd,
 		arg.BillingCycle,
+		arg.PlanSnapshot,
 	)
 	var i Subscriptions
 	err := row.Scan(
@@ -144,8 +191,23 @@ func (q *Queries) PlatformCreateSubscriptionForOrder(ctx context.Context, arg Pl
 		&i.TrialEndsAt,
 		&i.CreatedAt,
 		&i.BillingCycle,
+		&i.PlanSnapshot,
 	)
 	return i, err
+}
+
+const platformFreezeSubscriptionSnapshot = `-- name: PlatformFreezeSubscriptionSnapshot :exec
+UPDATE subscriptions SET plan_snapshot=$2 WHERE id=$1
+`
+
+type PlatformFreezeSubscriptionSnapshotParams struct {
+	ID           int64  `json:"id"`
+	PlanSnapshot []byte `json:"plan_snapshot"`
+}
+
+func (q *Queries) PlatformFreezeSubscriptionSnapshot(ctx context.Context, arg PlatformFreezeSubscriptionSnapshotParams) error {
+	_, err := q.db.Exec(ctx, platformFreezeSubscriptionSnapshot, arg.ID, arg.PlanSnapshot)
+	return err
 }
 
 const platformGetLatestActiveSubscriptionPeriodEnd = `-- name: PlatformGetLatestActiveSubscriptionPeriodEnd :one
@@ -159,6 +221,39 @@ func (q *Queries) PlatformGetLatestActiveSubscriptionPeriodEnd(ctx context.Conte
 	var period_end pgtype.Timestamptz
 	err := row.Scan(&period_end)
 	return period_end, err
+}
+
+const platformGetOrderAuthorization = `-- name: PlatformGetOrderAuthorization :one
+SELECT authority_digest FROM billing_order_authorizations WHERE tenant_id=$1 AND order_id=$2
+`
+
+type PlatformGetOrderAuthorizationParams struct {
+	TenantID int64 `json:"tenant_id"`
+	OrderID  int64 `json:"order_id"`
+}
+
+func (q *Queries) PlatformGetOrderAuthorization(ctx context.Context, arg PlatformGetOrderAuthorizationParams) (string, error) {
+	row := q.db.QueryRow(ctx, platformGetOrderAuthorization, arg.TenantID, arg.OrderID)
+	var authority_digest string
+	err := row.Scan(&authority_digest)
+	return authority_digest, err
+}
+
+const platformGetOrderQuote = `-- name: PlatformGetOrderQuote :one
+SELECT q.payload,q.plan_snapshot,q.document_snapshot FROM orders o JOIN billing_quotes q ON q.tenant_id=o.tenant_id AND q.digest=o.quote_digest WHERE o.id=$1
+`
+
+type PlatformGetOrderQuoteRow struct {
+	Payload          []byte `json:"payload"`
+	PlanSnapshot     []byte `json:"plan_snapshot"`
+	DocumentSnapshot []byte `json:"document_snapshot"`
+}
+
+func (q *Queries) PlatformGetOrderQuote(ctx context.Context, id int64) (PlatformGetOrderQuoteRow, error) {
+	row := q.db.QueryRow(ctx, platformGetOrderQuote, id)
+	var i PlatformGetOrderQuoteRow
+	err := row.Scan(&i.Payload, &i.PlanSnapshot, &i.DocumentSnapshot)
+	return i, err
 }
 
 const platformGetOrderTenantID = `-- name: PlatformGetOrderTenantID :one
@@ -180,6 +275,161 @@ func (q *Queries) PlatformGetOrderTenantID(ctx context.Context, id int64) (int64
 	return tenant_id, err
 }
 
+const platformGetSubscriptionForSettlement = `-- name: PlatformGetSubscriptionForSettlement :one
+SELECT id,tenant_id,plan_id,status,period_start,period_end,billing_cycle,plan_snapshot
+FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') FOR UPDATE
+`
+
+type PlatformGetSubscriptionForSettlementRow struct {
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	PlanID       string             `json:"plan_id"`
+	Status       string             `json:"status"`
+	PeriodStart  pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd    pgtype.Timestamptz `json:"period_end"`
+	BillingCycle string             `json:"billing_cycle"`
+	PlanSnapshot []byte             `json:"plan_snapshot"`
+}
+
+func (q *Queries) PlatformGetSubscriptionForSettlement(ctx context.Context, tenantID int64) (PlatformGetSubscriptionForSettlementRow, error) {
+	row := q.db.QueryRow(ctx, platformGetSubscriptionForSettlement, tenantID)
+	var i PlatformGetSubscriptionForSettlementRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.PlanID,
+		&i.Status,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.BillingCycle,
+		&i.PlanSnapshot,
+	)
+	return i, err
+}
+
+const platformLegacyPeriodRepairCandidate = `-- name: PlatformLegacyPeriodRepairCandidate :one
+SELECT s.id AS subscription_id,s.tenant_id,s.period_start,s.period_end,s.plan_snapshot,
+o.id AS order_id,o.paid_at,o.currency,o.billing_cycle,p.id AS payment_id,o.amount_cents
+FROM subscriptions s JOIN orders o ON o.tenant_id=s.tenant_id AND o.id=$1
+JOIN payments p ON p.tenant_id=o.tenant_id AND p.order_id=o.id AND p.status='succeeded'
+WHERE s.tenant_id=$2 AND s.id=$3 AND s.status='active'
+AND s.plan_id<>'free' AND o.plan_code=s.plan_id AND o.status='paid' AND o.paid_at<=now() AND o.amount_cents>0
+AND p.amount_cents=o.amount_cents AND p.currency=o.currency AND s.period_start>now()
+AND s.period_start=$4 AND s.period_end=$5
+AND (SELECT count(*) FROM orders existing WHERE existing.tenant_id=s.tenant_id AND existing.status IN('paid','partially_refunded','refunded'))=1
+AND (SELECT count(*) FROM payments receipt WHERE receipt.tenant_id=s.tenant_id)=1
+AND NOT EXISTS(SELECT 1 FROM payment_manual_reviews review WHERE review.tenant_id=s.tenant_id AND review.status='open')
+AND NOT EXISTS(SELECT 1 FROM refunds r WHERE r.tenant_id=s.tenant_id)
+AND NOT EXISTS(SELECT 1 FROM subscription_terms t WHERE t.tenant_id=s.tenant_id)
+FOR UPDATE OF s,o,p
+`
+
+type PlatformLegacyPeriodRepairCandidateParams struct {
+	OrderID        int64              `json:"order_id"`
+	TenantID       int64              `json:"tenant_id"`
+	SubscriptionID int64              `json:"subscription_id"`
+	ExpectedStart  pgtype.Timestamptz `json:"expected_start"`
+	ExpectedEnd    pgtype.Timestamptz `json:"expected_end"`
+}
+
+type PlatformLegacyPeriodRepairCandidateRow struct {
+	SubscriptionID int64              `json:"subscription_id"`
+	TenantID       int64              `json:"tenant_id"`
+	PeriodStart    pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd      pgtype.Timestamptz `json:"period_end"`
+	PlanSnapshot   []byte             `json:"plan_snapshot"`
+	OrderID        int64              `json:"order_id"`
+	PaidAt         pgtype.Timestamptz `json:"paid_at"`
+	Currency       string             `json:"currency"`
+	BillingCycle   string             `json:"billing_cycle"`
+	PaymentID      int64              `json:"payment_id"`
+	AmountCents    int64              `json:"amount_cents"`
+}
+
+func (q *Queries) PlatformLegacyPeriodRepairCandidate(ctx context.Context, arg PlatformLegacyPeriodRepairCandidateParams) (PlatformLegacyPeriodRepairCandidateRow, error) {
+	row := q.db.QueryRow(ctx, platformLegacyPeriodRepairCandidate,
+		arg.OrderID,
+		arg.TenantID,
+		arg.SubscriptionID,
+		arg.ExpectedStart,
+		arg.ExpectedEnd,
+	)
+	var i PlatformLegacyPeriodRepairCandidateRow
+	err := row.Scan(
+		&i.SubscriptionID,
+		&i.TenantID,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.PlanSnapshot,
+		&i.OrderID,
+		&i.PaidAt,
+		&i.Currency,
+		&i.BillingCycle,
+		&i.PaymentID,
+		&i.AmountCents,
+	)
+	return i, err
+}
+
+const platformLockBillingTenant = `-- name: PlatformLockBillingTenant :exec
+SELECT pg_advisory_xact_lock($1::bigint)
+`
+
+func (q *Queries) PlatformLockBillingTenant(ctx context.Context, dollar_1 int64) error {
+	_, err := q.db.Exec(ctx, platformLockBillingTenant, dollar_1)
+	return err
+}
+
+const platformLockCouponRedemptionForAuthority = `-- name: PlatformLockCouponRedemptionForAuthority :one
+SELECT coupon_code FROM coupon_redemptions WHERE tenant_id=$1 AND order_id=$2 FOR SHARE
+`
+
+type PlatformLockCouponRedemptionForAuthorityParams struct {
+	TenantID int64       `json:"tenant_id"`
+	OrderID  pgtype.Int8 `json:"order_id"`
+}
+
+func (q *Queries) PlatformLockCouponRedemptionForAuthority(ctx context.Context, arg PlatformLockCouponRedemptionForAuthorityParams) (string, error) {
+	row := q.db.QueryRow(ctx, platformLockCouponRedemptionForAuthority, arg.TenantID, arg.OrderID)
+	var coupon_code string
+	err := row.Scan(&coupon_code)
+	return coupon_code, err
+}
+
+const platformRecordSubscriptionTerm = `-- name: PlatformRecordSubscriptionTerm :exec
+INSERT INTO subscription_terms(order_id,tenant_id,period_start,period_end,plan_snapshot,base_amount_cents,currency,billing_cycle,billing_period_start,basis_order_id)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+`
+
+type PlatformRecordSubscriptionTermParams struct {
+	OrderID            int64              `json:"order_id"`
+	TenantID           int64              `json:"tenant_id"`
+	PeriodStart        pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
+	PlanSnapshot       []byte             `json:"plan_snapshot"`
+	BaseAmountCents    int64              `json:"base_amount_cents"`
+	Currency           string             `json:"currency"`
+	BillingCycle       string             `json:"billing_cycle"`
+	BillingPeriodStart pgtype.Timestamptz `json:"billing_period_start"`
+	BasisOrderID       pgtype.Int8        `json:"basis_order_id"`
+}
+
+func (q *Queries) PlatformRecordSubscriptionTerm(ctx context.Context, arg PlatformRecordSubscriptionTermParams) error {
+	_, err := q.db.Exec(ctx, platformRecordSubscriptionTerm,
+		arg.OrderID,
+		arg.TenantID,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.PlanSnapshot,
+		arg.BaseAmountCents,
+		arg.Currency,
+		arg.BillingCycle,
+		arg.BillingPeriodStart,
+		arg.BasisOrderID,
+	)
+	return err
+}
+
 const platformReleaseCouponRedemption = `-- name: PlatformReleaseCouponRedemption :execrows
 DELETE FROM coupon_redemptions WHERE coupon_code = $1 AND order_id = $2
 `
@@ -195,4 +445,72 @@ func (q *Queries) PlatformReleaseCouponRedemption(ctx context.Context, arg Platf
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const platformRepairLegacySubscriptionPeriod = `-- name: PlatformRepairLegacySubscriptionPeriod :execrows
+UPDATE subscriptions SET period_start=$1,period_end=$2
+WHERE tenant_id=$3 AND id=$4 AND period_start=$5 AND period_end=$6
+`
+
+type PlatformRepairLegacySubscriptionPeriodParams struct {
+	CorrectedStart pgtype.Timestamptz `json:"corrected_start"`
+	CorrectedEnd   pgtype.Timestamptz `json:"corrected_end"`
+	TenantID       int64              `json:"tenant_id"`
+	SubscriptionID int64              `json:"subscription_id"`
+	ExpectedStart  pgtype.Timestamptz `json:"expected_start"`
+	ExpectedEnd    pgtype.Timestamptz `json:"expected_end"`
+}
+
+func (q *Queries) PlatformRepairLegacySubscriptionPeriod(ctx context.Context, arg PlatformRepairLegacySubscriptionPeriodParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformRepairLegacySubscriptionPeriod,
+		arg.CorrectedStart,
+		arg.CorrectedEnd,
+		arg.TenantID,
+		arg.SubscriptionID,
+		arg.ExpectedStart,
+		arg.ExpectedEnd,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformSetPlanPrice = `-- name: PlatformSetPlanPrice :one
+INSERT INTO plan_prices(plan_code,currency,billing_cycle,amount_cents) VALUES($1,$2,$3,$4)
+ON CONFLICT(plan_code,currency,billing_cycle) DO UPDATE SET amount_cents=EXCLUDED.amount_cents,version=DEFAULT,updated_at=now()
+RETURNING plan_code,currency,billing_cycle,amount_cents,version
+`
+
+type PlatformSetPlanPriceParams struct {
+	PlanCode     string `json:"plan_code"`
+	Currency     string `json:"currency"`
+	BillingCycle string `json:"billing_cycle"`
+	AmountCents  int64  `json:"amount_cents"`
+}
+
+type PlatformSetPlanPriceRow struct {
+	PlanCode     string `json:"plan_code"`
+	Currency     string `json:"currency"`
+	BillingCycle string `json:"billing_cycle"`
+	AmountCents  int64  `json:"amount_cents"`
+	Version      int64  `json:"version"`
+}
+
+func (q *Queries) PlatformSetPlanPrice(ctx context.Context, arg PlatformSetPlanPriceParams) (PlatformSetPlanPriceRow, error) {
+	row := q.db.QueryRow(ctx, platformSetPlanPrice,
+		arg.PlanCode,
+		arg.Currency,
+		arg.BillingCycle,
+		arg.AmountCents,
+	)
+	var i PlatformSetPlanPriceRow
+	err := row.Scan(
+		&i.PlanCode,
+		&i.Currency,
+		&i.BillingCycle,
+		&i.AmountCents,
+		&i.Version,
+	)
+	return i, err
 }

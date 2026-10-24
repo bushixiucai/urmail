@@ -21,7 +21,7 @@ func (q *Queries) PlatformDeleteSetting(ctx context.Context, key string) error {
 }
 
 const platformListSettings = `-- name: PlatformListSettings :many
-SELECT key,value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 ORDER BY key
+SELECT key,value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND key IN('locale','theme','mailbox_default_quota_bytes','business_timezone') ORDER BY key
 `
 
 type PlatformListSettingsRow struct {

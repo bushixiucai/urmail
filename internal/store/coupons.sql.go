@@ -12,9 +12,9 @@ import (
 )
 
 const getCouponByCode = `-- name: GetCouponByCode :one
-SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active, currency, bound_tenant_id, source_coupon_code, source_tenant_id, reissue_reason, reissued_by, reissued_at
 FROM coupons
-WHERE code = $1 AND active = true AND (valid_to IS NULL OR valid_to > now()) AND (valid_from IS NULL OR valid_from <= now())
+WHERE code = $1 AND (bound_tenant_id IS NULL OR bound_tenant_id=nullif(current_setting('urmail.tenant_id',true),'')::bigint) AND active = true AND (valid_to IS NULL OR valid_to > now()) AND (valid_from IS NULL OR valid_from <= now())
 `
 
 func (q *Queries) GetCouponByCode(ctx context.Context, code string) (Coupons, error) {
@@ -29,6 +29,13 @@ func (q *Queries) GetCouponByCode(ctx context.Context, code string) (Coupons, er
 		&i.ValidFrom,
 		&i.ValidTo,
 		&i.Active,
+		&i.Currency,
+		&i.BoundTenantID,
+		&i.SourceCouponCode,
+		&i.SourceTenantID,
+		&i.ReissueReason,
+		&i.ReissuedBy,
+		&i.ReissuedAt,
 	)
 	return i, err
 }

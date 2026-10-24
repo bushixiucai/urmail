@@ -57,13 +57,13 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
        COALESCE((
            SELECT p.daily_send_limit
            FROM subscriptions s
-           JOIN plans p ON p.code = s.plan_id
+           JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true
            WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND s.period_end > now() AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
            LIMIT 1
        ), 0)::int AS daily_send_limit
 FROM mailboxes m
-LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
-WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id)
+LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
+WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)
 `
 
 type GetMailboxDailySentRow struct {
@@ -98,13 +98,13 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
        COALESCE((
            SELECT p.daily_send_limit
            FROM subscriptions s
-           JOIN plans p ON p.code = s.plan_id
+           JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true
            WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND s.period_end > now() AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
            LIMIT 1
        ), 0)::int AS daily_send_limit
 FROM mailboxes m
-LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = CURRENT_DATE
-WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id)
+LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
+WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)
 FOR UPDATE OF m
 `
 
@@ -142,7 +142,7 @@ func (q *Queries) GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (i
 
 const incrementMailboxDailySent = `-- name: IncrementMailboxDailySent :one
 INSERT INTO mailbox_usage (mailbox_id, tenant_id, day, messages_sent)
-VALUES ($1, $2, CURRENT_DATE, 1)
+VALUES ($1, $2, urmail_quota_day($2), 1)
 ON CONFLICT (mailbox_id, day)
 DO UPDATE SET messages_sent = mailbox_usage.messages_sent + 1
 WHERE mailbox_usage.messages_sent < $3
@@ -177,11 +177,27 @@ func (q *Queries) PlatformCommissionRate(ctx context.Context, id int64) (int32, 
 }
 
 const platformInboundAllowed = `-- name: PlatformInboundAllowed :one
-SELECT COALESCE((SELECT urmail_mail_allowed(d.tenant_id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed
+SELECT COALESCE((SELECT urmail_mail_allowed(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed
 `
 
 func (q *Queries) PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error) {
 	row := q.db.QueryRow(ctx, platformInboundAllowed, splitPart)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
+const platformTakeMailboxDailyQuota = `-- name: PlatformTakeMailboxDailyQuota :one
+SELECT urmail_take_mailbox_quota($1::bigint,$2::bigint)::boolean AS allowed
+`
+
+type PlatformTakeMailboxDailyQuotaParams struct {
+	TenantID  int64 `json:"tenant_id"`
+	MailboxID int64 `json:"mailbox_id"`
+}
+
+func (q *Queries) PlatformTakeMailboxDailyQuota(ctx context.Context, arg PlatformTakeMailboxDailyQuotaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformTakeMailboxDailyQuota, arg.TenantID, arg.MailboxID)
 	var allowed bool
 	err := row.Scan(&allowed)
 	return allowed, err

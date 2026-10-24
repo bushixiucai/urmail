@@ -74,15 +74,32 @@ type PlatformClaimOnboardingTaskParams struct {
 	BatchSize    int32  `json:"batch_size"`
 }
 
-func (q *Queries) PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]OnboardingTasks, error) {
+type PlatformClaimOnboardingTaskRow struct {
+	ID          int64              `json:"id"`
+	TenantID    int64              `json:"tenant_id"`
+	DomainID    pgtype.Int8        `json:"domain_id"`
+	OrderID     pgtype.Int8        `json:"order_id"`
+	Status      string             `json:"status"`
+	Step        string             `json:"step"`
+	Attempts    int32              `json:"attempts"`
+	MaxAttempts int32              `json:"max_attempts"`
+	LastError   pgtype.Text        `json:"last_error"`
+	LeasedUntil pgtype.Timestamptz `json:"leased_until"`
+	LeasedBy    pgtype.Text        `json:"leased_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt pgtype.Timestamptz `json:"completed_at"`
+}
+
+func (q *Queries) PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]PlatformClaimOnboardingTaskRow, error) {
 	rows, err := q.db.Query(ctx, platformClaimOnboardingTask, arg.WorkerID, arg.LeaseSeconds, arg.BatchSize)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []OnboardingTasks{}
+	items := []PlatformClaimOnboardingTaskRow{}
 	for rows.Next() {
-		var i OnboardingTasks
+		var i PlatformClaimOnboardingTaskRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TenantID,
@@ -203,17 +220,18 @@ func (q *Queries) PlatformGetOrderForSettlement(ctx context.Context, arg Platfor
 }
 
 const platformGetPaymentByProviderTransaction = `-- name: PlatformGetPaymentByProviderTransaction :one
-SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at
-FROM payments WHERE provider=$1 AND provider_txn_id=$2
+SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at,account_scope
+FROM payments WHERE provider=$1 AND provider_txn_id=$2 AND account_scope=COALESCE(NULLIF($3::text,''),'legacy')
 `
 
 type PlatformGetPaymentByProviderTransactionParams struct {
 	Provider      string      `json:"provider"`
 	ProviderTxnID pgtype.Text `json:"provider_txn_id"`
+	AccountScope  string      `json:"account_scope"`
 }
 
 func (q *Queries) PlatformGetPaymentByProviderTransaction(ctx context.Context, arg PlatformGetPaymentByProviderTransactionParams) (Payments, error) {
-	row := q.db.QueryRow(ctx, platformGetPaymentByProviderTransaction, arg.Provider, arg.ProviderTxnID)
+	row := q.db.QueryRow(ctx, platformGetPaymentByProviderTransaction, arg.Provider, arg.ProviderTxnID, arg.AccountScope)
 	var i Payments
 	err := row.Scan(
 		&i.ID,
@@ -227,22 +245,24 @@ func (q *Queries) PlatformGetPaymentByProviderTransaction(ctx context.Context, a
 		&i.Raw,
 		&i.CreatedAt,
 		&i.PaidAt,
+		&i.AccountScope,
 	)
 	return i, err
 }
 
 const platformGetPaymentEventByProviderAndID = `-- name: PlatformGetPaymentEventByProviderAndID :one
-SELECT id,provider,provider_event_id,payload,processed_at
-FROM payment_events WHERE provider=$1 AND provider_event_id=$2
+SELECT id,provider,provider_event_id,payload,processed_at,account_scope
+FROM payment_events WHERE provider=$1 AND provider_event_id=$2 AND account_scope=COALESCE(NULLIF($3::text,''),'legacy')
 `
 
 type PlatformGetPaymentEventByProviderAndIDParams struct {
 	Provider        string `json:"provider"`
 	ProviderEventID string `json:"provider_event_id"`
+	AccountScope    string `json:"account_scope"`
 }
 
 func (q *Queries) PlatformGetPaymentEventByProviderAndID(ctx context.Context, arg PlatformGetPaymentEventByProviderAndIDParams) (PaymentEvents, error) {
-	row := q.db.QueryRow(ctx, platformGetPaymentEventByProviderAndID, arg.Provider, arg.ProviderEventID)
+	row := q.db.QueryRow(ctx, platformGetPaymentEventByProviderAndID, arg.Provider, arg.ProviderEventID, arg.AccountScope)
 	var i PaymentEvents
 	err := row.Scan(
 		&i.ID,
@@ -250,13 +270,14 @@ func (q *Queries) PlatformGetPaymentEventByProviderAndID(ctx context.Context, ar
 		&i.ProviderEventID,
 		&i.Payload,
 		&i.ProcessedAt,
+		&i.AccountScope,
 	)
 	return i, err
 }
 
 const platformInsertPaymentEventPlaceholder = `-- name: PlatformInsertPaymentEventPlaceholder :one
-INSERT INTO payment_events(provider,provider_event_id,payload) VALUES($1,$2,$3)
-ON CONFLICT(provider,provider_event_id) DO NOTHING
+INSERT INTO payment_events(provider,provider_event_id,payload,account_scope) VALUES($1,$2,$3,COALESCE(NULLIF($4::text,''),'legacy'))
+ON CONFLICT(provider,account_scope,provider_event_id) DO NOTHING
 RETURNING id,provider,provider_event_id,processed_at
 `
 
@@ -264,6 +285,7 @@ type PlatformInsertPaymentEventPlaceholderParams struct {
 	Provider        string `json:"provider"`
 	ProviderEventID string `json:"provider_event_id"`
 	Payload         []byte `json:"payload"`
+	AccountScope    string `json:"account_scope"`
 }
 
 type PlatformInsertPaymentEventPlaceholderRow struct {
@@ -274,7 +296,12 @@ type PlatformInsertPaymentEventPlaceholderRow struct {
 }
 
 func (q *Queries) PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error) {
-	row := q.db.QueryRow(ctx, platformInsertPaymentEventPlaceholder, arg.Provider, arg.ProviderEventID, arg.Payload)
+	row := q.db.QueryRow(ctx, platformInsertPaymentEventPlaceholder,
+		arg.Provider,
+		arg.ProviderEventID,
+		arg.Payload,
+		arg.AccountScope,
+	)
 	var i PlatformInsertPaymentEventPlaceholderRow
 	err := row.Scan(
 		&i.ID,
@@ -406,7 +433,7 @@ func (q *Queries) PlatformListChannels(ctx context.Context) ([]Channels, error) 
 }
 
 const platformListCoupons = `-- name: PlatformListCoupons :many
-SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active, currency, bound_tenant_id, source_coupon_code, source_tenant_id, reissue_reason, reissued_by, reissued_at
 FROM coupons
 ORDER BY code ASC
 `
@@ -429,6 +456,13 @@ func (q *Queries) PlatformListCoupons(ctx context.Context) ([]Coupons, error) {
 			&i.ValidFrom,
 			&i.ValidTo,
 			&i.Active,
+			&i.Currency,
+			&i.BoundTenantID,
+			&i.SourceCouponCode,
+			&i.SourceTenantID,
+			&i.ReissueReason,
+			&i.ReissuedBy,
+			&i.ReissuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -751,16 +785,17 @@ func (q *Queries) PlatformUpsertChannel(ctx context.Context, arg PlatformUpsertC
 }
 
 const platformUpsertCoupon = `-- name: PlatformUpsertCoupon :one
-INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active,currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7,$8)
 ON CONFLICT (code) DO UPDATE SET
     kind = EXCLUDED.kind,
     value = EXCLUDED.value,
     max_redemptions = EXCLUDED.max_redemptions,
     valid_from = EXCLUDED.valid_from,
     valid_to = EXCLUDED.valid_to,
-    active = EXCLUDED.active
-RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+    active = EXCLUDED.active,
+ currency=EXCLUDED.currency
+RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active, currency, bound_tenant_id, source_coupon_code, source_tenant_id, reissue_reason, reissued_by, reissued_at
 `
 
 type PlatformUpsertCouponParams struct {
@@ -771,6 +806,7 @@ type PlatformUpsertCouponParams struct {
 	ValidFrom      pgtype.Timestamptz `json:"valid_from"`
 	ValidTo        pgtype.Timestamptz `json:"valid_to"`
 	Active         bool               `json:"active"`
+	Currency       pgtype.Text        `json:"currency"`
 }
 
 func (q *Queries) PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCouponParams) (Coupons, error) {
@@ -782,6 +818,7 @@ func (q *Queries) PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCo
 		arg.ValidFrom,
 		arg.ValidTo,
 		arg.Active,
+		arg.Currency,
 	)
 	var i Coupons
 	err := row.Scan(
@@ -793,6 +830,13 @@ func (q *Queries) PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCo
 		&i.ValidFrom,
 		&i.ValidTo,
 		&i.Active,
+		&i.Currency,
+		&i.BoundTenantID,
+		&i.SourceCouponCode,
+		&i.SourceTenantID,
+		&i.ReissueReason,
+		&i.ReissuedBy,
+		&i.ReissuedAt,
 	)
 	return i, err
 }

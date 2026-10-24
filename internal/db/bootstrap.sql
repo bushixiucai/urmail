@@ -19,6 +19,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_platform') THEN
         CREATE ROLE urmail_platform NOLOGIN;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_roundcube') THEN
+        CREATE ROLE urmail_roundcube NOLOGIN;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_dovecot') THEN
         CREATE ROLE urmail_dovecot NOLOGIN;
     END IF;
@@ -63,3 +66,9 @@ EXCEPTION
         RAISE WARNING 'could not install pg_trgm (%); compliance substring search will be slower', SQLERRM;
 END
 $$;
+
+-- Roundcube owns only its vendor metadata schema, never public mail tables.
+DO $$ BEGIN IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN GRANT urmail_roundcube TO urmail_migrate; END IF; END $$;
+-- The migration role creates isolated service schemas inside this database.
+DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO urmail_migrate',current_database()); END $$;
+ALTER ROLE urmail_roundcube SET search_path=roundcube;

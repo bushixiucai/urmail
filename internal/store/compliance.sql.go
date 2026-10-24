@@ -15,7 +15,7 @@ const clearArchiveEntryLegalHold = `-- name: ClearArchiveEntryLegalHold :one
 UPDATE archive_entries
 SET legal_hold = false
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 `
 
 type ClearArchiveEntryLegalHoldParams struct {
@@ -40,12 +40,13 @@ func (q *Queries) ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchi
 		&i.LegalHold,
 		&i.DeletedAt,
 		&i.CreatedAt,
+		&i.RawSha256,
 	)
 	return i, err
 }
 
 const getArchiveEntryByID = `-- name: GetArchiveEntryByID :one
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = $1 AND id = $2
 `
@@ -72,6 +73,7 @@ func (q *Queries) GetArchiveEntryByID(ctx context.Context, arg GetArchiveEntryBy
 		&i.LegalHold,
 		&i.DeletedAt,
 		&i.CreatedAt,
+		&i.RawSha256,
 	)
 	return i, err
 }
@@ -100,7 +102,7 @@ INSERT INTO archive_entries (
     tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 `
 
 type InsertArchiveEntryParams struct {
@@ -146,12 +148,13 @@ func (q *Queries) InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntry
 		&i.LegalHold,
 		&i.DeletedAt,
 		&i.CreatedAt,
+		&i.RawSha256,
 	)
 	return i, err
 }
 
 const listArchiveEntriesByTenant = `-- name: ListArchiveEntriesByTenant :many
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = $1 AND deleted_at IS NULL
 ORDER BY received_at DESC, id DESC
@@ -187,6 +190,7 @@ func (q *Queries) ListArchiveEntriesByTenant(ctx context.Context, arg ListArchiv
 			&i.LegalHold,
 			&i.DeletedAt,
 			&i.CreatedAt,
+			&i.RawSha256,
 		); err != nil {
 			return nil, err
 		}
@@ -226,9 +230,9 @@ func (q *Queries) ListMailboxesWithLegalHold(ctx context.Context, tenantID int64
 
 const setArchiveEntryLegalHold = `-- name: SetArchiveEntryLegalHold :one
 UPDATE archive_entries
-SET legal_hold = true
+SET legal_hold = true, deleted_at = NULL
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
 `
 
 type SetArchiveEntryLegalHoldParams struct {
@@ -253,15 +257,13 @@ func (q *Queries) SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEn
 		&i.LegalHold,
 		&i.DeletedAt,
 		&i.CreatedAt,
+		&i.RawSha256,
 	)
 	return i, err
 }
 
 const softDeleteArchiveEntry = `-- name: SoftDeleteArchiveEntry :one
-UPDATE archive_entries
-SET deleted_at = now()
-WHERE tenant_id = $1 AND id = $2 AND legal_hold = false AND deleted_at IS NULL
-RETURNING id
+SELECT result::bigint AS id FROM urmail_soft_delete_archive($1::bigint,$2::bigint) AS result WHERE result IS NOT NULL
 `
 
 type SoftDeleteArchiveEntryParams struct {
@@ -269,7 +271,6 @@ type SoftDeleteArchiveEntryParams struct {
 	ID       int64 `json:"id"`
 }
 
-// Refuses to soft-delete entries under legal hold (returns no rows when held).
 func (q *Queries) SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error) {
 	row := q.db.QueryRow(ctx, softDeleteArchiveEntry, arg.TenantID, arg.ID)
 	var id int64

@@ -40,7 +40,7 @@ FROM plans
 ORDER BY sort_order ASC, price_cents ASC;
 
 -- name: PlatformListCoupons :many
-SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active
+SELECT *
 FROM coupons
 ORDER BY code ASC;
 
@@ -115,32 +115,33 @@ SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code,
 FROM orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE;
 
 -- name: PlatformGetPaymentByProviderTransaction :one
-SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at
-FROM payments WHERE provider=$1 AND provider_txn_id=$2;
+SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at,account_scope
+FROM payments WHERE provider=$1 AND provider_txn_id=$2 AND account_scope=COALESCE(NULLIF(sqlc.arg(account_scope)::text,''),'legacy');
 
 -- name: PlatformGetPaymentEventByProviderAndID :one
-SELECT id,provider,provider_event_id,payload,processed_at
-FROM payment_events WHERE provider=$1 AND provider_event_id=$2;
+SELECT id,provider,provider_event_id,payload,processed_at,account_scope
+FROM payment_events WHERE provider=$1 AND provider_event_id=$2 AND account_scope=COALESCE(NULLIF(sqlc.arg(account_scope)::text,''),'legacy');
 
 -- name: PlatformInsertPaymentEventPlaceholder :one
-INSERT INTO payment_events(provider,provider_event_id,payload) VALUES($1,$2,$3)
-ON CONFLICT(provider,provider_event_id) DO NOTHING
+INSERT INTO payment_events(provider,provider_event_id,payload,account_scope) VALUES($1,$2,$3,COALESCE(NULLIF(sqlc.arg(account_scope)::text,''),'legacy'))
+ON CONFLICT(provider,account_scope,provider_event_id) DO NOTHING
 RETURNING id,provider,provider_event_id,processed_at;
 
 -- name: PlatformRedeemCoupon :one
 SELECT urmail_redeem_coupon_for_tenant(sqlc.arg(code)::text, sqlc.arg(tenant_id)::bigint, sqlc.narg(order_id)::bigint)::text AS result;
 
 -- name: PlatformUpsertCoupon :one
-INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active,currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7,sqlc.narg(currency))
 ON CONFLICT (code) DO UPDATE SET
     kind = EXCLUDED.kind,
     value = EXCLUDED.value,
     max_redemptions = EXCLUDED.max_redemptions,
     valid_from = EXCLUDED.valid_from,
     valid_to = EXCLUDED.valid_to,
-    active = EXCLUDED.active
-RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active;
+    active = EXCLUDED.active,
+ currency=EXCLUDED.currency
+RETURNING *;
 
 
 -- name: PlatformUpsertBrand :one

@@ -344,7 +344,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	}
 
 	// Insert a platform setting via platform
-	if _, err := tx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('platform', 0, 'site_name', '"urMail"'::jsonb)`); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('platform', 0, 'locale', '"en"'::jsonb)`); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert platform setting: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
 	var val string
-	if err := tenantTx.QueryRow(ctx, "SELECT value::text FROM settings WHERE scope = 'platform' AND key = 'site_name'").Scan(&val); err != nil {
+	if err := tenantTx.QueryRow(ctx, "SELECT value::text FROM settings WHERE scope = 'platform' AND key = 'locale'").Scan(&val); err != nil {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatalf("tenant read platform setting: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
-	changed, err := tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'site_name'`)
+	changed, err := tenantTx.Exec(ctx, `UPDATE settings SET value = '"hacked"'::jsonb WHERE scope = 'platform' AND key = 'locale'`)
 	if err == nil && changed.RowsAffected() != 0 {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatal("tenant MUST NOT be able to update platform settings")
@@ -394,7 +394,7 @@ func TestSettingsAndBrandsRLSSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tenant transaction: %v", err)
 	}
-	_, err = tenantTx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('tenant', $1, 'custom_theme', '"dark"'::jsonb)`, tenantID)
+	_, err = tenantTx.Exec(ctx, `INSERT INTO settings (scope, scope_id, key, value) VALUES ('tenant', $1, 'theme', '{"primary":"#123456"}'::jsonb)`, tenantID)
 	if err != nil {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatalf("tenant should be able to insert tenant setting: %v", err)

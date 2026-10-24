@@ -18,8 +18,8 @@ WHERE tenant_id = $1;
 
 -- name: CreateCommission :one
 INSERT INTO commissions (
-    channel_id, tenant_id, order_id, amount_cents, bps, status
+    channel_id, tenant_id, order_id, amount_cents, bps, status,source_payment_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6,sqlc.narg(source_payment_id)
 ) ON CONFLICT(channel_id,order_id) DO UPDATE SET amount_cents=commissions.amount_cents
-RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at;
+RETURNING id, channel_id, tenant_id, order_id, amount_cents, bps, status, created_at,source_payment_id;

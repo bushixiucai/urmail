@@ -16,7 +16,7 @@ INSERT INTO compliance_grants (
     tenant_id, user_id, scope, expires_at, reason, granted_by
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-) RETURNING id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at
+) RETURNING id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at, owner_confirmed_at
 `
 
 type CreateComplianceGrantParams struct {
@@ -51,21 +51,39 @@ func (q *Queries) CreateComplianceGrant(ctx context.Context, arg CreateComplianc
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OwnerConfirmedAt,
 	)
 	return i, err
 }
 
+const disableTenantRetentionPolicy = `-- name: DisableTenantRetentionPolicy :exec
+UPDATE retention_policies SET active=false,updated_at=statement_timestamp() WHERE tenant_id = $1
+`
+
+func (q *Queries) DisableTenantRetentionPolicy(ctx context.Context, tenantID int64) error {
+	_, err := q.db.Exec(ctx, disableTenantRetentionPolicy, tenantID)
+	return err
+}
+
 const getComplianceGrant = `-- name: GetComplianceGrant :one
 
-SELECT id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at
-FROM compliance_grants
-WHERE tenant_id = $1 AND user_id = $2 AND revoked = false AND (expires_at IS NULL OR expires_at > now())
-ORDER BY created_at DESC LIMIT 1
+SELECT grant_row.id, grant_row.tenant_id, grant_row.user_id, grant_row.scope, grant_row.expires_at, grant_row.revoked, grant_row.reason, grant_row.granted_by, grant_row.revoked_by, grant_row.revoked_at, grant_row.created_at, grant_row.updated_at, grant_row.owner_confirmed_at
+FROM compliance_grants AS grant_row
+WHERE grant_row.tenant_id = $1 AND grant_row.user_id = $2
+  AND grant_row.scope = $3::text AND grant_row.revoked = false
+  AND grant_row.owner_confirmed_at IS NOT NULL
+  AND (grant_row.scope = 'metadata_only' OR
+       (grant_row.expires_at > statement_timestamp() AND grant_row.granted_by IS NOT NULL AND length(btrim(grant_row.reason)) > 0
+        AND EXISTS (SELECT 1 FROM user_tenant_roles r
+                    WHERE r.tenant_id = grant_row.tenant_id
+                      AND r.user_id = grant_row.user_id AND r.role IN ('owner','admin'))))
+ORDER BY created_at DESC LIMIT 1 FOR SHARE OF grant_row
 `
 
 type GetComplianceGrantParams struct {
-	TenantID int64 `json:"tenant_id"`
-	UserID   int64 `json:"user_id"`
+	TenantID      int64  `json:"tenant_id"`
+	UserID        int64  `json:"user_id"`
+	RequiredScope string `json:"required_scope"`
 }
 
 // Compliance content grants and retention policies.
@@ -73,7 +91,7 @@ type GetComplianceGrantParams struct {
 // maintained by the handlers: a grant must always record who issued it, and a
 // revocation must record who revoked it (M6 review D6/D24).
 func (q *Queries) GetComplianceGrant(ctx context.Context, arg GetComplianceGrantParams) (ComplianceGrants, error) {
-	row := q.db.QueryRow(ctx, getComplianceGrant, arg.TenantID, arg.UserID)
+	row := q.db.QueryRow(ctx, getComplianceGrant, arg.TenantID, arg.UserID, arg.RequiredScope)
 	var i ComplianceGrants
 	err := row.Scan(
 		&i.ID,
@@ -88,12 +106,13 @@ func (q *Queries) GetComplianceGrant(ctx context.Context, arg GetComplianceGrant
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OwnerConfirmedAt,
 	)
 	return i, err
 }
 
 const getRetentionPolicy = `-- name: GetRetentionPolicy :one
-SELECT id, tenant_id, retention_days, action, active, created_by, created_at, updated_at
+SELECT id, tenant_id, retention_days, action, active, created_by, created_at, updated_at, confirmed_preview, authorization_grant_id
 FROM retention_policies
 WHERE tenant_id = $1
 `
@@ -110,12 +129,64 @@ func (q *Queries) GetRetentionPolicy(ctx context.Context, tenantID int64) (Reten
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfirmedPreview,
+		&i.AuthorizationGrantID,
 	)
 	return i, err
 }
 
+const getRetentionPolicyAuthority = `-- name: GetRetentionPolicyAuthority :one
+SELECT urmail_retention_authorized($1::bigint,$2::bigint,$3::bigint)::boolean AS allowed
+`
+
+type GetRetentionPolicyAuthorityParams struct {
+	TenantID  int64 `json:"tenant_id"`
+	CreatedBy int64 `json:"created_by"`
+	GrantID   int64 `json:"grant_id"`
+}
+
+func (q *Queries) GetRetentionPolicyAuthority(ctx context.Context, arg GetRetentionPolicyAuthorityParams) (bool, error) {
+	row := q.db.QueryRow(ctx, getRetentionPolicyAuthority, arg.TenantID, arg.CreatedBy, arg.GrantID)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
+const listComplianceGrantRecipients = `-- name: ListComplianceGrantRecipients :many
+SELECT u.id, u.email, r.role FROM users u
+JOIN user_tenant_roles r ON r.user_id = u.id
+WHERE r.tenant_id = $1 AND r.role IN ('owner', 'admin')
+ORDER BY u.email LIMIT 500
+`
+
+type ListComplianceGrantRecipientsRow struct {
+	ID    int64  `json:"id"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+func (q *Queries) ListComplianceGrantRecipients(ctx context.Context, tenantID int64) ([]ListComplianceGrantRecipientsRow, error) {
+	rows, err := q.db.Query(ctx, listComplianceGrantRecipients, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListComplianceGrantRecipientsRow{}
+	for rows.Next() {
+		var i ListComplianceGrantRecipientsRow
+		if err := rows.Scan(&i.ID, &i.Email, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listComplianceGrantsByTenant = `-- name: ListComplianceGrantsByTenant :many
-SELECT id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at
+SELECT id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at, owner_confirmed_at
 FROM compliance_grants
 WHERE tenant_id = $1
 ORDER BY created_at DESC
@@ -143,6 +214,7 @@ func (q *Queries) ListComplianceGrantsByTenant(ctx context.Context, tenantID int
 			&i.RevokedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OwnerConfirmedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -158,7 +230,7 @@ const revokeComplianceGrant = `-- name: RevokeComplianceGrant :one
 UPDATE compliance_grants
 SET revoked = true, updated_at = now(), revoked_by = $3, revoked_at = now()
 WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at
+RETURNING id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at, owner_confirmed_at
 `
 
 type RevokeComplianceGrantParams struct {
@@ -183,6 +255,7 @@ func (q *Queries) RevokeComplianceGrant(ctx context.Context, arg RevokeComplianc
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OwnerConfirmedAt,
 	)
 	return i, err
 }
@@ -197,7 +270,7 @@ SET retention_days = EXCLUDED.retention_days,
     action = EXCLUDED.action,
     active = EXCLUDED.active,
     updated_at = now()
-RETURNING id, tenant_id, retention_days, action, active, created_by, created_at, updated_at
+RETURNING id, tenant_id, retention_days, action, active, created_by, created_at, updated_at, confirmed_preview, authorization_grant_id
 `
 
 type UpsertRetentionPolicyParams struct {
@@ -226,6 +299,8 @@ func (q *Queries) UpsertRetentionPolicy(ctx context.Context, arg UpsertRetention
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfirmedPreview,
+		&i.AuthorizationGrantID,
 	)
 	return i, err
 }
