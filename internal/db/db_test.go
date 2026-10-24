@@ -144,8 +144,8 @@ func TestTenantIsolation(t *testing.T) {
 			t.Fatalf("insert tenant %s: %v", spec.slug, err)
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token)
-			VALUES ($1, $2, 'delegated', 'active', 'token-' || $2) RETURNING id`,
+			INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token, verified_at)
+			VALUES ($1, $2, 'delegated', 'active', 'token-' || $2, now()) RETURNING id`,
 			tenantID, spec.fqdn).Scan(&domainID); err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatalf("insert domain %s: %v", spec.fqdn, err)
@@ -462,7 +462,7 @@ func TestDovecotRolePermissions(t *testing.T) {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert tenant: %v", err)
 	}
-	if err := tx.QueryRow(ctx, "INSERT INTO domains (tenant_id, fqdn, status, verification_token) VALUES ($1, 'd.com', 'active', 'tok') RETURNING id", tenantID).Scan(&domainID); err != nil {
+	if err := tx.QueryRow(ctx, "INSERT INTO domains (tenant_id, fqdn, status, verification_token, verified_at) VALUES ($1, 'd.com', 'active', 'tok', now()) RETURNING id", tenantID).Scan(&domainID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert domain: %v", err)
 	}

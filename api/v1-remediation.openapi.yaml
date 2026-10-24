@@ -10,6 +10,71 @@ servers:
 security:
 - Bearer: []
 paths:
+  /marketing/unsubscribe:
+    post:
+      summary: Persist a recipient opt-out using a stateless signed token.
+      description: Public by design. Only possession of an unexpired signed token authorizes this operation.
+      security: []
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Opt-out persisted or already present.
+        '400':
+          description: Missing, invalid, tampered, or expired token.
+        '503':
+          description: Unsubscribe signing configuration or persistence unavailable.
+  /marketing/suppressions:
+    get:
+      summary: List up to 500 suppression entries for the authenticated tenant.
+      description: Requires owner or admin role and tenant RLS context.
+      responses:
+        '200':
+          description: Tenant suppression entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [suppressions]
+                properties:
+                  suppressions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MarketingSuppression'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Add a manual suppression for the authenticated tenant.
+      description: Requires owner or admin role. Existing unsubscribe, bounce, or complaint reasons cannot be downgraded.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketingSuppressionRequest'
+      responses:
+        '201':
+          description: Suppression created or existing permanent reason retained.
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      summary: Remove a manual suppression only; unsubscribe consent and bounce/complaint records are retained.
+      description: Requires owner or admin role. Removal of an unsubscribe, bounce, or complaint entry is an idempotent no-op.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketingSuppressionRequest'
+      responses:
+        '204':
+          description: Manual suppression removed or not present.
+        default:
+          $ref: '#/components/responses/Error'
   /branding:
     get:
       summary: Resolve public visual branding; authorized Host wins over brand link, then default.
@@ -539,6 +604,46 @@ paths:
           $ref: '#/components/responses/Error'
       security: *id002
       description: ' Requires the current platform administrator role.'
+  /billing/quote:
+    post:
+      summary: Generate an immutable, tamper-evident pricing quote before checkout.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+        default:
+          $ref: '#/components/responses/Error'
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_code: *id001
+                billing_cycle:
+                  type: string
+                  enum:
+                  - monthly
+                  - quarterly
+                  - annual
+                coupon_code:
+                  type: string
+                  nullable: true
+                  description: Optional coupon applied to the quote. Unknown or
+                    invalid codes fail with 404 COUPON_NOT_FOUND / 409 COUPON_INVALID
+                    instead of being ignored; a valid code is reflected in
+                    discount_cents of the returned Quote.
+              required:
+              - plan_code
+              - billing_cycle
+      description: Returns an immutable pricing snapshot with an HMAC integrity digest and expiration
+        timestamp. The digest is keyed with a server-side signing key; requests are rejected with
+        500 QUOTE_KEY_UNCONFIGURED when the deployment lacks one.
   /billing/checkout:
     post:
       summary: Create or resume an order for an active plan.
@@ -579,15 +684,124 @@ paths:
         content:
           application/json:
             schema:
+              oneOf:
+              - type: object
+                properties:
+                  quote:
+                    $ref: '#/components/schemas/Quote'
+                required:
+                - quote
+              - type: object
+                properties:
+                  plan_code: *id001
+                  billing_cycle: *id001
+                  coupon_code: *id001
+                required:
+                - plan_code
+      description: A pending order commits before Stripe is contacted. Preferred flow is POST /billing/quote first
+        and passing the signed quote back; the legacy plan_code body is still accepted and is priced server-side, so
+        the tenant cannot bypass the signed-pricing path. A fully discounted (zero-amount) order settles immediately
+        through the manual provider and is returned already paid. Provider failure returns 502 with order_id; retry
+        with the same key. Stable provider idempotency protects retries while the provider retains its key record.
+        This is not a distributed transaction or a real-payment guarantee. An already-paid resumed order has no
+        checkout_url.
+  /billing/orders/{id}/cancel:
+    post:
+      summary: Cancel a pending order and release its coupon reservation.
+      security: *id002
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Order canceled; coupon_released reports whether reserved quota was returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    $ref: '#/components/schemas/Order'
+                  coupon_released:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/refunds:
+    post:
+      summary: Record a refund request against a successful payment.
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
               type: object
               properties:
-                plan_code: *id001
+                payment_id:
+                  type: integer
+                  format: int64
+                refund_no:
+                  type: string
+                amount_cents:
+                  type: integer
+                  format: int64
+                reason:
+                  type: string
               required:
-              - plan_code
-      description: A pending order commits before Stripe is contacted. Provider failure returns 502 with order_id;
-        retry with the same key. Stable provider idempotency protects retries while the provider retains its key
-        record. This is not a distributed transaction or a real-payment guarantee. An already-paid resumed order
-        has no checkout_url.
+              - payment_id
+              - refund_no
+              - amount_cents
+      responses:
+        '201':
+          description: Refund reservation recorded (status pending until approved and processed).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refund:
+                    $ref: '#/components/schemas/Refund'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      summary: List the tenant's refund requests, newest first.
+      security: *id002
+      responses:
+        '200':
+          description: Refund list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refunds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Refund'
+        default:
+          $ref: '#/components/responses/Error'
+  /onboarding/tasks:
+    get:
+      summary: List the tenant's provisioning onboarding tasks.
+      security: *id002
+      responses:
+        '200':
+          description: Onboarding task list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+        default:
+          $ref: '#/components/responses/Error'
   /billing/orders:
     get:
       summary: List up to 100 orders of the current tenant.
@@ -948,6 +1162,28 @@ components:
       - theme
       - usage
       - subscription
+    MarketingSuppressionRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+    MarketingSuppression:
+      type: object
+      required: [id, tenant_id, email, reason, created_at]
+      properties:
+        id: *id004
+        tenant_id: *id004
+        email:
+          type: string
+          format: email
+        reason:
+          type: string
+          enum: [unsubscribe, bounce, complaint, manual]
+        created_at: *id006
     BrandHost:
       type: object
       properties:
@@ -1091,6 +1327,87 @@ components:
       - id
       - number
       - status
+    Quote:
+      type: object
+      properties:
+        tenant_id:
+          type: integer
+          format: int64
+        coupon_code:
+          type: string
+        plan_code: *id001
+        billing_cycle: *id001
+        currency: *id001
+        base_amount_cents: *id004
+        discount_cents: *id004
+        prorated_credit_cents: *id004
+        final_amount_cents: *id004
+        period_start: *id006
+        period_end: *id006
+        generated_at: *id006
+        expires_at: *id006
+        digest: *id001
+      required:
+      - plan_code
+      - billing_cycle
+      - currency
+      - base_amount_cents
+      - discount_cents
+      - prorated_credit_cents
+      - final_amount_cents
+      - period_start
+      - period_end
+      - generated_at
+      - expires_at
+      - digest
+    Refund:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        tenant_id:
+          type: integer
+          format: int64
+        order_id:
+          type: integer
+          format: int64
+        payment_id:
+          type: integer
+          format: int64
+          nullable: true
+        refund_no:
+          type: string
+        amount_cents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        reason:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - processing
+          - completed
+          - rejected
+          - failed
+        provider_refund_no:
+          type: string
+          nullable: true
+        created_at: *id006
+        completed_at: *id006
+      required:
+      - id
+      - tenant_id
+      - order_id
+      - refund_no
+      - amount_cents
+      - currency
+      - status
+      - created_at
     Recall:
       type: object
       required: [id, archive_entry_id, mailbox_id, status, scope, created_at]

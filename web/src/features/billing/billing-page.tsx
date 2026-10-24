@@ -11,35 +11,16 @@ import { useI18nLocale } from "@/app/providers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NoticeDialog } from "@/components/ui/notice-dialog";
-
-interface Plan {
-  code: string;
-  name: Record<string, string>;
-  description?: Record<string, string>;
-  price_cents: number;
-  currency: string;
-  mailbox_limit: number;
-  domain_limit: number;
-  daily_send_limit: number;
-}
-
-interface Subscription {
-  plan_id: string;
-  status: string;
-  period_start: string;
-  period_end: string;
-  cancel_at_period_end: boolean;
-}
-
-interface Invoice {
-  id: number;
-  number: string;
-  amount_cents: number;
-  currency: string;
-  status: string;
-  period_start: string;
-  period_end: string;
-}
+import {
+  BILLING_CYCLES,
+  buildCheckoutBody,
+  buildQuoteRequest,
+  type BillingCycle,
+  type Invoice,
+  type Plan,
+  type Quote,
+  type Subscription,
+} from "./types";
 
 function localized(value: Record<string, string> | undefined, locale: string) {
   if (!value) return "";
@@ -57,6 +38,8 @@ export function BillingPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeVariant, setNoticeVariant] = useState<"error" | "info">("info");
   const [submitting, setSubmitting] = useState(false);
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
+  const [quote, setQuote] = useState<Quote | null>(null);
   const returnParams = new URLSearchParams(window.location.search);
   const returnNotice =
     returnParams.get("canceled") === "1"
@@ -98,12 +81,19 @@ export function BillingPage() {
     if (submitting) return;
     setSubmitting(true);
     try {
+      const nextQuote = await request<Quote>("/api/v1/billing/quote", {
+        method: "POST",
+        body: buildQuoteRequest(code, billingCycle),
+      });
+      setQuote(nextQuote);
       const result = await request<{
         checkout_url?: string;
         order?: { order_no: string };
       }>("/api/v1/billing/checkout", {
         method: "POST",
-        body: { plan_code: code },
+        // Prefer the signed quote when one is loaded; fall back to the
+        // legacy inline body otherwise.
+        body: buildCheckoutBody(nextQuote, code, billingCycle),
       });
       if (result.checkout_url) {
         window.location.assign(checkoutDestination(result.checkout_url));
@@ -235,6 +225,23 @@ export function BillingPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {t("page.billing.billing_cycle")}:
+            </span>
+            {BILLING_CYCLES.map((cycle) => (
+              <Button
+                key={cycle}
+                size="sm"
+                variant={billingCycle === cycle ? "default" : "outline"}
+                aria-pressed={billingCycle === cycle}
+                disabled={submitting}
+                onClick={() => setBillingCycle(cycle)}
+              >
+                {t(`page.billing.cycle_${cycle}`)}
+              </Button>
+            ))}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {plans.map((p) => (
               <div key={p.code} className="border rounded-md p-3 space-y-2">
@@ -261,6 +268,60 @@ export function BillingPage() {
           </div>
         </CardContent>
       </Card>
+
+      {quote && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {t("page.billing.quote_summary")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-1 text-sm sm:grid-cols-[auto_1fr]">
+              <dt className="text-muted-foreground">
+                {t("page.billing.cycle_" + quote.billing_cycle, {
+                  defaultValue: quote.billing_cycle,
+                })}
+              </dt>
+              <dd>
+                {quote.period_start} → {quote.period_end}
+              </dd>
+              <dt className="text-muted-foreground">
+                {t("page.billing.quote_base")}
+              </dt>
+              <dd>
+                {(quote.base_amount_cents / 100).toFixed(2)} {quote.currency}
+              </dd>
+              <dt className="text-muted-foreground">
+                {t("page.billing.quote_discount")}
+              </dt>
+              <dd>
+                -{(quote.discount_cents / 100).toFixed(2)} {quote.currency}
+              </dd>
+              {quote.prorated_credit_cents > 0 && (
+                <>
+                  <dt className="text-muted-foreground">
+                    {t("page.billing.quote_credit")}
+                  </dt>
+                  <dd>
+                    -{(quote.prorated_credit_cents / 100).toFixed(2)}{" "}
+                    {quote.currency}
+                  </dd>
+                </>
+              )}
+              <dt className="text-muted-foreground">
+                {t("page.billing.quote_final")}
+              </dt>
+              <dd className="font-semibold">
+                {(quote.final_amount_cents / 100).toFixed(2)} {quote.currency}
+              </dd>
+            </dl>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("page.billing.quote_expires", { time: quote.expires_at })}
+            </p>
+          </CardContent>
+        </Card>
+      )}
       <NoticeDialog
         open={notice !== null}
         onOpenChange={(open) => !open && setNotice(null)}

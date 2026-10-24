@@ -12,6 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sys v0.48.0
+	golang.org/x/net v0.59.0
 )
 
 require (
@@ -52,7 +53,6 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
