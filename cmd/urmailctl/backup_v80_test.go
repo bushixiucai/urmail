@@ -71,6 +71,12 @@ func v80Fixture(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	write("usr/share/postfix/makedefs.out", "preserved vendor definitions\n")
+	write("etc/ssl/private/ssl-cert-snakeoil.key", "private fixture fallback key\n")
+	write("etc/ssl/certs/ssl-cert-snakeoil.pem", "fixture fallback certificate\n")
+	link("etc/postfix/makedefs.out", "/usr/share/postfix/makedefs.out")
+	link("etc/dovecot/private/dovecot.key", "/etc/ssl/private/ssl-cert-snakeoil.key")
+	link("etc/dovecot/private/dovecot.pem", "/etc/ssl/certs/ssl-cert-snakeoil.pem")
 	link("usr/local/lib/owncloud/config/config.php", "/home/user-data/owncloud/config.php")
 	link("usr/local/lib/roundcubemail/temp", "/var/tmp/roundcubemail")
 	link("usr/local/lib/roundcubemail/logs", "/var/log/roundcubemail")

@@ -40,6 +40,9 @@ var v80Roots = []v80RootSpec{
 	{"home/user-data/dns", true, false}, {"home/user-data/www", true, false}, {"etc/nsd", true, false}, {"etc/opendkim.conf", false, false}, {"etc/default/opendkim", false, false}, {"etc/letsencrypt", true, false},
 	{"etc/cron.d/mailinabox-nightly", false, false}, {"etc/cron.d/mailinabox-nextcloud", false, false}, {"lib/systemd/system/mailinabox.service", false, false},
 	{"usr/share/nginx/modules-available", true, false},
+	{"usr/share/postfix/makedefs.out", false, false},
+	{"etc/ssl/private/ssl-cert-snakeoil.key", false, false},
+	{"etc/ssl/certs/ssl-cert-snakeoil.pem", false, false},
 }
 var v80RequiredLayout = map[string]string{
 	"etc/mailinabox.conf":                               "file",
