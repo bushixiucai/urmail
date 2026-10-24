@@ -90,7 +90,7 @@ func renderZoneFile(node NodeConfig, z Zone) string {
 	}
 	b.WriteString("\n")
 
-	if z.Mode == "managed" {
+	if z.Mode == "managed" && !z.Explicit {
 		// Managed mode: Provide full standard email hosting records
 		b.WriteString("; Standard Mail Server Records\n")
 		fmt.Fprintf(&b, "@ IN A %s\n", node.PublicIPv4)

@@ -18,6 +18,8 @@ func postgresCommand(ctx context.Context, program, connection string, args ...st
 		executable = "/usr/bin/pg_dump"
 	case "pg_restore":
 		executable = "/usr/bin/pg_restore"
+	case "psql":
+		executable = "/usr/bin/psql"
 	default:
 		return nil, fmt.Errorf("unsupported postgres utility")
 	}

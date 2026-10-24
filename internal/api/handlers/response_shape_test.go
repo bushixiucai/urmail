@@ -173,6 +173,13 @@ func (f *shapeFakeDomainStore) PlatformBindOnboardingDomain(_ context.Context, _
 	return 0, errors.New("not implemented")
 }
 
+func (f *shapeFakeDomainStore) RotateDomainChallenge(_ context.Context, arg store.RotateDomainChallengeParams) (store.RotateDomainChallengeRow, error) {
+	return store.RotateDomainChallengeRow{ID: arg.ID, Fqdn: f.byID.Fqdn, VerificationToken: arg.VerificationToken, VerificationIssuedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}, VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true}}, nil
+}
+func (f *shapeFakeDomainStore) VerifyDomainChallenge(_ context.Context, arg store.VerifyDomainChallengeParams) (store.VerifyDomainChallengeRow, error) {
+	return store.VerifyDomainChallengeRow{ID: arg.ID, TenantID: arg.TenantID, Fqdn: f.byID.Fqdn, Status: "active"}, nil
+}
+
 // --- mailbox fake ---
 
 type shapeFakeMailboxStore struct {
@@ -325,6 +332,7 @@ func TestDomainListResponseShapeHasNoSecrets(t *testing.T) {
 		Fqdn:              "example.com",
 		Mode:              "managed",
 		Status:            "active",
+		ProvisioningState: "ready",
 		VerificationToken: "verification-token-secret",
 		DkimSelector:      "mail",
 		DkimPrivateKey:    shapeText("DKIM-PRIVATE-KEY-MATERIAL"),
@@ -348,9 +356,9 @@ func TestDomainListResponseShapeHasNoSecrets(t *testing.T) {
 		t.Fatalf("expected 1 domain, got %v", domains)
 	}
 	domain := domains[0].(map[string]any)
-	assertKeys(t, domain, "id", "fqdn", "mode", "status", "selector", "created_at")
+	assertKeys(t, domain, "id", "fqdn", "mode", "status", "selector", "created_at", "provisioning_state")
 	if domain["fqdn"] != "example.com" || domain["mode"] != "managed" ||
-		domain["status"] != "active" || domain["selector"] != "mail" {
+		domain["status"] != "active" || domain["selector"] != "mail" || domain["provisioning_state"] != "ready" {
 		t.Fatalf("unexpected domain payload: %v", domain)
 	}
 	if domain["id"].(float64) != 7 || domain["created_at"] == nil {
@@ -364,7 +372,8 @@ func TestDomainCreateResponseShapeHasNoSecrets(t *testing.T) {
 		TenantID:          shapeTenantID,
 		Fqdn:              "example.com",
 		Mode:              "managed",
-		Status:            "active",
+		Status:            "pending_dns",
+		ProvisioningState: "pending",
 		VerificationToken: "verification-token-secret",
 		DkimSelector:      "mail",
 		DkimPrivateKey:    shapeText("DKIM-PRIVATE-KEY-MATERIAL"),
@@ -392,8 +401,8 @@ func TestDomainCreateResponseShapeHasNoSecrets(t *testing.T) {
 	}
 
 	domain := shapeObject(t, body, "domain")
-	assertKeys(t, domain, "id", "fqdn", "mode", "status", "selector", "created_at")
-	if domain["fqdn"] != "example.com" || domain["selector"] != "mail" {
+	assertKeys(t, domain, "id", "fqdn", "mode", "status", "selector", "created_at", "provisioning_state")
+	if domain["fqdn"] != "example.com" || domain["selector"] != "mail" || domain["provisioning_state"] != "pending" {
 		t.Fatalf("unexpected domain payload: %v", domain)
 	}
 	guidance := shapeObject(t, body, "dns_guidance")

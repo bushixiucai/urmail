@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/i18n"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -29,9 +30,10 @@ type UnsubscribeTokenVerifier interface {
 
 // MarketingSuppressionHandler serves public unsubscribe and tenant admin operations.
 type MarketingSuppressionHandler struct {
-	Store   MarketingSuppressionStore
-	Tokens  UnsubscribeTokenVerifier
-	AppPool *db.Pool
+	Store    MarketingSuppressionStore
+	Tokens   UnsubscribeTokenVerifier
+	AppPool  *db.Pool
+	Messages *i18n.Store
 }
 
 func normalizeSuppressionEmail(raw string) (string, bool) {
@@ -59,6 +61,9 @@ func (h *MarketingSuppressionHandler) OneClick(c *gin.Context) {
 	}
 	token := c.Query("token")
 	if token == "" {
+		token = c.PostForm("token")
+	}
+	if token == "" {
 		var input struct {
 			Token string `json:"token"`
 		}
@@ -84,6 +89,10 @@ func (h *MarketingSuppressionHandler) OneClick(c *gin.Context) {
 	}
 	if err = tx.Commit(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "UNSUBSCRIBE_FAILED"}})
+		return
+	}
+	if c.PostForm("confirm_unsubscribe") == "1" {
+		h.unsubscribePage(c, http.StatusOK, "marketing.unsubscribe.success", "")
 		return
 	}
 	c.Status(http.StatusNoContent)

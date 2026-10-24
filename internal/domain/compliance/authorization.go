@@ -10,9 +10,10 @@ import (
 
 // Supported content access scopes.
 const (
-	ScopeMetadataOnly = "metadata_only"
-	ScopeFullContent  = "full_content"
-	ScopeExport       = "export"
+	ScopeMetadataOnly    = "metadata_only"
+	ScopeFullContent     = "full_content"
+	ScopeExport          = "export"
+	ScopeRetentionManage = "retention_manage"
 )
 
 // Tenant roles that may hold and exercise content grants. The values match the
@@ -34,6 +35,7 @@ var (
 	ErrGrantRevoked      = errors.New("compliance grant has been revoked")
 	ErrGrantExpired      = errors.New("compliance grant has expired")
 	ErrInsufficientScope = errors.New("insufficient compliance content scope")
+	ErrGrantUnconfirmed  = errors.New("content grant requires explicit owner confirmation")
 	// ErrRoleNotPermitted is returned when the tenant role of the requesting
 	// user (or of the granter) is not allowed to hold or exercise the scope of
 	// a content grant.
@@ -45,15 +47,17 @@ var (
 // Provenance (M5-M7 review v2): a grant records who issued it (GrantedBy) and,
 // once it is revoked, who revoked it and when (RevokedBy / RevokedAt). Those
 // fields are additive: the original fields keep their meaning and the original
-// behaviour of AuthorizeContentAccess is unchanged.
+// behavior of AuthorizeContentAccess is unchanged.
 type ContentGrant struct {
-	ID        int64
-	TenantID  int64
-	UserID    int64
-	Scope     string
-	ExpiresAt *time.Time
-	Revoked   bool
-	CreatedAt time.Time
+	ID               int64
+	TenantID         int64
+	UserID           int64
+	Scope            string
+	ExpiresAt        *time.Time
+	Revoked          bool
+	CreatedAt        time.Time
+	Reason           string
+	OwnerConfirmedAt *time.Time
 
 	// GrantedBy is the user id of the actor that issued the grant. Zero means
 	// the grant has no recorded issuer (a legacy row) and must be treated as
@@ -84,7 +88,7 @@ func (g *ContentGrant) Revoke(actorID int64, at time.Time) {
 
 // AuthorizeContentAccess verifies if the given grant authorizes the requested scope at now.
 //
-// The behaviour of this function is unchanged by the role gate added later:
+// The behavior of this function is unchanged by the role gate added later:
 // it only looks at the grant itself. Handlers that serve tenant users must
 // additionally apply the role gate, either with AuthorizeContentAccessWithRole
 // or with RoleMayHoldScope.
@@ -98,23 +102,21 @@ func AuthorizeContentAccess(grant *ContentGrant, requiredScope string, now time.
 	if now.IsZero() {
 		now = time.Now()
 	}
-	if grant.ExpiresAt != nil && now.After(*grant.ExpiresAt) {
+	if grant.ExpiresAt != nil && !now.Before(*grant.ExpiresAt) {
 		return ErrGrantExpired
 	}
 
 	switch requiredScope {
 	case ScopeMetadataOnly:
 		return nil
-	case ScopeFullContent:
-		if grant.Scope == ScopeFullContent || grant.Scope == ScopeExport {
-			return nil
+	case ScopeFullContent, ScopeExport, ScopeRetentionManage:
+		if grant.Scope != requiredScope {
+			return ErrInsufficientScope
 		}
-		return ErrInsufficientScope
-	case ScopeExport:
-		if grant.Scope == ScopeExport {
-			return nil
+		if grant.GrantedBy <= 0 || grant.OwnerConfirmedAt == nil || grant.ExpiresAt == nil || strings.TrimSpace(grant.Reason) == "" || grant.OwnerConfirmedAt.After(now) {
+			return ErrGrantUnconfirmed
 		}
-		return ErrInsufficientScope
+		return nil
 	default:
 		return ErrInsufficientScope
 	}
@@ -136,7 +138,7 @@ func RoleMayHoldScope(role string, scope string) bool {
 			return true
 		}
 		return false
-	case ScopeFullContent, ScopeExport:
+	case ScopeFullContent, ScopeExport, ScopeRetentionManage:
 		switch role {
 		case TenantRoleOwner, TenantRoleAdmin:
 			return true
@@ -156,20 +158,13 @@ func RoleMayHoldScope(role string, scope string) bool {
 // row exists for them. The grant checks run first, so a revoked or expired
 // grant still reports its own reason.
 func AuthorizeContentAccessWithRole(grant *ContentGrant, requiredScope string, requesterRole string, now time.Time) error {
-	if err := AuthorizeContentAccess(grant, requiredScope, now); err != nil {
+	if err := AuthorizeContentAccess(grant, ScopeMetadataOnly, now); err != nil {
 		return err
 	}
-	if grant == nil {
-		// Unreachable: AuthorizeContentAccess already rejected a nil grant.
-		return ErrNoGrant
-	}
-	if !RoleMayHoldScope(requesterRole, grant.Scope) {
+	if !RoleMayHoldScope(requesterRole, grant.Scope) || !RoleMayHoldScope(requesterRole, requiredScope) {
 		return ErrRoleNotPermitted
 	}
-	if !RoleMayHoldScope(requesterRole, requiredScope) {
-		return ErrRoleNotPermitted
-	}
-	return nil
+	return AuthorizeContentAccess(grant, requiredScope, now)
 }
 
 // AuthorizeGrantIssuance reports whether a tenant role may issue a content
@@ -179,7 +174,7 @@ func AuthorizeContentAccessWithRole(grant *ContentGrant, requiredScope string, r
 // able to grant itself an export or content grant, nor grant one to anybody
 // else. The issued grant must record the granter in ContentGrant.GrantedBy.
 func AuthorizeGrantIssuance(granterRole string, scope string) error {
-	if !RoleMayHoldScope(granterRole, scope) {
+	if granterRole != TenantRoleOwner || !RoleMayHoldScope(granterRole, scope) {
 		return ErrRoleNotPermitted
 	}
 	return nil
@@ -375,7 +370,7 @@ func SanitizeHTMLPreview(rawHTML string) (string, int) {
 //
 // The walk is iterative on purpose: a pathologically nested document must not
 // be able to overflow the goroutine stack of the check itself.
-func exceedsMaxDepth(root *html.Node, max int) bool {
+func exceedsMaxDepth(root *html.Node, maxDepth int) bool {
 	type frame struct {
 		node  *html.Node
 		depth int
@@ -387,7 +382,7 @@ func exceedsMaxDepth(root *html.Node, max int) bool {
 		depth := f.depth
 		if f.node.Type == html.ElementNode {
 			depth++
-			if depth > max {
+			if depth > maxDepth {
 				return true
 			}
 		}
@@ -456,7 +451,7 @@ func filterAttrs(tag string, attrs []html.Attribute, blocked int) ([]html.Attrib
 // window.opener and can navigate it to a phishing page (reverse tabnabbing).
 // The keywords are added only when missing; every other rel token the author
 // set is preserved. Repeated rel attributes are merged into one, and a
-// contradictory rel="opener" is neutralised because the HTML specification
+// contradictory rel="opener" is neutralized because the HTML specification
 // gives "noopener" precedence over "opener".
 func hardenBlankTargetRel(attrs []html.Attribute) []html.Attribute {
 	opensNewContext := false

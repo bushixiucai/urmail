@@ -2,19 +2,24 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/mail"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
@@ -47,6 +52,8 @@ func runSetup(ctx context.Context, args []string) error {
 	brandSlug := fs.String("brand", "default", "brand slug")
 	tenantSlug := fs.String("tenant", "default", "tenant slug")
 	tenantName := fs.String("tenant-name", "Default", "tenant display name")
+	freeUntil := fs.String("free-until", "", "explicit finite free grant end in RFC3339; absent keeps a new tenant pending")
+	freeReason := fs.String("free-reason", "", "audited reason for an explicit finite free grant")
 	resetPassword := fs.Bool("reset-password", false, "reset the password when the user already exists")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -73,6 +80,16 @@ func runSetup(ctx context.Context, args []string) error {
 		return errors.New("tenant name cannot be empty")
 	}
 
+	freeEnd := pgtype.Timestamptz{}
+	if *freeUntil != "" {
+		end, parseErr := time.Parse(time.RFC3339, *freeUntil)
+		if parseErr != nil || !end.After(time.Now()) || len(strings.TrimSpace(*freeReason)) < 10 || len(*freeReason) > 2000 {
+			return errors.New("--free-until requires a future RFC3339 date and an evidence reason of 10 to 2000 characters")
+		}
+		freeEnd = pgtype.Timestamptz{Time: end.UTC(), Valid: true}
+	} else if strings.TrimSpace(*freeReason) != "" {
+		return errors.New("--free-reason requires --free-until")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -98,13 +115,27 @@ func runSetup(ctx context.Context, args []string) error {
 		return fmt.Errorf("upsert brand: %w", err)
 	}
 
-	var tenantID int64
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO tenants (brand_id, name, slug, status)
-		VALUES ($1, $2, $3, 'active')
-		ON CONFLICT (brand_id, slug) DO UPDATE SET name = EXCLUDED.name, status = 'active'
-		RETURNING id`, brandID, *tenantName, *tenantSlug).Scan(&tenantID); err != nil {
+	q := store.New(tx)
+	tenant, err := q.PlatformSetupTenant(ctx, store.PlatformSetupTenantParams{BrandID: brandID, Name: *tenantName, Slug: *tenantSlug})
+	if err != nil {
 		return fmt.Errorf("upsert tenant: %w", err)
+	}
+	tenantID := tenant.ID
+	if err = q.PlatformLockBillingTenant(ctx, tenantID); err != nil {
+		return err
+	}
+	if freeEnd.Valid {
+		changed, grantErr := q.PlatformGrantSetupFreeTerm(ctx, store.PlatformGrantSetupFreeTermParams{TenantID: tenantID, PeriodEnd: freeEnd})
+		if grantErr != nil {
+			return grantErr
+		}
+		if changed != 1 {
+			return errors.New("finite bootstrap gift would replace existing non-free rights; no changes committed")
+		}
+	} else if tenant.Created {
+		if err = q.PlatformRemoveRegistrationGift(ctx, tenantID); err != nil {
+			return err
+		}
 	}
 
 	var userID int64
@@ -148,6 +179,13 @@ func runSetup(ctx context.Context, args []string) error {
 		INSERT INTO platform_admins (user_id) VALUES ($1)
 		ON CONFLICT (user_id) DO NOTHING`, userID); err != nil {
 		return fmt.Errorf("grant platform administrator: %w", err)
+	}
+	if err = q.PlatformDemotePreviousOwners(ctx, store.PlatformDemotePreviousOwnersParams{TenantID: tenantID, UserID: userID}); err != nil {
+		return err
+	}
+	detail, _ := json.Marshal(map[string]any{"actor_type": "local_operator", "effective_uid": os.Geteuid(), "source": "bootstrap", "status": 200, "outcome": "succeeded", "created_tenant": tenant.Created, "finite_free_grant": freeEnd.Valid, "free_until": freeEnd, "grant_reason": strings.TrimSpace(*freeReason)})
+	if _, err = q.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, Action: "SETUP platform.bootstrap", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tenantID, 10), Valid: true}, Detail: detail}); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit setup: %w", err)

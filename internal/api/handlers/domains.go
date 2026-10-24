@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -22,6 +24,8 @@ import (
 
 // DomainStore exposes tenant-scoped domain persistence.
 type DomainStore interface {
+	RotateDomainChallenge(context.Context, store.RotateDomainChallengeParams) (store.RotateDomainChallengeRow, error)
+	VerifyDomainChallenge(context.Context, store.VerifyDomainChallengeParams) (store.VerifyDomainChallengeRow, error)
 	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]store.ListDomainsByTenantRow, error)
 	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
 	CreateDomain(ctx context.Context, arg store.CreateDomainParams) (store.CreateDomainRow, error)
@@ -52,12 +56,11 @@ type DomainHandler struct {
 	// from config so a non-default deployment does not publish box.urmail.cn.
 	Hostname string
 	// DNSManagedZones lists the DNS zones the operator's provider credentials
-	// are allowed to write. A tenant-chosen FQDN must match one of these zones
-	// (exactly or as a subdomain) before the platform writes anything with its
-	// credentials; otherwise the tenant could point platform credentials at an
-	// arbitrary zone before ownership was verified (M5 review 3.11). Empty
-	// disables automatic verification writes entirely.
+	// are allowed to maintain after independent tenant ownership proof.
+	// This list never authorizes writing an ownership challenge.
 	DNSManagedZones []string
+	// LookupTXT is the ownership resolver; nil uses the system resolver.
+	LookupTXT func(context.Context, string) ([]string, error)
 }
 
 func (h *DomainHandler) mxHost() string {
@@ -65,26 +68,6 @@ func (h *DomainHandler) mxHost() string {
 		return h.Hostname
 	}
 	return "box.urmail.cn"
-}
-
-// domainZoneManaged reports whether fqdn is one of the operator-managed zones
-// or lives underneath one. Comparison is case-insensitive on the trimmed
-// trailing dot, matching how DNS zone names are written.
-func domainZoneManaged(managed []string, fqdn string) bool {
-	name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(fqdn), "."))
-	if name == "" || len(managed) == 0 {
-		return false
-	}
-	for _, zone := range managed {
-		z := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zone), "."))
-		if z == "" {
-			continue
-		}
-		if name == z || strings.HasSuffix(name, "."+z) {
-			return true
-		}
-	}
-	return false
 }
 
 // NewDomainHandler serves the tenant management operation.
@@ -97,12 +80,13 @@ func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
 // verification token are server-side data and must never cross the HTTP
 // boundary.
 type DomainResponse struct {
-	ID        int64              `json:"id"`
-	FQDN      string             `json:"fqdn"`
-	Mode      string             `json:"mode"`
-	Status    string             `json:"status"`
-	Selector  string             `json:"selector"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                int64              `json:"id"`
+	FQDN              string             `json:"fqdn"`
+	Mode              string             `json:"mode"`
+	Status            string             `json:"status"`
+	Selector          string             `json:"selector"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	ProvisioningState string             `json:"provisioning_state"`
 }
 
 // DNSGuidanceResponse is the copy-paste DNS record set returned when a domain
@@ -117,14 +101,19 @@ type DNSGuidanceResponse struct {
 	VerificationValue string `json:"verification_value"`
 }
 
-func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt pgtype.Timestamptz) DomainResponse {
+func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt pgtype.Timestamptz, provisioning ...string) DomainResponse {
+	state := "pending"
+	if len(provisioning) > 0 && provisioning[0] != "" {
+		state = provisioning[0]
+	}
 	return DomainResponse{
-		ID:        id,
-		FQDN:      fqdn,
-		Mode:      mode,
-		Status:    status,
-		Selector:  selector,
-		CreatedAt: createdAt,
+		ProvisioningState: state,
+		ID:                id,
+		FQDN:              fqdn,
+		Mode:              mode,
+		Status:            status,
+		Selector:          selector,
+		CreatedAt:         createdAt,
 	}
 }
 
@@ -148,7 +137,7 @@ func (h *DomainHandler) List(c *gin.Context) {
 
 	items := make([]DomainResponse, 0, len(domains))
 	for _, d := range domains {
-		items = append(items, newDomainResponse(d.ID, d.Fqdn, d.Mode, d.Status, d.DkimSelector, d.CreatedAt))
+		items = append(items, newDomainResponse(d.ID, d.Fqdn, d.Mode, d.Status, d.DkimSelector, d.CreatedAt, d.ProvisioningState))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"domains": items})
@@ -236,18 +225,10 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// If a DNS provider is configured AND the domain lives inside a zone the
-	// operator manages, write the verification TXT record. Failure is
-	// non-fatal: DNS may be delegated to a provider the caller manages
-	// manually. The zone allowlist is what stops a tenant from aiming the
-	// platform's provider credentials at an arbitrary zone before ownership
-	// verification succeeded (M5 review 3.11).
+	// A platform DNS credential cannot prove the requesting tenant owns a
+	// domain. Never publish the ownership challenge on the tenant's behalf.
+	// Automatic record maintenance can begin only after independent proof.
 	dnsAuto := false
-	if h.DNS != nil && domainZoneManaged(h.DNSManagedZones, domain.Fqdn) {
-		if err := h.DNS.EnsureTXT(c, domain.Fqdn, "_urmail-verify."+domain.Fqdn, verifToken); err == nil {
-			dnsAuto = true
-		}
-	}
 
 	// Trigger async reconcile pipeline
 	if h.Reconcile != nil {
@@ -256,7 +237,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"domain": newDomainResponse(
-			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt,
+			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt, domain.ProvisioningState,
 		),
 		"dns_auto": dnsAuto,
 		"dns_guidance": DNSGuidanceResponse{
@@ -298,20 +279,24 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 		return
 	}
 	if domain.Status == "active" {
-		c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt)})
+		c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt, domain.ProvisioningState)})
 		return
 	}
-	// Verification challenges expire seven days after creation. Use the persisted
-	// creation time so restarts and multiple API replicas agree on the deadline.
+	// Challenge expiry is independent of domain creation. A renewed challenge
+	// can recover an old domain without deleting retained mailbox data.
 	now := time.Now().UTC()
-	if !domain.CreatedAt.Valid || now.Sub(domain.CreatedAt.Time) > 7*24*time.Hour || domain.CreatedAt.Time.After(now.Add(time.Minute)) {
+	if !domain.VerificationIssuedAt.Valid || !domain.VerificationExpiresAt.Valid || !now.Before(domain.VerificationExpiresAt.Time) || domain.VerificationIssuedAt.Time.After(now.Add(time.Minute)) {
 		c.JSON(http.StatusGone, gin.H{"error": gin.H{"code": "DOMAIN_CHALLENGE_EXPIRED", "message": "domain.challenge_expired"}})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	records, err := net.DefaultResolver.LookupTXT(ctx, "_urmail-verify."+domain.Fqdn)
+	lookup := h.LookupTXT
+	if lookup == nil {
+		lookup = net.DefaultResolver.LookupTXT
+	}
+	records, err := lookup(ctx, "_urmail-verify."+domain.Fqdn)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -335,12 +320,11 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 		return
 	}
 
-	updated, err := q.UpdateDomainStatus(c, store.UpdateDomainStatusParams{
-		TenantID:   tenantID,
-		ID:         domain.ID,
-		Status:     "active",
-		VerifiedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
-	})
+	updated, err := q.VerifyDomainChallenge(c, store.VerifyDomainChallengeParams{TenantID: tenantID, ID: domain.ID, VerificationToken: domain.VerificationToken})
+	if errors.Is(err, pgx.ErrNoRows) {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "DOMAIN_CHALLENGE_CHANGED", "message": "domain.challenge_changed"}})
+		return
+	}
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -351,7 +335,37 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 	if h.Reconcile != nil {
 		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
-	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt)})
+	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt, updated.ProvisioningState)})
+}
+
+// ReissueChallenge rotates only a pending domain's ownership proof. The
+// previous token is invalid immediately, even if its DNS lookup is in flight.
+func (h *DomainHandler) ReissueChallenge(c *gin.Context) {
+	tenantID, ok := middleware.GetTenantID(c)
+	if !ok {
+		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		authError(c, http.StatusBadRequest, "INVALID_ID")
+		return
+	}
+	var random [32]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		authError(c, http.StatusInternalServerError, "INTERNAL_ERROR")
+		return
+	}
+	challenge, err := requestStore(c, h.Store).RotateDomainChallenge(c, store.RotateDomainChallengeParams{TenantID: tenantID, ID: id, VerificationToken: hex.EncodeToString(random[:])})
+	if errors.Is(err, pgx.ErrNoRows) {
+		authError(c, http.StatusConflict, "DOMAIN_CHALLENGE_UNAVAILABLE")
+		return
+	}
+	if err != nil {
+		authError(c, http.StatusInternalServerError, "DB_ERROR")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"verification_name": "_urmail-verify." + challenge.Fqdn, "verification_value": challenge.VerificationToken, "issued_at": challenge.VerificationIssuedAt, "expires_at": challenge.VerificationExpiresAt})
 }
 
 // Delete serves the tenant management operation.
@@ -460,6 +474,6 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(
-		updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt,
+		updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt, updated.ProvisioningState,
 	)})
 }

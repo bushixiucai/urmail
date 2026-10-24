@@ -114,6 +114,9 @@ func briefBody(body []byte) string {
 // RefundResult contains the result of a refund request.
 type RefundResult struct {
 	ProviderRefundID string `json:"provider_refund_id"`
+	AmountCents      int64  `json:"amount_cents"`
+	Currency         string `json:"currency"`
+	ProviderTxnID    string `json:"provider_txn_id,omitempty"`
 	Status           string `json:"status"` // processing, succeeded, failed
 }
 

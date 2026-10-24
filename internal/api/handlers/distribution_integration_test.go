@@ -54,7 +54,9 @@ func TestAttributionCheckoutSettlementCommissionIsAtomicAndIdempotent(t *testing
 	if _, err := q.CreateChannelAttribution(ctx, store.CreateChannelAttributionParams{TenantID: tid, ChannelID: channel, RefCode: pgtype.Text{String: "campaign", Valid: true}}); err != nil {
 		t.Fatal(err)
 	}
+	seedVerifiedBillingDomain(t, p, tid)
 	orderHandler := NewBillingHandler(store.New(app.Pool))
+	orderHandler.Pool = p
 	orderHandler.QuoteHMACKey = []byte("integration-quote-hmac-key-that-is-at-least-32-bytes-long")
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) { c.Set(middleware.ContextTenantID, tid); c.Set(middleware.ContextUserID, uid) }, middleware.RequireTenantTx(app, zap.NewNop()))

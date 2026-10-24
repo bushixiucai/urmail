@@ -48,7 +48,7 @@ func TestAuthorizeContentAccess(t *testing.T) {
 	})
 
 	t.Run("full content can access full content and metadata", func(t *testing.T) {
-		g := &compliance.ContentGrant{Scope: compliance.ScopeFullContent, ExpiresAt: &future}
+		g := &compliance.ContentGrant{Scope: compliance.ScopeFullContent, ExpiresAt: &future, GrantedBy: 1, Reason: "test access", OwnerConfirmedAt: &now}
 		if err := compliance.AuthorizeContentAccess(g, compliance.ScopeFullContent, now); err != nil {
 			t.Errorf("expected allowed full content, got %v", err)
 		}
@@ -60,13 +60,13 @@ func TestAuthorizeContentAccess(t *testing.T) {
 		}
 	})
 
-	t.Run("export can access all scopes", func(t *testing.T) {
-		g := &compliance.ContentGrant{Scope: compliance.ScopeExport, ExpiresAt: &future}
+	t.Run("export cannot access content without separate scope", func(t *testing.T) {
+		g := &compliance.ContentGrant{Scope: compliance.ScopeExport, ExpiresAt: &future, GrantedBy: 1, Reason: "test export", OwnerConfirmedAt: &now}
 		if err := compliance.AuthorizeContentAccess(g, compliance.ScopeExport, now); err != nil {
 			t.Errorf("expected allowed export, got %v", err)
 		}
-		if err := compliance.AuthorizeContentAccess(g, compliance.ScopeFullContent, now); err != nil {
-			t.Errorf("expected allowed full content, got %v", err)
+		if err := compliance.AuthorizeContentAccess(g, compliance.ScopeFullContent, now); !errors.Is(err, compliance.ErrInsufficientScope) {
+			t.Errorf("export must not imply content permission: %v", err)
 		}
 	})
 }
@@ -153,8 +153,8 @@ func TestAuthorizeContentAccessWithRole(t *testing.T) {
 	future := now.Add(24 * time.Hour)
 	past := now.Add(-24 * time.Hour)
 
-	exportGrant := &compliance.ContentGrant{Scope: compliance.ScopeExport, ExpiresAt: &future, GrantedBy: 1}
-	contentGrant := &compliance.ContentGrant{Scope: compliance.ScopeFullContent, ExpiresAt: &future, GrantedBy: 1}
+	exportGrant := &compliance.ContentGrant{Scope: compliance.ScopeExport, ExpiresAt: &future, GrantedBy: 1, Reason: "test export", OwnerConfirmedAt: &now}
+	contentGrant := &compliance.ContentGrant{Scope: compliance.ScopeFullContent, ExpiresAt: &future, GrantedBy: 1, Reason: "test content", OwnerConfirmedAt: &now}
 	metadataGrant := &compliance.ContentGrant{Scope: compliance.ScopeMetadataOnly, ExpiresAt: &future, GrantedBy: 1}
 
 	t.Run("owner may export", func(t *testing.T) {
@@ -247,12 +247,12 @@ func TestAuthorizeGrantIssuance(t *testing.T) {
 		want  error
 	}{
 		{compliance.TenantRoleOwner, compliance.ScopeExport, nil},
-		{compliance.TenantRoleAdmin, compliance.ScopeExport, nil},
+		{compliance.TenantRoleAdmin, compliance.ScopeExport, compliance.ErrRoleNotPermitted},
 		{compliance.TenantRoleOwner, compliance.ScopeFullContent, nil},
 		{compliance.TenantRoleMember, compliance.ScopeExport, compliance.ErrRoleNotPermitted},
 		{compliance.TenantRoleMember, compliance.ScopeFullContent, compliance.ErrRoleNotPermitted},
 		{compliance.TenantRoleBilling, compliance.ScopeFullContent, compliance.ErrRoleNotPermitted},
-		{compliance.TenantRoleMember, compliance.ScopeMetadataOnly, nil},
+		{compliance.TenantRoleMember, compliance.ScopeMetadataOnly, compliance.ErrRoleNotPermitted},
 		{"", compliance.ScopeMetadataOnly, compliance.ErrRoleNotPermitted},
 	}
 	for _, tc := range cases {
@@ -659,4 +659,33 @@ func firstAnchorRel(t *testing.T, clean string) (string, bool) {
 	}
 	walk(doc)
 	return rel, found
+}
+
+func TestContentGrantsRequireOwnerConfirmationAndIndependentScopes(t *testing.T) {
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	future := now.Add(time.Hour)
+	grant := &compliance.ContentGrant{Scope: compliance.ScopeFullContent, ExpiresAt: &future, GrantedBy: 1, Reason: "incident review", OwnerConfirmedAt: &now}
+	if err := compliance.AuthorizeContentAccess(grant, compliance.ScopeFullContent, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*compliance.ContentGrant){
+		func(g *compliance.ContentGrant) { g.OwnerConfirmedAt = nil },
+		func(g *compliance.ContentGrant) { g.GrantedBy = 0 },
+		func(g *compliance.ContentGrant) { g.Reason = " " },
+		func(g *compliance.ContentGrant) { g.ExpiresAt = nil },
+	} {
+		candidate := *grant
+		mutate(&candidate)
+		if err := compliance.AuthorizeContentAccess(&candidate, compliance.ScopeFullContent, now); !errors.Is(err, compliance.ErrGrantUnconfirmed) {
+			t.Fatalf("unconfirmed grant allowed: %v", err)
+		}
+	}
+	grant.Scope = compliance.ScopeExport
+	if err := compliance.AuthorizeContentAccess(grant, compliance.ScopeFullContent, now); !errors.Is(err, compliance.ErrInsufficientScope) {
+		t.Fatalf("export implied preview: %v", err)
+	}
+	grant.ExpiresAt = &now
+	if err := compliance.AuthorizeContentAccess(grant, compliance.ScopeExport, now); !errors.Is(err, compliance.ErrGrantExpired) {
+		t.Fatalf("expiry boundary allowed: %v", err)
+	}
 }

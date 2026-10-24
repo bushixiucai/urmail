@@ -20,16 +20,19 @@ type OnboardingHandler struct{ Store OnboardingStore }
 
 // OnboardingTaskResponse is the safe public shape of provisioning progress.
 type OnboardingTaskResponse struct {
-	ID          int64  `json:"id"`
-	DomainID    *int64 `json:"domain_id"`
-	OrderID     *int64 `json:"order_id"`
-	Status      string `json:"status"`
-	Step        string `json:"step"`
-	Attempts    int32  `json:"attempts"`
-	MaxAttempts int32  `json:"max_attempts"`
-	CreatedAt   any    `json:"created_at"`
-	UpdatedAt   any    `json:"updated_at"`
-	CompletedAt any    `json:"completed_at"`
+	ID                int64  `json:"id"`
+	DomainID          *int64 `json:"domain_id"`
+	OrderID           *int64 `json:"order_id"`
+	Status            string `json:"status"`
+	Step              string `json:"step"`
+	Attempts          int32  `json:"attempts"`
+	MaxAttempts       int32  `json:"max_attempts"`
+	CreatedAt         any    `json:"created_at"`
+	UpdatedAt         any    `json:"updated_at"`
+	CompletedAt       any    `json:"completed_at"`
+	NextAttemptAt     any    `json:"next_attempt_at"`
+	ErrorCode         string `json:"error_code,omitempty"`
+	DesiredGeneration string `json:"desired_generation,omitempty"`
 }
 
 // List returns this tenant's bounded asynchronous provisioning task history.
@@ -46,7 +49,7 @@ func (h *OnboardingHandler) List(c *gin.Context) {
 	}
 	response := make([]OnboardingTaskResponse, 0, len(tasks))
 	for _, task := range tasks {
-		item := OnboardingTaskResponse{ID: task.ID, Status: task.Status, Step: task.Step, Attempts: task.Attempts, MaxAttempts: task.MaxAttempts}
+		item := OnboardingTaskResponse{ID: task.ID, Status: task.Status, Step: task.Step, Attempts: task.Attempts, MaxAttempts: task.MaxAttempts, NextAttemptAt: task.NextAttemptAt.Time, ErrorCode: task.LastErrorCode.String, DesiredGeneration: task.DesiredGeneration.String}
 		if task.DomainID.Valid {
 			value := task.DomainID.Int64
 			item.DomainID = &value

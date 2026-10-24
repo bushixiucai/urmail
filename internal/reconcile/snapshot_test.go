@@ -17,6 +17,10 @@ type mockQuerier struct {
 	domains []store.PlatformListDomainsRow
 }
 
+func (m *mockQuerier) PlatformListManagedDNS(context.Context) ([]store.PlatformListManagedDNSRow, error) {
+	return nil, nil
+}
+
 func (m *mockQuerier) PlatformListDomains(_ context.Context) ([]store.PlatformListDomainsRow, error) {
 	if m.domains != nil {
 		return m.domains, nil

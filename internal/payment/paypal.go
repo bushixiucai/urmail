@@ -18,6 +18,8 @@ import (
 
 // PayPal implements the Provider interface for PayPal Orders v2 and Payments v2 APIs.
 type PayPal struct {
+	MerchantID   string
+	DeferCapture bool
 	ClientID     string
 	ClientSecret string
 	WebhookID    string
@@ -218,6 +220,9 @@ type PayPalOrder struct {
 	Status        string `json:"status"`
 	Intent        string `json:"intent"`
 	PurchaseUnits []struct {
+		Payee struct {
+			MerchantID string `json:"merchant_id"`
+		} `json:"payee"`
 		ReferenceID string `json:"reference_id"`
 		CustomID    string `json:"custom_id"`
 		InvoiceID   string `json:"invoice_id"`
@@ -246,6 +251,9 @@ type PayPalOrder struct {
 
 // CreateOrder initiates a PayPal order with intent CAPTURE.
 func (p *PayPal) CreateOrder(ctx context.Context, params CheckoutParams) (PayPalOrder, error) {
+	if err := ValidateCheckoutAmount(ProviderPayPal, strings.ToUpper(params.Currency), params.AmountCents); err != nil {
+		return PayPalOrder{}, err
+	}
 	token, err := p.getAccessToken(ctx)
 	if err != nil {
 		return PayPalOrder{}, fmt.Errorf("paypal auth: %w", err)
@@ -264,6 +272,7 @@ func (p *PayPal) CreateOrder(ctx context.Context, params CheckoutParams) (PayPal
 				"custom_id":    strconv.FormatInt(params.OrderID, 10),
 				"invoice_id":   params.OrderNo,
 				"description":  desc,
+				"payee":        map[string]string{"merchant_id": p.MerchantID},
 				"amount": map[string]string{
 					"currency_code": strings.ToUpper(params.Currency),
 					"value":         formatPayPalAmount(params.AmountCents, params.Currency),
@@ -314,6 +323,9 @@ func (p *PayPal) CreateOrder(ctx context.Context, params CheckoutParams) (PayPal
 
 // CreateCheckout initiates a PayPal order and returns the approval link.
 func (p *PayPal) CreateCheckout(ctx context.Context, params CheckoutParams) (CheckoutResult, error) {
+	if err := ValidateCheckoutAmount(ProviderPayPal, strings.ToUpper(params.Currency), params.AmountCents); err != nil {
+		return CheckoutResult{}, err
+	}
 	order, err := p.CreateOrder(ctx, params)
 	if err != nil {
 		return CheckoutResult{}, err
@@ -486,6 +498,9 @@ func (p *PayPal) QueryPayment(ctx context.Context, _ string, providerTxnID strin
 			return StatusResult{}, fmt.Errorf("unmarshal paypal order: %w", err)
 		}
 
+		if p.MerchantID != "" && (len(order.PurchaseUnits) != 1 || order.PurchaseUnits[0].Payee.MerchantID != p.MerchantID) {
+			return StatusResult{}, ErrMerchantMismatch
+		}
 		status := StatusPending
 		switch strings.ToUpper(order.Status) {
 		case "COMPLETED":
@@ -660,6 +675,10 @@ func (p *PayPal) Refund(ctx context.Context, params RefundParams) (RefundResult,
 		var res struct {
 			ID     string `json:"id"`
 			Status string `json:"status"`
+			Amount struct {
+				Value    string `json:"value"`
+				Currency string `json:"currency_code"`
+			} `json:"amount"`
 		}
 		if err := json.Unmarshal(body, &res); err != nil {
 			return RefundResult{}, resp.StatusCode, fmt.Errorf("unmarshal refund response: %w", err)
@@ -681,9 +700,17 @@ func (p *PayPal) Refund(ctx context.Context, params RefundParams) (RefundResult,
 			}
 		}
 
+		amount := int64(0)
+		if res.Amount.Value != "" {
+			amount, err = parsePayPalAmount(res.Amount.Value, res.Amount.Currency)
+			if err != nil {
+				return RefundResult{}, resp.StatusCode, ErrInvalidPayload
+			}
+		}
 		return RefundResult{
 			ProviderRefundID: res.ID,
-			Status:           status,
+			AmountCents:      amount, Currency: strings.ToUpper(res.Amount.Currency), ProviderTxnID: targetCaptureID,
+			Status: status,
 		}, resp.StatusCode, nil
 	}
 
@@ -808,6 +835,31 @@ func (p *PayPal) ParseAndVerifyWebhook(ctx context.Context, header http.Header, 
 		return WebhookEvent{}, fmt.Errorf("unmarshal paypal event: %w", err)
 	}
 
+	if p.MerchantID != "" && (envelope.EventType == "CHECKOUT.ORDER.APPROVED" || envelope.EventType == "PAYMENT.CAPTURE.COMPLETED") {
+		var binding struct {
+			Payee struct {
+				MerchantID string `json:"merchant_id"`
+			} `json:"payee"`
+			PurchaseUnits []struct {
+				Payee struct {
+					MerchantID string `json:"merchant_id"`
+				} `json:"payee"`
+			} `json:"purchase_units"`
+		}
+		if json.Unmarshal(envelope.Resource, &binding) != nil {
+			return WebhookEvent{}, ErrInvalidPayload
+		}
+		actual := binding.Payee.MerchantID
+		if envelope.EventType == "CHECKOUT.ORDER.APPROVED" {
+			if len(binding.PurchaseUnits) != 1 {
+				return WebhookEvent{}, ErrMerchantMismatch
+			}
+			actual = binding.PurchaseUnits[0].Payee.MerchantID
+		}
+		if actual != p.MerchantID {
+			return WebhookEvent{}, ErrMerchantMismatch
+		}
+	}
 	switch envelope.EventType {
 	case "CHECKOUT.ORDER.APPROVED":
 		var order struct {
@@ -854,6 +906,13 @@ func (p *PayPal) ParseAndVerifyWebhook(ctx context.Context, header http.Header, 
 		txnID := order.ID
 		paidAt := time.Now().UTC()
 
+		if p.DeferCapture && strings.EqualFold(order.Status, "APPROVED") {
+			amount, err := parsePayPalAmount(amountVal, currency)
+			if err != nil {
+				return WebhookEvent{}, err
+			}
+			return WebhookEvent{Provider: ProviderPayPal, EventID: envelope.ID, EventType: envelope.EventType, OrderID: orderID, OrderNo: orderNo, ProviderTxnID: order.ID, AmountCents: amount, Currency: strings.ToUpper(currency), Status: StatusPending, RawPayload: body}, nil
+		}
 		// Dedup check MUST run before CaptureOrder: CaptureOrder is an
 		// external side effect, and a replayed webhook must not capture twice.
 		if p.EventSeen != nil {

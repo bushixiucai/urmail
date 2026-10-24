@@ -74,20 +74,22 @@ func IsAcceptedDeliveryStatus(status string) bool {
 // smtp lines of one message, so a consumer can join a message id with its
 // recipients through it.
 type ParsedDeliveryEvent struct {
-	QueueID         string    `json:"queue_id"`
-	Timestamp       time.Time `json:"timestamp"`
-	Process         string    `json:"process,omitempty"` // syslog tag: postfix, postfix-out, postfix-in, ...
-	Component       string    `json:"component"`         // qmgr, smtp, cleanup, bounce, ...
-	Sender          string    `json:"sender,omitempty"`
-	SenderDomain    string    `json:"sender_domain,omitempty"`
-	Recipient       string    `json:"recipient,omitempty"`
-	RecipientDomain string    `json:"recipient_domain,omitempty"`
-	Relay           string    `json:"relay,omitempty"`
-	Status          string    `json:"status"` // queued, sent, deferred, bounced, expired, removed, unknown
-	DSN             string    `json:"dsn,omitempty"`
-	DelaySeconds    float64   `json:"delay_seconds,omitempty"`
-	ResponseDetail  string    `json:"response_detail,omitempty"`
-	MessageID       string    `json:"message_id,omitempty"`
+	SMTPClientRecord     bool      `json:"smtp_client_record,omitempty"`
+	AuthenticatedMailbox string    `json:"authenticated_mailbox,omitempty"`
+	QueueID              string    `json:"queue_id"`
+	Timestamp            time.Time `json:"timestamp"`
+	Process              string    `json:"process,omitempty"` // syslog tag: postfix, postfix-out, postfix-in, ...
+	Component            string    `json:"component"`         // qmgr, smtp, cleanup, bounce, ...
+	Sender               string    `json:"sender,omitempty"`
+	SenderDomain         string    `json:"sender_domain,omitempty"`
+	Recipient            string    `json:"recipient,omitempty"`
+	RecipientDomain      string    `json:"recipient_domain,omitempty"`
+	Relay                string    `json:"relay,omitempty"`
+	Status               string    `json:"status"` // queued, sent, deferred, bounced, expired, removed, unknown
+	DSN                  string    `json:"dsn,omitempty"`
+	DelaySeconds         float64   `json:"delay_seconds,omitempty"`
+	ResponseDetail       string    `json:"response_detail,omitempty"`
+	MessageID            string    `json:"message_id,omitempty"`
 }
 
 // ParserOptions configures the Postfix log parser.
@@ -203,6 +205,9 @@ var (
 
 	// Bounce notification markers, e.g. "sender non-delivery notification: ...".
 	bounceNotificationRe = regexp.MustCompile(`(?i)\bnon-delivery notification\b|\bdelivery[- ]status report\b`)
+
+	// Authentication is accepted only from the canonical SMTP client record.
+	authenticatedClientRe = regexp.MustCompile(`^client=[^,\s]+, sasl_method=[A-Za-z0-9_-]+, sasl_username=([^,\s]+)(?:, [A-Za-z_]+=[^,\s]+)*$`)
 )
 
 // syntheticEpoch anchors the deterministic fallback timestamps that are used
@@ -282,6 +287,12 @@ func ParsePostfixLogLineWithOptions(line string, opts ParserOptions) (*ParsedDel
 		Status:    DeliveryStatusUnknown,
 	}
 
+	if prefix.component == "smtpd" && prefix.queueID != "NOQUEUE" {
+		event.SMTPClientRecord = strings.HasPrefix(prefix.rest, "client=")
+		if match := authenticatedClientRe.FindStringSubmatch(prefix.rest); len(match) == 2 {
+			event.AuthenticatedMailbox = strings.ToLower(match[1])
+		}
+	}
 	if ts, ok := parseLineTimestamp(line, prefix.tagStart, ref, loc); ok {
 		event.Timestamp = ts
 	} else {
@@ -396,6 +407,11 @@ func extractStatus(rest string) (string, string) {
 // accepted by the delivery_events table. The bool is false when the line
 // carries no delivery milestone at all and must not be stored.
 func resolveStatus(prefix postfixPrefix, event *ParsedDeliveryEvent, rawStatus string, hasSender bool) (string, bool) {
+	// Authentication metadata is parsed only from the canonical client record.
+	// A local-part containing "status=" cannot turn that record into an outcome.
+	if event.SMTPClientRecord {
+		return DeliveryStatusUnknown, true
+	}
 	// 1. An explicit Postfix status word always wins. Unknown words are
 	//    normalised to "unknown" instead of being passed through, because
 	//    the delivery_events CHECK rejects anything else.

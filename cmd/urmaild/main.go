@@ -20,14 +20,19 @@ import (
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
+	archiveStore "github.com/bushixiucai/urmail/internal/archive"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
+	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
+	"github.com/bushixiucai/urmail/internal/marketing"
+	"github.com/bushixiucai/urmail/internal/notify"
 	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/reconcile"
+	refundService "github.com/bushixiucai/urmail/internal/refund"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -117,10 +122,13 @@ func run() error {
 	// time; this is pure housekeeping. The app role has no access to
 	// sessions (0008), so the platform pool performs the delete.
 	go purgeExpiredSessions(ctx, platformPool, logger)
+	go notify.Run(ctx, platformPool, logger)
+	notificationWorker := &notify.Worker{Pool: platformPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
+	go notificationWorker.Run(ctx, logger)
 
 	// The Postfix submission/smtps services ask this socket whether an
 	// authenticated sender is still within their plan's daily send limit.
-	if cfg.PolicyEnabled {
+	if cfg.PolicyEnabled && !cfg.Quarantined {
 		svc := policy.NewService()
 		svc.InboundChecker = &policy.DBInboundChecker{Store: store.New(platformPool.Pool)}
 		svc.RateLimiter = policy.NewRateLimiter(300, time.Minute)
@@ -140,45 +148,90 @@ func run() error {
 	// domain or mailbox changes and pushes them through the privileged
 	// agent, followed by the affected service reloads.
 	reconcilePipeline := reconcile.NewPipeline(cfg, &reconcile.VersionedStore{StoreQuerier: store.New(platformPool.Pool), DB: platformPool.Pool}, cfg.PublicIPv4, cfg.Nameservers).WithLogger(logger)
-	go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
-		if cfg.DevMode {
-			logger.Info("development configuration rendered without privileged apply", zap.Int("files", len(files)))
-			return nil
-		}
-		snapshot := reconcilePipeline.CurrentSnapshot()
-		if snapshot == nil {
-			return fmt.Errorf("configuration snapshot unavailable")
-		}
-		_, err := agent.NewClient(cfg.AgentSocket).Do(ctx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM})
-		return err
-	})
+	if !cfg.Quarantined {
+		go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
+			if cfg.DevMode {
+				logger.Info("development configuration rendered without privileged apply", zap.Int("files", len(files)))
+				return nil
+			}
+			snapshot := reconcilePipeline.CurrentSnapshot()
+			if snapshot == nil {
+				return fmt.Errorf("configuration snapshot unavailable")
+			}
+			_, err := agent.NewClient(cfg.AgentSocket).Do(ctx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM})
+			return err
+		})
 
-	// Render once on startup so a fresh install does not keep the stock
-	// distribution configuration until the first tenant write.
-	reconcilePipeline.Trigger()
+		// Render once on startup so a fresh install does not keep the stock
+		// distribution configuration until the first tenant write.
+		reconcilePipeline.Trigger()
+	}
 
+	if !cfg.DevMode && !cfg.Quarantined {
+		archiveWorker := &archiveStore.Worker{Pool: platformPool}
+		go archiveWorker.Start(ctx, logger)
+	}
+	dnsPlans := startDomainOnboarding(ctx, cfg, platformPool, secretBox, reconcilePipeline, logger)
+	startMailTelemetry(ctx, cfg, platformPool, logger)
+	startMailObservability(ctx, cfg, platformPool, logger)
+	startPaymentRecovery(ctx, cfg, platformPool, secretBox, baseURL, stripe, logger)
+	refunds := &refundService.Service{Pool: platformPool, Registry: &payment.Registry{Store: store.New(platformPool), Secrets: secretBox, BaseURL: baseURL}, LegacyStripe: stripe, Enabled: cfg.RefundsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
+	go refunds.Run(ctx, logger)
+	tokenVerifier := marketingTokenManager(cfg)
+	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
+	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: platformPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
+		Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Logger: logger})
+	if workerErr != nil {
+		return fmt.Errorf("configure marketing worker: %w", workerErr)
+	}
+	go marketingWorker.Run(ctx)
+	var queueReader handlers.QueueReader
+	telemetryStream := cfg.MyHostname
+	if telemetryStream == "" {
+		telemetryStream = "local"
+	}
+	if !cfg.DevMode {
+		queueReader = agent.NewClient(cfg.AgentSocket)
+	}
 	var recallClient handlers.RecallExpunger
 	if !cfg.DevMode {
 		recallClient = agent.NewClient(cfg.AgentSocket)
 	}
+	var sieveActivator handlers.SieveActivator
+	if !cfg.DevMode && !cfg.Quarantined {
+		sieveClient := agent.NewClient(cfg.AgentSocket)
+		sieveActivator = sieveClient
+		go handlers.RunSieveReconciler(ctx, platformPool, sieveClient, logger)
+	}
 	engine := api.New(api.Options{
-		Recall:          recallClient,
-		DevMode:         cfg.DevMode,
-		Logger:          logger,
-		AppPool:         appPool,
-		PlatformPool:    platformPool,
-		Messages:        messages,
-		Version:         version,
-		MyHostname:      cfg.MyHostname,
-		Reconcile:       reconcilePipeline,
-		Audit:           store.New(platformPool.Pool),
-		Secrets:         secretBox,
-		DNSProvider:     dnsProvider,
-		DNSManagedZones: cfg.DNSManagedZones,
-		Payment:         stripe,
-		QuoteHMACKey:    cfg.QuoteHMACKey,
-		BaseURL:         baseURL,
-		MarketingTokens: marketingTokenManager(cfg),
+		RoundcubeEnabled:    cfg.RoundcubeEnabled,
+		MetricsToken:        cfg.MetricsToken,
+		SieveActivator:      sieveActivator,
+		AICloudEndpoints:    cfg.AICloudEndpoints,
+		AILocalEndpoints:    cfg.AILocalEndpoints,
+		RegistrationEnabled: cfg.RegistrationEnabled,
+		Quarantined:         cfg.Quarantined,
+		Recall:              recallClient,
+		Queue:               queueReader,
+		TelemetryStream:     telemetryStream,
+		DevMode:             cfg.DevMode,
+		Logger:              logger,
+		AppPool:             appPool,
+		PlatformPool:        platformPool,
+		Messages:            messages,
+		Version:             version,
+		MyHostname:          cfg.MyHostname,
+		Reconcile:           reconcilePipeline,
+		Audit:               store.New(platformPool.Pool),
+		Secrets:             secretBox,
+		DNSProvider:         dnsProvider,
+		DNSManagedZones:     cfg.DNSManagedZones,
+		DNSPlans:            dnsPlans,
+		Payment:             stripe,
+		QuoteHMACKey:        cfg.QuoteHMACKey,
+		BaseURL:             baseURL,
+		MarketingTokens:     tokenVerifier,
+		RoundcubeBridgeKey:  cfg.RoundcubeBridgeKey,
 	})
 
 	server := &http.Server{

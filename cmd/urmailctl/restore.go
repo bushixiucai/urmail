@@ -11,8 +11,11 @@ import (
 )
 
 func runRestore(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "quarantine" {
+		return runRestoreQuarantine(ctx, args[1:])
+	}
 	dumpPath, configPath, databaseURL := "", "", ""
-	mailPath, manifestPath := "", ""
+	mailPath, manifestPath, resumeID := "", "", ""
 	force := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -41,8 +44,15 @@ func runRestore(ctx context.Context, args []string) error {
 				databaseURL = args[i+1]
 				i++
 			}
+		case "--resume-id":
+			if i+1 < len(args) {
+				i++
+				resumeID = args[i]
+			}
 		case "--force":
 			force = true
+		default:
+			return fmt.Errorf("unknown restore argument %q", args[i])
 		}
 	}
 	if dumpPath == "" || !force {
@@ -50,6 +60,17 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("restore must run as root")
+	}
+	var resumedURLs map[string]string
+	if resumeID != "" {
+		var err error
+		resumedURLs, err = restoreResumeCredentials(config.RestoreQuarantineMarker, resumeID)
+		if err != nil {
+			return err
+		}
+		if databaseURL == "" && len(resumedURLs) > 0 {
+			databaseURL = resumedURLs["URMAIL_DATABASE_URL_MIGRATE"]
+		}
 	}
 	if databaseURL == "" {
 		cfg, err := config.Load()
@@ -71,14 +92,20 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 	var targetURLs map[string]string
 	if configPath != "" {
-		target, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("load target role credentials before restoring config: %w", err)
+		var err error
+		if resumeID != "" && len(resumedURLs) > 0 {
+			targetURLs = resumedURLs
+		} else {
+			target, loadErr := config.Load()
+			if loadErr != nil {
+				return fmt.Errorf("load target role credentials before restoring config: %w", loadErr)
+			}
+			targetURLs, err = targetDatabaseURLs(target, databaseURL)
+			if err != nil {
+				return err
+			}
 		}
-		targetURLs, err = targetDatabaseURLs(target, databaseURL)
-		if err != nil {
-			return err
-		}
+		targetURLs["URMAIL_DATABASE_URL_MIGRATE"] = databaseURL
 		if err = verifyTargetRoleConnections(ctx, targetURLs); err != nil {
 			return err
 		}
@@ -90,17 +117,53 @@ func runRestore(ctx context.Context, args []string) error {
 			}
 		}
 	}
-	cmd, err := postgresCommand(ctx, "pg_restore", databaseURL, "--clean", "--if-exists", "--no-owner", "--exit-on-error", "--single-transaction", dumpPath)
+	fingerprint, err := restoreInputFingerprint(databaseURL, []string{dumpPath, configPath, mailPath, manifestPath})
 	if err != nil {
 		return err
 	}
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pg_restore: %w", err)
+	var state restoreQuarantineState
+	databaseRestored := false
+	if resumeID != "" {
+		state, databaseRestored, err = resumeRestoreQuarantine(config.RestoreQuarantineMarker, resumeID, fingerprint)
+	} else {
+		state, err = createRestoreQuarantine(config.RestoreQuarantineMarker)
+		if err == nil {
+			err = writeRestoreProof(config.RestoreQuarantineMarker, "input.json", restoreInputProof{state.ID, fingerprint})
+		}
+		if err == nil && len(targetURLs) > 0 {
+			err = writeRestoreProof(config.RestoreQuarantineMarker, "target-credentials.json", targetURLs)
+		}
 	}
-	if err := db.FinalizeRestore(ctx, databaseURL); err != nil {
+	if err != nil {
+		return err
+	}
+	if resumeID != "" && configPath != "" && len(resumedURLs) == 0 {
+		if databaseRestored {
+			return fmt.Errorf("restore target credential proof is missing; quarantine retained")
+		}
+		if err = writeRestoreProof(config.RestoreQuarantineMarker, "target-credentials.json", targetURLs); err != nil {
+			return err
+		}
+	}
+	operationLock, err := acquireRestoreOperation(config.RestoreQuarantineMarker)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = operationLock.Close() }()
+	fmt.Printf("restore quarantine id=%s resumed=%t; retained on every exit\n", state.ID, resumeID != "")
+	if err = stopRestoreWriters(ctx, stopSystemdRestoreWriter); err != nil {
+		return err
+	}
+	var cmd *exec.Cmd
+	if !databaseRestored {
+		if err = restoreDatabaseArchive(ctx, databaseURL, dumpPath, config.RestoreQuarantineMarker, operationLock); err != nil {
+			return err
+		}
+		if err = writeRestoreProof(config.RestoreQuarantineMarker, "database-restored.json", restoreInputProof{state.ID, fingerprint}); err != nil {
+			return err
+		}
+	}
+	if err := db.FinalizeRestore(ctx, databaseURL, state.ID); err != nil {
 		return err
 	}
 	migrator, err := db.NewMigrator(databaseURL)
@@ -111,6 +174,9 @@ func runRestore(ctx context.Context, args []string) error {
 	if err = migrator.Up(ctx); err != nil {
 		return err
 	}
+	if err = db.HoldRestoredSideEffects(ctx, databaseURL, state.ID); err != nil {
+		return err
+	}
 	if err = db.VerifyRuntimePrivileges(ctx, databaseURL); err != nil {
 		return err
 	}
@@ -118,6 +184,7 @@ func runRestore(ctx context.Context, args []string) error {
 	for _, archive := range []string{configPath, mailPath} {
 		if archive != "" {
 			cmd = exec.CommandContext(ctx, "tar", "-xzf", archive, "-C", "/") // #nosec G204 G702 -- fixed executable; root-authorized file/URL arguments are passed separately without a shell.
+			cmd.ExtraFiles = append(cmd.ExtraFiles, operationLock)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
@@ -131,6 +198,15 @@ func runRestore(ctx context.Context, args []string) error {
 		}
 	}
 
-	fmt.Printf("restore complete (mail_contents=%t)\n", mailPath != "")
+	if configPath != "" {
+		if err = configureRestoredRoundcube(ctx, operationLock); err != nil {
+			return err
+		}
+	}
+
+	if err = completeRestoreQuarantine(config.RestoreQuarantineMarker, state.ID); err != nil {
+		return err
+	}
+	fmt.Printf("restore complete (mail_contents=%t); QUARANTINED id=%s; writers remain stopped. Reconcile archive spool, marketing claims, queue, financial state and telemetry source before explicit release.\n", mailPath != "", state.ID)
 	return nil
 }

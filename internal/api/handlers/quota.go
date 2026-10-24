@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -49,6 +50,20 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		// Unit tests without a database: no enforcement possible.
 		return true
 	}
+	if kind == "domain" {
+		if pending, ok := q.(interface {
+			CanCreatePendingDomain(context.Context, int64) (bool, error)
+		}); ok {
+			allowed, err := pending.CanCreatePendingDomain(c, tenantID)
+			if err != nil {
+				authError(c, 500, "DB_ERROR")
+				return false
+			}
+			if allowed {
+				return true
+			}
+		}
+	}
 	var used int64
 	var limit int32
 	var exceededCode string
@@ -63,11 +78,22 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		return false
 	}
 	now := time.Now()
-	if !sub.PeriodEnd.Valid || !sub.PeriodEnd.Time.After(now) || (sub.Status == "trialing" && sub.TrialEndsAt.Valid && !sub.TrialEndsAt.Time.After(now)) {
+	if !sub.PeriodStart.Valid || sub.PeriodStart.Time.After(now) || !sub.PeriodEnd.Valid || !sub.PeriodEnd.Time.After(now) || (sub.Status == "trialing" && sub.TrialEndsAt.Valid && !sub.TrialEndsAt.Time.After(now)) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "SUBSCRIPTION_EXPIRED"}})
 		return false
 	}
-	plan, err := q.GetPlanByCode(c, sub.PlanID)
+	if queries, ok := q.(*store.Queries); ok {
+		allowed, lookupErr := queries.CurrentPaidEntitlementAllowed(c, tenantID)
+		if lookupErr != nil {
+			authError(c, 500, "DB_ERROR")
+			return false
+		}
+		if !allowed.Valid || !allowed.Bool {
+			authError(c, 409, "SUBSCRIPTION_EXPIRED")
+			return false
+		}
+	}
+	plan, err := subscriptionPlan(c, q, sub)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return false
@@ -100,4 +126,23 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		return false
 	}
 	return true
+}
+
+// subscriptionPlan reads the frozen current entitlement rather than an editable catalog row.
+func subscriptionPlan(ctx context.Context, q interface {
+	GetPlanByCode(context.Context, string) (store.Plans, error)
+}, sub store.Subscriptions) (store.Plans, error) {
+	if effective, ok := q.(interface {
+		GetEffectivePlan(context.Context, int64) (store.Plans, error)
+	}); ok {
+		return effective.GetEffectivePlan(ctx, sub.TenantID)
+	}
+	if len(sub.PlanSnapshot) > 0 {
+		var frozen PlanResponse
+		if err := json.Unmarshal(sub.PlanSnapshot, &frozen); err != nil {
+			return store.Plans{}, err
+		}
+		return store.Plans{Code: frozen.Code, Name: frozen.Name, Description: frozen.Description, PriceCents: frozen.PriceCents, Currency: frozen.Currency, QuotaBytes: frozen.QuotaBytes, MailboxLimit: frozen.MailboxLimit, DomainLimit: frozen.DomainLimit, DailySendLimit: frozen.DailySendLimit, Features: frozen.Features, SortOrder: frozen.SortOrder, Active: frozen.Active}, nil
+	}
+	return q.GetPlanByCode(ctx, sub.PlanID)
 }

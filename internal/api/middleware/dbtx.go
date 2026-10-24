@@ -58,7 +58,25 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 		// Rollback is a no-op after a successful commit.
-		defer func() { _ = tx.Rollback(context.Background()) }()
+		defer func() {
+			recovered := recover()
+			_ = tx.Rollback(context.Background())
+			delete(c.Keys, contextTransaction)
+			if recovered != nil {
+				if state := auditState(c); state != nil {
+					state.recorded = false
+					state.forcedStatus = 500
+					state.phase = "panic"
+					if state.businessCommitted {
+						state.phase = "after_commit"
+					}
+				}
+			}
+			finishIndependentAudit(c)
+			if recovered != nil {
+				panic(recovered)
+			}
+		}()
 
 		queries := store.New(tx)
 		role, err := queries.GetUserRoleForTenant(c.Request.Context(), store.GetUserRoleForTenantParams{
@@ -100,16 +118,37 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			buffered.publish()
 			return
 		}
+		if err := prepareTransactionAudit(c, tx); err != nil {
+			RecordAuditFailure(true)
+			logger.Error("prepare tenant audit", zap.Error(err))
+			c.Writer = originalWriter
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
+			return
+		}
 		if err := tx.Commit(c.Request.Context()); err != nil {
 			logger.Error("commit tenant transaction", zap.Error(err), zap.String("path", c.Request.URL.Path))
 			c.Writer = originalWriter
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
 			return
 		}
+		if state := auditState(c); state != nil {
+			state.recorded = true
+			state.businessCommitted = true
+		}
+		delete(c.Keys, ContextQueries)
+		delete(c.Keys, contextTransaction)
 		if callbacks, ok := c.Get(contextAfterCommit); ok {
 			for _, fn := range callbacks.([]func()) {
+				buffered.beginAfterCommitCallback()
 				fn()
 			}
+		}
+		if state := auditState(c); state != nil && (buffered.Status() != state.preparedStatus || buffered.Status() >= 400) {
+			// The business commit is durable, while a provider/callback may
+			// still fail. Preserve both facts instead of rewriting history.
+			state.recorded = false
+			state.phase = "after_commit"
+			finishIndependentAudit(c)
 		}
 		buffered.publish()
 	}

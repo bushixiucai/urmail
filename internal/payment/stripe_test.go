@@ -138,6 +138,7 @@ func TestCreateCheckoutSession(t *testing.T) {
 	}))
 	defer srv.Close()
 	s := NewStripe("sk", "whsec")
+	s.CheckoutLimits = map[string]AmountLimit{"CNY": {MinCents: 1, MaxCents: 99999999, SettlementCurrency: "CNY", Source: "merchant_contract"}}
 	s.Base = srv.URL
 	got, err := s.CreateCheckoutSession(context.Background(), 42, "ORD-1", 1000, "cny", "https://a", "https://b")
 	if err != nil {
@@ -175,6 +176,7 @@ func TestQueryPaymentAndRefund(t *testing.T) {
 	defer srv.Close()
 
 	s := NewStripe("sk", "whsec")
+	s.CheckoutLimits = map[string]AmountLimit{"CNY": {MinCents: 1, MaxCents: 99999999, SettlementCurrency: "CNY", Source: "merchant_contract"}}
 	s.Base = srv.URL
 
 	// Query
@@ -211,6 +213,7 @@ func TestCheckoutConstructedMetadataProducesResolvablePaymentIntent(t *testing.T
 	}))
 	defer srv.Close()
 	s := NewStripe("test-key", "test-webhook")
+	s.CheckoutLimits = map[string]AmountLimit{"CNY": {MinCents: 1, MaxCents: 99999999, SettlementCurrency: "CNY", Source: "merchant_contract"}}
 	s.Base = srv.URL
 	if _, err := s.CreateCheckoutSession(context.Background(), 42, "ORDER42", 1000, "CNY", "https://panel.test/success", "https://panel.test/cancel"); err != nil {
 		t.Fatal(err)
@@ -241,11 +244,12 @@ func TestStripeCloseAndQueryUseStableSessionAndPaymentIdentity(t *testing.T) {
 			_, _ = w.Write([]byte(`{"id":"cs_paid","payment_intent":"pi_original","payment_status":"paid","amount_total":1000,"currency":"cny"}`))
 		default:
 			t.Errorf("unexpected request %s", r.URL.Path)
-			w.WriteHeader(404)
+			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer srv.Close()
 	s := NewStripe("test-key", "test-webhook")
+	s.CheckoutLimits = map[string]AmountLimit{"CNY": {MinCents: 1, MaxCents: 99999999, SettlementCurrency: "CNY", Source: "merchant_contract"}}
 	s.Base = srv.URL
 	if err := s.CloseCheckout(context.Background(), "ORDER42", "cs_close"); err != nil || !closed {
 		t.Fatalf("close %v %v", closed, err)

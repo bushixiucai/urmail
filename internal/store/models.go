@@ -672,6 +672,8 @@ type PaymentCheckoutIntents struct {
 	QrCode       pgtype.Text        `json:"qr_code"`
 	State        string             `json:"state"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	// Restored side-effect uncertainty requires an explicit platform receipt review even after instance quarantine is released
+	RestoreHold bool `json:"restore_hold"`
 }
 
 type PaymentEvents struct {

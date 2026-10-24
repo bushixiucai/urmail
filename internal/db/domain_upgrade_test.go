@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,11 @@ func legacyDomainDatabase(t *testing.T) (string, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := sql.Open("pgx", dsn)
+	migrationURL, _ := url.Parse(dsn)
+	params := migrationURL.Query()
+	params.Set("role", "urmail_migrate")
+	migrationURL.RawQuery = params.Encode()
+	conn, err := sql.Open("pgx", migrationURL.String())
 	if err != nil {
 		t.Fatal(err)
 	}

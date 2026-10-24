@@ -24,14 +24,17 @@ import (
 // WeChatPay implements the WeChat Pay APIv3 client for native QR payments,
 // webhook verification with AEAD_AES_256_GCM decryption, query and refunds.
 type WeChatPay struct {
-	MchID          string
-	AppID          string
-	APIv3Key       []byte // 32 bytes AES-256 key
-	CertSerialNo   string // Merchant cert serial
-	PrivateKey     *rsa.PrivateKey
-	PlatformPubKey *rsa.PublicKey
-	Base           string
-	Client         *http.Client
+	NotifyURL                string
+	PlatformKeyID            string
+	RequireResponseSignature bool
+	MchID                    string
+	AppID                    string
+	APIv3Key                 []byte // 32 bytes AES-256 key
+	CertSerialNo             string // Merchant cert serial
+	PrivateKey               *rsa.PrivateKey
+	PlatformPubKey           *rsa.PublicKey
+	Base                     string
+	Client                   *http.Client
 }
 
 // Ensure WeChatPay implements Provider.
@@ -84,12 +87,16 @@ func (w *WeChatPay) buildAuthHeader(method, path string, body []byte) (string, e
 
 // CreateCheckout initiates a native WeChat Pay QR order.
 func (w *WeChatPay) CreateCheckout(ctx context.Context, params CheckoutParams) (CheckoutResult, error) {
+	if err := ValidateCheckoutAmount(ProviderWeChat, strings.ToUpper(params.Currency), params.AmountCents); err != nil {
+		return CheckoutResult{}, err
+	}
 	path := "/v3/pay/transactions/native"
 	reqBody := map[string]any{
 		"mchid":        w.MchID,
 		"appid":        w.AppID,
 		"description":  params.Description,
 		"out_trade_no": params.OrderNo,
+		"notify_url":   w.NotifyURL,
 		"attach":       strconv.FormatInt(params.OrderID, 10),
 		"amount": map[string]any{
 			"total":    params.AmountCents,
@@ -125,6 +132,11 @@ func (w *WeChatPay) CreateCheckout(ctx context.Context, params CheckoutParams) (
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if w.RequireResponseSignature {
+		if err = w.verifyResponse(resp.Header, body); err != nil {
+			return CheckoutResult{}, err
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return CheckoutResult{}, fmt.Errorf("wechat native checkout: status %d: %s", resp.StatusCode, briefBody(body))
 	}
@@ -181,6 +193,9 @@ func (w *WeChatPay) ParseAndVerifyWebhook(_ context.Context, header http.Header,
 		return WebhookEvent{}, fmt.Errorf("%w: missing required wechat signature headers", ErrInvalidSignature)
 	}
 
+	if w.PlatformKeyID != "" && header.Get("Wechatpay-Serial") != w.PlatformKeyID {
+		return WebhookEvent{}, ErrInvalidSignature
+	}
 	// Verify timestamp freshness within 5 minutes
 	tsInt, err := strconv.ParseInt(ts, 10, 64)
 	if err != nil || time.Since(time.Unix(tsInt, 0)).Abs() > 5*time.Minute {
@@ -308,11 +323,18 @@ func (w *WeChatPay) QueryPayment(ctx context.Context, orderNo, _ string) (Status
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if w.RequireResponseSignature {
+		if err = w.verifyResponse(resp.Header, body); err != nil {
+			return StatusResult{}, err
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return StatusResult{}, fmt.Errorf("wechat query: status %d: %s", resp.StatusCode, briefBody(body))
 	}
 
 	var res struct {
+		MchID         string `json:"mchid"`
+		AppID         string `json:"appid"`
 		TransactionID string `json:"transaction_id"`
 		TradeState    string `json:"trade_state"`
 		Amount        struct {
@@ -324,6 +346,9 @@ func (w *WeChatPay) QueryPayment(ctx context.Context, orderNo, _ string) (Status
 		return StatusResult{}, err
 	}
 
+	if w.RequireResponseSignature && (res.MchID != w.MchID || res.AppID != w.AppID) {
+		return StatusResult{}, ErrMerchantMismatch
+	}
 	status := StatusPending
 	if res.TradeState == "SUCCESS" {
 		status = StatusSucceeded
@@ -393,6 +418,11 @@ func (w *WeChatPay) Refund(ctx context.Context, params RefundParams) (RefundResu
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if w.RequireResponseSignature {
+		if err = w.verifyResponse(resp.Header, body); err != nil {
+			return RefundResult{}, err
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return RefundResult{}, fmt.Errorf("wechat refund: status %d: %s", resp.StatusCode, briefBody(body))
 	}
@@ -400,6 +430,10 @@ func (w *WeChatPay) Refund(ctx context.Context, params RefundParams) (RefundResu
 	var res struct {
 		RefundID string `json:"refund_id"`
 		Status   string `json:"status"`
+		Amount   struct {
+			Refund   int64  `json:"refund"`
+			Currency string `json:"currency"`
+		} `json:"amount"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		return RefundResult{}, err
@@ -407,6 +441,7 @@ func (w *WeChatPay) Refund(ctx context.Context, params RefundParams) (RefundResu
 
 	return RefundResult{
 		ProviderRefundID: res.RefundID,
-		Status:           strings.ToLower(res.Status),
+		Status:           NormalizeRefundStatus(res.Status),
+		AmountCents:      res.Amount.Refund, Currency: strings.ToUpper(res.Amount.Currency), ProviderTxnID: params.ProviderTxnID,
 	}, nil
 }

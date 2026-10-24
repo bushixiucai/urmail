@@ -266,7 +266,7 @@ func (q *Queries) PlatformGetPaymentMerchant(ctx context.Context, id int64) (Pay
 }
 
 const platformListMerchantCheckoutsToRecover = `-- name: PlatformListMerchantCheckoutsToRecover :many
-SELECT i.order_id, i.tenant_id, i.provider, i.account_scope, i.session_id, i.checkout_url, i.qr_code, i.state, i.updated_at FROM payment_checkout_intents i WHERE (i.account_scope<>'legacy' OR i.provider='stripe') AND i.state IN('creating','uncertain','cancel_requested','ready') AND (i.state<>'ready' OR EXISTS(SELECT 1 FROM orders o WHERE o.id=i.order_id AND o.status='pending')) AND i.updated_at<now()-interval '2 minutes' ORDER BY i.updated_at,i.order_id LIMIT 100
+SELECT i.order_id, i.tenant_id, i.provider, i.account_scope, i.session_id, i.checkout_url, i.qr_code, i.state, i.updated_at, i.restore_hold FROM payment_checkout_intents i WHERE (i.account_scope<>'legacy' OR i.provider='stripe') AND i.state IN('creating','uncertain','cancel_requested','ready') AND (i.state<>'ready' OR EXISTS(SELECT 1 FROM orders o WHERE o.id=i.order_id AND o.status='pending')) AND i.updated_at<now()-interval '2 minutes' ORDER BY i.updated_at,i.order_id LIMIT 100
 `
 
 func (q *Queries) PlatformListMerchantCheckoutsToRecover(ctx context.Context) ([]PaymentCheckoutIntents, error) {
@@ -288,6 +288,7 @@ func (q *Queries) PlatformListMerchantCheckoutsToRecover(ctx context.Context) ([
 			&i.QrCode,
 			&i.State,
 			&i.UpdatedAt,
+			&i.RestoreHold,
 		); err != nil {
 			return nil, err
 		}

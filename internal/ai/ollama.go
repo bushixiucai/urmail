@@ -34,13 +34,9 @@ func isLoopbackHost(host string) bool {
 
 // validateLocalEndpoint validates that the URL strictly targets a local loopback address (P06 local-only rule).
 func validateLocalEndpoint(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("%w: malformed local endpoint %q: %w", ErrLocalOnly, rawURL, err)
-	}
-	host := u.Hostname()
-	if !isLoopbackHost(host) {
-		return fmt.Errorf("%w: endpoint %q specifies non-loopback host %q", ErrLocalOnly, rawURL, host)
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || !isLoopbackHost(parsed.Hostname()) {
+		return ErrLocalOnly
 	}
 	return nil
 }
@@ -52,24 +48,39 @@ func newLocalOnlyTransport() *http.Transport {
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
-				return nil, fmt.Errorf("%w: invalid target address %q: %w", ErrLocalOnly, addr, err)
+				return nil, ErrLocalOnly
 			}
-			if !isLoopbackHost(host) {
-				ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+			var addresses []net.IP
+			if literal := net.ParseIP(host); literal != nil {
+				addresses = []net.IP{literal}
+			} else {
+				addresses, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
 				if err != nil {
-					return nil, fmt.Errorf("%w: dns lookup failed for %q: %w", ErrLocalOnly, host, err)
-				}
-				if len(ips) == 0 {
-					return nil, fmt.Errorf("%w: no ips resolved for host %q", ErrLocalOnly, host)
-				}
-				for _, ip := range ips {
-					if !ip.IsLoopback() {
-						return nil, fmt.Errorf("%w: connection to non-loopback IP %s for host %q disallowed", ErrLocalOnly, ip.String(), host)
-					}
+					return nil, ErrLocalOnly
 				}
 			}
-			var d net.Dialer
-			return d.DialContext(ctx, network, net.JoinHostPort(host, port))
+			if len(addresses) == 0 {
+				return nil, ErrLocalOnly
+			}
+			for _, address := range addresses {
+				if !address.IsLoopback() {
+					return nil, ErrLocalOnly
+				}
+			}
+			// Connect the checked IP itself; never resolve the hostname again.
+			var lastError error
+			for _, address := range addresses {
+				var dialer net.Dialer
+				connection, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(address.String(), port))
+				if dialErr == nil {
+					return connection, nil
+				}
+				lastError = dialErr
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+			}
+			return nil, lastError
 		},
 		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          10,
@@ -116,7 +127,14 @@ func WithOllamaModel(model string) OllamaOption {
 func WithOllamaHTTPClient(client *http.Client) OllamaOption {
 	return func(p *OllamaProvider) error {
 		if client != nil {
-			p.client = client
+			cloned := *client
+			transport := newLocalOnlyTransport()
+			if original, ok := client.Transport.(*http.Transport); ok && original.TLSClientConfig != nil {
+				transport.TLSClientConfig = original.TLSClientConfig.Clone()
+			}
+			cloned.Transport = transport
+			cloned.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return ErrLocalOnly }
+			p.client = &cloned
 		}
 		return nil
 	}
@@ -129,8 +147,9 @@ func NewOllamaProvider(opts ...OllamaOption) (*OllamaProvider, error) {
 		baseURL:      defaultOllamaBaseURL,
 		defaultModel: defaultOllamaModel,
 		client: &http.Client{
-			Transport: newLocalOnlyTransport(),
-			Timeout:   defaultOllamaClientTimeout,
+			Transport:     newLocalOnlyTransport(),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return ErrLocalOnly },
+			Timeout:       defaultOllamaClientTimeout,
 		},
 	}
 	for _, opt := range opts {
@@ -228,13 +247,16 @@ func (p *OllamaProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	if len(bodyBytes) > 2<<20 {
+		return CompletionResponse{}, ErrInvalidResponse
+	}
 	if resp.StatusCode != http.StatusOK {
-		return CompletionResponse{}, fmt.Errorf("%w: status %d: %s", ErrProviderError, resp.StatusCode, string(bodyBytes))
+		return CompletionResponse{}, fmt.Errorf("%w: status %d", ErrProviderError, resp.StatusCode)
 	}
 
 	var chatResp ollamaChatResponse
@@ -243,7 +265,7 @@ func (p *OllamaProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 
 	if chatResp.Error != "" {
-		return CompletionResponse{}, fmt.Errorf("%w: %s", ErrProviderError, chatResp.Error)
+		return CompletionResponse{}, ErrProviderError
 	}
 
 	finishReason := chatResp.DoneReason
@@ -258,6 +280,7 @@ func (p *OllamaProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		PromptTokens: chatResp.PromptEvalCount,
 		OutputTokens: chatResp.EvalCount,
 		TotalTokens:  chatResp.PromptEvalCount + chatResp.EvalCount,
+		UsageKnown:   chatResp.PromptEvalCount >= 0 && chatResp.EvalCount >= 0 && chatResp.PromptEvalCount+chatResp.EvalCount > 0,
 	}, nil
 }
 
@@ -289,12 +312,15 @@ func (p *OllamaProvider) completeOpenAICompat(ctx context.Context, model string,
 		return CompletionResponse{}, fmt.Errorf("ollama request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("failed to read response body: %w", err)
 	}
+	if len(bodyBytes) > 2<<20 {
+		return CompletionResponse{}, ErrInvalidResponse
+	}
 	if resp.StatusCode != http.StatusOK {
-		return CompletionResponse{}, fmt.Errorf("%w: status %d: %s", ErrProviderError, resp.StatusCode, string(bodyBytes))
+		return CompletionResponse{}, fmt.Errorf("%w: status %d", ErrProviderError, resp.StatusCode)
 	}
 	var chatResp openAIChatResponse
 	if err := json.Unmarshal(bodyBytes, &chatResp); err != nil {
@@ -311,5 +337,6 @@ func (p *OllamaProvider) completeOpenAICompat(ctx context.Context, model string,
 		PromptTokens: chatResp.Usage.PromptTokens,
 		OutputTokens: chatResp.Usage.CompletionTokens,
 		TotalTokens:  chatResp.Usage.TotalTokens,
+		UsageKnown:   chatResp.Usage.TotalTokens > 0 && chatResp.Usage.TotalTokens == chatResp.Usage.PromptTokens+chatResp.Usage.CompletionTokens,
 	}, nil
 }

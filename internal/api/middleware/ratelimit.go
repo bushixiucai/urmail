@@ -46,11 +46,6 @@ func (l *windowLimiter) allow(key string, limit int, window time.Duration) bool 
 	return true
 }
 
-// RateLimitWindow allows at most limit requests per key per window. A key
-// function returning false skips the request (the route enforces its own
-// authentication). Billing quote/checkout need this because a tenant could
-// otherwise flood pending orders and, with a reserved coupon, burn global
-// quota (M5 review 3.27).
 // TenantRateKey keys the limiter on the authenticated tenant so one tenant's
 // spend cannot exhaust another tenant's budget.
 func TenantRateKey(c *gin.Context) (string, bool) {
@@ -61,6 +56,11 @@ func TenantRateKey(c *gin.Context) (string, bool) {
 	return "tenant|" + strconv.FormatInt(tenantID, 10), true
 }
 
+// RateLimitWindow allows at most limit requests per key per window. A key
+// function returning false skips the request (the route enforces its own
+// authentication). Billing quote/checkout need this because a tenant could
+// otherwise flood pending orders and, with a reserved coupon, burn global
+// quota (M5 review 3.27).
 func RateLimitWindow(limit int, window time.Duration, key func(*gin.Context) (string, bool)) gin.HandlerFunc {
 	limiter := newWindowLimiter()
 	return func(c *gin.Context) {

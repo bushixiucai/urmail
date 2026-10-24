@@ -58,13 +58,18 @@ func TestPureFunctionConstraint(t *testing.T) {
 	}
 }
 
-// TestGoldenCases tests the 6 standard golden cases.
+// TestGoldenCases covers standard mail, policy and archive configurations.
 func TestGoldenCases(t *testing.T) {
 	cases := []struct {
 		name string
 		node postfix.NodeConfig
 		snap postfix.Snapshot
 	}{
+		{
+			name: "archive_on",
+			node: func() postfix.NodeConfig { cfg := defaultNodeConfig(); cfg.ArchiveEnabled = true; return cfg }(),
+			snap: postfix.Snapshot{Domains: []postfix.Domain{{FQDN: "example.com", Status: "active"}}, Mailboxes: []postfix.Mailbox{{ID: 11, TenantID: 7, Address: "alice@example.com", Status: "active"}}},
+		},
 		{
 			name: "empty",
 			node: defaultNodeConfig(),
@@ -178,9 +183,21 @@ func TestGoldenCases(t *testing.T) {
 				t.Fatalf("Generate failed: %v", err)
 			}
 
-			// Key set check: exactly 5 keys
-			if len(out) != 5 {
-				t.Fatalf("expected exactly 5 files, got %d", len(out))
+			files := append([]struct {
+				key      string
+				filename string
+			}(nil), expectedFiles...)
+			if tc.node.ArchiveEnabled {
+				files = append(files, struct {
+					key      string
+					filename string
+				}{postfix.FileArchiveBCCMap, "archive_bcc.map"}, struct {
+					key      string
+					filename string
+				}{postfix.FileArchiveTransportMap, "archive_transport.map"})
+			}
+			if len(out) != len(files) {
+				t.Fatalf("expected %d files, got %d", len(files), len(out))
 			}
 
 			goldenDir := filepath.Join("testdata", "golden", tc.name)
@@ -190,7 +207,7 @@ func TestGoldenCases(t *testing.T) {
 				}
 			}
 
-			for _, ef := range expectedFiles {
+			for _, ef := range files {
 				content, ok := out[ef.key]
 				if !ok {
 					t.Errorf("missing output key %q", ef.key)

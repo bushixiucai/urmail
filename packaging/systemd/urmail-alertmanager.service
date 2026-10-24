@@ -1,0 +1,24 @@
+[Unit]
+Description=urMail operator alert routing
+After=network.target
+ConditionPathExists=/etc/urmail/observability/receiver.enabled
+
+[Service]
+User=urmail-monitor
+Group=urmail-monitor
+ExecStart=/usr/bin/prometheus-alertmanager --config.file=/etc/urmail/observability/alertmanager.yml --web.listen-address=127.0.0.1:9093 --cluster.listen-address= --storage.path=/var/lib/urmail-monitor/alertmanager
+Restart=on-failure
+StateDirectory=urmail-monitor
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/urmail-monitor
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

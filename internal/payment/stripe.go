@@ -21,10 +21,11 @@ import (
 
 // Stripe implements the supported Checkout and webhook operations.
 type Stripe struct {
-	SecretKey     string
-	WebhookSecret string
-	Base          string
-	Client        *http.Client
+	SecretKey      string
+	WebhookSecret  string
+	Base           string
+	Client         *http.Client
+	CheckoutLimits map[string]AmountLimit
 }
 
 // Ensure Stripe implements Provider interface.
@@ -61,8 +62,16 @@ type CheckoutSession struct {
 	URL string `json:"url"`
 }
 
+// CheckCheckoutAmount requires confirmed merchant bounds even on the legacy adapter.
+func (s *Stripe) CheckCheckoutAmount(currency string, amount int64) error {
+	return (Merchant{Provider: ProviderStripe, Currencies: []string{"CNY", "USD"}, CheckoutLimits: s.CheckoutLimits}).CheckCheckoutAmount(currency, amount)
+}
+
 // CreateCheckoutSession creates a hosted payment session for an order.
 func (s *Stripe) CreateCheckoutSession(ctx context.Context, orderID int64, orderNo string, amountCents int64, currency, successURL, cancelURL string) (CheckoutSession, error) {
+	if err := s.CheckCheckoutAmount(strings.ToUpper(currency), amountCents); err != nil {
+		return CheckoutSession{}, err
+	}
 	form := url.Values{}
 	form.Set("mode", "payment")
 	form.Set("success_url", successURL)
@@ -367,8 +376,11 @@ func (s *Stripe) Refund(ctx context.Context, params RefundParams) (RefundResult,
 	}
 
 	var res struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
+		ID            string `json:"id"`
+		Status        string `json:"status"`
+		Amount        int64  `json:"amount"`
+		Currency      string `json:"currency"`
+		PaymentIntent string `json:"payment_intent"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
 		return RefundResult{}, err
@@ -376,7 +388,8 @@ func (s *Stripe) Refund(ctx context.Context, params RefundParams) (RefundResult,
 
 	return RefundResult{
 		ProviderRefundID: res.ID,
-		Status:           res.Status,
+		Status:           NormalizeRefundStatus(res.Status),
+		AmountCents:      res.Amount, Currency: strings.ToUpper(res.Currency), ProviderTxnID: res.PaymentIntent,
 	}, nil
 }
 

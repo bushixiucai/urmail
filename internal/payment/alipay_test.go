@@ -238,6 +238,7 @@ func TestAlipayFullFlow(t *testing.T) {
 		_, err := client.CreateCheckout(context.Background(), CheckoutParams{
 			OrderID:     42,
 			OrderNo:     "ORD-ERROR-GATEWAY",
+			Currency:    "CNY",
 			AmountCents: 6000,
 		})
 		if err == nil {
@@ -251,6 +252,7 @@ func TestAlipayFullFlow(t *testing.T) {
 	t.Run("CreateCheckout HTTP 500", func(t *testing.T) {
 		_, err := client.CreateCheckout(context.Background(), CheckoutParams{
 			OrderNo:     "ORD-HTTP-500",
+			Currency:    "CNY",
 			AmountCents: 1000,
 		})
 		if err == nil {
@@ -261,6 +263,7 @@ func TestAlipayFullFlow(t *testing.T) {
 	t.Run("CreateCheckout empty qr_code", func(t *testing.T) {
 		_, err := client.CreateCheckout(context.Background(), CheckoutParams{
 			OrderNo:     "ORD-EMPTY-QR",
+			Currency:    "CNY",
 			AmountCents: 1000,
 		})
 		if err == nil {
@@ -897,7 +900,7 @@ func TestAlipayRefundFundChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Refund failed: %v", err)
 	}
-	if res.Status != StatusPending {
+	if res.Status != "processing" {
 		t.Fatalf("expected pending status when fund_change != Y, got %q", res.Status)
 	}
 }

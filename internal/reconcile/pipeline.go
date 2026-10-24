@@ -56,9 +56,8 @@ func (p *Pipeline) WithLogger(l *zap.Logger) *Pipeline {
 	return p
 }
 
-// WithCertificateEnsurer runs before each render so newly verified domains
-// have a certificate before nginx server blocks are emitted. Errors are
-// logged and the render proceeds with whatever certificates exist.
+// WithCertificateEnsurer runs only after a successful configuration apply.
+// Bootstrap registration must precede any external certificate issuance.
 func (p *Pipeline) WithCertificateEnsurer(fn func(context.Context) error) *Pipeline {
 	p.ensureCerts = fn
 	return p
@@ -77,11 +76,6 @@ func (p *Pipeline) Trigger() {
 func (p *Pipeline) RenderOnce(ctx context.Context) (files map[string]string, err error) {
 	start := time.Now()
 	defer func() { observeRender(start, err) }()
-	if p.ensureCerts != nil {
-		if err := p.ensureCerts(ctx); err != nil {
-			p.log.Warn("domain certificate ensure failed", zap.Error(err))
-		}
-	}
 	mailCtx, err := AssembleConfigContext(ctx, p.cfg, p.querier, p.publicIPv4, p.nameservers)
 	if err != nil {
 		return nil, fmt.Errorf("assemble config context: %w", err)
@@ -143,6 +137,11 @@ func (p *Pipeline) StartWorker(ctx context.Context, debounce time.Duration, onRe
 		files, err := p.RenderOnce(ctx)
 		if err == nil && onRendered != nil {
 			err = onRendered(files)
+		}
+		if err == nil && p.ensureCerts != nil {
+			if ensureErr := p.ensureCerts(ctx); ensureErr != nil {
+				p.log.Warn("certificate ensure after bootstrap failed", zap.Error(ensureErr))
+			}
 		}
 		p.mu.Lock()
 		p.lastRender = time.Now()

@@ -27,11 +27,12 @@ func AfterCommit(c *gin.Context, fn func()) {
 
 type responseBuffer struct {
 	gin.ResponseWriter
-	header   http.Header
-	body     bytes.Buffer
-	status   int
-	written  bool
-	overflow bool
+	header         http.Header
+	body           bytes.Buffer
+	status         int
+	written        bool
+	overflow       bool
+	replaceOnWrite bool
 }
 
 func newResponseBuffer(w gin.ResponseWriter) *responseBuffer {
@@ -39,12 +40,14 @@ func newResponseBuffer(w gin.ResponseWriter) *responseBuffer {
 }
 func (w *responseBuffer) Header() http.Header { return w.header }
 func (w *responseBuffer) WriteHeader(status int) {
+	w.prepareCallbackWrite()
 	if !w.written {
 		w.status = status
 	}
 }
 func (w *responseBuffer) WriteHeaderNow() { w.written = true }
 func (w *responseBuffer) Write(p []byte) (int, error) {
+	w.prepareCallbackWrite()
 	w.written = true
 	if w.body.Len()+len(p) > 8<<20 {
 		w.overflow = true
@@ -75,4 +78,16 @@ func (w *responseBuffer) publish() {
 	}
 	w.ResponseWriter.WriteHeader(w.status)
 	_, _ = w.ResponseWriter.Write(w.body.Bytes())
+}
+
+// A callback can replace a prepared response after commit without appending a
+// second JSON document or hiding its final error status behind an earlier 200.
+func (w *responseBuffer) beginAfterCommitCallback() { w.replaceOnWrite = true }
+func (w *responseBuffer) prepareCallbackWrite() {
+	if w.replaceOnWrite {
+		w.body.Reset()
+		w.written = false
+		w.overflow = false
+		w.replaceOnWrite = false
+	}
 }

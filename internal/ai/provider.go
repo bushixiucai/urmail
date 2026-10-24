@@ -10,6 +10,7 @@ import (
 const (
 	ProviderOpenAI = "openai"
 	ProviderOllama = "ollama"
+	ProviderAzure  = "azure"
 )
 
 // Common AI errors.
@@ -66,6 +67,7 @@ type CompletionResponse struct {
 	PromptTokens int    `json:"prompt_tokens"`
 	OutputTokens int    `json:"output_tokens"`
 	TotalTokens  int    `json:"total_tokens"`
+	UsageKnown   bool   `json:"usage_known"`
 }
 
 // Provider defines the interface for an AI model backend.

@@ -1,0 +1,24 @@
+[Unit]
+Description=urMail local operational metrics
+After=network.target urmaild.service
+ConditionPathExists=/etc/urmail/observability/monitor.enabled
+
+[Service]
+User=urmail-monitor
+Group=urmail-monitor
+ExecStart=/usr/bin/prometheus --config.file=/etc/urmail/observability/prometheus.yml --web.listen-address=127.0.0.1:9090 --storage.tsdb.path=/var/lib/urmail-monitor/prometheus --storage.tsdb.retention.time=15d
+Restart=on-failure
+StateDirectory=urmail-monitor
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/urmail-monitor
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

@@ -15,7 +15,7 @@ import (
 func TestCreateRefundReservesOnlySuccessfulPaymentBalance(t *testing.T) {
 	platform, app := authIntegrationDatabase(t)
 	ctx := context.Background()
-	var brandID, tenantID, orderID, paymentID int64
+	var brandID, tenantID, orderID, paymentID, userID int64
 	steps := []struct {
 		query string
 		args  []any
@@ -39,8 +39,14 @@ func TestCreateRefundReservesOnlySuccessfulPaymentBalance(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := platform.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('refund-owner@example.test','unused') RETURNING id").Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", userID, tenantID); err != nil {
+		t.Fatal(err)
+	}
 	create := func(refundNo string, amount int64, currency string) (store.Refunds, error) {
-		tx, err := app.TenantTx(ctx, tenantID)
+		tx, err := app.UserTx(ctx, tenantID, userID)
 		if err != nil {
 			return store.Refunds{}, err
 		}

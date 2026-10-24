@@ -49,7 +49,7 @@ export DEBIAN_FRONTEND=noninteractive
 log "installing system dependencies"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-	nginx postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd \
+	rsyslog nginx postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd \
 	dovecot-sieve dovecot-managesieved dovecot-pgsql nsd opendkim postgresql \
 	ca-certificates curl gnupg openssl certbot rsync duplicity python3-venv
 
@@ -376,6 +376,10 @@ if [ -f /etc/nsd/nsd.conf ] && ! grep -q 'nsd.conf.d' /etc/nsd/nsd.conf; then
 fi
 
 log "starting the services"
+rsyslogd -N1
+systemctl enable --now rsyslog.service
+systemctl restart rsyslog.service
+logger -p mail.info -t urmail "managed mail telemetry source initialized"
 systemctl daemon-reload
 systemctl enable urmaild-agent.service >/dev/null 2>&1 || true
 systemctl enable urmaild.service >/dev/null 2>&1 || true

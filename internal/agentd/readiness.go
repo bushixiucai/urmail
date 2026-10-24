@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/smtp"
 	"os"
 	"strings"
 	"time"
@@ -42,7 +43,11 @@ func (m *ApplyManager) probeMailReadiness(ctx context.Context) error {
 		if probe.secure {
 			config = tlsConfig
 		}
-		err = probeGreeting(probeCtx, probe.address, probe.banner, config, expected)
+		if probe.name == "submission587" {
+			err = probeSubmissionTLS(probeCtx, probe.address, tlsConfig, expected)
+		} else {
+			err = probeGreeting(probeCtx, probe.address, probe.banner, config, expected)
+		}
 		cancel()
 		if err != nil {
 			return fmt.Errorf("%s readiness: %w", probe.name, err)
@@ -114,4 +119,36 @@ func (m *ApplyManager) checkMailReadiness(ctx context.Context) error {
 		return m.readinessProbe(ctx)
 	}
 	return m.probeMailReadiness(ctx)
+}
+
+func probeSubmissionTLS(ctx context.Context, address string, config *tls.Config, expected []byte) error {
+	var dialer net.Dialer
+	connection, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = connection.Close() }()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(3 * time.Second)
+	}
+	if err = connection.SetDeadline(deadline); err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(connection, config.ServerName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	if ok, _ := client.Extension("STARTTLS"); !ok {
+		return fmt.Errorf("submission STARTTLS unavailable")
+	}
+	if err = client.StartTLS(config.Clone()); err != nil {
+		return err
+	}
+	state, ok := client.TLSConnectionState()
+	if !ok || len(state.PeerCertificates) == 0 || !bytes.Equal(state.PeerCertificates[0].Raw, expected) {
+		return fmt.Errorf("submission certificate differs from installed mail consumer")
+	}
+	return nil
 }

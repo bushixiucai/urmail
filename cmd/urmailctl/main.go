@@ -23,13 +23,19 @@ Usage:
   urmailctl migrate down           roll back the most recent schema migration
   urmailctl migrate version        print the current schema version
   urmailctl setup --email E --password P [--brand B] [--tenant T]
+                  [--free-until RFC3339 --free-reason TEXT]
   urmailctl status                 print the service status
   urmailctl config render [--dry-run] [--out-dir <dir>]
   urmailctl cert issue <domain>     obtain an ACME certificate via certbot
   urmailctl cert renew              renew ACME certificates and install them
   urmailctl usage sync             collect canonical Dovecot storage usage
+  urmailctl billing repair-legacy-period --tenant-id T --subscription-id S --paid-order-id O --expected-start RFC3339 --expected-end RFC3339 --nominal-basis-cents N --reason TEXT [--apply]
   urmailctl data-check             report tenant reference/allocation problems
+  urmailctl telemetry acknowledge-gap --stream NAME --generation N --reason TEXT
+  urmailctl domain challenge --tenant-id T --domain-id D
+  urmailctl domain verify --tenant-id T --domain-id D
   urmailctl backup [--out-dir DIR]  dump PostgreSQL and config/certificate files
+  urmailctl restore quarantine status|release [--restore-id ID --confirm-reconciled --source-isolated --reason TEXT]
   urmailctl restore --dump FILE --force [--config FILE] [--database-url URL]
 `
 
@@ -64,6 +70,12 @@ func run(args []string) error {
 		return runCert(ctx, args[1:])
 	case "usage":
 		return runUsageSync(ctx, args[1:])
+	case "telemetry":
+		return runTelemetry(ctx, args[1:])
+	case "domain":
+		return runDomainRecovery(ctx, args[1:])
+	case "billing":
+		return runBillingRepair(ctx, args[1:])
 	case "data-check":
 		return runDataCheck(ctx)
 	case "backup":

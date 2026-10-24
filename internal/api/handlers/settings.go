@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"time"
 
 	"regexp"
 	"sort"
@@ -25,17 +26,25 @@ type settingsPatch struct {
 var settingColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func validateSettings(values map[string]json.RawMessage) bool {
-	if len(values) > 3 {
+	if len(values) > 4 {
 		return false
 	}
 	for key, value := range values {
-		if key != "locale" && key != "theme" && key != "mailbox_default_quota_bytes" {
+		if !publicSettingKey(key) {
 			return false
 		}
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			continue
 		}
 		switch key {
+		case "business_timezone":
+			var zone string
+			if json.Unmarshal(value, &zone) != nil || len(zone) > 64 || zone == "Local" {
+				return false
+			}
+			if _, err := time.LoadLocation(zone); err != nil {
+				return false
+			}
 		case "locale":
 			var s string
 			if json.Unmarshal(value, &s) != nil || (s != "en" && s != "zh-CN") {
@@ -110,14 +119,16 @@ func (h *PlatformHandler) Settings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	rows, err := store.New(h.Pool.Pool).PlatformListSettings(c)
+	rows, err := requestStore(c, store.New(h.Pool.Pool)).PlatformListSettings(c)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 	values := map[string]json.RawMessage{}
 	for _, row := range rows {
-		values[row.Key] = row.Value
+		if publicSettingKey(row.Key) {
+			values[row.Key] = row.Value
+		}
 	}
 	c.JSON(200, gin.H{"settings": values})
 }
@@ -133,13 +144,12 @@ func (h *PlatformHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	tx, err := h.Pool.PlatformTx(c)
+	q, finish, rollback, err := platformMutationQueries(c, h.Pool)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	defer rollback()
 	for _, key := range settingKeys(input.Settings) {
 		value := input.Settings[key]
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
@@ -152,7 +162,7 @@ func (h *PlatformHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	if err = tx.Commit(c); err != nil {
+	if err = finish(); err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -179,13 +189,12 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	tx, err := h.Pool.PlatformTx(c)
+	q, finish, rollback, err := platformMutationQueries(c, h.Pool)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	defer rollback()
 	if _, err = q.PlatformLockBrandSettingsBrand(c, id); err != nil {
 		status, code := 500, "DB_ERROR"
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -213,13 +222,25 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	if err = tx.Commit(c); err != nil {
+	if err = finish(); err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
 	values := map[string]json.RawMessage{}
 	for _, row := range rows {
-		values[row.Key] = row.Value
+		if publicSettingKey(row.Key) {
+			values[row.Key] = row.Value
+		}
 	}
 	c.JSON(200, gin.H{"settings": values})
+}
+
+// publicSettingKey is the public DTO boundary shared by settings surfaces.
+func publicSettingKey(key string) bool {
+	switch key {
+	case "locale", "theme", "mailbox_default_quota_bytes", "business_timezone":
+		return true
+	default:
+		return false
+	}
 }

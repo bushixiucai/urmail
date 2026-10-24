@@ -23,10 +23,15 @@ const EnvFile = "/etc/urmail/urmaild.env"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
-	DNSListenAddresses []string
-	DevMode            bool
-	ACMEServer         string
-	ACMERootCA         string
+	DNSListenAddresses   []string
+	DevMode              bool
+	MarketingEnabled     bool
+	RegistrationEnabled  bool
+	NotificationsEnabled bool
+	RefundsEnabled       bool
+	Quarantined          bool
+	ACMEServer           string
+	ACMERootCA           string
 	// ListenAddr is the address the HTTP server binds to. It must stay on
 	// loopback: nginx terminates TLS and is the only thing that should be
 	// reachable from the network.
@@ -124,6 +129,11 @@ type Config struct {
 	QuoteHMACKey string
 	// MarketingUnsubscribeHMACKey signs recipient opt-out tokens; no default.
 	MarketingUnsubscribeHMACKey string
+	RoundcubeBridgeKey          string
+	RoundcubeEnabled            bool
+	MetricsToken                string
+	AICloudEndpoints            []string
+	AILocalEndpoints            []string
 }
 
 // parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
@@ -154,6 +164,11 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		DevMode:                     parseBool(values["URMAIL_DEV_MODE"]),
+		MarketingEnabled:            parseBool(values["URMAIL_MARKETING_ENABLED"]),
+		RegistrationEnabled:         parseBool(values["URMAIL_REGISTRATION_ENABLED"]),
+		NotificationsEnabled:        parseBool(values["URMAIL_NOTIFICATIONS_ENABLED"]),
+		RefundsEnabled:              parseBool(values["URMAIL_REFUNDS_ENABLED"]),
+		Quarantined:                 parseBool(values["URMAIL_QUARANTINED"]) || restoreQuarantinePresent(RestoreQuarantineMarker),
 		ACMEServer:                  values["URMAIL_ACME_SERVER"],
 		ACMERootCA:                  values["URMAIL_ACME_ROOT_CA"],
 		ListenAddr:                  values["URMAIL_LISTEN_ADDR"],
@@ -183,6 +198,11 @@ func Load() (*Config, error) {
 		StripeWebhookSecret:         values["URMAIL_STRIPE_WEBHOOK_SECRET"],
 		QuoteHMACKey:                values["URMAIL_QUOTE_HMAC_KEY"],
 		MarketingUnsubscribeHMACKey: values["URMAIL_MARKETING_UNSUBSCRIBE_HMAC_KEY"],
+		RoundcubeBridgeKey:          values["URMAIL_ROUNDCUBE_BRIDGE_KEY"],
+		RoundcubeEnabled:            parseBool(values["URMAIL_ROUNDCUBE_ENABLED"]),
+		MetricsToken:                values["URMAIL_METRICS_TOKEN"],
+		AICloudEndpoints:            splitCSV(values["URMAIL_AI_CLOUD_ENDPOINTS"]),
+		AILocalEndpoints:            splitCSV(values["URMAIL_AI_LOCAL_ENDPOINTS"]),
 	}
 	cfg.applyDefaults()
 	cfg.DNSListenAddresses, err = resolveDNSListenAddresses(values["URMAIL_DNS_LISTEN_ADDRESSES"])

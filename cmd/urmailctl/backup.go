@@ -115,10 +115,13 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	scope := "metadata-only"
 	if includeMail {
 		mailArchive := filepath.Join(outDir, "urmail-mail-"+stamp+".tar.gz")
-		mailPaths := []string{strings.TrimPrefix(filepath.Join(cfg.StorageRoot, "mail"), "/")}
-		if cfg.ArchiveEnabled {
-			mailPaths = append(mailPaths, "var/lib/urmail/archive")
+		archivePaths, archiveErr := archiveBackupPaths("/", cfg.ArchiveEnabled)
+		if archiveErr != nil {
+			return archiveErr
 		}
+		mailPaths := make([]string, 0, 1+len(archivePaths))
+		mailPaths = append(mailPaths, strings.TrimPrefix(filepath.Join(cfg.StorageRoot, "mail"), "/"))
+		mailPaths = append(mailPaths, archivePaths...)
 		for _, path := range mailPaths {
 			if _, err = os.Stat("/" + path); err != nil {
 				return fmt.Errorf("required mail input %s: %w", path, err)
@@ -145,7 +148,7 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	fmt.Printf("backup complete (scope=%s, maintenance=%t)\n  manifest: %s\n", scope, maintenance, manifest)
 	if !includeMail {
-		fmt.Println("mailbox contents and archived message bodies are NOT included")
+		fmt.Println("mailbox contents, archived message bodies and pending archive spool are NOT included")
 	}
 
 	return nil
@@ -236,7 +239,7 @@ func pauseBackupWriters(ctx context.Context) (func() error, error) {
 	if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
 		return nil, fmt.Errorf("maintenance requires systemd: %w", err)
 	}
-	for _, unit := range []string{"urmail-cert-renew.timer", "urmail-usage-sync.timer", "urmail-cert-renew.service", "urmail-usage-sync.service", "urmaild", "postfix", "dovecot", "urmaild-agent"} {
+	for _, unit := range restoreWriterUnits {
 		if exec.CommandContext(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit).Run() == nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
 			if err := exec.CommandContext(ctx, "/usr/bin/systemctl", "stop", unit).Run(); err != nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
 				_ = resume()
@@ -282,4 +285,24 @@ func validateBackupInputs(paths []string) error {
 		}
 	}
 	return nil
+}
+
+// Archive copies and pending spool are data even after the feature is disabled.
+// Never silently drop an existing spool from a complete maintenance backup.
+func archiveBackupPaths(base string, enabled bool) ([]string, error) {
+	var paths []string
+	for _, relative := range []string{"var/lib/urmail/archive", "var/lib/urmail/archive-spool"} {
+		info, err := os.Lstat(filepath.Join(base, relative)) // #nosec G304 G703 -- production uses only the two fixed data paths under root; tests provide an isolated root.
+		if errors.Is(err, os.ErrNotExist) && (!enabled || strings.HasSuffix(relative, "archive-spool")) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("required archive backup input %s: %w", relative, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("archive backup input must be a real directory")
+		}
+		paths = append(paths, relative)
+	}
+	return paths, nil
 }

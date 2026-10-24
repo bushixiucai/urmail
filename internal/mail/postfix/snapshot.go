@@ -21,8 +21,10 @@ type Domain struct {
 
 // Mailbox represents an active mailbox in the database snapshot.
 type Mailbox struct {
-	Address string // local_part@fqdn
-	Status  string // must be "active"
+	ID       int64
+	TenantID int64
+	Address  string // local_part@fqdn
+	Status   string // must be "active"
 }
 
 // Alias represents an alias or catchall entry in the database snapshot.

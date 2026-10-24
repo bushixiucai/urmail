@@ -11,7 +11,7 @@ import (
 // assigned to an interface is non-nil, which previously defeated the
 // handler's nil guard and made the public unsubscribe endpoint panic when no
 // signing key was configured (M5 review 3.13). Returning an untyped nil keeps
-// the fail-closed 503 behaviour.
+// the fail-closed 503 behavior.
 func marketingTokenManager(cfg *config.Config) interface {
 	VerifyUnsubscribeToken(string) (int64, string, bool)
 } {

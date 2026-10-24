@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: urMail v3 remediation API subset
-  version: 0.4.0-remediation-v3
-  description: Only the endpoints added or changed in the third remediation round. This is not a complete v1 specification
+  title: urMail M1-M7 remediation API contract
+  version: 0.4.2-m1-m7-v2
+  description: Endpoints added or changed in the M1-M7 remediation rounds. This is not a complete v1 specification
     or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
     Bearer and X-CSRF-Token; present Origin/Referer must match the host.
 servers:
@@ -11,6 +11,25 @@ security:
 - Bearer: []
 paths:
   /marketing/unsubscribe:
+    get:
+      summary: Show inert localized unsubscribe confirmation
+      security: []
+      description: GET never changes consent or dispatches. Only an unexpired signed token
+        renders the human POST form. Escaped HTML, no-store, CSP and no-referrer. POST
+        accepts explicit confirmation or RFC8058 one-click body.
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Escaped HTML confirmation page; no state change.
+        '400':
+          description: Invalid token.
+        '503':
+          description: Unavailable signing/persistence.
     post:
       summary: Persist a recipient opt-out using a stateless signed token.
       description: Public by design. Only possession of an unexpired signed token authorizes this operation.
@@ -624,6 +643,14 @@ paths:
             schema:
               type: object
               properties:
+                domain_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  description: Owned active verified domain. Omitted legacy bodies resolve an owned verified domain; no verified domain means refusal.
+                currency:
+                  type: string
+                  enum: [CNY, USD]
                 plan_code: *id001
                 billing_cycle:
                   type: string
@@ -662,12 +689,17 @@ paths:
                     enum:
                     - manual
                     - stripe
+                    - wechat
+                    - alipay
+                    - paypal
                   checkout_url:
                     type: string
                     format: uri
                 required:
                 - order
                 - payment_method
+        '202':
+          description: The persisted checkout is uncertain, awaiting receipt review, or pending provider reconciliation. No blind external retry occurs.
         default:
           $ref: '#/components/responses/Error'
       security: *id002
@@ -677,8 +709,7 @@ paths:
         schema:
           type: string
           maxLength: 200
-        description: Recommended; scoped to the current tenant. Reuse with the same plan resumes the order; another
-          plan conflicts.
+        description: Required for reliable retry; scoped to the current tenant and full signed quote intent. The same key with a different digest conflicts. A committed order remains recoverable after quote expiry or catalog withdrawal.
       requestBody:
         required: true
         content:
@@ -687,6 +718,11 @@ paths:
               oneOf:
               - type: object
                 properties:
+                  merchant_id:
+                    type: integer
+                    format: int64
+                    minimum: 1
+                    description: Select a ready merchant supporting the quoted currency and amount.
                   quote:
                     $ref: '#/components/schemas/Quote'
                 required:
@@ -701,8 +737,7 @@ paths:
       description: A pending order commits before Stripe is contacted. Preferred flow is POST /billing/quote first
         and passing the signed quote back; the legacy plan_code body is still accepted and is priced server-side, so
         the tenant cannot bypass the signed-pricing path. A fully discounted (zero-amount) order settles immediately
-        through the manual provider and is returned already paid. Provider failure returns 502 with order_id; retry
-        with the same key. Stable provider idempotency protects retries while the provider retains its key record.
+        without a cash receipt or refundable payment. An ambiguous external result returns the durable order and remains uncertain (202 on retry); retries never blindly create another session. Missing confirmed merchant limits prevents new payment creation. Existing intents remain queryable.
         This is not a distributed transaction or a real-payment guarantee. An already-paid resumed order has no
         checkout_url.
   /billing/orders/{id}/cancel:
@@ -859,7 +894,7 @@ paths:
       summary: Render the current tenant's invoice as a PDF attachment. Cross-tenant IDs return 404.
       responses:
         '200':
-          description: Derived PDF; no global filesystem cache is required.
+          description: Embedded CJK font commercial statement from immutable quote parties and tax snapshot. Owner/admin/billing only; mandatory READ audit succeeds before bytes release. Original total is unchanged by refunds; completed source-payment refunds and current void status are disclosed. Missing legacy snapshots are explicitly marked without using current profiles. This is not a formal tax invoice. No global cache, OS font or remote font request is required.
           content:
             application/pdf:
               schema:
@@ -951,6 +986,2402 @@ paths:
                     $ref: '#/components/schemas/Recall'
         default:
           $ref: '#/components/responses/Error'
+  /audit:
+    get:
+      summary: Read tenant audit history with stable composite pagination.
+      parameters:
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500}}
+      - {name: actor_user_id, in: query, schema: {type: integer, format: int64}}
+      - {name: action, in: query, schema: {type: string}}
+      - {name: target_type, in: query, schema: {type: string}}
+      - {name: target_id, in: query, schema: {type: string}}
+      - {name: from, in: query, schema: {type: string, format: date-time}}
+      - {name: to, in: query, schema: {type: string, format: date-time}}
+      - {name: cursor, in: query, schema: {type: string, maxLength: 2048}}
+      - {name: before_id, in: query, schema: {type: integer}, description: Legacy cursor; resolves the anchor timestamp within this tenant. Cannot be combined with cursor.}
+      responses:
+        '200':
+          description: logs plus next_cursor; cursor binds tenant and filters and validates its persisted timestamp/id anchor.
+        '400':
+          description: Invalid range, cursor, or cursor/filter mismatch.
+        default:
+          $ref: '#/components/responses/Error'
+  /audit/export:
+    get:
+      summary: Export one consistent filtered audit metadata snapshot as CSV.
+      parameters:
+      - {name: actor_user_id, in: query, schema: {type: integer, format: int64}}
+      - {name: action, in: query, schema: {type: string}}
+      - {name: target_type, in: query, schema: {type: string}}
+      - {name: target_id, in: query, schema: {type: string}}
+      - {name: from, in: query, schema: {type: string, format: date-time}}
+      - {name: to, in: query, schema: {type: string, format: date-time}}
+      description: Requires tenant owner/admin. Uses the same actor/action/object/from/to filters as GET /audit, without page cursors. More than 10000 rows or 7 MiB returns 413 before releasing data, never a silently truncated file. Download is audited before the transaction commits and releases the response. CSV formula prefixes are escaped.
+      responses:
+        '200':
+          description: Tenant-scoped CSV attachment.
+          content:
+            text/csv:
+              schema: {type: string}
+        '413':
+          description: Narrow the filter/time range and retry.
+        '503':
+          description: Audit persistence unavailable; no export is released.
+        default:
+          $ref: '#/components/responses/Error'
+  /compliance/grants:
+    get:
+      summary: List current and historical grants and eligible recipients.
+      description: Tenant owner only. Historical unconfirmed grants do not authorize content. recipients contains this tenant's owner/admin users, never unrelated tenants.
+      responses:
+        '200': {description: grants and recipients arrays.}
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Explicitly authorize content preview or export.
+      security:
+      - Bearer: []
+        CSRF: []
+      description: Owner only; the database independently checks authority and records owner confirmation. Preview and export scopes are independent. Requires a nonempty reason and future finite expiry. Reauthorization creates a new immutable grant; it never blesses a historical row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, scope, reason, expires_at]
+              properties:
+                user_id: {type: integer, format: int64, minimum: 1}
+                scope: {type: string, enum: [full_content, export, retention_manage]}
+                reason: {type: string, minLength: 1, maxLength: 2000}
+                expires_at: {type: string, format: date-time}
+      responses:
+        '201': {description: grant including owner_confirmed_at.}
+        default:
+          $ref: '#/components/responses/Error'
+  /compliance/grants/{id}/revoke:
+    post:
+      summary: Revoke a grant without rewriting its original provenance.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      description: Owner only. Repeated revocation preserves the first revocation metadata and returns the same revoked grant. Wrong-tenant/missing grant returns 404.
+      responses:
+        '200': {description: Revoked grant.}
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/document-profile:
+    get:
+      summary: Read a masked future commercial statement profile.
+      description: Tenant owner, admin or billing; own tenant only. Tax ID, bank account, phone and email are masked. Existing document snapshots are never changed by this resource.
+      responses:
+        '200': {description: Profile object and configured flag.}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      summary: Patch the identity captured only by future confirmed quotes.
+      description: Tenant owner, admin or billing; own tenant only. Omitted party fields retain existing values; an explicit empty string clears a field. Only the platform seller profile may configure tax. Tax rates use integer basis points and split the existing tax-inclusive total without increasing it. This does not enable formal tax invoicing.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                party:
+                  type: object
+                  additionalProperties: {type: string}
+                locale: {type: string, enum: [en, zh-CN]}
+                tax:
+                  type: object
+                  properties:
+                    configured: {type: boolean}
+                    included_in_total: {type: boolean, enum: [true]}
+                    rate_basis_points: {type: integer, minimum: 0, maximum: 10000}
+      responses:
+        '204': {description: Updated future profile.}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/billing-document-profile:
+    get:
+      summary: Read a masked future commercial statement profile.
+      description: Platform administrator only; platform transaction required on writes. Tax ID, bank account, phone and email are masked. Existing document snapshots are never changed by this resource.
+      responses:
+        '200': {description: Profile object and configured flag.}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      summary: Patch the identity captured only by future confirmed quotes.
+      description: Platform administrator only; platform transaction required on writes. Omitted party fields retain existing values; an explicit empty string clears a field. Only the platform seller profile may configure tax. Tax rates use integer basis points and split the existing tax-inclusive total without increasing it. This does not enable formal tax invoicing.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                party:
+                  type: object
+                  additionalProperties: {type: string}
+                locale: {type: string, enum: [en, zh-CN]}
+                tax:
+                  type: object
+                  properties:
+                    configured: {type: boolean}
+                    included_in_total: {type: boolean, enum: [true]}
+                    rate_basis_points: {type: integer, minimum: 0, maximum: 10000}
+      responses:
+        '204': {description: Updated future profile.}
+        default: {$ref: '#/components/responses/Error'}
+  /billing/subscription:
+    get:
+      summary: Read effective current rights separately from the final prepaid end and scheduled intention.
+      description: Authenticated tenant members may read subscription metadata. Only owner/admin/billing receive management capability and scheduled change metadata. Future prepaid plans do not replace current plan limits early.
+      responses:
+        '200':
+          description: tenant_id, self_service, can_manage_billing, subscription, current effective plan and optional scheduled_change.
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/subscription/change:
+    post:
+      summary: Record an unfunded plan intention for the next unpaid period.
+      description: Requires owner/admin/billing. Explicit plan compatibility and allocated quota/domain/mailbox counts must fit. No charge or entitlement extension occurs. Purchase still requires a signed quote and payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_code]
+              properties:
+                plan_code:
+                  type: string
+      responses:
+        '200':
+          description: change and payment_required=true.
+        '409':
+          description: Capacity exceeded, subscription changed, or explicit plan relationship requires review.
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/subscription/change/cancel:
+    post:
+      summary: Cancel an unfunded scheduled intention.
+      description: Requires owner/admin/billing. An intention containing paid future terms cannot be silently canceled; use explicit manual refund approval.
+      responses:
+        '200':
+          description: Intention canceled; no paid period changed.
+        '409':
+          description: PLAN_CHANGE_ALREADY_PAID.
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/subscription/cancel:
+    post:
+      summary: Cancel further subscription continuation while preserving every prepaid term.
+      description: Requires owner/admin/billing. No automatic refund, period truncation, mail deletion, or future charge. Resuming service requires another deliberate payment.
+      responses:
+        '200':
+          description: subscription and effective_at equal to the last prepaid period end.
+        default:
+          $ref: '#/components/responses/Error'
+  /billing/trial:
+    post:
+      summary: Redeem a tenant's one-time trial-days coupon after independent domain ownership proof.
+      description: Requires owner/admin/billing. A trial never stacks or overwrites paid rights. Redemption and bounded trial entitlement are atomic; no order, cash receipt or invoice is fabricated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain_id, coupon_code, plan_code]
+              properties:
+                domain_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                coupon_code:
+                  type: string
+                plan_code:
+                  type: string
+      responses:
+        '201':
+          description: status=trialing, ends_at and pending onboarding status. Mail remains gated by domain provisioning readiness.
+        '409':
+          description: Trial already used, domain proof missing, paid entitlement exists, unavailable trial plan or exhausted coupon.
+        default:
+          $ref: '#/components/responses/Error'
+  /public/plans:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read public plans and independent currency/cycle prices
+      description: 'Public DTO only; no private settings, checkout creation, exchange
+        or payment side effects. Access: public.'
+      security: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                        name:
+                          type: object
+                          additionalProperties:
+                            type: string
+                        description:
+                          type: object
+                          additionalProperties:
+                            type: string
+                        prices:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              currency:
+                                type: string
+                                enum:
+                                - CNY
+                                - USD
+                              billing_cycle:
+                                type: string
+                                enum:
+                                - monthly
+                                - quarterly
+                                - yearly
+                              amount_cents:
+                                type: integer
+                                format: int64
+                                minimum: 0
+                                maximum: 9007199254740991
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/registration-status:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read self-service registration capability
+      description: 'An explicit enabled flag is not mail-system readiness. Quarantine
+        blocks registration writes. Access: public.'
+      security: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                required:
+                - enabled
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/register:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Request contact-email verification
+      description: 'Creates restricted registration request; no active mailbox or paid
+        entitlement. Limited per IP. Unconfigured/disabled/quarantined returns 503.
+        Access: public.'
+      security: []
+      responses:
+        '202':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - verification_pending
+                  message:
+                    type: string
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  writeOnly: true
+                brand:
+                  type: string
+              required:
+              - name
+              - email
+              - password
+  /auth/register/verify:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Consume verified contact proof
+      description: 'Creates a restricted pending tenant once; domain ownership must
+        still be verified before trial/purchase. Token consumed atomically; quarantine
+        rejects writes. Access: public.'
+      security: []
+      responses:
+        default:
+          $ref: '#/components/responses/Error'
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+                  tenant_id:
+                    type: integer
+                    format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+                  writeOnly: true
+              required:
+              - token
+  /healthz:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read process health and restore quarantine state
+      description: 'Does not prove applied mail configuration or daemon readiness. Access:
+        public.'
+      security: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  version:
+                    type: string
+                  mode:
+                    type: string
+                  quarantined:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/payment-merchants:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List public merchant configuration and readiness
+      description: 'Never returns credentials or ciphertext. Per-currency confirmed
+        limits required for new checkout; unavailable optional adapters remain disabled.
+        Access: platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  merchants:
+                    type: array
+                    items:
+                      type: object
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Save audited merchant configuration
+      description: 'Stable provider/environment/account identity cannot change. Read-only
+        identity preflight occurs after auth/CSRF and before the business transaction;
+        proof binds payload and version. Encrypted save and successful audit commit
+        together. No payment request. Blank credentials on update retain existing keys.
+        Unsupported adapters cannot enable. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  merchant:
+                    type: object
+                  ready:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedMerchantInput'
+  /platform/payment-merchants/{merchant_id}:
+    patch:
+      tags:
+      - M5-M7 managed operations
+      summary: Save audited merchant configuration
+      description: 'Stable provider/environment/account identity cannot change. Read-only
+        identity preflight occurs after auth/CSRF and before the business transaction;
+        proof binds payload and version. Encrypted save and successful audit commit
+        together. No payment request. Blank credentials on update retain existing keys.
+        Unsupported adapters cannot enable. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  merchant:
+                    type: object
+                  ready:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: merchant_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedMerchantInput'
+  /billing/payment-methods:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List available merchant currencies and confirmed limits
+      description: 'Filters disabled/unconfigured currencies and unsupported capability.
+        limits_source describes official same-currency rule or operator-confirmed merchant
+        contract. No automatic FX. Missing bounds never means free/unlimited. Access:
+        authenticated tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  methods:
+                    type: array
+                    items:
+                      type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/payment-merchants/{merchant_id}/orders/{order_id}/query:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Query existing original-provider payment facts
+      description: 'Provider GET only: never capture, create checkout or transfer money.
+        Merchant route requires matching durable account_scope; orders route is legacy
+        Stripe only. Verified received cash is recorded atomically with audit. During
+        restore quarantine or a persisted restore_hold, ReceiptOnly forces manual review
+        and no fulfillment, including after quarantine release. Only an explicit
+        platform receipt decision, confirmed full refund or confirmed terminal close
+        clears that hold. Unknown session remains alerted, never re-created. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                  receipt_only:
+                    type: boolean
+                  restore_hold:
+                    type: boolean
+                    description: Persistent restore uncertainty awaiting an explicit decision.
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: merchant_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /platform/orders/{id}/query:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Query existing original-provider payment facts
+      description: 'Provider GET only: never capture, create checkout or transfer money.
+        Merchant route requires matching durable account_scope; orders route is legacy
+        Stripe only. Verified received cash is recorded atomically with audit. During
+        restore quarantine or a persisted restore_hold, ReceiptOnly forces manual review
+        and no fulfillment, including after quarantine release. Only an explicit
+        platform receipt decision, confirmed full refund or confirmed terminal close
+        clears that hold. Unknown session remains alerted, never re-created. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                  receipt_only:
+                    type: boolean
+                  restore_hold:
+                    type: boolean
+                    description: Persistent restore uncertainty awaiting an explicit decision.
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /platform/payment-reviews:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List up to 100 receipts awaiting explicit resolution
+      description: 'Actual received amount/currency may differ from expected. Use *_amount_cents_exact
+        strings for exact large historical/provider cash, not JS-rounded numbers. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reviews:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ManagedReceiptReview'
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/payment-reviews/{id}/resolve:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Explicitly fulfill or request refund for a reviewed receipt
+      description: 'fulfill_after_prepaid revalidates order/paid-term constraints in
+        settlement transaction. request_refund creates a separate approval request;
+        never immediately transfers funds. Successful financial audit commits with the
+        action. Quarantine rejects both actions. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - fulfill_after_prepaid
+                  - request_refund
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+              required:
+              - action
+              - reason
+  /platform/refunds:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List up to 100 refund approval/execution facts
+      description: 'No provider calls or outflow. Access: platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refunds:
+                    type: array
+                    items:
+                      type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/refunds/{id}/approve:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Approve or reject an original-route refund
+      description: 'Approval amount is integer minor units in original receipt currency,
+        bounded by actual receipts minus reserved/completed refunds. Partial refunds
+        default to no entitlement change. Non-none action requires explicit term order
+        and effective_at. Approval and audit share a transaction; durable worker alone
+        executes later under configuration gates. Quarantine rejects approval. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refund:
+                    type: object
+                  execution_status:
+                    type: string
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedRefundApproval'
+  /platform/refunds/{id}/query:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Read-only reconcile an existing provider refund
+      description: 'Provider GET only, never issues refund or changes entitlements.
+        Allowed in quarantine. confirm_observed may acknowledge only provider-verified
+        existing refund missing local approval history; reason is mandatory. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refund:
+                    type: object
+                  provider_query_only:
+                    type: boolean
+                  entitlements_applied:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+                confirm_observed:
+                  type: boolean
+                  default: false
+              required:
+              - reason
+  /platform/coupon-reissues:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List up to 100 immutable coupon replacements
+      description: 'Platform-only audit facts; replacements are bound to their original
+        tenant. Access: platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  coupons:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ManagedCouponReplacement'
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/tenants/{id}/coupon-reissues:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Explicitly replace an eligible lost/refunded coupon
+      description: 'Clones original kind/value/currency, creates one redemption bound
+        to the source tenant and immutable source redemption. Finite future valid_until
+        and reason required. Historical trial must lack delivered trial and paid rights;
+        ordinary coupon requires completed original-order refund. Once/domain/paid trial
+        guards remain unchanged. No automatic coupon return, refund or entitlement grant.
+        One source yields one replacement; repeat returns existing. Issue and success
+        audit are atomic. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  coupon:
+                    $ref: '#/components/schemas/ManagedCouponReplacement'
+                  idempotent:
+                    type: boolean
+                  entitlements_changed:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source_code:
+                  type: string
+                  maxLength: 200
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+                valid_until:
+                  type: string
+                  format: date-time
+              required:
+              - source_code
+              - reason
+              - valid_until
+  /notifications:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read scoped localized notification facts
+      description: 'Tenant/user scoped key+params; before cursor id selects older notices,
+        at most 50. pending/blocked email is not delivery confirmation. Access: authenticated
+        tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ManagedNotification'
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/alerts:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read operator alert facts
+      description: 'Firing alerts remain visible until durable reconciliation, not until
+        a page load. Access: platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/notification-channel:
+    put:
+      tags:
+      - M5-M7 managed operations
+      summary: Save encrypted notification relay
+      description: 'Write-only complete credentials; no test email on save. Verified
+        TLS relay required; save and successful audit commit together. Disabled/unconfigured
+        relay leaves durable notices blocked/pending, never falsely delivered. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  state:
+                    type: string
+                  credentials_saved:
+                    type: boolean
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  default: false
+                host:
+                  type: string
+                port:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                from:
+                  type: string
+                  format: email
+                username:
+                  type: string
+                  writeOnly: true
+                password:
+                  type: string
+                  writeOnly: true
+                implicit_tls:
+                  type: boolean
+              required:
+              - host
+              - port
+              - from
+  /marketing/templates:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing templates
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing templates
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                subject:
+                  type: string
+                text_body:
+                  type: string
+              required:
+              - name
+              - subject
+              - text_body
+  /marketing/lists:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing lists
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing lists
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+              - name
+  /marketing/lists/{list_id}/contacts:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing contacts
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: list_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing contacts
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: list_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contacts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      email:
+                        type: string
+                        format: email
+                      consent_source:
+                        type: string
+                      opted_in:
+                        type: boolean
+                    required:
+                    - email
+                    - consent_source
+                    - opted_in
+              required:
+              - contacts
+  /marketing/campaigns:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing campaigns
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or prepare marketing campaigns
+      description: 'Tenant owner/admin only. Explicit consent source is mandatory for
+        imported contacts. Creating drafts does not dispatch. No ordinary mail fallback.
+        Immutable dispatch snapshot created only on confirmation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '201':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                channel_id:
+                  type: integer
+                  format: int64
+                template_id:
+                  type: integer
+                  format: int64
+                list_id:
+                  type: integer
+                  format: int64
+              required:
+              - name
+              - channel_id
+              - template_id
+              - list_id
+  /marketing/channels:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read tenant marketing channel readiness
+      description: 'No credentials/ciphertext; unsupported dedicated_ip transport reports
+        unavailable rather than falling back. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /marketing/campaigns/{campaign_id}/preview:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Preview campaign consent and suppression counts
+      description: 'Read only; no quota reservation or dispatch. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /marketing/campaigns/{campaign_id}/confirm:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Explicitly confirm a durable campaign
+      description: 'Requires confirm=true and scheduled_at. Snapshots template/list/channel,
+        persists recipients. Worker uses lease/fence, original quota window, suppression
+        and entitlement final authorization before DATA; uncertain SMTP submission is
+        not retried blindly. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: boolean
+                scheduled_at:
+                  type: string
+                  format: date-time
+              required:
+              - confirm
+              - scheduled_at
+  /marketing/campaigns/{campaign_id}:
+    patch:
+      tags:
+      - M5-M7 managed operations
+      summary: Pause or cancel queued campaign work
+      description: 'Workers recheck campaign and suppressions before SMTP DATA. Cancel
+        is not remote recall of accepted messages. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - paused
+                  - scheduled
+                  - canceled
+              required:
+              - status
+  /marketing/campaigns/{campaign_id}/recipients:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read recipient attempt and uncertain outcomes
+      description: 'Read only; uncertain outcomes retain reservations pending explicit
+        reconciliation. Access: tenant owner/admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /platform/tenants/{id}/marketing/channel:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Configure independent marketing transport
+      description: 'Platform-only encrypted independent gateway; default off, no ordinary
+        mailbox relay fallback. dedicated_ip is capability-unavailable until implemented.
+        Successful config and audit atomic; saving never sends. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                kind:
+                  type: string
+                  enum:
+                  - dedicated_gateway
+                  - dedicated_ip
+                enabled:
+                  type: boolean
+                smtp:
+                  type: object
+                  writeOnly: true
+              required:
+              - name
+              - kind
+              - enabled
+              - smtp
+  /platform/tenants/{id}/marketing/channels/{channel_id}:
+    patch:
+      tags:
+      - M5-M7 managed operations
+      summary: Configure independent marketing transport
+      description: 'Platform-only encrypted independent gateway; default off, no ordinary
+        mailbox relay fallback. dedicated_ip is capability-unavailable until implemented.
+        Successful config and audit atomic; saving never sends. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                kind:
+                  type: string
+                  enum:
+                  - dedicated_gateway
+                  - dedicated_ip
+                enabled:
+                  type: boolean
+                smtp:
+                  type: object
+                  writeOnly: true
+              required:
+              - name
+              - kind
+              - enabled
+              - smtp
+  /platform/tenants/{id}/marketing/recipients/{recipient_id}/resolve:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Resolve an uncertain marketing submission
+      description: 'Explicit reason and observed outcome; never automatically resends
+        uncertain DATA. All decisions audited. Access: platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: recipient_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                outcome:
+                  type: string
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+              required:
+              - outcome
+              - reason
+  /marketing/channels/{channel_id}/feedback:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Persist signed delivery feedback
+      description: 'Public signature endpoint: HMAC SHA256(timestamp + dot + exact body)
+        via X-Urmail-Timestamp/X-Urmail-Signature, timestamp freshness and unique event
+        ID. bounced/complaint permanently suppress recipient; deferred is not permanent.
+        Duplicate payload idempotent, conflicting event rejected. Access: valid configured
+        channel feedback signature.'
+      security: []
+      responses:
+        '204':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_id:
+                  type: string
+                  maxLength: 200
+                recipient_id:
+                  type: integer
+                  format: int64
+                status:
+                  type: string
+                  enum:
+                  - bounced
+                  - complaint
+                  - deferred
+              required:
+              - event_id
+              - recipient_id
+              - status
+  /support/tickets:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List author-owned tickets
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Create a support ticket
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                body:
+                  type: string
+                priority:
+                  type: string
+              required:
+              - subject
+              - body
+  /support/tickets/{ticket_id}:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read own ticket, paged messages and attachments
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /support/tickets/{ticket_id}/messages:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Reply to own ticket
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                attachments:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      filename:
+                        type: string
+                      content_type:
+                        type: string
+                      content:
+                        type: string
+                        format: byte
+                    required:
+                    - filename
+                    - content_type
+                    - content
+              required:
+              - body
+  /support/tickets/{ticket_id}/status:
+    patch:
+      tags:
+      - M5-M7 managed operations
+      summary: Change own ticket status
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+              required:
+              - status
+  /support/attachments/{attachment_id}:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Download own ticket attachment
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Allowed MIME attachment as forced download with nosniff. Tenant/author
+            or platform scope revalidated.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /support/announcements:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read currently published brand/global announcements
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /support/help:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read localized help topics
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
+        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
+        mutation and audit share tenant transaction. Access: ticket author in authenticated
+        tenant.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/support/tickets:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List support workload
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/support/tenants/{id}/tickets/{ticket_id}:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read target tenant support ticket
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /platform/support/tenants/{id}/tickets/{ticket_id}/messages:
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Post a staff reply
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                attachments:
+                  type: array
+                  items:
+                    type: object
+              required:
+              - body
+  /platform/support/tenants/{id}/tickets/{ticket_id}/status:
+    patch:
+      tags:
+      - M5-M7 managed operations
+      summary: Assign or change support ticket status
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                assigned_to:
+                  type: integer
+                  format: int64
+                  nullable: true
+  /platform/support/tenants/{id}/attachments/{attachment_id}:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Download scoped support attachment
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Allowed MIME attachment as forced download with nosniff. Tenant/author
+            or platform scope revalidated.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /platform/support/announcements:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: List announcements
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - M5-M7 managed operations
+      summary: Create announcement
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brand_id:
+                  type: integer
+                  nullable: true
+                title:
+                  type: object
+                  additionalProperties:
+                    type: string
+                body:
+                  type: object
+                  additionalProperties:
+                    type: string
+                state:
+                  type: string
+                  enum:
+                  - draft
+                  - published
+                  - withdrawn
+                published_at:
+                  type: string
+                  format: date-time
+                ends_at:
+                  type: string
+                  format: date-time
+  /platform/support/announcements/{announcement_id}:
+    patch:
+      tags:
+      - M5-M7 managed operations
+      summary: Update or withdraw announcement
+      description: 'Trusted platform target validation, explicit tenant scope. Staff
+        reply, deduplicated notification outbox and successful audit commit atomically.
+        Announcement publication/time window is explicit; reads never publish. Access:
+        platform admin.'
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: announcement_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brand_id:
+                  type: integer
+                  nullable: true
+                title:
+                  type: object
+                  additionalProperties:
+                    type: string
+                body:
+                  type: object
+                  additionalProperties:
+                    type: string
+                state:
+                  type: string
+                  enum:
+                  - draft
+                  - published
+                  - withdrawn
+                published_at:
+                  type: string
+                  format: date-time
+                ends_at:
+                  type: string
+                  format: date-time
+  /platform/reminder-policy:
+    get:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or configure subscription reminder day offsets
+      description: Platform admin only. Defaults 7/3/1/0 days. Empty array disables
+        reminder scheduling; maximum sixteen unique natural-day offsets. Changes apply
+        to future evaluation, preserve durable dedupe and never send immediately. PUT
+        saves policy and audit atomically.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Configured day offsets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    maxItems: 16
+                    uniqueItems: true
+                    items:
+                      type: integer
+                      minimum: 0
+                      maximum: 365
+                required:
+                - days
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+      - M5-M7 managed operations
+      summary: Read or configure subscription reminder day offsets
+      description: Platform admin only. Defaults 7/3/1/0 days. Empty array disables
+        reminder scheduling; maximum sixteen unique natural-day offsets. Changes apply
+        to future evaluation, preserve durable dedupe and never send immediately. PUT
+        saves policy and audit atomically.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Configured day offsets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    maxItems: 16
+                    uniqueItems: true
+                    items:
+                      type: integer
+                      minimum: 0
+                      maximum: 365
+                required:
+                - days
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: array
+                  maxItems: 16
+                  uniqueItems: true
+                  items:
+                    type: integer
+                    minimum: 0
+                    maximum: 365
+              required:
+              - days
+  /ai/consent:
+    post:
+      summary: Authorize the exact current cloud target or revoke all cloud export.
+      description: Tenant owner/admin only. Provider configuration by the platform never grants tenant consent. Consent pins a monotonic configuration digest and content scope hash; changing provider, endpoint, model or scope invalidates it, including changing back. Revocation enforces independent tenant local-only. Current in-flight authorized requests cannot be physically recalled.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [allow_cloud]
+              properties:
+                configuration_digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                scope_hash: {type: string, pattern: '^[a-f0-9]{64}$'}
+                allow_cloud: {type: boolean}
+                confirmed: {type: boolean, description: Must be explicitly true to allow cloud content export.}
+      responses:
+        '204': {description: Exact target authorized, or cloud export revoked.}
+        '409': {description: Configuration changed; reload and review the new target.}
+        default: {$ref: '#/components/responses/Error'}
+  /mailbox/sieve/session:
+    get:
+      summary: Read the scoped mailbox rules and their optimistic version.
+      description: Dedicated HttpOnly mailbox cookie only, never a panel token. Response includes mailbox, rules, version (SHA256 of persisted desired source), state, CSRF and expiry.
+      security: []
+      responses:
+        '200': {description: Current rules and expected version for the next confirmed save.}
+        default: {$ref: '#/components/responses/Error'}
+  /mailbox/sieve/rules:
+    put:
+      summary: Confirm structured rule replacement against the last viewed version.
+      description: Dedicated mailbox cookie and X-Urmail-Sieve-CSRF required. No tenant/mailbox selector. Stale versions return 409 without changing desired or active rules. Root agent additionally validates the exact persisted desired digest before atomic activation.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules, confirmed, expected_version]
+              properties:
+                rules: {type: object}
+                confirmed: {type: boolean, enum: [true]}
+                expected_version: {type: string, pattern: '^[a-f0-9]{64}$'}
+      responses:
+        '200': {description: Persisted rules, new version and activation state.}
+        '409': {description: Another editor changed the rules; reload and review.}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/tenants/{id}/ai/configuration:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    get:
+      summary: Read safe provider metadata and the independent tenant consent policy.
+      description: Platform administrator only. Never returns encrypted or plaintext credentials. An unconfigured tenant still returns cloud_endpoints and local-only consent defaults.
+      security: [{Bearer: []}]
+      responses:
+        '200': {description: configured, configuration, cloud_endpoints and tenant_consent.}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      summary: Configure a platform provider without authorizing tenant cloud export.
+      description: Platform administrator and CSRF required. Changing provider, endpoint, model or content scope invalidates existing consent. Tenant local-only cannot be overridden. Monetary rates are micros per million tokens; integers cannot exceed 9007199254740991. Credential input is write-only. No billable model call is made.
+      security: [{Bearer: [], CSRF: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, endpoint, model, cost_currency]
+              properties:
+                provider: {type: string, enum: [openai, azure]}
+                endpoint: {type: string}
+                model: {type: string}
+                api_key: {type: string, writeOnly: true}
+                enabled: {type: boolean}
+                input_micros_per_million: {type: integer, minimum: 0, maximum: 9007199254740991}
+                output_micros_per_million: {type: integer, minimum: 0, maximum: 9007199254740991}
+                cost_currency: {type: string, enum: [CNY, USD]}
+      responses:
+        '204': {description: Configuration saved; separate tenant authorization remains required.}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/tenants/{id}/ai/usage:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    get:
+      summary: List up to 100 oldest unfinished AI accounting records.
+      description: Platform administrator only. Metadata excludes prompts, model results and request keys. Decimal strings actual_tokens_exact/reserved_tokens_exact preserve full integer precision; unsafe numeric token values are null. Reserved records expire to uncertain before manual reconciliation, even without another mailbox request.
+      security: [{Bearer: []}]
+      responses:
+        '200': {description: requests array with reserved/uncertain accounting metadata.}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/tenants/{id}/ai/health:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    post:
+      summary: Run an authorized metadata-only provider health check.
+      description: Platform administrator, CSRF and 5/min rate limit. Respects tenant local-only and cloud consent; never generates billable model content. Disabled, unconsented or invalid endpoints are refused.
+      security: [{Bearer: [], CSRF: []}]
+      responses:
+        '200': {description: Safe provider health metadata.}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/tenants/{id}/ai/usage/{request_id}/resolve:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    - {name: request_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    post:
+      summary: Reconcile uncertain AI usage with observed evidence and audit.
+      description: Platform administrator and CSRF. Acquires the tenant budget lock and expires old reservations before resolution. Fresh reserved/completed records cannot be overwritten. Values must be observed, not assumed zero; repeated incompatible decisions return conflict.
+      security: [{Bearer: [], CSRF: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, tokens, cost_micros, cost_currency, reason]
+              properties:
+                status: {type: string, enum: [resolved, released]}
+                tokens: {type: integer, minimum: 0, maximum: 9007199254740991}
+                cost_micros: {type: integer, minimum: 0, maximum: 9007199254740991}
+                cost_currency: {type: string, enum: [CNY, USD]}
+                reason: {type: string, minLength: 10, maxLength: 2000}
+      responses:
+        '200': {description: Observed accounting persisted with an audit record.}
+        '409': {description: Not uncertain, stale or incompatible resolution.}
+        default: {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     Bearer:
@@ -1330,7 +3761,33 @@ components:
     Quote:
       type: object
       properties:
+        plan_snapshot_digest:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: HMAC-bound canonical entitlement snapshot digest.
+        document_snapshot_digest:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: HMAC-bound canonical commercial statement snapshot digest.
         tenant_id:
+          type: integer
+          format: int64
+        domain_id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [new, renew, upgrade, downgrade]
+        price_version:
+          type: integer
+          format: int64
+        plan_amount_cents:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Undiscounted full cycle price frozen as the upgrade basis.
+        subscription_version:
           type: integer
           format: int64
         coupon_code:
@@ -1391,6 +3848,7 @@ components:
           - pending
           - approved
           - processing
+          - uncertain
           - completed
           - rejected
           - failed
@@ -1440,3 +3898,228 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    ManagedAmountLimit:
+      type: object
+      properties:
+        min_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9007199254740991
+        max_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9007199254740991
+        settlement_currency:
+          type: string
+          pattern: ^[A-Z]{3}$
+        limits_source:
+          type: string
+          enum:
+          - official
+          - merchant_contract
+      required:
+      - min_cents
+      - max_cents
+      - settlement_currency
+      - limits_source
+    ManagedMerchantInput:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum:
+          - stripe
+          - wechat
+          - alipay
+          - paypal
+          - aggregated
+          - tax_invoice
+        environment:
+          type: string
+          enum:
+          - sandbox
+          - live
+        account_id:
+          type: string
+          maxLength: 120
+        name:
+          type: string
+          maxLength: 200
+        enabled:
+          type: boolean
+          default: false
+        currencies:
+          type: array
+          items:
+            type: string
+            enum:
+            - CNY
+            - USD
+        entrypoint:
+          type: string
+          enum:
+          - hosted
+          - native
+          - ''
+        checkout_limits:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ManagedAmountLimit'
+        credentials:
+          type: object
+          writeOnly: true
+          additionalProperties:
+            type: string
+            writeOnly: true
+      required:
+      - provider
+      - environment
+      - account_id
+      - name
+      - enabled
+      - currencies
+      - entrypoint
+    ManagedReceiptReview:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        tenant_id:
+          type: integer
+          format: int64
+        order_id:
+          type: integer
+          format: int64
+        payment_id:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        status:
+          type: string
+        provider:
+          type: string
+        account_scope:
+          type: string
+        received_amount_cents:
+          type: integer
+          format: int64
+          description: Compatibility numeric value; use exact field for potentially unsafe
+            actual cash amounts.
+        received_amount_cents_exact:
+          type: string
+          pattern: ^[0-9]+$
+        received_currency:
+          type: string
+        expected_amount_cents:
+          type: integer
+          format: int64
+          maximum: 9007199254740991
+        expected_amount_cents_exact:
+          type: string
+          pattern: ^[0-9]+$
+        expected_currency:
+          type: string
+          enum:
+          - CNY
+          - USD
+    ManagedRefundApproval:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+        amount_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9007199254740991
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 1000
+        entitlement_action:
+          type: string
+          enum:
+          - none
+          - revoke_future
+          - terminate_current
+          default: none
+        effective_at:
+          type: string
+          format: date-time
+        term_order_id:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - decision
+      - reason
+    ManagedCouponReplacement:
+      type: object
+      properties:
+        code:
+          type: string
+        kind:
+          type: string
+          enum:
+          - trial_days
+          - percent
+          - fixed
+        value:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum:
+          - CNY
+          - USD
+          nullable: true
+        max_redemptions:
+          type: integer
+          enum:
+          - 1
+        bound_tenant_id:
+          type: integer
+          format: int64
+        source_coupon_code:
+          type: string
+        reissue_reason:
+          type: string
+        valid_to:
+          type: string
+          format: date-time
+        active:
+          type: boolean
+    ManagedNotification:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        message_key:
+          type: string
+        params:
+          type: object
+        channel:
+          type: string
+          enum:
+          - in_app
+          - email
+        state:
+          type: string
+          enum:
+          - pending
+          - delivered
+          - uncertain
+          - failed
+          - blocked
+        created_at:
+          type: string
+          format: date-time

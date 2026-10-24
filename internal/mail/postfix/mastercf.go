@@ -66,7 +66,7 @@ func renderMasterCF(node NodeConfig) string {
 
 	if node.ArchiveEnabled {
 		b.WriteString("\n# UrMail Archive Transport\n")
-		b.WriteString("urmail-archive unix -   n       n       -       -       pipe\n  flags=Rq user=mailinabox argv=/usr/lib/urmail/archive-pipe --env-file /etc/urmail/urmaild.env --recipient ${recipient}\n")
+		b.WriteString("urmail-archive unix -   n       n       -       4       pipe\n  flags=Rq user=mailinabox argv=/usr/lib/urmail/archive-pipe --env-file /etc/urmail/urmaild.env --recipient ${recipient}\n")
 	}
 
 	return b.String()

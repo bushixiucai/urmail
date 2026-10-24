@@ -181,6 +181,7 @@ type OpenAIProvider struct {
 	name         string
 	baseURL      string
 	apiKey       string
+	azureAPIKey  bool
 	defaultModel string
 	client       *http.Client
 	customClient *http.Client
@@ -422,7 +423,11 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+		if p.azureAPIKey {
+			httpReq.Header.Set("api-key", p.apiKey)
+		} else {
+			httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+		}
 	}
 
 	httpResp, err := p.client.Do(httpReq)
@@ -480,6 +485,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		PromptTokens: chatResp.Usage.PromptTokens,
 		OutputTokens: chatResp.Usage.CompletionTokens,
 		TotalTokens:  chatResp.Usage.TotalTokens,
+		UsageKnown:   chatResp.Usage.TotalTokens > 0 && chatResp.Usage.PromptTokens >= 0 && chatResp.Usage.CompletionTokens >= 0 && chatResp.Usage.TotalTokens == chatResp.Usage.PromptTokens+chatResp.Usage.CompletionTokens,
 	}, nil
 }
 
@@ -826,4 +832,16 @@ func (g *openAIGuardedRoundTripper) RoundTrip(req *http.Request) (*http.Response
 		return nil, err
 	}
 	return g.base.RoundTrip(req)
+}
+
+// NewAzureProvider uses Azure's OpenAI v1 endpoint and deployment model name.
+// Hosts remain subject to the same DNS-pinned endpoint policy as OpenAI.
+func NewAzureProvider(apiKey string, opts ...OpenAIOption) (*OpenAIProvider, error) {
+	p, err := NewOpenAIProvider(apiKey, opts...)
+	if err != nil {
+		return nil, err
+	}
+	p.azureAPIKey = true
+	p.name = ProviderAzure
+	return p, nil
 }

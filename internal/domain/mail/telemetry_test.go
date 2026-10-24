@@ -626,3 +626,16 @@ func TestParsePostfixLogLineCorrelationFields(t *testing.T) {
 		}
 	})
 }
+
+func TestAuthenticatedPrincipalOnlyComesFromCanonicalClientRecord(t *testing.T) {
+	line := "2026-10-24T10:00:00Z host postfix/smtpd[1]: ABC123: client=unknown[127.0.0.1], sasl_method=PLAIN, sasl_username=status=sent@example.test"
+	event, err := mail.ParsePostfixLogLine(line)
+	if err != nil || event.AuthenticatedMailbox != "status=sent@example.test" || event.Status != mail.DeliveryStatusUnknown {
+		t.Fatalf("canonical client not recognized safely: %+v %v", event, err)
+	}
+	spoof := "2026-10-24T10:00:00Z host postfix/smtpd[1]: ABC123: reject: from=<forged, sasl_method=PLAIN, sasl_username=alice@example.test>"
+	event, err = mail.ParsePostfixLogLine(spoof)
+	if err != nil || event.AuthenticatedMailbox != "" {
+		t.Fatalf("envelope text authenticated: %+v %v", event, err)
+	}
+}

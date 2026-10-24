@@ -218,10 +218,12 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		defer cancel()
 		if err := m.checkMailReadiness(ctx); err != nil {
 			m.status.Error = "configuration readiness failed at " + m.status.Step + ": " + err.Error()
+			m.publish()
 			return "", "", fmt.Errorf("%w: %s", ErrFailed, m.status.Error)
 		}
 		m.status.Step = "ready"
 		m.status.Ready = true
+		m.publish()
 		return generation, "", nil
 	}
 	previous := m.status
@@ -416,13 +418,16 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 		PostfixNode: postfix.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, PolicyEnabled: cfg.PolicyEnabled, PolicySocket: cfg.PolicySocket, ArchiveEnabled: cfg.ArchiveEnabled}, PostfixSnap: p.Postfix,
 		DovecotNode: dovecot.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot},
 		NSDNode:     nsd.NodeConfig{ListenAddresses: cfg.DNSListenAddresses, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, PublicIPv4: cfg.PublicIPv4, Nameservers: cfg.Nameservers}, NSDSnap: p.DNS,
-		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr}, DKIM: p.DKIM,
+		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr, WebmailBackend: fixedWebmailBackend(cfg)}, DKIM: p.DKIM,
 	}
 	// An explicit panel hostname wins over the distribution's default HTTP
 	// server, so HTTP-01 never falls through to /var/www/html.
 	panelPaths := m.certificatePaths(host)
-	mailContext.NginxSnap.Domains = append(mailContext.NginxSnap.Domains, nginx.DomainConfig{FQDN: host, TLSCertFile: certificateCertPath(panelPaths), TLSKeyFile: certificateKeyPath(panelPaths)})
+	mailContext.NginxSnap.Domains = append(mailContext.NginxSnap.Domains, nginx.DomainConfig{FQDN: host, TLSCertFile: certificateCertPath(panelPaths), TLSKeyFile: certificateKeyPath(panelPaths), EnableWebmail: cfg.RoundcubeEnabled})
 	for _, d := range p.Postfix.Domains {
+		if !m.customWebEnabled(d.FQDN) {
+			continue
+		}
 		if d.FQDN == host {
 			continue
 		}
@@ -655,4 +660,11 @@ func containsUnit(units []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func fixedWebmailBackend(cfg *config.Config) string {
+	if cfg.RoundcubeEnabled {
+		return "http://127.0.0.1:8888"
+	}
+	return ""
 }

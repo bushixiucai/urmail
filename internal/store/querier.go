@@ -258,6 +258,7 @@ type Querier interface {
 	PlatformClaimOnboarding(ctx context.Context, leasedBy pgtype.Text) (OnboardingTasks, error)
 	PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]PlatformClaimOnboardingTaskRow, error)
 	PlatformClaimRefundByID(ctx context.Context, arg PlatformClaimRefundByIDParams) (Refunds, error)
+	PlatformClearCheckoutRestoreHold(ctx context.Context, arg PlatformClearCheckoutRestoreHoldParams) error
 	PlatformCollectorHealth(ctx context.Context) ([]CollectorCheckpoints, error)
 	PlatformCommissionRate(ctx context.Context, id int64) (int32, error)
 	PlatformCompleteDNSAction(ctx context.Context, arg PlatformCompleteDNSActionParams) (int64, error)

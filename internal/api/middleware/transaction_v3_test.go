@@ -66,14 +66,19 @@ func TestTransactionCommitBeforeResponseAndCallbacks(t *testing.T) {
 			engine.Use(middleware.RequireTenantTx(app, zap.NewNop()))
 			recorder := httptest.NewRecorder()
 			callback := false
-			key := fmt.Sprintf("commit-%t", fail)
+			key := "locale"
+			value := []byte(`"en"`)
+			if fail {
+				key = "theme"
+				value = []byte(`{"primary":"#123456"}`)
+			}
 			engine.POST("/mutation", func(c *gin.Context) {
 				requestCtx, cancel := context.WithCancel(c.Request.Context())
 				t.Cleanup(cancel)
 				c.Request = c.Request.WithContext(requestCtx)
 				raw, _ := middleware.QueriesFromCtx(c)
 				q := raw.(*store.Queries)
-				if _, err := q.UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: []byte("true")}); err != nil {
+				if _, err := q.UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value}); err != nil {
 					t.Fatal(err)
 				}
 				middleware.AfterCommit(c, func() {
@@ -123,8 +128,15 @@ func TestTenantAuditSharesTransactionAndIsReadable(t *testing.T) {
 	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND action='POST /success'", tid).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("audit success rows=%d err=%v", count, err)
 	}
-	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND action='POST /rejected'", tid).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("rejected success audit=%d err=%v", count, err)
+	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND action='POST /rejected'", tid).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("rejected audit=%d err=%v", count, err)
+	}
+	var successStatus, failedStatus int
+	if err := p.QueryRow(ctx, "SELECT (detail->>'status')::int FROM audit_logs WHERE tenant_id=$1 AND action='POST /success'", tid).Scan(&successStatus); err != nil || successStatus != 201 {
+		t.Fatalf("success status=%d err=%v", successStatus, err)
+	}
+	if err := p.QueryRow(ctx, "SELECT (detail->>'status')::int FROM audit_logs WHERE tenant_id=$1 AND action='POST /rejected'", tid).Scan(&failedStatus); err != nil || failedStatus != 409 {
+		t.Fatalf("failure status=%d err=%v", failedStatus, err)
 	}
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequestWithContext(ctx, http.MethodGet, "/audit", nil))

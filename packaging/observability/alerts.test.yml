@@ -1,0 +1,21 @@
+rule_files:
+  - /etc/urmail/observability/alerts.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'urmail_operational_condition{kind="telemetry_queue_pressure"}'
+        values: '0 0 1 1 1 1 0 0'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: UrmailObservationCondition
+        exp_alerts:
+          - exp_labels:
+              kind: telemetry_queue_pressure
+              severity: warning
+            exp_annotations:
+              summary: 'urMail condition telemetry_queue_pressure is firing'
+              description: 'Review the platform alert ledger and collector diagnostics; do not infer successful mail delivery from process liveness.'
+      - eval_time: 7m
+        alertname: UrmailObservationCondition
+        exp_alerts: []

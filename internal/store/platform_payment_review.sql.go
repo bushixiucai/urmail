@@ -11,10 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const platformClearCheckoutRestoreHold = `-- name: PlatformClearCheckoutRestoreHold :exec
+UPDATE payment_checkout_intents SET restore_hold=false,updated_at=now() WHERE tenant_id=$1 AND order_id=$2
+`
+
+type PlatformClearCheckoutRestoreHoldParams struct {
+	TenantID int64 `json:"tenant_id"`
+	OrderID  int64 `json:"order_id"`
+}
+
+func (q *Queries) PlatformClearCheckoutRestoreHold(ctx context.Context, arg PlatformClearCheckoutRestoreHoldParams) error {
+	_, err := q.db.Exec(ctx, platformClearCheckoutRestoreHold, arg.TenantID, arg.OrderID)
+	return err
+}
+
 const platformCreateCheckoutIntent = `-- name: PlatformCreateCheckoutIntent :one
 INSERT INTO payment_checkout_intents(order_id,tenant_id,provider,account_scope)
 VALUES($1,$2,$3,$4) ON CONFLICT(order_id) DO NOTHING
-RETURNING order_id, tenant_id, provider, account_scope, session_id, checkout_url, qr_code, state, updated_at
+RETURNING order_id, tenant_id, provider, account_scope, session_id, checkout_url, qr_code, state, updated_at, restore_hold
 `
 
 type PlatformCreateCheckoutIntentParams struct {
@@ -42,6 +56,7 @@ func (q *Queries) PlatformCreateCheckoutIntent(ctx context.Context, arg Platform
 		&i.QrCode,
 		&i.State,
 		&i.UpdatedAt,
+		&i.RestoreHold,
 	)
 	return i, err
 }
@@ -98,7 +113,7 @@ func (q *Queries) PlatformCreateReviewRefund(ctx context.Context, arg PlatformCr
 }
 
 const platformGetCheckoutIntent = `-- name: PlatformGetCheckoutIntent :one
-SELECT order_id, tenant_id, provider, account_scope, session_id, checkout_url, qr_code, state, updated_at FROM payment_checkout_intents WHERE tenant_id=$1 AND order_id=$2
+SELECT order_id, tenant_id, provider, account_scope, session_id, checkout_url, qr_code, state, updated_at, restore_hold FROM payment_checkout_intents WHERE tenant_id=$1 AND order_id=$2
 `
 
 type PlatformGetCheckoutIntentParams struct {
@@ -119,6 +134,7 @@ func (q *Queries) PlatformGetCheckoutIntent(ctx context.Context, arg PlatformGet
 		&i.QrCode,
 		&i.State,
 		&i.UpdatedAt,
+		&i.RestoreHold,
 	)
 	return i, err
 }
@@ -209,8 +225,9 @@ func (q *Queries) PlatformListPaymentManualReviews(ctx context.Context) ([]Payme
 }
 
 const platformMarkCheckoutClosed = `-- name: PlatformMarkCheckoutClosed :exec
-UPDATE payment_checkout_intents SET state='closed',updated_at=now()
-WHERE tenant_id=$1 AND order_id=$2 AND state='cancel_requested'
+UPDATE payment_checkout_intents i SET state='closed',restore_hold=false,updated_at=now()
+WHERE i.tenant_id=$1 AND i.order_id=$2 AND i.state IN('creating','ready','uncertain','cancel_requested','closed')
+AND NOT EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=i.tenant_id AND p.order_id=i.order_id AND p.status='succeeded' AND p.amount_cents>(SELECT COALESCE(sum(r.amount_cents),0) FROM refunds r WHERE r.tenant_id=p.tenant_id AND r.payment_id=p.id AND r.status='completed'))
 `
 
 type PlatformMarkCheckoutClosedParams struct {
@@ -238,7 +255,7 @@ func (q *Queries) PlatformMarkCheckoutReceived(ctx context.Context, arg Platform
 }
 
 const platformMarkCheckoutRefunded = `-- name: PlatformMarkCheckoutRefunded :exec
-UPDATE payment_checkout_intents i SET state='refunded',updated_at=now() WHERE i.tenant_id=$1 AND i.order_id=$2
+UPDATE payment_checkout_intents i SET state='refunded',restore_hold=false,updated_at=now() WHERE i.tenant_id=$1 AND i.order_id=$2
 AND NOT EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=i.tenant_id AND p.order_id=i.order_id AND p.status='succeeded' AND p.amount_cents>(SELECT COALESCE(sum(r.amount_cents),0) FROM refunds r WHERE r.tenant_id=p.tenant_id AND r.payment_id=p.id AND r.status='completed'))
 `
 
@@ -351,7 +368,7 @@ func (q *Queries) PlatformRecordPaymentManualReview(ctx context.Context, arg Pla
 
 const platformRequestCheckoutCancel = `-- name: PlatformRequestCheckoutCancel :one
 UPDATE payment_checkout_intents SET state='cancel_requested',updated_at=now()
-WHERE tenant_id=$1 AND order_id=$2 AND state IN('creating','uncertain','ready','cancel_requested') RETURNING order_id, tenant_id, provider, account_scope, session_id, checkout_url, qr_code, state, updated_at
+WHERE tenant_id=$1 AND order_id=$2 AND state IN('creating','uncertain','ready','cancel_requested') RETURNING order_id, tenant_id, provider, account_scope, session_id, checkout_url, qr_code, state, updated_at, restore_hold
 `
 
 type PlatformRequestCheckoutCancelParams struct {
@@ -372,6 +389,7 @@ func (q *Queries) PlatformRequestCheckoutCancel(ctx context.Context, arg Platfor
 		&i.QrCode,
 		&i.State,
 		&i.UpdatedAt,
+		&i.RestoreHold,
 	)
 	return i, err
 }

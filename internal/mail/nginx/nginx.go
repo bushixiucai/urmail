@@ -64,7 +64,8 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		fmt.Fprintf(&b, "    client_max_body_size %s;\n\n", bodySize)
 
 		if d.EnableWebmail && node.WebmailBackend != "" {
-			b.WriteString("    location /mail {\n")
+			b.WriteString("    location = /mail { return 308 /mail/; }\n")
+			b.WriteString("    location ^~ /mail/ {\n")
 			fmt.Fprintf(&b, "        proxy_pass %s;\n", node.WebmailBackend)
 			b.WriteString("        proxy_set_header Host $host;\n")
 			b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")

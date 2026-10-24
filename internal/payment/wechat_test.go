@@ -234,7 +234,7 @@ func TestWeChatPayFullFlow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Refund failed: %v", err)
 		}
-		if refund.ProviderRefundID != "5000001234" || refund.Status != "success" {
+		if refund.ProviderRefundID != "5000001234" || refund.Status != StatusSucceeded {
 			t.Errorf("unexpected refund result: %+v", refund)
 		}
 	})

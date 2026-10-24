@@ -25,14 +25,15 @@ import (
 // Alipay implements the Alipay Open Platform payment provider for online checkouts,
 // webhook verification with RSA2 signatures, payment queries, and refunds.
 type Alipay struct {
-	AppID           string
-	SellerID        string // required; webhook/query seller_id must match
-	PrivateKey      *rsa.PrivateKey
-	AlipayPublicKey *rsa.PublicKey
-	NotifyURL       string
-	ReturnURL       string
-	Base            string
-	Client          *http.Client
+	RequireResponseSignature bool
+	AppID                    string
+	SellerID                 string // required; webhook/query seller_id must match
+	PrivateKey               *rsa.PrivateKey
+	AlipayPublicKey          *rsa.PublicKey
+	NotifyURL                string
+	ReturnURL                string
+	Base                     string
+	Client                   *http.Client
 }
 
 // Ensure Alipay implements Provider.
@@ -340,6 +341,12 @@ func (a *Alipay) execute(ctx context.Context, method string, bizContent any) (js
 		return nil, fmt.Errorf("missing response key %s in alipay response", responseKey)
 	}
 
+	if a.RequireResponseSignature {
+		var signature string
+		if json.Unmarshal(root["sign"], &signature) != nil || VerifyRSASHA256(string(rawResp), signature, a.AlipayPublicKey) != nil {
+			return nil, ErrInvalidSignature
+		}
+	}
 	var baseResp struct {
 		Code    string `json:"code"`
 		Msg     string `json:"msg"`
@@ -360,6 +367,9 @@ func (a *Alipay) execute(ctx context.Context, method string, bizContent any) (js
 
 // CreateCheckout initiates an Alipay precreate QR payment.
 func (a *Alipay) CreateCheckout(ctx context.Context, params CheckoutParams) (CheckoutResult, error) {
+	if err := ValidateCheckoutAmount(ProviderAlipay, strings.ToUpper(params.Currency), params.AmountCents); err != nil {
+		return CheckoutResult{}, err
+	}
 	subject := params.Description
 	if subject == "" {
 		subject = "urMail Order " + params.OrderNo
@@ -405,6 +415,9 @@ func (a *Alipay) CreateCheckout(ctx context.Context, params CheckoutParams) (Che
 
 // CreatePagePayURL generates a GET redirect URL for alipay.trade.page.pay.
 func (a *Alipay) CreatePagePayURL(params CheckoutParams) (string, error) {
+	if err := ValidateCheckoutAmount(ProviderAlipay, strings.ToUpper(params.Currency), params.AmountCents); err != nil {
+		return "", err
+	}
 	if a.PrivateKey == nil {
 		return "", errors.New("alipay merchant private key not configured")
 	}
@@ -697,17 +710,26 @@ func (a *Alipay) Refund(ctx context.Context, params RefundParams) (RefundResult,
 		refundID = params.RefundNo
 	}
 
+	amount := int64(0)
+	if res.RefundFee != "" {
+		amount, err = parseYuanToCents(res.RefundFee)
+		if err != nil {
+			return RefundResult{}, ErrInvalidPayload
+		}
+	}
 	// fund_change == "Y" is Alipay's signal that funds actually moved.
 	// Anything else must not be reported as succeeded.
 	if res.FundChange != "Y" {
 		return RefundResult{
 			ProviderRefundID: refundID,
-			Status:           StatusPending,
+			AmountCents:      amount, Currency: "CNY", ProviderTxnID: res.TradeNo,
+			Status: "processing",
 		}, nil
 	}
 
 	return RefundResult{
 		ProviderRefundID: refundID,
-		Status:           StatusSucceeded,
+		AmountCents:      amount, Currency: "CNY", ProviderTxnID: res.TradeNo,
+		Status: StatusSucceeded,
 	}, nil
 }

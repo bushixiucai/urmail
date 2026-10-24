@@ -24,11 +24,11 @@ func NewClient(socketPath string) *Client {
 	return &Client{socketPath: socketPath, timeout: 4 * time.Minute}
 }
 
-// Do performs one operation and returns the response.
+// do performs one operation and returns the response.
 //
 // The request id is derived from the operation and a counter so that the
 // agent's audit log can be correlated with the caller's log.
-func (c *Client) Do(ctx context.Context, op string, params any) (*agentd.Response, error) {
+func (c *Client) do(ctx context.Context, op string, params any) (*agentd.Response, error) {
 	raw, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("marshal params for %s: %w", op, err)
