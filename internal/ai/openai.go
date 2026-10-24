@@ -382,30 +382,17 @@ type openAIChatResponse struct {
 }
 
 // Complete sends a chat completion request to the OpenAI-compatible endpoint.
-func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (result CompletionResponse, err error) {
-	// The API key and the request content are never part of an error
-	// message, not even when the upstream echoes them back.
-	redactor := newOpenAIRedactor(p.apiKey)
-	defer func() {
-		if err != nil {
-			err = redactor.wrap(err)
-		}
-	}()
-
+func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	// Re-verify the endpoint policy on every call so a mutated base URL
 	// cannot escape the allowlist at runtime.
 	endpoint, err := p.buildEndpoint()
 	if err != nil {
-		return CompletionResponse{}, err
+		return CompletionResponse{}, safeOpenAIRequestError(err)
 	}
 
 	msgs := req.EffectiveMessages()
 	if len(msgs) == 0 {
 		return CompletionResponse{}, ErrEmptyPrompt
-	}
-	// The request content must never show up in an error message.
-	for _, message := range msgs {
-		redactor.add(message.Content)
 	}
 
 	model := req.Model
@@ -425,12 +412,12 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (r
 
 	payloadBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return CompletionResponse{}, fmt.Errorf("failed to marshal openai request: %w", err)
+		return CompletionResponse{}, fmt.Errorf("%w: cannot encode completion request", ErrInvalidRequest)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
 	if err != nil {
-		return CompletionResponse{}, fmt.Errorf("failed to create http request: %w", err)
+		return CompletionResponse{}, fmt.Errorf("%w: cannot build completion request", ErrInvalidRequest)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -440,29 +427,45 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (r
 
 	httpResp, err := p.client.Do(httpReq)
 	if err != nil {
-		return CompletionResponse{}, fmt.Errorf("openai request failed: %w", err)
+		return CompletionResponse{}, safeOpenAIRequestError(err)
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
-	bodyBytes, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return CompletionResponse{}, fmt.Errorf("failed to read response body: %w", err)
-	}
-
+	// Error bodies are untrusted and may echo arbitrary fragments, transformed
+	// prompts, or credentials. No upstream body text belongs in an error.
 	if httpResp.StatusCode != http.StatusOK {
+		kind := ErrProviderError
 		switch httpResp.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return CompletionResponse{}, fmt.Errorf("%w: status %d: %s", ErrUnauthorized, httpResp.StatusCode, safeBodySummary(bodyBytes))
+			kind = ErrUnauthorized
 		case http.StatusTooManyRequests:
-			return CompletionResponse{}, fmt.Errorf("%w: status %d: %s", ErrRateLimitExceeded, httpResp.StatusCode, safeBodySummary(bodyBytes))
-		default:
-			return CompletionResponse{}, fmt.Errorf("%w: status %d: %s", ErrProviderError, httpResp.StatusCode, safeBodySummary(bodyBytes))
+			kind = ErrRateLimitExceeded
 		}
+		return CompletionResponse{}, fmt.Errorf("%w: status %d", kind, httpResp.StatusCode)
+	}
+
+	const maxCompletionResponseBytes = 8 << 20
+	bodyBytes, err := io.ReadAll(io.LimitReader(httpResp.Body, maxCompletionResponseBytes+1))
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return CompletionResponse{}, safeOpenAIRequestError(err)
+		}
+		if ctx.Err() != nil {
+			return CompletionResponse{}, safeOpenAIRequestError(ctx.Err())
+		}
+		return CompletionResponse{}, fmt.Errorf("%w: cannot read completion response", ErrInvalidResponse)
+	}
+	if len(bodyBytes) > maxCompletionResponseBytes {
+		return CompletionResponse{}, fmt.Errorf("%w: completion response exceeds limit", ErrInvalidResponse)
 	}
 
 	var chatResp openAIChatResponse
 	if err := json.Unmarshal(bodyBytes, &chatResp); err != nil {
-		return CompletionResponse{}, fmt.Errorf("%w: failed to parse response json: %w", ErrInvalidResponse, err)
+		return CompletionResponse{}, fmt.Errorf("%w: cannot decode completion response", ErrInvalidResponse)
+	}
+
+	if chatResp.Error != nil {
+		return CompletionResponse{}, fmt.Errorf("%w: completion error envelope", ErrProviderError)
 	}
 
 	if len(chatResp.Choices) == 0 {
@@ -480,46 +483,24 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (r
 	}, nil
 }
 
-// maxErrorBodySummaryLen bounds how much of an upstream error body is echoed
-// back in error messages, so oversized or sensitive payloads are never
-// surfaced verbatim.
-const maxErrorBodySummaryLen = 256
-
-// safeBodySummary renders a truncated, single-line summary of an upstream
-// response body: control characters and whitespace runs are collapsed and
-// the result is capped, so raw upstream payloads are never concatenated into
-// error messages.
-func safeBodySummary(body []byte) string {
-	var b strings.Builder
-	lastSpace := false
-	for _, r := range string(body) {
-		if r < 0x20 || r == 0x7f {
-			r = ' '
-		}
-		if r == ' ' {
-			if lastSpace {
-				continue
-			}
-			lastSpace = true
-		} else {
-			lastSpace = false
-		}
-		b.WriteRune(r)
-		if b.Len() >= maxErrorBodySummaryLen {
-			break
+// safeOpenAIRequestError preserves only approved classifications, never an
+// arbitrary transport, resolver, URL or proxy error string/cause.
+func safeOpenAIRequestError(err error) error {
+	var classifications []error
+	for _, kind := range []error{
+		context.Canceled, context.DeadlineExceeded,
+		ErrOpenAIEndpointNotAllowed, ErrOpenAISchemeNotAllowed,
+		ErrOpenAIPortNotAllowed, ErrOpenAIReservedAddress, ErrOpenAIRedirectBlocked,
+	} {
+		if errors.Is(err, kind) {
+			classifications = append(classifications, kind)
 		}
 	}
-	s := strings.TrimSpace(b.String())
-	if len(s) > maxErrorBodySummaryLen {
-		s = s[:maxErrorBodySummaryLen]
+	if len(classifications) == 0 {
+		classifications = append(classifications, ErrProviderError)
 	}
-	return s
+	return fmt.Errorf("%w: completion request failed", errors.Join(classifications...))
 }
-
-// minRedactedSecretLen is the minimum length of a request content that is
-// redacted from error messages. Shorter strings would mangle unrelated text
-// without protecting anything meaningful.
-const minRedactedSecretLen = 8
 
 // openAIRedactedError hides a secret from an error message while keeping the
 // error chain intact for errors.Is.
@@ -538,9 +519,9 @@ func (e *openAIRedactedError) Is(target error) bool {
 	return errors.Is(e.err, target)
 }
 
-// openAIRedactor removes secrets from error messages. Neither the API key
-// nor the content of the request may ever show up in an error message, not
-// even when a hostile upstream echoes them back.
+// openAIRedactor removes API keys from local configuration diagnostics.
+// Upstream and request-processing errors use safe classifications instead
+// of attempting to redact arbitrary content with string replacement.
 type openAIRedactor struct {
 	secrets []string
 }
@@ -552,20 +533,6 @@ func newOpenAIRedactor(apiKey string) *openAIRedactor {
 		r.secrets = append(r.secrets, apiKey)
 	}
 	return r
-}
-
-// add registers a secret that must never appear in an error message.
-func (r *openAIRedactor) add(secret string) {
-	secret = strings.TrimSpace(secret)
-	if len(secret) < minRedactedSecretLen {
-		return
-	}
-	for _, existing := range r.secrets {
-		if existing == secret {
-			return
-		}
-	}
-	r.secrets = append(r.secrets, secret)
 }
 
 // redact removes every registered secret from a message.
