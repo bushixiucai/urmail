@@ -11,27 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const cancelActiveSubscriptionsForTenant = `-- name: CancelActiveSubscriptionsForTenant :exec
-UPDATE subscriptions
-SET status = 'canceled'
-WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')
+const cancelPendingOrder = `-- name: CancelPendingOrder :one
+UPDATE orders SET status='canceled'
+WHERE tenant_id=$1 AND id=$2 AND status='pending'
+RETURNING id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle
 `
 
-// Step 1 in atomic upgrade/downgrade replacement. past_due subscriptions must
-// be canceled too, otherwise the unique partial index
-// subscriptions_one_active_per_tenant (which covers past_due) makes the
-// follow-up INSERT fail (M3 review P2).
-func (q *Queries) CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error {
-	_, err := q.db.Exec(ctx, cancelActiveSubscriptionsForTenant, tenantID)
-	return err
+type CancelPendingOrderParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+// A pending order can be withdrawn by its tenant while nobody has paid. The
+// coupon reservation (if any) is released by the caller in the same
+// transaction, so the quota is returned atomically with the cancellation.
+func (q *Queries) CancelPendingOrder(ctx context.Context, arg CancelPendingOrderParams) (Orders, error) {
+	row := q.db.QueryRow(ctx, cancelPendingOrder, arg.TenantID, arg.ID)
+	var i Orders
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderNo,
+		&i.Kind,
+		&i.Status,
+		&i.AmountCents,
+		&i.Currency,
+		&i.PlanCode,
+		&i.ChannelID,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.PaidAt,
+		&i.BillingCycle,
+	)
+	return i, err
 }
 
 const createOrder = `-- name: CreateOrder :one
-INSERT INTO orders (
-    tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
-) RETURNING id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at
+INSERT INTO orders(tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,billing_cycle) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle
 `
 
 type CreateOrderParams struct {
@@ -44,6 +60,7 @@ type CreateOrderParams struct {
 	PlanCode       pgtype.Text `json:"plan_code"`
 	ChannelID      pgtype.Int8 `json:"channel_id"`
 	IdempotencyKey pgtype.Text `json:"idempotency_key"`
+	BillingCycle   string      `json:"billing_cycle"`
 }
 
 func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Orders, error) {
@@ -57,6 +74,7 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		arg.PlanCode,
 		arg.ChannelID,
 		arg.IdempotencyKey,
+		arg.BillingCycle,
 	)
 	var i Orders
 	err := row.Scan(
@@ -72,16 +90,13 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.PaidAt,
+		&i.BillingCycle,
 	)
 	return i, err
 }
 
 const createPayment = `-- name: CreatePayment :one
-INSERT INTO payments (
-    tenant_id, order_id, provider, provider_txn_id, amount_cents, currency, status, raw
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING id, tenant_id, order_id, provider, provider_txn_id, amount_cents, currency, status, raw, created_at, paid_at
+INSERT INTO payments(tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,paid_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) ON CONFLICT(provider,provider_txn_id) DO NOTHING RETURNING id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at
 `
 
 type CreatePaymentParams struct {
@@ -123,12 +138,51 @@ func (q *Queries) CreatePayment(ctx context.Context, arg CreatePaymentParams) (P
 	return i, err
 }
 
+const createRefund = `-- name: CreateRefund :one
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at FROM urmail_create_refund($1::bigint,$2::bigint,$3::bigint,$4::text,$5::bigint,$6::text,$7::text)
+`
+
+type CreateRefundParams struct {
+	TenantID    int64  `json:"tenant_id"`
+	OrderID     int64  `json:"order_id"`
+	PaymentID   int64  `json:"payment_id"`
+	RefundNo    string `json:"refund_no"`
+	AmountCents int64  `json:"amount_cents"`
+	Currency    string `json:"currency"`
+	Reason      string `json:"reason"`
+}
+
+// Atomic routine owns locking, validation, capacity check and insert.
+func (q *Queries) CreateRefund(ctx context.Context, arg CreateRefundParams) (Refunds, error) {
+	row := q.db.QueryRow(ctx, createRefund,
+		arg.TenantID,
+		arg.OrderID,
+		arg.PaymentID,
+		arg.RefundNo,
+		arg.AmountCents,
+		arg.Currency,
+		arg.Reason,
+	)
+	var i Refunds
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderID,
+		&i.PaymentID,
+		&i.RefundNo,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Reason,
+		&i.Status,
+		&i.ProviderRefundNo,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const createSubscription = `-- name: CreateSubscription :one
-INSERT INTO subscriptions (
-    tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at
+INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle
 `
 
 type CreateSubscriptionParams struct {
@@ -141,7 +195,6 @@ type CreateSubscriptionParams struct {
 	TrialEndsAt       pgtype.Timestamptz `json:"trial_ends_at"`
 }
 
-// Step 2 in atomic upgrade/downgrade replacement
 func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscriptions, error) {
 	row := q.db.QueryRow(ctx, createSubscription,
 		arg.TenantID,
@@ -163,14 +216,13 @@ func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscription
 		&i.CancelAtPeriodEnd,
 		&i.TrialEndsAt,
 		&i.CreatedAt,
+		&i.BillingCycle,
 	)
 	return i, err
 }
 
 const getActiveSubscriptionByTenant = `-- name: GetActiveSubscriptionByTenant :one
-SELECT id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at
-FROM subscriptions
-WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due')
+SELECT id,tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at,created_at,billing_cycle FROM subscriptions WHERE tenant_id=$1 AND status='active' ORDER BY created_at DESC LIMIT 1
 `
 
 func (q *Queries) GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (Subscriptions, error) {
@@ -186,12 +238,13 @@ func (q *Queries) GetActiveSubscriptionByTenant(ctx context.Context, tenantID in
 		&i.CancelAtPeriodEnd,
 		&i.TrialEndsAt,
 		&i.CreatedAt,
+		&i.BillingCycle,
 	)
 	return i, err
 }
 
 const getCheckoutOrderByIdempotencyKey = `-- name: GetCheckoutOrderByIdempotencyKey :one
-SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at FROM orders WHERE tenant_id=$1 AND idempotency_key=$2
+SELECT id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle FROM orders WHERE tenant_id=$1 AND idempotency_key=$2
 `
 
 type GetCheckoutOrderByIdempotencyKeyParams struct {
@@ -215,14 +268,13 @@ func (q *Queries) GetCheckoutOrderByIdempotencyKey(ctx context.Context, arg GetC
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.PaidAt,
+		&i.BillingCycle,
 	)
 	return i, err
 }
 
 const getOrderByID = `-- name: GetOrderByID :one
-SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at
-FROM orders
-WHERE tenant_id = $1 AND id = $2
+SELECT id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle FROM orders WHERE tenant_id=$1 AND id=$2
 `
 
 type GetOrderByIDParams struct {
@@ -246,15 +298,72 @@ func (q *Queries) GetOrderByID(ctx context.Context, arg GetOrderByIDParams) (Ord
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.PaidAt,
+		&i.BillingCycle,
+	)
+	return i, err
+}
+
+const getOrderForTenant = `-- name: GetOrderForTenant :one
+SELECT id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle
+FROM orders WHERE tenant_id=$1 AND id=$2
+`
+
+type GetOrderForTenantParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+func (q *Queries) GetOrderForTenant(ctx context.Context, arg GetOrderForTenantParams) (Orders, error) {
+	row := q.db.QueryRow(ctx, getOrderForTenant, arg.TenantID, arg.ID)
+	var i Orders
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderNo,
+		&i.Kind,
+		&i.Status,
+		&i.AmountCents,
+		&i.Currency,
+		&i.PlanCode,
+		&i.ChannelID,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.PaidAt,
+		&i.BillingCycle,
+	)
+	return i, err
+}
+
+const getPaymentForTenant = `-- name: GetPaymentForTenant :one
+SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at FROM payments WHERE tenant_id=$1 AND id=$2
+`
+
+type GetPaymentForTenantParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+func (q *Queries) GetPaymentForTenant(ctx context.Context, arg GetPaymentForTenantParams) (Payments, error) {
+	row := q.db.QueryRow(ctx, getPaymentForTenant, arg.TenantID, arg.ID)
+	var i Payments
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderID,
+		&i.Provider,
+		&i.ProviderTxnID,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Status,
+		&i.Raw,
+		&i.CreatedAt,
+		&i.PaidAt,
 	)
 	return i, err
 }
 
 const getPlanByCode = `-- name: GetPlanByCode :one
-SELECT code, name, description, price_cents, currency, quota_bytes,
-       mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
-FROM plans
-WHERE code = $1
+SELECT code,name,description,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features,sort_order,active FROM plans WHERE code=$1
 `
 
 func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plans, error) {
@@ -277,46 +386,8 @@ func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plans, error)
 	return i, err
 }
 
-const insertPaymentEventPlaceholder = `-- name: InsertPaymentEventPlaceholder :one
-INSERT INTO payment_events (
-    provider, provider_event_id, payload
-) VALUES (
-    $1, $2, $3
-) ON CONFLICT (provider, provider_event_id) DO NOTHING
-RETURNING id, provider, provider_event_id, processed_at
-`
-
-type InsertPaymentEventPlaceholderParams struct {
-	Provider        string `json:"provider"`
-	ProviderEventID string `json:"provider_event_id"`
-	Payload         []byte `json:"payload"`
-}
-
-type InsertPaymentEventPlaceholderRow struct {
-	ID              int64              `json:"id"`
-	Provider        string             `json:"provider"`
-	ProviderEventID string             `json:"provider_event_id"`
-	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
-}
-
-func (q *Queries) InsertPaymentEventPlaceholder(ctx context.Context, arg InsertPaymentEventPlaceholderParams) (InsertPaymentEventPlaceholderRow, error) {
-	row := q.db.QueryRow(ctx, insertPaymentEventPlaceholder, arg.Provider, arg.ProviderEventID, arg.Payload)
-	var i InsertPaymentEventPlaceholderRow
-	err := row.Scan(
-		&i.ID,
-		&i.Provider,
-		&i.ProviderEventID,
-		&i.ProcessedAt,
-	)
-	return i, err
-}
-
 const listActivePlans = `-- name: ListActivePlans :many
-SELECT code, name, description, price_cents, currency, quota_bytes,
-       mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
-FROM plans
-WHERE active = true
-ORDER BY sort_order ASC, price_cents ASC
+SELECT code,name,description,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features,sort_order,active FROM plans WHERE active=true ORDER BY sort_order,price_cents
 `
 
 func (q *Queries) ListActivePlans(ctx context.Context) ([]Plans, error) {
@@ -353,12 +424,7 @@ func (q *Queries) ListActivePlans(ctx context.Context) ([]Plans, error) {
 }
 
 const listOrdersByTenant = `-- name: ListOrdersByTenant :many
-SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code,
-       channel_id, idempotency_key, created_at, paid_at
-FROM orders
-WHERE tenant_id = $1
-ORDER BY created_at DESC, id DESC
-LIMIT 100
+SELECT id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle FROM orders WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100
 `
 
 func (q *Queries) ListOrdersByTenant(ctx context.Context, tenantID int64) ([]Orders, error) {
@@ -383,6 +449,7 @@ func (q *Queries) ListOrdersByTenant(ctx context.Context, tenantID int64) ([]Ord
 			&i.IdempotencyKey,
 			&i.CreatedAt,
 			&i.PaidAt,
+			&i.BillingCycle,
 		); err != nil {
 			return nil, err
 		}
@@ -394,11 +461,102 @@ func (q *Queries) ListOrdersByTenant(ctx context.Context, tenantID int64) ([]Ord
 	return items, nil
 }
 
+const listPaymentsByTenant = `-- name: ListPaymentsByTenant :many
+SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at FROM payments WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100
+`
+
+func (q *Queries) ListPaymentsByTenant(ctx context.Context, tenantID int64) ([]Payments, error) {
+	rows, err := q.db.Query(ctx, listPaymentsByTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Payments{}
+	for rows.Next() {
+		var i Payments
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OrderID,
+			&i.Provider,
+			&i.ProviderTxnID,
+			&i.AmountCents,
+			&i.Currency,
+			&i.Status,
+			&i.Raw,
+			&i.CreatedAt,
+			&i.PaidAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRefundsByTenant = `-- name: ListRefundsByTenant :many
+SELECT id,tenant_id,order_id,payment_id,refund_no,amount_cents,currency,reason,status,provider_refund_no,created_at,completed_at FROM refunds WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100
+`
+
+func (q *Queries) ListRefundsByTenant(ctx context.Context, tenantID int64) ([]Refunds, error) {
+	rows, err := q.db.Query(ctx, listRefundsByTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Refunds{}
+	for rows.Next() {
+		var i Refunds
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OrderID,
+			&i.PaymentID,
+			&i.RefundNo,
+			&i.AmountCents,
+			&i.Currency,
+			&i.Reason,
+			&i.Status,
+			&i.ProviderRefundNo,
+			&i.CreatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const releaseCouponRedemption = `-- name: ReleaseCouponRedemption :execrows
+DELETE FROM coupon_redemptions WHERE coupon_code=$1 AND tenant_id=$2 AND order_id=$3
+`
+
+type ReleaseCouponRedemptionParams struct {
+	CouponCode string      `json:"coupon_code"`
+	TenantID   int64       `json:"tenant_id"`
+	OrderID    pgtype.Int8 `json:"order_id"`
+}
+
+// Releasing a reservation removes the redemption row entirely, so the coupon
+// capacity trigger hands the quota back and the tenant can redeem again. The
+// refund guard trigger refuses to release a settled order's redemption.
+func (q *Queries) ReleaseCouponRedemption(ctx context.Context, arg ReleaseCouponRedemptionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseCouponRedemption, arg.CouponCode, arg.TenantID, arg.OrderID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateOrderStatus = `-- name: UpdateOrderStatus :one
-UPDATE orders
-SET status = $3, paid_at = $4
-WHERE tenant_id = $1 AND id = $2
-RETURNING id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, idempotency_key, created_at, paid_at
+UPDATE orders SET status=$3,paid_at=$4 WHERE tenant_id=$1 AND id=$2 RETURNING id,tenant_id,order_no,kind,status,amount_cents,currency,plan_code,channel_id,idempotency_key,created_at,paid_at,billing_cycle
 `
 
 type UpdateOrderStatusParams struct {
@@ -429,6 +587,7 @@ func (q *Queries) UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusPa
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.PaidAt,
+		&i.BillingCycle,
 	)
 	return i, err
 }

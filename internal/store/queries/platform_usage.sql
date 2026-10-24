@@ -48,6 +48,23 @@ DO UPDATE SET messages_sent = mailbox_usage.messages_sent + 1
 WHERE mailbox_usage.messages_sent < $3
 RETURNING messages_sent;
 
+-- name: GetTenantIDBySenderDomain :one
+-- Platform-only collector resolution; sender domain is matched to active owned domain.
+SELECT tenant_id FROM domains WHERE fqdn = $1 AND status = 'active';
+
+-- name: GetDeliveryEventTenantByQueueID :one
+-- Platform-only correlation lets recipient status lines inherit the tenant
+-- from the earlier queue acceptance event without exposing cross-tenant APIs.
+-- Queue IDs are only unique per Postfix instance, so the instance name is
+-- mandatory: without it a shared queue id resolves to whichever tenant
+-- happened to insert last. The preference order keeps queue-acceptance rows
+-- (which carry the sender) ahead of later recipient status rows.
+SELECT tenant_id, sender, sender_domain, message_id
+FROM delivery_events
+WHERE queue_id = $1 AND instance = $2
+ORDER BY (status = 'queued') DESC, occurred_at DESC
+LIMIT 1;
+
 -- name: PlatformInboundAllowed :one
 SELECT COALESCE((SELECT urmail_mail_allowed(d.tenant_id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed;
 

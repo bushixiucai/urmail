@@ -47,3 +47,19 @@ GRANT USAGE ON SCHEMA public TO urmail_dovecot;
 -- 0001 transfers table ownership to urmail_platform. The migration role must
 -- be a member of the owning role to perform that ALTER TABLE ... OWNER TO.
 DO $$ BEGIN IF NOT pg_has_role('urmail_migrate','urmail_platform','MEMBER') THEN GRANT urmail_platform TO urmail_migrate; END IF; END $$;
+
+-- pg_trgm is an untrusted extension: only a superuser can create it, and the
+-- migration role is deliberately NOSUPERUSER. Compliance substring search
+-- (migration 0028) degrades to the slower tsvector path when it is missing,
+-- so the installer creates it here, in the superuser stage, BEFORE migrations
+-- run. Skip silently when the host already provides it.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'could not install pg_trgm (%); compliance substring search will be slower', SQLERRM;
+END
+$$;

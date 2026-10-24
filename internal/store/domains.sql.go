@@ -25,12 +25,9 @@ func (q *Queries) CountDomainsByTenant(ctx context.Context, tenantID int64) (int
 }
 
 const createDomain = `-- name: CreateDomain :one
-INSERT INTO domains (
-    tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, tls_mode,
-    dkim_selector, dkim_private_key
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
+INSERT INTO domains (tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, tls_mode, dkim_selector, dkim_private_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 `
 
 type CreateDomainParams struct {
@@ -274,6 +271,8 @@ const updateDomainModeStatus = `-- name: UpdateDomainModeStatus :one
 UPDATE domains
 SET mode = $3, status = $4
 WHERE tenant_id = $1 AND id = $2
+  AND ($4 <> 'active' OR verified_at IS NOT NULL)
+  AND ($4 <> 'pending_dns' OR verified_at IS NULL)
 RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 `
 
@@ -331,7 +330,7 @@ func (q *Queries) UpdateDomainModeStatus(ctx context.Context, arg UpdateDomainMo
 const updateDomainStatus = `-- name: UpdateDomainStatus :one
 UPDATE domains
 SET status = $3, verified_at = $4
-WHERE tenant_id = $1 AND id = $2
+WHERE tenant_id = $1 AND id = $2 AND ($3 <> 'active' OR $4 IS NOT NULL)
 RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at
 `
 

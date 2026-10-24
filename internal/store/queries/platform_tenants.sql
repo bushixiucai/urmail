@@ -67,6 +67,69 @@ ON CONFLICT (code) DO UPDATE SET
 RETURNING code, name, description, price_cents, currency, quota_bytes,
           mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active;
 
+-- name: PlatformUpdateOrderPaid :execrows
+UPDATE orders SET status='paid', paid_at=now() WHERE tenant_id=$1 AND id=$2 AND status='pending';
+
+-- name: PlatformExpireOnboardingTasks :execrows
+UPDATE onboarding_tasks SET status='failed', last_error='maximum onboarding attempts exceeded', leased_until=NULL, leased_by=NULL, updated_at=now()
+WHERE attempts >= max_attempts AND (status='pending' OR (status='running' AND leased_until < now()));
+
+-- name: PlatformClaimOnboardingTask :many
+WITH candidate AS (
+    SELECT id FROM onboarding_tasks
+    WHERE (status = 'pending' AND attempts < max_attempts)
+       OR (status = 'running' AND leased_until < now() AND attempts < max_attempts)
+    ORDER BY created_at, id
+    FOR UPDATE SKIP LOCKED
+    LIMIT sqlc.arg(batch_size)::int
+)
+UPDATE onboarding_tasks AS task
+SET status='running', attempts=task.attempts+1, leased_by=sqlc.arg(worker_id)::text, leased_until=now()+make_interval(secs => sqlc.arg(lease_seconds)::int), updated_at=now()
+FROM candidate
+WHERE task.id=candidate.id
+RETURNING task.id, task.tenant_id, task.domain_id, task.order_id, task.status, task.step, task.attempts, task.max_attempts, task.last_error, task.leased_until, task.leased_by, task.created_at, task.updated_at, task.completed_at;
+
+-- name: PlatformBindOnboardingDomain :execrows
+UPDATE onboarding_tasks AS task
+SET domain_id=sqlc.arg(domain_id)::bigint, step='dns_propagation', status='pending', attempts=0, leased_until=NULL, leased_by=NULL, last_error=NULL, updated_at=now()
+FROM domains AS domain
+WHERE task.id=sqlc.arg(task_id)::bigint AND task.tenant_id=domain.tenant_id AND domain.id=sqlc.arg(domain_id)::bigint AND task.status='running' AND task.leased_by=sqlc.arg(worker_id)::text AND task.step='domain_verification' AND task.domain_id IS NULL;
+
+-- name: PlatformCompleteOnboardingTask :execrows
+UPDATE onboarding_tasks
+SET status='completed', step='ready', completed_at=now(), leased_until=NULL, leased_by=NULL, last_error=NULL, updated_at=now()
+WHERE id=sqlc.arg(task_id)::bigint AND status='running' AND leased_by=sqlc.arg(worker_id)::text AND step <> 'domain_verification';
+
+-- name: PlatformAdvanceOnboardingTask :execrows
+UPDATE onboarding_tasks
+SET status='pending', step=sqlc.arg(step)::text, attempts=0, leased_until=NULL, leased_by=NULL, last_error=NULL, updated_at=now()
+WHERE id=sqlc.arg(task_id)::bigint AND status='running' AND leased_by=sqlc.arg(worker_id)::text AND step <> 'domain_verification';
+
+-- name: PlatformFailOnboardingTask :execrows
+UPDATE onboarding_tasks
+SET status=CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END, last_error=sqlc.arg(error)::text, leased_until=NULL, leased_by=NULL, updated_at=now()
+WHERE id=sqlc.arg(task_id)::bigint AND status='running' AND leased_by=sqlc.arg(worker_id)::text AND step <> 'domain_verification';
+
+-- name: PlatformGetOrderForSettlement :one
+SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, billing_cycle
+FROM orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE;
+
+-- name: PlatformGetPaymentByProviderTransaction :one
+SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at
+FROM payments WHERE provider=$1 AND provider_txn_id=$2;
+
+-- name: PlatformGetPaymentEventByProviderAndID :one
+SELECT id,provider,provider_event_id,payload,processed_at
+FROM payment_events WHERE provider=$1 AND provider_event_id=$2;
+
+-- name: PlatformInsertPaymentEventPlaceholder :one
+INSERT INTO payment_events(provider,provider_event_id,payload) VALUES($1,$2,$3)
+ON CONFLICT(provider,provider_event_id) DO NOTHING
+RETURNING id,provider,provider_event_id,processed_at;
+
+-- name: PlatformRedeemCoupon :one
+SELECT urmail_redeem_coupon_for_tenant(sqlc.arg(code)::text, sqlc.arg(tenant_id)::bigint, sqlc.narg(order_id)::bigint)::text AS result;
+
 -- name: PlatformUpsertCoupon :one
 INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

@@ -11,6 +11,280 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const platformAdvanceOnboardingTask = `-- name: PlatformAdvanceOnboardingTask :execrows
+UPDATE onboarding_tasks
+SET status='pending', step=$1::text, attempts=0, leased_until=NULL, leased_by=NULL, last_error=NULL, updated_at=now()
+WHERE id=$2::bigint AND status='running' AND leased_by=$3::text AND step <> 'domain_verification'
+`
+
+type PlatformAdvanceOnboardingTaskParams struct {
+	Step     string `json:"step"`
+	TaskID   int64  `json:"task_id"`
+	WorkerID string `json:"worker_id"`
+}
+
+func (q *Queries) PlatformAdvanceOnboardingTask(ctx context.Context, arg PlatformAdvanceOnboardingTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformAdvanceOnboardingTask, arg.Step, arg.TaskID, arg.WorkerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformBindOnboardingDomain = `-- name: PlatformBindOnboardingDomain :execrows
+UPDATE onboarding_tasks AS task
+SET domain_id=$1::bigint, step='dns_propagation', status='pending', attempts=0, leased_until=NULL, leased_by=NULL, last_error=NULL, updated_at=now()
+FROM domains AS domain
+WHERE task.id=$2::bigint AND task.tenant_id=domain.tenant_id AND domain.id=$1::bigint AND task.status='running' AND task.leased_by=$3::text AND task.step='domain_verification' AND task.domain_id IS NULL
+`
+
+type PlatformBindOnboardingDomainParams struct {
+	DomainID int64  `json:"domain_id"`
+	TaskID   int64  `json:"task_id"`
+	WorkerID string `json:"worker_id"`
+}
+
+func (q *Queries) PlatformBindOnboardingDomain(ctx context.Context, arg PlatformBindOnboardingDomainParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformBindOnboardingDomain, arg.DomainID, arg.TaskID, arg.WorkerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformClaimOnboardingTask = `-- name: PlatformClaimOnboardingTask :many
+WITH candidate AS (
+    SELECT id FROM onboarding_tasks
+    WHERE (status = 'pending' AND attempts < max_attempts)
+       OR (status = 'running' AND leased_until < now() AND attempts < max_attempts)
+    ORDER BY created_at, id
+    FOR UPDATE SKIP LOCKED
+    LIMIT $3::int
+)
+UPDATE onboarding_tasks AS task
+SET status='running', attempts=task.attempts+1, leased_by=$1::text, leased_until=now()+make_interval(secs => $2::int), updated_at=now()
+FROM candidate
+WHERE task.id=candidate.id
+RETURNING task.id, task.tenant_id, task.domain_id, task.order_id, task.status, task.step, task.attempts, task.max_attempts, task.last_error, task.leased_until, task.leased_by, task.created_at, task.updated_at, task.completed_at
+`
+
+type PlatformClaimOnboardingTaskParams struct {
+	WorkerID     string `json:"worker_id"`
+	LeaseSeconds int32  `json:"lease_seconds"`
+	BatchSize    int32  `json:"batch_size"`
+}
+
+func (q *Queries) PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]OnboardingTasks, error) {
+	rows, err := q.db.Query(ctx, platformClaimOnboardingTask, arg.WorkerID, arg.LeaseSeconds, arg.BatchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OnboardingTasks{}
+	for rows.Next() {
+		var i OnboardingTasks
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.DomainID,
+			&i.OrderID,
+			&i.Status,
+			&i.Step,
+			&i.Attempts,
+			&i.MaxAttempts,
+			&i.LastError,
+			&i.LeasedUntil,
+			&i.LeasedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const platformCompleteOnboardingTask = `-- name: PlatformCompleteOnboardingTask :execrows
+UPDATE onboarding_tasks
+SET status='completed', step='ready', completed_at=now(), leased_until=NULL, leased_by=NULL, last_error=NULL, updated_at=now()
+WHERE id=$1::bigint AND status='running' AND leased_by=$2::text AND step <> 'domain_verification'
+`
+
+type PlatformCompleteOnboardingTaskParams struct {
+	TaskID   int64  `json:"task_id"`
+	WorkerID string `json:"worker_id"`
+}
+
+func (q *Queries) PlatformCompleteOnboardingTask(ctx context.Context, arg PlatformCompleteOnboardingTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformCompleteOnboardingTask, arg.TaskID, arg.WorkerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformExpireOnboardingTasks = `-- name: PlatformExpireOnboardingTasks :execrows
+UPDATE onboarding_tasks SET status='failed', last_error='maximum onboarding attempts exceeded', leased_until=NULL, leased_by=NULL, updated_at=now()
+WHERE attempts >= max_attempts AND (status='pending' OR (status='running' AND leased_until < now()))
+`
+
+func (q *Queries) PlatformExpireOnboardingTasks(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, platformExpireOnboardingTasks)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformFailOnboardingTask = `-- name: PlatformFailOnboardingTask :execrows
+UPDATE onboarding_tasks
+SET status=CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END, last_error=$1::text, leased_until=NULL, leased_by=NULL, updated_at=now()
+WHERE id=$2::bigint AND status='running' AND leased_by=$3::text AND step <> 'domain_verification'
+`
+
+type PlatformFailOnboardingTaskParams struct {
+	Error    string `json:"error"`
+	TaskID   int64  `json:"task_id"`
+	WorkerID string `json:"worker_id"`
+}
+
+func (q *Queries) PlatformFailOnboardingTask(ctx context.Context, arg PlatformFailOnboardingTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformFailOnboardingTask, arg.Error, arg.TaskID, arg.WorkerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformGetOrderForSettlement = `-- name: PlatformGetOrderForSettlement :one
+SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, billing_cycle
+FROM orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE
+`
+
+type PlatformGetOrderForSettlementParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+type PlatformGetOrderForSettlementRow struct {
+	ID           int64       `json:"id"`
+	TenantID     int64       `json:"tenant_id"`
+	OrderNo      string      `json:"order_no"`
+	Kind         string      `json:"kind"`
+	Status       string      `json:"status"`
+	AmountCents  int64       `json:"amount_cents"`
+	Currency     string      `json:"currency"`
+	PlanCode     pgtype.Text `json:"plan_code"`
+	ChannelID    pgtype.Int8 `json:"channel_id"`
+	BillingCycle string      `json:"billing_cycle"`
+}
+
+func (q *Queries) PlatformGetOrderForSettlement(ctx context.Context, arg PlatformGetOrderForSettlementParams) (PlatformGetOrderForSettlementRow, error) {
+	row := q.db.QueryRow(ctx, platformGetOrderForSettlement, arg.TenantID, arg.ID)
+	var i PlatformGetOrderForSettlementRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderNo,
+		&i.Kind,
+		&i.Status,
+		&i.AmountCents,
+		&i.Currency,
+		&i.PlanCode,
+		&i.ChannelID,
+		&i.BillingCycle,
+	)
+	return i, err
+}
+
+const platformGetPaymentByProviderTransaction = `-- name: PlatformGetPaymentByProviderTransaction :one
+SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at
+FROM payments WHERE provider=$1 AND provider_txn_id=$2
+`
+
+type PlatformGetPaymentByProviderTransactionParams struct {
+	Provider      string      `json:"provider"`
+	ProviderTxnID pgtype.Text `json:"provider_txn_id"`
+}
+
+func (q *Queries) PlatformGetPaymentByProviderTransaction(ctx context.Context, arg PlatformGetPaymentByProviderTransactionParams) (Payments, error) {
+	row := q.db.QueryRow(ctx, platformGetPaymentByProviderTransaction, arg.Provider, arg.ProviderTxnID)
+	var i Payments
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OrderID,
+		&i.Provider,
+		&i.ProviderTxnID,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Status,
+		&i.Raw,
+		&i.CreatedAt,
+		&i.PaidAt,
+	)
+	return i, err
+}
+
+const platformGetPaymentEventByProviderAndID = `-- name: PlatformGetPaymentEventByProviderAndID :one
+SELECT id,provider,provider_event_id,payload,processed_at
+FROM payment_events WHERE provider=$1 AND provider_event_id=$2
+`
+
+type PlatformGetPaymentEventByProviderAndIDParams struct {
+	Provider        string `json:"provider"`
+	ProviderEventID string `json:"provider_event_id"`
+}
+
+func (q *Queries) PlatformGetPaymentEventByProviderAndID(ctx context.Context, arg PlatformGetPaymentEventByProviderAndIDParams) (PaymentEvents, error) {
+	row := q.db.QueryRow(ctx, platformGetPaymentEventByProviderAndID, arg.Provider, arg.ProviderEventID)
+	var i PaymentEvents
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.ProviderEventID,
+		&i.Payload,
+		&i.ProcessedAt,
+	)
+	return i, err
+}
+
+const platformInsertPaymentEventPlaceholder = `-- name: PlatformInsertPaymentEventPlaceholder :one
+INSERT INTO payment_events(provider,provider_event_id,payload) VALUES($1,$2,$3)
+ON CONFLICT(provider,provider_event_id) DO NOTHING
+RETURNING id,provider,provider_event_id,processed_at
+`
+
+type PlatformInsertPaymentEventPlaceholderParams struct {
+	Provider        string `json:"provider"`
+	ProviderEventID string `json:"provider_event_id"`
+	Payload         []byte `json:"payload"`
+}
+
+type PlatformInsertPaymentEventPlaceholderRow struct {
+	ID              int64              `json:"id"`
+	Provider        string             `json:"provider"`
+	ProviderEventID string             `json:"provider_event_id"`
+	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
+}
+
+func (q *Queries) PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error) {
+	row := q.db.QueryRow(ctx, platformInsertPaymentEventPlaceholder, arg.Provider, arg.ProviderEventID, arg.Payload)
+	var i PlatformInsertPaymentEventPlaceholderRow
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.ProviderEventID,
+		&i.ProcessedAt,
+	)
+	return i, err
+}
+
 const platformListAuditLogs = `-- name: PlatformListAuditLogs :many
 SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
 FROM audit_logs
@@ -295,6 +569,40 @@ func (q *Queries) PlatformOverview(ctx context.Context) (PlatformOverviewRow, er
 		&i.ActiveSubscriptions,
 	)
 	return i, err
+}
+
+const platformRedeemCoupon = `-- name: PlatformRedeemCoupon :one
+SELECT urmail_redeem_coupon_for_tenant($1::text, $2::bigint, $3::bigint)::text AS result
+`
+
+type PlatformRedeemCouponParams struct {
+	Code     string      `json:"code"`
+	TenantID int64       `json:"tenant_id"`
+	OrderID  pgtype.Int8 `json:"order_id"`
+}
+
+func (q *Queries) PlatformRedeemCoupon(ctx context.Context, arg PlatformRedeemCouponParams) (string, error) {
+	row := q.db.QueryRow(ctx, platformRedeemCoupon, arg.Code, arg.TenantID, arg.OrderID)
+	var result string
+	err := row.Scan(&result)
+	return result, err
+}
+
+const platformUpdateOrderPaid = `-- name: PlatformUpdateOrderPaid :execrows
+UPDATE orders SET status='paid', paid_at=now() WHERE tenant_id=$1 AND id=$2 AND status='pending'
+`
+
+type PlatformUpdateOrderPaidParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+func (q *Queries) PlatformUpdateOrderPaid(ctx context.Context, arg PlatformUpdateOrderPaidParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformUpdateOrderPaid, arg.TenantID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const platformUpdateTenantStatus = `-- name: PlatformUpdateTenantStatus :one

@@ -7,7 +7,47 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const getDeliveryEventTenantByQueueID = `-- name: GetDeliveryEventTenantByQueueID :one
+SELECT tenant_id, sender, sender_domain, message_id
+FROM delivery_events
+WHERE queue_id = $1 AND instance = $2
+ORDER BY (status = 'queued') DESC, occurred_at DESC
+LIMIT 1
+`
+
+type GetDeliveryEventTenantByQueueIDParams struct {
+	QueueID  string `json:"queue_id"`
+	Instance string `json:"instance"`
+}
+
+type GetDeliveryEventTenantByQueueIDRow struct {
+	TenantID     pgtype.Int8 `json:"tenant_id"`
+	Sender       string      `json:"sender"`
+	SenderDomain string      `json:"sender_domain"`
+	MessageID    pgtype.Text `json:"message_id"`
+}
+
+// Platform-only correlation lets recipient status lines inherit the tenant
+// from the earlier queue acceptance event without exposing cross-tenant APIs.
+// Queue IDs are only unique per Postfix instance, so the instance name is
+// mandatory: without it a shared queue id resolves to whichever tenant
+// happened to insert last. The preference order keeps queue-acceptance rows
+// (which carry the sender) ahead of later recipient status rows.
+func (q *Queries) GetDeliveryEventTenantByQueueID(ctx context.Context, arg GetDeliveryEventTenantByQueueIDParams) (GetDeliveryEventTenantByQueueIDRow, error) {
+	row := q.db.QueryRow(ctx, getDeliveryEventTenantByQueueID, arg.QueueID, arg.Instance)
+	var i GetDeliveryEventTenantByQueueIDRow
+	err := row.Scan(
+		&i.TenantID,
+		&i.Sender,
+		&i.SenderDomain,
+		&i.MessageID,
+	)
+	return i, err
+}
 
 const getMailboxDailySent = `-- name: GetMailboxDailySent :one
 
@@ -86,6 +126,18 @@ func (q *Queries) GetMailboxDailySentForUpdate(ctx context.Context, address stri
 		&i.DailySendLimit,
 	)
 	return i, err
+}
+
+const getTenantIDBySenderDomain = `-- name: GetTenantIDBySenderDomain :one
+SELECT tenant_id FROM domains WHERE fqdn = $1 AND status = 'active'
+`
+
+// Platform-only collector resolution; sender domain is matched to active owned domain.
+func (q *Queries) GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (int64, error) {
+	row := q.db.QueryRow(ctx, getTenantIDBySenderDomain, fqdn)
+	var tenant_id int64
+	err := row.Scan(&tenant_id)
+	return tenant_id, err
 }
 
 const incrementMailboxDailySent = `-- name: IncrementMailboxDailySent :one

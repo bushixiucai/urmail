@@ -11,35 +11,44 @@ import (
 )
 
 type Querier interface {
+	// Tenant-scoped marketing suppression operations.
+	AddMarketingSuppression(ctx context.Context, arg AddMarketingSuppressionParams) (MarketingSuppressions, error)
 	AuditLegacyCredentialUse(ctx context.Context, arg AuditLegacyCredentialUseParams) error
 	AuthenticateApplicationCredential(ctx context.Context, arg AuthenticateApplicationCredentialParams) (AuthenticateApplicationCredentialRow, error)
-	// Step 1 in atomic upgrade/downgrade replacement. past_due subscriptions must
-	// be canceled too, otherwise the unique partial index
-	// subscriptions_one_active_per_tenant (which covers past_due) makes the
-	// follow-up INSERT fail (M3 review P2).
-	CancelActiveSubscriptionsForTenant(ctx context.Context, tenantID int64) error
+	// A pending order can be withdrawn by its tenant while nobody has paid. The
+	// coupon reservation (if any) is released by the caller in the same
+	// transaction, so the quota is returned atomically with the cancellation.
+	CancelPendingOrder(ctx context.Context, arg CancelPendingOrderParams) (Orders, error)
+	CheckMarketingSuppression(ctx context.Context, arg CheckMarketingSuppressionParams) (bool, error)
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
 	ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchiveEntryLegalHoldParams) (ArchiveEntries, error)
 	// Removes one recovery code (given as its stored SHA-256 hex hash) from the
 	// user's code list. Zero rows affected means the code did not match.
 	ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error)
+	CountDeliveryEventsByStatus(ctx context.Context, arg CountDeliveryEventsByStatusParams) ([]CountDeliveryEventsByStatusRow, error)
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CreateAlias(ctx context.Context, arg CreateAliasParams) (MailboxAliases, error)
 	CreateApplicationCredential(ctx context.Context, arg CreateApplicationCredentialParams) (CreateApplicationCredentialRow, error)
+	// Append-only audit trail for tenant-visible history.
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLogs, error)
 	CreateChannelAttribution(ctx context.Context, arg CreateChannelAttributionParams) (ChannelAttribution, error)
 	CreateCommission(ctx context.Context, arg CreateCommissionParams) (Commissions, error)
-	CreateCouponRedemption(ctx context.Context, arg CreateCouponRedemptionParams) (CouponRedemptions, error)
+	CreateComplianceGrant(ctx context.Context, arg CreateComplianceGrantParams) (ComplianceGrants, error)
 	CreateDomain(ctx context.Context, arg CreateDomainParams) (CreateDomainRow, error)
 	// Invoices (tenant-scoped). M3 checklist gap: CRUD for the invoices table.
+	// order_id keeps every invoice traceable to the order that produced it, so a
+	// bill stays reproducible after a later plan price edit (M5 review 3.31).
 	CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoices, error)
 	CreateMailbox(ctx context.Context, arg CreateMailboxParams) (Mailboxes, error)
+	CreateOnboardingTask(ctx context.Context, arg CreateOnboardingTaskParams) (OnboardingTasks, error)
 	CreateOrder(ctx context.Context, arg CreateOrderParams) (Orders, error)
+	CreateOrderOnboardingTask(ctx context.Context, arg CreateOrderOnboardingTaskParams) (OnboardingTasks, error)
 	CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payments, error)
 	CreateRecall(ctx context.Context, arg CreateRecallParams) (CreateRecallRow, error)
+	// Atomic routine owns locking, validation, capacity check and insert.
+	CreateRefund(ctx context.Context, arg CreateRefundParams) (Refunds, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Sessions, error)
-	// Step 2 in atomic upgrade/downgrade replacement
 	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (Subscriptions, error)
 	DeleteAlias(ctx context.Context, arg DeleteAliasParams) error
 	DeleteDomain(ctx context.Context, arg DeleteDomainParams) error
@@ -59,9 +68,20 @@ type Querier interface {
 	GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (ChannelAttribution, error)
 	GetChannelByCode(ctx context.Context, code string) (Channels, error)
 	GetCheckoutOrderByIdempotencyKey(ctx context.Context, arg GetCheckoutOrderByIdempotencyKeyParams) (Orders, error)
+	// Compliance content grants and retention policies.
+	// Provenance columns (granted_by / revoked_by / revoked_at / created_by) are
+	// maintained by the handlers: a grant must always record who issued it, and a
+	// revocation must record who revoked it (M6 review D6/D24).
+	GetComplianceGrant(ctx context.Context, arg GetComplianceGrantParams) (ComplianceGrants, error)
 	GetCouponByCode(ctx context.Context, code string) (Coupons, error)
-	// Locks the coupon row for concurrent redemption serialization
-	GetCouponForUpdate(ctx context.Context, code string) (Coupons, error)
+	GetCouponRedemptionForOrder(ctx context.Context, arg GetCouponRedemptionForOrderParams) (CouponRedemptions, error)
+	// Platform-only correlation lets recipient status lines inherit the tenant
+	// from the earlier queue acceptance event without exposing cross-tenant APIs.
+	// Queue IDs are only unique per Postfix instance, so the instance name is
+	// mandatory: without it a shared queue id resolves to whichever tenant
+	// happened to insert last. The preference order keeps queue-acceptance rows
+	// (which carry the sender) ahead of later recipient status rows.
+	GetDeliveryEventTenantByQueueID(ctx context.Context, arg GetDeliveryEventTenantByQueueIDParams) (GetDeliveryEventTenantByQueueIDRow, error)
 	GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams) (GetDomainByFQDNRow, error)
 	GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (GetDomainByIDRow, error)
 	GetInvoiceByID(ctx context.Context, arg GetInvoiceByIDParams) (Invoices, error)
@@ -78,10 +98,15 @@ type Querier interface {
 	GetMailboxDailySent(ctx context.Context, address string) (GetMailboxDailySentRow, error)
 	// Locks the mailbox row to serialize concurrent daily sent quota evaluation
 	GetMailboxDailySentForUpdate(ctx context.Context, address string) (GetMailboxDailySentForUpdateRow, error)
+	GetMarketingSuppression(ctx context.Context, arg GetMarketingSuppressionParams) (MarketingSuppressions, error)
+	GetOnboardingTaskByDomain(ctx context.Context, arg GetOnboardingTaskByDomainParams) (OnboardingTasks, error)
 	GetOrderByID(ctx context.Context, arg GetOrderByIDParams) (Orders, error)
+	GetOrderForTenant(ctx context.Context, arg GetOrderForTenantParams) (Orders, error)
+	GetPaymentForTenant(ctx context.Context, arg GetPaymentForTenantParams) (Payments, error)
 	GetPlanByCode(ctx context.Context, code string) (Plans, error)
 	GetRecallByID(ctx context.Context, arg GetRecallByIDParams) (RecallRequests, error)
 	GetRecallTarget(ctx context.Context, arg GetRecallTargetParams) (GetRecallTargetRow, error)
+	GetRetentionPolicy(ctx context.Context, tenantID int64) (RetentionPolicies, error)
 	// Authentication is valid only while the user is active and, when the
 	// session is bound to a tenant, while that tenant is active or pending.
 	// This makes disabling a user / suspending a tenant take effect on the next
@@ -89,13 +114,14 @@ type Querier interface {
 	GetSessionByID(ctx context.Context, id string) (Sessions, error)
 	GetTenantByID(ctx context.Context, id int64) (Tenants, error)
 	GetTenantBySlug(ctx context.Context, arg GetTenantBySlugParams) (Tenants, error)
+	// Platform-only collector resolution; sender domain is matched to active owned domain.
+	GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (int64, error)
 	GetTenantSetting(ctx context.Context, arg GetTenantSettingParams) (Settings, error)
 	GetTenantStorageUsage(ctx context.Context, tenantID int64) (GetTenantStorageUsageRow, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error)
 	GetUserRoleForTenant(ctx context.Context, arg GetUserRoleForTenantParams) (string, error)
 	GetUserTenants(ctx context.Context, userID int64) ([]GetUserTenantsRow, error)
-	IncrementCouponRedemption(ctx context.Context, code string) (Coupons, error)
 	// Atomic check-and-increment: the counter is only advanced while it stays
 	// below the daily limit ($3); returns pgx.ErrNoRows when the limit is
 	// already reached.
@@ -103,43 +129,76 @@ type Querier interface {
 	// Archive / legal hold (tenant-scoped). M3 review P2-3: the tables existed
 	// without any queries; writes are wired by the platform side later.
 	InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntryParams) (ArchiveEntries, error)
-	InsertPaymentEventPlaceholder(ctx context.Context, arg InsertPaymentEventPlaceholderParams) (InsertPaymentEventPlaceholderRow, error)
 	ListActivePlans(ctx context.Context) ([]Plans, error)
 	ListAliasesByTenant(ctx context.Context, tenantID int64) ([]ListAliasesByTenantRow, error)
 	ListApplicationCredentials(ctx context.Context, userID int64) ([]ListApplicationCredentialsRow, error)
 	ListArchiveEntriesByTenant(ctx context.Context, arg ListArchiveEntriesByTenantParams) ([]ArchiveEntries, error)
+	// id is the pagination tiebreaker: created_at alone is not stable because
+	// several audit rows can share the same timestamp (M6 review D11).
+	// The remaining filters are optional (NULL = unfiltered) so the tenant UI can
+	// narrow by actor, action or time range without separate endpoints.
 	ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsByTenantParams) ([]AuditLogs, error)
+	ListComplianceGrantsByTenant(ctx context.Context, tenantID int64) ([]ComplianceGrants, error)
+	ListDeliveryEventsByTenant(ctx context.Context, tenantID pgtype.Int8) ([]DeliveryEvents, error)
 	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]ListDomainsByTenantRow, error)
+	ListInvoicesByOrder(ctx context.Context, arg ListInvoicesByOrderParams) ([]Invoices, error)
 	ListInvoicesByTenant(ctx context.Context, tenantID int64) ([]Invoices, error)
 	ListMailboxesByDomain(ctx context.Context, arg ListMailboxesByDomainParams) ([]Mailboxes, error)
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]Mailboxes, error)
 	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
+	ListMarketingSuppressions(ctx context.Context, tenantID int64) ([]MarketingSuppressions, error)
+	ListOnboardingTasksByTenant(ctx context.Context, tenantID int64) ([]OnboardingTasks, error)
 	ListOrdersByTenant(ctx context.Context, tenantID int64) ([]Orders, error)
+	ListPaymentsByTenant(ctx context.Context, tenantID int64) ([]Payments, error)
 	ListRecalls(ctx context.Context, tenantID int64) ([]RecallRequests, error)
+	ListRefundsByTenant(ctx context.Context, tenantID int64) ([]Refunds, error)
 	ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error)
 	ListSettingsByScopes(ctx context.Context, arg ListSettingsByScopesParams) ([]Settings, error)
 	MarkInvoicePaid(ctx context.Context, arg MarkInvoicePaidParams) (Invoices, error)
 	MarkSessionLegacyOnly(ctx context.Context, id string) error
 	// Platform-only authentication queries; never used as tenant-scoped stores.
 	MarkSessionMFAVerified(ctx context.Context, id string) error
+	PlatformAdvanceOnboardingTask(ctx context.Context, arg PlatformAdvanceOnboardingTaskParams) (int64, error)
 	PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (BrandHosts, error)
+	PlatformBindOnboardingDomain(ctx context.Context, arg PlatformBindOnboardingDomainParams) (int64, error)
+	PlatformCancelActiveSubscriptions(ctx context.Context, tenantID int64) (int64, error)
+	PlatformCancelPendingOrder(ctx context.Context, id int64) (Orders, error)
+	PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]OnboardingTasks, error)
 	PlatformCommissionRate(ctx context.Context, id int64) (int32, error)
+	PlatformCompleteOnboardingTask(ctx context.Context, arg PlatformCompleteOnboardingTaskParams) (int64, error)
 	PlatformCompleteRecall(ctx context.Context, arg PlatformCompleteRecallParams) (PlatformCompleteRecallRow, error)
+	PlatformCreateSettlementInvoice(ctx context.Context, arg PlatformCreateSettlementInvoiceParams) (PlatformCreateSettlementInvoiceRow, error)
+	PlatformCreateSubscriptionForOrder(ctx context.Context, arg PlatformCreateSubscriptionForOrderParams) (Subscriptions, error)
 	PlatformDataIssues(ctx context.Context) ([]PlatformDataIssuesRow, error)
 	PlatformDeleteBrand(ctx context.Context, id int64) (int64, error)
 	PlatformDeleteBrandSetting(ctx context.Context, arg PlatformDeleteBrandSettingParams) error
 	PlatformDeleteSetting(ctx context.Context, key string) error
 	PlatformDeleteUnusedPlan(ctx context.Context, code string) (int64, error)
+	PlatformExpireOnboardingTasks(ctx context.Context) (int64, error)
+	PlatformFailOnboardingTask(ctx context.Context, arg PlatformFailOnboardingTaskParams) (int64, error)
 	// Platform queries for brand theming. Brand rows and the tenant -> brand
 	// relation are not tenant-scoped data, so these are exempt from the tenant_id
 	// predicate per AGENTS.md (platform_*.sql).
 	// Effective branding source row for a tenant's brand.
 	PlatformGetBrandThemeByTenant(ctx context.Context, id int64) (PlatformGetBrandThemeByTenantRow, error)
+	PlatformGetLatestActiveSubscriptionPeriodEnd(ctx context.Context, tenantID int64) (pgtype.Timestamptz, error)
 	// Platform-side archive writes. The archive pipe runs outside a tenant
 	// transaction, so these queries live in a platform_*.sql file.
 	PlatformGetMailboxByAddress(ctx context.Context, address string) (PlatformGetMailboxByAddressRow, error)
+	PlatformGetOrderForSettlement(ctx context.Context, arg PlatformGetOrderForSettlementParams) (PlatformGetOrderForSettlementRow, error)
+	// Platform-side billing settlement queries.
+	// Settlement runs inside a platform transaction (it is driven by provider
+	// webhooks and the manual settlement path, neither of which has a tenant
+	// session), so these queries are exempt from the tenant_id predicate per
+	// AGENTS.md and therefore live in a platform_*.sql file. AGENTS.md also
+	// forbids hand-written SQL in handlers: order_settle.go must go through these
+	// statements only (M5 review 3.16).
+	PlatformGetOrderTenantID(ctx context.Context, id int64) (int64, error)
+	PlatformGetPaymentByProviderTransaction(ctx context.Context, arg PlatformGetPaymentByProviderTransactionParams) (Payments, error)
+	PlatformGetPaymentEventByProviderAndID(ctx context.Context, arg PlatformGetPaymentEventByProviderAndIDParams) (PaymentEvents, error)
 	PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error)
 	PlatformInsertArchiveEntry(ctx context.Context, arg PlatformInsertArchiveEntryParams) error
+	PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListAliases(ctx context.Context) ([]PlatformListAliasesRow, error)
@@ -174,10 +233,13 @@ type Querier interface {
 	PlatformPublicThemeSettings(ctx context.Context, scopeID int64) ([]PlatformPublicThemeSettingsRow, error)
 	PlatformRecordMailboxUsage(ctx context.Context, arg PlatformRecordMailboxUsageParams) error
 	PlatformRecordMailboxUsageError(ctx context.Context, arg PlatformRecordMailboxUsageErrorParams) error
+	PlatformRedeemCoupon(ctx context.Context, arg PlatformRedeemCouponParams) (string, error)
+	PlatformReleaseCouponRedemption(ctx context.Context, arg PlatformReleaseCouponRedemptionParams) (int64, error)
 	PlatformResetBrandTheme(ctx context.Context, id int64) (int64, error)
 	PlatformSaveBrand(ctx context.Context, arg PlatformSaveBrandParams) (PlatformSaveBrandRow, error)
 	PlatformSetBrandStatus(ctx context.Context, arg PlatformSetBrandStatusParams) (int64, error)
 	PlatformUnbindBrandHost(ctx context.Context, hostname string) (int64, error)
+	PlatformUpdateOrderPaid(ctx context.Context, arg PlatformUpdateOrderPaidParams) (int64, error)
 	PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUpdateTenantStatusParams) (PlatformUpdateTenantStatusRow, error)
 	PlatformUpsertBrand(ctx context.Context, arg PlatformUpsertBrandParams) (PlatformUpsertBrandRow, error)
 	PlatformUpsertBrandSetting(ctx context.Context, arg PlatformUpsertBrandSettingParams) error
@@ -188,8 +250,22 @@ type Querier interface {
 	PlatformUsageMailboxes(ctx context.Context) ([]PlatformUsageMailboxesRow, error)
 	PublicBrandByHost(ctx context.Context, hostname string) (PublicBrandByHostRow, error)
 	PublicBrandBySlug(ctx context.Context, slug string) (PublicBrandBySlugRow, error)
+	// A conflict returns zero rows so the collector can recognize a safe replay.
+	// The conflict target mirrors delivery_events_dedupe_key exactly: instance is
+	// part of the identity (queue IDs are per Postfix instance) and status is part
+	// of it too, so a deferred -> sent transition is recorded instead of being
+	// silently swallowed by the earlier row. occurred_at MUST come from the log
+	// line, never from the wall clock, or replays double-count.
+	RecordDeliveryEvent(ctx context.Context, arg RecordDeliveryEventParams) (int64, error)
+	RedeemCoupon(ctx context.Context, arg RedeemCouponParams) (string, error)
+	// Releasing a reservation removes the redemption row entirely, so the coupon
+	// capacity trigger hands the quota back and the tenant can redeem again. The
+	// refund guard trigger refuses to release a settled order's redemption.
+	ReleaseCouponRedemption(ctx context.Context, arg ReleaseCouponRedemptionParams) (int64, error)
+	RemoveMarketingSuppression(ctx context.Context, arg RemoveMarketingSuppressionParams) (int64, error)
 	ReserveDNSZoneVersion(ctx context.Context, arg ReserveDNSZoneVersionParams) (int64, error)
 	RevokeApplicationCredential(ctx context.Context, arg RevokeApplicationCredentialParams) (int64, error)
+	RevokeComplianceGrant(ctx context.Context, arg RevokeComplianceGrantParams) (ComplianceGrants, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
 	SetInvoicePDFPath(ctx context.Context, arg SetInvoicePDFPathParams) error
 	SetMFASecret(ctx context.Context, arg SetMFASecretParams) error
@@ -207,6 +283,7 @@ type Querier interface {
 	UpdateTenantSettings(ctx context.Context, arg UpdateTenantSettingsParams) (Tenants, error)
 	UpdateTenantStatus(ctx context.Context, arg UpdateTenantStatusParams) (Tenants, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpsertRetentionPolicy(ctx context.Context, arg UpsertRetentionPolicyParams) (RetentionPolicies, error)
 	UpsertTenantSetting(ctx context.Context, arg UpsertTenantSettingParams) (Settings, error)
 	VoidInvoice(ctx context.Context, arg VoidInvoiceParams) (Invoices, error)
 }

@@ -13,6 +13,7 @@ import (
 )
 
 const createAuditLog = `-- name: CreateAuditLog :one
+
 INSERT INTO audit_logs (
     tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail
 ) VALUES (
@@ -30,6 +31,7 @@ type CreateAuditLogParams struct {
 	Detail      []byte      `json:"detail"`
 }
 
+// Append-only audit trail for tenant-visible history.
 func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLogs, error) {
 	row := q.db.QueryRow(ctx, createAuditLog,
 		arg.TenantID,
@@ -59,17 +61,39 @@ const listAuditLogsByTenant = `-- name: ListAuditLogsByTenant :many
 SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
 FROM audit_logs
 WHERE tenant_id = $1
-ORDER BY created_at DESC
-LIMIT $2
+  AND ($2::bigint IS NULL OR actor_user_id = $2)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::timestamptz IS NULL OR created_at >= $4)
+  AND ($5::timestamptz IS NULL OR created_at < $5)
+  AND ($6::bigint IS NULL OR id < $6)
+ORDER BY created_at DESC, id DESC
+LIMIT $7
 `
 
 type ListAuditLogsByTenantParams struct {
-	TenantID pgtype.Int8 `json:"tenant_id"`
-	Limit    int32       `json:"limit"`
+	TenantID    pgtype.Int8        `json:"tenant_id"`
+	ActorUserID pgtype.Int8        `json:"actor_user_id"`
+	Action      pgtype.Text        `json:"action"`
+	FromTime    pgtype.Timestamptz `json:"from_time"`
+	ToTime      pgtype.Timestamptz `json:"to_time"`
+	BeforeID    pgtype.Int8        `json:"before_id"`
+	Limit       int32              `json:"limit"`
 }
 
+// id is the pagination tiebreaker: created_at alone is not stable because
+// several audit rows can share the same timestamp (M6 review D11).
+// The remaining filters are optional (NULL = unfiltered) so the tenant UI can
+// narrow by actor, action or time range without separate endpoints.
 func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsByTenantParams) ([]AuditLogs, error) {
-	rows, err := q.db.Query(ctx, listAuditLogsByTenant, arg.TenantID, arg.Limit)
+	rows, err := q.db.Query(ctx, listAuditLogsByTenant,
+		arg.TenantID,
+		arg.ActorUserID,
+		arg.Action,
+		arg.FromTime,
+		arg.ToTime,
+		arg.BeforeID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
