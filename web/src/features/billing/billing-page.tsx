@@ -1,6 +1,6 @@
 import { BillingLifecycle } from "./lifecycle";
 import { DocumentProfile } from "./document-profile";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,8 @@ export function BillingPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeVariant, setNoticeVariant] = useState<"error" | "info">("info");
   const [submitting, setSubmitting] = useState(false);
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const completedOrder = useRef<string | null>(null);
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [currency, setCurrency] = useState("CNY");
@@ -133,10 +135,16 @@ export function BillingPage() {
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         setNoticeVariant("error");
-        setNotice(errorMessage(err));
+        setNotice(
+          completedOrder.current
+            ? t("page.billing.completed_refresh_failed", {
+                number: completedOrder.current,
+              })
+            : errorMessage(err),
+        );
       });
     return () => controller.abort();
-  }, [errorMessage]);
+  }, [errorMessage, refreshRevision, t]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -171,6 +179,16 @@ export function BillingPage() {
           ...(domainID ? { domain_id: domainID } : {}),
         },
       });
+      const nextIntent = {
+        key: crypto.randomUUID(),
+        quote: nextQuote,
+        merchantID,
+      };
+      sessionStorage.setItem(
+        `urmail.purchase.${nextQuote.tenant_id}`,
+        JSON.stringify(nextIntent),
+      );
+      setIntent(nextIntent);
       setQuote(nextQuote);
     } catch (err: unknown) {
       setNoticeVariant("error");
@@ -197,7 +215,7 @@ export function BillingPage() {
         checkout_url?: string;
         qr_code?: string;
         checkout_state?: string;
-        order?: { order_no: string };
+        order?: { order_no: string; status?: string };
       }>("/api/v1/billing/checkout", {
         method: "POST",
         // Prefer the signed quote when one is loaded; fall back to the
@@ -214,13 +232,18 @@ export function BillingPage() {
         },
         idempotencyKey: activeIntent.key,
       });
-      if (
-        result.order &&
-        "status" in result.order &&
-        result.order.status === "paid"
-      ) {
+      if (result.order?.status === "paid") {
         sessionStorage.removeItem(`urmail.purchase.${quote.tenant_id}`);
         setIntent(null);
+        completedOrder.current = result.order.order_no;
+        setQuote(null);
+        setQRImage("");
+        setNoticeVariant("info");
+        setNotice(
+          t("page.billing.completed_order", { number: result.order.order_no }),
+        );
+        setRefreshRevision((revision) => revision + 1);
+        return;
       }
       if (result.qr_code) {
         if (result.qr_code.length > 2048)
@@ -258,7 +281,7 @@ export function BillingPage() {
       </div>
 
       {canManageBilling && <DocumentProfile />}
-      {canManageBilling && <BillingLifecycle />}
+      {canManageBilling && <BillingLifecycle key={refreshRevision} />}
 
       {returnNotice && (
         <p role="status" className="rounded-md border bg-muted p-4 text-sm">

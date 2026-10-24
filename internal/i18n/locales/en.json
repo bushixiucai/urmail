@@ -714,6 +714,8 @@
   "page.billing.checkout_canceled": "You returned from canceled checkout. This return does not settle an order. Unpaid orders remain pending and recoverable; contact an administrator or retry checkout.",
   "page.billing.checkout_returned": "Checkout returned. Payment must be confirmed by the provider; this return alone does not activate a subscription. Check the subscription and invoices below for the confirmed result.",
   "page.billing.choose_plan": "Choose a plan",
+  "page.billing.completed_refresh_failed": "Order {{number}} is already complete, but the updated subscription or billing records could not be loaded. Refresh this page to check the records; do not place the order again.",
+  "page.billing.completed_order": "Order {{number}} is complete. Subscription and billing records are being updated. Future service terms take effect on their listed dates.",
   "page.billing.confirm_payment": "Confirm and continue to payment",
   "page.billing.confirm_quote_help": "Review the total, currency and service period before confirming. Retrying resumes the same order.",
   "page.billing.coupon": "Coupon (optional)",

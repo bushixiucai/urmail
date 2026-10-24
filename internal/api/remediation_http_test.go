@@ -406,7 +406,10 @@ func holdRemediationBrowser(t *testing.T, platform *db.Pool, options api.Options
 	// is used unchanged, with verified TLS and no fake sender or TLS bypass.
 	t.Setenv("GODEBUG", "x509usefallbackroots=1")
 	x509.SetFallbackRoots(roots)
-	exec(`INSERT INTO plans(code,name,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features) VALUES('browser-marketing','{}',100,'CNY',1073741824,5,2,1000,'{"marketing_daily_recipient_limit":3,"marketing_rate_per_minute":600}')`)
+	exec(`INSERT INTO plans(code,name,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features) VALUES('browser-marketing','{"en":"Browser paid plan","zh-CN":"浏览器付费套餐"}',100,'CNY',1073741824,5,2,1000,'{"marketing_daily_recipient_limit":3,"marketing_rate_per_minute":600}')`)
+	exec("INSERT INTO plan_prices(plan_code,currency,billing_cycle,amount_cents) VALUES('browser-marketing','CNY','monthly',100)")
+	exec("INSERT INTO coupons(code,kind,value,max_redemptions) VALUES('browser-full-discount','percent',100,1)")
+	browserFixture["billing"] = map[string]any{"plan_code": "browser-marketing", "plan_name": "浏览器付费套餐", "coupon_code": "browser-full-discount"}
 	grantTx, grantErr := platform.PlatformTx(ctx)
 	if grantErr != nil {
 		t.Fatal(grantErr)
@@ -482,6 +485,12 @@ waitBrowser:
 		}
 	}
 	facts := map[string]int64{
+		"zero_order_paid_once":             scalar("SELECT count(*) FROM orders WHERE tenant_id=$1 AND plan_code='browser-marketing' AND amount_cents=0 AND status='paid'", browserTenant),
+		"zero_order_no_cash":               scalar("SELECT CASE WHEN count(*)=0 THEN 1 ELSE 0 END FROM payments WHERE tenant_id=$1", browserTenant),
+		"zero_order_no_commission":         scalar("SELECT CASE WHEN count(*)=0 THEN 1 ELSE 0 END FROM commissions WHERE tenant_id=$1", browserTenant),
+		"zero_order_term_once":             scalar("SELECT count(*) FROM subscription_terms t JOIN orders o ON o.id=t.order_id AND o.tenant_id=t.tenant_id WHERE t.tenant_id=$1 AND o.plan_code='browser-marketing' AND o.amount_cents=0 AND o.status='paid'", browserTenant),
+		"zero_order_invoice_once":          scalar("SELECT count(*) FROM invoices i JOIN orders o ON o.id=i.order_id AND o.tenant_id=i.tenant_id WHERE i.tenant_id=$1 AND o.plan_code='browser-marketing' AND o.amount_cents=0 AND o.status='paid'", browserTenant),
+		"zero_order_coupon_once":           scalar("SELECT count(*) FROM coupon_redemptions WHERE tenant_id=$1 AND coupon_code='browser-full-discount'", browserTenant),
 		"ai_explicit_zero_release":         scalar("SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND status='released' AND actual_tokens=0 AND actual_cost_micros=0 AND reviewed_by=$2", browserTenant, userA),
 		"support_staff_replies":            scalar("SELECT count(*) FROM ticket_messages WHERE tenant_id=$1 AND is_staff", browserTenant),
 		"support_reply_notices":            scalar("SELECT count(*) FROM notification_outbox WHERE tenant_id=$1 AND kind='support_reply' AND state='delivered'", browserTenant),

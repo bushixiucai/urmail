@@ -714,6 +714,8 @@
   "page.billing.checkout_canceled": "已从取消的结账页面返回。此次返回不会结算订单；未付款订单仍保留为待付款，可联系管理员处理或重新发起结账。",
   "page.billing.checkout_returned": "已从结账页面返回。支付结果仍需支付方确认，仅返回本页不会开通订阅；请以下方订阅和账单中的已确认结果为准。",
   "page.billing.choose_plan": "选择套餐",
+  "page.billing.completed_refresh_failed": "订单 {{number}} 已完成，但最新订阅或账单资料暂时无法加载。请刷新本页核对记录，无需再次下单。",
+  "page.billing.completed_order": "订单 {{number}} 已完成，正在更新订阅与账单记录。未来账期将在列示的时间生效。",
   "page.billing.confirm_payment": "确认并继续付款",
   "page.billing.confirm_quote_help": "请核对总额、币种和服务周期后确认。失败重试将恢复同一订单。",
   "page.billing.coupon": "优惠券（可选）",
