@@ -139,7 +139,43 @@ def main():
             snapshot()
             code("await page.getByRole('link',{name:" + json.dumps(delivery['subject']) + ",exact:true}).click();await page.frameLocator('iframe').getByText('A real SMTP/LMTP follow-up to the browser-confirmed rule.',{exact:true}).waitFor();")
             screenshot('actual-delivery-in-folder')
-            (evidence / 'gui-result.json').write_text(json.dumps({'source_commit': identity['source_commit'], 'package_sha256': actual, 'mailbox_gui_login': True, 'selected_real_message_ai_advice': True, 'busy_released_before_next_action': True, 'explicit_gui_confirmation': True, 'real_smtp_lmtp_followup_visible_in_gui_folder': True, 'proxy_binding': '127.0.0.1:' + str(args.port), 'gui_only_ignore_local_certificate_errors': True, 'strict_tls_protocol_evidence_separate': True, 'paid_calls': False, 'installed_binaries_match_protocol_matrix': True, 'harness_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}, indent=2) + '\n')
+            # Exercise the actual webmail composer, not the standalone SMTP fixture.
+            attachment = temporary / 'roundcube-compose-random.bin'
+            attachment.write_bytes(os.urandom(8192))
+            expected = {'subject': 'urMail protocol acceptance rc-compose-' + os.urandom(8).hex(), 'attachment_sha256': hashlib.sha256(attachment.read_bytes()).hexdigest(), 'attachment_bytes': attachment.stat().st_size}
+            if credential['address'] != 'independent@mailbox.w13.test':
+                raise RuntimeError('Composer acceptance must target only the known local fixture mailbox')
+            code("await page.getByRole('button',{name:/撰写新邮件/}).click();")
+            snapshot()
+            code("await page.locator('#compose_to input[type=\"text\"]').fill(" + json.dumps(credential['address']) + ");await page.locator('#compose_to input[type=\"text\"]').press('Enter');await page.getByRole('textbox',{name:'主题',exact:true}).fill(" + json.dumps(expected['subject']) + ");await page.getByRole('textbox',{name:'邮件正文',exact:true}).fill('Roundcube composer sent this local-only message and its random attachment through real authenticated SMTP.');")
+            code("await page.getByRole('button',{name:'添加附件',exact:true}).click();")
+            command('upload', str(attachment))
+            snapshot()
+            code("await page.getByText('roundcube-compose-random.bin',{exact:true}).waitFor();")
+            screenshot('roundcube-compose-local-only')
+            code("await page.getByRole('button',{name:/发送$/}).click();await page.waitForFunction(()=>!location.search.includes('_action=compose'));")
+            snapshot()
+            code("await page.getByRole('link',{name:/W13 GUI Reviewed/}).click();")
+            snapshot()
+            subject = json.dumps(expected['subject'])
+            code("const target=page.getByRole('link',{name:" + subject + ",exact:true});for(let attempt=0;attempt<20&&!await target.count();attempt++){await page.getByRole('button',{name:/刷新/}).click();await page.waitForTimeout(250);}await target.click();await page.frameLocator('iframe').getByText('Roundcube composer sent this local-only message and its random attachment through real authenticated SMTP.',{exact:true}).waitFor();")
+            snapshot()
+            code("await page.frameLocator('iframe').getByTitle('个人选项').click();")
+            snapshot()
+            downloaded = temporary / 'browser-downloaded.bin'
+            code("const pending=page.waitForEvent('download');await page.frameLocator('iframe').getByRole('button',{name:/下载/}).click();const download=await pending;await download.saveAs(" + json.dumps(str(downloaded)) + ");if(await download.failure())throw Error('Browser attachment download failed');")
+            if downloaded.stat().st_size != expected['attachment_bytes'] or hashlib.sha256(downloaded.read_bytes()).hexdigest() != expected['attachment_sha256']:
+                raise RuntimeError('Roundcube browser download changed uploaded attachment bytes')
+            screenshot('roundcube-composer-received')
+            expected.update(roundcube_gui_compose_send_self_only=True, browser_download_exact_bytes=True, actual_download_sha256=hashlib.sha256(downloaded.read_bytes()).hexdigest(), actual_download_bytes=downloaded.stat().st_size)
+            (evidence / 'roundcube-compose-download-result.json').write_text(json.dumps(expected, indent=2) + '\n')
+            imap_helper = Path(__file__).with_name('w13') / 'w13-compose-imap.py'
+            imap_output = subprocess.check_output(['docker', 'exec', '-i', args.container, 'python3', '-c', imap_helper.read_text()], input=json.dumps(expected), text=True)
+            imap_proof = json.loads(imap_output)
+            if not imap_proof['strict_tls_imap_verified']:
+                raise RuntimeError('Strict-TLS IMAP attachment cross-check failed')
+            (evidence / 'roundcube-compose-imap-crosscheck.json').write_text(imap_output)
+            (evidence / 'gui-result.json').write_text(json.dumps({'source_commit': identity['source_commit'], 'package_sha256': actual, 'mailbox_gui_login': True, 'selected_real_message_ai_advice': True, 'busy_released_before_next_action': True, 'explicit_gui_confirmation': True, 'roundcube_gui_compose_send_attachment': True, 'roundcube_browser_attachment_download_exact': True, 'roundcube_sent_and_received_imap_exact': True, 'real_smtp_lmtp_followup_visible_in_gui_folder': True, 'proxy_binding': '127.0.0.1:' + str(args.port), 'gui_only_ignore_local_certificate_errors': True, 'strict_tls_protocol_evidence_separate': True, 'paid_calls': False, 'installed_binaries_match_protocol_matrix': True, 'harness_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), 'compose_imap_harness_sha256': hashlib.sha256(imap_helper.read_bytes()).hexdigest()}, indent=2) + '\n')
             print('PASS real GUI mailbox login → selected-message AI advice → explicit Sieve confirmation → actual SMTP/LMTP follow-up visible in the target GUI folder.')
         finally:
             try:
