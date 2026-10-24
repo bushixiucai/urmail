@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -182,27 +183,28 @@ func CalculateUpgradeProration(
 
 // Quote carries an immutable pricing snapshot with an integrity digest.
 type Quote struct {
-	PlanSnapshotDigest     string    `json:"plan_snapshot_digest,omitempty"`
-	DocumentSnapshotDigest string    `json:"document_snapshot_digest,omitempty"`
-	DomainID               int64     `json:"domain_id,omitempty"`
-	TenantID               int64     `json:"tenant_id"`
-	Kind                   string    `json:"kind,omitempty"`
-	PriceVersion           int64     `json:"price_version,omitempty"`
-	PlanAmountCents        int64     `json:"plan_amount_cents,omitempty"`
-	SubscriptionVersion    int64     `json:"subscription_version,omitempty"`
-	CouponCode             string    `json:"coupon_code,omitempty"`
-	PlanCode               string    `json:"plan_code"`
-	BillingCycle           string    `json:"billing_cycle"`
-	Currency               string    `json:"currency"`
-	BaseAmountCents        int64     `json:"base_amount_cents"`
-	DiscountCents          int64     `json:"discount_cents"`
-	ProratedCreditCents    int64     `json:"prorated_credit_cents"`
-	FinalAmountCents       int64     `json:"final_amount_cents"`
-	PeriodStart            time.Time `json:"period_start"`
-	PeriodEnd              time.Time `json:"period_end"`
-	GeneratedAt            time.Time `json:"generated_at"`
-	ExpiresAt              time.Time `json:"expires_at"`
-	Digest                 string    `json:"digest"`
+	Calendar               *CalendarSpec `json:"calendar,omitempty"`
+	PlanSnapshotDigest     string        `json:"plan_snapshot_digest,omitempty"`
+	DocumentSnapshotDigest string        `json:"document_snapshot_digest,omitempty"`
+	DomainID               int64         `json:"domain_id,omitempty"`
+	TenantID               int64         `json:"tenant_id"`
+	Kind                   string        `json:"kind,omitempty"`
+	PriceVersion           int64         `json:"price_version,omitempty"`
+	PlanAmountCents        int64         `json:"plan_amount_cents,omitempty"`
+	SubscriptionVersion    int64         `json:"subscription_version,omitempty"`
+	CouponCode             string        `json:"coupon_code,omitempty"`
+	PlanCode               string        `json:"plan_code"`
+	BillingCycle           string        `json:"billing_cycle"`
+	Currency               string        `json:"currency"`
+	BaseAmountCents        int64         `json:"base_amount_cents"`
+	DiscountCents          int64         `json:"discount_cents"`
+	ProratedCreditCents    int64         `json:"prorated_credit_cents"`
+	FinalAmountCents       int64         `json:"final_amount_cents"`
+	PeriodStart            time.Time     `json:"period_start"`
+	PeriodEnd              time.Time     `json:"period_end"`
+	GeneratedAt            time.Time     `json:"generated_at"`
+	ExpiresAt              time.Time     `json:"expires_at"`
+	Digest                 string        `json:"digest"`
 }
 
 // BuildQuote generates an immutable, tamper-evident Quote.
@@ -299,7 +301,7 @@ func BuildPricedQuote(tenantID int64, couponCode, planCode string, basePrice int
 // time outside the HMAC, so a quote could be shifted by up to a second
 // without invalidating the signature (M5 review 3.25).
 func (q *Quote) canonical() string {
-	return fmt.Sprintf("%q|%q|%d|%d|%q|%d|%d|%d|%q|%q|%q|%q|%d|%d|%d|%d|%d|%d|%d|%d",
+	canonical := fmt.Sprintf("%q|%q|%d|%d|%q|%d|%d|%d|%q|%q|%q|%q|%d|%d|%d|%d|%d|%d|%d|%d",
 		q.PlanSnapshotDigest, q.DocumentSnapshotDigest,
 		q.DomainID,
 		q.TenantID,
@@ -320,6 +322,11 @@ func (q *Quote) canonical() string {
 		q.GeneratedAt.UnixNano(),
 		q.ExpiresAt.UnixNano(),
 	)
+	if q.Calendar != nil {
+		raw, _ := json.Marshal(q.Calendar)
+		canonical += "|calendar:" + string(raw)
+	}
+	return canonical
 }
 
 // ComputeDigest computes an HMAC-SHA256 integrity tag over canonical quote
