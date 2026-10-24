@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 ROOT = Path('/etc/urmail-roundcube')
 ENV = Path('/etc/urmail/urmaild.env')
+AGENT_ENV = Path('/etc/urmail/agent.env')
 
 
 def private_file(path):
@@ -98,10 +99,29 @@ def load_existing():
     return existing
 
 
+def disable():
+    # Disabling webmail never opens PostgreSQL or touches private metadata/keys.
+    pending = []
+    for path in (ENV, AGENT_ENV):
+        private_file(path)
+        original = path.read_text()
+        lines = [line for line in original.splitlines() if not line.startswith('URMAIL_ROUNDCUBE_ENABLED=')]
+        lines.append('URMAIL_ROUNDCUBE_ENABLED=false')
+        pending.append((path, '\n'.join(lines) + '\n'))
+    for path, text in pending:
+        atomic_private(path, text, path.stat().st_gid, stat.S_IMODE(path.stat().st_mode))
+    print('Disabled webmail in both managed services; mailbox originals, metadata and private keys preserved.')
+
+
 def main():
-    if len(sys.argv) != 1 or os.geteuid() != 0:
-        raise ValueError('Run the fixed configure command as root without arguments')
+    if os.geteuid() != 0 or (len(sys.argv) != 1 and sys.argv[1:] != ['disable']):
+        raise ValueError('Run the fixed configure command as root; only disable is accepted')
+    if sys.argv[1:] == ['disable']:
+        disable()
+        return
     private_file(ENV)
+    private_file(AGENT_ENV)
+    agent_original = AGENT_ENV.read_text()
     original = ENV.read_text()
     values = parse_environment(original)
     database, port, hostname = validate_target(values)
@@ -142,7 +162,10 @@ def main():
     filtered = [line for line in original.splitlines() if not line.startswith(('URMAIL_ROUNDCUBE_BRIDGE_KEY=', 'URMAIL_ROUNDCUBE_ENABLED='))]
     filtered += ['URMAIL_ROUNDCUBE_BRIDGE_KEY=' + bridge, 'URMAIL_ROUNDCUBE_ENABLED=true']
     atomic_private(ENV, '\n'.join(filtered) + '\n', ENV.stat().st_gid, stat.S_IMODE(ENV.stat().st_mode))
-    print('Configured isolated Roundcube metadata in the existing local PostgreSQL database. Secrets preserved; no model or payment operation performed. Restart urmaild after installation.')
+    agent_lines = [line for line in agent_original.splitlines() if not line.startswith('URMAIL_ROUNDCUBE_ENABLED=')]
+    agent_lines.append('URMAIL_ROUNDCUBE_ENABLED=true')
+    atomic_private(AGENT_ENV, '\n'.join(agent_lines) + '\n', AGENT_ENV.stat().st_gid, stat.S_IMODE(AGENT_ENV.stat().st_mode))
+    print('Configured isolated Roundcube metadata in the existing local PostgreSQL database. Secrets preserved; no model or payment operation performed. Restart urmaild-agent and urmaild after installation.')
 
 
 if __name__ == '__main__':

@@ -53,12 +53,20 @@ case "${1:-}" in
   systemctl enable --now "php$php_version-fpm"
   systemctl reload "php$php_version-fpm"
   systemctl reload nginx
+  # Both processes read their own root-controlled enable flag. The agent
+  # renders the external /mail proxy; restarting only the panel leaves it off.
+  systemctl restart urmaild-agent
+  systemctl restart urmaild
   ;;
  disable)
+  [ "$#" -eq 1 ] || { echo 'disable accepts no arguments.' >&2; exit 2; }
+  python3 "$asset_root/configure.py" disable
   # Retain metadata, sessions, attachments and all mailbox originals.
   rm -f /etc/nginx/conf.d/urmail-roundcube.conf
   nginx -t
   systemctl reload nginx
+  systemctl restart urmaild-agent
+  systemctl restart urmaild
   ;;
  *) echo 'Usage: manage.sh configure|install|upgrade|disable' >&2; exit 2 ;;
 esac
