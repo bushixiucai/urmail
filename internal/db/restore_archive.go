@@ -70,7 +70,9 @@ DO $restore$ DECLARE r record; BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname=r.proname AND p.proowner IN('urmail_migrate'::regrole,'urmail_platform'::regrole)) THEN RAISE EXCEPTION 'RESTORE_TARGET_HAS_UNMANAGED_ROUTINES';END IF;
  EXECUTE format('DROP %s public.%I(%s) CASCADE',CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,r.proname,r.arguments);
  END LOOP;
+ IF EXISTS(SELECT 1 FROM pg_namespace n WHERE (n.nspname='roundcube' AND n.nspowner NOT IN('urmail_migrate'::regrole,'urmail_roundcube'::regrole)) OR (n.nspname='nextcloud' AND n.nspowner NOT IN('urmail_migrate'::regrole,'urmail_nextcloud'::regrole))) THEN RAISE EXCEPTION 'RESTORE_TARGET_HAS_UNMANAGED_SERVICE_SCHEMA';END IF;
  DROP SCHEMA IF EXISTS roundcube CASCADE;
+ DROP SCHEMA IF EXISTS nextcloud CASCADE;
 END $restore$;
 ALTER DEFAULT PRIVILEGES FOR ROLE urmail_migrate IN SCHEMA public REVOKE ALL ON TABLES FROM PUBLIC,urmail_app,urmail_dovecot,urmail_roundcube;
 ALTER DEFAULT PRIVILEGES FOR ROLE urmail_migrate IN SCHEMA public REVOKE ALL ON SEQUENCES FROM PUBLIC,urmail_app,urmail_dovecot,urmail_roundcube;
