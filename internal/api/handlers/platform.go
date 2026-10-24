@@ -28,6 +28,7 @@ type PlatformStore interface {
 	PlatformListBrands(ctx context.Context) ([]store.PlatformListBrandsRow, error)
 	PlatformListPlans(ctx context.Context) ([]store.Plans, error)
 	PlatformListCoupons(ctx context.Context) ([]store.Coupons, error)
+	PlatformRedeemCoupon(ctx context.Context, arg store.PlatformRedeemCouponParams) (string, error)
 	PlatformUpsertPlan(ctx context.Context, arg store.PlatformUpsertPlanParams) (store.Plans, error)
 	PlatformUpsertCoupon(ctx context.Context, arg store.PlatformUpsertCouponParams) (store.Coupons, error)
 	PlatformUpsertBrand(ctx context.Context, arg store.PlatformUpsertBrandParams) (store.PlatformUpsertBrandRow, error)
@@ -387,6 +388,14 @@ func (h *PlatformHandler) UpsertCoupon(c *gin.Context) {
 	}
 	if in.Kind != "percent" && in.Kind != "fixed" && in.Kind != "trial_days" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
+		return
+	}
+	// trial_days coupons are stored by the schema but no entitlement path
+	// applies them: selling one would consume coupon quota while granting
+	// nothing (M5 review P3-4). Refuse to create one until the trial
+	// entitlement exists, so the platform operator cannot mint a dud.
+	if in.Kind == "trial_days" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": gin.H{"code": "COUPON_KIND_UNSUPPORTED", "message": "trial_days coupons are not redeemable yet"}})
 		return
 	}
 	var from, to pgtype.Timestamptz
@@ -749,22 +758,19 @@ func (h *PlatformHandler) AssignSubscription(c *gin.Context) {
 
 // RedeemCouponRequest identifies a tenant for coupon redemption.
 type RedeemCouponRequest struct {
-	TenantID int64  `json:"tenant_id" binding:"required"`
-	OrderID  *int64 `json:"order_id"`
+	TenantID int64 `json:"tenant_id" binding:"required"`
+	OrderID  int64 `json:"order_id" binding:"required,gt=0"`
 }
 
 // RedeemCoupon atomically records a permitted coupon redemption.
 func (h *PlatformHandler) RedeemCoupon(c *gin.Context) {
-	if h.Pool == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
 	var req RedeemCouponRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.TenantID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	tx, err := h.Pool.PlatformTx(c)
+	order := pgtype.Int8{Int64: req.OrderID, Valid: true}
+	result, err := h.Store.PlatformRedeemCoupon(c, store.PlatformRedeemCouponParams{Code: c.Param("code"), TenantID: req.TenantID, OrderID: order})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -772,49 +778,16 @@ func (h *PlatformHandler) RedeemCoupon(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	defer func() { _ = tx.Rollback(c) }()
-
-	var redemptionLimit pgtype.Int4
-	var count int32
-	if err := tx.QueryRow(c, `
-		SELECT max_redemptions, redeemed_count FROM coupons
-		WHERE code = $1 AND active = true
-		  AND (valid_to IS NULL OR valid_to > now())
-		  AND (valid_from IS NULL OR valid_from <= now())
-		FOR UPDATE`, c.Param("code")).Scan(&redemptionLimit, &count); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "COUPON_NOT_FOUND"}})
-		return
-	}
-	var exists bool
-	if err := tx.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM coupon_redemptions WHERE coupon_code = $1 AND tenant_id = $2)", c.Param("code"), req.TenantID).Scan(&exists); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if exists {
+	switch result {
+	case "redeemed":
+		c.JSON(http.StatusOK, gin.H{"status": "redeemed"})
+	case "already_redeemed":
 		c.JSON(http.StatusOK, gin.H{"status": "already_redeemed"})
-		return
-	}
-	if redemptionLimit.Valid && count >= redemptionLimit.Int32 {
+	case "exhausted":
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "COUPON_EXHAUSTED"}})
-		return
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "COUPON_NOT_FOUND"}})
 	}
-	var order pgtype.Int8
-	if req.OrderID != nil {
-		order = pgtype.Int8{Int64: *req.OrderID, Valid: true}
-	}
-	if _, err := tx.Exec(c, "INSERT INTO coupon_redemptions (coupon_code, tenant_id, order_id) VALUES ($1, $2, $3)", c.Param("code"), req.TenantID, order); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "COUPON_CONFLICT"}})
-		return
-	}
-	if _, err := tx.Exec(c, "UPDATE coupons SET redeemed_count = redeemed_count + 1 WHERE code = $1", c.Param("code")); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if err := tx.Commit(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "redeemed"})
 }
 
 // InvoiceInput defines the invoice period, amount and currency.

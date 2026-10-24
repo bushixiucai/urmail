@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/netip"
 	"time"
@@ -20,7 +21,9 @@ type AuditWriter interface {
 	CreateAuditLog(ctx context.Context, arg store.CreateAuditLogParams) (store.AuditLogs, error)
 }
 
-// Audit records one row for every successful mutating tenant request. It
+// Audit records one row for every mutating tenant request, SUCCESSFUL OR NOT:
+// a denied or failed mutation is exactly what a compliance reviewer needs to
+// see, and M6 review D4 found the earlier early-return hid all of them. It
 // deliberately records only metadata (method, route, actor, tenant, status):
 // request bodies can contain passwords and message content.
 func Audit(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
@@ -31,7 +34,7 @@ func Audit(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 			return
 		}
-		if writer == nil || c.Writer.Status() >= 400 {
+		if writer == nil {
 			return
 		}
 		tenantID, ok := GetTenantID(c)
@@ -46,6 +49,10 @@ func Audit(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		action := c.Request.Method + " " + c.FullPath()
+		detail, _ := json.Marshal(map[string]any{
+			"status":  c.Writer.Status(),
+			"outcome": auditOutcome(c.Writer.Status()),
+		})
 		if raw, ok := c.Get(contextTransaction); ok {
 			tx := raw.(pgx.Tx)
 			if _, err := tx.Exec(c.Request.Context(), "SELECT urmail_record_audit($1,$2,$3,$4,$5)", tenantID, userID, actorIP, action, c.Request.URL.Path); err != nil {
@@ -56,9 +63,17 @@ func Audit(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_, err := writer.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, ActorUserID: pgtype.Int8{Int64: userID, Valid: userID > 0}, ActorIp: actorIP, Action: action, TargetType: pgtype.Text{String: "http", Valid: true}, TargetID: pgtype.Text{String: c.Request.URL.Path, Valid: true}, Detail: []byte("{}")})
+		_, err := writer.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, ActorUserID: pgtype.Int8{Int64: userID, Valid: userID > 0}, ActorIp: actorIP, Action: action, TargetType: pgtype.Text{String: "http", Valid: true}, TargetID: pgtype.Text{String: c.Request.URL.Path, Valid: true}, Detail: detail})
 		if err != nil {
 			logger.Warn("write audit log", zap.Error(err))
 		}
 	}
+}
+
+// auditOutcome classifies a response status for audit readers.
+func auditOutcome(status int) string {
+	if status >= 400 {
+		return "failed"
+	}
+	return "succeeded"
 }

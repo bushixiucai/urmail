@@ -116,6 +116,8 @@ type shapeFakeDomainStore struct {
 	listErr      error
 	createErr    error
 	createParams store.CreateDomainParams
+	byID         store.GetDomainByIDRow
+	getByIDErr   error
 }
 
 func (f *shapeFakeDomainStore) ListDomainsByTenant(_ context.Context, _ int64) ([]store.ListDomainsByTenantRow, error) {
@@ -123,7 +125,7 @@ func (f *shapeFakeDomainStore) ListDomainsByTenant(_ context.Context, _ int64) (
 }
 
 func (f *shapeFakeDomainStore) GetDomainByID(_ context.Context, _ store.GetDomainByIDParams) (store.GetDomainByIDRow, error) {
-	return store.GetDomainByIDRow{}, errors.New("not implemented")
+	return f.byID, f.getByIDErr
 }
 
 func (f *shapeFakeDomainStore) CreateDomain(_ context.Context, arg store.CreateDomainParams) (store.CreateDomainRow, error) {
@@ -162,6 +164,13 @@ func (f *shapeFakeDomainStore) GetActiveSubscriptionByTenant(_ context.Context, 
 
 func (f *shapeFakeDomainStore) GetPlanByCode(_ context.Context, _ string) (store.Plans, error) {
 	return store.Plans{}, errors.New("no plan")
+}
+
+func (f *shapeFakeDomainStore) CreateOrderOnboardingTask(_ context.Context, _ store.CreateOrderOnboardingTaskParams) (store.OnboardingTasks, error) {
+	return store.OnboardingTasks{}, errors.New("not implemented")
+}
+func (f *shapeFakeDomainStore) PlatformBindOnboardingDomain(_ context.Context, _ store.PlatformBindOnboardingDomainParams) (int64, error) {
+	return 0, errors.New("not implemented")
 }
 
 // --- mailbox fake ---

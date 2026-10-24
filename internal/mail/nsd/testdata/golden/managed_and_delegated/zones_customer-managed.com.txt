@@ -18,7 +18,7 @@ $TTL 86400
 @ IN AAAA 2001:db8::1
 @ IN MX 10 box.urmail.cn.
 @ IN TXT "v=spf1 mx -all"
-_dmarc IN TXT "v=DMARC1; p=none; rua=mailto:dmarc-reports@urmail.cn"
+_dmarc IN TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@urmail.cn"
 mail IN A 1.2.3.4
 mail IN AAAA 2001:db8::1
 autoconfig IN CNAME box.urmail.cn.

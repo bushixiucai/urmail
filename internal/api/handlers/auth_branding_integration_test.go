@@ -143,7 +143,7 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	defaultBrand := scalar("INSERT INTO brands(slug,name) VALUES('default','Default') RETURNING id")
 	tenant := scalar("INSERT INTO tenants(brand_id,name,slug,status,owner_user_id) VALUES($1,'Tenant','tenant','active',$2) RETURNING id", defaultBrand, uid)
 	exec("INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", uid, tenant)
-	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verification_token) VALUES($1,'example.test','active','test-verification') RETURNING id", tenant)
+	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES($1,'example.test','active','test-verification',now()) RETURNING id", tenant)
 	mailbox := scalar("INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status,send_enabled) VALUES($1,$2,'test','test@example.test',$3,1048576,'active',true) RETURNING id", tenant, domain, hash)
 	auth := NewAuthHandler(q)
 	legacy := NewLegacyHandler(q, q, tenant, "integration")

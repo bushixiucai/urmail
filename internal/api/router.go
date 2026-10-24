@@ -46,10 +46,19 @@ type Options struct {
 	Secrets handlers.SecretsBox
 	// DNSProvider writes verification records for delegated domains when set.
 	DNSProvider dnsprovider.Provider
+	// DNSManagedZones allow-lists the zones DNSProvider may write; a domain
+	// outside them verifies manually (M5 review 3.11).
+	DNSManagedZones []string
 	// Payment enables Stripe Checkout and webhook settlement when set.
 	Payment *payment.Stripe
+	// QuoteHMACKey signs client-visible billing quotes; empty disables issuance.
+	QuoteHMACKey string
 	// BaseURL is the public panel origin used for Stripe redirects.
 	BaseURL string
+	// MarketingTokens verifies stateless, signed unsubscribe tokens.
+	MarketingTokens interface {
+		VerifyUnsubscribeToken(string) (int64, string, bool)
+	}
 }
 
 // New builds the gin engine with all middleware and routes attached.
@@ -66,7 +75,11 @@ func New(opts Options) *gin.Engine {
 	engine.Use(middleware.BodyLimit(1 << 20))
 	engine.Use(middleware.Timeout(30 * time.Second))
 
-	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	// /metrics is operator-facing telemetry and must not be world-readable
+	// (M6 review D12). With an auth store it requires a platform admin
+	// session; the fallback keeps bare builds (no auth store) working and is
+	// only reachable on deployments that never configure one.
+	// NOTE: the platform admin group uses the same middleware set.
 
 	// Bundled web assets
 	engine.GET("/assets/*filepath", gin.WrapH(web.AssetHandler()))
@@ -91,8 +104,10 @@ func New(opts Options) *gin.Engine {
 		platformQueries = store.New(opts.PlatformPool.Pool)
 	}
 	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
+	onboardingHandler := &handlers.OnboardingHandler{Store: appQueries}
 	domainHandler := handlers.NewDomainHandler(appQueries, opts.Reconcile)
 	domainHandler.DNS = opts.DNSProvider
+	domainHandler.DNSManagedZones = opts.DNSManagedZones
 	domainHandler.Hostname = opts.MyHostname
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
@@ -103,6 +118,7 @@ func New(opts Options) *gin.Engine {
 	billingHandler.Pool = opts.PlatformPool
 	billingHandler.Stripe = opts.Payment
 	billingHandler.BaseURL = opts.BaseURL
+	billingHandler.QuoteHMACKey = []byte(opts.QuoteHMACKey)
 	brandingHandler := handlers.NewBrandingHandler(platformQueries)
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
 	platformHandler.Pool = opts.PlatformPool
@@ -114,6 +130,7 @@ func New(opts Options) *gin.Engine {
 		}
 	}
 	legacyHandler := handlers.NewLegacyHandler(authQueries, platformQueries, legacyTenantID, opts.Version)
+	marketingSuppressionHandler := &handlers.MarketingSuppressionHandler{Store: appQueries, Tokens: opts.MarketingTokens, AppPool: opts.AppPool}
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -122,6 +139,7 @@ func New(opts Options) *gin.Engine {
 		v1.GET("/i18n/:locale", i18nCatalog(opts))
 
 		v1.POST("/billing/webhook/stripe", billingHandler.StripeWebhook)
+		v1.POST("/marketing/unsubscribe", marketingSuppressionHandler.OneClick)
 
 		// Public Auth
 		authGroup := v1.Group("/auth")
@@ -155,6 +173,12 @@ func New(opts Options) *gin.Engine {
 		// Platform administration. These routes deliberately run outside
 		// RequireTenantTx: the platform role is cross-tenant by design.
 		if authQueries != nil && platformQueries != nil {
+			// Operator telemetry sits behind the platform admin session.
+			metrics := engine.Group("")
+			metrics.Use(middleware.RequireAuth(authQueries))
+			metrics.Use(middleware.RequirePlatformAdmin(authQueries))
+			metrics.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 			platform := v1.Group("/platform")
 			platform.Use(middleware.RequireAuth(authQueries))
 			platform.Use(middleware.RequirePlatformAdmin(authQueries))
@@ -236,6 +260,7 @@ func New(opts Options) *gin.Engine {
 		{
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
+			protected.GET("/onboarding/tasks", onboardingHandler.List)
 			protected.PATCH("/tenants/current", middleware.RequireRole("owner", "admin"), tenantHandler.UpdateSettings)
 
 			// Domains
@@ -260,10 +285,22 @@ func New(opts Options) *gin.Engine {
 			protected.DELETE("/aliases/:id", middleware.RequireRole("owner", "admin"), aliasHandler.Delete)
 
 			protected.GET("/audit", auditHandler.List)
+			protected.GET("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.List)
+			protected.POST("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Add)
+			protected.DELETE("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Remove)
 
 			// Billing and distribution (tenant-scoped reads)
 			protected.GET("/billing/plans", billingHandler.Plans)
-			protected.POST("/billing/checkout", middleware.RequireRole("owner", "admin"), billingHandler.Checkout)
+			// Quote and checkout are rate limited per tenant: without a budget a
+			// tenant could flood pending orders and, with a reserved coupon,
+			// burn global quota (M5 review 3.27).
+			protected.POST("/billing/quote", middleware.RequireRole("owner", "admin"),
+				middleware.RateLimitWindow(30, time.Minute, middleware.TenantRateKey), billingHandler.Quote)
+			protected.POST("/billing/checkout", middleware.RequireRole("owner", "admin"),
+				middleware.RateLimitWindow(20, time.Minute, middleware.TenantRateKey), billingHandler.Checkout)
+			protected.POST("/billing/orders/:id/cancel", middleware.RequireRole("owner", "admin"), billingHandler.CancelOrder)
+			protected.POST("/billing/refunds", middleware.RequireRole("owner", "admin"), billingHandler.CreateRefundRequest)
+			protected.GET("/billing/refunds", billingHandler.ListRefundRequests)
 			protected.GET("/billing/orders", billingHandler.Orders)
 			protected.GET("/billing/invoices/:id/pdf", billingHandler.InvoicePDF)
 			protected.GET("/billing/subscription", billingHandler.Subscription)

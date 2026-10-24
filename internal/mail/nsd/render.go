@@ -99,7 +99,7 @@ func renderZoneFile(node NodeConfig, z Zone) string {
 		}
 		fmt.Fprintf(&b, "@ IN MX 10 %s.\n", node.Hostname)
 		b.WriteString("@ IN TXT \"v=spf1 mx -all\"\n")
-		fmt.Fprintf(&b, "_dmarc IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@%s\"\n", node.PrimaryDomain)
+		fmt.Fprintf(&b, "_dmarc IN TXT \"v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@%s\"\n", node.PrimaryDomain)
 		fmt.Fprintf(&b, "mail IN A %s\n", node.PublicIPv4)
 		if node.PublicIPv6 != "" {
 			fmt.Fprintf(&b, "mail IN AAAA %s\n", node.PublicIPv6)

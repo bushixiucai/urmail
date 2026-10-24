@@ -77,8 +77,8 @@ func TestRequireTenantTxScopesQueries(t *testing.T) {
 		t.Fatalf("seed tenants: %v", err)
 	}
 	if _, err := ptx.Exec(ctx, `
-		INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token, tls_mode)
-		SELECT t.id, d.fqdn, 'delegated', 'active', 'seed-' || d.fqdn, 'letsencrypt' FROM tenants t, (VALUES
+		INSERT INTO domains (tenant_id, fqdn, mode, status, verification_token, tls_mode, verified_at)
+		SELECT t.id, d.fqdn, 'delegated', 'active', 'seed-' || d.fqdn, 'letsencrypt', now() FROM tenants t, (VALUES
 			('acme.example', 'acme'),
 			('beta.example', 'beta')
 		) AS d(fqdn, slug) WHERE t.slug = d.slug`); err != nil {

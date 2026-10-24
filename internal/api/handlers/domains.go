@@ -51,6 +51,13 @@ type DomainHandler struct {
 	// Hostname is the MX target advertised in DNS guidance. It is injected
 	// from config so a non-default deployment does not publish box.urmail.cn.
 	Hostname string
+	// DNSManagedZones lists the DNS zones the operator's provider credentials
+	// are allowed to write. A tenant-chosen FQDN must match one of these zones
+	// (exactly or as a subdomain) before the platform writes anything with its
+	// credentials; otherwise the tenant could point platform credentials at an
+	// arbitrary zone before ownership was verified (M5 review 3.11). Empty
+	// disables automatic verification writes entirely.
+	DNSManagedZones []string
 }
 
 func (h *DomainHandler) mxHost() string {
@@ -58,6 +65,26 @@ func (h *DomainHandler) mxHost() string {
 		return h.Hostname
 	}
 	return "box.urmail.cn"
+}
+
+// domainZoneManaged reports whether fqdn is one of the operator-managed zones
+// or lives underneath one. Comparison is case-insensitive on the trimmed
+// trailing dot, matching how DNS zone names are written.
+func domainZoneManaged(managed []string, fqdn string) bool {
+	name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(fqdn), "."))
+	if name == "" || len(managed) == 0 {
+		return false
+	}
+	for _, zone := range managed {
+		z := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zone), "."))
+		if z == "" {
+			continue
+		}
+		if name == z || strings.HasSuffix(name, "."+z) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewDomainHandler serves the tenant management operation.
@@ -209,11 +236,14 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// If a DNS provider is configured, write the verification TXT record.
-	// Failure is non-fatal: DNS may be delegated to a provider the caller
-	// manages manually.
+	// If a DNS provider is configured AND the domain lives inside a zone the
+	// operator manages, write the verification TXT record. Failure is
+	// non-fatal: DNS may be delegated to a provider the caller manages
+	// manually. The zone allowlist is what stops a tenant from aiming the
+	// platform's provider credentials at an arbitrary zone before ownership
+	// verification succeeded (M5 review 3.11).
 	dnsAuto := false
-	if h.DNS != nil {
+	if h.DNS != nil && domainZoneManaged(h.DNSManagedZones, domain.Fqdn) {
 		if err := h.DNS.EnsureTXT(c, domain.Fqdn, "_urmail-verify."+domain.Fqdn, verifToken); err == nil {
 			dnsAuto = true
 		}
@@ -269,6 +299,13 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 	}
 	if domain.Status == "active" {
 		c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt)})
+		return
+	}
+	// Verification challenges expire seven days after creation. Use the persisted
+	// creation time so restarts and multiple API replicas agree on the deadline.
+	now := time.Now().UTC()
+	if !domain.CreatedAt.Valid || now.Sub(domain.CreatedAt.Time) > 7*24*time.Hour || domain.CreatedAt.Time.After(now.Add(time.Minute)) {
+		c.JSON(http.StatusGone, gin.H{"error": gin.H{"code": "DOMAIN_CHALLENGE_EXPIRED", "message": "domain.challenge_expired"}})
 		return
 	}
 

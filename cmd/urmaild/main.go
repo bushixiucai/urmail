@@ -162,20 +162,23 @@ func run() error {
 		recallClient = agent.NewClient(cfg.AgentSocket)
 	}
 	engine := api.New(api.Options{
-		Recall:       recallClient,
-		DevMode:      cfg.DevMode,
-		Logger:       logger,
-		AppPool:      appPool,
-		PlatformPool: platformPool,
-		Messages:     messages,
-		Version:      version,
-		MyHostname:   cfg.MyHostname,
-		Reconcile:    reconcilePipeline,
-		Audit:        store.New(platformPool.Pool),
-		Secrets:      secretBox,
-		DNSProvider:  dnsProvider,
-		Payment:      stripe,
-		BaseURL:      baseURL,
+		Recall:          recallClient,
+		DevMode:         cfg.DevMode,
+		Logger:          logger,
+		AppPool:         appPool,
+		PlatformPool:    platformPool,
+		Messages:        messages,
+		Version:         version,
+		MyHostname:      cfg.MyHostname,
+		Reconcile:       reconcilePipeline,
+		Audit:           store.New(platformPool.Pool),
+		Secrets:         secretBox,
+		DNSProvider:     dnsProvider,
+		DNSManagedZones: cfg.DNSManagedZones,
+		Payment:         stripe,
+		QuoteHMACKey:    cfg.QuoteHMACKey,
+		BaseURL:         baseURL,
+		MarketingTokens: marketingTokenManager(cfg),
 	})
 
 	server := &http.Server{

@@ -31,7 +31,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "urmaild.env")
 	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
-		"URMAIL_DATABASE_URL_PLATFORM=postgres://platform@localhost/urmail\n"
+		"URMAIL_DATABASE_URL_PLATFORM=postgres://platform@localhost/urmail\n" +
+		"URMAIL_QUOTE_HMAC_KEY=quote-secret-from-file\n"
 	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
 		t.Fatalf("write env file: %v", err)
 	}
@@ -58,6 +59,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.Locale != "zh-CN" {
 		t.Fatalf("unexpected locale %q", cfg.Locale)
 	}
+	if cfg.QuoteHMACKey != "quote-secret-from-file" {
+		t.Fatalf("quote HMAC key was not loaded, got %q", cfg.QuoteHMACKey)
+	}
 }
 
 func TestEnvironmentOverridesTheFile(t *testing.T) {
@@ -65,6 +69,7 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 	envFile := filepath.Join(dir, "urmaild.env")
 	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
 		"URMAIL_DATABASE_URL_PLATFORM=postgres://platform@localhost/urmail\n" +
+		"URMAIL_QUOTE_HMAC_KEY=quote-secret-from-file\n" +
 		"URMAIL_LISTEN_ADDR=127.0.0.1:1111\n"
 	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
 		t.Fatalf("write env file: %v", err)
@@ -72,6 +77,7 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 
 	t.Setenv("URMAIL_ENV_FILE", envFile)
 	t.Setenv("URMAIL_LISTEN_ADDR", "127.0.0.1:2222")
+	t.Setenv("URMAIL_QUOTE_HMAC_KEY", "quote-secret-from-env")
 
 	cfg, err := Load()
 	if err != nil {
@@ -79,6 +85,9 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 	}
 	if cfg.ListenAddr != "127.0.0.1:2222" {
 		t.Fatalf("the environment must win, got %q", cfg.ListenAddr)
+	}
+	if cfg.QuoteHMACKey != "quote-secret-from-env" {
+		t.Fatalf("the environment should override the quote key file value")
 	}
 }
 
