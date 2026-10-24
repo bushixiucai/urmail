@@ -197,7 +197,7 @@ func (q *Queries) CreateRefund(ctx context.Context, arg CreateRefundParams) (Ref
 }
 
 const createSubscription = `-- name: CreateSubscription :one
-INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot
+INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot, entitlement_source, migration_manifest_sha256
 `
 
 type CreateSubscriptionParams struct {
@@ -233,12 +233,14 @@ func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscription
 		&i.CreatedAt,
 		&i.BillingCycle,
 		&i.PlanSnapshot,
+		&i.EntitlementSource,
+		&i.MigrationManifestSha256,
 	)
 	return i, err
 }
 
 const getActiveSubscriptionByTenant = `-- name: GetActiveSubscriptionByTenant :one
-SELECT id,tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at,created_at,billing_cycle,plan_snapshot FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') ORDER BY created_at DESC,id DESC LIMIT 1
+SELECT id,tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at,created_at,billing_cycle,plan_snapshot,entitlement_source,migration_manifest_sha256 FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') ORDER BY created_at DESC,id DESC LIMIT 1
 `
 
 func (q *Queries) GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (Subscriptions, error) {
@@ -256,6 +258,8 @@ func (q *Queries) GetActiveSubscriptionByTenant(ctx context.Context, tenantID in
 		&i.CreatedAt,
 		&i.BillingCycle,
 		&i.PlanSnapshot,
+		&i.EntitlementSource,
+		&i.MigrationManifestSha256,
 	)
 	return i, err
 }

@@ -912,17 +912,19 @@ type SubscriptionTerms struct {
 }
 
 type Subscriptions struct {
-	ID                int64              `json:"id"`
-	TenantID          int64              `json:"tenant_id"`
-	PlanID            string             `json:"plan_id"`
-	Status            string             `json:"status"`
-	PeriodStart       pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd         pgtype.Timestamptz `json:"period_end"`
-	CancelAtPeriodEnd bool               `json:"cancel_at_period_end"`
-	TrialEndsAt       pgtype.Timestamptz `json:"trial_ends_at"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	BillingCycle      string             `json:"billing_cycle"`
-	PlanSnapshot      []byte             `json:"plan_snapshot"`
+	ID                      int64              `json:"id"`
+	TenantID                int64              `json:"tenant_id"`
+	PlanID                  string             `json:"plan_id"`
+	Status                  string             `json:"status"`
+	PeriodStart             pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd               pgtype.Timestamptz `json:"period_end"`
+	CancelAtPeriodEnd       bool               `json:"cancel_at_period_end"`
+	TrialEndsAt             pgtype.Timestamptz `json:"trial_ends_at"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	BillingCycle            string             `json:"billing_cycle"`
+	PlanSnapshot            []byte             `json:"plan_snapshot"`
+	EntitlementSource       string             `json:"entitlement_source"`
+	MigrationManifestSha256 pgtype.Text        `json:"migration_manifest_sha256"`
 }
 
 type TenantContacts struct {

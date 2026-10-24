@@ -472,7 +472,7 @@ func (q *Queries) PlatformPrepareRefundReconciliation(ctx context.Context, id in
 
 const platformRecomputePaidEntitlementEnd = `-- name: PlatformRecomputePaidEntitlementEnd :exec
 UPDATE subscriptions s SET period_end=GREATEST(s.period_start+interval '1 microsecond',COALESCE(urmail_legacy_current_entitlement_end(s.tenant_id),now()),COALESCE((SELECT max(t.period_end) FROM subscription_terms t WHERE t.tenant_id=s.tenant_id AND t.basis_order_id IS NULL AND t.revoked_at IS NULL),now()))
-WHERE s.tenant_id=$1 AND s.status IN('active','trialing','past_due')
+WHERE s.tenant_id=$1 AND s.entitlement_source='standard' AND s.status IN('active','trialing','past_due')
 `
 
 func (q *Queries) PlatformRecomputePaidEntitlementEnd(ctx context.Context, tenantID int64) error {

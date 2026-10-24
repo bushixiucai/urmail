@@ -17,7 +17,7 @@ AND sqlc.arg(valid_until)::timestamptz>now() AND isfinite(sqlc.arg(valid_until):
 AND EXISTS(SELECT 1 FROM platform_admins WHERE user_id=sqlc.arg(actor_id))
 AND c.value>0 AND (c.kind<>'percent' OR c.value<=100)
 AND (c.kind<>'fixed' OR COALESCE(c.currency,o.currency) IN('CNY','USD'))
-AND ((c.kind='trial_days' AND c.value BETWEEN 1 AND 365
+AND ((c.kind='trial_days' AND c.value BETWEEN 1 AND 365 AND NOT urmail_migration_entitlement_allowed(r.tenant_id)
  AND NOT EXISTS(SELECT 1 FROM tenant_trials WHERE tenant_id=r.tenant_id)
  AND NOT EXISTS(SELECT 1 FROM subscriptions WHERE tenant_id=r.tenant_id AND plan_id<>'free' AND status IN('active','trialing','past_due') AND period_end>now())
  AND NOT EXISTS(SELECT 1 FROM subscription_terms WHERE tenant_id=r.tenant_id AND period_end>now()))

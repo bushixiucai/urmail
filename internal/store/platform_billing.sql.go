@@ -158,7 +158,7 @@ func (q *Queries) PlatformCreateSettlementInvoice(ctx context.Context, arg Platf
 const platformCreateSubscriptionForOrder = `-- name: PlatformCreateSubscriptionForOrder :one
 INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end, billing_cycle, plan_snapshot)
 VALUES ($1, $2, 'active', $3, $4, $5, $6)
-RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot
+RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot, entitlement_source, migration_manifest_sha256
 `
 
 type PlatformCreateSubscriptionForOrderParams struct {
@@ -192,6 +192,8 @@ func (q *Queries) PlatformCreateSubscriptionForOrder(ctx context.Context, arg Pl
 		&i.CreatedAt,
 		&i.BillingCycle,
 		&i.PlanSnapshot,
+		&i.EntitlementSource,
+		&i.MigrationManifestSha256,
 	)
 	return i, err
 }
@@ -276,19 +278,21 @@ func (q *Queries) PlatformGetOrderTenantID(ctx context.Context, id int64) (int64
 }
 
 const platformGetSubscriptionForSettlement = `-- name: PlatformGetSubscriptionForSettlement :one
-SELECT id,tenant_id,plan_id,status,period_start,period_end,billing_cycle,plan_snapshot
+SELECT id,tenant_id,plan_id,status,period_start,period_end,billing_cycle,plan_snapshot,entitlement_source,migration_manifest_sha256
 FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') FOR UPDATE
 `
 
 type PlatformGetSubscriptionForSettlementRow struct {
-	ID           int64              `json:"id"`
-	TenantID     int64              `json:"tenant_id"`
-	PlanID       string             `json:"plan_id"`
-	Status       string             `json:"status"`
-	PeriodStart  pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd    pgtype.Timestamptz `json:"period_end"`
-	BillingCycle string             `json:"billing_cycle"`
-	PlanSnapshot []byte             `json:"plan_snapshot"`
+	ID                      int64              `json:"id"`
+	TenantID                int64              `json:"tenant_id"`
+	PlanID                  string             `json:"plan_id"`
+	Status                  string             `json:"status"`
+	PeriodStart             pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd               pgtype.Timestamptz `json:"period_end"`
+	BillingCycle            string             `json:"billing_cycle"`
+	PlanSnapshot            []byte             `json:"plan_snapshot"`
+	EntitlementSource       string             `json:"entitlement_source"`
+	MigrationManifestSha256 pgtype.Text        `json:"migration_manifest_sha256"`
 }
 
 func (q *Queries) PlatformGetSubscriptionForSettlement(ctx context.Context, tenantID int64) (PlatformGetSubscriptionForSettlementRow, error) {
@@ -303,6 +307,8 @@ func (q *Queries) PlatformGetSubscriptionForSettlement(ctx context.Context, tena
 		&i.PeriodEnd,
 		&i.BillingCycle,
 		&i.PlanSnapshot,
+		&i.EntitlementSource,
+		&i.MigrationManifestSha256,
 	)
 	return i, err
 }

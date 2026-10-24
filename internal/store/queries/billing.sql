@@ -5,7 +5,7 @@ SELECT code,name,description,price_cents,currency,quota_bytes,mailbox_limit,doma
 SELECT code,name,description,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features,sort_order,active FROM plans WHERE active=true ORDER BY sort_order,price_cents;
 
 -- name: GetActiveSubscriptionByTenant :one
-SELECT id,tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at,created_at,billing_cycle,plan_snapshot FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') ORDER BY created_at DESC,id DESC LIMIT 1;
+SELECT id,tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at,created_at,billing_cycle,plan_snapshot,entitlement_source,migration_manifest_sha256 FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') ORDER BY created_at DESC,id DESC LIMIT 1;
 
 -- name: CreateSubscription :one
 INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end,cancel_at_period_end,trial_ends_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *;

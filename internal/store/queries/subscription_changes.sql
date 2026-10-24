@@ -6,7 +6,7 @@ VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id) DO UPDATE SET target_plan_code=EXCLUD
 SELECT * FROM subscription_changes WHERE tenant_id=$1 AND status='scheduled';
 
 -- name: CancelSubscriptionAtPaidEnd :one
-UPDATE subscriptions SET cancel_at_period_end=$2 WHERE tenant_id=$1 AND status IN('active','trialing','past_due') RETURNING *;
+UPDATE subscriptions SET cancel_at_period_end=$2 WHERE tenant_id=$1 AND entitlement_source='standard' AND status IN('active','trialing','past_due') RETURNING *;
 
 -- name: GetSubscriptionChangeStatus :one
 SELECT * FROM subscription_changes WHERE tenant_id=$1;

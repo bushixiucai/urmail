@@ -21,7 +21,7 @@ WHERE tenant_id = $1 AND status IN ('active', 'trialing', 'past_due');
 -- name: PlatformCreateSubscriptionForOrder :one
 INSERT INTO subscriptions (tenant_id, plan_id, status, period_start, period_end, billing_cycle, plan_snapshot)
 VALUES ($1, $2, 'active', $3, $4, $5, $6)
-RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot;
+RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot, entitlement_source, migration_manifest_sha256;
 
 -- name: PlatformCreateSettlementInvoice :one
 INSERT INTO invoices (tenant_id, order_id, number, period_start, period_end, amount_cents, currency, status, issued_at)
@@ -37,7 +37,7 @@ RETURNING id, tenant_id, order_no, kind, status, amount_cents, currency, plan_co
 DELETE FROM coupon_redemptions WHERE coupon_code = $1 AND order_id = $2;
 
 -- name: PlatformGetSubscriptionForSettlement :one
-SELECT id,tenant_id,plan_id,status,period_start,period_end,billing_cycle,plan_snapshot
+SELECT id,tenant_id,plan_id,status,period_start,period_end,billing_cycle,plan_snapshot,entitlement_source,migration_manifest_sha256
 FROM subscriptions WHERE tenant_id=$1 AND status IN('active','trialing','past_due') FOR UPDATE;
 
 -- name: PlatformGetOrderQuote :one

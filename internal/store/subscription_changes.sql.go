@@ -35,7 +35,7 @@ func (q *Queries) CancelScheduledSubscriptionChange(ctx context.Context, arg Can
 }
 
 const cancelSubscriptionAtPaidEnd = `-- name: CancelSubscriptionAtPaidEnd :one
-UPDATE subscriptions SET cancel_at_period_end=$2 WHERE tenant_id=$1 AND status IN('active','trialing','past_due') RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot
+UPDATE subscriptions SET cancel_at_period_end=$2 WHERE tenant_id=$1 AND entitlement_source='standard' AND status IN('active','trialing','past_due') RETURNING id, tenant_id, plan_id, status, period_start, period_end, cancel_at_period_end, trial_ends_at, created_at, billing_cycle, plan_snapshot, entitlement_source, migration_manifest_sha256
 `
 
 type CancelSubscriptionAtPaidEndParams struct {
@@ -58,6 +58,8 @@ func (q *Queries) CancelSubscriptionAtPaidEnd(ctx context.Context, arg CancelSub
 		&i.CreatedAt,
 		&i.BillingCycle,
 		&i.PlanSnapshot,
+		&i.EntitlementSource,
+		&i.MigrationManifestSha256,
 	)
 	return i, err
 }

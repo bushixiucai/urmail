@@ -388,6 +388,8 @@ type Querier interface {
 	PlatformGetSubscriptionNoticeDays(ctx context.Context) ([]byte, error)
 	PlatformGetSupportTicket(ctx context.Context, arg PlatformGetSupportTicketParams) (Tickets, error)
 	PlatformGrantManagedSubscription(ctx context.Context, arg PlatformGrantManagedSubscriptionParams) error
+	// Explicit operator migration grants; never inferred from a paid order.
+	PlatformGrantMigrationEntitlement(ctx context.Context, arg PlatformGrantMigrationEntitlementParams) (Subscriptions, error)
 	PlatformGrantSetupFreeTerm(ctx context.Context, arg PlatformGrantSetupFreeTermParams) (int64, error)
 	PlatformGrantTenantOwner(ctx context.Context, arg PlatformGrantTenantOwnerParams) error
 	PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error)

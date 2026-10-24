@@ -58,7 +58,7 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
            SELECT p.daily_send_limit
            FROM subscriptions s
            JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true
-           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND s.period_end > now() AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND (s.period_end > now() OR urmail_migration_entitlement_allowed(s.tenant_id)) AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
            LIMIT 1
        ), 0)::int AS daily_send_limit
 FROM mailboxes m
@@ -99,7 +99,7 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
            SELECT p.daily_send_limit
            FROM subscriptions s
            JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true
-           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND s.period_end > now() AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
+           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND (s.period_end > now() OR urmail_migration_entitlement_allowed(s.tenant_id)) AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
            LIMIT 1
        ), 0)::int AS daily_send_limit
 FROM mailboxes m
