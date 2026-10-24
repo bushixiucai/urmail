@@ -1,6 +1,13 @@
 <?php
 // Generated secrets are root-controlled, readable only by the dedicated pool.
 $secrets = require '/etc/urmail-roundcube/secrets.php';
+// Legacy values were parsed as literals; this never includes or executes source PHP.
+if (($secrets['runtime_mode'] ?? 'distro') === 'v80-preserve') {
+    if (!isset($secrets['legacy_config']) || !is_array($secrets['legacy_config'])) {
+        throw new RuntimeException('Retained literal configuration is missing.');
+    }
+    $config = $secrets['legacy_config'];
+}
 $config['db_dsnw'] = $secrets['db_dsnw'];
 $config['db_dsnr'] = '';
 $config['db_persistent'] = false;
@@ -14,7 +21,24 @@ $config['smtp_port'] = 587;
 $config['smtp_user'] = '%u';
 $config['smtp_pass'] = '%p';
 $config['des_key'] = $secrets['des_key'];
-$config['plugins'] = ['urmail_bridge'];
+if (($secrets['runtime_mode'] ?? 'distro') === 'v80-preserve') {
+    $plugins = $config['plugins'] ?? null;
+    if (!is_array($plugins) || !$plugins) {
+        throw new RuntimeException('Retained plugin list is missing.');
+    }
+    if (!in_array('urmail_bridge', $plugins, true)) {
+        $plugins[] = 'urmail_bridge';
+    }
+    $config['plugins'] = $plugins;
+} else {
+    $config['plugins'] = ['urmail_bridge', 'password'];
+}
+// The plugin also loads its own managed config after the main configuration.
+unset($config['password_db_dsn'], $config['password_query']);
+$config['password_driver'] = 'urmail';
+$config['password_confirm_current'] = true;
+$config['password_minimum_length'] = 8;
+$config['password_log'] = false;
 $config['urmail_bridge_key'] = $secrets['bridge_key'];
 $config['urmail_bridge_url'] = 'http://127.0.0.1:8080/api/v1/roundcube/bridge';
 $config['session_lifetime'] = 30;
