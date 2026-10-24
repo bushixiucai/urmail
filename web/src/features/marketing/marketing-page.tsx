@@ -141,8 +141,14 @@ export function MarketingPage() {
             {channels.map((c) => (
               <li key={c.id}>
                 {c.name} ·{" "}
-                {t(c.enabled ? "marketing.enabled" : "marketing.disabled")} ·{" "}
-                {t(`marketing.kind.${c.kind}`)}
+                {t(
+                  c.kind !== "dedicated_gateway"
+                    ? "marketing.channel_unavailable"
+                    : c.enabled
+                      ? "marketing.enabled"
+                      : "marketing.disabled",
+                )}{" "}
+                · {t(`marketing.kind.${c.kind}`)}
               </li>
             ))}
           </ul>
@@ -303,7 +309,9 @@ export function MarketingPage() {
             {select(
               "channel_id",
               "marketing.channels",
-              channels.filter((c) => c.enabled),
+              channels.filter(
+                (c) => c.enabled && c.kind === "dedicated_gateway",
+              ),
             )}
             {select("template_id", "marketing.template", templates)}
             {select("list_id", "marketing.list", lists)}

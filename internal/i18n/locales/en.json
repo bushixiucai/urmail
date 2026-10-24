@@ -472,7 +472,7 @@
   "marketing.channel.save": "Save encrypted channel configuration",
   "marketing.channel.username": "SMTP username",
   "marketing.channel_config": "Platform dedicated channel configuration",
-  "marketing.channel_config_help": "Configure a dedicated gateway for this tenant. Credentials are write-only. The platform worker must also be explicitly enabled. Dedicated-IP transport is unavailable and cannot fall back to transactional mail.",
+  "marketing.channel_config_help": "This release supports dedicated SMTP gateways only. Credentials are write-only, and the platform worker must also be explicitly enabled. Dedicated-IP configuration is outside this release; transactional mail is never used as a fallback.",
   "marketing.channel_id": "Channel ID (empty to create)",
   "marketing.channel_saved": "Channel saved. Refresh to view its status.",
   "marketing.channels": "Dedicated sending channels",
@@ -490,7 +490,7 @@
   "marketing.import": "Import consenting contacts",
   "marketing.intro": "Send only to consenting contacts through a dedicated channel. Preview and confirm before scheduling; entitlement, quota and suppression checks still apply.",
   "marketing.kind.dedicated_gateway": "Dedicated gateway",
-  "marketing.kind.dedicated_ip": "Dedicated IP (unavailable)",
+  "marketing.kind.dedicated_ip": "Dedicated IP (unsupported in this release)",
   "marketing.list": "Contact list",
   "marketing.name": "Name",
   "marketing.new_campaign": "Create a campaign draft",
@@ -1216,5 +1216,6 @@
   "support.withdraw": "Withdraw",
   "tenant.not_found": "Tenant not found",
   "page.dns.credential_enabled": "Enabled",
-  "page.dns.credential_revoked": "Revoked"
+  "page.dns.credential_revoked": "Revoked",
+  "marketing.channel_unavailable": "Unavailable in this release"
 }

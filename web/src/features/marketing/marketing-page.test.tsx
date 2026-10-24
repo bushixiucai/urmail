@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MarketingPage } from "./marketing-page";
+import { MarketingChannelAdmin } from "./channel-admin";
 const state = vi.hoisted(() => ({
   request: vi.fn(),
   t: (k: string) => k,
@@ -79,4 +80,70 @@ it("does not interpret a failed request as an empty successful campaign list", a
   await settle();
   expect(view.getByRole("alert").textContent).toBeTruthy();
   expect(view.getByText("marketing.no_channel")).toBeTruthy();
+});
+
+it("offers only enabled gateways even when legacy IP metadata is enabled", async () => {
+  state.request.mockImplementation((path: string) =>
+    Promise.resolve(
+      path.endsWith("/channels")
+        ? {
+            channels: [
+              {
+                id: 1,
+                name: "Supported gateway",
+                kind: "dedicated_gateway",
+                enabled: true,
+              },
+              {
+                id: 2,
+                name: "Legacy IP metadata",
+                kind: "dedicated_ip",
+                enabled: true,
+              },
+              {
+                id: 3,
+                name: "Disabled gateway",
+                kind: "dedicated_gateway",
+                enabled: false,
+              },
+            ],
+          }
+        : { templates: [], lists: [], campaigns: [] },
+    ),
+  );
+  const view = render(<MarketingPage />);
+  await settle();
+  const choices = view.container.querySelector<HTMLSelectElement>(
+    'select[name="channel_id"]',
+  )!;
+  expect(
+    Array.from(choices.options).map((option) => option.textContent),
+  ).toEqual(["marketing.choose", "Supported gateway"]);
+  const legacy = view.getByText(/Legacy IP metadata/);
+  expect(legacy.textContent).toContain("marketing.channel_unavailable");
+  expect(legacy.textContent).not.toContain("marketing.enabled");
+});
+it("platform channel form exposes gateway configuration without an IP selector", async () => {
+  const view = render(<MarketingChannelAdmin tenantID={1} />);
+  expect(view.container.querySelector('[name="kind"]')).toBeNull();
+  fireEvent.change(view.container.querySelector('input[name="name"]')!, {
+    target: { value: "Dedicated gateway" },
+  });
+  fireEvent.change(view.container.querySelector('input[name="host"]')!, {
+    target: { value: "relay.example.test" },
+  });
+  fireEvent.change(view.container.querySelector('input[name="from"]')!, {
+    target: { value: "sender@example.test" },
+  });
+  fireEvent.submit(view.container.querySelector("form")!);
+  await settle();
+  expect(state.request).toHaveBeenCalledWith(
+    "/api/v1/platform/tenants/1/marketing/channel",
+    expect.objectContaining({
+      body: expect.objectContaining({
+        kind: "dedicated_gateway",
+        smtp: expect.objectContaining({ dedicated: true }),
+      }),
+    }),
+  );
 });

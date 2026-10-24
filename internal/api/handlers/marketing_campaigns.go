@@ -65,31 +65,64 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if h.Secrets == nil || h.Platform == nil {
+	if h.Platform == nil {
 		authError(c, http.StatusServiceUnavailable, "MARKETING_UNAVAILABLE")
 		return
 	}
 	var input struct {
 		Name    string               `json:"name"`
 		Kind    string               `json:"kind"`
-		Enabled bool                 `json:"enabled"`
+		Enabled *bool                `json:"enabled"`
 		SMTP    marketing.SMTPConfig `json:"smtp"`
 	}
-	if c.ShouldBindJSON(&input) != nil || !marketingNameValid(input.Name) {
+	if c.ShouldBindJSON(&input) != nil {
 		authError(c, http.StatusBadRequest, "MARKETING_CHANNEL_INVALID")
 		return
 	}
-	if input.Kind == "dedicated_ip" {
-		// This capability is represented in configuration but cannot be
-		// enabled until its isolated transport has an implementation.
-		if input.Enabled {
-			authError(c, http.StatusConflict, "MARKETING_CHANNEL_UNSUPPORTED")
+	q := requestStore(c, h.Platform)
+	if c.Param("channel_id") != "" {
+		channelID, valid := marketingID(c, "channel_id")
+		if !valid {
 			return
 		}
-	} else if input.SMTP.Validate(input.Kind) != nil {
+		existing, err := q.PlatformGetMarketingChannel(c, channelID)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && existing.TenantID != tenant {
+			authError(c, http.StatusNotFound, "NOT_FOUND")
+			return
+		}
+		if supportError(c, err) {
+			return
+		}
+		if existing.Kind == "dedicated_ip" {
+			// Unsupported legacy records are readable and explicitly disable-only.
+			// Closing them preserves their original transport and secret metadata.
+			if input.Enabled == nil || *input.Enabled || (input.Kind != "" && input.Kind != "dedicated_ip") || (input.Name != "" && input.Name != existing.Name) || input.SMTP != (marketing.SMTPConfig{}) {
+				authError(c, http.StatusConflict, "MARKETING_CHANNEL_UNSUPPORTED")
+				return
+			}
+			updated, err := q.PlatformUpdateMarketingChannel(c, store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: existing.Name, Kind: existing.Kind, SenderAddress: existing.SenderAddress, EncryptedConfig: existing.EncryptedConfig, Enabled: false})
+			if supportError(c, err) {
+				return
+			}
+			middleware.SetPlatformAuditTenant(c, tenant)
+			middleware.SetPlatformAuditDetail(c, map[string]any{"operation": "disable_unsupported_legacy_channel", "channel_id": channelID, "kind": existing.Kind})
+			c.JSON(http.StatusOK, gin.H{"channel": updated, "capability_available": false})
+			return
+		}
+	}
+	if input.Kind == "dedicated_ip" {
+		authError(c, http.StatusConflict, "MARKETING_CHANNEL_UNSUPPORTED")
+		return
+	}
+	if !marketingNameValid(input.Name) || input.SMTP.Validate(input.Kind) != nil {
 		authError(c, http.StatusBadRequest, "MARKETING_CHANNEL_INVALID")
 		return
 	}
+	if h.Secrets == nil {
+		authError(c, http.StatusServiceUnavailable, "MARKETING_UNAVAILABLE")
+		return
+	}
+	enabled := input.Enabled != nil && *input.Enabled
 	input.SMTP.From = strings.ToLower(input.SMTP.From)
 	payload, err := json.Marshal(input.SMTP) //nolint:gosec // Plaintext is immediately encrypted for private storage and is never returned.
 	if err != nil {
@@ -106,7 +139,7 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 		if !valid {
 			return
 		}
-		updated, updateErr := requestStore(c, h.Platform).PlatformUpdateMarketingChannel(c, store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: input.Enabled})
+		updated, updateErr := requestStore(c, h.Platform).PlatformUpdateMarketingChannel(c, store.PlatformUpdateMarketingChannelParams{TenantID: tenant, ID: channelID, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: enabled})
 		if errors.Is(updateErr, pgx.ErrNoRows) {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 			return
@@ -118,7 +151,7 @@ func (h *MarketingHandler) ConfigureChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"channel": updated, "capability_available": input.Kind == "dedicated_gateway"})
 		return
 	}
-	row, err := requestStore(c, h.Platform).PlatformCreateMarketingChannel(c, store.PlatformCreateMarketingChannelParams{TenantID: tenant, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: input.Enabled})
+	row, err := requestStore(c, h.Platform).PlatformCreateMarketingChannel(c, store.PlatformCreateMarketingChannelParams{TenantID: tenant, Name: input.Name, Kind: input.Kind, SenderAddress: input.SMTP.From, EncryptedConfig: encrypted, Enabled: enabled})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return

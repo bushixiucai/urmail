@@ -472,7 +472,7 @@
   "marketing.channel.save": "保存加密通道配置",
   "marketing.channel.username": "SMTP 用户名",
   "marketing.channel_config": "平台独立通道配置",
-  "marketing.channel_config_help": "配置当前租户的独立网关。凭据只写不读；系统工作器还需平台配置启用。独立 IP 传输尚未就绪，不能启用或回退普通邮件。",
+  "marketing.channel_config_help": "本版本仅提供独立 SMTP 网关。凭据只写不读，系统工作器还需平台显式启用；不提供独立 IP 配置入口，也不回退普通事务邮件。",
   "marketing.channel_id": "通道 ID（留空新建）",
   "marketing.channel_saved": "通道已保存，请刷新查看状态。",
   "marketing.channels": "独立发送通道",
@@ -490,7 +490,7 @@
   "marketing.import": "导入已订阅联系人",
   "marketing.intro": "仅向已明确订阅的联系人发送。使用独立通道，确认预览后才排期；实际发送仍须通过权益、额度和退订校验。",
   "marketing.kind.dedicated_gateway": "独立网关",
-  "marketing.kind.dedicated_ip": "独立 IP（能力未就绪）",
+  "marketing.kind.dedicated_ip": "独立 IP（本版本不支持）",
   "marketing.list": "联系人名单",
   "marketing.name": "名称",
   "marketing.new_campaign": "创建活动草稿",
@@ -1216,5 +1216,6 @@
   "support.withdraw": "撤回公告",
   "tenant.not_found": "未找到当前租户",
   "page.dns.credential_enabled": "已启用",
-  "page.dns.credential_revoked": "已撤销"
+  "page.dns.credential_revoked": "已撤销",
+  "marketing.channel_unavailable": "本版本不可用"
 }
