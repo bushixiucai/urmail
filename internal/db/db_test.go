@@ -2,35 +2,22 @@ package db_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
-// testDatabaseURL returns the connection string of the database used by the
-// integration tests. The tests are skipped when it is not set, so that a
-// plain `go test ./...` on a laptop does not need a database.
-//
-// The URL must point at a throwaway database: the tests create roles and
-// tables.
+// testDatabaseURL creates an owned, bootstrapped database for each test.
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set; skipping the database integration tests")
-	}
-	return url
+	return testdb.New(t)
 }
 
 // applyMigrations brings the database up to the current schema.
 func applyMigrations(t *testing.T, url string) {
 	t.Helper()
-
-	if err := db.Bootstrap(context.Background(), url); err != nil {
-		t.Fatalf("bootstrap cluster roles: %v", err)
-	}
 
 	migrator, err := db.NewMigrator(url)
 	if err != nil {
@@ -77,9 +64,6 @@ func TestMigrationIsReversible(t *testing.T) {
 	}
 	defer func() { _ = migrator.Close() }()
 
-	if err := db.Bootstrap(ctx, url); err != nil {
-		t.Fatalf("bootstrap cluster roles: %v", err)
-	}
 	if err := migrator.Up(ctx); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}

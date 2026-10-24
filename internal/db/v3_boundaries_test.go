@@ -228,10 +228,6 @@ func TestV3BillingAndRecallModels(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			if _, err = tx.Exec(ctx, "UPDATE coupons SET redeemed_count=redeemed_count+1 WHERE code='V3-MODEL'"); err != nil {
-				t.Error(err)
-				return
-			}
 			if err = tx.Commit(ctx); err != nil {
 				t.Error(err)
 				return
@@ -242,6 +238,10 @@ func TestV3BillingAndRecallModels(t *testing.T) {
 	group.Wait()
 	if successes.Load() != 1 {
 		t.Fatalf("coupon successes=%d", successes.Load())
+	}
+	var redeemed, rows int
+	if err := p.QueryRow(ctx, "SELECT redeemed_count,(SELECT count(*) FROM coupon_redemptions WHERE coupon_code='V3-MODEL') FROM coupons WHERE code='V3-MODEL'").Scan(&redeemed, &rows); err != nil || redeemed != 1 || rows != 1 {
+		t.Fatalf("coupon counter diverged: redeemed=%d rows=%d err=%v", redeemed, rows, err)
 	}
 	var recall int64
 	if err := p.QueryRow(ctx, "INSERT INTO recall_requests(tenant_id,message_id,requested_by) VALUES($1,'remote', $2) RETURNING id", tid, user).Scan(&recall); err != nil {

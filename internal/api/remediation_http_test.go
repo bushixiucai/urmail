@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -22,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
@@ -32,67 +30,14 @@ import (
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
 func remediationHTTPDatabase(t *testing.T) (*db.Pool, *db.Pool) {
 	t.Helper()
-	dsn := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is required for remediation HTTP integration")
-	}
-	config, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal("invalid test database configuration")
-	}
-	if config.Host != "127.0.0.1" && config.Host != "localhost" && config.Host != "::1" {
-		t.Fatal("integration fixture requires loopback PostgreSQL")
-	}
+	dsn := testdb.New(t)
 	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := fmt.Sprintf("urmail_http_test_%d", time.Now().UnixNano())
-	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
-		_ = admin.Close(ctx)
-		t.Fatal(err)
-	}
-	var app, platform *db.Pool
-	t.Cleanup(func() {
-		if app != nil {
-			app.Close()
-		}
-		if platform != nil {
-			platform.Close()
-		}
-		if _, err := admin.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop own HTTP fixture: %v", err)
-		}
-		_ = admin.Close(ctx)
-	})
-	target, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	target.Path = "/" + name
-	// Cluster roles are shared even though these fixtures own different DBs.
-	// Serialize bootstrap on the original database connection, not the new DB.
-	if _, err = admin.Exec(context.Background(), "SELECT pg_advisory_lock(7750360020)"); err != nil {
-		t.Fatal(err)
-	}
-	bootstrapErr := db.Bootstrap(context.Background(), target.String())
-	_, unlockErr := admin.Exec(context.Background(), "SELECT pg_advisory_unlock(7750360020)")
-	if bootstrapErr != nil {
-		t.Fatal(bootstrapErr)
-	}
-	if unlockErr != nil {
-		t.Fatal(unlockErr)
-	}
-	migrationURL := *target
-	params := migrationURL.Query()
-	params.Set("role", "urmail_migrate")
-	migrationURL.RawQuery = params.Encode()
-	migrator, err := db.NewMigrator(migrationURL.String())
+	migrator, err := db.NewMigrator(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,14 +46,16 @@ func remediationHTTPDatabase(t *testing.T) (*db.Pool, *db.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err = db.OpenApp(ctx, target.String())
+	app, err := db.OpenApp(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	platform, err = db.OpenPlatform(ctx, target.String())
+	t.Cleanup(app.Close)
+	platform, err := db.OpenPlatform(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(platform.Close)
 	return app, platform
 }
 
@@ -343,7 +290,7 @@ func TestRemediationCheckoutHTTPWithRealRoles(t *testing.T) {
 	// A realistic completed event: payment_status present and amount_total
 	// equal to the order. A MINIMAL event without payment_status is treated
 	// as not-paid by design (M5 review 3.3), so the fixture must not rely on
-	// the old fail-open behaviour.
+	// the old fail-open behavior.
 	event := []byte(fmt.Sprintf(`{"type":"checkout.session.completed","data":{"object":{"metadata":{"order_id":"%d"},"payment_status":"paid","amount_total":100,"currency":"cny"}}}`, pendingID))
 	stamp := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte("local-webhook-secret"))

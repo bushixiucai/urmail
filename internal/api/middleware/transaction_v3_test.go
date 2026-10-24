@@ -22,9 +22,6 @@ func transactionV3Fixture(t *testing.T) (*db.Pool, *db.Pool, int64, int64) {
 	t.Helper()
 	url := integrationURL(t)
 	ctx := context.Background()
-	if err := db.Bootstrap(ctx, url); err != nil {
-		t.Fatal(err)
-	}
 	migrator, err := db.NewMigrator(url)
 	if err != nil {
 		t.Fatal(err)

@@ -3,17 +3,14 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pquerna/otp/totp"
 
@@ -21,62 +18,16 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
-// Each invocation owns one newly created database. No test truncates, migrates
-// down, or drops the database supplied by the developer or another test package.
+// Each invocation owns one newly created, cluster-bootstrapped database.
 func authIntegrationDatabase(t *testing.T) (*db.Pool, *db.Pool) {
 	t.Helper()
-	dsn := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is required for real-role auth integration")
-	}
-	config, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal("invalid test database configuration")
-	}
-	if config.Host != "127.0.0.1" && config.Host != "localhost" && config.Host != "::1" {
-		t.Fatal("auth test fixture requires a loopback PostgreSQL host")
-	}
-	admin, err := pgx.Connect(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := fmt.Sprintf("urmail_auth_test_%d", time.Now().UnixNano())
-	if _, err = admin.Exec(context.Background(), "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
-		_ = admin.Close(context.Background())
-		t.Fatal(err)
-	}
-	var platform, app *db.Pool
-	t.Cleanup(func() {
-		if platform != nil {
-			platform.Close()
-		}
-		if app != nil {
-			app.Close()
-		}
-		if _, err := admin.Exec(context.Background(), "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop own auth fixture: %v", err)
-		}
-		_ = admin.Close(context.Background())
-	})
+	dsn := testdb.New(t)
 	target, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
-	}
-	target.Path = "/" + name
-	// Cluster roles are shared even though these fixtures own different DBs.
-	// Serialize bootstrap on the original database connection, not the new DB.
-	if _, err = admin.Exec(context.Background(), "SELECT pg_advisory_lock(7750360020)"); err != nil {
-		t.Fatal(err)
-	}
-	bootstrapErr := db.Bootstrap(context.Background(), target.String())
-	_, unlockErr := admin.Exec(context.Background(), "SELECT pg_advisory_unlock(7750360020)")
-	if bootstrapErr != nil {
-		t.Fatal(bootstrapErr)
-	}
-	if unlockErr != nil {
-		t.Fatal(unlockErr)
 	}
 	migrationURL := *target
 	params := migrationURL.Query()
@@ -94,14 +45,16 @@ func authIntegrationDatabase(t *testing.T) (*db.Pool, *db.Pool) {
 	if closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	platform, err = db.OpenPlatform(context.Background(), target.String())
+	platform, err := db.OpenPlatform(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err = db.OpenApp(context.Background(), target.String())
+	t.Cleanup(platform.Close)
+	app, err := db.OpenApp(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(app.Close)
 	var role string
 	if err = platform.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != db.RolePlatform {
 		t.Fatal("integration platform role is not active")
