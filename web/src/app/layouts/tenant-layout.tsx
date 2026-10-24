@@ -2,6 +2,7 @@ import {
   BrandAppearance,
   usePublicBrand,
 } from "@/components/brand/public-brand";
+import { usePublicStatus } from "@/features/auth/public-status";
 import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -37,6 +38,7 @@ interface TenantLayoutProps {
 
 export function TenantLayout({ children }: TenantLayoutProps) {
   const location = useLocation();
+  const publicStatus = usePublicStatus();
   const publicBrand = usePublicBrand();
   const { t } = useTranslation();
   const { user, tenants, currentTenant, switchTenant, logout, isAdmin } =
@@ -70,6 +72,17 @@ export function TenantLayout({ children }: TenantLayoutProps) {
         ...(brand.primary_color ? { primary: brand.primary_color } : {}),
       }
     : undefined;
+  const [webmailEnabled, setWebmailEnabled] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/v1/roundcube/status", { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((value: { enabled?: boolean } | null) => {
+        if (value?.enabled) setWebmailEnabled(true);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navigation = [
@@ -79,6 +92,14 @@ export function TenantLayout({ children }: TenantLayoutProps) {
     { name: t("layout.aliases"), href: "/aliases", icon: Share2 },
     { name: t("nav.billing"), href: "/billing", icon: Receipt },
     { name: t("nav.audit"), href: "/audit", icon: ScrollText },
+    ...(currentTenant?.role === "owner" || currentTenant?.role === "admin"
+      ? [{ name: t("nav.ai"), href: "/ai", icon: ShieldCheck }]
+      : []),
+    { name: t("archive.title"), href: "/archive", icon: Mail },
+    { name: t("delivery.title"), href: "/delivery", icon: Mail },
+    { name: t("nav.marketing"), href: "/marketing", icon: Mail },
+    { name: t("nav.notifications"), href: "/notifications", icon: Mail },
+    { name: t("nav.support"), href: "/support", icon: Mail },
     { name: t("layout.settings"), href: "/settings/mfa", icon: ShieldCheck },
     ...(isAdmin
       ? [{ name: t("nav.platform"), href: "/platform", icon: Building2 }]
@@ -87,6 +108,21 @@ export function TenantLayout({ children }: TenantLayoutProps) {
 
   const renderNavLinks = (onNavigate?: () => void) => (
     <nav className="flex-1 p-3 space-y-1">
+      {webmailEnabled && (
+        <a
+          href="/mail/"
+          className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          title={t("page.webmail.independent_identity")}
+        >
+          <Mail className="h-4 w-4" />
+          {t("nav.webmail")}
+        </a>
+      )}
+      {webmailEnabled && (
+        <p className="px-3 text-xs text-muted-foreground">
+          {t("page.webmail.independent_identity")}
+        </p>
+      )}
       {navigation.map((item) => {
         const Icon = item.icon;
         const isActive = location.pathname === item.href;
@@ -252,6 +288,14 @@ export function TenantLayout({ children }: TenantLayoutProps) {
         </header>
 
         <div className="flex-1 p-3 sm:p-6 max-w-6xl w-full mx-auto">
+          {publicStatus.quarantined && (
+            <p
+              role="alert"
+              className="mb-4 rounded-md border border-destructive p-3 text-sm"
+            >
+              {t("restore.quarantine_banner")}
+            </p>
+          )}
           {children}
         </div>
       </main>

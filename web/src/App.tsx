@@ -6,8 +6,18 @@ import { I18nProvider } from "@/app/providers";
 import { AuthProvider, useAuth } from "@/app/auth-context";
 import { TenantLayout } from "@/app/layouts/tenant-layout";
 
+const PricingPage = lazy(() =>
+  import("@/features/billing/pricing-page").then((m) => ({
+    default: m.PricingPage,
+  })),
+);
 const LoginPage = lazy(() =>
   import("@/features/auth/login-page").then((m) => ({ default: m.LoginPage })),
+);
+const RegisterPage = lazy(() =>
+  import("@/features/auth/register-page").then((m) => ({
+    default: m.RegisterPage,
+  })),
 );
 const DashboardPage = lazy(() =>
   import("@/features/dashboard/dashboard-page").then((m) => ({
@@ -39,6 +49,16 @@ const AuditPage = lazy(() =>
     default: m.AuditPage,
   })),
 );
+const ArchivePage = lazy(() =>
+  import("@/features/archive/archive-page").then((m) => ({
+    default: m.ArchivePage,
+  })),
+);
+const DeliveryPage = lazy(() =>
+  import("@/features/delivery/delivery-page").then((m) => ({
+    default: m.DeliveryPage,
+  })),
+);
 const BillingPage = lazy(() =>
   import("@/features/billing/billing-page").then((m) => ({
     default: m.BillingPage,
@@ -48,6 +68,34 @@ const PlatformPage = lazy(() =>
   import("@/features/platform/platform-page").then((m) => ({
     default: m.PlatformPage,
   })),
+);
+const MarketingPage = lazy(() =>
+  import("@/features/marketing/marketing-page").then((m) => ({
+    default: m.MarketingPage,
+  })),
+);
+const NotificationsPage = lazy(() =>
+  import("@/features/notifications/notifications-page").then((m) => ({
+    default: m.NotificationsPage,
+  })),
+);
+const SupportPage = lazy(() =>
+  import("@/features/support/support-page").then((m) => ({
+    default: m.SupportPage,
+  })),
+);
+const PlatformSupportPage = lazy(() =>
+  import("@/features/support/support-page").then((m) => ({
+    default: m.PlatformSupportPage,
+  })),
+);
+const AISettingsPage = lazy(() =>
+  import("@/features/ai/ai-settings-page").then((m) => ({
+    default: m.AISettingsPage,
+  })),
+);
+const SievePage = lazy(() =>
+  import("@/features/sieve/sieve-page").then((m) => ({ default: m.SievePage })),
 );
 const NotFoundPage = lazy(() =>
   import("@/features/not-found/not-found-page").then((m) => ({
@@ -102,6 +150,48 @@ export function App() {
           <BrowserRouter>
             <Routes>
               <Route
+                path="/ai"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <AISettingsPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/register"
+                element={
+                  <LazyPage>
+                    <RegisterPage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/register/verify"
+                element={
+                  <LazyPage>
+                    <RegisterPage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/mailbox/sieve"
+                element={
+                  <LazyPage>
+                    <SievePage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/pricing"
+                element={
+                  <LazyPage>
+                    <PricingPage />
+                  </LazyPage>
+                }
+              />
+              <Route
                 path="/login"
                 element={
                   <LazyPage>
@@ -115,6 +205,66 @@ export function App() {
                   <ProtectedRoute>
                     <LazyPage>
                       <DashboardPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/archive"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <ArchivePage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/delivery"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <DeliveryPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/marketing"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <MarketingPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/notifications"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <NotificationsPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/support"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <SupportPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/platform/support"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <PlatformSupportPage />
                     </LazyPage>
                   </ProtectedRoute>
                 }

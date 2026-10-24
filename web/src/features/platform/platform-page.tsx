@@ -1,3 +1,9 @@
+import { PlatformAIAdmin } from "./platform-ai-admin";
+import { CouponReissueAdmin } from "./coupon-reissue-admin";
+import { FinancialReviewAdmin } from "./financial-review-admin";
+import { NotificationAdmin } from "./notification-admin";
+import { DocumentProfile } from "@/features/billing/document-profile";
+import { PaymentMerchantAdmin } from "./payment-merchant-admin";
 import { SettingsEditor } from "@/features/auth/settings-editor";
 import { useCallback, useEffect, useState, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -89,6 +95,8 @@ export function PlatformPage() {
   const [slug, setSlug] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [freeUntil, setFreeUntil] = useState("");
+  const [freeReason, setFreeReason] = useState("");
   const [brandSlug, setBrandSlug] = useState("default");
   const [brandName, setBrandName] = useState("");
   const [logoURL, setLogoURL] = useState("");
@@ -193,12 +201,20 @@ export function PlatformPage() {
           slug,
           owner_email: ownerEmail,
           owner_password: ownerPassword,
+          ...(freeUntil
+            ? {
+                free_until: new Date(freeUntil).toISOString(),
+                free_reason: freeReason.trim(),
+              }
+            : {}),
         },
       });
       setName("");
       setSlug("");
       setOwnerEmail("");
       setOwnerPassword("");
+      setFreeUntil("");
+      setFreeReason("");
       load();
     } catch (err: unknown) {
       setNotice({ variant: "error", message: errorMessage(err) });
@@ -375,6 +391,27 @@ export function PlatformPage() {
               minLength={12}
               required
             />
+            <label className="grid gap-1 text-sm sm:col-span-2">
+              {t("page.platform.free_until")}
+              <Input
+                type="datetime-local"
+                value={freeUntil}
+                onChange={(e) => setFreeUntil(e.target.value)}
+                required={freeReason.trim() !== ""}
+              />
+            </label>
+            <label className="grid gap-1 text-sm sm:col-span-2">
+              {t("page.platform.free_reason")}
+              <Input
+                value={freeReason}
+                onChange={(e) => setFreeReason(e.target.value)}
+                required={freeUntil !== ""}
+                maxLength={2000}
+              />
+            </label>
+            <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-5">
+              {t("page.platform.free_help")}
+            </p>
             <Button type="submit">{t("page.platform.create")}</Button>
           </form>
         </CardContent>
@@ -795,6 +832,12 @@ export function PlatformPage() {
           </div>
         </CardContent>
       </Card>
+      <PaymentMerchantAdmin />
+      <FinancialReviewAdmin />
+      <CouponReissueAdmin />
+      <PlatformAIAdmin tenants={tenants} />
+      <NotificationAdmin />
+      <DocumentProfile platform />
       <NoticeDialog
         open={notice !== null}
         onOpenChange={(open) => !open && setNotice(null)}

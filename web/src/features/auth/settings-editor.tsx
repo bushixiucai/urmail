@@ -19,6 +19,7 @@ export function SettingsEditor({
   const [locale, setLocale] = useState("");
   const [primary, setPrimary] = useState("");
   const [quota, setQuota] = useState("");
+  const [timezone, setTimezone] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
   const [edited, setEdited] = useState<Set<string>>(new Set());
@@ -45,6 +46,11 @@ export function SettingsEditor({
             ? String(settings.mailbox_default_quota_bytes)
             : "",
         );
+        setTimezone(
+          typeof settings.business_timezone === "string"
+            ? settings.business_timezone
+            : "",
+        );
         setEdited(new Set());
       })
       .catch(
@@ -64,6 +70,7 @@ export function SettingsEditor({
           settings: Object.fromEntries(
             Object.entries({
               locale: locale || null,
+              business_timezone: timezone || null,
               theme: primary ? { primary } : null,
               mailbox_default_quota_bytes: quota === "" ? null : Number(quota),
             }).filter(([key]) => edited.has(key)),
@@ -135,6 +142,21 @@ export function SettingsEditor({
                 changed("mailbox_default_quota_bytes");
               }}
             />
+          </label>
+          <label className="grid gap-1">
+            {t("page.settings.business_timezone")}
+            <Input
+              value={timezone}
+              onChange={(e) => {
+                setTimezone(e.target.value);
+                changed("business_timezone");
+              }}
+              placeholder="Asia/Shanghai"
+              maxLength={100}
+            />
+            <span className="text-xs text-muted-foreground">
+              {t("page.settings.timezone_help")}
+            </span>
           </label>
           <Button type="submit" disabled={pending || edited.size === 0}>
             {t("action.save")}

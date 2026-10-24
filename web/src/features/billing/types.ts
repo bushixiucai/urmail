@@ -12,7 +12,15 @@ export const BILLING_CYCLES: readonly BillingCycle[] = [
   "annual",
 ];
 
+export interface PlanPrice {
+  currency: string;
+  billing_cycle: BillingCycle;
+  amount_cents: number;
+  version: number;
+}
+
 export interface Plan {
+  prices?: PlanPrice[];
   code: string;
   name: Record<string, string>;
   description?: Record<string, string>;
@@ -63,6 +71,7 @@ export interface QuoteRequest {
   plan_code: string;
   billing_cycle: BillingCycle;
   coupon_code?: string;
+  currency?: string;
 }
 
 export type CheckoutRequest =
@@ -77,12 +86,14 @@ export function buildQuoteRequest(
   planCode: string,
   billingCycle: BillingCycle,
   couponCode?: string,
+  currency?: string,
 ): QuoteRequest {
   const body: QuoteRequest = {
     plan_code: planCode,
     billing_cycle: billingCycle,
   };
   if (couponCode) body.coupon_code = couponCode;
+  if (currency) body.currency = currency;
   return body;
 }
 
@@ -103,4 +114,19 @@ export function buildCheckoutBody(
   };
   if (couponCode) (body as { coupon_code?: string }).coupon_code = couponCode;
   return body;
+}
+
+/** Prices are independent configured totals, never an inferred monthly multiplier. */
+export function configuredPrice(
+  plan: Plan,
+  cycle: BillingCycle,
+  currency: string,
+): number | null {
+  const price = plan.prices?.find(
+    (p) => p.currency === currency && p.billing_cycle === cycle,
+  );
+  if (price) return price.amount_cents;
+  if (cycle === "monthly" && currency === plan.currency)
+    return plan.price_cents;
+  return null;
 }
