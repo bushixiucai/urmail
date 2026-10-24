@@ -41,7 +41,7 @@ func (h *BillingHandler) RedeemTrial(c *gin.Context) {
 		var pg *pgconn.PgError
 		if errors.As(err, &pg) {
 			switch pg.Message {
-			case "TRIAL_ALREADY_USED", "DOMAIN_VERIFICATION_REQUIRED", "PAID_ENTITLEMENT_EXISTS", "COUPON_INVALID", "TRIAL_PLAN_UNAVAILABLE":
+			case "MIGRATION_ENTITLEMENT_EXISTS", "TRIAL_ALREADY_USED", "DOMAIN_VERIFICATION_REQUIRED", "PAID_ENTITLEMENT_EXISTS", "COUPON_INVALID", "TRIAL_PLAN_UNAVAILABLE":
 				authError(c, 409, pg.Message)
 				return
 			}

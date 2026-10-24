@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -42,9 +43,8 @@ func mailboxUnderLegalHold(c *gin.Context, q interface {
 }
 
 // quotaCheck verifies that creating one more resource of kind stays within
-// the tenant's plan. When the tenant has no active subscription no plan
-// limits exist yet and creation is allowed; plan enforcement starts with
-// the first subscription (M5 wires the default free plan).
+// the tenant's current effective plan. Missing and expired subscriptions fail
+// closed; restricted onboarding may separately allow a pending domain.
 func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool {
 	if q == nil {
 		// Unit tests without a database: no enforcement possible.
@@ -78,7 +78,7 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		return false
 	}
 	now := time.Now()
-	if !sub.PeriodStart.Valid || sub.PeriodStart.Time.After(now) || !sub.PeriodEnd.Valid || !sub.PeriodEnd.Time.After(now) || (sub.Status == "trialing" && sub.TrialEndsAt.Valid && !sub.TrialEndsAt.Time.After(now)) {
+	if !serviceEntitlement(sub).CurrentAt(now) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "SUBSCRIPTION_EXPIRED"}})
 		return false
 	}
@@ -145,4 +145,30 @@ func subscriptionPlan(ctx context.Context, q interface {
 		return store.Plans{Code: frozen.Code, Name: frozen.Name, Description: frozen.Description, PriceCents: frozen.PriceCents, Currency: frozen.Currency, QuotaBytes: frozen.QuotaBytes, MailboxLimit: frozen.MailboxLimit, DomainLimit: frozen.DomainLimit, DailySendLimit: frozen.DailySendLimit, Features: frozen.Features, SortOrder: frozen.SortOrder, Active: frozen.Active}, nil
 	}
 	return q.GetPlanByCode(ctx, sub.PlanID)
+}
+
+// serviceEntitlement preserves SQL NULL without accepting PostgreSQL infinity as an end.
+func serviceEntitlement(sub store.Subscriptions) billing.ServiceEntitlement {
+	e := billing.ServiceEntitlement{Source: sub.EntitlementSource, Status: sub.Status}
+	if sub.MigrationManifestSha256.Valid {
+		e.ManifestSHA256 = sub.MigrationManifestSha256.String
+	}
+	if sub.PeriodStart.Valid && sub.PeriodStart.InfinityModifier == pgtype.Finite {
+		e.PeriodStart = sub.PeriodStart.Time
+	}
+	if sub.PeriodEnd.Valid {
+		end := time.Time{}
+		if sub.PeriodEnd.InfinityModifier == pgtype.Finite {
+			end = sub.PeriodEnd.Time
+		}
+		e.PeriodEnd = &end
+	}
+	if sub.TrialEndsAt.Valid {
+		end := time.Time{}
+		if sub.TrialEndsAt.InfinityModifier == pgtype.Finite {
+			end = sub.TrialEndsAt.Time
+		}
+		e.TrialEndsAt = &end
+	}
+	return e
 }

@@ -302,13 +302,20 @@ export function BillingPage() {
               <div className="text-lg font-semibold">
                 {localized(plan.name, locale)}
               </div>
+              {subscription?.entitlement_source === "migration_legacy" && (
+                <p className="text-sm text-muted-foreground">
+                  {t("billing_lifecycle.migration_preserved")}
+                </p>
+              )}
               <div className="text-sm text-muted-foreground">
                 {t(`status.${subscription?.status}`, {
                   defaultValue: subscription?.status ?? "",
                 })}{" "}
                 · {plan.mailbox_limit === -1 ? "∞" : plan.mailbox_limit}{" "}
-                {t("page.billing.mailboxes")} · {plan.domain_limit}{" "}
-                {t("page.billing.domains")} · {plan.daily_send_limit}{" "}
+                {t("page.billing.mailboxes")} ·{" "}
+                {plan.domain_limit === -1 ? "∞" : plan.domain_limit}{" "}
+                {t("page.billing.domains")} ·{" "}
+                {plan.daily_send_limit === -1 ? "∞" : plan.daily_send_limit}{" "}
                 {t("page.billing.daily_send")}
               </div>
             </div>

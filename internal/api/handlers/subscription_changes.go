@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -44,6 +45,10 @@ func (h *BillingHandler) ScheduleChange(c *gin.Context) {
 	sub, err := queries.GetActiveSubscriptionByTenant(c, tid)
 	if err != nil {
 		authError(c, 409, "SUBSCRIPTION_REQUIRED")
+		return
+	}
+	if sub.EntitlementSource == billing.EntitlementMigration {
+		authError(c, 409, "MIGRATION_ENTITLEMENT_PRESERVED")
 		return
 	}
 	change, err := queries.ScheduleSubscriptionChange(c, store.ScheduleSubscriptionChangeParams{TenantID: tid, TargetPlanCode: body.PlanCode, EffectiveAt: sub.PeriodEnd, RequestedBy: uid})
@@ -83,6 +88,19 @@ func (h *BillingHandler) CancelSubscription(c *gin.Context) {
 	}
 	if err := queries.PlatformLockBillingTenant(c, tid); err != nil {
 		authError(c, 500, "DB_ERROR")
+		return
+	}
+	current, lookupErr := queries.GetActiveSubscriptionByTenant(c, tid)
+	if lookupErr != nil {
+		if errors.Is(lookupErr, pgx.ErrNoRows) {
+			authError(c, 404, "SUBSCRIPTION_REQUIRED")
+		} else {
+			authError(c, 500, "DB_ERROR")
+		}
+		return
+	}
+	if current.EntitlementSource == billing.EntitlementMigration {
+		authError(c, 409, "MIGRATION_ENTITLEMENT_PRESERVED")
 		return
 	}
 	sub, err := queries.CancelSubscriptionAtPaidEnd(c, store.CancelSubscriptionAtPaidEndParams{TenantID: tid, CancelAtPeriodEnd: true})

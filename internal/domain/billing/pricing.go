@@ -183,28 +183,29 @@ func CalculateUpgradeProration(
 
 // Quote carries an immutable pricing snapshot with an integrity digest.
 type Quote struct {
-	Calendar               *CalendarSpec `json:"calendar,omitempty"`
-	PlanSnapshotDigest     string        `json:"plan_snapshot_digest,omitempty"`
-	DocumentSnapshotDigest string        `json:"document_snapshot_digest,omitempty"`
-	DomainID               int64         `json:"domain_id,omitempty"`
-	TenantID               int64         `json:"tenant_id"`
-	Kind                   string        `json:"kind,omitempty"`
-	PriceVersion           int64         `json:"price_version,omitempty"`
-	PlanAmountCents        int64         `json:"plan_amount_cents,omitempty"`
-	SubscriptionVersion    int64         `json:"subscription_version,omitempty"`
-	CouponCode             string        `json:"coupon_code,omitempty"`
-	PlanCode               string        `json:"plan_code"`
-	BillingCycle           string        `json:"billing_cycle"`
-	Currency               string        `json:"currency"`
-	BaseAmountCents        int64         `json:"base_amount_cents"`
-	DiscountCents          int64         `json:"discount_cents"`
-	ProratedCreditCents    int64         `json:"prorated_credit_cents"`
-	FinalAmountCents       int64         `json:"final_amount_cents"`
-	PeriodStart            time.Time     `json:"period_start"`
-	PeriodEnd              time.Time     `json:"period_end"`
-	GeneratedAt            time.Time     `json:"generated_at"`
-	ExpiresAt              time.Time     `json:"expires_at"`
-	Digest                 string        `json:"digest"`
+	CurrentEntitlementSource string        `json:"current_entitlement_source,omitempty"`
+	Calendar                 *CalendarSpec `json:"calendar,omitempty"`
+	PlanSnapshotDigest       string        `json:"plan_snapshot_digest,omitempty"`
+	DocumentSnapshotDigest   string        `json:"document_snapshot_digest,omitempty"`
+	DomainID                 int64         `json:"domain_id,omitempty"`
+	TenantID                 int64         `json:"tenant_id"`
+	Kind                     string        `json:"kind,omitempty"`
+	PriceVersion             int64         `json:"price_version,omitempty"`
+	PlanAmountCents          int64         `json:"plan_amount_cents,omitempty"`
+	SubscriptionVersion      int64         `json:"subscription_version,omitempty"`
+	CouponCode               string        `json:"coupon_code,omitempty"`
+	PlanCode                 string        `json:"plan_code"`
+	BillingCycle             string        `json:"billing_cycle"`
+	Currency                 string        `json:"currency"`
+	BaseAmountCents          int64         `json:"base_amount_cents"`
+	DiscountCents            int64         `json:"discount_cents"`
+	ProratedCreditCents      int64         `json:"prorated_credit_cents"`
+	FinalAmountCents         int64         `json:"final_amount_cents"`
+	PeriodStart              time.Time     `json:"period_start"`
+	PeriodEnd                time.Time     `json:"period_end"`
+	GeneratedAt              time.Time     `json:"generated_at"`
+	ExpiresAt                time.Time     `json:"expires_at"`
+	Digest                   string        `json:"digest"`
 }
 
 // BuildQuote generates an immutable, tamper-evident Quote.
@@ -325,6 +326,9 @@ func (q *Quote) canonical() string {
 	if q.Calendar != nil {
 		raw, _ := json.Marshal(q.Calendar)
 		canonical += "|calendar:" + string(raw)
+	}
+	if q.CurrentEntitlementSource != "" {
+		canonical += "|entitlement_source:" + fmt.Sprintf("%q", q.CurrentEntitlementSource)
 	}
 	return canonical
 }

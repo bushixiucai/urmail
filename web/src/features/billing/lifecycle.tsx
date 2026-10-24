@@ -150,9 +150,13 @@ export function BillingLifecycle() {
             </h3>
             <p>
               {subscription.plan_id} · {subscription.status} ·{" "}
-              {subscription.period_end}
+              {subscription.entitlement_source === "migration_legacy"
+                ? t("billing_lifecycle.migration_preserved")
+                : subscription.period_end}
             </p>
-            {subscription.cancel_at_period_end ? (
+            {subscription.entitlement_source === "migration_legacy" ? (
+              <p>{t("billing_lifecycle.migration_purchase")}</p>
+            ) : subscription.cancel_at_period_end ? (
               <p>{t("billing_lifecycle.cancellation_scheduled")}</p>
             ) : (
               <Button
@@ -189,7 +193,12 @@ export function BillingLifecycle() {
             </select>
           </label>
           <Button
-            disabled={busy || !plan || !subscription}
+            disabled={
+              busy ||
+              !plan ||
+              !subscription ||
+              subscription.entitlement_source === "migration_legacy"
+            }
             onClick={() => void act("subscription/change", { plan_code: plan })}
           >
             {t("billing_lifecycle.schedule")}
@@ -229,7 +238,13 @@ export function BillingLifecycle() {
             />
           </label>
           <Button
-            disabled={busy || !plan || !domain || !coupon.trim()}
+            disabled={
+              busy ||
+              !plan ||
+              !domain ||
+              !coupon.trim() ||
+              subscription?.entitlement_source === "migration_legacy"
+            }
             onClick={() =>
               void act("trial", {
                 plan_code: plan,

@@ -17,6 +17,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/domain/billing"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -748,6 +749,15 @@ func (h *PlatformHandler) AssignSubscription(c *gin.Context) {
 	}
 	defer rollback()
 	if supportError(c, q.PlatformLockBillingTenant(c, id)) {
+		return
+	}
+	current, currentErr := q.PlatformGetSubscriptionForSettlement(c, id)
+	if currentErr != nil && !errors.Is(currentErr, pgx.ErrNoRows) {
+		authError(c, 500, "DB_ERROR")
+		return
+	}
+	if currentErr == nil && current.EntitlementSource == billing.EntitlementMigration {
+		authError(c, 409, "MIGRATION_ENTITLEMENT_PRESERVED")
 		return
 	}
 	available, err := q.PlatformManagedPlanAvailable(c, req.PlanCode)

@@ -1242,5 +1242,9 @@
   "error.BILLING_CALENDAR_REVIEW_REQUIRED": "历史计费日历需由平台核定后才能生成新报价，已有付费服务不变。",
   "error.BILLING_CALENDAR_CHANGED": "计费日历或首次付款时区已变化，请重新获取报价。",
   "page.billing.calendar": "计费日历：{{timezone}}。连续续费保留原日号和墙钟时间。",
-  "page.billing.calendar_provisional": "首次或逾期恢复的完整周期从付费服务开通时起算，并在当时确定日期锚点；首次计费时区保持冻结。"
+  "page.billing.calendar_provisional": "首次或逾期恢复的完整周期从付费服务开通时起算，并在当时确定日期锚点；首次计费时区保持冻结。",
+  "error.MIGRATION_ENTITLEMENT_PRESERVED": "迁移存量邮件服务不自动到期。购买商业套餐将开始新的完整账期，暂不支持预约取消或覆盖该存量权益。",
+  "billing_lifecycle.migration_preserved": "迁移存量邮件服务 · 不自动到期",
+  "billing_lifecycle.migration_purchase": "存量邮件服务继续保留。购买商业套餐会立即开始独立的完整账期；AI 和营销仍须另行配置有效额度。",
+  "error.MIGRATION_ENTITLEMENT_EXISTS": "存量服务权益已保留，无需试用。"
 }

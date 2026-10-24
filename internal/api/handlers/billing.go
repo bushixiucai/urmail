@@ -585,6 +585,10 @@ func (h *BillingHandler) buildQuoteCurrency(c *gin.Context, q BillingStore, tena
 	quote.Kind = kind
 	quote.PlanAmountCents = configuredTotal
 	quote.SubscriptionVersion = sub.ID
+	quote.CurrentEntitlementSource = sub.EntitlementSource
+	if quote.CurrentEntitlementSource == "" {
+		quote.CurrentEntitlementSource = billing.EntitlementStandard
+	}
 	quote.PriceVersion = version
 	quote.Digest = quote.ComputeDigest(key)
 	if queries, ok := q.(*store.Queries); ok {
@@ -821,6 +825,15 @@ func (h *BillingHandler) Checkout(c *gin.Context) {
 	// transaction commits, so the tenant gets an active entitlement instead
 	// of an unpayable pending order (M5 review 3.4 / M5-08 zero-amount rule).
 	if !existing {
+		current, currentErr := q.GetActiveSubscriptionByTenant(c, tenantID)
+		if currentErr != nil && !errors.Is(currentErr, pgx.ErrNoRows) {
+			authError(c, 500, "DB_ERROR")
+			return
+		}
+		if !billing.QuoteSourceMatches(quote.CurrentEntitlementSource, current.EntitlementSource) {
+			authError(c, 409, "QUOTE_INVALID")
+			return
+		}
 		var channelID pgtype.Int8
 		attribution, attributionErr := q.GetChannelAttributionByTenant(c, tenantID)
 		if attributionErr == nil {

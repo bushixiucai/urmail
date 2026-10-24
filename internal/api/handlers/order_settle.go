@@ -308,6 +308,12 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 				compatibleRenewal = future.PlanCode == agreed.PlanCode
 			}
 		}
+		if !billing.QuoteSourceMatches(agreed.CurrentEntitlementSource, current.EntitlementSource) && !manualRecovery {
+			if opts.Provider == payment.ProviderManual {
+				return fmt.Errorf("%w: entitlement source changed since quote", ErrPaymentVerificationFailed)
+			}
+			return recordManualReceipt(ctx, tx, order, opts, "entitlement_source_changed")
+		}
 		if agreed.SubscriptionVersion != currentVersion && !compatibleRenewal && (!manualRecovery || order.Kind == "upgrade") {
 			if opts.Provider == payment.ProviderManual {
 				return fmt.Errorf("%w: subscription changed since quote", ErrPaymentVerificationFailed)

@@ -1242,5 +1242,9 @@
   "error.BILLING_CALENDAR_REVIEW_REQUIRED": "The historical billing calendar needs platform verification before a new quote. Existing paid service is unchanged.",
   "error.BILLING_CALENDAR_CHANGED": "The billing calendar or first-payment timezone changed. Request a fresh quote.",
   "page.billing.calendar": "Billing calendar: {{timezone}}. Continuous renewals retain the original day and wall time.",
-  "page.billing.calendar_provisional": "The first or resumed full cycle starts when paid service is activated. Its date anchor is established then; the first billing timezone stays frozen."
+  "page.billing.calendar_provisional": "The first or resumed full cycle starts when paid service is activated. Its date anchor is established then; the first billing timezone stays frozen.",
+  "error.MIGRATION_ENTITLEMENT_PRESERVED": "Migrated existing mail service has no automatic expiry. Purchase a commercial plan to start a new paid period; scheduled cancellation or replacement is unavailable.",
+  "billing_lifecycle.migration_preserved": "Migrated existing mail service · no automatic expiry",
+  "billing_lifecycle.migration_purchase": "Existing mail service is preserved. A commercial purchase starts its own complete period immediately; AI and marketing require separately configured limits.",
+  "error.MIGRATION_ENTITLEMENT_EXISTS": "Existing migrated mail service is already preserved; a trial is unnecessary."
 }

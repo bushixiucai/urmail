@@ -35,7 +35,8 @@ export interface Subscription {
   plan_id: string;
   status: string;
   period_start: string;
-  period_end: string;
+  period_end: string | null;
+  entitlement_source?: "standard" | "migration_legacy";
   cancel_at_period_end: boolean;
 }
 
@@ -51,6 +52,7 @@ export interface Invoice {
 
 /** Signed quote returned by the backend; sent back verbatim at checkout. */
 export interface Quote {
+  current_entitlement_source?: "standard" | "migration_legacy";
   calendar?: {
     timezone: string;
     anchor_at: string;
