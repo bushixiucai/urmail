@@ -242,7 +242,7 @@ func TestPrepareBatch_RejectsBadCustomHeaders(t *testing.T) {
 // oldest records once the cap is reached.
 func TestDispatchQueue_OutcomeListsBounded(t *testing.T) {
 	channel := &OutboundChannel{Kind: ChannelKindDedicatedIP, DedicatedIP: "192.0.2.35", IsDedicated: true}
-	q := NewDispatchQueue(channel, nil, nil, nil)
+	q := NewDispatchQueue(channel, nil, nil, func(context.Context, *OutboundChannel, *PreparedMarketingMessage) error { return nil })
 	allowAll(q)
 
 	for i := 0; i < maxTrackedRecords+10; i++ {

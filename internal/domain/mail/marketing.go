@@ -88,6 +88,9 @@ var (
 	// closed: tenant allowance must be verified before every marketing send.
 	ErrSenderPolicyRequired = errors.New("sender policy must be installed before dispatching marketing mail")
 
+	// ErrSenderRequired rejects missing physical senders instead of reporting a false success.
+	ErrSenderRequired = errors.New("physical marketing sender must be installed")
+
 	// ErrSenderPolicyDenied indicates the tenant policy refused the send
 	// (for example urmail_mail_allowed(tenant) is false, or the daily tenant
 	// quota is exhausted). The message is skipped and recorded, not retried.
@@ -667,7 +670,7 @@ func validHeaderName(name string) bool {
 		return false
 	}
 	for _, c := range name {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 			return false
 		}
 	}
@@ -696,8 +699,8 @@ func validRecipientAddress(norm string) bool {
 	}
 	atextExtra := "!#$%&'*+/=?^_`{|}~.-"
 	for _, c := range local {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
-			strings.ContainsRune(atextExtra, c)) {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') &&
+			!strings.ContainsRune(atextExtra, c) {
 			return false
 		}
 	}
@@ -710,7 +713,7 @@ func validRecipientAddress(norm string) bool {
 			return false
 		}
 		for _, c := range label {
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 				return false
 			}
 		}
@@ -899,11 +902,6 @@ func recordCapped(list *[]*PreparedMarketingMessage, overflow *int64, msg *Prepa
 // NewDispatchQueue creates a new DispatchQueue instance.
 // A nil suppression manager disables in-memory suppression checks.
 func NewDispatchQueue(ch *OutboundChannel, limiter *RateLimiter, suppression *SuppressionManager, sender SenderFunc) *DispatchQueue {
-	if sender == nil {
-		sender = func(_ context.Context, _ *OutboundChannel, _ *PreparedMarketingMessage) error {
-			return nil
-		}
-	}
 	q := &DispatchQueue{
 		channel:     ch,
 		limiter:     limiter,
@@ -1000,19 +998,6 @@ func (dq *DispatchQueue) Stats() DispatchQueueStats {
 	}
 }
 
-// removeByID removes the first message with the same pointer identity from the
-// queue. Re-queueing never relies on a stale index: between computing an index
-// under the lock and using it after re-acquiring the lock, other workers may
-// have changed the queue length, so index-based re-slicing can panic.
-func removeByMessage(queue []*PreparedMarketingMessage, msg *PreparedMarketingMessage) []*PreparedMarketingMessage {
-	for i, m := range queue {
-		if m == msg {
-			return append(queue[:i:i], queue[i+1:]...)
-		}
-	}
-	return queue
-}
-
 // SetRateLimiter updates the rate limiter on the queue.
 func (dq *DispatchQueue) SetRateLimiter(l *RateLimiter) {
 	dq.mu.Lock()
@@ -1056,6 +1041,9 @@ func (dq *DispatchQueue) DroppedCount() int {
 // with exponential backoff; after maxAttempts failures the message is moved to
 // the dead list and never retried again.
 func (dq *DispatchQueue) DispatchNext(ctx context.Context) (*PreparedMarketingMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// ---- Phase 1: lease a message under the lock (snapshot/dequeue only) ----
 	dq.mu.Lock()
 
@@ -1074,6 +1062,10 @@ func (dq *DispatchQueue) DispatchNext(ctx context.Context) (*PreparedMarketingMe
 	if dq.policy == nil {
 		dq.mu.Unlock()
 		return nil, ErrSenderPolicyRequired
+	}
+	if dq.sender == nil {
+		dq.mu.Unlock()
+		return nil, ErrSenderRequired
 	}
 
 	now := dq.clock()
@@ -1218,43 +1210,57 @@ func (dq *DispatchQueue) DispatchBatch(ctx context.Context, maxCount int) (int, 
 	return sent, nil
 }
 
-// DispatchMarketingMessage dispatches a single marketing message directly,
-// validating the channel per P08, checking suppression, and consuming rate limit tokens.
-func DispatchMarketingMessage(ctx context.Context, ch *OutboundChannel, msg *PreparedMarketingMessage, limiter *RateLimiter, suppression *SuppressionManager, sender SenderFunc) error {
-	return DispatchMarketingMessageWithChecker(ctx, ch, msg, limiter, suppression, nil, sender)
+// DispatchMarketingMessage dispatches one message through the same required
+// channel, durable suppression, policy, sender and tenant-limit gates as a queue.
+func DispatchMarketingMessage(ctx context.Context, ch *OutboundChannel, msg *PreparedMarketingMessage, limiter *RateLimiter, suppression *SuppressionManager, checker SuppressionChecker, policy SenderPolicy, sender SenderFunc) error {
+	return DispatchMarketingMessageWithChecker(ctx, ch, msg, limiter, suppression, checker, policy, sender)
 }
 
-// DispatchMarketingMessageWithChecker also consults durable suppression storage before sending.
-func DispatchMarketingMessageWithChecker(ctx context.Context, ch *OutboundChannel, msg *PreparedMarketingMessage, limiter *RateLimiter, suppression *SuppressionManager, checker SuppressionChecker, sender SenderFunc) error {
+// DispatchMarketingMessageWithChecker enforces every egress gate before sending.
+// A missing checker, policy or physical sender is a configuration failure.
+func DispatchMarketingMessageWithChecker(ctx context.Context, ch *OutboundChannel, msg *PreparedMarketingMessage, limiter *RateLimiter, suppression *SuppressionManager, checker SuppressionChecker, policy SenderPolicy, sender SenderFunc) error {
 	if err := ValidateMarketingChannel(ch); err != nil {
 		return err
 	}
-	if msg == nil {
-		return errors.New("nil marketing message")
+	if msg == nil || msg.TenantID <= 0 {
+		return errors.New("valid tenant-qualified marketing message is required")
 	}
-
+	if checker == nil {
+		return ErrSuppressionCheckerRequired
+	}
+	if policy == nil {
+		return ErrSenderPolicyRequired
+	}
+	if sender == nil {
+		return ErrSenderRequired
+	}
 	if suppression != nil && suppression.CheckSuppression(msg.TenantID, msg.Recipient) {
 		return ErrSuppressedRecipient
 	}
-
-	if checker != nil {
-		suppressed, err := checker.IsSuppressed(ctx, msg.TenantID, msg.Recipient)
-		if err != nil {
-			return fmt.Errorf("check durable suppression: %w", err)
-		}
-		if suppressed {
-			return ErrSuppressedRecipient
-		}
+	suppressed, err := checker.IsSuppressed(ctx, msg.TenantID, msg.Recipient)
+	if err != nil {
+		return fmt.Errorf("%w: durable check failed", ErrSuppressedRecipient)
 	}
-
+	if suppressed {
+		return ErrSuppressedRecipient
+	}
+	allowed, err := policy.AllowedToSend(msg.TenantID)
+	if err != nil || !allowed {
+		return ErrSenderPolicyDenied
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if limiter != nil {
-		if err := limiter.Take(1); err != nil {
+		if err := limiter.TakeFor(msg.TenantID, 1); err != nil {
 			return err
 		}
 	}
-
-	if sender == nil {
-		return nil
+	if err := sender(ctx, ch, msg); err != nil {
+		if limiter != nil && !IsDeliveryUncertain(err) {
+			limiter.RefundFor(msg.TenantID, 1)
+		}
+		return err
 	}
-	return sender(ctx, ch, msg)
+	return nil
 }

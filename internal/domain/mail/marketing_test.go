@@ -136,7 +136,7 @@ func TestMarketingDispatchRefusesFallbackToTransactional(t *testing.T) {
 		Kind:        ChannelKindTransactional,
 		IsDedicated: false,
 	}
-	err := DispatchMarketingMessage(ctx, txChannel, msg, nil, nil, sender)
+	err := DispatchMarketingMessage(ctx, txChannel, msg, nil, nil, nil, nil, sender)
 	if !errors.Is(err, ErrRefuseFallbackToTransactional) {
 		t.Fatalf("expected ErrRefuseFallbackToTransactional, got %v", err)
 	}
@@ -145,7 +145,7 @@ func TestMarketingDispatchRefusesFallbackToTransactional(t *testing.T) {
 	}
 
 	// 2. Unconfigured channel (nil) must fail immediately
-	err = DispatchMarketingMessage(ctx, nil, msg, nil, nil, sender)
+	err = DispatchMarketingMessage(ctx, nil, msg, nil, nil, nil, nil, sender)
 	if !errors.Is(err, ErrMarketingChannelNotConfigured) {
 		t.Fatalf("expected ErrMarketingChannelNotConfigured, got %v", err)
 	}
@@ -788,7 +788,7 @@ func TestDispatchQueue_DynamicSuppressionAtEgress(t *testing.T) {
 		IsDedicated: true,
 	}
 	mgr := mustSuppressionMgr(t, nil)
-	q := NewDispatchQueue(channel, nil, mgr, nil)
+	q := NewDispatchQueue(channel, nil, mgr, func(context.Context, *OutboundChannel, *PreparedMarketingMessage) error { return nil })
 	allowAll(q)
 
 	msg1 := &PreparedMarketingMessage{ID: "m1", TenantID: 1, Recipient: "good@example.com"}
@@ -825,10 +825,10 @@ func TestDirectDispatch_DurableSuppressionAndLookupFailure(t *testing.T) {
 	calls := 0
 	sender := func(context.Context, *OutboundChannel, *PreparedMarketingMessage) error { calls++; return nil }
 	msg := &PreparedMarketingMessage{TenantID: 1, Recipient: "person@example.test"}
-	if err := DispatchMarketingMessageWithChecker(context.Background(), channel, msg, nil, nil, staticSuppressionChecker{suppressed: true}, sender); !errors.Is(err, ErrSuppressedRecipient) || calls != 0 {
+	if err := DispatchMarketingMessageWithChecker(context.Background(), channel, msg, nil, nil, staticSuppressionChecker{suppressed: true}, staticPolicy{allowed: true}, sender); !errors.Is(err, ErrSuppressedRecipient) || calls != 0 {
 		t.Fatalf("suppression err=%v calls=%d", err, calls)
 	}
-	if err := DispatchMarketingMessageWithChecker(context.Background(), channel, msg, nil, nil, staticSuppressionChecker{err: errors.New("DB down")}, sender); err == nil || calls != 0 {
+	if err := DispatchMarketingMessageWithChecker(context.Background(), channel, msg, nil, nil, staticSuppressionChecker{err: errors.New("DB down")}, staticPolicy{allowed: true}, sender); err == nil || calls != 0 {
 		t.Fatalf("DB failure err=%v calls=%d", err, calls)
 	}
 }
@@ -867,7 +867,7 @@ func TestDispatchQueue_RateLimitThrottling(t *testing.T) {
 
 	// Limiter allowing only 2 messages
 	limiter := NewRateLimiter(RateLimitConfig{MaxPerHour: 2, MaxPerDay: 10})
-	q := NewDispatchQueue(channel, limiter, nil, nil)
+	q := NewDispatchQueue(channel, limiter, nil, func(context.Context, *OutboundChannel, *PreparedMarketingMessage) error { return nil })
 	allowAll(q)
 
 	q.Enqueue(
