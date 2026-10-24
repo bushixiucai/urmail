@@ -16,6 +16,17 @@ log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!!!\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31mxxx\033[0m %s\n' "$*" >&2; exit 1; }
 
+# BEGIN LEGACY INSTALLATION GUARD
+# Legacy MIAB data is not a PostgreSQL backup and cannot use this installer.
+# Guard legacy source data before this entry point mutates installation state,
+# including mixed installations with a partially created urMail environment.
+for legacy_input in /etc/mailinabox.conf /home/user-data/mail/users.sqlite /var/lib/mailinabox/mail/users.sqlite; do
+  if [ -e "$legacy_input" ] || [ -L "$legacy_input" ]; then
+    die "Legacy Mail-in-a-Box data detected. In-place installation is blocked: use the reviewed M8 inventory, import dry-run and migration procedure; preserve the source installation."
+  fi
+done
+# END LEGACY INSTALLATION GUARD
+
 [ "$(id -u)" -eq 0 ] || die "Run this script with sudo."
 [ -r /etc/os-release ] || die "Cannot detect the operating system."
 . /etc/os-release

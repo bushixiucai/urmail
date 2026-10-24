@@ -81,6 +81,23 @@ Description: urMail.cn multi-tenant email SaaS platform
  billing, payment, DNS onboarding, certificates, observability and compliance.
 EOF
 
+cat >"$STAGE/DEBIAN/preinst" <<'EOF'
+#!/bin/sh
+set -e
+die() { printf '%s\n' "$*" >&2; exit 1; }
+# BEGIN LEGACY INSTALLATION GUARD
+# Legacy MIAB data is not a PostgreSQL backup and cannot use this installer.
+# Guard legacy source data before this entry point mutates installation state,
+# including mixed installations with a partially created urMail environment.
+for legacy_input in /etc/mailinabox.conf /home/user-data/mail/users.sqlite /var/lib/mailinabox/mail/users.sqlite; do
+  if [ -e "$legacy_input" ] || [ -L "$legacy_input" ]; then
+    die "Legacy Mail-in-a-Box data detected. In-place installation is blocked: use the reviewed M8 inventory, import dry-run and migration procedure; preserve the source installation."
+  fi
+done
+# END LEGACY INSTALLATION GUARD
+exit 0
+EOF
+
 cat >"$STAGE/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
@@ -133,7 +150,7 @@ systemctl disable --now urmail-cert-renew.timer >/dev/null 2>&1 || true
 exit 0
 EOF
 
-chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
+chmod 0755 "$STAGE/DEBIAN/preinst" "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 
 OUTPUT="$ROOT/dist"
 mkdir -p "$OUTPUT"
