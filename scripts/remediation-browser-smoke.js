@@ -9,6 +9,48 @@ async (page) => {
  const portalGet=async path=>page.evaluate(async path=>{const response=await fetch(path,{headers:{Authorization:'Bearer '+sessionStorage.getItem('urmail.session-token')}});if(!response.ok)throw Error('Portal read '+path+' status'+response.status);return response.json()},path);
  await login(account);
 
+ // Exercise the real locale switch and authenticated mobile routes before
+ // returning to Chinese for the existing state-changing closure chains.
+ await page.getByRole('button',{name:/^(English|中文)$/}).waitFor();
+ const englishButton=page.getByRole('button',{name:'English',exact:true});
+ if(!(await englishButton.isVisible())){
+  const initialChineseCatalogue=page.waitForResponse(r=>r.url()===base+'/api/v1/i18n/zh-CN'&&r.status()===200);
+  await page.getByRole('button',{name:'中文',exact:true}).click();await initialChineseCatalogue;await englishButton.waitFor();
+ }
+ const englishCatalogueResponse=page.waitForResponse(r=>r.url()===base+'/api/v1/i18n/en'&&r.status()===200);
+ await englishButton.click();
+ const englishCatalogue=await(await englishCatalogueResponse).json();
+ if(englishCatalogue['page.billing.title']!=='Billing and plan'||englishCatalogue['layout.open_menu']!=='Open menu')throw Error('English catalogue not actually loaded from the backend');
+ await page.getByRole('button',{name:'中文',exact:true}).waitFor();
+ await page.setViewportSize({width:375,height:812});
+ const mobileEnglishRoutes=[['/domains','page.domains.title'],['/mailboxes','page.mailboxes.title'],['/aliases','page.aliases.title'],['/billing','page.billing.title'],['/marketing','nav.marketing'],['/support','nav.support'],['/notifications','notify.title'],['/settings/mfa','page.settings.mfa.title'],['/ai','page.ai.title'],['/archive','archive.title'],['/delivery','delivery.title'],['/audit','page.audit.title']];
+ const englishMobileChecks=[],englishMobileAria=[];
+ const englishScreenshotRoutes=new Set(['/billing','/archive','/delivery','/support','/ai','/audit']);
+ for(const [route,titleKey] of mobileEnglishRoutes){
+  const requestStart=requests.length,errorStart=errors.length;
+  await page.goto(base+route);await page.waitForLoadState('networkidle');
+  if(new URL(page.url()).pathname!==route)throw Error('English mobile authenticated route redirected '+route+' to '+new URL(page.url()).pathname);
+  await page.locator('main').getByText(englishCatalogue[titleKey],{exact:true}).first().waitFor();
+  await page.getByRole('button',{name:'Open menu',exact:true}).waitFor();
+  const visibleText=await page.locator('body').innerText();
+  const rawTranslationKeys=[...new Set(visibleText.match(/\b(?:page|layout|nav|error|state|billing|archive|delivery|support|marketing|notify|ai|status|action|auth|common|form|label|unit|validation|mfa|branding|settings|compliance|table)\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*/g)||[])];
+  if(rawTranslationKeys.length)throw Error('Raw translation keys on English mobile '+route+': '+rawTranslationKeys.join(','));
+  const dimensions=await page.evaluate(()=>({viewport:innerWidth,page:document.documentElement.scrollWidth}));
+  if(dimensions.page>dimensions.viewport+1)throw Error('English mobile horizontal overflow '+route+' '+JSON.stringify(dimensions));
+  const routeFailures=requests.slice(requestStart).filter(r=>r.status>=500&&!(r.path==='/api/v1/mail/queue'&&r.status===503));
+  if(routeFailures.length||errors.length!==errorStart)throw Error('English mobile request/runtime failure '+route+' '+JSON.stringify(routeFailures));
+  if(englishScreenshotRoutes.has(route)){await page.screenshot({path:evidence+'/english-mobile-'+route.slice(1)+'.png',fullPage:true});englishMobileAria.push({route,snapshot:await page.locator('main').first().ariaSnapshot()})}
+  englishMobileChecks.push({route,title:englishCatalogue[titleKey],locale:'en',viewport:375,documentWidth:dimensions.page,rawTranslationKeys,authenticated:true});
+ }
+ await page.getByRole('button',{name:'Open menu',exact:true}).click();
+ const chineseCatalogueResponse=page.waitForResponse(r=>r.url()===base+'/api/v1/i18n/zh-CN'&&r.status()===200);
+ await page.getByRole('button',{name:'中文',exact:true}).click();
+ const chineseCatalogue=await(await chineseCatalogueResponse).json();
+ await page.getByRole('button',{name:'English',exact:true}).waitFor();
+ await page.keyboard.press('Escape');await page.setViewportSize({width:1440,height:1000});
+ await page.getByRole('button',{name:chineseCatalogue['layout.open_menu'],exact:true}).waitFor({state:'hidden'});
+ const bilingualMobile={englishCatalogueLoaded:true,englishCatalogueKeys:Object.keys(englishCatalogue).length,checks:englishMobileChecks,ariaSnapshots:englishMobileAria,chineseRestored:true};
+
 
  const suffix=String(Date.now()), ticketSubject='Browser support closure '+suffix, staffReply='Verified platform reply '+suffix;
  await page.goto(base+'/support');await page.waitForLoadState('networkidle');
@@ -17,7 +59,20 @@ async (page) => {
  await login(fixture.platform_account);await page.goto(base+'/platform/support');await page.waitForLoadState('networkidle');const staffTicket=page.locator('li').filter({hasText:ticketSubject});await staffTicket.locator('button').click();const replyForm=page.getByRole('dialog').locator('form').filter({has:page.locator('textarea[name="body"]')});await replyForm.locator('textarea[name="body"]').fill(staffReply);
  const replied=page.waitForResponse(r=>r.url().endsWith(`/tickets/${ticket.id}/messages`)&&r.request().method()==='POST');await replyForm.locator('button').click();if((await replied).status()!==201)throw Error('Platform reply failed');
  await login(account);await page.goto(base+'/support');await page.waitForLoadState('networkidle');await page.locator('li').filter({hasText:ticketSubject}).locator('button').click();await page.getByText(staffReply,{exact:true}).waitFor();await page.screenshot({path:evidence+'/support-reply-desktop.png',fullPage:true});await page.goto(base+'/notifications');await page.waitForLoadState('networkidle');const notices=await portalGet('/api/v1/notifications');if(!notices.notifications.some(n=>n.message_key==='notification.support_reply'&&n.params.ticket===ticket.id&&n.state==='delivered'))throw Error('Staff reply notification missing');
- const ticketChain={ticket_id:ticket.id,platformReplyVisible:true,notificationDelivered:true};
+ const notificationLocales=[];
+ for(const locale of ['zh-CN','en']){
+  if(locale==='en'){
+   const loaded=page.waitForResponse(r=>r.url()===base+'/api/v1/i18n/en'&&r.status()===200);await page.getByRole('button',{name:'English',exact:true}).click();await loaded;
+  }
+  const catalogue=locale==='en'?englishCatalogue:chineseCatalogue;
+  const expectedNotification=catalogue['notification.support_reply'].replace(/\{+ticket\}+/g,String(ticket.id));
+  await page.locator('main').getByText(expectedNotification,{exact:true}).waitFor();
+  if(/\{+ticket\}+/.test(await page.locator('main').first().innerText()))throw Error('Support notification ticket id was not interpolated for '+locale);
+  await page.setViewportSize({width:375,height:812});if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Localized support notification overflow '+locale);await page.screenshot({path:evidence+'/support-notification-'+locale+'-mobile.png',fullPage:true});await page.setViewportSize({width:1440,height:1000});
+  notificationLocales.push({locale,ticket_id:ticket.id,actualTicketRendered:true,noPlaceholder:true});
+ }
+ const notificationChineseRestored=page.waitForResponse(r=>r.url()===base+'/api/v1/i18n/zh-CN'&&r.status()===200);await page.getByRole('button',{name:'中文',exact:true}).click();await notificationChineseRestored;
+ const ticketChain={ticket_id:ticket.id,platformReplyVisible:true,notificationDelivered:true,notificationLocales};
  await page.goto(base+'/marketing');await page.waitForLoadState('networkidle');const templateName='Browser template '+suffix,listName='Browser consent '+suffix,campaignName='Browser physical TLS '+suffix,subject='Verified local TLS marketing '+suffix,recipientEmail='physical-recipient-'+suffix+'@example.test';
  const templateForm=page.locator('form').filter({has:page.locator('textarea[name="text_body"]')});await templateForm.locator('input[name="name"]').fill(templateName);await templateForm.locator('input[name="subject"]').fill(subject);await templateForm.locator('textarea[name="text_body"]').fill('Explicitly consented local integration message');const templateSaved=page.waitForResponse(r=>r.url().endsWith('/api/v1/marketing/templates')&&r.request().method()==='POST');await templateForm.locator('button').click();if((await templateSaved).status()!==201)throw Error('Template UI failed');
  const listForm=page.locator('form:has(input[name="name"]):not(:has(select)):not(:has(textarea))');await listForm.locator('input[name="name"]').fill(listName);const listSaved=page.waitForResponse(r=>r.url().endsWith('/api/v1/marketing/lists')&&r.request().method()==='POST');await listForm.locator('button').click();const listResponse=await listSaved;if(listResponse.status()!==201)throw Error('List UI failed');const list=(await listResponse.json()).list;
@@ -85,6 +140,41 @@ await page.setViewportSize({width:375,height:812});if(await page.evaluate(()=>do
  const aiAdminChain={disabledConfigurationSaved:true,writeOnlyCredentialCleared:true,tenantConsentNotGranted:true,tenantLocalOnlyPreserved:true,noHealthOrCompletionRequested:!requests.some(r=>r.path.endsWith('/ai/health')||r.path.endsWith('/mailbox/ai')),explicitZeroUsageReleased:true,privateResultNotReturned:true};
  await page.screenshot({path:evidence+'/platform-desktop.png',fullPage:true});
  await page.goto(base+'/platform/support');await page.waitForLoadState('networkidle');
+ await login(account);await page.goto(base+'/billing');await page.waitForLoadState('networkidle');
+ const previousBilling=await portalGet('/api/v1/billing/subscription');
+ await page.getByLabel(chineseCatalogue['page.billing.coupon'],{exact:true}).fill(fixture.billing.coupon_code);
+ const planCard=page.getByText(fixture.billing.plan_name,{exact:true}).last().locator('xpath=..');
+ const quoted=page.waitForResponse(r=>r.url().endsWith('/api/v1/billing/quote')&&r.request().method()==='POST');
+ await planCard.getByRole('button',{name:chineseCatalogue['page.billing.select'],exact:true}).click();
+ const quotedResponse=await quoted;if(quotedResponse.status()!==200)throw Error('Financial GUI server quote failed '+quotedResponse.status());
+ const signedQuote=await quotedResponse.json();
+ if(signedQuote.final_amount_cents!==0||signedQuote.base_amount_cents!==100||signedQuote.discount_cents!==100||signedQuote.coupon_code!==fixture.billing.coupon_code)throw Error('Financial GUI did not use the real full-discount quote');
+ const originalPurchase=await page.evaluate(tid=>JSON.parse(sessionStorage.getItem('urmail.purchase.'+tid)||'null'),account.tenant_id);
+ if(!originalPurchase||originalPurchase.quote.digest!==signedQuote.digest)throw Error('Quoted purchase intent was not persisted before checkout');
+ await page.reload();await page.waitForLoadState('networkidle');
+ const restoredPurchase=await page.evaluate(tid=>JSON.parse(sessionStorage.getItem('urmail.purchase.'+tid)||'null'),account.tenant_id);
+ if(restoredPurchase?.key!==originalPurchase.key||restoredPurchase?.quote.digest!==signedQuote.digest)throw Error('Financial GUI refresh changed purchase key or signed quote');
+ const zeroCheckout=page.waitForResponse(r=>r.url().endsWith('/api/v1/billing/checkout')&&r.request().method()==='POST');
+ await page.getByRole('button',{name:chineseCatalogue['page.billing.confirm_payment'],exact:true}).click();
+ const zeroResponse=await zeroCheckout,zeroResult=await zeroResponse.json();
+ if(zeroResponse.status()!==201||zeroResult.order?.status!=='paid'||zeroResult.order?.amount_cents!==0||zeroResponse.request().headers()['idempotency-key']!==originalPurchase.key)throw Error('Financial GUI did not settle one zero-cost order with its original key');
+ const paidMessage=chineseCatalogue['page.billing.completed_order'].replace('{{number}}',zeroResult.order.order_no);
+ await page.getByRole('dialog').getByText(paidMessage,{exact:true}).waitFor();
+ const paidDialogText=await page.getByRole('dialog').innerText();if(!paidDialogText.includes(zeroResult.order.order_no)||/\{+\s*number\s*\}+/.test(paidDialogText))throw Error('Completed order number was not interpolated');
+ if(await page.getByRole('dialog').getByText(chineseCatalogue['page.billing.manual_order'].replace('{{number}}',zeroResult.order.order_no),{exact:true}).count())throw Error('Paid order still requests manual settlement');
+ if(await page.evaluate(tid=>sessionStorage.getItem('urmail.purchase.'+tid),account.tenant_id)!==null)throw Error('Completed order left a resumable purchase intent');
+ const updatedBilling=await portalGet('/api/v1/billing/subscription');
+ if(Date.parse(updatedBilling.subscription.period_end)<=Date.parse(previousBilling.subscription.period_end)||Date.parse(signedQuote.period_start)<Date.parse(previousBilling.subscription.period_end))throw Error('Financial GUI renewal did not preserve and extend the existing paid period');
+ await page.setViewportSize({width:375,height:812});await page.screenshot({path:evidence+'/billing-zero-paid-mobile.png',fullPage:true});
+ await page.getByRole('dialog').getByRole('button',{name:chineseCatalogue['action.close'],exact:true}).first().click();
+ await page.getByText(zeroResult.order.order_no,{exact:false}).first().waitFor();
+ const latestInvoices=(await portalGet('/api/v1/billing/invoices')).invoices;const zeroInvoice=latestInvoices.find(i=>i.amount_cents===0&&Date.parse(i.period_start)===Date.parse(signedQuote.period_start));if(!zeroInvoice)throw Error('Zero order invoice missing');
+ await page.getByText(zeroInvoice.number,{exact:true}).waitFor();
+ if(await page.getByRole('button',{name:chineseCatalogue['page.billing.confirm_payment'],exact:true}).count())throw Error('Completed quote remains confirmable');
+ if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Completed billing mobile overflow');
+ await page.setViewportSize({width:1440,height:1000});await page.screenshot({path:evidence+'/billing-zero-updated-desktop.png',fullPage:true});
+ const zeroCheckoutRequests=requests.filter(r=>r.path==='/api/v1/billing/checkout'&&r.method==='POST');if(zeroCheckoutRequests.length!==1)throw Error('Financial GUI repeated checkout');
+ const financialGUI={serverQuote:true,fullDiscount:true,refreshRestoredOriginalIntent:true,sameIdempotencyKey:true,orderID:zeroResult.order.id,paidNotice:true,purchaseIntentCleared:true,quoteCleared:true,subscriptionExtended:true,futureTermPreserved:true,invoiceVisible:true,lifecycleOrderVisible:true,checkoutRequests:zeroCheckoutRequests.length};
  await page.goto(fixture.quarantine_url+'/register');await page.waitForLoadState('networkidle');
  await page.getByRole('status').filter({hasText:'实例处于恢复隔离'}).waitFor();
  if(!(await page.locator('button[type="submit"]').isDisabled()))throw Error('Quarantined registration enabled');
@@ -93,5 +183,5 @@ await page.setViewportSize({width:375,height:812});if(await page.evaluate(()=>do
  const knownUnavailable=requests.filter(r=>r.path==='/api/v1/mail/queue'&&r.status===503);const failing=requests.filter(r=>r.status>=500&&!(r.path==='/api/v1/mail/queue'&&r.status===503));if(failing.length)throw Error('Unexpected server failures '+JSON.stringify(failing));if(errors.length)throw Error('Browser exceptions '+errors.join(';'));
 
 
- return {routes:16,aiAdminChain,ticketChain,marketingChain,dnsChain:{previewReadOnly:true,unknownWriteCount:unknownDNS.writes-beforeDNS.writes,uncertainNotReplayed:true,finalProviderWriteCount:afterDNS.writes,rollbackOwnChangesOnly:true,websitePreserved:true,onboardingRetryRequested:true},timezonePersisted:true,quarantineRegistrationDisabled:true,platformReads:must,knownUnavailable,errors,requests};
+ return {routes:16,bilingualMobile,financialGUI,aiAdminChain,ticketChain,marketingChain,dnsChain:{previewReadOnly:true,unknownWriteCount:unknownDNS.writes-beforeDNS.writes,uncertainNotReplayed:true,finalProviderWriteCount:afterDNS.writes,rollbackOwnChangesOnly:true,websitePreserved:true,onboardingRetryRequested:true},timezonePersisted:true,quarantineRegistrationDisabled:true,platformReads:must,knownUnavailable,errors,requests};
 }
