@@ -30,6 +30,7 @@ Usage:
   urmailctl cert renew              renew ACME certificates and install them
   urmailctl usage sync             collect canonical Dovecot storage usage
   urmailctl billing repair-legacy-period --tenant-id T --subscription-id S --paid-order-id O --expected-start RFC3339 --expected-end RFC3339 --nominal-basis-cents N --reason TEXT [--apply]
+  urmailctl import-miadb --dry-run --config FILE --sqlite FILE [--mapping FILE]
   urmailctl data-check             report tenant reference/allocation problems
   urmailctl telemetry acknowledge-gap --stream NAME --generation N --reason TEXT
   urmailctl domain challenge --tenant-id T --domain-id D
@@ -76,6 +77,8 @@ func run(args []string) error {
 		return runDomainRecovery(ctx, args[1:])
 	case "billing":
 		return runBillingRepair(ctx, args[1:])
+	case "import-miadb":
+		return runImportMIADB(ctx, args[1:])
 	case "data-check":
 		return runDataCheck(ctx)
 	case "backup":
