@@ -39,22 +39,26 @@ type Domain struct {
 
 // Report is safe for normal logs: it contains no address, password hash, secret or config value.
 type Report struct {
-	Version                 int              `json:"version"`
-	Mode                    string           `json:"mode"`
-	Status                  string           `json:"status"`
-	Changed                 bool             `json:"changed"`
-	ApplyAvailable          bool             `json:"apply_available"`
-	CutoverReady            bool             `json:"cutover_ready"`
-	Schema                  string           `json:"schema"`
-	SnapshotSHA256          string           `json:"reviewed_snapshot_sha256,omitempty"`
-	Counts                  map[string]int64 `json:"counts"`
-	ExistingServicePolicy   string           `json:"existing_service_policy"`
-	TargetTenantGroups      int              `json:"target_tenant_groups"`
-	UnlimitedQuotaMapping   string           `json:"unlimited_quota_mapping"`
-	UnlimitedQuotaMailboxes int              `json:"unlimited_quota_mailboxes"`
-	Domains                 []Domain         `json:"domains"`
-	Blockers                []Issue          `json:"blockers"`
-	Warnings                []Issue          `json:"warnings"`
+	Version                       int              `json:"version"`
+	Mode                          string           `json:"mode"`
+	Status                        string           `json:"status"`
+	Changed                       bool             `json:"changed"`
+	ApplyAvailable                bool             `json:"apply_available"`
+	CutoverReady                  bool             `json:"cutover_ready"`
+	Schema                        string           `json:"schema"`
+	MappingVersion                int              `json:"mapping_version"`
+	ReviewSnapshotBound           bool             `json:"review_snapshot_bound"`
+	BoundReviewPolicies           []string         `json:"bound_review_policies"`
+	ReviewedEquivalentAliasGroups int              `json:"reviewed_equivalent_alias_groups"`
+	SnapshotSHA256                string           `json:"reviewed_snapshot_sha256,omitempty"`
+	Counts                        map[string]int64 `json:"counts"`
+	ExistingServicePolicy         string           `json:"existing_service_policy"`
+	TargetTenantGroups            int              `json:"target_tenant_groups"`
+	UnlimitedQuotaMapping         string           `json:"unlimited_quota_mapping"`
+	UnlimitedQuotaMailboxes       int              `json:"unlimited_quota_mailboxes"`
+	Domains                       []Domain         `json:"domains"`
+	Blockers                      []Issue          `json:"blockers"`
+	Warnings                      []Issue          `json:"warnings"`
 }
 
 type sourceUser struct {
@@ -88,8 +92,12 @@ type snapshot struct {
 	MFA                 []sourceMFA      `json:"mfa"`
 }
 type mapping struct {
-	Version int             `json:"version"`
-	Domains []domainMapping `json:"domains"`
+	Version                           int             `json:"version"`
+	Domains                           []domainMapping `json:"domains"`
+	ReviewedSnapshotSHA256            string          `json:"reviewed_snapshot_sha256,omitempty"`
+	LegacyPrivileges                  string          `json:"legacy_privileges,omitempty"`
+	AllowSameTenantCrossDomainAliases bool            `json:"allow_same_tenant_cross_domain_aliases,omitempty"`
+	AllowEquivalentAliasDedup         bool            `json:"allow_equivalent_alias_dedup,omitempty"`
 }
 type domainMapping struct {
 	Domain    string `json:"domain"`
@@ -225,7 +233,7 @@ func Inspect(ctx context.Context, options Options) (Report, error) {
 		if decoder.Decode(&struct{}{}) != io.EOF {
 			return report, errors.New("mapping file contains trailing data")
 		}
-		if selected.Version != 1 {
+		if selected.Version != 1 && selected.Version != 2 {
 			return report, errors.New("mapping file version is unsupported")
 		}
 	}
