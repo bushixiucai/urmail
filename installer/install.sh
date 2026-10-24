@@ -129,27 +129,40 @@ pg_isready -q -h /var/run/postgresql -p 5432 || die "PostgreSQL did not become r
 if [ -n "${BACKUP_DIR:-}" ]; then
   log "saving the pre-upgrade database"
   python3 - "$BACKUP_DIR/urmaild.env" "$BACKUP_DIR/database.dump" <<'PYCODE'
-import os, subprocess, sys, urllib.parse
+import os, re, subprocess, sys, urllib.parse
 values = {}
 for line in open(sys.argv[1]):
     key, sep, value = line.strip().partition("=")
     if sep and not key.startswith("#"):
         values[key] = value.strip().strip('"').strip("'")
-uri = values.get("URMAIL_DATABASE_URL_PLATFORM")
+uri = values.get("URMAIL_DATABASE_URL_MIGRATE")
 if not uri:
-    raise SystemExit("Pre-upgrade backup requires the platform database role")
+    raise SystemExit("Pre-upgrade backup requires the controlled local migration database URL")
 parsed = urllib.parse.urlsplit(uri)
-environment = dict(os.environ)
-if parsed.password is not None:
-    environment["PGPASSWORD"] = urllib.parse.unquote(parsed.password)
-netloc = parsed.netloc.rsplit("@", 1)[-1]
-if parsed.username is not None:
-    netloc = urllib.parse.quote(urllib.parse.unquote(parsed.username), safe="") + "@" + netloc
-safe_uri = urllib.parse.urlunsplit(parsed._replace(netloc=netloc))
+query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+try:
+    port = parsed.port
+except ValueError:
+    raise SystemExit("Invalid local backup database port")
+name = urllib.parse.unquote(parsed.path.removeprefix("/"))
+if (parsed.scheme not in ("postgres", "postgresql") or parsed.username != "urmail_migrate"
+        or parsed.hostname not in (None, "127.0.0.1", "localhost", "::1")
+        or port not in (None, 5432) or parsed.fragment
+        or not re.fullmatch(r"[A-Za-z0-9_]{1,63}", name)
+        or set(query) - {"sslmode", "host"}
+        or ("host" in query and query["host"] != ["/var/run/postgresql"])):
+    raise SystemExit("Pre-upgrade backup requires the managed local PostgreSQL target")
+# FORCE RLS is not bypassed by inherited role membership. Root uses the
+# fixed local peer identity; runtime and migration privileges stay limited.
+peer_uri = "postgresql://postgres/" + name + "?host=/var/run/postgresql&port=5432&sslmode=disable"
+environment = {key: value for key, value in os.environ.items() if not key.startswith("PG")}
 fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-os.close(fd)
-subprocess.run(["pg_dump", "--no-owner", "--format=custom", "--file=" + sys.argv[2], safe_uri],
-               env=environment, check=True)
+with os.fdopen(fd, "wb") as output:
+    subprocess.run(["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/pg_dump",
+                    "--no-owner", "--format=custom", "--dbname", peer_uri],
+                   env=environment, stdout=output, stderr=subprocess.DEVNULL, check=True)
+    output.flush()
+    os.fsync(output.fileno())
 PYCODE
 fi
 
