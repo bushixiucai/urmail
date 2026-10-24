@@ -69,3 +69,16 @@ func TestIPHelpers(t *testing.T) {
 		t.Error("IPv6 classification wrong")
 	}
 }
+
+func TestMailboxLocalPartRetainsUnderscore(t *testing.T) {
+	for _, local := range []string{"tiger_lee", "first_last+tag", "_service"} {
+		if !validation.LocalPartRegex.MatchString(local) {
+			t.Fatalf("ordinary underscore mailbox rejected: %q", local)
+		}
+	}
+	for _, local := range []string{"bad part", "bad\npart", "bad@part", "bad\x00part"} {
+		if validation.LocalPartRegex.MatchString(local) {
+			t.Fatalf("unsafe local part accepted: %q", local)
+		}
+	}
+}
