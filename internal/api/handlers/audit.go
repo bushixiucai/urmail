@@ -142,7 +142,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 			next = base64.RawURLEncoding.EncodeToString(payload)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"logs": logs, "next_cursor": next})
+	c.JSON(http.StatusOK, gin.H{"logs": auditResponses(logs), "next_cursor": next})
 }
 
 type auditCursor struct {

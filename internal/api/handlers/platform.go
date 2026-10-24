@@ -699,7 +699,7 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"logs": logs})
+	c.JSON(http.StatusOK, gin.H{"logs": auditResponses(logs)})
 }
 
 // AssignSubscriptionRequest selects a plan and subscription period.
