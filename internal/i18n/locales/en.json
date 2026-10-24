@@ -1246,5 +1246,11 @@
   "error.MIGRATION_ENTITLEMENT_PRESERVED": "Migrated existing mail service has no automatic expiry. Purchase a commercial plan to start a new paid period; scheduled cancellation or replacement is unavailable.",
   "billing_lifecycle.migration_preserved": "Migrated existing mail service · no automatic expiry",
   "billing_lifecycle.migration_purchase": "Existing mail service is preserved. A commercial purchase starts its own complete period immediately; AI and marketing require separately configured limits.",
-  "error.MIGRATION_ENTITLEMENT_EXISTS": "Existing migrated mail service is already preserved; a trial is unnecessary."
+  "error.MIGRATION_ENTITLEMENT_EXISTS": "Existing migrated mail service is already preserved; a trial is unnecessary.",
+  "error.MAILBOX_PASSWORD_POLICY": "Use a different password of 8–1024 characters without control characters.",
+  "error.MAILBOX_PASSWORD_CURRENT_INVALID": "The current mailbox password is incorrect.",
+  "error.MAILBOX_PASSWORD_CHANGED": "The mailbox credentials changed. Sign in again before changing the password.",
+  "error.MAILBOX_PASSWORD_RATE_LIMITED": "Too many unsuccessful password changes. Try again after 15 minutes.",
+  "page.webmail.password_relogin": "Password updated. Sign in again. Existing IMAP sessions are being disconnected; if a new connection closes briefly, wait and retry.",
+  "page.webmail.password_unknown": "The password-change result could not be confirmed. Sign in again to check it; do not repeatedly submit the change."
 }

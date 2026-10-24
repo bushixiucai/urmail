@@ -14,8 +14,12 @@ import (
 
 // MailAccess describes a registered mailbox's current permission to write mail.
 type MailAccess struct {
-	Address string
-	Allowed bool
+	Address               string
+	Allowed               bool
+	TenantID              int64
+	MailboxID             int64
+	PasswordVersion       int64
+	PasswordRevokePending bool
 }
 
 type accessSnapshot func(context.Context) ([]MailAccess, time.Time, error)
@@ -24,7 +28,12 @@ type accessSnapshot func(context.Context) ([]MailAccess, time.Time, error)
 // The one-second recovery poll also observes administrative changes; scheduled
 // subscription boundaries are checked immediately rather than waiting for it.
 func WatchMailAccess(ctx context.Context, snapshot accessSnapshot, run CommandRunner, logger *slog.Logger) {
+	watchMailAccess(ctx, snapshot, run, logger, nil)
+}
+
+func watchMailAccess(ctx context.Context, snapshot accessSnapshot, run CommandRunner, logger *slog.Logger, acknowledge func(context.Context, MailAccess) error) {
 	previous := make(map[string]bool)
+	pendingCredentials := make(map[string]MailAccess)
 	pending := make(map[string]bool)
 	delay := time.Duration(0)
 	for {
@@ -53,6 +62,11 @@ func WatchMailAccess(ctx context.Context, snapshot accessSnapshot, run CommandRu
 					continue
 				}
 				current[row.Address] = row.Allowed
+				if row.PasswordRevokePending {
+					pending[row.Address] = true
+					pendingCredentials[row.Address] = row
+				}
+
 				wasAllowed, known := previous[row.Address]
 				if !row.Allowed && (!known || wasAllowed) {
 					pending[row.Address] = true
@@ -78,6 +92,16 @@ func WatchMailAccess(ctx context.Context, snapshot accessSnapshot, run CommandRu
 			stop()
 			var exitErr *exec.ExitError
 			if kickErr == nil || (errors.As(kickErr, &exitErr) && exitErr.ExitCode() == 68) {
+				if credential, ok := pendingCredentials[address]; ok && acknowledge != nil {
+					ackCtx, ackCancel := context.WithTimeout(ctx, time.Second)
+					ackErr := acknowledge(ackCtx, credential)
+					ackCancel()
+					if ackErr != nil {
+						logger.Error("mail credential revocation acknowledgement failed")
+						continue
+					}
+				}
+				delete(pendingCredentials, address)
 				delete(pending, address)
 			} else {
 				logger.Error("mail access session disconnect failed")
@@ -101,7 +125,7 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 	q := store.New(m.pool.Pool)
 	go func() {
 		defer close(done)
-		WatchMailAccess(ctx, func(queryCtx context.Context) ([]MailAccess, time.Time, error) {
+		watchMailAccess(ctx, func(queryCtx context.Context) ([]MailAccess, time.Time, error) {
 			rows, err := q.PlatformMailboxAccessStates(queryCtx)
 			if err != nil {
 				return nil, time.Time{}, err
@@ -112,14 +136,17 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 			}
 			states := make([]MailAccess, 0, len(rows))
 			for _, row := range rows {
-				states = append(states, MailAccess{Address: row.Address, Allowed: row.Allowed})
+				states = append(states, MailAccess{Address: row.Address, Allowed: row.Allowed, TenantID: row.TenantID, MailboxID: row.MailboxID, PasswordVersion: row.PasswordVersion, PasswordRevokePending: row.PasswordRevokePending})
 			}
 			var next time.Time
 			if boundary.Valid {
 				next = boundary.Time
 			}
 			return states, next, nil
-		}, m.run, logger)
+		}, m.run, logger, func(ackCtx context.Context, row MailAccess) error {
+			_, err := q.PlatformAckMailboxPasswordRevocation(ackCtx, store.PlatformAckMailboxPasswordRevocationParams{TenantID: row.TenantID, MailboxID: row.MailboxID, Address: row.Address, ExpectedVersion: row.PasswordVersion})
+			return err
+		})
 	}()
 	return func() { cancel(); <-done }
 }

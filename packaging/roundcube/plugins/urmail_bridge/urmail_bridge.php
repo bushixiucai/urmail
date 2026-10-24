@@ -1,5 +1,14 @@
 <?php
 class urmail_bridge_error extends RuntimeException {}
+class urmail_bridge_remote_error extends urmail_bridge_error
+{
+    public $http_status;
+    public function __construct($message, $http_status)
+    {
+        parent::__construct($message);
+        $this->http_status = $http_status;
+    }
+}
 
 /** Server-side mailbox principal bridge. No panel SSO or mailbox password export. */
 class urmail_bridge extends rcube_plugin
@@ -10,6 +19,11 @@ class urmail_bridge extends rcube_plugin
     {
         $this->add_hook('login_after', [$this, 'login']);
         $this->add_hook('session_destroy', [$this, 'logout']);
+        $this->add_hook('password_change', [$this, 'password_changed']);
+        if (rcmail::get_instance()->task === 'login' && (!empty($_GET['_urmail_password_changed']) || !empty($_GET['_urmail_password_unknown']))) {
+            $unknown = !empty($_GET['_urmail_password_unknown']);
+            rcmail::get_instance()->output->command('display_message', $this->text($unknown ? 'page.webmail.password_unknown' : 'page.webmail.password_relogin'), $unknown ? 'warning' : 'confirmation');
+        }
         $this->register_action('plugin.urmail_context', [$this, 'context']);
         $this->register_action('plugin.urmail_sieve', [$this, 'sieve_ticket']);
         $this->include_script('bridge.js');
@@ -60,7 +74,7 @@ class urmail_bridge extends rcube_plugin
                 $failure = json_decode($result, true);
                 $code = $failure['error']['code'] ?? '';
                 if (is_string($code) && preg_match('/^[A-Z0-9_]+$/D', $code)) {
-                    throw new urmail_bridge_error($this->text('error.' . $code));
+                    throw new urmail_bridge_remote_error($this->text('error.' . $code), $status);
                 }
             }
             throw new urmail_bridge_error($this->text('page.webmail.authorization_unavailable'));
@@ -84,6 +98,64 @@ class urmail_bridge extends rcube_plugin
             rcube::write_log('errors', 'urMail mailbox bridge login unavailable');
         }
         return $args;
+    }
+
+    // Called only by the native password plugin's installed driver.
+    public function save_password($old_password, $new_password, $username)
+    {
+        $rc = rcmail::get_instance();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$rc->check_request()
+            || $rc->task !== 'settings' || $rc->action !== 'plugin.password-save'
+            || !$rc->get_storage()->check_connection()
+            || empty($_SESSION['urmail_mailbox_session'])
+            || !is_string($username) || $username !== $rc->user->get_username()) {
+            return PASSWORD_ERROR;
+        }
+        if (!is_string($old_password) || !is_string($new_password) || strlen($old_password) < 1
+            || strlen($old_password) > 4096 || strlen($new_password) > 4096 || $old_password === $new_password
+            || !preg_match('//u', $new_password) || preg_match('/[\p{Cc}]/u', $new_password)
+            || ($characters = preg_match_all('/./us', $new_password)) < 8 || $characters > 1024) {
+            return PASSWORD_CONSTRAINT_VIOLATION;
+        }
+        try {
+            $result = $this->call_bridge(['action' => 'change_password',
+                'session' => $_SESSION['urmail_mailbox_session'], 'address' => $rc->user->get_username(),
+                'old_password' => $old_password, 'new_password' => $new_password]);
+            if (empty($result['changed']) || empty($result['reauthentication_required'])) {
+                $this->password_relogin(true);
+            }
+            $_SESSION['urmail_password_changed'] = true;
+            return PASSWORD_SUCCESS;
+        } catch (urmail_bridge_remote_error $error) {
+            if ($error->http_status >= 500) {
+                $this->password_relogin(true);
+            }
+            return PASSWORD_ERROR;
+        } catch (Throwable $error) {
+            // A lost response may follow a committed change. Require authentication
+            // again without guessing whether the old or new credential is current.
+            $this->password_relogin(true);
+        }
+    }
+
+    public function password_changed($args)
+    {
+        if (empty($_SESSION['urmail_password_changed'])) {
+            return $args;
+        }
+        $this->password_relogin(false);
+    }
+
+    private function password_relogin($uncertain)
+    {
+        unset($_SESSION['urmail_password_changed'], $_SESSION['urmail_mailbox_session']);
+        $rc = rcmail::get_instance();
+        // The core password plugin would otherwise cache the new password after
+        // this hook. Terminate the request after the server-side session dies.
+        $rc->kill_session();
+        header('Cache-Control: no-store');
+        header('Location: ./?_task=login&' . ($uncertain ? '_urmail_password_unknown=1' : '_urmail_password_changed=1'), true, 303);
+        exit;
     }
 
     public function logout($args)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,8 @@ type mailboxBridgeRequest struct {
 	Rules               *sieve.Rules      `json:"rules,omitempty"`
 	Confirmed           bool              `json:"confirmed,omitempty"`
 	ConfigurationDigest string            `json:"configuration_digest,omitempty"`
+	OldPassword         string            `json:"old_password,omitempty"`
+	NewPassword         string            `json:"new_password,omitempty"`
 	ExpectedVersion     string            `json:"expected_version,omitempty"`
 }
 
@@ -53,14 +56,19 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	var tid, mid int64
 	var input mailboxBridgeRequest
+	rejectionAudited := false
 	defer func() {
-		if h.Pool == nil || c.Writer.Status() < 400 {
+		if h.Pool == nil || c.Writer.Status() < 400 || rejectionAudited {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": c.Writer.Status(), "outcome": "rejected"})
-		_, auditErr := store.New(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "mailbox.bridge.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail})
+		action := "mailbox.bridge.rejected"
+		if input.Action == "change_password" {
+			action = "mailbox.password.rejected"
+		}
+		_, auditErr := store.New(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: mid > 0}, Detail: detail})
 		if auditErr != nil {
 			middleware.RecordAuditFailure(false)
 			zap.L().Error("write mailbox rejection audit", zap.Error(auditErr))
@@ -123,6 +131,41 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 		}
 		tid, mid = session.TenantID, session.MailboxID
 		response = gin.H{"session": token, "expires_at": session.ExpiresAt}
+	case "change_password":
+		changed, passwordErr := changeMailboxPassword(c.Request.Context(), q, input)
+		tid, mid = changed.TenantID, changed.MailboxID
+		if passwordErr != nil {
+			status, code := 503, "DB_ERROR"
+			switch {
+			case errors.Is(passwordErr, errMailboxPasswordPolicy):
+				status, code = 400, "MAILBOX_PASSWORD_POLICY"
+			case errors.Is(passwordErr, errMailboxPasswordCurrent):
+				status, code = 403, "MAILBOX_PASSWORD_CURRENT_INVALID"
+			case errors.Is(passwordErr, errMailboxPasswordConflict):
+				status, code = 409, "MAILBOX_PASSWORD_CHANGED"
+			case errors.Is(passwordErr, errMailboxPasswordRate):
+				status, code = 429, "MAILBOX_PASSWORD_RATE_LIMITED"
+			case errors.Is(passwordErr, pgx.ErrNoRows):
+				status, code = 403, "MAILBOX_AUTHORIZATION_DENIED"
+			}
+			if tid > 0 && mid > 0 && status < 500 {
+				detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": status, "outcome": "rejected"})
+				if _, auditErr := q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, Action: "mailbox.password.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: true}, Detail: detail}); auditErr != nil {
+					middleware.RecordAuditFailure(true)
+					authError(c, 503, "AUDIT_UNAVAILABLE")
+					return
+				}
+				if tx.Commit(c) != nil {
+					authError(c, 503, "DB_ERROR")
+					return
+				}
+				rejectionAudited = true
+			}
+			authError(c, status, code)
+			return
+		}
+
+		response = gin.H{"changed": true, "reauthentication_required": true, "imap_revocation": "pending"}
 	case "logout":
 		session, sessionErr := q.PlatformGetMailboxSessionForRevocation(c, mailboxprincipal.HashToken(input.Session))
 		if errors.Is(sessionErr, pgx.ErrNoRows) {
@@ -255,8 +298,16 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "scope": input.Scope, "status": 200, "outcome": "succeeded", "phase": "authorization"})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "mailbox." + input.Action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
+	phase := "authorization"
+	scope := input.Scope
+	var targetID pgtype.Text
+	if input.Action == "change_password" {
+		scope = ""
+		phase = "credentials"
+		targetID = pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: mid > 0}
+	}
+	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "scope": scope, "status": 200, "outcome": "succeeded", "phase": phase})
+	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "mailbox." + input.Action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: targetID, Detail: detail}); err != nil {
 		middleware.RecordAuditFailure(true)
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return

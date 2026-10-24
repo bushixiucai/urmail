@@ -1246,5 +1246,11 @@
   "error.MIGRATION_ENTITLEMENT_PRESERVED": "迁移存量邮件服务不自动到期。购买商业套餐将开始新的完整账期，暂不支持预约取消或覆盖该存量权益。",
   "billing_lifecycle.migration_preserved": "迁移存量邮件服务 · 不自动到期",
   "billing_lifecycle.migration_purchase": "存量邮件服务继续保留。购买商业套餐会立即开始独立的完整账期；AI 和营销仍须另行配置有效额度。",
-  "error.MIGRATION_ENTITLEMENT_EXISTS": "存量服务权益已保留，无需试用。"
+  "error.MIGRATION_ENTITLEMENT_EXISTS": "存量服务权益已保留，无需试用。",
+  "error.MAILBOX_PASSWORD_POLICY": "请使用与原密码不同的8–1024字符密码，且不得包含控制字符。",
+  "error.MAILBOX_PASSWORD_CURRENT_INVALID": "当前邮箱密码不正确。",
+  "error.MAILBOX_PASSWORD_CHANGED": "邮箱凭据已发生变化，请重新登录后再修改密码。",
+  "error.MAILBOX_PASSWORD_RATE_LIMITED": "密码修改失败次数过多，请在15分钟后重试。",
+  "page.webmail.password_relogin": "密码已更新，请重新登录。旧IMAP会话正在断开；若新连接短暂中断，请稍候重试。",
+  "page.webmail.password_unknown": "密码修改结果尚未确认，请重新登录核对，不要反复提交修改。"
 }
