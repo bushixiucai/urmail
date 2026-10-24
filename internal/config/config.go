@@ -66,6 +66,21 @@ type Config struct {
 	// PolicyEnabled controls whether Postfix queries the policy service.
 	PolicyEnabled bool
 
+	// PostfixV80Preserve enables the fixed, reviewed v80 SMTP compatibility profile.
+	// It requires the SaaS policy service and never accepts raw restrictions.
+	PostfixV80Preserve bool
+
+	// PreserveExternalNSD keeps an existing authoritative NSD tree untouched.
+	// Used for v80 same-box mail cutover while source zones/DNSSEC remain live.
+	PreserveExternalNSD bool
+
+	// PreserveExternalWeb keeps existing nginx site/TLS layout untouched.
+	PreserveExternalWeb bool
+
+	// PreserveExternalOpenDKIM keeps the live OpenDKIM milter/config untouched
+	// so Postfix can keep signing through the source milter without dual-sign.
+	PreserveExternalOpenDKIM bool
+
 	// ArchiveEnabled controls whether Postfix routes incoming mail through
 	// the archive transport.
 	ArchiveEnabled bool
@@ -162,6 +177,36 @@ func Load() (*Config, error) {
 		}
 	}
 
+	var preserveV80 bool
+	if raw := values["URMAIL_POSTFIX_V80_PRESERVE"]; raw != "" {
+		preserveV80, err = strconv.ParseBool(raw)
+		if err != nil {
+			return nil, errors.New("URMAIL_POSTFIX_V80_PRESERVE must be a boolean")
+		}
+	}
+	parsePreserve := func(key string) (bool, error) {
+		raw := values[key]
+		if raw == "" {
+			return false, nil
+		}
+		value, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			return false, fmt.Errorf("%s must be a boolean", key)
+		}
+		return value, nil
+	}
+	preserveNSD, err := parsePreserve("URMAIL_PRESERVE_EXTERNAL_NSD")
+	if err != nil {
+		return nil, err
+	}
+	preserveWeb, err := parsePreserve("URMAIL_PRESERVE_EXTERNAL_WEB")
+	if err != nil {
+		return nil, err
+	}
+	preserveDKIM, err := parsePreserve("URMAIL_PRESERVE_EXTERNAL_OPENDKIM")
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		DevMode:                     parseBool(values["URMAIL_DEV_MODE"]),
 		MarketingEnabled:            parseBool(values["URMAIL_MARKETING_ENABLED"]),
@@ -179,6 +224,10 @@ func Load() (*Config, error) {
 		MyHostname:                  values["URMAIL_MYHOSTNAME"],
 		PrimaryDomain:               values["URMAIL_PRIMARY_DOMAIN"],
 		PolicyEnabled:               parseBool(values["URMAIL_POLICY_ENABLED"]),
+		PostfixV80Preserve:          preserveV80,
+		PreserveExternalNSD:         preserveNSD,
+		PreserveExternalWeb:         preserveWeb,
+		PreserveExternalOpenDKIM:    preserveDKIM,
 		ArchiveEnabled:              parseBool(values["URMAIL_ARCHIVE_ENABLED"]),
 		StorageRoot:                 values["URMAIL_STORAGE_ROOT"],
 		AgentSocket:                 values["URMAIL_AGENT_SOCKET"],
@@ -262,6 +311,9 @@ func (c *Config) applyDefaults() {
 // falling back to a local socket would hide a misconfigured install behind a
 // confusing runtime error.
 func (c *Config) validate() error {
+	if c.PostfixV80Preserve && !c.PolicyEnabled {
+		return errors.New("v80 SMTP preservation requires URMAIL_POLICY_ENABLED")
+	}
 	if c.DevMode {
 		host, _, err := net.SplitHostPort(c.ListenAddr)
 		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {

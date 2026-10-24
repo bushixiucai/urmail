@@ -1,5 +1,6 @@
 """Exercise explicit, non-executing v80 preparation without root or a database."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -126,6 +127,8 @@ class LegacyLiteralTests(unittest.TestCase):
             self.assertEqual(state['legacy_config']['plugins'], preflight['plugins'])
             self.assertIn('password-driver.php', writes)
             self.assertIn("password_driver'] = 'urmail'", writes['password-config.inc.php'])
+            self.assertIn("'tls://127.0.0.1:4190'", writes['managesieve-config.inc.php'])
+            self.assertEqual(state['managesieve_config_sha256'], hashlib.sha256(writes['managesieve-config.inc.php'].encode()).hexdigest())
             self.assertIn('URMAIL_ROUNDCUBE_ENABLED=false', env.read_text())
             self.assertIn('URMAIL_ROUNDCUBE_ENABLED=false', agent.read_text())
             self.assertNotIn(state['des_key'], output.getvalue())

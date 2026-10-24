@@ -1252,5 +1252,10 @@
   "error.MAILBOX_PASSWORD_CHANGED": "The mailbox credentials changed. Sign in again before changing the password.",
   "error.MAILBOX_PASSWORD_RATE_LIMITED": "Too many unsuccessful password changes. Try again after 15 minutes.",
   "page.webmail.password_relogin": "Password updated. Sign in again. Existing IMAP sessions are being disconnected; if a new connection closes briefly, wait and retry.",
-  "page.webmail.password_unknown": "The password-change result could not be confirmed. Sign in again to check it; do not repeatedly submit the change."
+  "page.webmail.password_unknown": "The password-change result could not be confirmed. Sign in again to check it; do not repeatedly submit the change.",
+  "page.aliases.sender_logins": "Mailboxes allowed to send as this address: {logins}",
+  "page.aliases.sender_grants_revoked_on_edit": "Changing the recipient revokes the existing sender grants. The new recipient is not automatically authorized to send.",
+  "error.SIEVE_LEGACY_MANAGESIEVE_REQUIRED": "This mailbox preserves its original Sieve scripts. Manage them in webmail filter settings.",
+  "page.sieve.legacy_managesieve": "The original filter scripts remain active. Structured editing will not overwrite them. Manage filters in webmail.",
+  "page.sieve.open_managesieve": "Open webmail filters"
 }

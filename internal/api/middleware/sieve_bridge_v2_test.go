@@ -142,6 +142,39 @@ func TestSieveBridgeIsOneScopeIndependentMailboxIdentity(t *testing.T) {
 	if denied.Code != 401 {
 		t.Fatalf("Sieve bridge became panel session: %d", denied.Code)
 	}
+	// A legacy mailbox remains owned by ManageSieve, even if obsolete desired
+	// metadata happens to contain a script the structured decoder cannot parse.
+	rawLegacy := "require [\"variables\"]; set \"source_rule\" \"preserved\"; keep;\n"
+	// Test-only seed of a preexisting backend in this owned disposable database.
+	// The guard is restored within the same private transaction before requests.
+	fixtureTx, fixtureErr := p.Begin(ctx)
+	if fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	defer func() { _ = fixtureTx.Rollback(context.Background()) }()
+	if _, fixtureErr = fixtureTx.Exec(ctx, "ALTER TABLE mailboxes DISABLE TRIGGER mailbox_sieve_mode_guard"); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if _, fixtureErr = fixtureTx.Exec(ctx, "UPDATE mailboxes SET sieve_mode='legacy_v80',sieve_script=$3 WHERE tenant_id=$1 AND id=$2", tid, mid, rawLegacy); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if _, fixtureErr = fixtureTx.Exec(ctx, "ALTER TABLE mailboxes ENABLE TRIGGER mailbox_sieve_mode_guard"); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if fixtureErr = fixtureTx.Commit(ctx); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	legacy := request(http.MethodGet, "/api/v1/mailbox/sieve/session", "", "")
+	if legacy.Code != 200 || !strings.Contains(legacy.Body.String(), "legacy_managesieve") || strings.Contains(legacy.Body.String(), "source_rule") {
+		t.Fatalf("legacy script decoded or exposed: %d %s", legacy.Code, legacy.Body)
+	}
+	if denied := request(http.MethodPut, "/api/v1/mailbox/sieve/rules", string(encoded), session.CSRF); denied.Code != 409 || !strings.Contains(denied.Body.String(), "SIEVE_LEGACY_MANAGESIEVE_REQUIRED") || activation.calls != 2 {
+		t.Fatalf("legacy script overwritten: %d %s calls=%d", denied.Code, denied.Body, activation.calls)
+	}
+	var preserved string
+	if err := p.QueryRow(ctx, "SELECT sieve_script FROM mailboxes WHERE tenant_id=$1 AND id=$2", tid, mid).Scan(&preserved); err != nil || preserved != rawLegacy {
+		t.Fatalf("legacy metadata changed: %v", err)
+	}
 	if err := q.PlatformRevokeMailboxSession(ctx, sessionHash); err != nil {
 		t.Fatal(err)
 	}

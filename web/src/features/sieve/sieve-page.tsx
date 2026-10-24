@@ -188,7 +188,25 @@ export function SievePage() {
         </div>
       )}
       {!session && busy && <p role="status">{t("state.loading")}</p>}
-      {session && (
+      {session?.state === "legacy_managesieve" && (
+        <section className="space-y-4" aria-live="polite">
+          <p>{t("page.sieve.legacy_managesieve")}</p>
+          <a
+            className="text-primary underline"
+            href="/mail/?_task=settings&_action=plugin.managesieve"
+          >
+            {t("page.sieve.open_managesieve")}
+          </a>
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => void close()}
+          >
+            {t("page.sieve.close")}
+          </Button>
+        </section>
+      )}
+      {session && session.state !== "legacy_managesieve" && (
         <>
           <p role="status" className="text-sm text-muted-foreground">
             {t(

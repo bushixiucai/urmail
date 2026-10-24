@@ -7,7 +7,60 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const platformActivateLegacyDelegatedMail = `-- name: PlatformActivateLegacyDelegatedMail :execrows
+UPDATE domains SET
+ status='active',
+ verified_at=COALESCE(verified_at, statement_timestamp()),
+ provisioning_state='ready',
+ updated_at=statement_timestamp()
+WHERE tenant_id=$1::bigint
+ AND mode='delegated'
+ AND status='pending_dns'
+ AND provisioning_state='pending'
+ AND dns_explicit=false
+ AND dkim_private_key IS NOT NULL
+ AND dkim_private_key <> ''
+ AND EXISTS(
+  SELECT 1 FROM subscriptions s
+  WHERE s.tenant_id=domains.tenant_id
+   AND s.status='active'
+   AND s.entitlement_source='migration_legacy'
+   AND s.migration_manifest_sha256=$2::text
+ )
+ AND EXISTS(
+  SELECT 1 FROM audit_logs a
+  WHERE a.tenant_id=domains.tenant_id
+   AND a.action='IMPORT legacy.mail'
+   AND a.detail->>'private_proof_sha256'=$2::text
+   AND a.detail->>'commit_outcome'='committed'
+ )
+ AND EXISTS(
+  SELECT 1 FROM audit_logs a
+  WHERE a.tenant_id=domains.tenant_id
+   AND a.action='IMPORT legacy.dkim'
+   AND a.detail->>'core_proof_sha256'=$2::text
+   AND a.detail->>'commit_outcome'='committed'
+ )
+`
+
+type PlatformActivateLegacyDelegatedMailParams struct {
+	TenantID        int64  `json:"tenant_id"`
+	CoreProofSha256 string `json:"core_proof_sha256"`
+}
+
+// Promote imported delegated domains for mail routing without claiming managed DNS.
+// mode and dns_explicit stay delegated/false so NSD reconcile emits no zones.
+func (q *Queries) PlatformActivateLegacyDelegatedMail(ctx context.Context, arg PlatformActivateLegacyDelegatedMailParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformActivateLegacyDelegatedMail, arg.TenantID, arg.CoreProofSha256)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const platformCreateLegacyAlias = `-- name: PlatformCreateLegacyAlias :one
 INSERT INTO mailbox_aliases(tenant_id,domain_id,local_part,target,kind,active,sender_logins)
@@ -142,6 +195,59 @@ func (q *Queries) PlatformLegacyImportTargetFacts(ctx context.Context, tenantID 
 	return i, err
 }
 
+const platformLockLegacyDKIMDomains = `-- name: PlatformLockLegacyDKIMDomains :many
+SELECT d.id,d.fqdn,d.dkim_selector,d.dkim_private_key,d.status,d.provisioning_state
+FROM domains d
+WHERE d.tenant_id=$1::bigint AND d.fqdn=ANY($2::text[])
+ AND EXISTS(SELECT 1 FROM subscriptions s WHERE s.tenant_id=d.tenant_id AND s.entitlement_source='migration_legacy'
+  AND s.status='active' AND s.migration_manifest_sha256=$3::text)
+ AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=d.tenant_id AND a.action='IMPORT legacy.mail'
+  AND a.detail->>'private_proof_sha256'=$3::text AND a.detail->>'commit_outcome'='committed')
+ORDER BY d.fqdn FOR UPDATE OF d
+`
+
+type PlatformLockLegacyDKIMDomainsParams struct {
+	TenantID        int64    `json:"tenant_id"`
+	DomainNames     []string `json:"domain_names"`
+	CoreProofSha256 string   `json:"core_proof_sha256"`
+}
+
+type PlatformLockLegacyDKIMDomainsRow struct {
+	ID                int64       `json:"id"`
+	Fqdn              string      `json:"fqdn"`
+	DkimSelector      string      `json:"dkim_selector"`
+	DkimPrivateKey    pgtype.Text `json:"dkim_private_key"`
+	Status            string      `json:"status"`
+	ProvisioningState string      `json:"provisioning_state"`
+}
+
+func (q *Queries) PlatformLockLegacyDKIMDomains(ctx context.Context, arg PlatformLockLegacyDKIMDomainsParams) ([]PlatformLockLegacyDKIMDomainsRow, error) {
+	rows, err := q.db.Query(ctx, platformLockLegacyDKIMDomains, arg.TenantID, arg.DomainNames, arg.CoreProofSha256)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlatformLockLegacyDKIMDomainsRow{}
+	for rows.Next() {
+		var i PlatformLockLegacyDKIMDomainsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Fqdn,
+			&i.DkimSelector,
+			&i.DkimPrivateKey,
+			&i.Status,
+			&i.ProvisioningState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const platformLockLegacyImportTarget = `-- name: PlatformLockLegacyImportTarget :one
 SELECT t.id
 FROM tenants t
@@ -163,4 +269,30 @@ func (q *Queries) PlatformLockLegacyImportTarget(ctx context.Context, arg Platfo
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const platformSetLegacyDKIM = `-- name: PlatformSetLegacyDKIM :execrows
+UPDATE domains SET dkim_selector=$1::text,dkim_private_key=$2::text
+WHERE tenant_id=$3::bigint AND id=$4::bigint
+ AND status='pending_dns' AND provisioning_state='pending' AND dkim_private_key IS NULL
+`
+
+type PlatformSetLegacyDKIMParams struct {
+	Selector   string `json:"selector"`
+	PrivateKey string `json:"private_key"`
+	TenantID   int64  `json:"tenant_id"`
+	DomainID   int64  `json:"domain_id"`
+}
+
+func (q *Queries) PlatformSetLegacyDKIM(ctx context.Context, arg PlatformSetLegacyDKIMParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformSetLegacyDKIM,
+		arg.Selector,
+		arg.PrivateKey,
+		arg.TenantID,
+		arg.DomainID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

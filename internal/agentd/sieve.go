@@ -38,7 +38,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	target, err := store.New(tx).PlatformGetSieveActivationTarget(ctx, store.PlatformGetSieveActivationTargetParams{TenantID: params.TenantID, ID: params.MailboxID})
-	if err != nil || !target.SieveScript.Valid || !safeKickAddress(target.Address) || sieve.Digest(target.SieveScript.String) != params.Digest {
+	if err != nil || target.SieveMode != "managed" || !target.SieveScript.Valid || !safeKickAddress(target.Address) || sieve.Digest(target.SieveScript.String) != params.Digest {
 		return "", "", ErrRejected
 	}
 	if _, err = sieve.Decode(target.SieveScript.String); err != nil {

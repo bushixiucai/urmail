@@ -1252,5 +1252,10 @@
   "error.MAILBOX_PASSWORD_CHANGED": "邮箱凭据已发生变化，请重新登录后再修改密码。",
   "error.MAILBOX_PASSWORD_RATE_LIMITED": "密码修改失败次数过多，请在15分钟后重试。",
   "page.webmail.password_relogin": "密码已更新，请重新登录。旧IMAP会话正在断开；若新连接短暂中断，请稍候重试。",
-  "page.webmail.password_unknown": "密码修改结果尚未确认，请重新登录核对，不要反复提交修改。"
+  "page.webmail.password_unknown": "密码修改结果尚未确认，请重新登录核对，不要反复提交修改。",
+  "page.aliases.sender_logins": "可使用此地址发件的邮箱：{logins}",
+  "page.aliases.sender_grants_revoked_on_edit": "更改收件目标将撤销原有发件权限，新目标不会自动获得发件权限。",
+  "error.SIEVE_LEGACY_MANAGESIEVE_REQUIRED": "此邮箱保留原始 Sieve 规则，请在网页邮箱的过滤器设置中管理。",
+  "page.sieve.legacy_managesieve": "此邮箱的原始过滤规则保持启用，结构化编辑不会覆盖。请在网页邮箱中管理过滤器。",
+  "page.sieve.open_managesieve": "打开网页邮箱过滤器"
 }

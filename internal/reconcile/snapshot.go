@@ -103,10 +103,11 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 	pfAliases := make([]postfix.Alias, 0, len(aliases))
 	for _, a := range aliases {
 		pfAliases = append(pfAliases, postfix.Alias{
-			Domain:    a.Domain,
-			LocalPart: a.LocalPart,
-			Target:    a.Target,
-			Kind:      a.Kind,
+			Domain:       a.Domain,
+			LocalPart:    a.LocalPart,
+			Target:       a.Target,
+			Kind:         a.Kind,
+			SenderLogins: a.SenderLogins,
 		})
 	}
 
@@ -208,18 +209,21 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 
 	result := &mail.ConfigContext{
 		PostfixNode: postfix.NodeConfig{
-			Hostname:       hostname,
-			PrimaryDomain:  cfg.PrimaryDomain,
-			StorageRoot:    storageRoot,
-			TLSCertFile:    certFile,
-			TLSKeyFile:     keyFile,
-			PolicyEnabled:  cfg.PolicyEnabled,
-			PolicySocket:   cfg.PolicySocket,
-			ArchiveEnabled: cfg.ArchiveEnabled,
+			Hostname:                 hostname,
+			PrimaryDomain:            cfg.PrimaryDomain,
+			StorageRoot:              storageRoot,
+			TLSCertFile:              certFile,
+			TLSKeyFile:               keyFile,
+			PolicyEnabled:            cfg.PolicyEnabled,
+			V80Preserve:              cfg.PostfixV80Preserve,
+			PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM,
+			PolicySocket:             cfg.PolicySocket,
+			ArchiveEnabled:           cfg.ArchiveEnabled,
 		},
 		PostfixSnap: pfSnap,
 
 		DovecotNode: dovecot.NodeConfig{
+			V80Preserve:   cfg.PostfixV80Preserve,
 			Hostname:      hostname,
 			PrimaryDomain: cfg.PrimaryDomain,
 			StorageRoot:   storageRoot,

@@ -230,6 +230,9 @@ type Querier interface {
 	PlatformAIUsage(ctx context.Context, tenantID int64) ([]PlatformAIUsageRow, error)
 	PlatformAckMailboxPasswordRevocation(ctx context.Context, arg PlatformAckMailboxPasswordRevocationParams) (int64, error)
 	PlatformAcknowledgeCollectorGap(ctx context.Context, arg PlatformAcknowledgeCollectorGapParams) (int64, error)
+	// Promote imported delegated domains for mail routing without claiming managed DNS.
+	// mode and dns_explicit stay delegated/false so NSD reconcile emits no zones.
+	PlatformActivateLegacyDelegatedMail(ctx context.Context, arg PlatformActivateLegacyDelegatedMailParams) (int64, error)
 	PlatformAdjustCommissionForRefund(ctx context.Context, id int64) error
 	PlatformAdvanceCollectorCheckpoint(ctx context.Context, arg PlatformAdvanceCollectorCheckpointParams) error
 	PlatformAdvanceDNSPlan(ctx context.Context, arg PlatformAdvanceDNSPlanParams) (int64, error)
@@ -454,6 +457,7 @@ type Querier interface {
 	PlatformLockBrandSettingsBrand(ctx context.Context, id int64) (int64, error)
 	PlatformLockCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
 	PlatformLockCouponRedemptionForAuthority(ctx context.Context, arg PlatformLockCouponRedemptionForAuthorityParams) (string, error)
+	PlatformLockLegacyDKIMDomains(ctx context.Context, arg PlatformLockLegacyDKIMDomainsParams) ([]PlatformLockLegacyDKIMDomainsRow, error)
 	// Explicit migration operator authority; runtime API callers cannot invoke this workflow.
 	PlatformLockLegacyImportTarget(ctx context.Context, arg PlatformLockLegacyImportTargetParams) (int64, error)
 	PlatformLockPaymentMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
@@ -558,6 +562,7 @@ type Querier interface {
 	PlatformSetBrandStatus(ctx context.Context, arg PlatformSetBrandStatusParams) (int64, error)
 	PlatformSetDocumentProfile(ctx context.Context, arg PlatformSetDocumentProfileParams) error
 	PlatformSetExplicitDNS(ctx context.Context, arg PlatformSetExplicitDNSParams) error
+	PlatformSetLegacyDKIM(ctx context.Context, arg PlatformSetLegacyDKIMParams) (int64, error)
 	PlatformSetMailboxSieve(ctx context.Context, arg PlatformSetMailboxSieveParams) (int64, error)
 	PlatformSetManagedFreeTerm(ctx context.Context, arg PlatformSetManagedFreeTermParams) error
 	PlatformSetOperationalCondition(ctx context.Context, arg PlatformSetOperationalConditionParams) error

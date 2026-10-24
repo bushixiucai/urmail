@@ -157,6 +157,27 @@ func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
 		mailboxAuthorizationError(c, err)
 		return
 	}
+	if mailbox.SieveMode == "legacy_v80" {
+		if write {
+			authError(c, 409, "SIEVE_LEGACY_MANAGESIEVE_REQUIRED")
+			return
+		}
+		if !recordSieveAudit(c, q, principal.TenantID, principal.MailboxID, "sieve.legacy.read") {
+			return
+		}
+		if tx.Commit(c) != nil {
+			authError(c, 503, "DB_ERROR")
+			return
+		}
+		// Raw scripts have one writer: the mailbox-authenticated ManageSieve service.
+		// No structured decode or version proposal may claim ownership of them.
+		c.JSON(200, gin.H{"mailbox": principal.Address, "rules": sieve.Rules{}, "csrf": h.csrf(token), "state": "legacy_managesieve", "expires_at": principal.ExpiresAt, "version": "", "manage_url": "/mail/?_task=settings&_action=plugin.managesieve"})
+		return
+	}
+	if mailbox.SieveMode != "managed" {
+		authError(c, 409, "SIEVE_SOURCE_INVALID")
+		return
+	}
 	rules := sieve.Rules{}
 	script := ""
 	if write {

@@ -31,6 +31,9 @@ Usage:
   urmailctl usage sync             collect canonical Dovecot storage usage
   urmailctl billing repair-legacy-period --tenant-id T --subscription-id S --paid-order-id O --expected-start RFC3339 --expected-end RFC3339 --nominal-basis-cents N --reason TEXT [--apply]
   urmailctl import-miadb --dry-run --config FILE --sqlite FILE [--mapping FILE]
+  urmailctl import-legacy-core --apply --config FILE --sqlite FILE --mapping FILE --expected-snapshot SHA --tenant-id N --actor-id N --tenant-ref REF --reason TEXT
+  urmailctl import-legacy-dkim --apply --config FILE --sqlite FILE --mapping FILE --clone-root DIR --expected-snapshot SHA --expected-private SHA --expected-keytable SHA --expected-signing SHA --tenant-id N --actor-id N --tenant-ref REF --reason TEXT
+  urmailctl import-legacy-activate-mail --apply --expected-core-proof SHA --expected-domains N --tenant-id N --actor-id N --tenant-ref REF --reason TEXT
   urmailctl data-check             report tenant reference/allocation problems
   urmailctl telemetry acknowledge-gap --stream NAME --generation N --reason TEXT
   urmailctl domain challenge --tenant-id T --domain-id D
@@ -67,6 +70,8 @@ func run(args []string) error {
 		return runStatus(ctx)
 	case "config":
 		return runConfig(ctx, args[1:])
+	case "alias-senders":
+		return runAliasSenders(ctx, args[1:])
 	case "cert":
 		return runCert(ctx, args[1:])
 	case "usage":
@@ -79,6 +84,12 @@ func run(args []string) error {
 		return runBillingRepair(ctx, args[1:])
 	case "import-miadb":
 		return runImportMIADB(ctx, args[1:])
+	case "import-legacy-core":
+		return runImportLegacyCore(ctx, args[1:])
+	case "import-legacy-dkim":
+		return runImportLegacyDKIM(ctx, args[1:])
+	case "import-legacy-activate-mail":
+		return runImportLegacyActivateMail(ctx, args[1:])
 	case "data-check":
 		return runDataCheck(ctx)
 	case "backup":

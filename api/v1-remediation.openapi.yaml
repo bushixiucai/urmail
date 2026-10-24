@@ -3456,6 +3456,71 @@ paths:
         '500': {description: Mandatory audit or transaction failed; no calendar committed.}
         default: {$ref: '#/components/responses/Error'}
 
+  /roundcube/bridge:
+    post:
+      tags: [M8 mailbox continuity]
+      summary: Change the independently authenticated mailbox password
+      description: >-
+        Documents the change_password operation; other existing bridge actions remain unchanged.
+        Panel Bearer identity never authorizes this operation. Requires the Roundcube service
+        HMAC over POST, exact path, timestamp, nonce and raw JSON body, plus an independently
+        authenticated mailbox session and fresh current-password proof. The exact address must
+        belong to that session. Service login signing alone cannot bypass current-password proof.
+        Session resolution locks the mailbox; ten recent mailbox failures in fifteen minutes
+        block further verification. Resolved rejections and their nonce consumption are audited
+        in that transaction. Password hash/version CAS, all bridge session/ticket revocations
+        and successful audit commit together. No password, hash or token is returned or logged.
+        Old IMAP disconnection is durable asynchronous work, retried by the privileged agent;
+        pending does not claim synchronous disconnection. Current Roundcube session is destroyed
+        and requires login again. An uncertain transport result also forces login to verify the
+        outcome; it does not automatically resubmit. Existing remembered sessions using the old
+        password cannot reauthenticate; unknown third-party remember-token deletion is not claimed.
+      security: []
+      parameters:
+      - {name: X-Urmail-Timestamp, in: header, required: true, schema: {type: string}}
+      - {name: X-Urmail-Nonce, in: header, required: true, schema: {type: string}}
+      - {name: X-Urmail-Signature, in: header, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, address, session, old_password, new_password]
+              properties:
+                action: {type: string, enum: [change_password]}
+                address: {type: string, format: email, maxLength: 320}
+                session: {type: string, writeOnly: true}
+                old_password:
+                  type: string
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 4096
+                  description: Current mailbox password; at most 4096 UTF-8 bytes. Never normalized.
+                new_password:
+                  type: string
+                  writeOnly: true
+                  minLength: 8
+                  maxLength: 1024
+                  description: Eight to 1024 Unicode code points, at most 4096 UTF-8 bytes, no control characters, different from current password. Never trimmed or normalized.
+      responses:
+        '200':
+          description: Password committed; reauthentication required and IMAP disconnection pending.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changed, reauthentication_required, imap_revocation]
+                properties:
+                  changed: {type: boolean, enum: [true]}
+                  reauthentication_required: {type: boolean, enum: [true]}
+                  imap_revocation: {type: string, enum: [pending]}
+        '400': {description: Invalid request or MAILBOX_PASSWORD_POLICY, $ref: '#/components/responses/Error'}
+        '401': {description: Missing or invalid service HMAC, $ref: '#/components/responses/Error'}
+        '403': {description: Mailbox session/address or current-password proof rejected, $ref: '#/components/responses/Error'}
+        '409': {description: Nonce replay or concurrent password change, $ref: '#/components/responses/Error'}
+        '429': {description: MAILBOX_PASSWORD_RATE_LIMITED, $ref: '#/components/responses/Error'}
+        '503': {description: Bridge, database or mandatory audit unavailable; mutation not acknowledged, $ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     Bearer:
@@ -3753,6 +3818,14 @@ components:
           - alias
           - catchall
           - forward
+        sender_logins:
+          type: array
+          readOnly: true
+          description: Explicit sender identities preserved from reviewed migration. Receiving aliases do not imply sender authorization; routing edits revoke existing grants.
+          maxItems: 100
+          items:
+            type: string
+            format: email
         active:
           type: boolean
         created_at: *id006

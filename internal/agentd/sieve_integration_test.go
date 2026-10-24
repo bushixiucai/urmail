@@ -94,6 +94,30 @@ func TestSieveActivationCompileFailurePreservesPreviousScript(t *testing.T) {
 	if info, statErr := os.Stat(destination); statErr != nil || info.Mode().Perm() != 0640 {
 		t.Fatalf("script is not private: %v", statErr)
 	}
+	// Even a valid canonical desired script must never replace raw scripts for
+	// mailboxes explicitly owned by the retained ManageSieve filesystem.
+	// Test-only seed of a preexisting backend in this owned disposable database.
+	// The guard is restored within the same private transaction before requests.
+	fixtureTx, fixtureErr := pool.Begin(ctx)
+	if fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	defer func() { _ = fixtureTx.Rollback(context.Background()) }()
+	if _, fixtureErr = fixtureTx.Exec(ctx, "ALTER TABLE mailboxes DISABLE TRIGGER mailbox_sieve_mode_guard"); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if _, fixtureErr = fixtureTx.Exec(ctx, "UPDATE mailboxes SET sieve_mode='legacy_v80',sieve_script=$3 WHERE tenant_id=$1 AND id=$2", tenant, mailbox, script); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if _, fixtureErr = fixtureTx.Exec(ctx, "ALTER TABLE mailboxes ENABLE TRIGGER mailbox_sieve_mode_guard"); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if fixtureErr = fixtureTx.Commit(ctx); fixtureErr != nil {
+		t.Fatal(fixtureErr)
+	}
+	if _, _, err = manager.ActivateSieve(params); !errors.Is(err, ErrRejected) {
+		t.Fatalf("legacy mode allowed structured publication: %v", err)
+	}
 	if compileCalls != 2 {
 		t.Fatalf("unsafe source reached compiler %d", compileCalls)
 	}

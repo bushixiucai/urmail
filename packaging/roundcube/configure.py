@@ -176,6 +176,7 @@ def preflight_v80():
                 'target_schema': 'literal:roundcube', 'source_identity': 'nonempty-string',
                 'normalized_data_digests': 'map:table-name-to-sha256', 'import_audit_manifest': 'sha256'},
             'blockers': ['verified_metadata_import_required', 'legacy_password_adapter_activation_required',
+                         'legacy_managesieve_configuration_activation_required',
                          'zpush_identity_sql_adapter_required', 'activation_contract_not_yet_implemented']}
 
 
@@ -225,7 +226,7 @@ def main():
     if not isinstance(password, str) or not password or len(password) > 256 or any(ch in password for ch in '\r\n\x00') or not isinstance(des, str) or len(des) != 24:
         raise ValueError('Invalid existing credential format')
     # Reject all unsafe paths before changing the database or writing any secret.
-    for name in ('secrets.php', 'pg-service.conf', 'provision-state.json', 'password-driver.php', 'password-config.inc.php'):
+    for name in ('secrets.php', 'pg-service.conf', 'provision-state.json', 'password-driver.php', 'password-config.inc.php', 'managesieve-config.inc.php'):
         private_file(ROOT / name)
     # Peer-authenticated local superuser, fixed role and no shell. SQL values are
     # escaped literals; no connection password or secret appears in argv/output.
@@ -243,8 +244,10 @@ def main():
         current['runtime_mode'] = 'distro'
     driver = (ASSETS / 'plugins/urmail_bridge/password_driver.php').read_text()
     password_config = (ASSETS / 'password-config.inc.php').read_text()
+    managesieve_config = (ASSETS / 'managesieve-config.inc.php').read_text()
     current['password_driver_sha256'] = hashlib.sha256(driver.encode()).hexdigest()
     current['password_config_sha256'] = hashlib.sha256(password_config.encode()).hexdigest()
+    current['managesieve_config_sha256'] = hashlib.sha256(managesieve_config.encode()).hexdigest()
     # Write durable recovery state first. A retry reuses it after a later write
     # failure rather than changing DES/session or bridge secrets.
     atomic_private(ROOT / 'provision-state.json', json.dumps(dict(current, password=password)) + '\n', 0, 0o600)
@@ -254,6 +257,7 @@ def main():
     atomic_private(ROOT / 'pg-service.conf', service, group, 0o640)
     atomic_private(ROOT / 'password-driver.php', driver, group, 0o640)
     atomic_private(ROOT / 'password-config.inc.php', password_config, group, 0o640)
+    atomic_private(ROOT / 'managesieve-config.inc.php', managesieve_config, group, 0o640)
     filtered = [line for line in original.splitlines() if not line.startswith(('URMAIL_ROUNDCUBE_BRIDGE_KEY=', 'URMAIL_ROUNDCUBE_ENABLED='))]
     filtered += ['URMAIL_ROUNDCUBE_BRIDGE_KEY=' + bridge, 'URMAIL_ROUNDCUBE_ENABLED=' + ('false' if v80 else 'true')]
     atomic_private(ENV, '\n'.join(filtered) + '\n', ENV.stat().st_gid, stat.S_IMODE(ENV.stat().st_mode))

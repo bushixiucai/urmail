@@ -515,7 +515,7 @@ func TestAliasListAndCreateResponseShape(t *testing.T) {
 		aliases: []store.ListAliasesByTenantRow{{
 			ID: 21, TenantID: shapeTenantID, DomainID: 3, LocalPart: "info",
 			Target: "alice@example.com", Kind: "alias", Active: true,
-			CreatedAt: shapeTime(), DomainFqdn: "example.com",
+			CreatedAt: shapeTime(), DomainFqdn: "example.com", SenderLogins: []string{"alice@example.com"},
 		}},
 		domain: store.GetDomainByIDRow{ID: 3, TenantID: shapeTenantID, Fqdn: "example.com"},
 		created: store.MailboxAliases{
@@ -536,7 +536,11 @@ func TestAliasListAndCreateResponseShape(t *testing.T) {
 	assertNoSubstrings(t, raw, "tenant_id")
 	aliases := shapeArray(t, body, "aliases")
 	alias := aliases[0].(map[string]any)
-	assertKeys(t, alias, "id", "domain_id", "domain_fqdn", "local_part", "target", "kind", "active", "created_at")
+	assertKeys(t, alias, "id", "domain_id", "domain_fqdn", "local_part", "target", "kind", "active", "created_at", "sender_logins")
+	grants, ok := alias["sender_logins"].([]any)
+	if !ok || len(grants) != 1 || grants[0] != "alice@example.com" {
+		t.Fatal("explicit sender grants hidden from alias response")
+	}
 	if alias["domain_fqdn"] != "example.com" || alias["local_part"] != "info" {
 		t.Fatalf("unexpected alias payload: %v", alias)
 	}
@@ -548,7 +552,7 @@ func TestAliasListAndCreateResponseShape(t *testing.T) {
 	}
 	assertNoSubstrings(t, raw, "tenant_id")
 	created := shapeObject(t, body, "alias")
-	assertKeys(t, created, "id", "domain_id", "domain_fqdn", "local_part", "target", "kind", "active", "created_at")
+	assertKeys(t, created, "id", "domain_id", "domain_fqdn", "local_part", "target", "kind", "active", "created_at", "sender_logins")
 	if created["domain_fqdn"] != "example.com" || created["target"] != "bob@example.com" {
 		t.Fatalf("unexpected created alias: %v", created)
 	}

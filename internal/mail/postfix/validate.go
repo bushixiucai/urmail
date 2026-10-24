@@ -23,6 +23,9 @@ func isValidEmail(addr string) bool {
 // that end up verbatim inside main.cf / master.cf. Whitespace and control
 // characters would allow directive injection, so they are rejected here.
 func validateNodeConfig(node NodeConfig) error {
+	if node.V80Preserve && !node.PolicyEnabled {
+		return fmt.Errorf("%w: v80 preservation requires the SaaS policy service", ErrInvalidConfig)
+	}
 	if !validation.IsValidHostname(node.Hostname) {
 		return fmt.Errorf("%w: invalid hostname %q", ErrInvalidConfig, node.Hostname)
 	}
@@ -39,6 +42,16 @@ func validateNodeConfig(node NodeConfig) error {
 		return fmt.Errorf("%w: TLS key file: %w", ErrInvalidConfig, err)
 	}
 	if node.PolicyEnabled {
+		if strings.ContainsFunc(node.PolicySocket, func(r rune) bool {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+				return false
+			default:
+				return !strings.ContainsRune("/._-", r)
+			}
+		}) {
+			return fmt.Errorf("%w: policy socket must be a literal Unix path", ErrInvalidConfig)
+		}
 		if err := validation.ValidateSocketPath(node.PolicySocket); err != nil {
 			return fmt.Errorf("%w: policy socket: %w", ErrInvalidConfig, err)
 		}
@@ -109,6 +122,16 @@ func Validate(node NodeConfig, snap Snapshot) error {
 		} else {
 			if a.LocalPart == "" || !validation.LocalPartRegex.MatchString(a.LocalPart) {
 				return fmt.Errorf("%w: invalid local_part %q", ErrInvalidAlias, a.LocalPart)
+			}
+		}
+
+		// Explicit sender grants must name active mailboxes in this snapshot.
+		if len(a.SenderLogins) > 100 || (a.Kind == "catchall" && len(a.SenderLogins) > 0) {
+			return fmt.Errorf("%w: invalid alias sender grants", ErrInvalidAlias)
+		}
+		for _, login := range a.SenderLogins {
+			if login != strings.ToLower(login) || !mailboxSet[login] {
+				return fmt.Errorf("%w: sender grant must name an active mailbox", ErrInvalidAlias)
 			}
 		}
 

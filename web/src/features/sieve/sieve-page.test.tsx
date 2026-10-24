@@ -67,6 +67,33 @@ describe("independent mailbox Sieve editor", () => {
     expect(body.mailbox_id).toBeUndefined();
     expect(body.tenant_id).toBeUndefined();
   });
+  it("preserves raw legacy rules by offering only the authenticated webmail editor", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        mailbox: "legacy@example.test",
+        csrf: "scoped-csrf",
+        state: "legacy_managesieve",
+        version: "",
+        rules: {},
+      }),
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<SievePage />);
+    await screen.findByText("page.sieve.legacy_managesieve");
+    expect(
+      screen
+        .getByRole("link", { name: "page.sieve.open_managesieve" })
+        .getAttribute("href"),
+    ).toBe("/mail/?_task=settings&_action=plugin.managesieve");
+    expect(
+      screen.queryByRole("button", { name: "page.sieve.save" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "page.sieve.add_rule" }),
+    ).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("shows mailbox reauthorization when the credential expires", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
     render(<SievePage />);

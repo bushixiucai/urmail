@@ -252,6 +252,14 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 				mailboxAuthorizationError(c, getErr)
 				return
 			}
+			if mailbox.SieveMode == "legacy_v80" {
+				response = gin.H{"state": "legacy_managesieve", "manage_url": "/mail/?_task=settings&_action=plugin.managesieve"}
+				break
+			}
+			if mailbox.SieveMode != "managed" {
+				authError(c, 409, "SIEVE_SOURCE_INVALID")
+				return
+			}
 			rules := sieve.Rules{}
 			if mailbox.SieveScript.Valid && mailbox.SieveScript.String != "" {
 				rules, getErr = sieve.Decode(mailbox.SieveScript.String)
@@ -271,7 +279,11 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 				return
 			}
 			mailbox, versionErr := q.PlatformGetMailboxSieve(c, store.PlatformGetMailboxSieveParams{TenantID: tid, ID: mid})
-			if versionErr != nil || len(input.ExpectedVersion) != 64 || input.ExpectedVersion != sieve.Digest(mailbox.SieveScript.String) {
+			if versionErr == nil && mailbox.SieveMode == "legacy_v80" {
+				authError(c, 409, "SIEVE_LEGACY_MANAGESIEVE_REQUIRED")
+				return
+			}
+			if versionErr != nil || mailbox.SieveMode != "managed" || len(input.ExpectedVersion) != 64 || input.ExpectedVersion != sieve.Digest(mailbox.SieveScript.String) {
 				authError(c, 409, "SIEVE_VERSION_CONFLICT")
 				return
 			}

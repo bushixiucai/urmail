@@ -33,13 +33,23 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("biff = no\n")
 	b.WriteString("append_dot_mydomain = no\n")
 	b.WriteString("recipient_delimiter = +\n\n")
+	if node.V80Preserve {
+		b.WriteString("# Reviewed v80 SMTP limit (128 MiB), independent of HTTP/PHP limits.\n")
+		b.WriteString("message_size_limit = 134217728\n\n")
+	}
 
 	b.WriteString("# Virtual domains, mailboxes and aliases\n")
 	fmt.Fprintf(&b, "virtual_mailbox_domains = %s\n", virtualMailboxDomains)
 	fmt.Fprintf(&b, "virtual_mailbox_base = %s/mail/mailboxes\n", strings.TrimRight(node.StorageRoot, "/"))
 	b.WriteString("virtual_mailbox_maps = hash:/etc/postfix/urmail/virtual_mailbox.map\n")
 	b.WriteString("virtual_alias_maps = hash:/etc/postfix/urmail/virtual_alias.map\n")
-	b.WriteString("virtual_transport = lmtp:unix:private/dovecot-lmtp\n")
+	if node.V80Preserve {
+		// The measured source has no SMTP reinjection: one Postfix delivery goes
+		// through spampd, then directly to Dovecot's loopback LMTP listener.
+		b.WriteString("virtual_transport = lmtp:[127.0.0.1]:10025\n")
+	} else {
+		b.WriteString("virtual_transport = lmtp:unix:private/dovecot-lmtp\n")
+	}
 	if node.ArchiveEnabled {
 		b.WriteString("recipient_bcc_maps = hash:/etc/postfix/urmail/archive_bcc.map\n")
 		b.WriteString("transport_maps = hash:/etc/postfix/urmail/archive_transport.map\n")
@@ -54,16 +64,36 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("# accept the message unsigned instead of blocking mail delivery.\n")
 	b.WriteString("milter_default_action = accept\n")
 	b.WriteString("milter_protocol = 6\n")
-	b.WriteString("smtpd_milters = inet:127.0.0.1:12301\n")
-	b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
+	if node.V80Preserve && node.PreserveExternalOpenDKIM {
+		// Same-host cutover keeps the live OpenDKIM milter (8891) and OpenDMARC
+		// (8893). Pointing at 12301 would either miss signatures or double-sign
+		// if a second OpenDKIM were started beside the preserved unit.
+		b.WriteString("smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n")
+		b.WriteString("non_smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n\n")
+	} else if node.V80Preserve {
+		// Preserve OpenDMARC independently; the new signer replaces old 8891.
+		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n")
+		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n\n")
+	} else {
+		b.WriteString("smtpd_milters = inet:127.0.0.1:12301\n")
+		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
+	}
 
 	b.WriteString("# Sender login restrictions\n")
 	b.WriteString("smtpd_sender_login_maps = hash:/etc/postfix/urmail/sender_login.map\n")
 	b.WriteString("smtpd_sender_restrictions =\n")
-	b.WriteString("    reject_authenticated_sender_login_mismatch\n")
-
-	b.WriteString("    permit_mynetworks\n")
-	b.WriteString("    reject_sender_login_mismatch\n\n")
+	if node.V80Preserve {
+		// Preserve the measured source order. The authenticated identity map
+		// still comes from canonical mailboxes and explicit alias grants.
+		b.WriteString("    reject_non_fqdn_sender\n")
+		b.WriteString("    reject_unknown_sender_domain\n")
+		b.WriteString("    reject_authenticated_sender_login_mismatch\n")
+		b.WriteString("    reject_rhsbl_sender dbl.spamhaus.org=127.0.1.[2..99]\n\n")
+	} else {
+		b.WriteString("    reject_authenticated_sender_login_mismatch\n")
+		b.WriteString("    permit_mynetworks\n")
+		b.WriteString("    reject_sender_login_mismatch\n\n")
+	}
 
 	if node.PolicyEnabled {
 		fmt.Fprintf(&b, "smtpd_data_restrictions = check_policy_service unix:%s\n\n", socket)
@@ -76,8 +106,16 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	}
 	b.WriteString("    permit_sasl_authenticated\n")
 	b.WriteString("    permit_mynetworks\n")
-	b.WriteString("    reject_unauth_destination\n")
-	b.WriteString("    reject_non_fqdn_recipient\n")
+	if node.V80Preserve {
+		// SaaS policy above must run before the legacy permit fast paths.
+		// Relay authorization remains mandatory in smtpd_relay_restrictions.
+		b.WriteString("    reject_rbl_client zen.spamhaus.org=127.0.0.[2..11]\n")
+		b.WriteString("    reject_unlisted_recipient\n")
+		b.WriteString("    check_policy_service inet:127.0.0.1:12340\n")
+	} else {
+		b.WriteString("    reject_unauth_destination\n")
+		b.WriteString("    reject_non_fqdn_recipient\n")
+	}
 	// RCPT policy checks inbound subscription eligibility. Authenticated daily
 	// accounting is evaluated once at DATA on submission/smtps (master.cf).
 	b.WriteString("\n")

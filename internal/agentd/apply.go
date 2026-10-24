@@ -202,6 +202,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		m.publish()
 		return "", "", fmt.Errorf("%w: invalid domain snapshot: %w", ErrRejected, err)
 	}
+	files = filterPreservedExternalFiles(m.cfg, files)
 	sum := sha256.New()
 	paths := make([]string, 0, len(files))
 	for path := range files {
@@ -279,6 +280,9 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		}
 		for _, path := range m.paths {
 			if _, ok := files[path]; !ok {
+				if preservedExternalPath(m.cfg, path) {
+					continue
+				}
 				if err := os.Remove(m.target(path)); err != nil && !os.IsNotExist(err) {
 					return err
 				}
@@ -314,7 +318,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		}
 		m.status.Step = "reload"
 		m.publish()
-		for _, unit := range ConfigUnits {
+		for _, unit := range configUnits(m.cfg) {
 			m.status.Step = "reload:" + unit
 			m.publish()
 			if !containsUnit(journal.Reloaded, unit) {
@@ -381,6 +385,55 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 // ConfigUnits defines the fixed restart order for generated configuration.
 var ConfigUnits = []string{"opendkim", "dovecot", "postfix", "nginx", "nsd"}
 
+func preservedExternalPath(cfg *config.Config, path string) bool {
+	if cfg == nil {
+		return false
+	}
+	switch {
+	case cfg.PreserveExternalNSD && (strings.HasPrefix(path, "/etc/nsd/") || path == "/etc/nsd"):
+		return true
+	case cfg.PreserveExternalWeb && (strings.HasPrefix(path, "/etc/nginx/") || path == "/etc/nginx"):
+		return true
+	case cfg.PreserveExternalOpenDKIM && (strings.HasPrefix(path, "/etc/opendkim") || strings.Contains(path, "/opendkim/")):
+		return true
+	default:
+		return false
+	}
+}
+
+func filterPreservedExternalFiles(cfg *config.Config, files map[string]string) map[string]string {
+	if cfg == nil || (!cfg.PreserveExternalNSD && !cfg.PreserveExternalWeb && !cfg.PreserveExternalOpenDKIM) {
+		return files
+	}
+	filtered := make(map[string]string, len(files))
+	for path, content := range files {
+		if preservedExternalPath(cfg, path) {
+			continue
+		}
+		filtered[path] = content
+	}
+	return filtered
+}
+
+func configUnits(cfg *config.Config) []string {
+	units := make([]string, 0, len(ConfigUnits))
+	for _, unit := range ConfigUnits {
+		if cfg != nil {
+			if cfg.PreserveExternalNSD && unit == "nsd" {
+				continue
+			}
+			if cfg.PreserveExternalWeb && unit == "nginx" {
+				continue
+			}
+			if cfg.PreserveExternalOpenDKIM && unit == "opendkim" {
+				continue
+			}
+		}
+		units = append(units, unit)
+	}
+	return units
+}
+
 func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 	if len(p.Postfix.Domains) > 10000 || len(p.Postfix.Mailboxes) > 100000 || len(p.Postfix.Aliases) > 100000 || len(p.DNS.Zones) > 10000 || len(p.DKIM.Domains) > 10000 {
 		return nil, fmt.Errorf("snapshot exceeds limits")
@@ -415,8 +468,8 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 	cert := filepath.Join(m.root, "certs/mail", host+".cert")
 	key := filepath.Join(m.root, "certs/mail", host+".key")
 	mailContext := mail.ConfigContext{
-		PostfixNode: postfix.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, PolicyEnabled: cfg.PolicyEnabled, PolicySocket: cfg.PolicySocket, ArchiveEnabled: cfg.ArchiveEnabled}, PostfixSnap: p.Postfix,
-		DovecotNode: dovecot.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot},
+		PostfixNode: postfix.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, PolicyEnabled: cfg.PolicyEnabled, V80Preserve: cfg.PostfixV80Preserve, PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM, PolicySocket: cfg.PolicySocket, ArchiveEnabled: cfg.ArchiveEnabled}, PostfixSnap: p.Postfix,
+		DovecotNode: dovecot.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot, V80Preserve: cfg.PostfixV80Preserve},
 		NSDNode:     nsd.NodeConfig{ListenAddresses: cfg.DNSListenAddresses, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, PublicIPv4: cfg.PublicIPv4, Nameservers: cfg.Nameservers}, NSDSnap: p.DNS,
 		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr, WebmailBackend: fixedWebmailBackend(cfg)}, DKIM: p.DKIM,
 	}
@@ -500,11 +553,26 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 func (m *ApplyManager) check(ctx context.Context, p ApplyParams) error {
 	checks := [][]string{{"/usr/sbin/opendkim", "-n", "-x", opendkim.ConfPath}, {"/usr/bin/doveconf", "-n"}, {"/usr/sbin/postfix", "check"}, {"/usr/sbin/nginx", "-t"}, {"/usr/sbin/nsd-checkconf", "/etc/nsd/nsd.conf"}}
 	for _, c := range checks {
-		m.status.Step = "check:" + filepath.Base(c[0])
+		name := filepath.Base(c[0])
+		if m.cfg != nil {
+			if m.cfg.PreserveExternalOpenDKIM && name == "opendkim" {
+				continue
+			}
+			if m.cfg.PreserveExternalWeb && name == "nginx" {
+				continue
+			}
+			if m.cfg.PreserveExternalNSD && name == "nsd-checkconf" {
+				continue
+			}
+		}
+		m.status.Step = "check:" + name
 		m.publish()
 		if err := m.run(ctx, c[0], c[1:]...); err != nil {
-			return fmt.Errorf("check %s: %w", filepath.Base(c[0]), err)
+			return fmt.Errorf("check %s: %w", name, err)
 		}
+	}
+	if m.cfg != nil && m.cfg.PreserveExternalNSD {
+		return nil
 	}
 	for _, z := range p.DNS.Zones {
 		if err := m.run(ctx, "/usr/sbin/nsd-checkzone", z.Domain, "/etc/nsd/zones/"+z.Domain+".txt"); err != nil {
