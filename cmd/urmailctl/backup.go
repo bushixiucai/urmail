@@ -19,6 +19,11 @@ import (
 )
 
 func runBackup(ctx context.Context, args []string) (returnErr error) {
+	if _, selected, err := selectedFileProfile(args); err != nil {
+		return err
+	} else if selected {
+		return runV80Backup(ctx, args, os.Stdout)
+	}
 	outDir := "/var/backups/urmail"
 	includeMail, maintenance := false, false
 	for i := 0; i < len(args); i++ {

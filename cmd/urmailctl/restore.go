@@ -11,6 +11,11 @@ import (
 )
 
 func runRestore(ctx context.Context, args []string) error {
+	if _, selected, err := selectedFileProfile(args); err != nil {
+		return err
+	} else if selected {
+		return runV80Restore(ctx, args, os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "quarantine" {
 		return runRestoreQuarantine(ctx, args[1:])
 	}
@@ -60,6 +65,9 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("restore must run as root")
+	}
+	if err := rejectV80BundleAsDatabase(dumpPath); err != nil {
+		return err
 	}
 	var resumedURLs map[string]string
 	if resumeID != "" {
