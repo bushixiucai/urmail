@@ -11,7 +11,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -85,6 +87,17 @@ func (s *Server) Listen(ctx context.Context) error {
 	if err := os.Chmod(s.socketPath, 0o660); err != nil {
 		_ = listener.Close()
 		return fmt.Errorf("set socket permissions: %w", err)
+	}
+	// Listen may create the socket as root:root even when the unit sets
+	// Group=mailinabox; without an explicit chown, urmaild (mailinabox)
+	// cannot dial and reconcile fails with EACCES while status stays stale.
+	if group, err := user.LookupGroup("mailinabox"); err == nil {
+		if gid, err := strconv.Atoi(group.Gid); err == nil {
+			if err := os.Chown(s.socketPath, -1, gid); err != nil {
+				_ = listener.Close()
+				return fmt.Errorf("set socket group: %w", err)
+			}
+		}
 	}
 	s.listener = listener
 

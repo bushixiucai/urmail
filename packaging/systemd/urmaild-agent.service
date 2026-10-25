@@ -10,6 +10,9 @@ Group=mailinabox
 ExecStartPre=/bin/chown root:mailinabox /run/urmail
 ExecStartPre=/bin/chmod 0770 /run/urmail
 ExecStart=/usr/bin/urmaild-agent
+# Belt-and-suspenders with agent Listen chown: Listen can still create the
+# socket as root:root; without this, urmaild (mailinabox) gets EACCES.
+ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/urmail/agent.sock ] && chown root:mailinabox /run/urmail/agent.sock && chmod 0660 /run/urmail/agent.sock && exit 0; sleep 0.2; done; exit 1'
 Restart=always
 RestartSec=3s
 EnvironmentFile=/etc/urmail/agent.env
@@ -19,10 +22,10 @@ Environment=URMAIL_ENV_FILE=/etc/urmail/agent.env
 # reload services. It has no network listener at all: it is reached only
 # through a unix socket that is restricted to the mailinabox group.
 #
-# RuntimeDirectory, the explicit chown/chmod above and the server's chmod of
-# the socket together guarantee /run/urmail is root:mailinabox 0770 and the
-# socket is root:mailinabox 0660. urmaild runs as mailinabox and is the only
-# unprivileged writer.
+# RuntimeDirectory, the explicit chown/chmod above, the server's Listen
+# chown/chmod, and ExecStartPost together guarantee /run/urmail is
+# root:mailinabox 0770 and the socket is root:mailinabox 0660. urmaild runs
+# as mailinabox and is the only unprivileged writer.
 RuntimeDirectory=urmail
 RuntimeDirectoryMode=0770
 UMask=0022

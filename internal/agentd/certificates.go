@@ -110,17 +110,9 @@ func (m *ApplyManager) ensureBootstrap(p ApplyParams) error {
 		paths := m.certificatePaths(domain)
 		certPath, keyPath := certificateCertPath(paths), certificateKeyPath(paths)
 		if _, err := tls.LoadX509KeyPair(certPath, keyPath); err == nil {
-			existingCert, err := os.ReadFile(certPath) // #nosec G304 -- validated canonical root-owned certificate.
-			if err != nil {
-				return err
-			}
-			existingKey, err := os.ReadFile(keyPath) // #nosec G304 -- validated canonical root-owned private key.
-			if err != nil {
-				return err
-			}
-			if err := m.installCertificateFiles(domain, existingCert, existingKey); err != nil {
-				return err
-			}
+			// Already bootstrapped. Do not rewrite: hostname paths include both
+			// panel and mail files, and rewriting panel material over mail would
+			// clobber a Let's Encrypt leaf (and fail under chattr +i).
 			continue
 		}
 		// Never overwrite an existing (possibly damaged) issued certificate with a fallback.
