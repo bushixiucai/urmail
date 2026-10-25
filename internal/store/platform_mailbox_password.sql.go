@@ -67,6 +67,38 @@ func (q *Queries) PlatformChangeMailboxPasswordCAS(ctx context.Context, arg Plat
 	return result.RowsAffected(), nil
 }
 
+const platformMailboxAuthLookup = `-- name: PlatformMailboxAuthLookup :one
+
+SELECT m.tenant_id, m.id AS mailbox_id, m.address, m.password_hash
+FROM mailboxes m
+JOIN tenants t ON t.id = m.tenant_id
+JOIN domains d ON d.tenant_id = m.tenant_id AND d.id = m.domain_id
+WHERE m.address = $1::text
+  AND m.status = 'active' AND t.status = 'active' AND d.status = 'active'
+`
+
+type PlatformMailboxAuthLookupRow struct {
+	TenantID     int64  `json:"tenant_id"`
+	MailboxID    int64  `json:"mailbox_id"`
+	Address      string `json:"address"`
+	PasswordHash string `json:"password_hash"`
+}
+
+// Mailbox self-service is bound to the independently authenticated webmail session.
+// Native webmail login: resolve an active mailbox by address for password verification.
+// Never used for panel identity; Roundcube bridge continues to use HMAC + session create.
+func (q *Queries) PlatformMailboxAuthLookup(ctx context.Context, address string) (PlatformMailboxAuthLookupRow, error) {
+	row := q.db.QueryRow(ctx, platformMailboxAuthLookup, address)
+	var i PlatformMailboxAuthLookupRow
+	err := row.Scan(
+		&i.TenantID,
+		&i.MailboxID,
+		&i.Address,
+		&i.PasswordHash,
+	)
+	return i, err
+}
+
 const platformMailboxPasswordFailures = `-- name: PlatformMailboxPasswordFailures :one
 SELECT count(*) FROM audit_logs WHERE tenant_id=$1::bigint
 AND action='mailbox.password.rejected' AND target_type='mailbox'
@@ -108,7 +140,6 @@ type PlatformMailboxPasswordForSessionRow struct {
 	PasswordVersion int64  `json:"password_version"`
 }
 
-// Mailbox self-service is bound to the independently authenticated webmail session.
 func (q *Queries) PlatformMailboxPasswordForSession(ctx context.Context, arg PlatformMailboxPasswordForSessionParams) (PlatformMailboxPasswordForSessionRow, error) {
 	row := q.db.QueryRow(ctx, platformMailboxPasswordForSession, arg.SessionHash, arg.Address)
 	var i PlatformMailboxPasswordForSessionRow

@@ -63,7 +63,24 @@ func seedRestoreExternalWork(t *testing.T, dsn string, latest bool) {
 	if _, err = conn.Exec(ctx, query); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = conn.Exec(ctx, "RESET ROLE;CREATE TABLE roundcube.session(sess_id text PRIMARY KEY,changed timestamptz NOT NULL,vars text NOT NULL);ALTER TABLE roundcube.session OWNER TO urmail_roundcube;INSERT INTO roundcube.session VALUES('old-roundcube-cookie',now(),'restored-encrypted-imap-password');CREATE FUNCTION roundcube.session_owner_probe() RETURNS name LANGUAGE SQL SECURITY DEFINER AS 'SELECT current_user';ALTER FUNCTION roundcube.session_owner_probe() OWNER TO urmail_roundcube;CREATE TABLE nextcloud.metadata_probe(id bigint PRIMARY KEY,value text NOT NULL);ALTER TABLE nextcloud.metadata_probe OWNER TO urmail_nextcloud;INSERT INTO nextcloud.metadata_probe VALUES(1,'preserved groupware metadata');CREATE FUNCTION nextcloud.session_owner_probe() RETURNS name LANGUAGE SQL SECURITY DEFINER AS 'SELECT current_user';ALTER FUNCTION nextcloud.session_owner_probe() OWNER TO urmail_nextcloud"); err != nil {
+	// Recreate the retired Roundcube boundary so restore quarantine still
+	// exercises invalidation of legacy encrypted session cookies.
+	if _, err = conn.Exec(ctx, `RESET ROLE;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') THEN
+  CREATE ROLE urmail_roundcube NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ END IF;
+ IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN
+  GRANT urmail_roundcube TO urmail_migrate;
+ END IF;
+ EXECUTE 'ALTER ROLE urmail_roundcube SET search_path=roundcube';
+END $$;
+CREATE SCHEMA IF NOT EXISTS roundcube AUTHORIZATION urmail_roundcube;
+CREATE TABLE roundcube.session(sess_id text PRIMARY KEY,changed timestamptz NOT NULL,vars text NOT NULL);
+ALTER TABLE roundcube.session OWNER TO urmail_roundcube;
+INSERT INTO roundcube.session VALUES('old-roundcube-cookie',now(),'restored-encrypted-imap-password');
+CREATE FUNCTION roundcube.session_owner_probe() RETURNS name LANGUAGE SQL SECURITY DEFINER AS 'SELECT current_user';
+ALTER FUNCTION roundcube.session_owner_probe() OWNER TO urmail_roundcube`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -192,8 +209,16 @@ func TestNativeDatabaseRestoreQuarantinesExternalReplay(t *testing.T) {
 		{"Roundcube SECURITY DEFINER owner stays limited", `SELECT roundcube.session_owner_probe()='urmail_roundcube'`},
 		{"Roundcube dedicated owner restored", `SELECT relowner='urmail_roundcube'::regrole AND NOT has_table_privilege('urmail_app','roundcube.session','SELECT') FROM pg_class WHERE oid='roundcube.session'::regclass`},
 		{"Roundcube cookie credentials invalidated", `SELECT count(*)=0 FROM roundcube.session`},
-		{"Nextcloud metadata and restricted owner retained", `SELECT value='preserved groupware metadata' AND (SELECT relowner='urmail_nextcloud'::regrole FROM pg_class WHERE oid='nextcloud.metadata_probe'::regclass) AND NOT has_table_privilege('urmail_app','nextcloud.metadata_probe','SELECT') FROM nextcloud.metadata_probe WHERE id=1`},
-		{"Nextcloud SECURITY DEFINER owner stays limited", `SELECT nextcloud.session_owner_probe()='urmail_nextcloud'`},
+		{"Nextcloud schema must not exist", `SELECT NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='nextcloud')`},
+		// Role may be absent after 0073, or retained cluster-wide when another
+		// database still depends on it; either way this database must be clean.
+		{"Nextcloud role owns nothing in this database", `SELECT NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud') OR (
+ NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_roles o ON o.oid=c.relowner WHERE o.rolname='urmail_nextcloud')
+ AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_roles o ON o.oid=p.proowner WHERE o.rolname='urmail_nextcloud')
+ AND NOT EXISTS(SELECT 1 FROM pg_namespace n JOIN pg_roles o ON o.oid=n.nspowner WHERE o.rolname='urmail_nextcloud')
+ AND NOT EXISTS(SELECT 1 FROM pg_type t JOIN pg_roles o ON o.oid=t.typowner WHERE o.rolname='urmail_nextcloud')
+ AND NOT EXISTS(SELECT 1 FROM pg_default_acl d JOIN pg_roles o ON o.oid=d.defaclrole WHERE o.rolname='urmail_nextcloud')
+)`},
 		{"source auth expired", `SELECT expires_at<=now() FROM sessions WHERE id='restore-session'`},
 		{"original refund provenance retained", `SELECT EXISTS(SELECT 1 FROM audit_logs WHERE action='restore.external_work_held' AND detail->>'source_table'='refunds' AND detail->>'previous_state'='pending')`},
 		{"restore alert persists", `SELECT state='firing' FROM operational_alerts WHERE alert_key='restore:external_reconciliation'`},

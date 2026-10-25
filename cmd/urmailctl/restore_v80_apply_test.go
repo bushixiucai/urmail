@@ -138,10 +138,13 @@ func TestV80ApplyRestoresVerifiedFilesIntoNewPrivateStage(t *testing.T) {
 		t.Fatal("receipt lost the required follow-up gates")
 	}
 	joined := strings.Join(receipt.RequiredFollowUp, ",")
-	for _, gate := range []string{"source_dsn_and_secret_rebind", "same_postgresql_instance_nextcloud_schema_owner", "roundcube_nextcloud_session_invalidation", "device_state_and_external_replay_reconciliation"} {
+	for _, gate := range []string{"source_dsn_and_secret_rebind", "roundcube_session_invalidation", "device_state_and_external_replay_reconciliation"} {
 		if !strings.Contains(joined, gate) {
 			t.Fatal("pending PostgreSQL rebind, session and consumer gates are not explicit")
 		}
+	}
+	if strings.Contains(joined, "nextcloud") {
+		t.Fatal("retired Nextcloud runtime gates must not remain required follow-up")
 	}
 	if stageInfo, statErr := os.Lstat(stage); statErr != nil || !stageInfo.IsDir() || stageInfo.Mode().Perm() != 0o700 || receipt.StageMode != 0o700 {
 		t.Fatal("staging root is not a private 0700 directory")

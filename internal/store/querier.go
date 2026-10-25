@@ -466,8 +466,11 @@ type Querier interface {
 	PlatformLockRegistrationEmail(ctx context.Context, dollar_1 string) error
 	PlatformLockRetentionPurgePolicy(ctx context.Context, arg PlatformLockRetentionPurgePolicyParams) (bool, error)
 	PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMailboxAccessStatesRow, error)
-	PlatformMailboxPasswordFailures(ctx context.Context, arg PlatformMailboxPasswordFailuresParams) (int64, error)
 	// Mailbox self-service is bound to the independently authenticated webmail session.
+	// Native webmail login: resolve an active mailbox by address for password verification.
+	// Never used for panel identity; Roundcube bridge continues to use HMAC + session create.
+	PlatformMailboxAuthLookup(ctx context.Context, address string) (PlatformMailboxAuthLookupRow, error)
+	PlatformMailboxPasswordFailures(ctx context.Context, arg PlatformMailboxPasswordFailuresParams) (int64, error)
 	PlatformMailboxPasswordForSession(ctx context.Context, arg PlatformMailboxPasswordForSessionParams) (PlatformMailboxPasswordForSessionRow, error)
 	PlatformManagedBrands(ctx context.Context) ([]PlatformManagedBrandsRow, error)
 	PlatformManagedPlanAvailable(ctx context.Context, code string) (bool, error)

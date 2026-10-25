@@ -62,6 +62,39 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.QuoteHMACKey != "quote-secret-from-file" {
 		t.Fatalf("quote HMAC key was not loaded, got %q", cfg.QuoteHMACKey)
 	}
+	if cfg.WebmailNative {
+		t.Fatal("URMAIL_WEBMAIL_NATIVE must default to false")
+	}
+	if cfg.IMAPAddr != "127.0.0.1:993" {
+		t.Fatalf("unexpected IMAP address %q", cfg.IMAPAddr)
+	}
+}
+
+func TestLoadWebmailNativeFlag(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "urmaild.env")
+	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
+		"URMAIL_DATABASE_URL_PLATFORM=postgres://platform@localhost/urmail\n" +
+		"URMAIL_QUOTE_HMAC_KEY=quote-secret\n" +
+		"URMAIL_WEBMAIL_NATIVE=true\n" +
+		"URMAIL_IMAP_ADDR=127.0.0.1:1993\n"
+	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+	t.Setenv("URMAIL_ENV_FILE", envFile)
+	t.Setenv("URMAIL_WEBMAIL_NATIVE", "true")
+	t.Setenv("URMAIL_IMAP_ADDR", "127.0.0.1:1993")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.WebmailNative {
+		t.Fatal("expected URMAIL_WEBMAIL_NATIVE=true")
+	}
+	if cfg.IMAPAddr != "127.0.0.1:1993" {
+		t.Fatalf("unexpected IMAP address %q", cfg.IMAPAddr)
+	}
 }
 
 func TestEnvironmentOverridesTheFile(t *testing.T) {

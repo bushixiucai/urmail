@@ -58,7 +58,7 @@ var v80RequiredLayout = map[string]string{
 	"usr/local/lib/roundcubemail/config/config.inc.php": "file",
 	"usr/local/lib/owncloud/config/config.php":          "symlink",
 }
-var v80FollowUp = []string{"isolated_native_complete_restore", "managed_writer_and_cron_fencing", "same_postgresql_instance_nextcloud_schema_owner", "source_dsn_and_secret_rebind", "roundcube_nextcloud_session_invalidation", "device_state_and_external_replay_reconciliation", "generation_protocol_and_real_client_acceptance", "manual_direct_sender_login_auto_receive_only_parity", "application_runtime_os_package_reconstruction", "postfix_queue_and_remote_side_effect_reconciliation"}
+var v80FollowUp = []string{"isolated_native_complete_restore", "managed_writer_and_cron_fencing", "source_dsn_and_secret_rebind", "roundcube_session_invalidation", "device_state_and_external_replay_reconciliation", "generation_protocol_and_real_client_acceptance", "manual_direct_sender_login_auto_receive_only_parity", "application_runtime_os_package_reconstruction", "postfix_queue_and_remote_side_effect_reconciliation"}
 
 type v80Member struct {
 	Name               string    `json:"name"`

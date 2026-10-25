@@ -125,7 +125,17 @@ func TestRootBackupIncludesForcedRLSAndPrivateRoundcube(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close(ctx)
-	_, err = connection.Exec(ctx, `CREATE TABLE public.backup_forced_probe(value text);ALTER TABLE public.backup_forced_probe OWNER TO urmail_platform;ALTER TABLE public.backup_forced_probe ENABLE ROW LEVEL SECURITY;ALTER TABLE public.backup_forced_probe FORCE ROW LEVEL SECURITY;INSERT INTO public.backup_forced_probe VALUES('forced-row-proof');CREATE SCHEMA IF NOT EXISTS roundcube AUTHORIZATION urmail_roundcube;CREATE TABLE roundcube.backup_private_probe(value text);ALTER TABLE roundcube.backup_private_probe OWNER TO urmail_roundcube;INSERT INTO roundcube.backup_private_probe VALUES('private-row-proof')`)
+	_, err = connection.Exec(ctx, `CREATE TABLE public.backup_forced_probe(value text);ALTER TABLE public.backup_forced_probe OWNER TO urmail_platform;ALTER TABLE public.backup_forced_probe ENABLE ROW LEVEL SECURITY;ALTER TABLE public.backup_forced_probe FORCE ROW LEVEL SECURITY;INSERT INTO public.backup_forced_probe VALUES('forced-row-proof');
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') THEN
+  CREATE ROLE urmail_roundcube NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ END IF;
+ IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN
+  GRANT urmail_roundcube TO urmail_migrate;
+ END IF;
+ EXECUTE 'ALTER ROLE urmail_roundcube SET search_path=roundcube';
+END $$;
+CREATE SCHEMA IF NOT EXISTS roundcube AUTHORIZATION urmail_roundcube;CREATE TABLE roundcube.backup_private_probe(value text);ALTER TABLE roundcube.backup_private_probe OWNER TO urmail_roundcube;INSERT INTO roundcube.backup_private_probe VALUES('private-row-proof')`)
 	if err != nil {
 		t.Fatal(err)
 	}

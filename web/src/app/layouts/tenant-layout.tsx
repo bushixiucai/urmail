@@ -31,6 +31,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { useMailboxNative } from "@/features/webmail/use-mailbox-native";
 
 interface TenantLayoutProps {
   children: ReactNode;
@@ -72,20 +73,15 @@ export function TenantLayout({ children }: TenantLayoutProps) {
         ...(brand.primary_color ? { primary: brand.primary_color } : {}),
       }
     : undefined;
-  const [webmailEnabled, setWebmailEnabled] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/v1/roundcube/status", { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((value: { enabled?: boolean } | null) => {
-        if (value?.enabled) setWebmailEnabled(true);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { native: webmailNative } = useMailboxNative();
 
   const navigation = [
+    {
+      name: t("nav.webmail"),
+      href: webmailNative ? "/webmail/inbox" : "/webmail",
+      icon: Mail,
+    },
     { name: t("layout.dashboard"), href: "/", icon: LayoutDashboard },
     { name: t("layout.domains"), href: "/domains", icon: Globe },
     { name: t("layout.mailboxes"), href: "/mailboxes", icon: Mail },
@@ -108,21 +104,6 @@ export function TenantLayout({ children }: TenantLayoutProps) {
 
   const renderNavLinks = (onNavigate?: () => void) => (
     <nav className="flex-1 p-3 space-y-1">
-      {webmailEnabled && (
-        <a
-          href="/mail/"
-          className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-          title={t("page.webmail.independent_identity")}
-        >
-          <Mail className="h-4 w-4" />
-          {t("nav.webmail")}
-        </a>
-      )}
-      {webmailEnabled && (
-        <p className="px-3 text-xs text-muted-foreground">
-          {t("page.webmail.independent_identity")}
-        </p>
-      )}
       {navigation.map((item) => {
         const Icon = item.icon;
         const isActive = location.pathname === item.href;

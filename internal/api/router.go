@@ -24,6 +24,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/refund"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
+	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
 // Options carries the dependencies of the HTTP server.
@@ -50,11 +51,19 @@ type Options struct {
 	TelemetryStream     string
 	RoundcubeBridgeKey  string
 	RoundcubeEnabled    bool
+	WebmailNative       bool
+	IMAPAddr            string
+	// SMTPAddr is the loopback submission endpoint for native webmail send.
+	// Empty defaults to 127.0.0.1:587.
+	SMTPAddr            string
 	RegistrationEnabled bool
 	AICloudEndpoints    []string
 	AILocalEndpoints    []string
 	SieveActivator      handlers.SieveActivator
 	MetricsToken        string
+	// WebmailVault holds IMAP passwords for live native sessions (process memory).
+	WebmailVault webmail.CredentialVault
+
 	// Audit receives one row per successful mutating tenant request.
 	Audit middleware.AuditWriter
 	// Secrets encrypts TOTP seeds at rest. Nil keeps legacy plaintext support.
@@ -194,6 +203,24 @@ func New(opts Options) *gin.Engine {
 	mailboxAI := &handlers.MailboxAIService{Pool: opts.PlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
 	aiConfiguration := &handlers.AIConfigurationHandler{Pool: opts.PlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
 	mailboxBridge := &handlers.MailboxBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, AI: mailboxAI, Sieve: opts.SieveActivator}
+	webmailVault := opts.WebmailVault
+	if webmailVault == nil {
+		webmailVault = webmail.NewMemoryVault()
+	}
+	nativeStore := handlers.StoreMailboxNative{Q: platformQueries}
+	smtpAddr := opts.SMTPAddr
+	if smtpAddr == "" {
+		smtpAddr = "127.0.0.1:587"
+	}
+	mailboxNative := &handlers.MailboxNativeHandler{
+		Enabled:   opts.WebmailNative && platformQueries != nil,
+		Auth:      nativeStore,
+		Sessions:  nativeStore,
+		Vault:     webmailVault,
+		Dialer:    webmail.NetDialer{Addr: opts.IMAPAddr},
+		Submitter: webmail.NetSubmitter{Addr: smtpAddr},
+		Pool:      opts.PlatformPool,
+	}
 	deliveryHandler := &handlers.DeliveryHandler{Store: appQueries, Platform: platformQueries, Queue: opts.Queue, Stream: opts.TelemetryStream}
 	marketingHandler := &handlers.MarketingHandler{Store: appQueries, Platform: platformQueries, Secrets: opts.Secrets}
 	marketingSuppressionHandler := &handlers.MarketingSuppressionHandler{Store: appQueries, Tokens: opts.MarketingTokens, AppPool: opts.AppPool, Messages: opts.Messages}
@@ -203,7 +230,26 @@ func New(opts Options) *gin.Engine {
 	{
 		v1.GET("/healthz", healthz(opts))
 		v1.GET("/roundcube/status", func(c *gin.Context) { c.JSON(200, gin.H{"enabled": opts.RoundcubeEnabled}) })
-		v1.POST("/roundcube/bridge", mailboxBridge.Bridge)
+		if opts.RoundcubeEnabled {
+			v1.POST("/roundcube/bridge", mailboxBridge.Bridge)
+		}
+		v1.GET("/mailbox/status", mailboxNative.Status)
+		v1.POST("/mailbox/session", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) {
+			return c.ClientIP(), true
+		}), mailboxNative.CreateSession)
+		mailboxAuthed := v1.Group("/mailbox")
+		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore))
+		{
+			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
+			mailboxAuthed.GET("/folders/:name/messages", mailboxNative.ListMessages)
+			mailboxAuthed.POST("/folders/:name/messages/flags", mailboxNative.FlagMessages)
+			mailboxAuthed.POST("/folders/:name/messages/move", mailboxNative.MoveMessages)
+			mailboxAuthed.POST("/folders/:name/messages/delete", mailboxNative.DeleteMessages)
+			mailboxAuthed.GET("/folders/:name/messages/:uid", mailboxNative.GetMessage)
+			mailboxAuthed.POST("/send", mailboxNative.SendMessage)
+			mailboxAuthed.POST("/password", mailboxNative.ChangePassword)
+			mailboxAuthed.DELETE("/session", mailboxNative.DeleteSession)
+		}
 		v1.POST("/mailbox/sieve/exchange", sieveBridge.Exchange)
 		v1.GET("/mailbox/sieve/session", sieveBridge.Session)
 		v1.PUT("/mailbox/sieve/rules", sieveBridge.Save)

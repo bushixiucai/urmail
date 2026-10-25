@@ -1,0 +1,60 @@
+package webmail
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestParseEnvelope(t *testing.T) {
+	env := `("17-Oct-2026 10:00:00 +0000" "Hello" (("Alice" NIL "alice" "example.test")) NIL NIL (("Bob" NIL "bob" "example.test")) NIL NIL NIL "<id@example.test>")`
+	subject, from, date := parseEnvelope(env)
+	if subject != "Hello" {
+		t.Fatalf("subject=%q", subject)
+	}
+	if len(from) != 1 || from[0].Email != "alice@example.test" || from[0].Name != "Alice" {
+		t.Fatalf("from=%#v", from)
+	}
+	if !date.Equal(time.Date(2026, 10, 17, 10, 0, 0, 0, time.UTC)) {
+		t.Fatalf("date=%v", date)
+	}
+}
+
+func TestParseFetchAttrsAndSummary(t *testing.T) {
+	payload := `(UID 42 FLAGS (\Seen \Flagged) RFC822.SIZE 321 ENVELOPE ("17-Oct-2026 10:00:00 +0000" "Hi" (("A" NIL "a" "b.test")) NIL NIL NIL NIL NIL NIL NIL))`
+	attrs := parseFetchAttrs(payload)
+	sum, err := summaryFromAttrs(attrs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.UID != 42 || sum.Size != 321 || sum.Subject != "Hi" {
+		t.Fatalf("%+v", sum)
+	}
+	if strings.Join(sum.Flags, ",") != `\Seen,\Flagged` {
+		t.Fatalf("flags=%v", sum.Flags)
+	}
+}
+
+func TestParseMIMEBodyMultipart(t *testing.T) {
+	raw := "MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/mixed; boundary=bnd\r\n\r\n" +
+		"--bnd\r\nContent-Type: text/plain\r\n\r\nhello\r\n" +
+		"--bnd\r\nContent-Type: text/html\r\n\r\n<p>hi</p>\r\n" +
+		"--bnd\r\nContent-Type: application/pdf; name=\"a.pdf\"\r\n" +
+		"Content-Disposition: attachment; filename=\"a.pdf\"\r\n\r\nPDFDATA\r\n" +
+		"--bnd--\r\n"
+	text, html, atts := parseMIMEBody([]byte(raw))
+	if text != "hello" || html != "<p>hi</p>" {
+		t.Fatalf("text=%q html=%q", text, html)
+	}
+	if len(atts) != 1 || atts[0].Filename != "a.pdf" {
+		t.Fatalf("atts=%#v", atts)
+	}
+}
+
+func TestParseUIDSearch(t *testing.T) {
+	uids := parseUIDSearch([]string{"* SEARCH 1 2 9", "* OK ignored"})
+	if len(uids) != 3 || uids[2] != 9 {
+		t.Fatalf("%v", uids)
+	}
+}

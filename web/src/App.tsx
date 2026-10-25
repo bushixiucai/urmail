@@ -97,6 +97,26 @@ const AISettingsPage = lazy(() =>
 const SievePage = lazy(() =>
   import("@/features/sieve/sieve-page").then((m) => ({ default: m.SievePage })),
 );
+const WebmailEntryPage = lazy(() =>
+  import("@/features/webmail/webmail-entry-page").then((m) => ({
+    default: m.WebmailEntryPage,
+  })),
+);
+const WebmailHelpPage = lazy(() =>
+  import("@/features/webmail/webmail-help-page").then((m) => ({
+    default: m.WebmailHelpPage,
+  })),
+);
+const MailboxLoginPage = lazy(() =>
+  import("@/features/webmail/mailbox-login-page").then((m) => ({
+    default: m.MailboxLoginPage,
+  })),
+);
+const MailboxInboxPage = lazy(() =>
+  import("@/features/webmail/mailbox-inbox-page").then((m) => ({
+    default: m.MailboxInboxPage,
+  })),
+);
 const NotFoundPage = lazy(() =>
   import("@/features/not-found/not-found-page").then((m) => ({
     default: m.NotFoundPage,
@@ -180,6 +200,32 @@ export function App() {
                 element={
                   <LazyPage>
                     <SievePage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/login"
+                element={
+                  <LazyPage>
+                    <MailboxLoginPage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/inbox"
+                element={
+                  <LazyPage>
+                    <MailboxInboxPage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/help"
+                element={
+                  <LazyPage>
+                    <main className="mx-auto max-w-lg px-4 py-10">
+                      <WebmailHelpPage />
+                    </main>
                   </LazyPage>
                 }
               />
@@ -335,6 +381,16 @@ export function App() {
                   <ProtectedRoute>
                     <LazyPage>
                       <MfaSettingsPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/webmail"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <WebmailEntryPage />
                     </LazyPage>
                   </ProtectedRoute>
                 }

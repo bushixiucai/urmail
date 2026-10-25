@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 
 	"github.com/bushixiucai/urmail/migrations"
 
@@ -17,10 +18,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// clusterRoleLock serializes cluster-role create/drop across databases.
+// Must match internal/testdb bootstrapLock (advisory locks are database-local).
+const clusterRoleLock int64 = 7750360020
+
 // Migrator applies schema migrations.
 type Migrator struct {
-	migrate *migrate.Migrate
-	sqlDB   *sql.DB
+	migrate     *migrate.Migrate
+	sqlDB       *sql.DB
+	databaseURL string
 }
 
 // NewMigrator builds a migrator over the embedded migrations and the given
@@ -48,7 +54,7 @@ func NewMigrator(databaseURL string) (*Migrator, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("create migrator: %w", err)
 	}
-	return &Migrator{migrate: instance, sqlDB: sqlDB}, nil
+	return &Migrator{migrate: instance, sqlDB: sqlDB, databaseURL: databaseURL}, nil
 }
 
 // Up applies every pending migration.
@@ -105,8 +111,172 @@ func (m *Migrator) Up(ctx context.Context) (result error) {
 			result = errors.Join(result, cleanup)
 		}()
 	}
-	if err = m.migrate.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("apply migrations: %w", err)
+	applyRemaining := func() error {
+		// Historical 0042/0068 AUTHORIZE retired service roles; bootstrap no
+		// longer creates them. Ensure each inert role until 0075/0073 drops it
+		// when safe. Cluster lock prevents parallel fixtures from dropping a
+		// role mid-flight.
+		if version < 75 {
+			if err = ensureHistoricalRoundcubeRole(ctx, conn); err != nil {
+				return err
+			}
+		}
+		if version < 73 {
+			if err = ensureHistoricalNextcloudRole(ctx, conn); err != nil {
+				return err
+			}
+		}
+		if err = m.migrate.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+			return fmt.Errorf("apply migrations: %w", err)
+		}
+		return nil
+	}
+	if version < 75 {
+		return withClusterRoleLock(ctx, m.databaseURL, applyRemaining)
+	}
+	return applyRemaining()
+}
+
+// withClusterRoleLock serializes cluster-role mutations on the maintenance
+// database so parallel fixture migrations cannot DROP ROLE mid-flight.
+func withClusterRoleLock(ctx context.Context, databaseURL string, fn func() error) (err error) {
+	adminURL, err := clusterMaintenanceURL(databaseURL)
+	if err != nil {
+		return err
+	}
+	admin, err := sql.Open("pgx", adminURL)
+	if err != nil {
+		return fmt.Errorf("open cluster maintenance database: %w", err)
+	}
+	defer func() { err = errors.Join(err, admin.Close()) }()
+	conn, err := admin.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, conn.Close()) }()
+	if _, err = conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", clusterRoleLock); err != nil {
+		return fmt.Errorf("lock cluster role mutations: %w", err)
+	}
+	defer func() {
+		_, unlockErr := conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", clusterRoleLock)
+		err = errors.Join(err, unlockErr)
+	}()
+	return fn()
+}
+
+func clusterMaintenanceURL(databaseURL string) (string, error) {
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse database URL: %w", err)
+	}
+	parsed.Path = "/postgres"
+	query := parsed.Query()
+	query.Del("dbname")
+	query.Del("database")
+	// Role options target the fixture database; maintenance uses login roles.
+	query.Del("role")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+// ensureHistoricalRoundcubeRole creates the retired Roundcube role when missing
+// so migration 0042 can still AUTHORIZE its schema on fresh Up(). Migration
+// 0075 drops the role once this database no longer depends on it.
+func ensureHistoricalRoundcubeRole(ctx context.Context, conn *sql.Conn) error {
+	_, err := conn.ExecContext(ctx, `
+DO $$
+DECLARE
+ migrate_active boolean := (current_user = 'urmail_migrate');
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') THEN
+  IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN
+   IF migrate_active THEN
+    PERFORM set_config('role','none',true);
+   END IF;
+   BEGIN
+    GRANT urmail_roundcube TO urmail_migrate;
+   EXCEPTION WHEN insufficient_privilege THEN
+    IF migrate_active THEN
+     PERFORM set_config('role','urmail_migrate',true);
+    END IF;
+    RAISE EXCEPTION 'ROUNDCUBE_ROLE_CREATE_REQUIRES_BOOTSTRAP_LOGIN' USING ERRCODE='42501';
+   END;
+   IF migrate_active THEN
+    PERFORM set_config('role','urmail_migrate',true);
+   END IF;
+  END IF;
+  RETURN;
+ END IF;
+ IF migrate_active THEN
+  PERFORM set_config('role','none',true);
+ END IF;
+ BEGIN
+  CREATE ROLE urmail_roundcube NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  GRANT urmail_roundcube TO urmail_migrate;
+  EXECUTE 'ALTER ROLE urmail_roundcube SET search_path=roundcube';
+ EXCEPTION WHEN insufficient_privilege THEN
+  IF migrate_active THEN
+   PERFORM set_config('role','urmail_migrate',true);
+  END IF;
+  RAISE EXCEPTION 'ROUNDCUBE_ROLE_CREATE_REQUIRES_BOOTSTRAP_LOGIN' USING ERRCODE='42501';
+ END;
+ IF migrate_active THEN
+  PERFORM set_config('role','urmail_migrate',true);
+ END IF;
+END $$;`)
+	if err != nil {
+		return fmt.Errorf("ensure historical roundcube role for migration 0042: %w", err)
+	}
+	return nil
+}
+
+// ensureHistoricalNextcloudRole creates the retired Nextcloud role when missing
+// so migration 0068 can still AUTHORIZE its schema on fresh Up(). Migration
+// 0073 drops the role once this database no longer depends on it.
+func ensureHistoricalNextcloudRole(ctx context.Context, conn *sql.Conn) error {
+	_, err := conn.ExecContext(ctx, `
+DO $$
+DECLARE
+ migrate_active boolean := (current_user = 'urmail_migrate');
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud') THEN
+  IF NOT pg_has_role('urmail_migrate','urmail_nextcloud','MEMBER') THEN
+   IF migrate_active THEN
+    PERFORM set_config('role','none',true);
+   END IF;
+   BEGIN
+    GRANT urmail_nextcloud TO urmail_migrate;
+   EXCEPTION WHEN insufficient_privilege THEN
+    IF migrate_active THEN
+     PERFORM set_config('role','urmail_migrate',true);
+    END IF;
+    RAISE EXCEPTION 'NEXTCLOUD_ROLE_CREATE_REQUIRES_BOOTSTRAP_LOGIN' USING ERRCODE='42501';
+   END;
+   IF migrate_active THEN
+    PERFORM set_config('role','urmail_migrate',true);
+   END IF;
+  END IF;
+  RETURN;
+ END IF;
+ IF migrate_active THEN
+  PERFORM set_config('role','none',true);
+ END IF;
+ BEGIN
+  CREATE ROLE urmail_nextcloud NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  GRANT urmail_nextcloud TO urmail_migrate;
+  EXECUTE 'ALTER ROLE urmail_nextcloud SET search_path=nextcloud';
+ EXCEPTION WHEN insufficient_privilege THEN
+  IF migrate_active THEN
+   PERFORM set_config('role','urmail_migrate',true);
+  END IF;
+  RAISE EXCEPTION 'NEXTCLOUD_ROLE_CREATE_REQUIRES_BOOTSTRAP_LOGIN' USING ERRCODE='42501';
+ END;
+ IF migrate_active THEN
+  PERFORM set_config('role','urmail_migrate',true);
+ END IF;
+END $$;`)
+	if err != nil {
+		return fmt.Errorf("ensure historical nextcloud role for migration 0068: %w", err)
 	}
 	return nil
 }

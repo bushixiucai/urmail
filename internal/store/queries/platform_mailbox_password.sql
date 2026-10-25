@@ -1,4 +1,15 @@
 -- Mailbox self-service is bound to the independently authenticated webmail session.
+
+-- name: PlatformMailboxAuthLookup :one
+-- Native webmail login: resolve an active mailbox by address for password verification.
+-- Never used for panel identity; Roundcube bridge continues to use HMAC + session create.
+SELECT m.tenant_id, m.id AS mailbox_id, m.address, m.password_hash
+FROM mailboxes m
+JOIN tenants t ON t.id = m.tenant_id
+JOIN domains d ON d.tenant_id = m.tenant_id AND d.id = m.domain_id
+WHERE m.address = sqlc.arg(address)::text
+  AND m.status = 'active' AND t.status = 'active' AND d.status = 'active';
+
 -- name: PlatformMailboxPasswordForSession :one
 SELECT m.tenant_id,m.id AS mailbox_id,m.address,m.password_hash,m.password_version
 FROM mailbox_sessions s JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id

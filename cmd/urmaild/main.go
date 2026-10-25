@@ -205,6 +205,8 @@ func run() error {
 	}
 	engine := api.New(api.Options{
 		RoundcubeEnabled:    cfg.RoundcubeEnabled,
+		WebmailNative:       cfg.WebmailNative,
+		IMAPAddr:            cfg.IMAPAddr,
 		MetricsToken:        cfg.MetricsToken,
 		SieveActivator:      sieveActivator,
 		AICloudEndpoints:    cfg.AICloudEndpoints,

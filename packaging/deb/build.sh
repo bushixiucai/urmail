@@ -64,8 +64,7 @@ install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/
 install -m 0644 "$ROOT/packaging/nginx/urmail-ssl.conf" "$STAGE/etc/nginx/snippets/urmail-ssl.conf"
 install -m 0644 "$ROOT/packaging/dovecot/99-urmail.conf" "$STAGE/etc/dovecot/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/internal/db/bootstrap.sql" "$STAGE/usr/share/urmail/bootstrap.sql"
-install -d "$STAGE/usr/share/urmail/roundcube" "$STAGE/usr/share/urmail/locales"
-cp -R "$ROOT/packaging/roundcube/." "$STAGE/usr/share/urmail/roundcube/"
+install -d "$STAGE/usr/share/urmail/locales"
 install -m 0644 "$ROOT/internal/i18n/locales/en.json" "$ROOT/internal/i18n/locales/zh-CN.json" "$STAGE/usr/share/urmail/locales/"
 
 cat >"$STAGE/DEBIAN/control" <<EOF

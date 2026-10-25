@@ -163,8 +163,10 @@ func acquireRestoreOperation(path string) (*os.File, error) {
 	return file, nil
 }
 
-// configureRestoredRoundcube preserves the target-private provisioning state.
-// It never installs packages, starts services or takes paths from a backup.
+// configureRestoredRoundcube rebinds target-private Roundcube packaging when
+// explicitly enabled. Packaging is retired: with RoundcubeEnabled=false this
+// is a no-op even if manage.sh is absent. Never installs packages, starts
+// services, or takes paths from a backup.
 func configureRestoredRoundcube(ctx context.Context, lock *os.File) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -175,7 +177,7 @@ func configureRestoredRoundcube(ctx context.Context, lock *os.File) error {
 	}
 	info, err := os.Lstat("/usr/share/urmail/roundcube/manage.sh")
 	if err != nil || !info.Mode().IsRegular() {
-		return errors.New("target Roundcube runtime is missing; keep quarantine and provision the target runtime")
+		return errors.New("URMAIL_ROUNDCUBE_ENABLED=true but /usr/share/urmail/roundcube/manage.sh is absent; keep quarantine, set URMAIL_ROUNDCUBE_ENABLED=false, or restore Roundcube packaging")
 	}
 	command := exec.CommandContext(ctx, "/usr/share/urmail/roundcube/manage.sh", "configure")
 	command.ExtraFiles = append(command.ExtraFiles, lock)

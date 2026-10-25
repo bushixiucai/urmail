@@ -19,12 +19,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_platform') THEN
         CREATE ROLE urmail_platform NOLOGIN;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_roundcube') THEN
-        CREATE ROLE urmail_roundcube NOLOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_nextcloud') THEN
-        CREATE ROLE urmail_nextcloud NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-    END IF;
+    -- urmail_roundcube and urmail_nextcloud are retired: do not create them for
+    -- new installs. Historical migrations 0042/0068 still AUTHORIZE them during
+    -- migrate Up; the migrator ensures each role ephemerally until 0075/0073.
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'urmail_dovecot') THEN
         CREATE ROLE urmail_dovecot NOLOGIN;
     END IF;
@@ -70,18 +67,26 @@ EXCEPTION
 END
 $$;
 
--- Roundcube owns only its vendor metadata schema, never public mail tables.
-DO $$ BEGIN IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN GRANT urmail_roundcube TO urmail_migrate; END IF; END $$;
 -- The migration role creates isolated service schemas inside this database.
 DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO urmail_migrate',current_database()); END $$;
-ALTER ROLE urmail_roundcube SET search_path=roundcube;
 
--- Nextcloud is confined to its application metadata schema in this database.
--- Repeated bootstrap must not disable a separately reviewed active login.
+-- Legacy clusters may still carry retired service roles until 0073/0075.
+-- Harden only when present; never recreate them here. Older bootstrap created
+-- urmail_roundcube with default INHERIT — strip unsafe attributes in place.
 DO $$ BEGIN
- IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud' AND (rolsuper OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
- OR EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='urmail_nextcloud')
- THEN RAISE EXCEPTION 'NEXTCLOUD_ROLE_PRIVILEGES_UNSAFE'; END IF;
- IF NOT pg_has_role('urmail_migrate','urmail_nextcloud','MEMBER') THEN GRANT urmail_nextcloud TO urmail_migrate; END IF;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') THEN
+  ALTER ROLE urmail_roundcube NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  IF EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='urmail_roundcube') THEN
+   RAISE EXCEPTION 'ROUNDCUBE_ROLE_PRIVILEGES_UNSAFE';
+  END IF;
+  IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN GRANT urmail_roundcube TO urmail_migrate; END IF;
+  EXECUTE 'ALTER ROLE urmail_roundcube SET search_path=roundcube';
+ END IF;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud') THEN
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud' AND (rolsuper OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))
+  OR EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='urmail_nextcloud')
+  THEN RAISE EXCEPTION 'NEXTCLOUD_ROLE_PRIVILEGES_UNSAFE'; END IF;
+  IF NOT pg_has_role('urmail_migrate','urmail_nextcloud','MEMBER') THEN GRANT urmail_nextcloud TO urmail_migrate; END IF;
+  EXECUTE 'ALTER ROLE urmail_nextcloud SET search_path=nextcloud';
+ END IF;
 END $$;
-ALTER ROLE urmail_nextcloud SET search_path=nextcloud;

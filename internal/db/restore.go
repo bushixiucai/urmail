@@ -28,9 +28,9 @@ func FinalizeRestore(ctx context.Context, databaseURL string, restoreIDs ...stri
  FOR r IN SELECT p.oid::regprocedure AS signature,p.prokind FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind IN('f','p','w') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') LOOP
  EXECUTE format('ALTER %s %s OWNER TO urmail_platform',CASE r.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,r.signature);
  END LOOP;
- -- --no-owner also makes restored Roundcube objects owned by the migration
- -- login. Restore each dedicated owner without granting panel access.
- IF EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='roundcube') THEN
+ -- Roundcube is retired: remap only while the dedicated role still exists.
+ -- Missing role means already retired — skip without casting ::regrole.
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') AND EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='roundcube') THEN
   ALTER SCHEMA roundcube OWNER TO urmail_roundcube;
   FOR r IN SELECT c.relname,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='roundcube' AND c.relkind IN('r','p','S') ORDER BY CASE WHEN c.relkind='S' THEN 1 ELSE 0 END LOOP
    EXECUTE format('ALTER %s roundcube.%I OWNER TO urmail_roundcube',CASE WHEN r.relkind='S' THEN 'SEQUENCE' ELSE 'TABLE' END,r.relname);
@@ -39,7 +39,9 @@ func FinalizeRestore(ctx context.Context, databaseURL string, restoreIDs ...stri
    EXECUTE format('ALTER %s %s OWNER TO urmail_roundcube',CASE r.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,r.signature);
   END LOOP;
  END IF;
- IF EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='nextcloud') THEN
+ -- Nextcloud is retired: remap only while the dedicated role still exists.
+ -- Missing role means already retired — skip without casting ::regrole.
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud') AND EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='nextcloud') THEN
   ALTER SCHEMA nextcloud OWNER TO urmail_nextcloud;
   FOR r IN SELECT c.relname,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nextcloud' AND c.relkind IN('r','p','S') ORDER BY CASE WHEN c.relkind='S' THEN 1 ELSE 0 END LOOP
    EXECUTE format('ALTER %s nextcloud.%I OWNER TO urmail_nextcloud',CASE WHEN r.relkind='S' THEN 'SEQUENCE' ELSE 'TABLE' END,r.relname);

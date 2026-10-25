@@ -146,9 +146,15 @@ type Config struct {
 	MarketingUnsubscribeHMACKey string
 	RoundcubeBridgeKey          string
 	RoundcubeEnabled            bool
-	MetricsToken                string
-	AICloudEndpoints            []string
-	AILocalEndpoints            []string
+	// WebmailNative enables the native IMAP-proxy webmail API under
+	// /api/v1/mailbox/... . It is off by default and independent of Roundcube.
+	WebmailNative bool
+	// IMAPAddr is the loopback IMAP endpoint urmaild dials as the webmail proxy.
+	// Used only when WebmailNative is true.
+	IMAPAddr         string
+	MetricsToken     string
+	AICloudEndpoints []string
+	AILocalEndpoints []string
 }
 
 // parseBool returns true if value is "1", "true", "yes", or "on" (case-insensitive).
@@ -249,6 +255,8 @@ func Load() (*Config, error) {
 		MarketingUnsubscribeHMACKey: values["URMAIL_MARKETING_UNSUBSCRIBE_HMAC_KEY"],
 		RoundcubeBridgeKey:          values["URMAIL_ROUNDCUBE_BRIDGE_KEY"],
 		RoundcubeEnabled:            parseBool(values["URMAIL_ROUNDCUBE_ENABLED"]),
+		WebmailNative:               parseBool(values["URMAIL_WEBMAIL_NATIVE"]),
+		IMAPAddr:                    values["URMAIL_IMAP_ADDR"],
 		MetricsToken:                values["URMAIL_METRICS_TOKEN"],
 		AICloudEndpoints:            splitCSV(values["URMAIL_AI_CLOUD_ENDPOINTS"]),
 		AILocalEndpoints:            splitCSV(values["URMAIL_AI_LOCAL_ENDPOINTS"]),
@@ -302,6 +310,10 @@ func (c *Config) applyDefaults() {
 	}
 	if c.PrimaryDomain == "" {
 		c.PrimaryDomain = "urmail.cn"
+	}
+	if c.IMAPAddr == "" {
+		// Production Dovecot disables cleartext 143; prefer IMAPS loopback.
+		c.IMAPAddr = "127.0.0.1:993"
 	}
 }
 

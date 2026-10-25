@@ -217,11 +217,10 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 		}
 	}
 
-	// Roundcube keeps the encrypted IMAP credential in its same-PG session
-	// table, which has no expires_at. It is not visible to the platform role.
-	// The maintenance credential is a member of both fixed owner roles.
+	// Legacy Roundcube kept the encrypted IMAP credential in its same-PG
+	// session table (no expires_at). Skip when schema/role already retired.
 	var roundcubeSessions bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='roundcube' AND c.relname='session' AND c.relkind IN('r','p'))`).Scan(&roundcubeSessions); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') AND EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='roundcube' AND c.relname='session' AND c.relkind IN('r','p'))`).Scan(&roundcubeSessions); err != nil {
 		return err
 	}
 	if roundcubeSessions {
