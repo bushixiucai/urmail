@@ -55,11 +55,16 @@ jobs:
       - name: Message catalogue consistency
         run: go run ./cmd/i18ncheck
 
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.out
+      - name: Report coverage
+        run: |
+          go tool cover -func=coverage.out | tee /tmp/urmail-coverage.txt
+          sha256sum coverage.out
+          {
+            echo '### Go coverage'
+            echo '```text'
+            tail -n 1 /tmp/urmail-coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
     name: Frontend
