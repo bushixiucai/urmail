@@ -130,6 +130,36 @@ jobs:
           URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail?sslmode=disable
         run: go test -race -p 1 ./internal/db/... ./internal/api/... ./internal/reconcile/... ./internal/mailboxschedule/...
 
+  native-webmail:
+    name: Native webmail (Postfix and Dovecot)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build the disposable mail protocol fixture
+        run: docker build -t urmail-native-webmail-ci:22.04 -f .github/fixtures/native-webmail.Dockerfile .github/fixtures
+
+      - name: Exercise real native mail protocols and HTTP
+        run: |
+          python3 scripts/native-webmail-protocol-acceptance.py \
+            --image urmail-native-webmail-ci:22.04 \
+            --evidence tmp/native-webmail-ci
+
+      - name: Preserve protocol diagnostics in the job log
+        if: always()
+        run: |
+          if [ -d tmp/native-webmail-ci ]; then
+            find tmp/native-webmail-ci -maxdepth 1 -type f \
+              \( -name '*.log' -o -name 'runtime-result.json' \) \
+              -print -exec cat {} \;
+          fi
+
   embed:
     name: Embedded frontend
     runs-on: ubuntu-24.04
@@ -163,7 +193,7 @@ jobs:
 
       - name: Verify the bundle is inside the binary
         run: |
-          if ! strings /tmp/urmaild | grep -q "assets/index"; then
+          if ! strings /tmp/urmaild | grep "assets/index" >/dev/null; then
             echo "the frontend bundle is missing from the binary" >&2
             exit 1
           fi
