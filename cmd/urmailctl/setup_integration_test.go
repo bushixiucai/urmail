@@ -14,6 +14,7 @@ func TestSetupCreatesPendingTenantAndRequiresExplicitFiniteGift(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("URMAIL_DATABASE_URL_PLATFORM", p.Config().ConnString())
 	t.Setenv("URMAIL_DATABASE_URL", p.Config().ConnString())
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
 	args := []string{"--email", "bootstrap@example.test", "--password", "fixture-initial-password-12345"}
 	if err := runSetup(ctx, args); err != nil {
 		t.Fatal(err)

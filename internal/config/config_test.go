@@ -28,6 +28,7 @@ func TestLoadRequiresDatabaseURLs(t *testing.T) {
 }
 
 func TestLoadAppliesDefaults(t *testing.T) {
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "urmaild.env")
 	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
@@ -71,6 +72,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 }
 
 func TestLoadWebmailNativeFlag(t *testing.T) {
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "urmaild.env")
 	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
@@ -98,6 +100,7 @@ func TestLoadWebmailNativeFlag(t *testing.T) {
 }
 
 func TestEnvironmentOverridesTheFile(t *testing.T) {
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "urmaild.env")
 	content := "URMAIL_DATABASE_URL=postgres://app@localhost/urmail\n" +
@@ -153,6 +156,7 @@ func TestLoadEnvFileHandlesCommentsAndQuotes(t *testing.T) {
 }
 
 func TestMissingEnvFileIsNotAnError(t *testing.T) {
+	t.Setenv("URMAIL_POLICY_ENABLED", "true")
 	t.Setenv("URMAIL_ENV_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
 	t.Setenv("URMAIL_DATABASE_URL", "postgres://app@localhost/urmail")
 	t.Setenv("URMAIL_DATABASE_URL_PLATFORM", "postgres://platform@localhost/urmail")
@@ -200,6 +204,19 @@ func TestDevelopmentModeRequiresLoopback(t *testing.T) {
 	}
 	cfg := Config{DevMode: true, ListenAddr: "127.0.0.1:8080", DatabaseURL: "app", DatabaseURLPlatform: "platform"}
 	if err := cfg.validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// CFG-01: production must not boot without the SaaS policy service; only
+// development is exempt.
+func TestProductionRequiresPolicyEnabled(t *testing.T) {
+	prod := Config{ListenAddr: "127.0.0.1:8080", DatabaseURL: "app", DatabaseURLPlatform: "platform"}
+	if err := prod.validate(); err == nil {
+		t.Fatal("accepted production configuration without URMAIL_POLICY_ENABLED")
+	}
+	prod.PolicyEnabled = true
+	if err := prod.validate(); err != nil {
 		t.Fatal(err)
 	}
 }

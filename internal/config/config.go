@@ -342,6 +342,12 @@ func (c *Config) validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
 	}
+	// CFG-01: outside development the SaaS policy service is the only place
+	// subscription eligibility and daily send accounting are enforced, so a
+	// deployment must not silently boot without it.
+	if !c.DevMode && !c.PolicyEnabled {
+		return errors.New("production requires URMAIL_POLICY_ENABLED=true: without the policy service, send eligibility and daily accounting are not enforced")
+	}
 	return nil
 }
 
