@@ -62,6 +62,22 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 	case target.LegalHold:
 		reason = "legal_hold"
 	case target.MailboxID.Valid && target.ArchiveMailboxID.Valid && target.MailboxID.Int64 == target.ArchiveMailboxID.Int64 && target.Address.Valid && safeKickAddress(target.Address.String) && !target.ArchiveDeletedAt.Valid && target.ArchiveMessageID == target.MessageID && target.TenantStatus == "active" && target.MailboxStatus.String == "active" && target.DomainStatus.String == "active":
+		// ARC-01: expunge matches on Message-ID, so a second archived copy of
+		// the same message under legal hold would lose its Maildir original
+		// together with the recalled copy. Refuse instead of guessing.
+		conflict, err := q.PlatformRecallHoldConflict(ctx, store.PlatformRecallHoldConflictParams{
+			TenantID:  params.TenantID,
+			MailboxID: target.MailboxID,
+			MessageID: target.MessageID,
+			ID:        target.ArchiveEntryID.Int64,
+		})
+		if err != nil {
+			return "", "", ErrFailed
+		}
+		if conflict {
+			reason = "legal_hold_conflict"
+			break
+		}
 		found, expungeErr := m.expungeExact(ctx, target.Address.String, target.MessageID)
 		switch {
 		case expungeErr != nil:

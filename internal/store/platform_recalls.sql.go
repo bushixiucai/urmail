@@ -65,7 +65,7 @@ func (q *Queries) PlatformCompleteRecall(ctx context.Context, arg PlatformComple
 }
 
 const platformLockRecallForExpunge = `-- name: PlatformLockRecallForExpunge :one
-SELECT r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at,a.legal_hold,a.deleted_at AS archive_deleted_at,a.message_id AS archive_message_id,a.mailbox_id AS archive_mailbox_id,m.address,m.status AS mailbox_status,t.status AS tenant_status,d.status AS domain_status
+SELECT r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at,a.id AS archive_entry_id,a.legal_hold,a.deleted_at AS archive_deleted_at,a.message_id AS archive_message_id,a.mailbox_id AS archive_mailbox_id,m.address,m.status AS mailbox_status,t.status AS tenant_status,d.status AS domain_status
 FROM recall_requests r
 JOIN archive_entries a ON a.id=r.archive_entry_id AND a.tenant_id=r.tenant_id
 LEFT JOIN mailboxes m ON m.id=r.mailbox_id AND m.tenant_id=r.tenant_id
@@ -90,6 +90,7 @@ type PlatformLockRecallForExpungeRow struct {
 	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
 	MailboxID        pgtype.Int8        `json:"mailbox_id"`
 	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	ArchiveEntryID_2 int64              `json:"archive_entry_id_2"`
 	LegalHold        bool               `json:"legal_hold"`
 	ArchiveDeletedAt pgtype.Timestamptz `json:"archive_deleted_at"`
 	ArchiveMessageID string             `json:"archive_message_id"`
@@ -114,6 +115,7 @@ func (q *Queries) PlatformLockRecallForExpunge(ctx context.Context, arg Platform
 		&i.ArchiveEntryID,
 		&i.MailboxID,
 		&i.CompletedAt,
+		&i.ArchiveEntryID_2,
 		&i.LegalHold,
 		&i.ArchiveDeletedAt,
 		&i.ArchiveMessageID,
@@ -133,4 +135,39 @@ SELECT pg_advisory_xact_lock($1::bigint)
 func (q *Queries) PlatformLockRecallTenant(ctx context.Context, dollar_1 int64) error {
 	_, err := q.db.Exec(ctx, platformLockRecallTenant, dollar_1)
 	return err
+}
+
+const platformRecallHoldConflict = `-- name: PlatformRecallHoldConflict :one
+SELECT count(*) > 0 AS conflict
+FROM archive_entries
+WHERE tenant_id = $1
+  AND mailbox_id = $2
+  AND message_id = $3
+  AND id <> $4
+  AND legal_hold
+  AND deleted_at IS NULL
+`
+
+type PlatformRecallHoldConflictParams struct {
+	TenantID  int64       `json:"tenant_id"`
+	MailboxID pgtype.Int8 `json:"mailbox_id"`
+	MessageID string      `json:"message_id"`
+	ID        int64       `json:"id"`
+}
+
+// ARC-01: expunge matches on Message-ID, so recalling one archived copy of a
+// message must be refused while another copy of the same Message-ID for the
+// same mailbox is under legal hold -- the mailbox expunge would destroy the
+// held copy's Maildir original too. Exempt from tenant_id predicate per
+// AGENTS.md (platform_*.sql); the agent is the caller.
+func (q *Queries) PlatformRecallHoldConflict(ctx context.Context, arg PlatformRecallHoldConflictParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformRecallHoldConflict,
+		arg.TenantID,
+		arg.MailboxID,
+		arg.MessageID,
+		arg.ID,
+	)
+	var conflict bool
+	err := row.Scan(&conflict)
+	return conflict, err
 }

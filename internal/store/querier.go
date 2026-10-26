@@ -514,6 +514,12 @@ type Querier interface {
 	PlatformPutDeliveryQueueContext(ctx context.Context, arg PlatformPutDeliveryQueueContextParams) error
 	PlatformQueueAuthenticatedTenant(ctx context.Context, arg PlatformQueueAuthenticatedTenantParams) (int64, error)
 	PlatformReanchorBillingCalendar(ctx context.Context, arg PlatformReanchorBillingCalendarParams) (BillingCalendars, error)
+	// ARC-01: expunge matches on Message-ID, so recalling one archived copy of a
+	// message must be refused while another copy of the same Message-ID for the
+	// same mailbox is under legal hold -- the mailbox expunge would destroy the
+	// held copy's Maildir original too. Exempt from tenant_id predicate per
+	// AGENTS.md (platform_*.sql); the agent is the caller.
+	PlatformRecallHoldConflict(ctx context.Context, arg PlatformRecallHoldConflictParams) (bool, error)
 	PlatformRecomputePaidEntitlementEnd(ctx context.Context, tenantID int64) error
 	PlatformReconfirmObservedRefund(ctx context.Context, arg PlatformReconfirmObservedRefundParams) (int64, error)
 	PlatformRecordCollectedDeliveryEvent(ctx context.Context, arg PlatformRecordCollectedDeliveryEventParams) (int64, error)
