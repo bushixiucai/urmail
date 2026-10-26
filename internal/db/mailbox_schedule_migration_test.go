@@ -11,6 +11,10 @@ import (
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
+// TestMailboxSchedule76UpgradeAndDowngradeNeverReplay pins migration 0077's
+// delivery-uncertainty guards: a legacy 0076 schedule row must never turn
+// back into runnable work, in either direction. The versions are explicit so
+// later migrations cannot change the schema this fixture seeds against.
 func TestMailboxSchedule76UpgradeAndDowngradeNeverReplay(t *testing.T) {
 	dsn := testdb.New(t)
 	target, err := url.Parse(dsn)
@@ -20,22 +24,12 @@ func TestMailboxSchedule76UpgradeAndDowngradeNeverReplay(t *testing.T) {
 	params := target.Query()
 	params.Set("role", "urmail_migrate")
 	target.RawQuery = params.Encode()
-	m, err := db.NewMigrator(target.String())
-	if err != nil {
+	if _, err := db.NewMigrator(target.String()); err != nil {
 		t.Fatal(err)
 	}
-	defer m.Close()
 	ctx := context.Background()
-	if err = m.Up(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Down(ctx); err != nil {
-		t.Fatal(err)
-	}
-	version, dirty, err := m.Version()
-	if err != nil || dirty || version != 76 {
-		t.Fatalf("version=%d dirty=%v err=%v", version, dirty, err)
-	}
+	// Seed the legacy shape: apply everything up to and including 0076.
+	testdb.MigrateTo(t, dsn, 76)
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -53,17 +47,17 @@ func TestMailboxSchedule76UpgradeAndDowngradeNeverReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = m.Up(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// Apply 0077 (and anything stacked on top of it): the legacy pending and
+	// sending rows must be parked as review-required evidence.
+	testdb.MigrateTo(t, dsn, 78)
 	var ok bool
 	err = conn.QueryRow(ctx, `SELECT count(*)=2 AND bool_and(status='held' AND smtp_secret='' AND draft_uidvalidity=0 AND last_error='SCHEDULE_REVIEW_REQUIRED') FROM mailbox_scheduled_sends WHERE draft_uid<=2`).Scan(&ok)
 	if err != nil || !ok {
 		t.Fatalf("legacy upgrade replay guard=%v err=%v", ok, err)
 	}
-	if err = m.Down(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// Stepping back to 0076 must downgrade the parked rows to failed instead
+	// of handing the SMTP secret back to a runnable worker.
+	testdb.MigrateTo(t, dsn, 76)
 	err = conn.QueryRow(ctx, `SELECT count(*)=2 AND bool_and(status='failed' AND smtp_secret='') FROM mailbox_scheduled_sends WHERE draft_uid<=2`).Scan(&ok)
 	if err != nil || !ok {
 		t.Fatalf("downgrade replay guard=%v err=%v", ok, err)

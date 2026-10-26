@@ -159,4 +159,27 @@ func TestValidateAliases(t *testing.T) {
 			t.Error("expected cycle error, got nil")
 		}
 	})
+
+	// MAIL-01 regression: these targets used to pass this validator and then
+	// fail the Postfix generator, poisoning the whole-platform reconcile.
+	t.Run("rejects_glob_and_slash_targets", func(t *testing.T) {
+		for _, target := range []string{"a*b@outside.test", "a?b@outside.test", "a/b@outside.test", "a\\b@outside.test"} {
+			rules := []mail.AliasRule{
+				{Domain: "example.com", LocalPart: "poison", Target: target, Kind: "alias"},
+			}
+			if err := mail.ValidateAliases(rules, mailboxes); err == nil {
+				t.Errorf("generator-unsafe target accepted: %q", target)
+			}
+		}
+	})
+
+	t.Run("rejects_over_long_target_local_part", func(t *testing.T) {
+		local := strings.Repeat("a", 65)
+		rules := []mail.AliasRule{
+			{Domain: "example.com", LocalPart: "poison", Target: local + "@outside.test", Kind: "alias"},
+		}
+		if err := mail.ValidateAliases(rules, mailboxes); err == nil {
+			t.Error("over-long target local part accepted")
+		}
+	})
 }

@@ -36,6 +36,23 @@ func IsValidDomainName(d string) bool {
 	return DomainNameRegex.MatchString(d)
 }
 
+// IsValidEmail is the canonical mailbox/alias-target grammar shared by the
+// API validators and the configuration generators. The local part follows
+// RFC 5321 with the generator-safe subset: no glob characters (* ? / \)
+// because targets end up verbatim inside Postfix maps, and at most 64
+// characters.
+func IsValidEmail(addr string) bool {
+	parts := strings.Split(addr, "@")
+	if len(parts) != 2 {
+		return false
+	}
+	local, domain := parts[0], parts[1]
+	if len(local) == 0 || len(local) > 64 || !LocalPartRegex.MatchString(local) || strings.ContainsAny(local, "*?/\\") {
+		return false
+	}
+	return IsValidHostname(domain)
+}
+
 // hasWhitespaceOrControl reports whether the string contains whitespace or
 // control characters. Such characters would let a value smuggle extra
 // directives into line-oriented configuration files.

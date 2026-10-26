@@ -52,9 +52,12 @@ func ValidateAliases(aliases []AliasRule, mailboxAddresses []string) error {
 			}
 		}
 
+		// Targets use the same canonical grammar as the Postfix generator so a
+		// rule accepted here can never fail the global render later (audit
+		// finding MAIL-01: glob characters or an over-long local part used to
+		// be persisted and then poisoned the whole-platform reconcile).
 		target := strings.ToLower(a.Target)
-		parts := strings.Split(target, "@")
-		if len(parts) != 2 || !validation.LocalPartRegex.MatchString(parts[0]) || !validation.IsValidHostname(parts[1]) {
+		if !validation.IsValidEmail(target) {
 			return fmt.Errorf("%w: invalid target %q", ErrInvalidAddress, a.Target)
 		}
 

@@ -7,16 +7,10 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
 
+// isValidEmail delegates to the shared canonical grammar so the generator can
+// never diverge from what the API accepts (audit finding MAIL-01).
 func isValidEmail(addr string) bool {
-	parts := strings.Split(addr, "@")
-	if len(parts) != 2 {
-		return false
-	}
-	local, domain := parts[0], parts[1]
-	if len(local) == 0 || len(local) > 64 || !validation.LocalPartRegex.MatchString(local) || strings.ContainsAny(local, "*?\\/") {
-		return false
-	}
-	return validation.IsValidHostname(domain)
+	return validation.IsValidEmail(addr)
 }
 
 // validateNodeConfig enforces structural constraints on the node parameters
