@@ -64,17 +64,18 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("# accept the message unsigned instead of blocking mail delivery.\n")
 	b.WriteString("milter_default_action = accept\n")
 	b.WriteString("milter_protocol = 6\n")
-	if node.V80Preserve && node.PreserveExternalOpenDKIM {
+	switch {
+	case node.V80Preserve && node.PreserveExternalOpenDKIM:
 		// Same-host cutover keeps the live OpenDKIM milter (8891) and OpenDMARC
 		// (8893). Pointing at 12301 would either miss signatures or double-sign
 		// if a second OpenDKIM were started beside the preserved unit.
 		b.WriteString("smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n\n")
-	} else if node.V80Preserve {
+	case node.V80Preserve:
 		// Preserve OpenDMARC independently; the new signer replaces old 8891.
 		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n\n")
-	} else {
+	default:
 		b.WriteString("smtpd_milters = inet:127.0.0.1:12301\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
 	}

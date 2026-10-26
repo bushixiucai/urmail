@@ -236,37 +236,37 @@ func TestV80ApplyRejectsAdversarialDestinations(t *testing.T) {
 	}
 	t.Run("destination-is-symlink", func(t *testing.T) {
 		tmp := v80ApplyTestDirectory(t)
-		real := filepath.Join(tmp, "real")
-		if err := os.MkdirAll(real, 0o700); err != nil {
+		realPath := filepath.Join(tmp, "real")
+		if err := os.MkdirAll(realPath, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		link := filepath.Join(tmp, "link")
-		if err := os.Symlink(real, link); err != nil {
+		if err := os.Symlink(realPath, link); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := applyV80RestoreFiles(ctx, manifestPath, archivePath, link); err == nil {
 			t.Fatal("symlinked destination was accepted")
 		}
-		entries, readErr := os.ReadDir(real)
+		entries, readErr := os.ReadDir(realPath)
 		if readErr != nil || len(entries) != 0 {
 			t.Fatal("rejected symlink destination received staged files through its target")
 		}
 	})
 	t.Run("parent-is-symlink", func(t *testing.T) {
 		tmp := v80ApplyTestDirectory(t)
-		real := filepath.Join(tmp, "real")
-		if err := os.MkdirAll(real, 0o700); err != nil {
+		realPath := filepath.Join(tmp, "real")
+		if err := os.MkdirAll(realPath, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		link := filepath.Join(tmp, "link")
-		if err := os.Symlink(real, link); err != nil {
+		if err := os.Symlink(realPath, link); err != nil {
 			t.Fatal(err)
 		}
 		stage := filepath.Join(link, "stage")
 		if _, err := applyV80RestoreFiles(ctx, manifestPath, archivePath, stage); err == nil {
 			t.Fatal("symlinked parent ancestry was accepted")
 		}
-		entries, readErr := os.ReadDir(real)
+		entries, readErr := os.ReadDir(realPath)
 		if readErr != nil || len(entries) != 0 {
 			t.Fatal("staged files escaped through a symlinked parent")
 		}

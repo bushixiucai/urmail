@@ -88,7 +88,8 @@ type v80StagePartial struct {
 // v80ProductionAbsoluteRoots returns the fixed host paths this apply must
 // never target: the real root and every profile root rendered absolute.
 func v80ProductionAbsoluteRoots() []string {
-	roots := []string{"/"}
+	roots := make([]string, 1, 1+len(v80Roots))
+	roots[0] = "/"
 	for _, spec := range v80Roots {
 		roots = append(roots, "/"+spec.Path)
 	}
@@ -130,7 +131,7 @@ func v80NearestExistingAncestor(absolute string) string {
 // v80ValidateStageChain verifies every real directory from absolute up to and
 // including anchor: no symlinks, owned by the restoring operator (root when
 // run as root) and not writable by unrelated users without the sticky bit.
-func v80ValidateStageChain(anchor, absolute string) error {
+func v80ValidateStageChain(_, absolute string) error {
 	owner := os.Geteuid()
 	for current := filepath.Clean(absolute); ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
@@ -191,7 +192,7 @@ func v80MarkStagePartial(stage string, root *os.Root, reason string) {
 	_ = v80MarkStagePartialWrite(stage, root, record)
 }
 
-func v80MarkStagePartialWrite(stage string, root *os.Root, record []byte) error {
+func v80MarkStagePartialWrite(_ string, root *os.Root, record []byte) error {
 	if root != nil {
 		file, err := root.OpenFile(v80StageMarkerName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
 		if err == nil {
@@ -653,7 +654,7 @@ func v80VerifyRestoredStage(root *os.Root, members map[string]v80Member, directo
 		expected[name] = true
 	}
 	seen := map[string]bool{}
-	walkErr := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
+	walkErr := fs.WalkDir(root.FS(), ".", func(name string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.New("stage tree cannot be inspected")
 		}

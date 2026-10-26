@@ -104,15 +104,15 @@ func runConfigRender(ctx context.Context, args []string) error {
 	} else {
 		mailCtx = mail.ConfigContext{
 			PostfixNode: postfix.NodeConfig{
-				Hostname:       hostname,
-				PrimaryDomain:  cfg.PrimaryDomain,
-				StorageRoot:    storageRoot,
-				TLSCertFile:    filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
-				TLSKeyFile:     filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
-				PolicyEnabled:  cfg.PolicyEnabled,
+				Hostname:                 hostname,
+				PrimaryDomain:            cfg.PrimaryDomain,
+				StorageRoot:              storageRoot,
+				TLSCertFile:              filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".cert"),
+				TLSKeyFile:               filepath.Join("/var/lib/urmail-agent/certs/mail", hostname+".key"),
+				PolicyEnabled:            cfg.PolicyEnabled,
 				V80Preserve:              cfg.PostfixV80Preserve,
 				PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM,
-				ArchiveEnabled: cfg.ArchiveEnabled,
+				ArchiveEnabled:           cfg.ArchiveEnabled,
 			},
 			DovecotNode: dovecot.NodeConfig{
 				Hostname:      hostname,

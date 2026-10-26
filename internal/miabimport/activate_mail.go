@@ -24,16 +24,16 @@ var ErrActivateTarget = errors.New("LEGACY_MAIL_ACTIVATE_DELEGATED_PENDING_REQUI
 // It never claims cutover_ready, never flips mode away from delegated, and
 // never enables managed DNS/NSD emission.
 type ActivateMailResult struct {
-	Phase              string `json:"phase"`
-	CommitOutcome      string `json:"commit_outcome"`
-	Applied            bool   `json:"applied"`
-	CoreOnly           bool   `json:"core_only"`
-	CutoverReady       bool   `json:"cutover_ready"`
-	Domains            int    `json:"domains"`
-	ExpectedDomains    int    `json:"expected_domains"`
-	CoreProofSHA256    string `json:"core_proof_sha256"`
-	ManagedDNSEmitted  bool   `json:"managed_dns_emitted"`
-	ModeRemainsDelegated bool `json:"mode_remains_delegated"`
+	Phase                string `json:"phase"`
+	CommitOutcome        string `json:"commit_outcome"`
+	Applied              bool   `json:"applied"`
+	CoreOnly             bool   `json:"core_only"`
+	CutoverReady         bool   `json:"cutover_ready"`
+	Domains              int    `json:"domains"`
+	ExpectedDomains      int    `json:"expected_domains"`
+	CoreProofSHA256      string `json:"core_proof_sha256"`
+	ManagedDNSEmitted    bool   `json:"managed_dns_emitted"`
+	ModeRemainsDelegated bool   `json:"mode_remains_delegated"`
 }
 
 // ActivateLegacyDelegatedMail promotes pending_dns+pending delegated domains to

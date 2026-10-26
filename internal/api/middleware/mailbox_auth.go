@@ -18,7 +18,7 @@ const (
 	// ContextMailboxAddress is the mailbox email for the bearer token.
 	ContextMailboxAddress = "urmail.mailbox_address"
 	// ContextMailboxTokenHash is the hashed bearer (for credential vault lookup).
-	ContextMailboxTokenHash = "urmail.mailbox_token_hash"
+	ContextMailboxTokenHash = "urmail.mailbox_token_hash" //nolint:gosec // Context lookup key, not a credential.
 )
 
 // MailboxSessionLookup resolves a still-valid mailbox_sessions row.

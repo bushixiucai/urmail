@@ -51,7 +51,7 @@ func newCoreFixture(t *testing.T) coreFixture {
 	if err := exec.CommandContext(t.Context(), "/usr/bin/python3", "-I", "-B", "-c", syntheticSource, input.SQLitePath).Run(); err != nil {
 		t.Fatal("create synthetic legacy fixture")
 	}
-	domains := []map[string]string{}
+	domains := make([]map[string]string, 0, 7)
 	for _, name := range []string{"d0.legacy.test", "d1.legacy.test", "d2.legacy.test", "d3.legacy.test", "d4.legacy.test", "d5.legacy.test", "box.legacy.test"} {
 		domains = append(domains, map[string]string{"domain": name, "tenant_ref": "legacy-primary"})
 	}

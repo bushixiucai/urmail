@@ -2,17 +2,17 @@ package postfix
 
 // NodeConfig holds the node-level configuration required for Postfix generation.
 type NodeConfig struct {
-	Hostname       string // myhostname (URMAIL_MYHOSTNAME, RFC 1123)
-	PrimaryDomain  string // mydomain/myorigin (RFC 1123)
-	StorageRoot    string // URMAIL_STORAGE_ROOT
-	TLSCertFile    string // path to TLS certificate
-	TLSKeyFile     string // path to TLS private key
-	V80Preserve             bool   // Fixed reviewed v80 SMTP profile; requires PolicyEnabled.
-	PreserveExternalOpenDKIM bool  // Keep live OpenDKIM on 8891; do not point Postfix at 12301.
-	PolicyEnabled           bool   // URMAIL_POLICY_ENABLED, default false
-	PolicySocket            string // default private/policy (relative to Postfix chroot)
-	ArchiveEnabled          bool   // URMAIL_ARCHIVE_ENABLED, default false
-	ArchiveSocket           string // default private/urmail-archive (relative to Postfix chroot)
+	Hostname                 string // myhostname (URMAIL_MYHOSTNAME, RFC 1123)
+	PrimaryDomain            string // mydomain/myorigin (RFC 1123)
+	StorageRoot              string // URMAIL_STORAGE_ROOT
+	TLSCertFile              string // path to TLS certificate
+	TLSKeyFile               string // path to TLS private key
+	V80Preserve              bool   // Fixed reviewed v80 SMTP profile; requires PolicyEnabled.
+	PreserveExternalOpenDKIM bool   // Keep live OpenDKIM on 8891; do not point Postfix at 12301.
+	PolicyEnabled            bool   // URMAIL_POLICY_ENABLED, default false
+	PolicySocket             string // default private/policy (relative to Postfix chroot)
+	ArchiveEnabled           bool   // URMAIL_ARCHIVE_ENABLED, default false
+	ArchiveSocket            string // default private/urmail-archive (relative to Postfix chroot)
 }
 
 // Domain represents a mail domain in the database snapshot.

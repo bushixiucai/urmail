@@ -23,10 +23,15 @@ import (
 )
 
 var (
+	// ErrAuthority rejects import attempts without reviewed operator authority.
 	ErrAuthority = errors.New("LEGACY_IMPORT_OPERATOR_AUTHORITY_REQUIRED")
-	ErrSource    = errors.New("LEGACY_IMPORT_REVIEWED_CORE_SOURCE_REQUIRED")
-	ErrTarget    = errors.New("LEGACY_IMPORT_EMPTY_TARGET_REQUIRED")
-	ErrRejected  = errors.New("LEGACY_IMPORT_TARGET_REJECTED")
+	// ErrSource requires a reviewed source snapshot.
+	ErrSource = errors.New("LEGACY_IMPORT_REVIEWED_CORE_SOURCE_REQUIRED")
+	// ErrTarget requires an empty, explicitly selected import target.
+	ErrTarget = errors.New("LEGACY_IMPORT_EMPTY_TARGET_REQUIRED")
+	// ErrRejected reports that the target failed an import guard.
+	ErrRejected = errors.New("LEGACY_IMPORT_TARGET_REJECTED")
+	// ErrUnknown forbids replay after an unconfirmed import commit.
 	ErrUnknown   = errors.New("LEGACY_IMPORT_COMMIT_UNKNOWN_DO_NOT_REPLAY")
 	proofPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )

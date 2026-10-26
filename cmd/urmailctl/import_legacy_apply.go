@@ -40,7 +40,7 @@ func runImportLegacyCore(ctx context.Context, args []string) error {
 		return errLegacyImportCLI
 	}
 	source, err := miadbinventory.LoadReviewedSource(ctx, miadbinventory.ReviewedSourceOptions{
-		Options:                 miadbinventory.Options{ConfigPath: configPath, SQLitePath: sqlitePath, MappingPath: mappingPath},
+		Options:                miadbinventory.Options{ConfigPath: configPath, SQLitePath: sqlitePath, MappingPath: mappingPath},
 		ExpectedSnapshotSHA256: expected,
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func runImportLegacyDKIM(ctx context.Context, args []string) error {
 		return errLegacyImportCLI
 	}
 	source, err := miadbinventory.LoadReviewedSource(ctx, miadbinventory.ReviewedSourceOptions{
-		Options:                 miadbinventory.Options{ConfigPath: configPath, SQLitePath: sqlitePath, MappingPath: mappingPath},
+		Options:                miadbinventory.Options{ConfigPath: configPath, SQLitePath: sqlitePath, MappingPath: mappingPath},
 		ExpectedSnapshotSHA256: expected,
 	})
 	if err != nil {

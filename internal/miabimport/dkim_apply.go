@@ -85,9 +85,9 @@ func ApplyReviewedDKIM(ctx context.Context, pool *db.Pool, dkim *ReviewedDKIM, o
 		return result, ErrAuthority
 	}
 	locked, err := q.PlatformLockLegacyDKIMDomains(ctx, store.PlatformLockLegacyDKIMDomainsParams{
-		TenantID:         options.TenantID,
-		DomainNames:      names,
-		CoreProofSha256:  result.CoreProofSHA256,
+		TenantID:        options.TenantID,
+		DomainNames:     names,
+		CoreProofSha256: result.CoreProofSHA256,
 	})
 	if err != nil {
 		return result, ErrRejected
