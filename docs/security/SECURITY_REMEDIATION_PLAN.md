@@ -3,7 +3,7 @@
 日期：2026-10-26  
 基线：`3322bbf26805dcb17f7289e602bebe4d0771b204`  
 依据：`docs/security/CODE_SECURITY_REVIEW.md`  
-状态：实施与本地/隔离验收完成；SEC-01 至 SEC-09 全部 CLOSED。生产发布 CONDITIONAL，保留门禁及最终证据见 `SECURITY_REMEDIATION_RESULT.md`。
+状态：实施与本地/隔离验收完成；SEC-01 至 SEC-09 全部 CLOSED。后续主分支 CI 与受控生产升级已验收，见 `SECURITY_REMEDIATION_RESULT.md` 第 11 节；实付款、全机恢复及其他运营环境门禁仍分别保留。
 
 ## 1. 目标和边界
 

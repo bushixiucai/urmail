@@ -3,7 +3,7 @@
 日期：2026-10-26（Asia/Shanghai）  
 基线提交：`3322bbf26805dcb17f7289e602bebe4d0771b204`  
 交付形式：初始本地验收以未提交工作区交付；用户随后授权将全部修复与安全文档提交、合并 main，再执行 CI、生产升级和验收。本文既有本地证据仍按其原时点记录，后续生产结果另行追加。  
-状态：SEC-01 至 SEC-09 全部 **CLOSED（源码及本地/隔离验收）**；生产发布 **CONDITIONAL**。
+状态：SEC-01 至 SEC-09 源码发现全部 **CLOSED**；主分支完整 CI 与本轮受控生产升级验收 **PASS**。第 1–10 节保留初始本地交付时点的证据与边界，最新生产事实见第 11 节；实付款、全机恢复等运营门禁独立保留。
 
 依据：`CODE_SECURITY_REVIEW.md`、`SECURITY_REMEDIATION_PLAN.md`。原始审查报告保留为历史基线；本文记录修复后的代码和实测证据，不改写原审查时点的结论。
 
@@ -72,7 +72,7 @@ urmailctl secrets compact-rejected-webhooks --apply
 - npm生产/开发完整锁文件审计结果为0命中，前端127项测试、类型及lint通过；开发工具公告不被描述为已证实的生产RCE。
 - 原govulncheck v1.1.4的解析依赖不支持当前Go，失败记录保留。改用Go1.27.3构建的govulncheck v1.9.0，并在CI固定该版本。
 - 修复后Go可达符号/导入包命中为0。保留一个module-only公告GO-2026-5932，针对未维护的OpenPGP包；本项目不导入这些包，不能误报成实际可达漏洞，也不能省略该结果。
-- 通用CI actions固定不可变SHA并设置只读默认权限；只有发布job具有必要写权限。发布要求同一完整SHA的main push CI全部必要任务成功，错误SHA、遗漏、跳过或失败均拒绝；本地决策测试通过，未推送或宣称远端门禁已执行。
+- 通用CI actions固定不可变SHA并设置只读默认权限；只有发布job具有必要写权限。初始本地实现以 main push 为假设；后续按用户的 tag-only 策略修正为 main 历史可达、精确 SHA 的 main 手动 CI 或有效 v* tag CI，错误 SHA、外来来源、遗漏、跳过或失败均拒绝。远端执行结果见第 11 节。
 - 签名、APT补丁、密钥轮换、备份和资源预算的具体操作边界见 `SECURITY_OPERATIONS_RUNBOOK.md`。没有凭未经测量的数值给生产强加低MemoryMax，也没有实现/宣称无停机多key自动轮换。
 
 ## 7. 实测范围
@@ -104,7 +104,7 @@ Ubuntu22.04/24.04 arm64独占network-none容器完成：本轮源码快照Linux�
 - 并行实施期间sqlc接口暂未生成，首次全量在middleware编译失败；修复生成顺序后重新执行冻结源码完整验收，原日志保留。
 - 第一版大邮件样本忽略DotWriter的CRLF和Postfix queue-record开销，超限被552正确拒绝。随后fixture的pipe使用Postfix owner、命令尾`$`被当宏，又导致归档未投递；均修复测试夹具后重跑，没有降低128MiB配置或改业务pipe为高权限用户。
 - 中间lint格式/注释、OpenAPI YAML语法和旧扫描器失败已保留；证据helper改存为`.go.txt`，避免审查资料被Go工具当业务包编译，最终通过结果单独记录。没有continue-on-error掩盖测试失败。
-- 本轮源码未提交，源文件清单包括未跟踪的新业务/测试文件，排除原有`.impeccable/`、`scripts/w13/__pycache__/`等无关内容；原有用户文件保留。
+- 初始本地验收时源码未提交，来源清单包含当时未跟踪的新业务/测试文件；后续已纳入 Git 并合并主分支。原有 `.impeccable/`、`scripts/w13/__pycache__/` 等无关内容始终保留。
 
 ## 9. 最终就绪判断
 
@@ -125,3 +125,69 @@ Ubuntu22.04/24.04 arm64独占network-none容器完成：本轮源码快照Linux�
 | 全profile邮件运行矩阵、生产ACME/DNS/防火墙/ACL、实付款、RPO/RTO及全机恢复 | 未验证，不属于本轮已授权的生产操作，仍阻止直接宣称可上线 |
 
 不将一般运维流程的交付描述为生产配置已经生效。源代码发现CLOSED只适用于本文绑定的工作区；正式上线必须使用最终提交的新构建、签名和对应CI/环境验收。
+
+
+## 11. 主分支合并、完整 CI 与受控生产验收
+
+### 11.1 源码与文档已保存并合并
+
+用户明确授权包含全部未提交业务更新，并要求确认安全修复和文档存在后合并主分支，再执行更新流程。
+
+- `355779787a7c7c67015ac4d7e56b1eefb33048e6` 纳入 SEC-01–09 全部源码、迁移 80–83、测试、四份安全文档和验证索引/来源清单，共 131 个文件；从 `ci/tag-only-trigger` fast-forward 合并到 main 并推送。
+- 真实安装 CI 发现 bootstrap 迁移命令未传生产必需的 policy 开关，追加 `10866a39d095f6c39e7ad703b13a6eb885029da5`，仅补 `URMAIL_POLICY_ENABLED=true`，保留生产拒绝缺失安全配置的校验。
+- CI 保留仅 v* tag 自动触发，使用 main 的 workflow_dispatch 完成此次验证；没有创建发行 tag、触发 Package 或发布 release。
+- 本次生产构建绑定 `10866a39d095f6c39e7ad703b13a6eb885029da5` 的精确 Git archive，版本 `0.4.1-rc.2+security.10866a39`。最终补充文档提交不改变该二进制身份。
+
+### 11.2 完整远端 CI
+
+[CI 40323412662](https://github.com/bushixiucai/urmail/actions/runs/40323412662) 为 main/workflow_dispatch，head SHA 为上述生产构建提交，**12/12 jobs success**，没有 failure/cancelled step：Go、Frontend、PostgreSQL integration、真实 Postfix/Dovecot、embedded frontend、package smoke、Shell、开发栈浏览器、Security dependencies，以及 Ubuntu 22.04 amd64、24.04 amd64、24.04 arm64 三个完整安装任务。
+
+发布检查另外实际读取 GitHub，验证精确 SHA、同仓库 main 来源、main 历史可达与全部必要 job 成功，结果 PASS。旧 `35577978` 安装失败及日志保留；没有把修复前 CI 当作成功。
+
+冻结 `35577978` 的隔离真实 PG/HTTP/Postfix/Dovecot/milter/archive 专项再次通过，包含 16/64/128 MiB HTTP、事务/审计断流及独占 1 MiB tmpfs 的真实 ENOSPC。新 `10866a39` 与该冻结候选的 880 个 runtime 输入全部相同，整仓仅 installer 一行不同；保留逐文件比对收据。新 SHA 的完整 CI 仍独立执行，不以旧收据替代。
+
+### 11.3 生产部署与备份
+
+服务器私有工作区：`/root/urmail-m8-staging/20261026-security-10866a39`。更新了四个实际运行文件：`/usr/bin/urmaild`、`/usr/bin/urmaild-agent`、`/usr/bin/urmailctl`、`/usr/lib/urmail/archive-pipe`。归档 pipe 此前未安装，本轮按标准路径补齐；没有为验收全局启用生产归档。
+
+正式停写前先在网络隔离、无宿主端口的 PostgreSQL 16 容器恢复真实数据库副本，验证 schema 79→83、原有邮箱和面板凭据摘要、初始认证代次，以及临时面板主体创建/清理。正式停写备份后又独立重复恢复与迁移验证，随后才迁移生产与替换二进制。没有运行新装安装器，没有生成或替换 master key。
+
+`rollback/` 保存数据库、配置/原 key/证书/系统单元、Maildir/Sieve/归档/Postfix spool 和旧三个二进制；清单明确记录第四个旧文件原本不存在。
+
+| 备份 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| database.dump | 698809 | `d8db2b3d963e4606ffd4445a456810bd9985a1426da241fd160c8a0cd42e1b8d` |
+| config.tar.gz | 263197 | `c918fe222a128fcfc71dfab216b724b0c9bffd6f27ac384a3994bbff6282723c` |
+| mail-and-spool.tar | 2424576000 | `e56d9f9e6c5f4f072fbe9edf185033a927930f7b9e909818265ee70d02c3ed22` |
+
+发布协调曾因主动停止 nginx 而触发 agent 的 nginx 探针及遗留降级状态；原始失败日志保留。恢复入口后，通过重启 agent 并执行真实 config.apply 与完整探针恢复状态，没有手改状态文件或恢复旧数据库/旧二进制。最终 desired/applied 均为 `1db0d932ca60aad9ee7bccd7685c2ae40491347fb89b4412050009608d2329ae`，ready=true、degraded=false；schema 83、dirty=false；urmaild、agent、Postfix、Dovecot、nginx 全部 active，公开 HTTPS 显示新版本。
+
+### 11.4 生产功能与安全验收
+
+**临时面板主体 11 项检查 PASS**：独立临时 tenant/user、legacy SHA512 首次登录自动转 Argon2id 且代次不误增长；两会话改密保留当前并撤销其他；旧密码拒绝；MFA setup/enable 加密与代次变化；真实 TOTP 登录；普通用户创建特权应用凭据 403；MFA disable 撤销其他会话及旧 challenge；注销；停用主体、关闭租户和移除私有凭据。
+
+失效 challenge 按实现返回 HTTP 400/MFA_TOKEN_INVALID。首轮脚本误期望 401，已依接口定义修正并完整重跑；两轮主体均已清理，最终保留两个 disabled user/closed tenant、零有效会话和应用凭据，没有增加平台管理员。没有访问原有用户邮箱内容或更改原用户密码；没有冒充覆盖管理员凭据发放的生产验收。
+
+**操作员电脑经公网执行 16 项邮件检查 PASS**：465/587 严格 TLS；外域、缺失、重复、list/group/trailing From 拒绝；quoted display name 内含冒号/@ 的合法地址通过；同连接连续合法发送及拒绝后恢复；25 在 TLS 前后均不提供 AUTH；2 MiB 草稿替换与原生附件；10 MiB SMTP 附件实际收取/下载哈希一致；Bcc/HTML；定时创建幂等、跨邮箱拒绝、重复取消、单次投递、终态重放与冲突；改密撤销旧密码/会话；测试邮件与会话清理。
+
+客户端使用 certifi 公信 CA，保持证书和主机名校验。收件检查包含 Spam，保留现有反垃圾分拣事实；未绕过规则或把 SMTP 接受等同于 INBOX。
+
+**实际安装 amd64 archive-pipe ELF 隔离执行 PASS**：以真实 mailinabox UID/GID，在 network=none、无端口、只读 root、cap-drop ALL、独立 tmpfs 容器运行，唯一宿主绑定为只读产品 ELF。流式处理 68,161,536 字节合成邮件并核对 raw/manifest 完整性；持久化后因刻意缺失数据库配置退出 75，没有虚假投递成功。未连接生产数据库或 live spool，容器已删除。完整 SMTP→pipe→PG 和大文件 HTTP 由另列的真实隔离 runtime 证明；不将这些结果表述为已启用生产全局归档。
+
+### 11.5 最终数据核对与边界
+
+- 原有 **55 条邮箱记录**的身份、租户、域名、密码摘要、配额、状态与发件权限摘要一致；active 仍为 **43**。最终总记录 57、deleted 14，增加的两条测试邮箱已软删除，消息清除、会话撤销。
+- 原有面板账号凭据摘要一致；两轮测试 user/tenant 均已停用/关闭，测试密码、TOTP 和 recovery code 已从私有 JSON 清除。
+- 测试定时任务 13/14 分别 sent/cancelled，secret/lease 清空且无待运行测试任务；原有任务的归属、状态和 token 摘要一致，原有资金记录计数一致。
+- master key 内容摘要与 nginx、NSD、OpenDKIM、证书目录摘要保持一致；原 Postfix 全局策略与 v80 的 128 MiB 大小配置保持；用量 timer active/enabled。全部备份与四个安装文件的摘要最终再次校验。
+- 未发起真实支付/退款，未执行整机生产切回、在线全字段 key 轮换或全局归档启用。既有 DNS/ACME 交接、防火墙/告警、离机备份和 RPO/RTO 等运营边界不因本次通过而自动关闭。
+- 生产已可能产生 Argon2id/新认证代次及新业务写入。旧 beed798f 不支持这些安全事实，禁止直接换旧二进制或覆盖旧数据库/Maildir/队列；故障应优先向前修复，数据恢复需独立停写并核对增量。
+
+四个安装文件 SHA-256：
+
+- urmaild：`88fd6eda662a19b37995aedd956572ec3f6aab596a8ff6bf5696e274c7c06721`
+- urmaild-agent：`bcf9022778c61742fad0b7ec210c45a0bc5729d228678f02534d253bf502deb7`
+- urmailctl：`b632359aff855d0cbe374e90a87061e7a711de39b49f4311555bff8814da38c0`
+- urmail-archive：`146f51fbf2f690e9b8ae4bc8067f8351194dedbee78a0099812cec5a9cd81f4c`
+
+本地证据 `tmp/security-deploy-2026-10-26/` 保存精确 archive、manifest、完整 CI/gate、runtime 输入比对、发布尝试/恢复、面板与公网脚本/日志以及最终 receipts；关键证据在 `release-final/final-verification.json`、`deployment-receipt.json`、`panel-smoke.json`、`public-probe/production-smoke.json`、`installed-pipe-isolated-receipt.json`。本机临时邮箱明文凭据已移除；本次数据库备份与原 key 的备份副本只留服务器 root 私有目录。

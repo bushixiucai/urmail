@@ -1,5 +1,7 @@
 # urMail 本地源码安全审查与工程质量评估
 
+> 本文保留初始审查时点的发现与结论。后续修复、主分支 CI 与受控生产部署结果见 [SECURITY_REMEDIATION_RESULT.md](SECURITY_REMEDIATION_RESULT.md) 第 11 节。
+
 审查日期：2026-10-26（Asia/Shanghai）  
 审查方式：只读、非侵入式防御性源码审查  
 仓库：`github.com/bushixiucai/urmail`  
