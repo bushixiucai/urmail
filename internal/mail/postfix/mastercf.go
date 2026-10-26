@@ -20,7 +20,10 @@ func renderMasterCF(node NodeConfig) string {
 	b.WriteString("# service type  private unpriv  chroot  wakeup  maxproc command + args\n")
 	b.WriteString("#               (yes)   (yes)   (no)    (never) (100)\n")
 	b.WriteString("# ==========================================================================\n")
+	// MAIL-03: the MX listener never offers AUTH at all. Mailbox users submit
+	// through submission (587) or smtps (465), both of which force TLS.
 	b.WriteString("smtp      inet  n       -       n       -       -       smtpd\n")
+	b.WriteString("  -o smtpd_sasl_auth_enable=no\n")
 	b.WriteString("submission inet n       -       n       -       -       smtpd\n")
 	b.WriteString("  -o syslog_name=postfix/submission\n")
 	b.WriteString("  -o smtpd_tls_security_level=encrypt\n")

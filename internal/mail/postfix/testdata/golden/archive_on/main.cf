@@ -53,6 +53,7 @@ smtpd_recipient_restrictions =
 
 # TLS Settings
 smtpd_tls_security_level = may
+smtpd_tls_auth_only = yes
 smtpd_tls_mandatory_protocols = >=TLSv1.2
 smtpd_tls_protocols = >=TLSv1.2
 smtpd_tls_exclude_ciphers = aNULL, RC4, 3DES

@@ -39,13 +39,21 @@ func TestV80PreserveGoldenAndPolicyOrder(t *testing.T) {
 	main := files[postfix.FileMainCF]
 	sender := "smtpd_sender_restrictions =\n    reject_non_fqdn_sender\n    reject_unknown_sender_domain\n    reject_authenticated_sender_login_mismatch\n    reject_rhsbl_sender dbl.spamhaus.org=127.0.1.[2..99]\n"
 	recipient := "smtpd_recipient_restrictions =\n    check_policy_service unix:private/policy\n    permit_sasl_authenticated\n    permit_mynetworks\n    reject_rbl_client zen.spamhaus.org=127.0.0.[2..11]\n    reject_unlisted_recipient\n    check_policy_service inet:127.0.0.1:12340\n"
-	for _, required := range []string{sender, recipient, "message_size_limit = 134217728\n", "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination\n", "smtpd_data_restrictions = check_policy_service unix:private/policy\n"} {
+	for _, required := range []string{sender, recipient, "message_size_limit = 134217728\n", "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination\n", "smtpd_data_restrictions = check_policy_service unix:private/policy\n", "smtpd_tls_auth_only = yes\n"} {
 		if !strings.Contains(main, required) {
 			t.Fatal("reviewed SMTP restriction or mandatory SaaS gate missing")
 		}
 	}
 	if strings.Count(files[postfix.FileMasterCF], "-o smtpd_data_restrictions=check_policy_service,unix:private/policy") != 2 {
 		t.Fatal("submission/smtps lost DATA policy")
+	}
+	// MAIL-03: the MX listener must never offer AUTH; only submission and
+	// smtps do, both under forced TLS.
+	if strings.Count(files[postfix.FileMasterCF], "-o smtpd_sasl_auth_enable=no") != 1 {
+		t.Fatal("MX listener AUTH disable missing")
+	}
+	if strings.Count(files[postfix.FileMasterCF], "smtpd_sasl_auth_enable=yes") != 2 {
+		t.Fatal("submission/smtps AUTH enablement changed")
 	}
 	if !strings.Contains(files[postfix.FileSenderLoginMap], "manual@example.com self@example.com") {
 		t.Fatalf("explicit alias sender authority absent: %q", files[postfix.FileSenderLoginMap])

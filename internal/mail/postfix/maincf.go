@@ -123,6 +123,10 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 
 	b.WriteString("# TLS Settings\n")
 	b.WriteString("smtpd_tls_security_level = may\n")
+	// MAIL-03: mailbox passwords must never traverse the network in clear
+	// text. AUTH is only offered after STARTTLS; submission (587) and smtps
+	// (465) keep their stronger per-service TLS policies.
+	b.WriteString("smtpd_tls_auth_only = yes\n")
 	b.WriteString("smtpd_tls_mandatory_protocols = >=TLSv1.2\n")
 	b.WriteString("smtpd_tls_protocols = >=TLSv1.2\n")
 	b.WriteString("smtpd_tls_exclude_ciphers = aNULL, RC4, 3DES\n")
