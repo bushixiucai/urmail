@@ -244,6 +244,7 @@ func postJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]a
 
 func resetMFAState() {
 	loginAttempts = newLoginLimiter()
+	mfaDisableAttempts = newLoginLimiter()
 	pendingMFATokens = newMFATokenStore()
 }
 
@@ -462,6 +463,54 @@ func TestLoginVerifyFailureCountedAgainstLimiter(t *testing.T) {
 	}
 	if last != http.StatusTooManyRequests {
 		t.Fatalf("after %d failures the limiter must answer 429, got %d", loginMaxFailures, last)
+	}
+}
+
+// AUTH-01 regression: the MFA-disable endpoint must bound online guessing of
+// the six-digit TOTP per user instead of returning 401 forever.
+func TestMFADisableLimitsCodeGuessing(t *testing.T) {
+	resetMFAState()
+	st := newFakeAuthStore()
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "urMail.cn", AccountName: "victim@example.com"})
+	if err != nil {
+		t.Fatalf("generate totp key: %v", err)
+	}
+	userID := st.addUser(t, "victim@example.com", true, key.Secret(), nil)
+	st.currentUser = userID
+	r := newMFATestRouter(st)
+
+	for i := 0; i < mfaDisableMaxFailures; i++ {
+		code, body := postJSON(t, r, "/api/v1/auth/mfa/disable", `{"code":"000000"}`)
+		if code != http.StatusUnauthorized {
+			t.Fatalf("wrong code #%d status = %d body %v", i+1, code, body)
+		}
+	}
+
+	// Budget exhausted: the next attempt is rate limited, not another 401.
+	code, body := postJSON(t, r, "/api/v1/auth/mfa/disable", `{"code":"000000"}`)
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after budget exhausted, got %d body %v", code, body)
+	}
+	if st.users[userID].MfaEnabled != true {
+		t.Fatal("MFA must remain enabled while locked out")
+	}
+
+	// The budget is the gate: after the window state is cleared, the valid
+	// code disables MFA again.
+	mfaDisableAttempts.reset(mfaDisableKey(userID))
+	valid, err := totp.GenerateCode(key.Secret(), time.Now())
+	if err != nil {
+		t.Fatalf("generate code: %v", err)
+	}
+	code, body = postJSON(t, r, "/api/v1/auth/mfa/disable", `{"code":"`+valid+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("valid code after budget reset status = %d body %v", code, body)
+	}
+	if body["mfa_enabled"] != false {
+		t.Fatalf("expected mfa_enabled=false, got %v", body)
+	}
+	if st.users[userID].MfaEnabled != false {
+		t.Fatal("MFA should be disabled after a valid code")
 	}
 }
 

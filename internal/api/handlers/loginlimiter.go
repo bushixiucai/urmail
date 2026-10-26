@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,18 @@ const (
 )
 
 var loginAttempts = newLoginLimiter()
+
+// mfaDisableAttempts bounds online guessing of the TOTP/recovery code on the
+// MFA-disable endpoint (audit AUTH-01). The budget is tighter than login
+// because a 6-digit TOTP with ±1 skew has only ~3 valid codes per window.
+var mfaDisableAttempts = newLoginLimiter()
+
+const mfaDisableMaxFailures = 5
+
+// mfaDisableKey namespaces the per-user failure budget for the disable path.
+func mfaDisableKey(userID int64) string {
+	return "mfa-disable|" + strconv.FormatInt(userID, 10)
+}
 
 func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{tries: make(map[string][]time.Time)}

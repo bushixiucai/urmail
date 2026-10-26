@@ -299,6 +299,17 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		return
 	}
 
+	// AUTH-01: without a per-user failure budget an attacker holding a stolen
+	// bearer token could brute-force the six-digit TOTP online. The budget is
+	// tighter than login and only resets on a successful disable.
+	attemptKey := mfaDisableKey(userID)
+	if !mfaDisableAttempts.allowN(attemptKey, mfaDisableMaxFailures) {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
+		})
+		return
+	}
+
 	authenticated := false
 	if user.MfaSecret.Valid {
 		mfaSecret, err := h.decryptMFA(user.MfaSecret.String)
@@ -314,6 +325,7 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 			Column2: hashRecoveryCode(req.Code),
 		})
 		if err != nil || n == 0 {
+			mfaDisableAttempts.fail(attemptKey)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": gin.H{"code": "MFA_INVALID_CODE", "message": "auth.mfa_invalid_code"},
 			})
@@ -325,6 +337,7 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
+	mfaDisableAttempts.reset(attemptKey)
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "mfa_enabled": false})
 }
 
