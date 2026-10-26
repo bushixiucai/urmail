@@ -142,8 +142,8 @@ type session struct {
 }
 
 // handlePacket advances the session for one command and reports the response
-// byte ('c', 'r', 'a') plus whether the connection must close.
-func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byte, close bool, err error) {
+// byte ('c', 'r', 'a') plus whether the connection is finished.
+func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byte, done bool, err error) {
 	if len(pkt) == 0 {
 		return 0, true, errors.New("frommilter: empty packet")
 	}
@@ -209,14 +209,14 @@ func (s *session) reset() {
 
 // serveConn runs one connection to completion.
 func serveConn(conn net.Conn, h Handler) error {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	s := &session{}
 	for {
 		pkt, err := packet(conn)
 		if err != nil {
 			return err
 		}
-		response, close, err := s.handlePacket(h, pkt, conn)
+		response, done, err := s.handlePacket(h, pkt, conn)
 		if err != nil {
 			return err
 		}
@@ -225,7 +225,7 @@ func serveConn(conn net.Conn, h Handler) error {
 				return err
 			}
 		}
-		if close {
+		if done {
 			return nil
 		}
 	}

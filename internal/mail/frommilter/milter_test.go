@@ -107,13 +107,14 @@ func ioReadFull(c net.Conn, buf []byte) (int, error) {
 
 func TestMilterSessionRejectsSpoofedAndAllowsOwn(t *testing.T) {
 	sock := socketPath(t)
-	l, err := net.Listen("unix", sock)
+	lc := net.ListenConfig{}
+	l, err := lc.Listen(t.Context(), "unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	go func() { _ = Serve(l, fakeHandler{mapRaw: testMap}) }()
 
-	conn, err := net.Dial("unix", sock)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}

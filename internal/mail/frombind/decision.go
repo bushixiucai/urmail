@@ -6,17 +6,18 @@ type Decision int
 const (
 	// Allow submits the message.
 	Allow Decision = iota
-	// RejectMissingFrom: no From header at all (RFC 5322 requires one on
-	// submission).
+	// RejectMissingFrom decides the submission carried no From header at all
+	// (RFC 5322 requires exactly one).
 	RejectMissingFrom
-	// RejectMultipleFrom: more than one From header (RFC 5322 §3.6.2 allows
-	// exactly one; multiple headers are a smuggling vector).
+	// RejectMultipleFrom decides more than one From header was present (RFC
+	// 5322 §3.6.2 allows exactly one; multiple headers are a smuggling vector).
 	RejectMultipleFrom
-	// RejectDomain: the From domain is not granted to the authenticated login.
+	// RejectDomain decides the From domain is not granted to the
+	// authenticated login.
 	RejectDomain
-	// AllowUnauthenticated: the session is not authenticated; inbound mail
-	// legitimately carries foreign From domains and is filtered by SPF/DMARC
-	// at the recipient, not here.
+	// AllowUnauthenticated decides the session is not authenticated; inbound
+	// mail legitimately carries foreign From domains and is filtered by
+	// SPF/DMARC at the recipient, not here.
 	AllowUnauthenticated
 )
 
