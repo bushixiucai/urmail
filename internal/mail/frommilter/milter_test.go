@@ -182,3 +182,39 @@ func TestMilterSessionRejectsSpoofedAndAllowsOwn(t *testing.T) {
 		t.Fatalf("unauthenticated EOH response = %q", got)
 	}
 }
+
+// Successful messages share a connection in pooled SMTP clients. Each MAIL
+// must evaluate only its own headers and authentication context.
+func TestMilterSessionResetsBetweenSuccessfulMessages(t *testing.T) {
+	s := &session{}
+	handler := fakeHandler{mapRaw: testMap}
+	for message := 0; message < 2; message++ {
+		packets := [][]byte{
+			macroPacket("M", "{auth_authen}", "alice@a.test"),
+			mailPacket("<alice@a.test>"),
+			headerPacket("From", "Alice <alice@a.test>"),
+			{cmdEOH}, {cmdEOB},
+		}
+		for _, pkt := range packets {
+			response, done, err := s.handlePacket(handler, pkt, nil)
+			if err != nil || done || response == resReject {
+				t.Fatalf("message %d command %q: response=%q done=%v err=%v", message, pkt[0], response, done, err)
+			}
+		}
+	}
+	// A new MAIL without EOB also drops the previous header state while keeping
+	// the newly supplied authentication macro.
+	s.fromHeaders = []string{"Stale <stale@outside.test>"}
+	_, _, _ = s.handlePacket(handler, macroPacket("M", "{auth_authen}", "alice@a.test"), nil)
+	_, _, _ = s.handlePacket(handler, mailPacket("<alice@a.test>"), nil)
+	_, _, _ = s.handlePacket(handler, headerPacket("From", "Alice <alice@a.test>"), nil)
+	response, _, err := s.handlePacket(handler, []byte{cmdEOH}, nil)
+	if err != nil || response != resContinue {
+		t.Fatalf("new MAIL response=%q err=%v", response, err)
+	}
+	// An auth-less MAIL macro cannot inherit a previous message's identity.
+	_, _, _ = s.handlePacket(handler, macroPacket("M", "{mail_addr}", "outsider@outside.test"), nil)
+	if s.login != "" {
+		t.Fatal("authentication leaked between MAIL macros")
+	}
+}

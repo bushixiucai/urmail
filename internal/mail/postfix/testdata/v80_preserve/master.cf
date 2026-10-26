@@ -11,7 +11,7 @@ submission inet n       -       n       -       -       smtpd
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_reject_unlisted_recipient=no
   -o milter_macro_daemon_name=ORIGINATING
-  -o smtpd_milters=inet:127.0.0.1:12301, inet:127.0.0.1:8893, inet:127.0.0.1:12302
+  -o smtpd_milters=inet:127.0.0.1:12301,inet:127.0.0.1:8893,inet:127.0.0.1:12302
   -o milter_default_action=tempfail
   -o smtpd_data_restrictions=check_policy_service,unix:private/policy
 smtps     inet  n       -       n       -       -       smtpd
@@ -20,7 +20,7 @@ smtps     inet  n       -       n       -       -       smtpd
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_reject_unlisted_recipient=no
   -o milter_macro_daemon_name=ORIGINATING
-  -o smtpd_milters=inet:127.0.0.1:12301, inet:127.0.0.1:8893, inet:127.0.0.1:12302
+  -o smtpd_milters=inet:127.0.0.1:12301,inet:127.0.0.1:8893,inet:127.0.0.1:12302
   -o milter_default_action=tempfail
   -o smtpd_data_restrictions=check_policy_service,unix:private/policy
 pickup    unix  n       -       y       60      1       pickup

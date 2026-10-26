@@ -22,14 +22,16 @@ const fromBindMilter = "inet:127.0.0.1:12302"
 // submissionMilters mirrors the main.cf DKIM milter chain for the current
 // node variant and appends the MAIL-04 From-authorization milter, so the
 // per-service override on submission/smtps keeps DKIM signing intact.
+// master.cf splits unbraced arguments on whitespace, so the list must stay
+// comma-separated without spaces to remain one -o name=value argument.
 func submissionMilters(node NodeConfig) string {
 	switch {
 	case node.V80Preserve && node.PreserveExternalOpenDKIM:
-		return "inet:127.0.0.1:8891, inet:127.0.0.1:8893, " + fromBindMilter
+		return "inet:127.0.0.1:8891,inet:127.0.0.1:8893," + fromBindMilter
 	case node.V80Preserve:
-		return "inet:127.0.0.1:12301, inet:127.0.0.1:8893, " + fromBindMilter
+		return "inet:127.0.0.1:12301,inet:127.0.0.1:8893," + fromBindMilter
 	default:
-		return "inet:127.0.0.1:12301, " + fromBindMilter
+		return "inet:127.0.0.1:12301," + fromBindMilter
 	}
 }
 

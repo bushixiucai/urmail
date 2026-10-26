@@ -57,7 +57,7 @@ func TestV80PreserveGoldenAndPolicyOrder(t *testing.T) {
 	}
 	// MAIL-04: submission/smtps must carry the From-authorization milter in
 	// addition to the DKIM chain.
-	if !strings.Contains(files[postfix.FileMasterCF], "smtpd_milters=inet:127.0.0.1:12301, inet:127.0.0.1:8893, inet:127.0.0.1:12302") {
+	if !strings.Contains(files[postfix.FileMasterCF], "smtpd_milters=inet:127.0.0.1:12301,inet:127.0.0.1:8893,inet:127.0.0.1:12302") {
 		t.Fatal("submission/smtps From-authorization milter missing")
 	}
 	if strings.Count(files[postfix.FileMasterCF], "-o milter_default_action=tempfail") != 2 {

@@ -174,6 +174,7 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 		fields := splitNUL(payload[1:])
 		debugf("macro stage=%q fields=%q", stage, fields)
 		if stage == 'M' {
+			s.login = ""
 			for i := 0; i+1 < len(fields); i += 2 {
 				if fields[i] == "{auth_authen}" {
 					s.login = fields[i+1]
@@ -184,6 +185,9 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 	case cmdConnect, cmdHelo, cmdData, cmdUnknown:
 		return resContinue, false, nil
 	case cmdMail:
+		// MAIL starts a new message even when the previous message completed
+		// normally on the same SMTP connection. Its auth macro arrives first.
+		s.fromHeaders = nil
 		return resContinue, false, nil
 	case cmdRcpt:
 		return resContinue, false, nil
@@ -210,6 +214,7 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 		s.reset()
 		return 0, false, nil
 	case cmdEOB:
+		s.reset()
 		return resContinue, false, nil
 	case cmdQuit:
 		return resAccept, true, nil

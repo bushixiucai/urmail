@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ParseSenderLoginMap parses the generated sender_login.map (address<TAB>logins)
+// ParseSenderLoginMap parses the generated sender_login.map (address whitespace logins)
 // and returns the reverse index: login -> set of lowercase addresses it may
 // send as. Blank lines and comment lines are skipped.
 func ParseSenderLoginMap(raw string) map[string]map[string]bool {
@@ -18,14 +18,12 @@ func ParseSenderLoginMap(raw string) map[string]map[string]bool {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		address, logins, ok := strings.Cut(line, "\t")
-		if !ok {
-			address, logins, ok = strings.Cut(line, "    ")
-		}
-		if !ok {
+		separator := strings.IndexAny(line, " \t")
+		if separator < 0 {
 			continue
 		}
-		address = strings.ToLower(strings.TrimSpace(address))
+		address := strings.ToLower(line[:separator])
+		logins := strings.TrimSpace(line[separator:])
 		// The generator joins logins with commas (postfix maps.go).
 		for _, login := range strings.Split(logins, ",") {
 			login = strings.ToLower(strings.TrimSpace(login))

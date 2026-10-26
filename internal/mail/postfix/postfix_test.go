@@ -446,3 +446,31 @@ func TestErrorPaths(t *testing.T) {
 		}
 	})
 }
+
+func TestSubmissionMilterOverrideRemainsOneArgument(t *testing.T) {
+	for _, preserve := range []bool{false, true} {
+		for _, external := range []bool{false, true} {
+			node := defaultNodeConfig()
+			node.V80Preserve = preserve
+			node.PolicyEnabled = true
+			node.PreserveExternalOpenDKIM = external
+			files, err := postfix.Generate(node, postfix.Snapshot{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			overrides := 0
+			for _, line := range strings.Split(files[postfix.FileMasterCF], "\n") {
+				if !strings.Contains(line, "-o smtpd_milters=") {
+					continue
+				}
+				overrides++
+				if len(strings.Fields(line)) != 2 {
+					t.Fatalf("milter list split into extra smtpd arguments: %q", line)
+				}
+			}
+			if overrides != 2 {
+				t.Fatalf("submission/smtps override count=%d", overrides)
+			}
+		}
+	}
+}
