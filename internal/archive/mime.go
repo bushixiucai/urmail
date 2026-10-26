@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -41,6 +42,9 @@ type Content struct {
 
 // ExtractMIME inspects bounded raw bytes without fetching remote resources.
 func ExtractMIME(raw []byte) Content {
+	if len(raw) > MaxExtraction {
+		return Content{MessageID: "archive-" + fmt.Sprintf("%x", sha256.Sum256(raw)), Attachments: []Attachment{}, Error: "extraction_limit"}
+	}
 	content := extractMIME(raw, nil)
 	if content.MessageID == "" {
 		digest := sha256.Sum256(raw)
@@ -113,11 +117,11 @@ func extractMIME(raw []byte, capture func(Attachment, []byte)) Content {
 			}
 			reader = decoded
 		}
-		data, e := io.ReadAll(io.LimitReader(reader, MaxMessage+1))
+		data, e := io.ReadAll(io.LimitReader(reader, MaxExtraction+1))
 		if e != nil {
 			return errors.New("invalid_encoding")
 		}
-		if len(data) > MaxMessage {
+		if len(data) > MaxExtraction {
 			return errors.New("part_limit")
 		}
 		disposition, attributes, _ := mime.ParseMediaType(header.Get("Content-Disposition"))
@@ -262,4 +266,27 @@ func SanitizeHTML(raw []byte) string {
 		return ""
 	}
 	return out.String()
+}
+
+// ExtractMIMEReader retains full originals while limiting optional indexing.
+func ExtractMIMEReader(reader io.ReadSeeker, size int64, digest string) Content {
+	_, _ = reader.Seek(0, io.SeekStart)
+	defer func() { _, _ = reader.Seek(0, io.SeekStart) }()
+	if size > MaxExtraction {
+		result := Content{MessageID: "archive-" + digest, Attachments: []Attachment{}, Error: "extraction_limit"}
+		if message, err := mail.ReadMessage(io.LimitReader(reader, 64<<10)); err == nil {
+			if id := strings.TrimSpace(message.Header.Get("Message-ID")); id != "" {
+				result.MessageID = bounded(id, 998)
+			}
+			result.Subject = bounded(message.Header.Get("Subject"), 4096)
+			result.From = bounded(message.Header.Get("From"), 4096)
+			result.To = bounded(message.Header.Get("To"), 4096)
+		}
+		return result
+	}
+	raw, err := io.ReadAll(io.LimitReader(reader, MaxExtraction+1))
+	if err != nil {
+		return Content{MessageID: "archive-" + digest, Attachments: []Attachment{}, Error: "extraction_unavailable"}
+	}
+	return ExtractMIME(raw)
 }

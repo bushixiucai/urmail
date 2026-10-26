@@ -46,16 +46,26 @@ def main():
     run(["go", "test", "-c", "-o", str(binary), "./internal/webmail"], cwd=root, env=env)
     api_binary = evidence / "webmail-api-runtime.test"
     run(["go", "test", "-c", "-o", str(api_binary), "./internal/api/handlers"], cwd=root, env=env)
+    milter_binary = evidence / "frommilter-runtime.test"
+    run(["go", "test", "-c", "-o", str(milter_binary), "./internal/mail/frommilter"], cwd=root, env=env)
+    archive_binary = evidence / "archive-runtime.test"
+    run(["go", "test", "-c", "-o", str(archive_binary), "./internal/archive"], cwd=root, env=env)
     name = "urmail-native-protocol-" + uuid.uuid4().hex[:12]
     created = False
     result = {"image_id": image["Id"], "architecture": arch, "container": name,
               "test_binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
               "api_test_binary_sha256": hashlib.sha256(api_binary.read_bytes()).hexdigest(),
+              "milter_test_binary_sha256": hashlib.sha256(milter_binary.read_bytes()).hexdigest(),
+              "archive_test_binary_sha256": hashlib.sha256(archive_binary.read_bytes()).hexdigest(),
               "scope": "isolated real PostgreSQL/HTTP/Dovecot/Postfix acceptance; not new-install or production proof",
               "tls_scope": "self-signed fixture CA explicitly trusted by IMAP test; not public PKI",
               "source_files_sha256": {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted([*root.glob("internal/webmail/*.go"), *root.glob("internal/api/handlers/mailbox_native*.go"),
-                                      *root.glob("internal/mailboxschedule/*.go"), *root.glob("migrations/007[67]*.sql"),
+                                      *root.glob("internal/mailboxschedule/*.go"), *root.glob("migrations/*.sql"),
+                                      *root.glob("internal/archive/*.go"), *root.glob("internal/mail/frombind/*.go"),
+                                      *root.glob("internal/mail/frommilter/*.go"), *root.glob("internal/api/middleware/*.go"),
+                                      *root.glob("internal/domain/auth/*.go"), *root.glob("internal/domain/mail/password*.go"),
+                                      *root.glob("internal/api/handlers/archive_content*.go"),
                                       root / "scripts/native-webmail-protocol-acceptance.py"])},
               "network_mode": "none", "host_ports": False, "status": "FAILED"}
     try:
@@ -68,6 +78,8 @@ def main():
         result["host_ports"] = bool(isolation.get("PortBindings"))
         run(["docker", "cp", str(binary), name + ":/tmp/webmail-runtime.test"])
         run(["docker", "cp", str(api_binary), name + ":/tmp/webmail-api-runtime.test"])
+        run(["docker", "cp", str(milter_binary), name + ":/tmp/frommilter-runtime.test"])
+        run(["docker", "cp", str(archive_binary), name + ":/tmp/archive-runtime.test"])
         setup = r'''
 set -eu
 root=/tmp/native-mail-runtime
@@ -210,6 +222,18 @@ runuser -u postgres -- createdb -h 127.0.0.1 urmail_runtime
         result["api_exit_code"] = api_tests.returncode
         if api_tests.returncode or "--- PASS: TestMailboxNativeRuntime" not in api_tests.stdout:
             raise RuntimeError("native API/runtime acceptance failed or was skipped")
+        for binary_path, switch, test_name, filename, timeout in (
+                ("/tmp/archive-runtime.test", "URMAIL_ARCHIVE_RUNTIME", "TestArchivePostfixSizeRuntime", "runtime-archive.log", "3m"),
+                ("/tmp/frommilter-runtime.test", "URMAIL_FROMBIND_RUNTIME", "TestPostfixFromAuthorizationRuntime", "runtime-frommilter.log", "60s")):
+            stage = subprocess.run(["docker", "exec", "-e", switch + "=1", name, binary_path,
+                                    "-test.run", "^" + test_name + "$", "-test.v", "-test.count=1", "-test.timeout=" + timeout],
+                                   text=True, capture_output=True)
+            (evidence / filename).write_text(stage.stdout + stage.stderr)
+            print(stage.stdout, end="")
+            print(stage.stderr, end="")
+            result[test_name + "_exit_code"] = stage.returncode
+            if stage.returncode or "--- PASS: " + test_name not in stage.stdout:
+                raise RuntimeError(test_name + " failed or was skipped")
         result["status"] = "PASS"
     finally:
         if created:

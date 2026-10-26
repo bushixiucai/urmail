@@ -818,7 +818,7 @@
   "page.credentials.csrf": "CSRF token",
   "page.credentials.days": "Valid days",
   "page.credentials.empty": "No application credentials",
-  "page.credentials.independent": "Revoke application credentials separately; changing your password does not revoke them. Grant only the permissions your script needs.",
+  "page.credentials.independent": "Password or MFA changes invalidate application credentials. Revoking one panel session does not revoke unrelated application credentials. Grant only the permissions your script needs.",
   "page.credentials.legacy_hint": "This session is limited to the legacy API and expires at {{expires}}.",
   "page.credentials.legacy_session": "Create a 15-minute legacy session",
   "page.credentials.name": "Credential name",
@@ -981,7 +981,7 @@
   "page.mailboxes.field_password": "Initial password",
   "page.mailboxes.list_title": "Mailbox users",
   "page.mailboxes.new_password_placeholder": "Enter new password",
-  "page.mailboxes.password_hint": "At least 6 characters",
+  "page.mailboxes.password_hint": "At least 12 characters, at most 256 UTF-8 bytes",
   "page.mailboxes.quota": "Quota",
   "page.mailboxes.quota_placeholder": "Quota MB (0 inherit; -1 unlimited)",
   "page.mailboxes.quota_title": "Change quota: {{id}}",
@@ -1060,7 +1060,7 @@
   "page.settings.password.revoke": "Revoke",
   "page.settings.password.sessions": "Sessions",
   "page.settings.password.submit": "Change password",
-  "page.settings.password.subtitle": "Changing the password revokes other sessions",
+  "page.settings.password.subtitle": "Changing the password revokes other sessions, pending MFA logins and application credentials.",
   "page.settings.password.title": "Password and sessions",
   "page.settings.platform": "Platform settings",
   "page.settings.primary": "Override primary color",
@@ -1395,5 +1395,6 @@
   "support.submit": "Submit ticket",
   "support.tickets": "Tickets",
   "support.withdraw": "Withdraw",
-  "tenant.not_found": "Tenant not found"
+  "tenant.not_found": "Tenant not found",
+  "error.PASSWORD_POLICY_INVALID": "Use at least 12 characters and no more than 256 UTF-8 bytes. Passwords are preserved exactly as entered."
 }

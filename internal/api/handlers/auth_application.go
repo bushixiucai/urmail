@@ -113,7 +113,7 @@ func (h *AuthHandler) CreateLegacySession(c *gin.Context) {
 		}
 	}
 	expires := time.Now().Add(legacyMFALifetime)
-	session, err := h.Store.CreateSession(c, store.CreateSessionParams{ID: middleware.HashSessionToken(token), UserID: user.ID, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
+	session, err := h.Store.CreateSession(c, store.CreateSessionParams{ID: middleware.HashSessionToken(token), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "SESSION_CREATE_FAILED")
 		return
@@ -165,7 +165,7 @@ func (h *AuthHandler) CreateApplicationCredential(c *gin.Context) {
 		return
 	}
 	token := applicationTokenPrefix + random
-	credential, err := h.Credentials.CreateApplicationCredential(c, store.CreateApplicationCredentialParams{UserID: user.ID, Name: req.Name, TokenHash: middleware.HashSessionToken(token), Scopes: req.Scopes, ExpiresAt: pgtype.Timestamptz{Time: req.ExpiresAt, Valid: true}})
+	credential, err := h.Credentials.CreateApplicationCredential(c, store.CreateApplicationCredentialParams{UserID: user.ID, ExpectedVersion: user.CredentialVersion, Name: req.Name, TokenHash: middleware.HashSessionToken(token), Scopes: req.Scopes, ExpiresAt: pgtype.Timestamptz{Time: req.ExpiresAt, Valid: true}})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return

@@ -207,6 +207,9 @@ func New(opts Options) *gin.Engine {
 	if webmailVault == nil {
 		webmailVault = webmail.NewMemoryVault()
 	}
+	if revoker, ok := webmailVault.(interface{ DeleteMailbox(int64, int64) }); ok {
+		mailboxHandler.Vault = revoker
+	}
 	nativeStore := handlers.StoreMailboxNative{Q: platformQueries}
 	smtpAddr := opts.SMTPAddr
 	if smtpAddr == "" {
@@ -239,7 +242,7 @@ func New(opts Options) *gin.Engine {
 			return c.ClientIP(), true
 		}), mailboxNative.CreateSession)
 		mailboxAuthed := v1.Group("/mailbox")
-		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore))
+		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore, webmailVault))
 		{
 			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
 			mailboxAuthed.GET("/folders/:name/messages", mailboxNative.ListMessages)
@@ -282,7 +285,7 @@ func New(opts Options) *gin.Engine {
 		authGroup := v1.Group("/auth")
 		{
 			authGroup.GET("/registration-status", registrationHandler.Status)
-			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/login", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), authHandler.Login)
 			authGroup.POST("/register", middleware.RateLimitWindow(3, time.Hour, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), registrationHandler.Register)
 			authGroup.POST("/register/verify", middleware.RateLimitWindow(10, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), registrationHandler.Verify)
 			// Second MFA login leg: authenticated by the short-lived

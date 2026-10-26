@@ -41,7 +41,7 @@ type BillingStore interface {
 	ReleaseCouponRedemption(ctx context.Context, arg store.ReleaseCouponRedemptionParams) (int64, error)
 	GetPaymentForTenant(ctx context.Context, arg store.GetPaymentForTenantParams) (store.Payments, error)
 	CreateRefund(ctx context.Context, arg store.CreateRefundParams) (store.Refunds, error)
-	ListRefundsByTenant(ctx context.Context, tenantID int64) ([]store.Refunds, error)
+	ListRefundsByTenant(ctx context.Context, tenantID int64) ([]store.ListRefundsByTenantRow, error)
 	GetInvoiceByID(ctx context.Context, arg store.GetInvoiceByIDParams) (store.Invoices, error)
 	SetInvoicePDFPath(ctx context.Context, arg store.SetInvoicePDFPathParams) error
 }

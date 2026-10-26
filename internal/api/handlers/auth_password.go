@@ -6,7 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
-	"github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
+	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -20,7 +21,7 @@ type ChangePasswordRequest struct {
 // other sessions. The current session stays valid so the caller can continue.
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	var req ChangePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || passwordwork.ValidateNew(req.NewPassword) != nil || !passwordwork.ValidVerification(req.CurrentPassword) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "INVALID_PARAMS", "message": "common.invalid_params"},
 		})
@@ -36,39 +37,25 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
 	}
-	if !mail.VerifyPassword(req.CurrentPassword, user.PasswordHash) {
+	matches, available := panelPasswordMatches(c, req.CurrentPassword, user.PasswordHash)
+	if !available {
+		return
+	}
+	if !matches {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
 		return
 	}
-	hash, err := mail.HashPassword(req.NewPassword)
+	hash, err := panelpassword.HashContext(c.Request.Context(), req.NewPassword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "HASH_FAILED"}})
 		return
 	}
-	if err := h.Store.UpdateUserPassword(c, store.UpdateUserPasswordParams{
-		ID:           userID,
-		PasswordHash: hash,
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if _, err = h.Store.PlatformRotatePanelPassword(c, store.PlatformRotatePanelPasswordParams{UserID: userID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, PasswordHash: hash, KeepSession: keepSessionID(c)}); err != nil {
+		authError(c, 500, "DB_ERROR")
 		return
 	}
-
-	sessionID := ""
-	if value, exists := c.Get(middleware.ContextSession); exists {
-		if session, ok := value.(store.Sessions); ok {
-			sessionID = session.ID
-		}
-	}
-	if sessionID != "" {
-		if err := h.Store.DeleteOtherUserSessions(c, store.DeleteOtherUserSessionsParams{
-			UserID: userID,
-			ID:     sessionID,
-		}); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-			return
-		}
-	}
+	pendingMFATokens.revokeUser(userID)
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

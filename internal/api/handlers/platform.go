@@ -18,7 +18,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/billing"
-	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -251,7 +251,7 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	hash, err := domainMail.HashPassword(req.OwnerPassword)
+	hash, err := panelpassword.HashContext(c.Request.Context(), req.OwnerPassword)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return

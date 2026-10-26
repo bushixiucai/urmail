@@ -2,8 +2,6 @@ package archive
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,6 +105,19 @@ func (w *Worker) Once(ctx context.Context) error {
 		}
 		processed++
 		w.scanAfter = entry.Name()
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".pending-") && validID(strings.TrimPrefix(entry.Name(), ".pending-")) {
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				failures = append(failures, infoErr)
+			} else if info.ModTime().Before(time.Now().Add(-24 * time.Hour)) {
+				// A pipe never publishes this name. Only abandoned staging
+				// directories are eligible; acknowledged copies use bare IDs.
+				if cleanupErr := root.RemoveAll(entry.Name()); cleanupErr != nil {
+					failures = append(failures, cleanupErr)
+				}
+			}
+			continue
+		}
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".indexed-") && validID(strings.TrimPrefix(entry.Name(), ".indexed-")) {
 			if err = root.RemoveAll(entry.Name()); err != nil {
 				failures = append(failures, err)
@@ -156,10 +167,11 @@ func (w *Worker) Once(ctx context.Context) error {
 }
 
 func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
-	manifest, raw, err := readManifest(spool, id)
+	manifest, raw, err := openManifest(spool, id)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = raw.Close() }()
 	if manifest.Recipient.TenantID <= 0 || manifest.Recipient.MailboxID <= 0 {
 		return errors.New("legacy archive recipient is unbound; manual canonical recovery required")
 	}
@@ -168,7 +180,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 	if err != nil {
 		return errors.New("pinned archive mailbox no longer matches canonical ownership")
 	}
-	content := ExtractMIME(raw)
+	content := ExtractMIMEReader(raw, manifest.Size, manifest.SHA256)
 	if content.MessageID == "" {
 		content.MessageID = "archive-" + manifest.SHA256
 	}
@@ -184,12 +196,12 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 	if err = archive.MkdirAll(filepath.Dir(relative), 0o700); err != nil {
 		return err
 	}
-	if err = writeRootFile(archive, relative, raw); err != nil {
+	if err = writeRootStream(ctx, archive, relative, raw, manifest.Size, manifest.SHA256); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return err
 		}
-		existing, readErr := ReadOriginal(w.Archive, filepath.Join(w.Archive, relative), manifest.SHA256)
-		if readErr != nil || len(existing) != len(raw) {
+		readErr := VerifyOriginal(ctx, w.Archive, filepath.Join(w.Archive, relative), manifest.SHA256)
+		if readErr != nil {
 			return errors.New("canonical archive collision or hash mismatch")
 		}
 	}
@@ -224,7 +236,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 		if e = ValidateOwnershipPath(w.Archive, entry.Path, manifest.Recipient.TenantID, manifest.Recipient.MailboxID); e != nil {
 			return e
 		}
-		_, e = ReadOriginal(w.Archive, entry.Path, manifest.SHA256)
+		e = VerifyOriginal(ctx, w.Archive, entry.Path, manifest.SHA256)
 		if errors.Is(e, os.ErrNotExist) {
 			relative, e2 := archiveRelative(w.Archive, entry.Path)
 			if e2 != nil {
@@ -233,7 +245,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 			if e2 = archive.MkdirAll(filepath.Dir(relative), 0o700); e2 != nil {
 				return e2
 			}
-			if e2 = writeRootFile(archive, relative, raw); e2 != nil {
+			if e2 = writeRootStream(ctx, archive, relative, raw, manifest.Size, manifest.SHA256); e2 != nil {
 				return e2
 			}
 			if e2 = syncDirectory(filepath.Join(w.Archive, filepath.Dir(relative))); e2 != nil {
@@ -305,7 +317,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 		if !allowed {
 			// Policy revocation cancels every not-yet-executed physical cleanup.
 			// Clear a durable claim only after proving the original still exists.
-			_, readErr := ReadOriginal(w.Archive, entry.Path, entry.RawSha256)
+			readErr := VerifyOriginal(ctx, w.Archive, entry.Path, entry.RawSha256)
 			switch {
 			case readErr == nil:
 				err = q.PlatformCancelArchivePurgeIntent(ctx, store.PlatformCancelArchivePurgeIntentParams{TenantID: tenantID, EntryID: id})
@@ -343,7 +355,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			_ = tx.Rollback(ctx)
 			return pathErr
 		}
-		_, readErr := ReadOriginal(w.Archive, entry.Path, entry.RawSha256)
+		readErr := VerifyOriginal(ctx, w.Archive, entry.Path, entry.RawSha256)
 		switch {
 		case readErr == nil:
 			root, openErr := openPrivateRoot(w.Archive)
@@ -412,14 +424,19 @@ func (w *Worker) backfill(ctx context.Context) error {
 			failures = append(failures, e)
 			continue
 		}
-		raw, readErr := readOriginal(w.Archive, entry.Path, entry.RawSha256, entry.RawSha256 == "")
+		raw, readErr := openOriginalFile(w.Archive, entry.Path)
 		if readErr != nil {
 			failures = append(failures, fmt.Errorf("existing archive %d integrity unavailable: %w", entry.ID, readErr))
 			continue
 		}
-		hash := sha256.Sum256(raw)
-		digest := hex.EncodeToString(hash[:])
-		content := ExtractMIME(raw)
+		size, digest, readErr := verifyFile(ctx, raw, entry.RawSha256)
+		if readErr != nil {
+			_ = raw.Close()
+			failures = append(failures, readErr)
+			continue
+		}
+		content := ExtractMIMEReader(raw, size, digest)
+		_ = raw.Close()
 		attachments, _ := json.Marshal(content.Attachments)
 		tx, e := w.Pool.PlatformTx(ctx)
 		if e != nil {
@@ -453,12 +470,39 @@ func (w *Worker) observeOrphans(ctx context.Context) error {
 	if w.orphanAfter == "" {
 		w.orphanFound = false
 	}
+	privateRoot, err := openPrivateRoot(w.Archive)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = privateRoot.Close() }()
 	orphans := false
-	err := filepath.WalkDir(w.Archive, func(path string, entry os.DirEntry, err error) error {
+	err = filepath.WalkDir(w.Archive, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(entry.Name(), ".pending-") && validID(strings.TrimPrefix(entry.Name(), ".pending-")) {
+			if path <= w.orphanAfter {
+				return nil
+			}
+			scanned++
+			if scanned > 100 {
+				return filepath.SkipAll
+			}
+			w.orphanAfter = path
+			info, e := entry.Info()
+			if e != nil {
+				return e
+			}
+			if info.ModTime().Before(time.Now().Add(-24 * time.Hour)) {
+				relative, e := filepath.Rel(w.Archive, path)
+				if e != nil {
+					return e
+				}
+				return privateRoot.Remove(relative)
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".eml" {

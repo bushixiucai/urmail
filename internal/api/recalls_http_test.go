@@ -69,7 +69,11 @@ func TestRecallHTTPWithRealRoles(t *testing.T) {
 		token    string
 		uid, tid int64
 	}{{"recall-owner", owner, a}, {"recall-other", other, b}, {"recall-member", member, a}} {
-		if _, err := q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken(v.token), UserID: v.uid, TenantID: pgtype.Int8{Int64: v.tid, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+		verifiedUser, verifyErr := q.GetUserByID(ctx, v.uid)
+		if verifyErr != nil {
+			t.Fatal(verifyErr)
+		}
+		if _, err := q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(v.token), UserID: v.uid, TenantID: pgtype.Int8{Int64: v.tid, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
 			t.Fatal(err)
 		}
 	}

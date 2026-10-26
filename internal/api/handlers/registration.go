@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
-	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -59,7 +59,7 @@ func (h *RegistrationHandler) Register(c *gin.Context) {
 		authError(c, 503, "REGISTRATION_UNAVAILABLE")
 		return
 	}
-	hash, err := domainMail.HashPassword(req.Password)
+	hash, err := panelpassword.HashContext(c.Request.Context(), req.Password)
 	if err != nil {
 		authError(c, 500, "INTERNAL_ERROR")
 		return

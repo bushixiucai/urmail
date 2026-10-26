@@ -36,6 +36,8 @@ Usage:
   urmailctl import-legacy-activate-mail --apply --expected-core-proof SHA --expected-domains N --tenant-id N --actor-id N --tenant-ref REF --reason TEXT
   urmailctl data-check             report tenant reference/allocation problems
   urmailctl telemetry acknowledge-gap --stream NAME --generation N --reason TEXT
+  urmailctl secrets migrate-totp [--apply] [--batch-size N]
+  urmailctl secrets compact-rejected-webhooks [--apply]
   urmailctl domain challenge --tenant-id T --domain-id D
   urmailctl domain verify --tenant-id T --domain-id D
   urmailctl backup [--out-dir DIR]  dump PostgreSQL and config/certificate files
@@ -78,6 +80,8 @@ func run(args []string) error {
 		return runUsageSync(ctx, args[1:])
 	case "telemetry":
 		return runTelemetry(ctx, args[1:])
+	case "secrets":
+		return runSecrets(ctx, args[1:])
 	case "domain":
 		return runDomainRecovery(ctx, args[1:])
 	case "billing":

@@ -12,6 +12,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -36,6 +37,7 @@ type MailboxStore interface {
 type MailboxHandler struct {
 	Store     MailboxStore
 	Reconcile ReconcileTrigger
+	Vault     interface{ DeleteMailbox(int64, int64) }
 }
 
 // NewMailboxHandler handles the tenant mail management request.
@@ -102,7 +104,7 @@ func (h *MailboxHandler) List(c *gin.Context) {
 type CreateMailboxRequest struct {
 	DomainID    int64  `json:"domain_id" binding:"required"`
 	LocalPart   string `json:"local_part" binding:"required"`
-	Password    string `json:"password" binding:"required,min=6"`
+	Password    string `json:"password" binding:"required,min=12,max=256"`
 	DisplayName string `json:"display_name"`
 	QuotaBytes  int64  `json:"quota_bytes"` // 0 = unlimited or plan default
 }
@@ -117,7 +119,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 	}
 
 	var req CreateMailboxRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || passwordwork.ValidateNew(req.Password) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
@@ -155,7 +157,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 	}
 
 	address := fmt.Sprintf("%s@%s", local, domain.Fqdn)
-	hash, err := domainMail.HashPassword(req.Password)
+	hash, err := domainMail.HashPasswordContext(c.Request.Context(), req.Password)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -194,7 +196,7 @@ func (h *MailboxHandler) Create(c *gin.Context) {
 
 // UpdatePasswordRequest defines the tenant mail management contract.
 type UpdatePasswordRequest struct {
-	Password string `json:"password" binding:"required,min=6"`
+	Password string `json:"password" binding:"required,min=12,max=256"`
 }
 
 // UpdatePassword handles the tenant mail management request.
@@ -216,12 +218,12 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 	}
 
 	var req UpdatePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || passwordwork.ValidateNew(req.Password) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
 
-	hash, err := domainMail.HashPassword(req.Password)
+	hash, err := domainMail.HashPasswordContext(c.Request.Context(), req.Password)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -243,6 +245,9 @@ func (h *MailboxHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
+	if h.Vault != nil {
+		middleware.AfterCommit(c, func() { h.Vault.DeleteMailbox(tenantID, id) })
+	}
 	c.JSON(http.StatusOK, gin.H{"mailbox": newMailboxResponse(mailbox)})
 }
 

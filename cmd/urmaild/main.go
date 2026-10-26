@@ -73,6 +73,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Validate the encryption authority before opening databases or starting any
+	// listener or worker. A missing key must never enable plaintext secret writes.
+	secretBox, err := loadRuntimeSecrets(cfg)
+	if err != nil {
+		return err
+	}
+
 	appPool, err := db.OpenApp(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("open tenant database pool: %w", err)
@@ -114,20 +121,15 @@ func run() error {
 		baseURL = "https://box." + cfg.PrimaryDomain
 	}
 
-	var secretBox handlers.SecretsBox
-	if cfg.MasterKeyPath != "" {
-		if box, loadErr := secrets.Load(cfg.MasterKeyPath); loadErr != nil {
-			logger.Warn("master key unavailable; TOTP secrets stay legacy plaintext", zap.Error(loadErr))
-		} else {
-			secretBox = box
-		}
-	}
-
 	// Periodically purge expired sessions so the sessions table does not
 	// grow without bound. Expired sessions are already rejected at lookup
 	// time; this is pure housekeeping. The app role has no access to
 	// sessions (0008), so the platform pool performs the delete.
 	go purgeExpiredSessions(ctx, platformPool, logger)
+	go handlers.RunMFAReaper(ctx)
+	if !cfg.Quarantined {
+		go payment.RunWebhookMaintenance(ctx, platformPool, logger)
+	}
 	go notify.Run(ctx, platformPool, logger)
 	notificationWorker := &notify.Worker{Pool: platformPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
 	go notificationWorker.Run(ctx, logger)
@@ -212,6 +214,7 @@ func run() error {
 	}
 	go marketingWorker.Run(ctx)
 	webmailVault := webmail.NewMemoryVault()
+	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: store.New(platformPool.Pool)}.Get)
 	smtpAddr := "127.0.0.1:587"
 	if cfg.WebmailNative && !cfg.Quarantined && secretBox != nil {
 		schedWorker := mailboxschedule.NewWorker(mailboxschedule.Options{
@@ -309,6 +312,17 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	return nil
+}
+
+func loadRuntimeSecrets(cfg *config.Config) (handlers.SecretsBox, error) {
+	box, err := secrets.Load(cfg.MasterKeyPath)
+	if err != nil {
+		if cfg.DevMode {
+			return nil, nil //nolint:nilnil // Explicit development fixtures may omit secrets; production always fails closed.
+		}
+		return nil, errors.New("production requires a readable, valid master key; restore the original key before starting urmaild")
+	}
+	return box, nil
 }
 
 // purgeExpiredSessions deletes expired sessions once an hour until ctx is

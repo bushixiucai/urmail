@@ -1,3 +1,4 @@
+import { validNewPassword } from "@/lib/password-policy";
 import { FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiRequestError } from "@/lib/api/client";
@@ -43,6 +44,10 @@ export function MailboxPasswordDialog({
     setError(null);
     if (newPassword !== confirm) {
       setError(t("page.webmail.password_mismatch"));
+      return;
+    }
+    if (!validNewPassword(newPassword)) {
+      setError(t("error.PASSWORD_POLICY_INVALID"));
       return;
     }
     setBusy(true);
@@ -110,7 +115,8 @@ export function MailboxPasswordDialog({
               type="password"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={12}
+              maxLength={256}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
@@ -124,7 +130,8 @@ export function MailboxPasswordDialog({
               type="password"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={12}
+              maxLength={256}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
             />

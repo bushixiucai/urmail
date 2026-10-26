@@ -21,7 +21,10 @@ import (
 const (
 	SpoolRoot   = "/var/lib/urmail/archive-spool"
 	ArchiveRoot = "/var/lib/urmail/archive"
-	MaxMessage  = 64 << 20
+	// MaxMessage covers the v80 SMTP contract plus bounded internal headers.
+	MaxMessage = (128 << 20) + (1 << 20)
+	// MaxExtraction keeps MIME indexing independent from durable raw retention.
+	MaxExtraction = 64 << 20
 )
 
 // Manifest survives database/config outages and pins every delayed copy's identity.
@@ -35,22 +38,13 @@ type Manifest struct {
 }
 
 // Spool writes original bytes before attempting any configuration or database access.
-func Spool(root string, recipient domainMail.ArchiveRecipient, reader io.Reader) (Manifest, error) {
-	var manifest Manifest
-	raw, err := io.ReadAll(io.LimitReader(reader, MaxMessage+1))
-	if err != nil {
-		return manifest, err
-	}
-	if len(raw) > MaxMessage {
-		return manifest, errors.New("archive message exceeds limit")
-	}
+func Spool(root string, recipient domainMail.ArchiveRecipient, reader io.Reader) (manifest Manifest, resultErr error) {
 	random := make([]byte, 16)
-	if _, err = rand.Read(random); err != nil {
+	if _, err := rand.Read(random); err != nil {
 		return manifest, err
 	}
-	digest := sha256.Sum256(raw)
-	manifest = Manifest{Version: 1, ID: hex.EncodeToString(random), Recipient: recipient, SHA256: hex.EncodeToString(digest[:]), Size: int64(len(raw)), ReceivedAt: time.Now().UTC()}
-	if err = os.MkdirAll(root, 0o700); err != nil {
+	id := hex.EncodeToString(random)
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return manifest, err
 	}
 	dir, err := openPrivateRoot(root)
@@ -58,19 +52,47 @@ func Spool(root string, recipient domainMail.ArchiveRecipient, reader io.Reader)
 		return manifest, err
 	}
 	defer func() { _ = dir.Close() }()
-	if err = dir.Mkdir(manifest.ID, 0o700); err != nil {
+	pending := ".pending-" + id
+	if err = dir.Mkdir(pending, 0o700); err != nil {
 		return manifest, err
 	}
-	if err = writeRootFile(dir, manifest.ID+"/raw.eml", raw); err != nil {
+	published := false
+	defer func() {
+		if !published {
+			_ = dir.RemoveAll(pending)
+		}
+	}()
+	file, err := dir.OpenFile(pending+"/raw.eml", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
 		return manifest, err
 	}
+	digest := sha256.New()
+	size, copyErr := io.Copy(io.MultiWriter(file, digest), io.LimitReader(reader, MaxMessage+1))
+	if copyErr == nil && size > MaxMessage {
+		copyErr = errors.New("archive message exceeds limit")
+	}
+	if copyErr == nil {
+		copyErr = file.Sync()
+	}
+	closeErr := file.Close()
+	if copyErr != nil {
+		return manifest, copyErr
+	}
+	if closeErr != nil {
+		return manifest, closeErr
+	}
+	manifest = Manifest{Version: 1, ID: id, Recipient: recipient, SHA256: hex.EncodeToString(digest.Sum(nil)), Size: size, ReceivedAt: time.Now().UTC()}
 	encoded, _ := json.Marshal(manifest)
-	if err = writeRootFile(dir, manifest.ID+"/manifest.json", encoded); err != nil {
+	if err = writeRootFile(dir, pending+"/manifest.json", encoded); err != nil {
 		return manifest, err
 	}
-	if err = syncDirectory(filepath.Join(root, manifest.ID)); err != nil {
+	if err = syncDirectory(filepath.Join(root, pending)); err != nil {
 		return manifest, err
 	}
+	if err = dir.Rename(pending, id); err != nil {
+		return manifest, err
+	}
+	published = true
 	return manifest, syncDirectory(root)
 }
 
@@ -124,7 +146,7 @@ func validID(value string) bool {
 	return err == nil && strings.ToLower(value) == value
 }
 
-func readManifest(root *os.Root, id string) (Manifest, []byte, error) {
+func openManifest(root *os.Root, id string) (Manifest, *os.File, error) {
 	var manifest Manifest
 	if !validID(id) {
 		return manifest, nil, errors.New("invalid spool id")
@@ -151,16 +173,32 @@ func readManifest(root *os.Root, id string) (Manifest, []byte, error) {
 	if err != nil {
 		return manifest, nil, err
 	}
-	defer func() { _ = file.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(file, MaxMessage+1))
+	digest := sha256.New()
+	size, err := io.Copy(digest, io.LimitReader(file, MaxMessage+1))
+	if err != nil {
+		_ = file.Close()
+		return manifest, nil, err
+	}
+	if size != manifest.Size || hex.EncodeToString(digest.Sum(nil)) != manifest.SHA256 {
+		_ = file.Close()
+		return manifest, nil, fmt.Errorf("archive original hash mismatch")
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return manifest, nil, err
+	}
+	return manifest, file, nil
+}
+
+// readManifest remains a bounded compatibility helper for small local callers.
+func readManifest(root *os.Root, id string) (Manifest, []byte, error) {
+	manifest, file, err := openManifest(root, id)
 	if err != nil {
 		return manifest, nil, err
 	}
-	digest := sha256.Sum256(raw)
-	if int64(len(raw)) != manifest.Size || hex.EncodeToString(digest[:]) != manifest.SHA256 {
-		return manifest, nil, fmt.Errorf("archive original hash mismatch")
-	}
-	return manifest, raw, nil
+	defer func() { _ = file.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(file, MaxMessage+1))
+	return manifest, raw, err
 }
 
 func openPrivateRoot(path string) (*os.Root, error) {

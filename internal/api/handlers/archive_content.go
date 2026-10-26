@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -104,22 +106,47 @@ func (h *ArchiveContentHandler) read(c *gin.Context, export bool) {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
-	raw, err := archiveStore.ReadOriginal(root, entry.Path, entry.RawSha256)
-	if err != nil {
+	if export {
+		release, ok := acquireArchiveTransfer(c)
+		if !ok {
+			return
+		}
+		owned := false
+		defer func() {
+			if !owned {
+				release()
+			}
+		}()
+		snapshot, size, openErr := archiveStore.SnapshotOriginal(c.Request.Context(), root, entry.Path, entry.RawSha256)
+		if openErr != nil {
+			authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
+			return
+		}
+		defer func() {
+			if !owned {
+				_ = snapshot.Close()
+			}
+		}()
+		if !archiveAccessAudit(c, q, tenant, user, "archive.export", strconv.FormatInt(id, 10)) {
+			_ = snapshot.Close()
+			return
+		}
+		c.Header("Content-Disposition", "attachment; filename=archive-"+strconv.FormatInt(id, 10)+".eml")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("Cache-Control", "no-store")
+		stream := &archiveTransfer{ReadCloser: snapshot, release: release}
+		owned = true
+		if err = middleware.DeferStream(c, stream, "message/rfc822", size); err != nil {
+			_ = stream.Close()
+			_ = c.Error(err)
+		}
+		return
+	}
+	if err = archiveStore.VerifyOriginal(c.Request.Context(), root, entry.Path, entry.RawSha256); err != nil {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
-	action := "archive.content_read"
-	if export {
-		action = "archive.export"
-	}
-	if !archiveAccessAudit(c, q, tenant, user, action, strconv.FormatInt(id, 10)) {
-		return
-	}
-	if export {
-		c.Header("Content-Disposition", "attachment; filename=archive-"+strconv.FormatInt(id, 10)+".eml")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Data(200, "message/rfc822", raw)
+	if !archiveAccessAudit(c, q, tenant, user, "archive.content_read", strconv.FormatInt(id, 10)) {
 		return
 	}
 	var attachments any
@@ -303,24 +330,48 @@ func (h *ArchiveContentHandler) Attachment(c *gin.Context) {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
-	raw, err := archiveStore.ReadOriginal(root, entry.Path, entry.RawSha256)
+	release, ok := acquireArchiveTransfer(c)
+	if !ok {
+		return
+	}
+	owned := false
+	defer func() {
+		if !owned {
+			release()
+		}
+	}()
+	raw, _, err := archiveStore.SnapshotOriginal(c.Request.Context(), root, entry.Path, entry.RawSha256)
 	if err != nil {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
-	part, data, err := archiveStore.ExtractAttachment(raw, index)
+	defer func() { _ = raw.Close() }()
+	part, data, err := archiveStore.SnapshotAttachment(c.Request.Context(), raw, index)
 	if err != nil {
 		authError(c, 404, "NOT_FOUND")
 		return
 	}
+	defer func() {
+		if !owned {
+			_ = data.Close()
+		}
+	}()
 	if !archiveAccessAudit(c, q, tenant, user, "archive.attachment_download", strconv.FormatInt(id, 10)+"/"+strconv.Itoa(index)) {
+		_ = data.Close()
 		return
 	}
 	c.Header("Content-Disposition", "attachment; filename=attachment-"+strconv.Itoa(index)+".bin")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Security-Policy", "sandbox; default-src 'none'")
 	c.Header("X-Archive-Attachment-SHA256", part.SHA256)
-	c.Data(200, "application/octet-stream", data)
+	c.Header("Cache-Control", "no-store")
+	stream := &archiveTransfer{ReadCloser: data, release: release}
+	owned = true
+	if err = middleware.DeferStream(c, stream, "application/octet-stream", part.Size); err != nil {
+		_ = stream.Close()
+		_ = c.Error(err)
+	}
+
 }
 
 // RetentionStatus exposes configuration, never archive body content.
@@ -404,7 +455,7 @@ func (h *ArchiveContentHandler) Restore(c *gin.Context) {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
-	if _, err = archiveStore.ReadOriginal(root, entry.Path, entry.RawSha256); err != nil {
+	if err = archiveStore.VerifyOriginal(c.Request.Context(), root, entry.Path, entry.RawSha256); err != nil {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
@@ -414,4 +465,30 @@ func (h *ArchiveContentHandler) Restore(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "restored", "retention_policy_unchanged": true})
+}
+
+// Two transfers bound private temporary disk usage and concurrent MIME decoding.
+var archiveTransferSlots = make(chan struct{}, 2)
+
+func acquireArchiveTransfer(c *gin.Context) (func(), bool) {
+	select {
+	case archiveTransferSlots <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-archiveTransferSlots }) }, true
+	default:
+		authError(c, http.StatusTooManyRequests, "RATE_LIMITED")
+		return nil, false
+	}
+}
+
+type archiveTransfer struct {
+	io.ReadCloser
+	release func()
+	once    sync.Once
+}
+
+func (r *archiveTransfer) Close() error {
+	var err error
+	r.once.Do(func() { err = r.ReadCloser.Close(); r.release() })
+	return err
 }

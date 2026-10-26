@@ -144,7 +144,7 @@ func (q *Queries) CreatePayment(ctx context.Context, arg CreatePaymentParams) (P
 }
 
 const createRefund = `-- name: CreateRefund :one
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM urmail_create_refund($1::bigint,$2::bigint,$3::bigint,$4::text,$5::bigint,$6::text,$7::text)
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM urmail_create_refund($1::bigint,$2::bigint,$3::bigint,$4::text,$5::bigint,$6::text,$7::text)
 `
 
 type CreateRefundParams struct {
@@ -192,6 +192,10 @@ func (q *Queries) CreateRefund(ctx context.Context, arg CreateRefundParams) (Ref
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
@@ -528,15 +532,40 @@ const listRefundsByTenant = `-- name: ListRefundsByTenant :many
 SELECT id,tenant_id,order_id,payment_id,refund_no,amount_cents,currency,reason,status,provider_refund_no,created_at,completed_at,requested_amount_cents,approved_by,approved_at,approval_reason,entitlement_action,entitlement_effective_at,target_term_order_id,entitlement_applied_at,last_error_code,request_started_at FROM refunds WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100
 `
 
-func (q *Queries) ListRefundsByTenant(ctx context.Context, tenantID int64) ([]Refunds, error) {
+type ListRefundsByTenantRow struct {
+	ID                     int64              `json:"id"`
+	TenantID               int64              `json:"tenant_id"`
+	OrderID                int64              `json:"order_id"`
+	PaymentID              pgtype.Int8        `json:"payment_id"`
+	RefundNo               string             `json:"refund_no"`
+	AmountCents            int64              `json:"amount_cents"`
+	Currency               string             `json:"currency"`
+	Reason                 string             `json:"reason"`
+	Status                 string             `json:"status"`
+	ProviderRefundNo       pgtype.Text        `json:"provider_refund_no"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
+	RequestedAmountCents   int64              `json:"requested_amount_cents"`
+	ApprovedBy             pgtype.Int8        `json:"approved_by"`
+	ApprovedAt             pgtype.Timestamptz `json:"approved_at"`
+	ApprovalReason         pgtype.Text        `json:"approval_reason"`
+	EntitlementAction      string             `json:"entitlement_action"`
+	EntitlementEffectiveAt pgtype.Timestamptz `json:"entitlement_effective_at"`
+	TargetTermOrderID      pgtype.Int8        `json:"target_term_order_id"`
+	EntitlementAppliedAt   pgtype.Timestamptz `json:"entitlement_applied_at"`
+	LastErrorCode          pgtype.Text        `json:"last_error_code"`
+	RequestStartedAt       pgtype.Timestamptz `json:"request_started_at"`
+}
+
+func (q *Queries) ListRefundsByTenant(ctx context.Context, tenantID int64) ([]ListRefundsByTenantRow, error) {
 	rows, err := q.db.Query(ctx, listRefundsByTenant, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Refunds{}
+	items := []ListRefundsByTenantRow{}
 	for rows.Next() {
-		var i Refunds
+		var i ListRefundsByTenantRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.TenantID,

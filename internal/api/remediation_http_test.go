@@ -95,7 +95,11 @@ func TestRemediationCheckoutHTTPWithRealRoles(t *testing.T) {
 		token    string
 		uid, tid int64
 	}{{"http-token-a", userA, tenantA}, {"http-token-b", userB, tenantB}} {
-		if _, err := q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken(v.token), UserID: v.uid, TenantID: pgtype.Int8{Int64: v.tid, Valid: true}, CsrfToken: "test-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+		verifiedUser, verifyErr := q.GetUserByID(ctx, v.uid)
+		if verifyErr != nil {
+			t.Fatal(verifyErr)
+		}
+		if _, err := q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(v.token), UserID: v.uid, TenantID: pgtype.Int8{Int64: v.tid, Valid: true}, CsrfToken: "test-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -560,7 +564,11 @@ func TestRemediationBrowserWithRealRoles(t *testing.T) {
 	exec("INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'owner')", staff, staffTenant, owner, ownerTenant)
 	exec("INSERT INTO platform_admins(user_id) VALUES($1)", staff)
 	q := store.New(platform.Pool)
-	if _, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("http-token-a"), UserID: staff, TenantID: pgtype.Int8{Int64: staffTenant, Valid: true}, CsrfToken: "test-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+	verifiedStaff, verifyErr := q.GetUserByID(ctx, staff)
+	if verifyErr != nil {
+		t.Fatal(verifyErr)
+	}
+	if _, err = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedStaff.PasswordHash, ExpectedVersion: verifiedStaff.CredentialVersion, ID: middleware.HashSessionToken("http-token-a"), UserID: staff, TenantID: pgtype.Int8{Int64: staffTenant, Valid: true}, CsrfToken: "test-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
 		t.Fatal(err)
 	}
 	messages, err := i18n.NewStore()

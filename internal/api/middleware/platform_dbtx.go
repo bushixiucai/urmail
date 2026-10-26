@@ -33,6 +33,7 @@ func RequirePlatformTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 		defer func() { _ = tx.Rollback(context.Background()); delete(c.Keys, contextTransaction) }()
 		original := c.Writer
 		buffered := newResponseBuffer(original)
+		defer buffered.closeStream()
 		c.Writer = buffered
 		defer func() { c.Writer = original }()
 		q := store.New(tx)
@@ -73,6 +74,8 @@ func RequirePlatformTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 				callback()
 			}
 		}
-		buffered.publish()
+		if err := buffered.publishResponse(); err != nil && buffered.stream != nil {
+			logger.Warn("post-commit response stream incomplete", zap.String("path", c.FullPath()))
+		}
 	}
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -75,7 +76,7 @@ func (f *fakeAuthStore) row(id int64) store.GetUserByEmailRow {
 		ID: u.ID, Email: u.Email, PasswordHash: u.PasswordHash,
 		Locale: u.Locale, Status: u.Status,
 		MfaSecret: u.MfaSecret, MfaRecoveryCodes: u.MfaRecoveryCodes,
-		MfaEnabled: u.MfaEnabled,
+		MfaEnabled: u.MfaEnabled, CredentialVersion: u.CredentialVersion,
 	}
 }
 
@@ -104,7 +105,11 @@ func (f *fakeAuthStore) CheckPlatformAdmin(_ context.Context, _ int64) (bool, er
 }
 
 func (f *fakeAuthStore) CreateSession(_ context.Context, arg store.CreateSessionParams) (store.Sessions, error) {
-	s := store.Sessions{
+	u, ok := f.users[arg.UserID]
+	if !ok || u.PasswordHash != arg.ExpectedHash || u.CredentialVersion != arg.ExpectedVersion {
+		return store.Sessions{}, pgx.ErrNoRows
+	}
+	s := store.Sessions{CredentialVersion: u.CredentialVersion,
 		ID: arg.ID, UserID: arg.UserID, TenantID: arg.TenantID,
 		CsrfToken: arg.CsrfToken, UserAgent: arg.UserAgent, ExpiresAt: arg.ExpiresAt,
 	}
@@ -211,6 +216,7 @@ func (f *fakeAuthStore) ConsumeRecoveryCode(_ context.Context, arg store.Consume
 func newMFATestRouter(st *fakeAuthStore) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	h := NewAuthHandler(st)
+	h.Secrets = authFixtureSecrets()
 	r := gin.New()
 
 	pub := r.Group("/api/v1/auth")
@@ -556,10 +562,10 @@ func TestChangePasswordRevokesOtherSessions(t *testing.T) {
 		t.Fatal("current session must be kept")
 	}
 	user, _ := st.GetUserByID(context.Background(), id)
-	if !mail.VerifyPassword("new-password-12345", user.PasswordHash) {
+	if !panelpassword.Verify("new-password-12345", user.PasswordHash) {
 		t.Fatal("new password was not stored")
 	}
-	if mail.VerifyPassword("correct-horse", user.PasswordHash) {
+	if panelpassword.Verify("correct-horse", user.PasswordHash) {
 		t.Fatal("old password still works")
 	}
 }

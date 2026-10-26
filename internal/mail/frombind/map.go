@@ -5,7 +5,10 @@
 package frombind
 
 import (
+	"net/mail"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // ParseSenderLoginMap parses the generated sender_login.map (address whitespace logins)
@@ -39,21 +42,30 @@ func ParseSenderLoginMap(raw string) map[string]map[string]bool {
 	return allowed
 }
 
-// ExtractFromDomain returns the domain of a From header value (everything
-// after the last @) lowercased, or "" when the value has no domain part.
-// Both bare addresses ("user@domain") and display-name forms
-// ("Name <user@domain>") are accepted; anything after a closing ">" is
-// discarded.
+// ExtractFromDomain parses exactly one RFC 5322 mailbox. Group/list syntax,
+// control characters and unsupported SMTPUTF8 local parts fail closed.
 func ExtractFromDomain(headerValue string) string {
-	v := strings.TrimSpace(headerValue)
-	if gt := strings.IndexByte(v, '>'); gt >= 0 {
-		v = v[:gt]
-	}
-	at := strings.LastIndex(v, "@")
-	if at < 0 || at == len(v)-1 {
+	if len(headerValue) > 8192 || strings.ContainsAny(headerValue, "\x00\r\n") || hasGroupSyntax(headerValue) {
 		return ""
 	}
-	return strings.ToLower(v[at+1:])
+	parsed, err := mail.ParseAddress(strings.TrimSpace(headerValue))
+	if err != nil {
+		return ""
+	}
+	at := strings.LastIndexByte(parsed.Address, '@')
+	if at <= 0 || at == len(parsed.Address)-1 {
+		return ""
+	}
+	for _, ch := range parsed.Address[:at] {
+		if ch < 0x21 || ch > 0x7e {
+			return ""
+		}
+	}
+	domain, err := idna.Lookup.ToASCII(strings.TrimSuffix(parsed.Address[at+1:], "."))
+	if err != nil || domain == "" || strings.ContainsAny(domain, "[] \t") {
+		return ""
+	}
+	return strings.ToLower(domain)
 }
 
 // AllowedFromDomains narrows a login's allowed addresses to the set of
@@ -66,4 +78,44 @@ func AllowedFromDomains(allowedAddresses map[string]bool) map[string]bool {
 		}
 	}
 	return domains
+}
+
+// The standard parser accepts a one-member RFC group as an Address. Groups
+// are deliberately outside the submission contract, even with one mailbox.
+func hasGroupSyntax(value string) bool {
+	quoted, escaped, comments := false, false, 0
+	for _, r := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if comments > 0 {
+			if r == '(' {
+				comments++
+			}
+			if r == ')' {
+				comments--
+			}
+			continue
+		}
+		if r == '"' {
+			quoted = !quoted
+			continue
+		}
+		if quoted {
+			continue
+		}
+		if r == '(' {
+			comments++
+			continue
+		}
+		if r == ':' || r == ';' {
+			return true
+		}
+	}
+	return false
 }

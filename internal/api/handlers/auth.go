@@ -11,7 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
-	"github.com/bushixiucai/urmail/internal/domain/mail"
+	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
+	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -19,9 +21,17 @@ import (
 // user, so that both failure paths perform the same expensive hash
 // computation and response timing cannot enumerate accounts.
 var dummyPasswordHash = func() string {
-	hash, err := mail.HashPassword("urmail-dummy-password-for-timing")
+	hash, err := panelpassword.Hash("urmail-dummy-password-for-timing")
 	if err != nil {
 		panic("password hash: " + err.Error())
+	}
+	return hash
+}()
+
+var dummyMailboxPasswordHash = func() string {
+	hash, err := domainMail.HashPassword("urmail-dummy-password-for-timing")
+	if err != nil {
+		panic(err)
 	}
 	return hash
 }()
@@ -36,6 +46,9 @@ func randomHexToken() (string, error) {
 
 // AuthStore is the platform-scoped authentication persistence boundary.
 type AuthStore interface {
+	PlatformRotatePanelPassword(context.Context, store.PlatformRotatePanelPasswordParams) (int64, error)
+	PlatformChangePanelMFA(context.Context, store.PlatformChangePanelMFAParams) (int64, error)
+	PlatformRehashPanelPassword(context.Context, store.PlatformRehashPanelPasswordParams) (int64, error)
 	GetUserByEmail(ctx context.Context, email string) (store.GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id int64) (store.GetUserByIDRow, error)
 	GetUserTenants(ctx context.Context, userID int64) ([]store.GetUserTenantsRow, error)
@@ -116,7 +129,7 @@ type LoginResponse struct {
 // Login verifies the password and requires a second factor when enabled.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || !passwordwork.ValidVerification(req.Password) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "INVALID_PARAMS", "message": "common.invalid_params"},
 		})
@@ -136,7 +149,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err != nil {
 		// Unknown user: burn the same hash cost as the verify path so the
 		// response time does not reveal whether the account exists.
-		_ = mail.VerifyPassword(req.Password, dummyPasswordHash)
+		if _, available := panelPasswordMatches(c, req.Password, dummyPasswordHash); !available {
+			return
+		}
 		loginAttempts.fail(limiterKey)
 		loginAttempts.fail(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -144,22 +159,59 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		})
 		return
 	}
-	if !mail.VerifyPassword(req.Password, user.PasswordHash) {
+	matches, available := panelPasswordMatches(c, req.Password, user.PasswordHash)
+	if !available {
+		return
+	}
+	if !matches {
+		if panelpassword.NeedsUpgrade(user.PasswordHash) {
+			if _, available := panelPasswordMatches(c, req.Password, dummyPasswordHash); !available {
+				return
+			}
+		}
 		loginAttempts.fail(limiterKey)
 		loginAttempts.fail(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
 		return
+	}
+	if panelpassword.NeedsUpgrade(user.PasswordHash) {
+		upgraded, hashErr := panelpassword.Rehash(c.Request.Context(), req.Password)
+		if hashErr != nil {
+			authError(c, 429, "AUTH_RATE_LIMITED")
+			return
+		}
+		n, upgradeErr := h.Store.PlatformRehashPanelPassword(c, store.PlatformRehashPanelPasswordParams{UserID: user.ID, ExpectedHash: user.PasswordHash, PasswordHash: upgraded})
+		if upgradeErr != nil {
+			authError(c, 503, "DB_ERROR")
+			return
+		}
+		if n != 1 {
+			fresh, readErr := h.Store.GetUserByEmail(c, req.Email)
+			if readErr != nil || fresh.CredentialVersion != user.CredentialVersion {
+				authError(c, 401, "INVALID_CREDENTIALS")
+				return
+			}
+			matches, available := panelPasswordMatches(c, req.Password, fresh.PasswordHash)
+			if !available {
+				return
+			}
+			if !matches {
+				authError(c, 401, "INVALID_CREDENTIALS")
+				return
+			}
+			user = fresh
+		} else {
+			user.PasswordHash = upgraded
+		}
 	}
 	if user.MfaEnabled {
 		// The limiter is only reset once BOTH factors pass (MFAVerify);
 		// second-leg failures keep counting on the same key.
-		mfaToken, err := pendingMFATokens.issue(user.ID, limiterKey)
+		mfaToken, err := pendingMFATokens.issue(user.ID, limiterKey, user.CredentialVersion)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{"code": "INTERNAL_ERROR"},
-			})
+			authError(c, 429, "AUTH_RATE_LIMITED")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"mfa_required": true, "mfa_token": mfaToken})
@@ -168,13 +220,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	loginAttempts.reset(limiterKey)
 	loginAttempts.reset(ipKey)
-	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, false)
+	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, false, user.PasswordHash, user.CredentialVersion)
 }
 
 // establishSession creates the session row and writes the full login
 // response. It is shared by the single-factor login path and the second
 // MFA leg.
-func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email string, displayName pgtype.Text, locale string, mfaVerified bool) {
+func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email string, displayName pgtype.Text, locale string, mfaVerified bool, expectedHash string, expectedVersion int64) {
 	c.Header("Cache-Control", "no-store")
 	token, err := randomHexToken()
 	if err != nil {
@@ -201,8 +253,9 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 	}
 
 	session, err := h.Store.CreateSession(c, store.CreateSessionParams{
-		ID:        middleware.HashSessionToken(token),
-		UserID:    userID,
+		ID:           middleware.HashSessionToken(token),
+		UserID:       userID,
+		ExpectedHash: expectedHash, ExpectedVersion: expectedVersion,
 		TenantID:  defaultTenantID,
 		CsrfToken: csrfToken,
 		UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true},
@@ -217,7 +270,10 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 
 	if mfaVerified {
 		if err := h.Store.MarkSessionMFAVerified(c, session.ID); err != nil {
-			_ = h.Store.DeleteSession(c, session.ID)
+			if err := h.Store.DeleteSession(c, session.ID); err != nil {
+				authError(c, 503, "DB_ERROR")
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "SESSION_CREATE_FAILED"}})
 			return
 		}
@@ -248,7 +304,10 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	val, exists := c.Get(middleware.ContextSession)
 	if exists {
 		if session, ok := val.(store.Sessions); ok {
-			_ = h.Store.DeleteSession(c, session.ID)
+			if err := h.Store.DeleteSession(c, session.ID); err != nil {
+				authError(c, 503, "DB_ERROR")
+				return
+			}
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -348,4 +407,23 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "tenant_id": req.TenantID})
+}
+
+// keepSessionID identifies only the already authenticated current session.
+func keepSessionID(c *gin.Context) string {
+	if value, exists := c.Get(middleware.ContextSession); exists {
+		if session, ok := value.(store.Sessions); ok {
+			return session.ID
+		}
+	}
+	return ""
+}
+
+func panelPasswordMatches(c *gin.Context, password, hash string) (bool, bool) {
+	matches, err := panelpassword.VerifyContext(c.Request.Context(), password, hash)
+	if err != nil {
+		authError(c, 429, "AUTH_RATE_LIMITED")
+		return false, false
+	}
+	return matches, true
 }

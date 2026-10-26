@@ -818,7 +818,7 @@
   "page.credentials.csrf": "CSRF 令牌",
   "page.credentials.days": "有效天数",
   "page.credentials.empty": "没有应用凭据",
-  "page.credentials.independent": "应用凭据必须单独吊销；修改登录密码不会自动吊销。请只授予旧脚本必需的权限。",
+  "page.credentials.independent": "修改密码或 MFA 会使应用凭据失效；单独撤销某个面板会话不会撤销其他应用凭据。仅授予脚本必需的权限。",
   "page.credentials.legacy_hint": "此会话仅用于旧 API，到期时间：{{expires}}。",
   "page.credentials.legacy_session": "生成15分钟旧 API 会话",
   "page.credentials.name": "凭据名称",
@@ -981,7 +981,7 @@
   "page.mailboxes.field_password": "初始密码",
   "page.mailboxes.list_title": "邮箱用户列表",
   "page.mailboxes.new_password_placeholder": "输入新密码",
-  "page.mailboxes.password_hint": "至少 6 位",
+  "page.mailboxes.password_hint": "至少 12 个字符，不超过 256 个 UTF-8 字节",
   "page.mailboxes.quota": "配额",
   "page.mailboxes.quota_placeholder": "配额 MB（0 继承，-1 不限）",
   "page.mailboxes.quota_title": "调整配额：{{id}}",
@@ -1060,7 +1060,7 @@
   "page.settings.password.revoke": "吊销",
   "page.settings.password.sessions": "登录会话",
   "page.settings.password.submit": "修改密码",
-  "page.settings.password.subtitle": "修改密码会吊销其他会话",
+  "page.settings.password.subtitle": "修改密码会使其他会话、待验证的 MFA 登录和应用凭据失效。",
   "page.settings.password.title": "密码与会话",
   "page.settings.platform": "平台设置",
   "page.settings.primary": "覆盖主色",
@@ -1395,5 +1395,6 @@
   "support.submit": "提交工单",
   "support.tickets": "我的工单",
   "support.withdraw": "撤回公告",
-  "tenant.not_found": "未找到当前租户"
+  "tenant.not_found": "未找到当前租户",
+  "error.PASSWORD_POLICY_INVALID": "密码至少 12 个字符，且不超过 256 个 UTF-8 字节；会保留输入的全部字符。"
 }

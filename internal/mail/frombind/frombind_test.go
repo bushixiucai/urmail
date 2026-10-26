@@ -105,3 +105,21 @@ func TestExtractFromDomainEdgeCases(t *testing.T) {
 		t.Error("domain extraction must lowercase")
 	}
 }
+
+func TestFromParsingRejectsListsAndTrailingStructure(t *testing.T) {
+	allowed := map[string]bool{"a.test": true}
+	for _, value := range []string{
+		"a@a.test, b@outside.test", "A <a@a.test>, B <b@outside.test>",
+		"A <a@a.test> trailing", "Group: a@a.test;", "a@a.test\r\nBcc: x@outside.test",
+		"用户@a.test", "a@[127.0.0.1]", "a@a.test.", "A <a@a.test> <b@outside.test>",
+	} {
+		if decision, _ := Decide(true, allowed, []string{value}); decision != RejectDomain {
+			t.Errorf("accepted invalid From structure %q", value)
+		}
+	}
+	for _, value := range []string{"Other <other@A.TEST>", "\"Display @ outside.test\" <a@a.test>", "a@a.test (comment)", "\"Display: name\" <a@a.test>"} {
+		if decision, _ := Decide(true, allowed, []string{value}); decision != Allow {
+			t.Errorf("rejected valid authorized From %q", value)
+		}
+	}
+}

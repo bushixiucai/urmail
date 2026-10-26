@@ -486,7 +486,7 @@ func TestMailboxCreateAndUpdateResponsesHideSecrets(t *testing.T) {
 	})
 
 	code, raw, body := shapeRequest(t, r, http.MethodPost, "/api/v1/mailboxes",
-		`{"domain_id":3,"local_part":"bob","password":"secret123","display_name":"Bob","quota_bytes":2048}`)
+		`{"domain_id":3,"local_part":"bob","password":"secret123-password","display_name":"Bob","quota_bytes":2048}`)
 	if code != http.StatusCreated {
 		t.Fatalf("create status = %d body %s", code, raw)
 	}
@@ -497,11 +497,11 @@ func TestMailboxCreateAndUpdateResponsesHideSecrets(t *testing.T) {
 	if mailbox["address"] != "bob@example.com" || mailbox["display_name"] != "Bob" {
 		t.Fatalf("unexpected mailbox payload: %v", mailbox)
 	}
-	if fake.createParams.PasswordHash == "" || fake.createParams.PasswordHash == "secret123" {
+	if fake.createParams.PasswordHash == "" || fake.createParams.PasswordHash == "secret123-password" {
 		t.Fatalf("password must be hashed before it reaches the store: %q", fake.createParams.PasswordHash)
 	}
 
-	code, raw, _ = shapeRequest(t, r, http.MethodPost, "/api/v1/mailboxes/12/password", `{"password":"newsecret"}`)
+	code, raw, _ = shapeRequest(t, r, http.MethodPost, "/api/v1/mailboxes/12/password", `{"password":"newsecret-password"}`)
 	if code != http.StatusOK {
 		t.Fatalf("password update status = %d body %s", code, raw)
 	}
@@ -629,7 +629,7 @@ func TestHandlerErrorPathsRemainIntact(t *testing.T) {
 		g.DELETE("/mailboxes/:id", mh.Delete)
 	})
 	code, _, body = shapeRequest(t, mr, http.MethodPost, "/api/v1/mailboxes",
-		`{"domain_id":999,"local_part":"x","password":"secret123"}`)
+		`{"domain_id":999,"local_part":"x","password":"secret123-password"}`)
 	if code != http.StatusNotFound {
 		t.Fatalf("mailbox create missing domain status = %d, want 404", code)
 	}

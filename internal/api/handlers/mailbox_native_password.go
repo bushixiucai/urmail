@@ -13,6 +13,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
 type mailboxNativePasswordRequest struct {
@@ -114,6 +115,9 @@ func (h *MailboxNativeHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	if bounded, ok := h.Vault.(webmail.SessionVault); ok {
+		bounded.DeleteMailbox(changed.TenantID, changed.MailboxID)
+	}
 	tokenHash, _ := c.Get(middleware.ContextMailboxTokenHash)
 	if hash, _ := tokenHash.(string); hash != "" && h.Vault != nil {
 		h.Vault.Delete(hash)

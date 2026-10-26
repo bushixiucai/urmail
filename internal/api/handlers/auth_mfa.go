@@ -3,10 +3,12 @@ package handlers
 // MFA (TOTP) second factor, design section 18 M4.
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -38,10 +42,11 @@ const (
 // pendingMFALogin is a first-factor-authenticated login awaiting its second
 // factor.
 type pendingMFALogin struct {
-	UserID     int64
-	LimiterKey string
-	ExpiresAt  time.Time
-	Attempts   int
+	CredentialVersion int64
+	UserID            int64
+	LimiterKey        string
+	ExpiresAt         time.Time
+	Attempts          int
 }
 
 // mfaTokenStore holds pending MFA logins in memory, keyed by a one-time
@@ -49,28 +54,51 @@ type pendingMFALogin struct {
 // works while urmaild runs as a single instance; a multi-instance deployment
 // must move it to PostgreSQL or Redis.
 type mfaTokenStore struct {
-	mu      sync.Mutex
-	entries map[string]pendingMFALogin
+	mu         sync.Mutex
+	entries    map[string]pendingMFALogin
+	now        func() time.Time
+	maxEntries int
+	maxPerUser int
 }
 
 var pendingMFATokens = newMFATokenStore()
 
+var mfaCapacityRejections = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "urmail_auth_mfa_capacity_rejections_total",
+	Help: "Pending MFA challenges rejected because a process or per-user capacity limit was reached.",
+})
+
 func newMFATokenStore() *mfaTokenStore {
-	return &mfaTokenStore{entries: make(map[string]pendingMFALogin)}
+	return &mfaTokenStore{entries: make(map[string]pendingMFALogin), now: time.Now, maxEntries: 10000, maxPerUser: 3}
 }
 
 // issue registers a pending second-factor login and returns its token.
-func (s *mfaTokenStore) issue(userID int64, limiterKey string) (string, error) {
+func (s *mfaTokenStore) issue(userID int64, limiterKey string, versions ...int64) (string, error) {
 	token, err := randomHexToken()
 	if err != nil {
 		return "", err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.entries[token] = pendingMFALogin{
+	s.pruneLocked()
+	count := 0
+	for _, entry := range s.entries {
+		if entry.UserID == userID {
+			count++
+		}
+	}
+	if len(s.entries) >= s.maxEntries || count >= s.maxPerUser {
+		mfaCapacityRejections.Inc()
+		return "", errors.New("MFA challenge capacity exhausted")
+	}
+	version := int64(0)
+	if len(versions) > 0 {
+		version = versions[0]
+	}
+	s.entries[token] = pendingMFALogin{CredentialVersion: version,
 		UserID:     userID,
 		LimiterKey: limiterKey,
-		ExpiresAt:  time.Now().Add(mfaTokenTTL),
+		ExpiresAt:  s.now().Add(mfaTokenTTL),
 	}
 	return token, nil
 }
@@ -82,7 +110,7 @@ func (s *mfaTokenStore) check(token string) (pendingMFALogin, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.entries[token]
-	if !ok || time.Now().After(p.ExpiresAt) {
+	if !ok || !s.now().Before(p.ExpiresAt) {
 		delete(s.entries, token)
 		return pendingMFALogin{}, false
 	}
@@ -100,7 +128,7 @@ func (s *mfaTokenStore) take(token string) (pendingMFALogin, bool) {
 	defer s.mu.Unlock()
 	p, ok := s.entries[token]
 	delete(s.entries, token)
-	if !ok || time.Now().After(p.ExpiresAt) {
+	if !ok || !s.now().Before(p.ExpiresAt) {
 		return pendingMFALogin{}, false
 	}
 	return p, true
@@ -151,6 +179,11 @@ type MFACodeRequest struct {
 // MFASetup generates a TOTP secret for the logged-in user, stores it without
 // enabling MFA, and returns the secret plus its otpauth:// URL.
 func (h *AuthHandler) MFASetup(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if h.Secrets == nil {
+		authError(c, 503, "INTERNAL_ERROR")
+		return
+	}
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -184,13 +217,11 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 			return
 		}
 	}
-	if err := h.Store.SetMFASecret(c, store.SetMFASecretParams{
-		ID:        userID,
-		MfaSecret: pgtype.Text{String: storedSecret, Valid: true},
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if _, err = h.Store.PlatformChangePanelMFA(c, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: pgtype.Text{String: storedSecret, Valid: true}, Enabled: false, Codes: []byte("[]"), KeepSession: keepSessionID(c)}); err != nil {
+		authError(c, 500, "DB_ERROR")
 		return
 	}
+	pendingMFATokens.revokeUser(userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"secret":      key.Secret(),
@@ -257,13 +288,11 @@ func (h *AuthHandler) MFAEnable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "INTERNAL_ERROR"}})
 		return
 	}
-	if err := h.Store.EnableUserMFA(c, store.EnableUserMFAParams{
-		ID:               userID,
-		MfaRecoveryCodes: hashesJSON,
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if _, err = h.Store.PlatformChangePanelMFA(c, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: user.MfaSecret, Enabled: true, Codes: hashesJSON, KeepSession: keepSessionID(c)}); err != nil {
+		authError(c, 500, "DB_ERROR")
 		return
 	}
+	pendingMFATokens.revokeUser(userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":         "ok",
@@ -333,10 +362,12 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		}
 	}
 
-	if err := h.Store.DisableUserMFA(c, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+	if _, err = h.Store.PlatformChangePanelMFA(c, store.PlatformChangePanelMFAParams{UserID: userID, ExpectedVersion: user.CredentialVersion, Secret: pgtype.Text{}, Enabled: false, Codes: []byte("[]"), KeepSession: keepSessionID(c)}); err != nil {
+		authError(c, 500, "DB_ERROR")
 		return
 	}
+	pendingMFATokens.revokeUser(userID)
+
 	mfaDisableAttempts.reset(attemptKey)
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "mfa_enabled": false})
 }
@@ -372,7 +403,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 	}
 
 	user, err := h.Store.GetUserByID(c, pending.UserID)
-	if err != nil || !user.MfaEnabled {
+	if err != nil || !user.MfaEnabled || user.CredentialVersion != pending.CredentialVersion {
 		pendingMFATokens.take(req.MFAToken)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
@@ -399,6 +430,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		}
 	}
 	if !authenticated {
+		pendingMFATokens.failed(req.MFAToken)
 		loginAttempts.fail(pending.LimiterKey)
 		loginAttempts.fail(ipKey)
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -413,7 +445,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 	}
 	loginAttempts.reset(pending.LimiterKey)
 	loginAttempts.reset(ipKey)
-	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, true)
+	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, true, user.PasswordHash, pending.CredentialVersion)
 }
 
 // MFAStatus reports whether TOTP is enabled and whether a setup secret is
@@ -433,4 +465,45 @@ func (h *AuthHandler) MFAStatus(c *gin.Context) {
 		"mfa_enabled": user.MfaEnabled,
 		"pending":     !user.MfaEnabled && user.MfaSecret.Valid && user.MfaSecret.String != "",
 	})
+}
+
+func (s *mfaTokenStore) pruneLocked() {
+	for token, entry := range s.entries {
+		if !s.now().Before(entry.ExpiresAt) {
+			delete(s.entries, token)
+		}
+	}
+}
+func (s *mfaTokenStore) revokeUser(userID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, entry := range s.entries {
+		if entry.UserID == userID {
+			delete(s.entries, token)
+		}
+	}
+}
+
+// RunMFAReaper bounds abandoned challenges independently of further requests.
+func RunMFAReaper(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pendingMFATokens.mu.Lock()
+			pendingMFATokens.pruneLocked()
+			pendingMFATokens.mu.Unlock()
+		}
+	}
+}
+
+func (s *mfaTokenStore) failed(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.entries[token]; ok && p.Attempts >= mfaMaxVerifyAttempts {
+		delete(s.entries, token)
+	}
 }

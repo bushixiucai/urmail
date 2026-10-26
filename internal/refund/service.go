@@ -45,33 +45,52 @@ func (s *Service) provider(ctx context.Context, receipt store.PlatformGetRefundP
 }
 func (s *Service) active() bool { return s.Enabled && !s.DevMode && !s.Quarantined && s.Pool != nil }
 
-// Step commits the processing claim before contacting a provider once.
+// Step tries a bounded due batch, skipping unavailable providers without letting
+// one merchant starve unrelated refunds. A physical payout is still claimed
+// durably once before contacting its original provider.
 func (s *Service) Step(ctx context.Context) (bool, error) {
 	if !s.active() {
 		return false, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	q := store.New(s.Pool)
-	next, err := q.PlatformNextApprovedRefund(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
+	candidates, err := q.PlatformListApprovedRefundCandidates(ctx)
 	if err != nil {
 		return false, err
 	}
+	var failures []error
+	for _, next := range candidates {
+		if err = ctx.Err(); err != nil {
+			return false, errors.Join(append(failures, err)...)
+		}
+		dispatched, dispatchErr := s.dispatchCandidate(ctx, q, next)
+		if dispatchErr != nil {
+			failures = append(failures, dispatchErr)
+		}
+		if dispatched {
+			return true, errors.Join(failures...)
+		}
+	}
+	return false, errors.Join(failures...)
+}
+
+func (s *Service) dispatchCandidate(ctx context.Context, q *store.Queries, next store.Refunds) (bool, error) {
 	receipt, err := q.PlatformGetRefundPayment(ctx, store.PlatformGetRefundPaymentParams{TenantID: next.TenantID, ID: next.PaymentID.Int64})
 	if err != nil {
-		return false, err
+		flagErr := q.PlatformFlagApprovedRefund(ctx, store.PlatformFlagApprovedRefundParams{TenantID: next.TenantID, ID: next.ID, LastErrorCode: pgtype.Text{String: "receipt_unavailable", Valid: true}})
+		return false, errors.Join(err, flagErr)
 	}
 	provider, err := s.provider(ctx, receipt)
 	if err != nil {
-		_ = q.PlatformFlagApprovedRefund(ctx, store.PlatformFlagApprovedRefundParams{TenantID: next.TenantID, ID: next.ID, LastErrorCode: pgtype.Text{String: "provider_unavailable", Valid: true}})
-		return false, err
+		flagErr := q.PlatformFlagApprovedRefund(ctx, store.PlatformFlagApprovedRefundParams{TenantID: next.TenantID, ID: next.ID, LastErrorCode: pgtype.Text{String: "provider_unavailable", Valid: true}})
+		return false, errors.Join(err, flagErr)
 	}
 	tx, err := s.Pool.PlatformTx(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	tq := store.New(tx)
 	if err = tq.PlatformLockBillingTenant(ctx, next.TenantID); err != nil {
 		return false, err
@@ -81,13 +100,20 @@ func (s *Service) Step(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		_ = tx.Rollback(context.Background())
+		flagErr := q.PlatformFlagApprovedRefund(ctx, store.PlatformFlagApprovedRefundParams{TenantID: next.TenantID, ID: next.ID, LastErrorCode: pgtype.Text{String: "claim_rejected", Valid: true}})
+		return false, errors.Join(err, flagErr)
 	}
 	if err = refundAudit(ctx, tq, claimed, "EXECUTE refund.dispatch", "processing"); err != nil {
-		return false, err
+		_ = tx.Rollback(context.Background())
+		flagErr := q.PlatformFlagApprovedRefund(ctx, store.PlatformFlagApprovedRefundParams{TenantID: next.TenantID, ID: next.ID, LastErrorCode: pgtype.Text{String: "audit_unavailable", Valid: true}})
+		return false, errors.Join(err, flagErr)
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return false, err
+		// An ambiguous committed claim stays processing; the approved-only
+		// predicate cannot make it executable again.
+		flagErr := q.PlatformFlagApprovedRefund(ctx, store.PlatformFlagApprovedRefundParams{TenantID: next.TenantID, ID: next.ID, LastErrorCode: pgtype.Text{String: "claim_commit_unconfirmed", Valid: true}})
+		return false, errors.Join(err, flagErr)
 	}
 	result, callErr := provider.Refund(ctx, payment.RefundParams{TenantID: claimed.TenantID, OrderID: claimed.OrderID, OrderNo: receipt.OrderNo, ProviderTxnID: receipt.ProviderTxnID.String, RefundNo: claimed.RefundNo, AmountCents: claimed.AmountCents, OriginalAmountCents: receipt.AmountCents, Currency: claimed.Currency, Reason: claimed.Reason})
 	return true, s.record(ctx, claimed, receipt, result, callErr)
@@ -99,37 +125,53 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	if !s.active() {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	q := store.New(s.Pool)
 	rows, err := q.PlatformListRefundsToReconcile(ctx)
 	if err != nil {
 		return err
 	}
+	var failures []error
 	for _, row := range rows {
+		if ctx.Err() != nil {
+			return errors.Join(append(failures, ctx.Err())...)
+		}
 		if !row.ApprovedBy.Valid {
 			continue
 		}
-		receipt, loadErr := q.PlatformGetRefundPayment(ctx, store.PlatformGetRefundPaymentParams{TenantID: row.TenantID, ID: row.PaymentID.Int64})
-		if loadErr != nil {
-			return loadErr
-		}
-		provider, loadErr := s.provider(ctx, receipt)
-		if loadErr != nil {
+		// Advance the read-only reconciliation cursor even on provider/config
+		// failures, so the same first fifty rows cannot starve later records.
+		if deferErr := q.PlatformDeferRefundReconciliation(ctx, store.PlatformDeferRefundReconciliationParams{TenantID: row.TenantID, ID: row.ID}); deferErr != nil {
+			failures = append(failures, deferErr)
 			continue
 		}
-		query, ok := provider.(payment.RefundQueryProvider)
-		if !ok {
-			continue
-		}
-		session := ""
-		if intent, e := q.PlatformGetCheckoutIntent(ctx, store.PlatformGetCheckoutIntentParams{TenantID: row.TenantID, OrderID: row.OrderID}); e == nil {
-			session = intent.SessionID.String
-		}
-		result, queryErr := query.QueryRefund(ctx, payment.RefundQueryParams{RefundNo: row.RefundNo, OrderNo: receipt.OrderNo, ProviderRefundID: row.ProviderRefundNo.String, ProviderTxnID: receipt.ProviderTxnID.String, SessionID: session, ExpectedAmountCents: row.AmountCents, ExpectedCurrency: row.Currency})
-		if err = s.record(ctx, row, receipt, result, queryErr); err != nil {
-			return err
+		if reconcileErr := s.reconcileCandidate(ctx, q, row); reconcileErr != nil {
+			failures = append(failures, reconcileErr)
 		}
 	}
-	return nil
+	return errors.Join(failures...)
+}
+
+func (s *Service) reconcileCandidate(ctx context.Context, q *store.Queries, row store.Refunds) error {
+	receipt, err := q.PlatformGetRefundPayment(ctx, store.PlatformGetRefundPaymentParams{TenantID: row.TenantID, ID: row.PaymentID.Int64})
+	if err != nil {
+		return err
+	}
+	provider, err := s.provider(ctx, receipt)
+	if err != nil {
+		return err
+	}
+	query, ok := provider.(payment.RefundQueryProvider)
+	if !ok {
+		return payment.ErrUnsupportedOperation
+	}
+	session := ""
+	if intent, e := q.PlatformGetCheckoutIntent(ctx, store.PlatformGetCheckoutIntentParams{TenantID: row.TenantID, OrderID: row.OrderID}); e == nil {
+		session = intent.SessionID.String
+	}
+	result, queryErr := query.QueryRefund(ctx, payment.RefundQueryParams{RefundNo: row.RefundNo, OrderNo: receipt.OrderNo, ProviderRefundID: row.ProviderRefundNo.String, ProviderTxnID: receipt.ProviderTxnID.String, SessionID: session, ExpectedAmountCents: row.AmountCents, ExpectedCurrency: row.Currency})
+	return s.record(ctx, row, receipt, result, queryErr)
 }
 
 func (s *Service) record(ctx context.Context, row store.Refunds, receipt store.PlatformGetRefundPaymentRow, result payment.RefundResult, upstreamErr error) error {
@@ -216,17 +258,29 @@ func (s *Service) ApplyEntitlements(ctx context.Context) error {
 	if !s.active() {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	rows, err := store.New(s.Pool).PlatformListRefundEntitlementsDue(ctx)
 	if err != nil {
 		return err
 	}
+	q := store.New(s.Pool)
+	var failures []error
 	for _, row := range rows {
+		if ctx.Err() != nil {
+			return errors.Join(append(failures, ctx.Err())...)
+		}
+		if deferErr := q.PlatformDeferRefundEntitlement(ctx, store.PlatformDeferRefundEntitlementParams{TenantID: row.TenantID, ID: row.ID}); deferErr != nil {
+			failures = append(failures, deferErr)
+			continue
+		}
 		if err = s.applyOne(ctx, row); err != nil {
-			return err
+			failures = append(failures, err)
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
+
 func (s *Service) applyOne(ctx context.Context, candidate store.Refunds) error {
 	tx, err := s.Pool.PlatformTx(ctx)
 	if err != nil {

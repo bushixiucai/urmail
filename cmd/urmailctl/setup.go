@@ -18,7 +18,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
-	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -142,7 +142,7 @@ func runSetup(ctx context.Context, args []string) error {
 	err = tx.QueryRow(ctx, "SELECT id FROM users WHERE email = $1", normalizedEmail).Scan(&userID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		hash, hashErr := domainMail.HashPassword(*password)
+		hash, hashErr := panelpassword.Hash(*password)
 		if hashErr != nil {
 			return fmt.Errorf("hash administrator password: %w", hashErr)
 		}
@@ -155,7 +155,7 @@ func runSetup(ctx context.Context, args []string) error {
 	case err != nil:
 		return fmt.Errorf("look up administrator: %w", err)
 	case *resetPassword:
-		hash, hashErr := domainMail.HashPassword(*password)
+		hash, hashErr := panelpassword.Hash(*password)
 		if hashErr != nil {
 			return fmt.Errorf("hash administrator password: %w", hashErr)
 		}

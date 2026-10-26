@@ -5,11 +5,57 @@ info:
   description: Endpoints added or changed in the M1-M7 remediation rounds. This is not a complete v1 specification
     or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
     Bearer and X-CSRF-Token; present Origin/Referer must match the host.
+    Security remediation requires that newly chosen account passwords require at least 12 Unicode code points
+    and at most 256 UTF-8 bytes. Historical password verification accepts at most 4096 UTF-8 bytes.
+    Passwords are never trimmed or normalized. Public password work and credential caches are bounded.
+    Password or MFA changes invalidate prior credential generations. Native mailbox sessions remain independent.
+    Archive downloads begin only after authorization, integrity verification and successful audit commit;
+    a stream interrupted after headers cannot be converted into a successful complete download.
 servers:
 - url: /api/v1
 security:
 - Bearer: []
 paths:
+  /auth/login:
+    post:
+      summary: Authenticate the panel account with bounded password computation
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email}
+                password: {type: string, format: password, writeOnly: true, minLength: 1, maxLength: 4096, description: Maximum 4096 UTF-8 bytes; validation precedes password computation.}
+      responses:
+        '200': {description: Panel session or a single-use five-minute MFA challenge bound to the current credential version.}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /auth/password:
+    post:
+      summary: Atomically rotate the panel password and revoke other sessions
+      description: Requires current-password proof and CSRF. Credential generation, current session preservation and revocation commit atomically. Concurrent old-password logins and old MFA challenges cannot establish a new session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: {type: string, format: password, writeOnly: true, maxLength: 4096}
+                new_password: {type: string, format: password, writeOnly: true, minLength: 12, maxLength: 256, description: Maximum 256 UTF-8 bytes; never normalized.}
+      responses:
+        '200': {description: Password and session revocations committed.}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /marketing/unsubscribe:
     get:
       summary: Show inert localized unsubscribe confirmation
@@ -226,8 +272,7 @@ paths:
       description: Requires the current platform role and MFA enabled. token uses the public urmail_app_ marker
         and is shown only in this response; only SHA-256 is stored. Use HTTP Basic email:token on supported legacy
         endpoints. legacy:write does not imply legacy:read. Active owner, current platform role, expiry and revocation
-        are checked on every use. Password and panel-session revocation do not automatically revoke application
-        credentials.
+        are checked on every use. Password or MFA credential-generation changes invalidate application credentials; revoking a single panel session does not revoke unrelated application credentials.
   /auth/application-credentials/{id}:
     parameters:
     - &id003
@@ -1331,6 +1376,9 @@ paths:
                 password:
                   type: string
                   writeOnly: true
+                  minLength: 12
+                  maxLength: 256
+                  description: At least 12 Unicode code points and at most 256 UTF-8 bytes; never trimmed or normalized.
                 brand:
                   type: string
               required:
@@ -3504,9 +3552,9 @@ paths:
                 new_password:
                   type: string
                   writeOnly: true
-                  minLength: 8
-                  maxLength: 1024
-                  description: Eight to 1024 Unicode code points, at most 4096 UTF-8 bytes, no control characters, different from current password. Never trimmed or normalized.
+                  minLength: 12
+                  maxLength: 256
+                  description: At least 12 Unicode code points, at most 256 UTF-8 bytes, no control characters, different from current password. Never trimmed or normalized.
       responses:
         '200':
           description: Password committed; reauthentication required and IMAP disconnection pending.
@@ -3555,7 +3603,7 @@ paths:
               required: [email, password]
               properties:
                 email: {type: string, format: email}
-                password: {type: string, format: password}
+                password: {type: string, format: password, maxLength: 4096, description: At most 4096 UTF-8 bytes; historical credentials are not trimmed or normalized.}
       responses:
         '200':
           description: Process-bound native session. Keep tokens in private client storage.

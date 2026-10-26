@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 env:
   GO_VERSION: "1.27.3"
@@ -14,7 +15,21 @@ env:
   npm_config_registry: https://registry.npmmirror.com
 
 jobs:
+  verify-ci:
+    name: Verify exact release commit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Require exact-SHA CI and main ancestry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: python3 scripts/verify-release-ci.py
   package:
+    needs: verify-ci
+    permissions:
+      contents: write
+      actions: read
     strategy:
       fail-fast: false
       matrix:

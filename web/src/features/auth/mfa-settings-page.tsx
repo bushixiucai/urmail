@@ -1,3 +1,4 @@
+import { validNewPassword } from "@/lib/password-policy";
 import { ApplicationCredentials } from "./application-credentials";
 import { useAuth } from "@/app/auth-context";
 import { SettingsEditor } from "./settings-editor";
@@ -80,6 +81,10 @@ export function MfaSettingsPage() {
   const handlePassword = async (e: FormEvent) => {
     e.preventDefault();
     setPasswordNotice(null);
+    if (!validNewPassword(newPassword)) {
+      setPasswordNotice(t("error.PASSWORD_POLICY_INVALID"));
+      return;
+    }
     try {
       await request("/api/v1/auth/password", {
         method: "POST",
@@ -311,6 +316,7 @@ export function MfaSettingsPage() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               minLength={12}
+              maxLength={256}
               required
             />
             <Button type="submit">{t("page.settings.password.submit")}</Button>

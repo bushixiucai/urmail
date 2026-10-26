@@ -33,6 +33,7 @@ type responseBuffer struct {
 	written        bool
 	overflow       bool
 	replaceOnWrite bool
+	stream         *deferredStream
 }
 
 func newResponseBuffer(w gin.ResponseWriter) *responseBuffer {
@@ -41,6 +42,12 @@ func newResponseBuffer(w gin.ResponseWriter) *responseBuffer {
 func (w *responseBuffer) Header() http.Header { return w.header }
 func (w *responseBuffer) WriteHeader(status int) {
 	w.prepareCallbackWrite()
+	if status >= 400 && w.stream != nil {
+		w.closeStream()
+		w.stream = nil
+		w.header.Del("Content-Length")
+		w.header.Del("Content-Type")
+	}
 	if !w.written {
 		w.status = status
 	}
@@ -48,6 +55,10 @@ func (w *responseBuffer) WriteHeader(status int) {
 func (w *responseBuffer) WriteHeaderNow() { w.written = true }
 func (w *responseBuffer) Write(p []byte) (int, error) {
 	w.prepareCallbackWrite()
+	if w.stream != nil {
+		w.overflow = true
+		return 0, errors.New("transaction already has a deferred stream")
+	}
 	w.written = true
 	if w.body.Len()+len(p) > 8<<20 {
 		w.overflow = true
@@ -69,22 +80,19 @@ func (w *responseBuffer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, errors.New("hijacking a transaction response is not supported")
 }
 func (w *responseBuffer) Pusher() http.Pusher { return nil }
-func (w *responseBuffer) publish() {
-	for k := range w.ResponseWriter.Header() {
-		w.ResponseWriter.Header().Del(k)
-	}
-	for k, v := range w.header {
-		w.ResponseWriter.Header()[k] = v
-	}
-	w.ResponseWriter.WriteHeader(w.status)
-	_, _ = w.ResponseWriter.Write(w.body.Bytes())
-}
+func (w *responseBuffer) publish()            { _ = w.publishResponse() }
 
 // A callback can replace a prepared response after commit without appending a
 // second JSON document or hiding its final error status behind an earlier 200.
 func (w *responseBuffer) beginAfterCommitCallback() { w.replaceOnWrite = true }
 func (w *responseBuffer) prepareCallbackWrite() {
 	if w.replaceOnWrite {
+		if w.stream != nil {
+			w.closeStream()
+			w.stream = nil
+			w.header.Del("Content-Length")
+			w.header.Del("Content-Type")
+		}
 		w.body.Reset()
 		w.written = false
 		w.overflow = false

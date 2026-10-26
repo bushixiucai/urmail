@@ -1,3 +1,4 @@
+import { validNewPassword } from "@/lib/password-policy";
 import { usePublicStatus } from "./public-status";
 import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -29,6 +30,10 @@ export function RegisterPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || !publicStatus.registration) return;
+    if (!verification && !validNewPassword(password)) {
+      setError(t("error.PASSWORD_POLICY_INVALID"));
+      return;
+    }
     setBusy(true);
     setError("");
     try {

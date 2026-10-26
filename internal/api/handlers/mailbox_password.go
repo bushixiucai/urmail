@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -23,7 +23,7 @@ type mailboxPasswordIdentity struct{ TenantID, MailboxID int64 }
 
 // validMailboxPassword does not trim or normalize a user's secret.
 func validMailboxPassword(oldPassword, newPassword string) bool {
-	if len(oldPassword) == 0 || len(oldPassword) > 4096 || len(newPassword) > 4096 || utf8.RuneCountInString(newPassword) < 8 || utf8.RuneCountInString(newPassword) > 1024 || oldPassword == newPassword || !utf8.ValidString(newPassword) {
+	if !passwordwork.ValidVerification(oldPassword) || passwordwork.ValidateNew(newPassword) != nil || oldPassword == newPassword {
 		return false
 	}
 	return !strings.ContainsFunc(newPassword, unicode.IsControl)
@@ -48,10 +48,14 @@ func changeMailboxPassword(ctx context.Context, q *store.Queries, input mailboxB
 	if failures >= 10 {
 		return identity, errMailboxPasswordRate
 	}
-	if !domainMail.VerifyPassword(input.OldPassword, current.PasswordHash) {
+	matches, verifyErr := domainMail.VerifyPasswordContext(ctx, input.OldPassword, current.PasswordHash)
+	if verifyErr != nil {
+		return identity, verifyErr
+	}
+	if !matches {
 		return identity, errMailboxPasswordCurrent
 	}
-	hash, err := domainMail.HashPassword(input.NewPassword)
+	hash, err := domainMail.HashPasswordContext(ctx, input.NewPassword)
 	if err != nil {
 		return identity, err
 	}

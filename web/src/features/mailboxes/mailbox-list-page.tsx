@@ -1,3 +1,4 @@
+import { validNewPassword } from "@/lib/password-policy";
 import { useEffect, useState, useCallback, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Mail, Plus, Trash2, KeyRound, HardDrive, Power } from "lucide-react";
@@ -110,7 +111,14 @@ export function MailboxListPage() {
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
-    if (!selectedDomainId || !localPart.trim() || !password.trim()) return;
+    if (!selectedDomainId || !localPart.trim() || !password) return;
+    if (!validNewPassword(password)) {
+      setNotice({
+        variant: "error",
+        message: t("error.PASSWORD_POLICY_INVALID"),
+      });
+      return;
+    }
     setIsAdding(true);
 
     try {
@@ -119,7 +127,7 @@ export function MailboxListPage() {
         body: {
           domain_id: selectedDomainId,
           local_part: localPart.trim(),
-          password: password.trim(),
+          password: password,
           display_name: displayName.trim(),
         },
       });
@@ -140,12 +148,19 @@ export function MailboxListPage() {
 
   const handleResetPassword = async (e: FormEvent) => {
     e.preventDefault();
-    if (!resetId || !newPassword.trim()) return;
+    if (!resetId || !newPassword) return;
+    if (!validNewPassword(newPassword)) {
+      setNotice({
+        variant: "error",
+        message: t("error.PASSWORD_POLICY_INVALID"),
+      });
+      return;
+    }
 
     try {
       await request(`/api/v1/mailboxes/${resetId}/password`, {
         method: "POST",
-        body: { password: newPassword.trim() },
+        body: { password: newPassword },
       });
       setResetId(null);
       setNewPassword("");
@@ -239,6 +254,8 @@ export function MailboxListPage() {
               </label>
               <Input
                 type="password"
+                minLength={12}
+                maxLength={256}
                 placeholder={t("page.mailboxes.password_hint")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -273,6 +290,8 @@ export function MailboxListPage() {
             >
               <Input
                 type="password"
+                minLength={12}
+                maxLength={256}
                 placeholder={t("page.mailboxes.new_password_placeholder")}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}

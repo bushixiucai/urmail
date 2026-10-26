@@ -52,31 +52,36 @@ func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCo
 
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (
-    id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind
+    id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, credential_version
+) SELECT $1,u.id,$2,$3,$4,$5,$6,u.credential_version
+FROM users u WHERE u.id=$7 AND u.status='active' AND u.password_hash=$8 AND u.credential_version=$9
+FOR UPDATE OF u
+RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind, credential_version
 `
 
 type CreateSessionParams struct {
-	ID        string             `json:"id"`
-	UserID    int64              `json:"user_id"`
-	TenantID  pgtype.Int8        `json:"tenant_id"`
-	CsrfToken string             `json:"csrf_token"`
-	UserAgent pgtype.Text        `json:"user_agent"`
-	Ip        *netip.Addr        `json:"ip"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	ID              string             `json:"id"`
+	TenantID        pgtype.Int8        `json:"tenant_id"`
+	CsrfToken       string             `json:"csrf_token"`
+	UserAgent       pgtype.Text        `json:"user_agent"`
+	Ip              *netip.Addr        `json:"ip"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	UserID          int64              `json:"user_id"`
+	ExpectedHash    string             `json:"expected_hash"`
+	ExpectedVersion int64              `json:"expected_version"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessions, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.ID,
-		arg.UserID,
 		arg.TenantID,
 		arg.CsrfToken,
 		arg.UserAgent,
 		arg.Ip,
 		arg.ExpiresAt,
+		arg.UserID,
+		arg.ExpectedHash,
+		arg.ExpectedVersion,
 	)
 	var i Sessions
 	err := row.Scan(
@@ -90,6 +95,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CreatedAt,
 		&i.MfaVerifiedAt,
 		&i.Kind,
+		&i.CredentialVersion,
 	)
 	return i, err
 }
@@ -173,12 +179,12 @@ func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) er
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind
+SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind, s.credential_version
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 LEFT JOIN tenants t ON t.id = s.tenant_id
 WHERE s.id = $1 AND s.kind = 'panel'
-  AND s.expires_at > now()
+  AND s.expires_at > now() AND s.credential_version=u.credential_version
   AND (s.tenant_id IS NULL OR t.status IN ('active', 'pending'))
 `
 
@@ -200,29 +206,31 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Sessions, erro
 		&i.CreatedAt,
 		&i.MfaVerifiedAt,
 		&i.Kind,
+		&i.CredentialVersion,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, password_hash, display_name, locale, timezone, status,
-       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at
+       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at, credential_version
 FROM users
 WHERE email = $1 AND status = 'active'
 `
 
 type GetUserByEmailRow struct {
-	ID               int64              `json:"id"`
-	Email            string             `json:"email"`
-	PasswordHash     string             `json:"password_hash"`
-	DisplayName      pgtype.Text        `json:"display_name"`
-	Locale           string             `json:"locale"`
-	Timezone         string             `json:"timezone"`
-	Status           string             `json:"status"`
-	MfaSecret        pgtype.Text        `json:"mfa_secret"`
-	MfaRecoveryCodes []byte             `json:"mfa_recovery_codes"`
-	MfaEnabled       bool               `json:"mfa_enabled"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ID                int64              `json:"id"`
+	Email             string             `json:"email"`
+	PasswordHash      string             `json:"password_hash"`
+	DisplayName       pgtype.Text        `json:"display_name"`
+	Locale            string             `json:"locale"`
+	Timezone          string             `json:"timezone"`
+	Status            string             `json:"status"`
+	MfaSecret         pgtype.Text        `json:"mfa_secret"`
+	MfaRecoveryCodes  []byte             `json:"mfa_recovery_codes"`
+	MfaEnabled        bool               `json:"mfa_enabled"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CredentialVersion int64              `json:"credential_version"`
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
@@ -240,29 +248,31 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 		&i.MfaRecoveryCodes,
 		&i.MfaEnabled,
 		&i.CreatedAt,
+		&i.CredentialVersion,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, email, password_hash, display_name, locale, timezone, status,
-       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at
+       mfa_secret, mfa_recovery_codes, mfa_enabled, created_at, credential_version
 FROM users
 WHERE id = $1 AND status = 'active'
 `
 
 type GetUserByIDRow struct {
-	ID               int64              `json:"id"`
-	Email            string             `json:"email"`
-	PasswordHash     string             `json:"password_hash"`
-	DisplayName      pgtype.Text        `json:"display_name"`
-	Locale           string             `json:"locale"`
-	Timezone         string             `json:"timezone"`
-	Status           string             `json:"status"`
-	MfaSecret        pgtype.Text        `json:"mfa_secret"`
-	MfaRecoveryCodes []byte             `json:"mfa_recovery_codes"`
-	MfaEnabled       bool               `json:"mfa_enabled"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ID                int64              `json:"id"`
+	Email             string             `json:"email"`
+	PasswordHash      string             `json:"password_hash"`
+	DisplayName       pgtype.Text        `json:"display_name"`
+	Locale            string             `json:"locale"`
+	Timezone          string             `json:"timezone"`
+	Status            string             `json:"status"`
+	MfaSecret         pgtype.Text        `json:"mfa_secret"`
+	MfaRecoveryCodes  []byte             `json:"mfa_recovery_codes"`
+	MfaEnabled        bool               `json:"mfa_enabled"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CredentialVersion int64              `json:"credential_version"`
 }
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error) {
@@ -280,6 +290,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 		&i.MfaRecoveryCodes,
 		&i.MfaEnabled,
 		&i.CreatedAt,
+		&i.CredentialVersion,
 	)
 	return i, err
 }

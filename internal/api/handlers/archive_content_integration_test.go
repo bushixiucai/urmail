@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
@@ -14,7 +16,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	archiveStore "github.com/bushixiucai/urmail/internal/archive"
@@ -217,4 +221,146 @@ func TestArchiveContentAuthorizationAuditExportAndRetentionPreview(t *testing.T)
 		t.Fatalf("downgraded role retained content: %d", response.Code)
 	}
 
+}
+
+func TestLargeArchiveExportAndAttachmentWaitForAuditCommit(t *testing.T) {
+	platform, app := authIntegrationDatabase(t)
+	ctx := t.Context()
+	scalar := func(sql string, args ...any) int64 {
+		t.Helper()
+		var id int64
+		if err := platform.QueryRow(ctx, sql, args...).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	brand := scalar("INSERT INTO brands(slug,name) VALUES('archive-large','Archive Large') RETURNING id")
+	user := scalar("INSERT INTO users(email,password_hash) VALUES('archive-large@example.test','hash') RETURNING id")
+	tenant := scalar("INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Large','archive-large','active') RETURNING id", brand)
+	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", user, tenant); err != nil {
+		t.Fatal(err)
+	}
+	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verified_at,verification_token) VALUES($1,'archive-large.test','active',now(),'token') RETURNING id", tenant)
+	mailbox := scalar("INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status) VALUES($1,$2,'alice','alice@archive-large.test','hash',1024,'active') RETURNING id", tenant, domain)
+	root := t.TempDir()
+	worker := &archiveStore.Worker{Pool: platform, Spool: filepath.Join(root, "spool"), Archive: filepath.Join(root, "archive")}
+	payload := strings.Repeat("x", 9<<20)
+	raw := "Message-ID: <large@archive.test>\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=large.bin\r\n\r\n" + payload
+	if _, err := archiveStore.Spool(worker.Spool, domainMail.ArchiveRecipient{TenantID: tenant, MailboxID: mailbox, Address: "alice@archive-large.test"}, strings.NewReader(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Once(ctx); err != nil {
+		t.Fatal(err)
+	}
+	entry := scalar("SELECT id FROM archive_entries WHERE tenant_id=$1", tenant)
+	for _, scope := range []string{"full_content", "export"} {
+		tx, err := app.UserTx(ctx, tenant, user)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "large original review", GrantedBy: pgtype.Int8{Int64: user, Valid: true}})
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := &ArchiveContentHandler{Store: store.New(app.Pool), Root: worker.Archive}
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(middleware.ContextTenantID, tenant); c.Set(middleware.ContextUserID, user) })
+	logs, observed := observer.New(zap.WarnLevel)
+	logger := zap.New(logs)
+	router.Use(middleware.Audit(store.New(platform), logger))
+	router.Use(middleware.RequireTenantTx(app, logger))
+	router.GET("/api/v1/archive/:id/export", handler.Export)
+	router.GET("/api/v1/archive/:id/attachments/:attachment", handler.Attachment)
+	request := func(suffix string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(ctx, "GET", "/api/v1/archive/"+strconv.FormatInt(entry, 10)+suffix, nil))
+		return response
+	}
+	if response := request("/export"); response.Code != 200 || response.Body.String() != raw {
+		t.Fatalf("large original not exported: %d/%d", response.Code, response.Body.Len())
+	}
+	if response := request("/attachments/0"); response.Code != 200 || response.Body.String() != payload {
+		t.Fatalf("large attachment not exported: %d/%d", response.Code, response.Body.Len())
+	}
+	// The client accepts a prefix and then fails: the committed read remains
+	// durable, while an independent audit records incomplete delivery.
+	before := failedArchiveStreams(t)
+	interrupted := &archiveInterruptedWriter{ResponseRecorder: httptest.NewRecorder(), remaining: 4096}
+	router.ServeHTTP(interrupted, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/archive/"+strconv.FormatInt(entry, 10)+"/export", nil))
+	if interrupted.Code != http.StatusOK || interrupted.Body.Len() != 4096 {
+		t.Fatalf("expected an already-started response prefix, got %d/%d", interrupted.Code, interrupted.Body.Len())
+	}
+	if got := scalar("SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND action='GET /api/v1/archive/:id/export' AND detail->>'phase'='stream_failed' AND detail->>'status'='502'", tenant); got != 1 {
+		t.Fatalf("missing independent incomplete-stream audit: %d", got)
+	}
+	if got := scalar("SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND action='READ archive.export'", tenant); got != 2 {
+		t.Fatalf("authorized read was not committed before interrupted delivery: %d", got)
+	}
+	if failedArchiveStreams(t) != before+1 || observed.FilterMessage("post-commit response stream incomplete").Len() != 1 {
+		t.Fatal("incomplete stream omitted its metric or warning")
+	}
+	if len(archiveTransferSlots) != 0 {
+		t.Fatal("interrupted stream retained its snapshot transfer permit")
+	}
+	// A deferred failure occurs at COMMIT, after the handler staged its stream.
+	if _, err := platform.Exec(ctx, `CREATE FUNCTION fail_large_export_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='READ archive.export' THEN RAISE EXCEPTION 'injected deferred audit failure'; END IF; RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER fail_large_export_commit AFTER INSERT ON audit_logs DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_large_export_commit();`); err != nil {
+		t.Fatal(err)
+	}
+	response := request("/export")
+	if response.Code != 500 || strings.Contains(response.Body.String(), payload[:1024]) {
+		t.Fatalf("failed COMMIT released bytes: %d/%d", response.Code, response.Body.Len())
+	}
+	if len(archiveTransferSlots) != 0 {
+		t.Fatal("failed COMMIT retained transfer permit")
+	}
+}
+
+// archiveInterruptedWriter models a peer that disconnects after receiving bytes.
+type archiveInterruptedWriter struct {
+	*httptest.ResponseRecorder
+	remaining int
+}
+
+func (w *archiveInterruptedWriter) Write(p []byte) (int, error) {
+	if w.remaining == 0 {
+		return 0, io.ErrClosedPipe
+	}
+	n := len(p)
+	if n > w.remaining {
+		n = w.remaining
+	}
+	written, err := w.ResponseRecorder.Write(p[:n])
+	w.remaining -= written
+	if err != nil {
+		return written, err
+	}
+	if n < len(p) {
+		return written, io.ErrClosedPipe
+	}
+	return written, nil
+}
+func failedArchiveStreams(t *testing.T) float64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() != "urmail_http_deferred_streams_total" {
+			continue
+		}
+		for _, metric := range family.Metric {
+			for _, label := range metric.Label {
+				if label.GetName() == "result" && label.GetValue() == "failed" {
+					return metric.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	return 0
 }

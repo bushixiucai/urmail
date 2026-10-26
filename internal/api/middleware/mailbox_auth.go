@@ -28,7 +28,7 @@ type MailboxSessionLookup interface {
 
 // RequireMailboxAuth validates a Bearer mailbox token. It never accepts a
 // panel session and does not require Roundcube HMAC.
-func RequireMailboxAuth(lookup MailboxSessionLookup) gin.HandlerFunc {
+func RequireMailboxAuth(lookup MailboxSessionLookup, vaults ...webmail.CredentialVault) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		if lookup == nil {
@@ -49,6 +49,11 @@ func RequireMailboxAuth(lookup MailboxSessionLookup) gin.HandlerFunc {
 		hash := mailboxprincipal.HashToken(token)
 		session, err := lookup.GetMailboxSession(c.Request.Context(), hash)
 		if err != nil || session.Address == "" || session.ExpiresAt.Before(time.Now()) {
+			for _, vault := range vaults {
+				if vault != nil {
+					vault.Delete(hash)
+				}
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": gin.H{"code": "MAILBOX_AUTHORIZATION_DENIED", "message": "error.MAILBOX_AUTHORIZATION_DENIED"},
 			})

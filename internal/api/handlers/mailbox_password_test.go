@@ -20,12 +20,12 @@ func TestMailboxSelfServicePasswordPolicy(t *testing.T) {
 }
 
 func TestMailboxPasswordUnicodeCharacterBounds(t *testing.T) {
-	for _, password := range []string{strings.Repeat("中", 8), strings.Repeat("中", 1024), strings.Repeat("😀", 1024)} {
+	for _, password := range []string{strings.Repeat("中", 12), strings.Repeat("中", 85), strings.Repeat("😀", 64)} {
 		if !validMailboxPassword("old-secret", password) {
 			t.Fatal("valid Unicode character bounds rejected")
 		}
 	}
-	if validMailboxPassword("old-secret", strings.Repeat("😀", 1025)) {
+	if validMailboxPassword("old-secret", strings.Repeat("😀", 65)) {
 		t.Fatal("overlong Unicode secret accepted")
 	}
 }

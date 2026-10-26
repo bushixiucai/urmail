@@ -350,18 +350,12 @@ func (h *PaymentGatewayHandler) Webhook(c *gin.Context) {
 			authError(c, 503, "PAYMENT_PROVIDER_ERROR")
 			return
 		}
-		if persistErr := h.recordRejectedWebhook(c, id, m.Provider, raw); persistErr != nil {
-			authError(c, 500, "DB_ERROR")
-			return
-		}
+		payment.RecordRejectedWebhook(c, h.Platform, id, "verification_rejected", raw)
 		authError(c, 400, "PAYMENT_VERIFICATION_FAILED")
 		return
 	}
 	if err = payment.ValidateMerchantEvent(m, raw, event); err != nil {
-		if persistErr := h.recordRejectedWebhook(c, id, m.Provider, raw); persistErr != nil {
-			authError(c, 500, "DB_ERROR")
-			return
-		}
+		payment.RecordRejectedWebhook(c, h.Platform, id, "merchant_rejected", raw)
 		authError(c, 400, "PAYMENT_VERIFICATION_FAILED")
 		return
 	}
@@ -644,29 +638,6 @@ func (h *PaymentGatewayHandler) confirmCheckoutClosed(ctx context.Context, inten
 		return err
 	}
 	return h.Platform.PlatformMarkCheckoutClosed(ctx, store.PlatformMarkCheckoutClosedParams{TenantID: intent.TenantID, OrderID: intent.OrderID})
-}
-
-func (h *PaymentGatewayHandler) recordRejectedWebhook(ctx context.Context, merchantID int64, provider string, raw []byte) error {
-	payload := canonicalPaymentPayload(provider, raw)
-	digest := sha256.Sum256(payload)
-	hash := hex.EncodeToString(digest[:])
-	eventID := "rejected:" + hash
-	row, err := h.Platform.PlatformRecordMerchantWebhook(ctx, store.PlatformRecordMerchantWebhookParams{MerchantID: merchantID, EventID: eventID, PayloadHash: hash, Payload: payload})
-	if err != nil {
-		return err
-	}
-	if row.State == "rejected" {
-		return nil
-	}
-	_, err = h.Platform.PlatformClaimMerchantWebhook(ctx, store.PlatformClaimMerchantWebhookParams{MerchantID: merchantID, EventID: eventID, PayloadHash: hash})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	_, err = h.Platform.PlatformFinishMerchantWebhook(ctx, store.PlatformFinishMerchantWebhookParams{MerchantID: merchantID, EventID: eventID, State: "rejected", ResultCode: pgtype.Text{String: "verification_rejected", Valid: true}})
-	return err
 }
 
 func (h *PaymentGatewayHandler) recoverCheckout(ctx context.Context, intent store.PaymentCheckoutIntents) error {

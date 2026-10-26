@@ -66,7 +66,7 @@ INSERT INTO refunds(tenant_id,order_id,payment_id,refund_no,amount_cents,currenc
 SELECT p.tenant_id,p.order_id,p.id,$3,p.amount_cents,p.currency,$4,'pending'
 FROM payment_manual_reviews r JOIN payments p ON p.tenant_id=r.tenant_id AND p.id=r.payment_id
 WHERE r.tenant_id=$1 AND r.id=$2 AND r.status='open'
-RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at
+RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at
 `
 
 type PlatformCreateReviewRefundParams struct {
@@ -111,6 +111,10 @@ func (q *Queries) PlatformCreateReviewRefund(ctx context.Context, arg PlatformCr
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
@@ -192,7 +196,7 @@ func (q *Queries) PlatformGetPaymentReviewForUpdate(ctx context.Context, arg Pla
 }
 
 const platformGetRefundByNo = `-- name: PlatformGetRefundByNo :one
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM refunds WHERE refund_no=$1
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE refund_no=$1
 `
 
 func (q *Queries) PlatformGetRefundByNo(ctx context.Context, refundNo string) (Refunds, error) {
@@ -221,6 +225,10 @@ func (q *Queries) PlatformGetRefundByNo(ctx context.Context, refundNo string) (R
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }

@@ -15,6 +15,8 @@ biff = no
 append_dot_mydomain = no
 recipient_delimiter = +
 
+message_size_limit = 10240000
+
 # Virtual domains, mailboxes and aliases
 virtual_mailbox_domains = 
 virtual_mailbox_base = /var/mail/mail/mailboxes

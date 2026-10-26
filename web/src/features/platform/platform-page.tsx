@@ -1,3 +1,4 @@
+import { validNewPassword } from "@/lib/password-policy";
 import { BillingCalendarAdmin } from "./billing-calendar-admin";
 import { PlatformAIAdmin } from "./platform-ai-admin";
 import { CouponReissueAdmin } from "./coupon-reissue-admin";
@@ -194,6 +195,13 @@ export function PlatformPage() {
 
   const createTenant = async (e: FormEvent) => {
     e.preventDefault();
+    if (!validNewPassword(ownerPassword)) {
+      setNotice({
+        variant: "error",
+        message: t("error.PASSWORD_POLICY_INVALID"),
+      });
+      return;
+    }
     try {
       await request("/api/v1/platform/tenants", {
         method: "POST",
@@ -390,6 +398,7 @@ export function PlatformPage() {
               value={ownerPassword}
               onChange={(e) => setOwnerPassword(e.target.value)}
               minLength={12}
+              maxLength={256}
               required
             />
             <label className="grid gap-1 text-sm sm:col-span-2">

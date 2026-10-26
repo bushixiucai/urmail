@@ -67,7 +67,11 @@ func TestDNSPlansProductionHTTPWithProviderStandIn(t *testing.T) {
 		token        string
 		user, tenant int64
 	}{{"dns-owner", owner, tenant}, {"dns-other", other, foreign}} {
-		if _, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken(item.token), UserID: item.user, TenantID: pgtype.Int8{Int64: item.tenant, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+		verifiedUser, verifyErr := q.GetUserByID(ctx, item.user)
+		if verifyErr != nil {
+			t.Fatal(verifyErr)
+		}
+		if _, err = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(item.token), UserID: item.user, TenantID: pgtype.Int8{Int64: item.tenant, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
 			t.Fatal(err)
 		}
 	}

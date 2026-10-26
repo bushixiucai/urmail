@@ -49,7 +49,7 @@ type MailboxNativeAuth interface {
 
 // MailboxNativeSessions persists short-lived mailbox bearer tokens.
 type MailboxNativeSessions interface {
-	Create(ctx context.Context, tokenHash, address string) (webmail.Session, error)
+	Create(ctx context.Context, tokenHash, address, expectedHash string) (webmail.Session, error)
 	Get(ctx context.Context, tokenHash string) (webmail.Session, error)
 	Revoke(ctx context.Context, tokenHash string) error
 }
@@ -72,23 +72,25 @@ func (s StoreMailboxNative) Lookup(ctx context.Context, address string) (int64, 
 }
 
 // Create inserts a mailbox_sessions row (same principal table as Roundcube bridge).
-func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address string) (webmail.Session, error) {
+func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expectedHash string) (webmail.Session, error) {
 	if s.Q == nil {
 		return webmail.Session{}, pgx.ErrNoRows
 	}
-	row, err := s.Q.PlatformCreateMailboxSession(ctx, store.PlatformCreateMailboxSessionParams{
-		TokenHash: tokenHash,
-		Address:   address,
+	row, err := s.Q.PlatformCreateVerifiedMailboxSession(ctx, store.PlatformCreateVerifiedMailboxSessionParams{
+		TokenHash:    tokenHash,
+		ExpectedHash: expectedHash,
+		Address:      address,
 	})
 	if err != nil {
 		return webmail.Session{}, err
 	}
 	return webmail.Session{
-		TokenHash: row.TokenHash,
-		TenantID:  row.TenantID,
-		MailboxID: row.MailboxID,
-		Address:   address,
-		ExpiresAt: timestamptzTime(row.ExpiresAt),
+		TokenHash:       row.TokenHash,
+		TenantID:        row.TenantID,
+		MailboxID:       row.MailboxID,
+		PasswordVersion: row.PasswordVersion,
+		Address:         address,
+		ExpiresAt:       timestamptzTime(row.ExpiresAt),
 	}, nil
 }
 
@@ -102,11 +104,12 @@ func (s StoreMailboxNative) Get(ctx context.Context, tokenHash string) (webmail.
 		return webmail.Session{}, err
 	}
 	return webmail.Session{
-		TokenHash: row.TokenHash,
-		TenantID:  row.TenantID,
-		MailboxID: row.MailboxID,
-		Address:   row.Address,
-		ExpiresAt: timestamptzTime(row.ExpiresAt),
+		TokenHash:       row.TokenHash,
+		TenantID:        row.TenantID,
+		MailboxID:       row.MailboxID,
+		PasswordVersion: row.PasswordVersion,
+		Address:         row.Address,
+		ExpiresAt:       timestamptzTime(row.ExpiresAt),
 	}, nil
 }
 
@@ -170,13 +173,21 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 
 	tenantID, mailboxID, canonical, hash, err := h.Auth.Lookup(c.Request.Context(), address)
 	if err != nil {
-		_ = domainMail.VerifyPassword(password, dummyPasswordHash)
+		if _, verifyErr := domainMail.VerifyPasswordContext(c.Request.Context(), password, dummyMailboxPasswordHash); verifyErr != nil {
+			authError(c, 429, "RATE_LIMITED")
+			return
+		}
 		loginAttempts.fail(limiterKey)
 		loginAttempts.fail(ipKey)
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
-	if !domainMail.VerifyPassword(password, hash) {
+	matches, verifyErr := domainMail.VerifyPasswordContext(c.Request.Context(), password, hash)
+	if verifyErr != nil {
+		authError(c, 429, "RATE_LIMITED")
+		return
+	}
+	if !matches {
 		loginAttempts.fail(limiterKey)
 		loginAttempts.fail(ipKey)
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
@@ -190,7 +201,7 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 		authError(c, http.StatusInternalServerError, "INTERNAL_ERROR")
 		return
 	}
-	session, err := h.Sessions.Create(c.Request.Context(), tokenHash, canonical)
+	session, err := h.Sessions.Create(c.Request.Context(), tokenHash, canonical, hash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
@@ -209,7 +220,15 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 		session.Address = canonical
 	}
 	if h.Vault != nil {
-		h.Vault.Put(tokenHash, password)
+		if bounded, ok := h.Vault.(webmail.SessionVault); ok {
+			if bounded.PutSession(session, password) != nil {
+				_ = h.Sessions.Revoke(c.Request.Context(), tokenHash)
+				authError(c, 429, "RATE_LIMITED")
+				return
+			}
+		} else {
+			h.Vault.Put(tokenHash, password)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"token":      token,
@@ -305,7 +324,10 @@ func (h *MailboxNativeHandler) DeleteSession(c *gin.Context) {
 		h.Vault.Delete(hash)
 	}
 	if hash != "" && h.Sessions != nil {
-		_ = h.Sessions.Revoke(c.Request.Context(), hash)
+		if err := h.Sessions.Revoke(c.Request.Context(), hash); err != nil {
+			authError(c, 503, "DB_ERROR")
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"revoked": true})
 }

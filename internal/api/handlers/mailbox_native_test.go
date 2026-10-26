@@ -41,7 +41,7 @@ type fakeMailboxSessions struct {
 	byHash map[string]webmail.Session
 }
 
-func (f *fakeMailboxSessions) Create(_ context.Context, tokenHash, address string) (webmail.Session, error) {
+func (f *fakeMailboxSessions) Create(_ context.Context, tokenHash, address, _ string) (webmail.Session, error) {
 	if f.byHash == nil {
 		f.byHash = make(map[string]webmail.Session)
 	}

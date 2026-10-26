@@ -25,6 +25,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -157,10 +158,16 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	}
 	user, err := h.Auth.GetUserByEmail(c, email)
 	if err != nil {
-		_ = mail.VerifyPassword(password, dummyPasswordHash)
+		if _, available := panelPasswordMatches(c, password, dummyPasswordHash); !available {
+			return false
+		}
 		return reject("INVALID_CREDENTIALS")
 	}
-	if !mail.VerifyPassword(password, user.PasswordHash) {
+	matches, available := panelPasswordMatches(c, password, user.PasswordHash)
+	if !available {
+		return false
+	}
+	if !matches {
 		return reject("INVALID_CREDENTIALS")
 	}
 	if user.MfaEnabled {
@@ -315,7 +322,7 @@ func (h *LegacyHandler) AddMailUser(c *gin.Context) {
 		quota = 0
 	}
 	at := strings.LastIndexByte(email, '@')
-	if at <= 0 || at == len(email)-1 || password == "" {
+	if at <= 0 || at == len(email)-1 || passwordwork.ValidateNew(password) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
@@ -325,7 +332,7 @@ func (h *LegacyHandler) AddMailUser(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 		return
 	}
-	hash, err := mail.HashPassword(password)
+	hash, err := mail.HashPasswordContext(c.Request.Context(), password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash"})
 		return
@@ -407,7 +414,7 @@ func (h *LegacyHandler) SetMailUserPassword(c *gin.Context) {
 	}
 	email := strings.ToLower(strings.TrimSpace(c.PostForm("email")))
 	password := c.PostForm("password")
-	if password == "" {
+	if passwordwork.ValidateNew(password) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
@@ -416,7 +423,7 @@ func (h *LegacyHandler) SetMailUserPassword(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "mailbox not found"})
 		return
 	}
-	hash, err := mail.HashPassword(password)
+	hash, err := mail.HashPasswordContext(c.Request.Context(), password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash"})
 		return

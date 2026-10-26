@@ -88,14 +88,15 @@ type ApiTokens struct {
 }
 
 type ApplicationCredentials struct {
-	ID        int64              `json:"id"`
-	UserID    int64              `json:"user_id"`
-	Name      string             `json:"name"`
-	TokenHash string             `json:"token_hash"`
-	Scopes    []string           `json:"scopes"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                int64              `json:"id"`
+	UserID            int64              `json:"user_id"`
+	Name              string             `json:"name"`
+	TokenHash         string             `json:"token_hash"`
+	Scopes            []string           `json:"scopes"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CredentialVersion int64              `json:"credential_version"`
 }
 
 type ArchiveContent struct {
@@ -767,6 +768,22 @@ type PaymentWebhookInbox struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type PaymentWebhookRejectionBudget struct {
+	Singleton   bool               `json:"singleton"`
+	MinuteStart pgtype.Timestamptz `json:"minute_start"`
+	Writes      int32              `json:"writes"`
+}
+
+type PaymentWebhookRejections struct {
+	MerchantID       int64              `json:"merchant_id"`
+	BucketStart      pgtype.Timestamptz `json:"bucket_start"`
+	Reason           string             `json:"reason"`
+	Occurrences      int64              `json:"occurrences"`
+	LastPayloadHash  string             `json:"last_payload_hash"`
+	LastPayloadBytes int32              `json:"last_payload_bytes"`
+	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
+}
+
 type Payments struct {
 	ID            int64              `json:"id"`
 	TenantID      int64              `json:"tenant_id"`
@@ -825,28 +842,32 @@ type RecallRequests struct {
 }
 
 type Refunds struct {
-	ID                     int64              `json:"id"`
-	TenantID               int64              `json:"tenant_id"`
-	OrderID                int64              `json:"order_id"`
-	PaymentID              pgtype.Int8        `json:"payment_id"`
-	RefundNo               string             `json:"refund_no"`
-	AmountCents            int64              `json:"amount_cents"`
-	Currency               string             `json:"currency"`
-	Reason                 string             `json:"reason"`
-	Status                 string             `json:"status"`
-	ProviderRefundNo       pgtype.Text        `json:"provider_refund_no"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
-	RequestedAmountCents   int64              `json:"requested_amount_cents"`
-	ApprovedBy             pgtype.Int8        `json:"approved_by"`
-	ApprovedAt             pgtype.Timestamptz `json:"approved_at"`
-	ApprovalReason         pgtype.Text        `json:"approval_reason"`
-	EntitlementAction      string             `json:"entitlement_action"`
-	EntitlementEffectiveAt pgtype.Timestamptz `json:"entitlement_effective_at"`
-	TargetTermOrderID      pgtype.Int8        `json:"target_term_order_id"`
-	EntitlementAppliedAt   pgtype.Timestamptz `json:"entitlement_applied_at"`
-	LastErrorCode          pgtype.Text        `json:"last_error_code"`
-	RequestStartedAt       pgtype.Timestamptz `json:"request_started_at"`
+	ID                       int64              `json:"id"`
+	TenantID                 int64              `json:"tenant_id"`
+	OrderID                  int64              `json:"order_id"`
+	PaymentID                pgtype.Int8        `json:"payment_id"`
+	RefundNo                 string             `json:"refund_no"`
+	AmountCents              int64              `json:"amount_cents"`
+	Currency                 string             `json:"currency"`
+	Reason                   string             `json:"reason"`
+	Status                   string             `json:"status"`
+	ProviderRefundNo         pgtype.Text        `json:"provider_refund_no"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
+	RequestedAmountCents     int64              `json:"requested_amount_cents"`
+	ApprovedBy               pgtype.Int8        `json:"approved_by"`
+	ApprovedAt               pgtype.Timestamptz `json:"approved_at"`
+	ApprovalReason           pgtype.Text        `json:"approval_reason"`
+	EntitlementAction        string             `json:"entitlement_action"`
+	EntitlementEffectiveAt   pgtype.Timestamptz `json:"entitlement_effective_at"`
+	TargetTermOrderID        pgtype.Int8        `json:"target_term_order_id"`
+	EntitlementAppliedAt     pgtype.Timestamptz `json:"entitlement_applied_at"`
+	LastErrorCode            pgtype.Text        `json:"last_error_code"`
+	RequestStartedAt         pgtype.Timestamptz `json:"request_started_at"`
+	NextAttemptAt            pgtype.Timestamptz `json:"next_attempt_at"`
+	DispatchAttempts         int32              `json:"dispatch_attempts"`
+	NextReconcileAt          pgtype.Timestamptz `json:"next_reconcile_at"`
+	NextEntitlementAttemptAt pgtype.Timestamptz `json:"next_entitlement_attempt_at"`
 }
 
 type RegistrationRequests struct {
@@ -892,16 +913,17 @@ type RoundcubeBridgeRequests struct {
 }
 
 type Sessions struct {
-	ID            string             `json:"id"`
-	UserID        int64              `json:"user_id"`
-	TenantID      pgtype.Int8        `json:"tenant_id"`
-	CsrfToken     string             `json:"csrf_token"`
-	UserAgent     pgtype.Text        `json:"user_agent"`
-	Ip            *netip.Addr        `json:"ip"`
-	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	MfaVerifiedAt pgtype.Timestamptz `json:"mfa_verified_at"`
-	Kind          string             `json:"kind"`
+	ID                string             `json:"id"`
+	UserID            int64              `json:"user_id"`
+	TenantID          pgtype.Int8        `json:"tenant_id"`
+	CsrfToken         string             `json:"csrf_token"`
+	UserAgent         pgtype.Text        `json:"user_agent"`
+	Ip                *netip.Addr        `json:"ip"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	MfaVerifiedAt     pgtype.Timestamptz `json:"mfa_verified_at"`
+	Kind              string             `json:"kind"`
+	CredentialVersion int64              `json:"credential_version"`
 }
 
 type Settings struct {
@@ -1041,4 +1063,5 @@ type Users struct {
 	PasswordChangedAt pgtype.Timestamptz `json:"password_changed_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	MfaRecoveryCodes  []byte             `json:"mfa_recovery_codes"`
+	CredentialVersion int64              `json:"credential_version"`
 }

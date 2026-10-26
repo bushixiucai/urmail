@@ -97,6 +97,7 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 
 		originalWriter := c.Writer
 		buffered := newResponseBuffer(originalWriter)
+		defer buffered.closeStream()
 		c.Writer = buffered
 		defer func() { c.Writer = originalWriter }()
 		c.Set(contextTransaction, tx)
@@ -150,7 +151,15 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			state.phase = "after_commit"
 			finishIndependentAudit(c)
 		}
-		buffered.publish()
+		if err := buffered.publishResponse(); err != nil && buffered.stream != nil {
+			if state := auditState(c); state != nil {
+				state.recorded = false
+				state.phase = "stream_failed"
+				state.forcedStatus = 502
+				finishIndependentAudit(c)
+			}
+			logger.Warn("post-commit response stream incomplete", zap.String("path", c.FullPath()))
+		}
 	}
 }
 

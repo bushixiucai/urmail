@@ -1,14 +1,16 @@
 package mail
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/GehirnInc/crypt/sha512_crypt"
+
+	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
 )
 
 // Dovecot's SQL auth is configured with "default_pass_scheme = SHA512-CRYPT"
@@ -42,9 +44,19 @@ const hashPreamble = "{SHA512-CRYPT}"
 // {SHA512-CRYPT}$6$<salt>$<hash> with a random 16-character salt and 5000
 // rounds of the SHA512-CRYPT algorithm.
 func HashPassword(password string) (string, error) {
-	if len(password) == 0 {
-		return "", errors.New("password cannot be empty")
+	return HashPasswordContext(context.Background(), password)
+}
+
+// HashPasswordContext rejects canceled or excessive work before computing.
+func HashPasswordContext(ctx context.Context, password string) (string, error) {
+	if !passwordwork.ValidVerification(password) || len(password) > passwordwork.MaxNewBytes {
+		return "", passwordwork.ErrInvalidPassword
 	}
+	release, err := passwordwork.Acquire(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	buf := make([]byte, maxSaltLen)
 	if _, err := rand.Read(buf); err != nil {
@@ -68,6 +80,24 @@ func HashPassword(password string) (string, error) {
 // (hmac.Equal). Malformed, truncated or unsupported hashes return false
 // without panicking.
 func VerifyPassword(password, storedHash string) bool {
+	ok, _ := VerifyPasswordContext(context.Background(), password, storedHash)
+	return ok
+}
+
+// VerifyPasswordContext bounds CPU work without creating detached goroutines.
+func VerifyPasswordContext(ctx context.Context, password, storedHash string) (bool, error) {
+	if !passwordwork.ValidVerification(password) {
+		return false, nil
+	}
+	release, err := passwordwork.Acquire(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	return verifyPassword(password, storedHash), nil
+}
+
+func verifyPassword(password, storedHash string) bool {
 	raw, ok := strings.CutPrefix(storedHash, hashPreamble)
 	if !ok {
 		return false
@@ -85,7 +115,7 @@ func VerifyPassword(password, storedHash string) bool {
 	setting := "$6$"
 	if r, ok := strings.CutPrefix(rest[0], "rounds="); ok {
 		n, err := strconv.Atoi(r)
-		if err != nil || n < 1000 || n > 999999999 || len(rest) < 3 {
+		if err != nil || n < 1000 || n > 100000 || len(rest) < 3 {
 			return false
 		}
 		setting += "rounds=" + r + "$"

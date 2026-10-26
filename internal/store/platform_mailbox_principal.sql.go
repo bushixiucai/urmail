@@ -155,8 +155,39 @@ func (q *Queries) PlatformCreateSieveBridge(ctx context.Context, arg PlatformCre
 	return err
 }
 
+const platformCreateVerifiedMailboxSession = `-- name: PlatformCreateVerifiedMailboxSession :one
+INSERT INTO mailbox_sessions(token_hash,tenant_id,mailbox_id,password_version,expires_at)
+SELECT $1,m.tenant_id,m.id,md5(m.password_hash),now()+interval '30 minutes'
+FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
+WHERE m.address=$2 AND m.password_hash=$3
+AND m.status='active' AND t.status='active' AND d.status='active'
+FOR UPDATE OF m
+RETURNING token_hash,tenant_id,mailbox_id,password_version,expires_at,revoked_at,created_at
+`
+
+type PlatformCreateVerifiedMailboxSessionParams struct {
+	TokenHash    string `json:"token_hash"`
+	Address      string `json:"address"`
+	ExpectedHash string `json:"expected_hash"`
+}
+
+func (q *Queries) PlatformCreateVerifiedMailboxSession(ctx context.Context, arg PlatformCreateVerifiedMailboxSessionParams) (MailboxSessions, error) {
+	row := q.db.QueryRow(ctx, platformCreateVerifiedMailboxSession, arg.TokenHash, arg.Address, arg.ExpectedHash)
+	var i MailboxSessions
+	err := row.Scan(
+		&i.TokenHash,
+		&i.TenantID,
+		&i.MailboxID,
+		&i.PasswordVersion,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const platformGetMailboxSession = `-- name: PlatformGetMailboxSession :one
-SELECT s.token_hash,s.tenant_id,s.mailbox_id,s.expires_at,m.address FROM mailbox_sessions s
+SELECT s.token_hash,s.tenant_id,s.mailbox_id,s.expires_at,m.address,s.password_version FROM mailbox_sessions s
 JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
@@ -164,11 +195,12 @@ AND s.password_version=md5(m.password_hash) AND m.status='active' AND t.status='
 `
 
 type PlatformGetMailboxSessionRow struct {
-	TokenHash string             `json:"token_hash"`
-	TenantID  int64              `json:"tenant_id"`
-	MailboxID int64              `json:"mailbox_id"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	Address   string             `json:"address"`
+	TokenHash       string             `json:"token_hash"`
+	TenantID        int64              `json:"tenant_id"`
+	MailboxID       int64              `json:"mailbox_id"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	Address         string             `json:"address"`
+	PasswordVersion string             `json:"password_version"`
 }
 
 func (q *Queries) PlatformGetMailboxSession(ctx context.Context, tokenHash string) (PlatformGetMailboxSessionRow, error) {
@@ -180,6 +212,7 @@ func (q *Queries) PlatformGetMailboxSession(ctx context.Context, tokenHash strin
 		&i.MailboxID,
 		&i.ExpiresAt,
 		&i.Address,
+		&i.PasswordVersion,
 	)
 	return i, err
 }

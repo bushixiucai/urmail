@@ -26,7 +26,7 @@ func (q *Queries) PlatformAdjustCommissionForRefund(ctx context.Context, id int6
 
 const platformApproveRefund = `-- name: PlatformApproveRefund :one
 UPDATE refunds SET status='approved',amount_cents=$1::bigint,approved_by=$2,approved_at=now(),approval_reason=$3,entitlement_action=$4,entitlement_effective_at=$5,target_term_order_id=$6
-WHERE id=$7 AND status='pending' RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at
+WHERE id=$7 AND status='pending' RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at
 `
 
 type PlatformApproveRefundParams struct {
@@ -73,14 +73,18 @@ func (q *Queries) PlatformApproveRefund(ctx context.Context, arg PlatformApprove
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
 
 const platformClaimApprovedRefund = `-- name: PlatformClaimApprovedRefund :one
 UPDATE refunds r SET status='processing',request_started_at=now(),last_error_code=NULL
-FROM (SELECT id FROM refunds WHERE status='approved' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1) candidate
-WHERE r.id=candidate.id RETURNING r.id, r.tenant_id, r.order_id, r.payment_id, r.refund_no, r.amount_cents, r.currency, r.reason, r.status, r.provider_refund_no, r.created_at, r.completed_at, r.requested_amount_cents, r.approved_by, r.approved_at, r.approval_reason, r.entitlement_action, r.entitlement_effective_at, r.target_term_order_id, r.entitlement_applied_at, r.last_error_code, r.request_started_at
+FROM (SELECT id FROM refunds WHERE status='approved' AND next_attempt_at<=now() ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1) candidate
+WHERE r.id=candidate.id RETURNING r.id, r.tenant_id, r.order_id, r.payment_id, r.refund_no, r.amount_cents, r.currency, r.reason, r.status, r.provider_refund_no, r.created_at, r.completed_at, r.requested_amount_cents, r.approved_by, r.approved_at, r.approval_reason, r.entitlement_action, r.entitlement_effective_at, r.target_term_order_id, r.entitlement_applied_at, r.last_error_code, r.request_started_at, r.next_attempt_at, r.dispatch_attempts, r.next_reconcile_at, r.next_entitlement_attempt_at
 `
 
 func (q *Queries) PlatformClaimApprovedRefund(ctx context.Context) (Refunds, error) {
@@ -109,12 +113,16 @@ func (q *Queries) PlatformClaimApprovedRefund(ctx context.Context) (Refunds, err
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
 
 const platformClaimRefundByID = `-- name: PlatformClaimRefundByID :one
-UPDATE refunds SET status='processing',request_started_at=now(),last_error_code=NULL WHERE tenant_id=$1 AND id=$2 AND status='approved' RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at
+UPDATE refunds SET status='processing',request_started_at=now(),last_error_code=NULL WHERE tenant_id=$1 AND id=$2 AND status='approved' AND next_attempt_at<=now() RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at
 `
 
 type PlatformClaimRefundByIDParams struct {
@@ -148,12 +156,46 @@ func (q *Queries) PlatformClaimRefundByID(ctx context.Context, arg PlatformClaim
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
 
+const platformDeferRefundEntitlement = `-- name: PlatformDeferRefundEntitlement :exec
+UPDATE refunds SET next_entitlement_attempt_at=now()+interval '2 minutes' WHERE tenant_id=$1 AND id=$2 AND status='completed' AND entitlement_applied_at IS NULL
+`
+
+type PlatformDeferRefundEntitlementParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+func (q *Queries) PlatformDeferRefundEntitlement(ctx context.Context, arg PlatformDeferRefundEntitlementParams) error {
+	_, err := q.db.Exec(ctx, platformDeferRefundEntitlement, arg.TenantID, arg.ID)
+	return err
+}
+
+const platformDeferRefundReconciliation = `-- name: PlatformDeferRefundReconciliation :exec
+UPDATE refunds SET next_reconcile_at=now()+interval '2 minutes' WHERE tenant_id=$1 AND id=$2 AND status IN('processing','uncertain')
+`
+
+type PlatformDeferRefundReconciliationParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+func (q *Queries) PlatformDeferRefundReconciliation(ctx context.Context, arg PlatformDeferRefundReconciliationParams) error {
+	_, err := q.db.Exec(ctx, platformDeferRefundReconciliation, arg.TenantID, arg.ID)
+	return err
+}
+
 const platformFlagApprovedRefund = `-- name: PlatformFlagApprovedRefund :exec
-UPDATE refunds SET last_error_code=$3 WHERE tenant_id=$1 AND id=$2 AND status='approved'
+UPDATE refunds SET last_error_code=$3,dispatch_attempts=LEAST(dispatch_attempts+1,1000),
+ next_attempt_at=now()+make_interval(secs=>LEAST(3600,10*power(2,LEAST(dispatch_attempts,9)))::double precision)
+WHERE tenant_id=$1 AND id=$2 AND status='approved'
 `
 
 type PlatformFlagApprovedRefundParams struct {
@@ -168,7 +210,7 @@ func (q *Queries) PlatformFlagApprovedRefund(ctx context.Context, arg PlatformFl
 }
 
 const platformGetRefundForUpdate = `-- name: PlatformGetRefundForUpdate :one
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM refunds WHERE id=$1 FOR UPDATE
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) PlatformGetRefundForUpdate(ctx context.Context, id int64) (Refunds, error) {
@@ -197,6 +239,10 @@ func (q *Queries) PlatformGetRefundForUpdate(ctx context.Context, id int64) (Ref
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
@@ -277,8 +323,59 @@ func (q *Queries) PlatformGetRefundTargetTerm(ctx context.Context, arg PlatformG
 	return i, err
 }
 
+const platformListApprovedRefundCandidates = `-- name: PlatformListApprovedRefundCandidates :many
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE status='approved' AND next_attempt_at<=now() ORDER BY next_attempt_at,id LIMIT 25
+`
+
+func (q *Queries) PlatformListApprovedRefundCandidates(ctx context.Context) ([]Refunds, error) {
+	rows, err := q.db.Query(ctx, platformListApprovedRefundCandidates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Refunds{}
+	for rows.Next() {
+		var i Refunds
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OrderID,
+			&i.PaymentID,
+			&i.RefundNo,
+			&i.AmountCents,
+			&i.Currency,
+			&i.Reason,
+			&i.Status,
+			&i.ProviderRefundNo,
+			&i.CreatedAt,
+			&i.CompletedAt,
+			&i.RequestedAmountCents,
+			&i.ApprovedBy,
+			&i.ApprovedAt,
+			&i.ApprovalReason,
+			&i.EntitlementAction,
+			&i.EntitlementEffectiveAt,
+			&i.TargetTermOrderID,
+			&i.EntitlementAppliedAt,
+			&i.LastErrorCode,
+			&i.RequestStartedAt,
+			&i.NextAttemptAt,
+			&i.DispatchAttempts,
+			&i.NextReconcileAt,
+			&i.NextEntitlementAttemptAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const platformListRefundEntitlementsDue = `-- name: PlatformListRefundEntitlementsDue :many
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM refunds WHERE status='completed' AND entitlement_action<>'none' AND entitlement_effective_at<=now() AND entitlement_applied_at IS NULL ORDER BY id LIMIT 50
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE status='completed' AND entitlement_action<>'none' AND entitlement_effective_at<=now() AND entitlement_applied_at IS NULL AND next_entitlement_attempt_at<=now() ORDER BY next_entitlement_attempt_at,id LIMIT 50
 `
 
 func (q *Queries) PlatformListRefundEntitlementsDue(ctx context.Context) ([]Refunds, error) {
@@ -313,6 +410,10 @@ func (q *Queries) PlatformListRefundEntitlementsDue(ctx context.Context) ([]Refu
 			&i.EntitlementAppliedAt,
 			&i.LastErrorCode,
 			&i.RequestStartedAt,
+			&i.NextAttemptAt,
+			&i.DispatchAttempts,
+			&i.NextReconcileAt,
+			&i.NextEntitlementAttemptAt,
 		); err != nil {
 			return nil, err
 		}
@@ -325,7 +426,7 @@ func (q *Queries) PlatformListRefundEntitlementsDue(ctx context.Context) ([]Refu
 }
 
 const platformListRefundsForApproval = `-- name: PlatformListRefundsForApproval :many
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM refunds WHERE ($1::text='' OR status=$1) ORDER BY created_at DESC,id DESC LIMIT 100
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE ($1::text='' OR status=$1) ORDER BY created_at DESC,id DESC LIMIT 100
 `
 
 func (q *Queries) PlatformListRefundsForApproval(ctx context.Context, dollar_1 string) ([]Refunds, error) {
@@ -360,6 +461,10 @@ func (q *Queries) PlatformListRefundsForApproval(ctx context.Context, dollar_1 s
 			&i.EntitlementAppliedAt,
 			&i.LastErrorCode,
 			&i.RequestStartedAt,
+			&i.NextAttemptAt,
+			&i.DispatchAttempts,
+			&i.NextReconcileAt,
+			&i.NextEntitlementAttemptAt,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +477,7 @@ func (q *Queries) PlatformListRefundsForApproval(ctx context.Context, dollar_1 s
 }
 
 const platformListRefundsToReconcile = `-- name: PlatformListRefundsToReconcile :many
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM refunds WHERE status IN('processing','uncertain') AND request_started_at<now()-interval '2 minutes' ORDER BY request_started_at LIMIT 50
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE status IN('processing','uncertain') AND approved_by IS NOT NULL AND request_started_at<now()-interval '2 minutes' AND next_reconcile_at<=now() ORDER BY next_reconcile_at,id LIMIT 50
 `
 
 func (q *Queries) PlatformListRefundsToReconcile(ctx context.Context) ([]Refunds, error) {
@@ -407,6 +512,10 @@ func (q *Queries) PlatformListRefundsToReconcile(ctx context.Context) ([]Refunds
 			&i.EntitlementAppliedAt,
 			&i.LastErrorCode,
 			&i.RequestStartedAt,
+			&i.NextAttemptAt,
+			&i.DispatchAttempts,
+			&i.NextReconcileAt,
+			&i.NextEntitlementAttemptAt,
 		); err != nil {
 			return nil, err
 		}
@@ -428,7 +537,7 @@ func (q *Queries) PlatformMarkRefundEntitlementApplied(ctx context.Context, id i
 }
 
 const platformNextApprovedRefund = `-- name: PlatformNextApprovedRefund :one
-SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at FROM refunds WHERE status='approved' ORDER BY id LIMIT 1
+SELECT id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at FROM refunds WHERE status='approved' AND next_attempt_at<=now() ORDER BY next_attempt_at,id LIMIT 1
 `
 
 func (q *Queries) PlatformNextApprovedRefund(ctx context.Context) (Refunds, error) {
@@ -457,6 +566,10 @@ func (q *Queries) PlatformNextApprovedRefund(ctx context.Context) (Refunds, erro
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }
@@ -536,7 +649,7 @@ func (q *Queries) PlatformRefundTenant(ctx context.Context, id int64) (int64, er
 }
 
 const platformRejectRefund = `-- name: PlatformRejectRefund :one
-UPDATE refunds SET status='rejected',approved_by=$2,approved_at=now(),approval_reason=$3 WHERE id=$1 AND status='pending' RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at
+UPDATE refunds SET status='rejected',approved_by=$2,approved_at=now(),approval_reason=$3 WHERE id=$1 AND status='pending' RETURNING id, tenant_id, order_id, payment_id, refund_no, amount_cents, currency, reason, status, provider_refund_no, created_at, completed_at, requested_amount_cents, approved_by, approved_at, approval_reason, entitlement_action, entitlement_effective_at, target_term_order_id, entitlement_applied_at, last_error_code, request_started_at, next_attempt_at, dispatch_attempts, next_reconcile_at, next_entitlement_attempt_at
 `
 
 type PlatformRejectRefundParams struct {
@@ -571,6 +684,10 @@ func (q *Queries) PlatformRejectRefund(ctx context.Context, arg PlatformRejectRe
 		&i.EntitlementAppliedAt,
 		&i.LastErrorCode,
 		&i.RequestStartedAt,
+		&i.NextAttemptAt,
+		&i.DispatchAttempts,
+		&i.NextReconcileAt,
+		&i.NextEntitlementAttemptAt,
 	)
 	return i, err
 }

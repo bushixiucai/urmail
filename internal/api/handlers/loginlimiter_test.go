@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
-	"github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 )
 
 func TestLoginLimiterBlocksAfterMaxFailures(t *testing.T) {
@@ -60,7 +60,7 @@ func TestDummyPasswordHashIsUsable(t *testing.T) {
 	if dummyPasswordHash == "" {
 		t.Fatalf("dummy hash must be generated at init")
 	}
-	if !mail.VerifyPassword("urmail-dummy-password-for-timing", dummyPasswordHash) {
+	if !panelpassword.Verify("urmail-dummy-password-for-timing", dummyPasswordHash) {
 		t.Fatalf("dummy hash must verify against its own password")
 	}
 }

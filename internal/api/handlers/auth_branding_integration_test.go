@@ -91,7 +91,11 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uid := scalar("INSERT INTO users(email,password_hash,mfa_enabled,mfa_secret) VALUES('admin@example.test',$1,true,$2) RETURNING id", hash, secret)
+	encryptedSeed, encryptErr := authFixtureSecrets().EncryptString(secret)
+	if encryptErr != nil {
+		t.Fatal(encryptErr)
+	}
+	uid := scalar("INSERT INTO users(email,password_hash,mfa_enabled,mfa_secret) VALUES('admin@example.test',$1,true,$2) RETURNING id", hash, encryptedSeed)
 	exec("INSERT INTO platform_admins(user_id) VALUES($1)", uid)
 	defaultBrand := scalar("INSERT INTO brands(slug,name) VALUES('default','Default') RETURNING id")
 	tenant := scalar("INSERT INTO tenants(brand_id,name,slug,status,owner_user_id) VALUES($1,'Tenant','tenant','active',$2) RETURNING id", defaultBrand, uid)
@@ -99,6 +103,7 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES($1,'example.test','active','test-verification',now()) RETURNING id", tenant)
 	mailbox := scalar("INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status,send_enabled) VALUES($1,$2,'test','test@example.test',$3,1048576,'active',true) RETURNING id", tenant, domain, hash)
 	auth := NewAuthHandler(q)
+	auth.Secrets = authFixtureSecrets()
 	legacy := NewLegacyHandler(q, q, tenant, "integration")
 	branding := NewBrandingHandler(q)
 	r := gin.New()
@@ -166,8 +171,8 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	if status, _, _ := request("GET", "/admin/system/status", nil, "", "", password); status != 403 {
 		t.Fatalf("MFA password bypass status=%d", status)
 	}
-	if status, _, _ := request("GET", "/admin/system/status", nil, token, "", ""); status != 200 {
-		t.Fatalf("MFA bearer legacy status=%d", status)
+	if status, _, _ := request("GET", "/admin/system/status", nil, token, "", ""); status != 401 {
+		t.Fatalf("panel MFA token bypassed explicit legacy-session exchange: status=%d", status)
 	}
 	if status, _, _ := request("POST", "/auth/credentials", map[string]any{"name": "missing factor", "scopes": []string{"legacy:read"}, "expires_at": time.Now().Add(time.Hour)}, token, csrf, ""); status != 400 {
 		t.Fatal("fresh MFA must be supplied")
@@ -186,7 +191,7 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	}
 	readCredential, readID := create([]string{"legacy:read"})
 	otherUser := scalar("INSERT INTO users(email,password_hash) VALUES('other@example.test',$1) RETURNING id", hash)
-	_, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("other-panel"), UserID: otherUser, CsrfToken: "other-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	_, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("other-panel"), UserID: otherUser, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "other-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

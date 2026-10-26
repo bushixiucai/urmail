@@ -326,11 +326,10 @@ func (c *Config) validate() error {
 	if c.PostfixV80Preserve && !c.PolicyEnabled {
 		return errors.New("v80 SMTP preservation requires URMAIL_POLICY_ENABLED")
 	}
-	if c.DevMode {
-		host, _, err := net.SplitHostPort(c.ListenAddr)
-		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-			return fmt.Errorf("development mode requires a loopback listener")
-		}
+	host, port, err := net.SplitHostPort(c.ListenAddr)
+	listenerPort, portErr := strconv.Atoi(port)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || portErr != nil || listenerPort < 1 || listenerPort > 65535 {
+		return errors.New("HTTP requires an explicit loopback IP and a port between 1 and 65535")
 	}
 	var missing []string
 	if c.DatabaseURL == "" {

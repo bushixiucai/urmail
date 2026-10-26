@@ -13,11 +13,11 @@ UPDATE refunds SET status='rejected',approved_by=$2,approved_at=now(),approval_r
 
 -- name: PlatformClaimApprovedRefund :one
 UPDATE refunds r SET status='processing',request_started_at=now(),last_error_code=NULL
-FROM (SELECT id FROM refunds WHERE status='approved' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1) candidate
+FROM (SELECT id FROM refunds WHERE status='approved' AND next_attempt_at<=now() ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1) candidate
 WHERE r.id=candidate.id RETURNING r.*;
 
 -- name: PlatformListRefundsToReconcile :many
-SELECT * FROM refunds WHERE status IN('processing','uncertain') AND request_started_at<now()-interval '2 minutes' ORDER BY request_started_at LIMIT 50;
+SELECT * FROM refunds WHERE status IN('processing','uncertain') AND approved_by IS NOT NULL AND request_started_at<now()-interval '2 minutes' AND next_reconcile_at<=now() ORDER BY next_reconcile_at,id LIMIT 50;
 
 -- name: PlatformRecordRefundProviderState :execrows
 UPDATE refunds SET status=$2,provider_refund_no=COALESCE($3,provider_refund_no),completed_at=CASE WHEN $2='completed' THEN now() ELSE completed_at END,last_error_code=$4
@@ -42,7 +42,7 @@ UPDATE orders o SET status=CASE WHEN (SELECT COALESCE(sum(r.amount_cents),0) FRO
 WHERE o.tenant_id=$1 AND o.id=$2 AND EXISTS(SELECT 1 FROM invoices i0 WHERE i0.tenant_id=o.tenant_id AND i0.order_id=o.id AND i0.source_payment_id=$3);
 
 -- name: PlatformListRefundEntitlementsDue :many
-SELECT * FROM refunds WHERE status='completed' AND entitlement_action<>'none' AND entitlement_effective_at<=now() AND entitlement_applied_at IS NULL ORDER BY id LIMIT 50;
+SELECT * FROM refunds WHERE status='completed' AND entitlement_action<>'none' AND entitlement_effective_at<=now() AND entitlement_applied_at IS NULL AND next_entitlement_attempt_at<=now() ORDER BY next_entitlement_attempt_at,id LIMIT 50;
 
 -- name: PlatformRevokeRefundTerm :exec
 UPDATE subscription_terms SET revoked_at=now(),revoked_by_refund=$3
@@ -56,16 +56,18 @@ WHERE s.tenant_id=$1 AND s.entitlement_source='standard' AND s.status IN('active
 UPDATE refunds SET entitlement_applied_at=now() WHERE id=$1 AND status='completed' AND entitlement_applied_at IS NULL;
 
 -- name: PlatformNextApprovedRefund :one
-SELECT * FROM refunds WHERE status='approved' ORDER BY id LIMIT 1;
+SELECT * FROM refunds WHERE status='approved' AND next_attempt_at<=now() ORDER BY next_attempt_at,id LIMIT 1;
 
 -- name: PlatformClaimRefundByID :one
-UPDATE refunds SET status='processing',request_started_at=now(),last_error_code=NULL WHERE tenant_id=$1 AND id=$2 AND status='approved' RETURNING *;
+UPDATE refunds SET status='processing',request_started_at=now(),last_error_code=NULL WHERE tenant_id=$1 AND id=$2 AND status='approved' AND next_attempt_at<=now() RETURNING *;
 
 -- name: PlatformRefundTenant :one
 SELECT tenant_id FROM refunds WHERE id=$1;
 
 -- name: PlatformFlagApprovedRefund :exec
-UPDATE refunds SET last_error_code=$3 WHERE tenant_id=$1 AND id=$2 AND status='approved';
+UPDATE refunds SET last_error_code=$3,dispatch_attempts=LEAST(dispatch_attempts+1,1000),
+ next_attempt_at=now()+make_interval(secs=>LEAST(3600,10*power(2,LEAST(dispatch_attempts,9)))::double precision)
+WHERE tenant_id=$1 AND id=$2 AND status='approved';
 
 -- name: PlatformGetRefundTargetTerm :one
 SELECT * FROM subscription_terms WHERE tenant_id=$1 AND order_id=$2;
@@ -76,3 +78,12 @@ UPDATE refunds SET status='uncertain',request_started_at=now(),last_error_code='
 -- name: PlatformReconfirmObservedRefund :execrows
 UPDATE refunds SET status='uncertain',approved_by=$2,approved_at=now(),approval_reason=$3,request_started_at=now()
 WHERE id=$1 AND approved_by IS NULL AND status IN('pending','uncertain');
+
+-- name: PlatformListApprovedRefundCandidates :many
+SELECT * FROM refunds WHERE status='approved' AND next_attempt_at<=now() ORDER BY next_attempt_at,id LIMIT 25;
+
+-- name: PlatformDeferRefundReconciliation :exec
+UPDATE refunds SET next_reconcile_at=now()+interval '2 minutes' WHERE tenant_id=$1 AND id=$2 AND status IN('processing','uncertain');
+
+-- name: PlatformDeferRefundEntitlement :exec
+UPDATE refunds SET next_entitlement_attempt_at=now()+interval '2 minutes' WHERE tenant_id=$1 AND id=$2 AND status='completed' AND entitlement_applied_at IS NULL;

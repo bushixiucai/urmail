@@ -156,6 +156,19 @@ func TestMerchantCheckoutWebhookDurabilityAndConfiguration(t *testing.T) {
 		return "t=" + ts + ",v1=" + hex.EncodeToString(mac.Sum(nil))
 	}
 	path := fmt.Sprintf("/payments/%d/webhook", id)
+	for _, invalid := range []string{`{"private":"invalid-a"}`, `{"private":"invalid-b"}`} {
+		response = call(http.MethodPost, path, invalid, "invalid-signature")
+		if response.Code != 400 {
+			t.Fatalf("unverified callback unexpectedly retryable: %d %s", response.Code, response.Body)
+		}
+	}
+	var rejectedRows, unverifiedInbox int64
+	if err = p.QueryRow(ctx, "SELECT count(*) FROM payment_webhook_rejections WHERE merchant_id=$1", id).Scan(&rejectedRows); err != nil || rejectedRows != 1 {
+		t.Fatalf("rejected callbacks were not aggregated: %d %v", rejectedRows, err)
+	}
+	if err = p.QueryRow(ctx, "SELECT count(*) FROM payment_webhook_inbox WHERE merchant_id=$1", id).Scan(&unverifiedInbox); err != nil || unverifiedInbox != 0 {
+		t.Fatalf("unverified callback reached financial inbox: %d %v", unverifiedInbox, err)
+	}
 	response = call(http.MethodPost, path, payload, sign(payload))
 	if response.Code != 200 {
 		t.Fatalf("webhook %d %s", response.Code, response.Body)
