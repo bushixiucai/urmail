@@ -66,7 +66,11 @@ func (m *ApplyManager) ObserveHost(raw json.RawMessage) (string, string, error) 
 		if err = syscall.Statfs(path, &stat); err != nil {
 			return "", "", fmt.Errorf("host fixed storage unavailable")
 		}
-		observation.Filesystems[path] = FilesystemObservation{Total: stat.Blocks * uint64(stat.Bsize), Available: stat.Bavail * uint64(stat.Bsize), Inodes: stat.Files, AvailableInodes: stat.Ffree}
+		if stat.Bsize <= 0 {
+			return "", "", errors.New("host fixed storage block size unavailable")
+		}
+		blockSize := uint64(stat.Bsize)
+		observation.Filesystems[path] = FilesystemObservation{Total: stat.Blocks * blockSize, Available: stat.Bavail * blockSize, Inodes: stat.Files, AvailableInodes: stat.Ffree}
 	}
 	for _, unit := range []string{"postfix", "dovecot", "nginx", "opendkim", "nsd"} {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
