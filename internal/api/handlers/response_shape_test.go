@@ -284,6 +284,10 @@ func (f *shapeFakeAliasStore) DeleteAlias(_ context.Context, _ store.DeleteAlias
 	return nil
 }
 
+func (f *shapeFakeAliasStore) AliasWouldCycle(_ context.Context, _ store.AliasWouldCycleParams) (bool, error) {
+	return false, nil
+}
+
 // --- tenant fake ---
 
 type shapeFakeTenantStore struct {

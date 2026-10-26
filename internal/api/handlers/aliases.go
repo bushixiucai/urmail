@@ -21,6 +21,8 @@ type AliasStore interface {
 	GetDomainByID(ctx context.Context, arg store.GetDomainByIDParams) (store.GetDomainByIDRow, error)
 	CreateAlias(ctx context.Context, arg store.CreateAliasParams) (store.MailboxAliases, error)
 	DeleteAlias(ctx context.Context, arg store.DeleteAliasParams) error
+	// MAIL-02: boolean cross-tenant routing-cycle preflight.
+	AliasWouldCycle(ctx context.Context, arg store.AliasWouldCycleParams) (bool, error)
 }
 
 // AliasHandler defines the tenant mail management contract.
@@ -175,6 +177,28 @@ func (h *AliasHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// MAIL-02: the tenant-local graph cannot see other tenants, but a routing
+	// cycle across tenants would fail the whole-platform render. The database
+	// predicate answers with a boolean only, so no other tenant's data is
+	// revealed. Catch-all targets are not walkable edges in the renderer.
+	if kind != "catchall" {
+		cycles, err := q.AliasWouldCycle(c, store.AliasWouldCycleParams{
+			Domain:    domain.Fqdn,
+			LocalPart: local,
+			Target:    target,
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+			return
+		}
+		if cycles {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": gin.H{"code": "ALIAS_CYCLE", "message": "alias.cycle"},
+			})
+			return
+		}
+	}
+
 	alias, err := q.CreateAlias(c, store.CreateAliasParams{
 		TenantID:  tenantID,
 		DomainID:  domain.ID,
@@ -314,6 +338,22 @@ func (h *AliasHandler) Update(c *gin.Context) {
 	if domainMail.ValidateAliases(rules, addresses) != nil {
 		c.JSON(400, gin.H{"error": gin.H{"code": "INVALID_ALIAS"}})
 		return
+	}
+	// MAIL-02: same cross-tenant cycle preflight as create.
+	if active && kind != "catchall" {
+		cycles, err := q.AliasWouldCycle(c, store.AliasWouldCycleParams{
+			Domain:    existing.DomainFqdn,
+			LocalPart: local,
+			Target:    target,
+		})
+		if err != nil {
+			c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+			return
+		}
+		if cycles {
+			c.JSON(409, gin.H{"error": gin.H{"code": "ALIAS_CYCLE", "message": "alias.cycle"}})
+			return
+		}
 	}
 	row, err := q.UpdateAlias(c, store.UpdateAliasParams{TenantID: tid, ID: id, LocalPart: local, Target: target, Kind: kind, Active: active})
 	if err != nil {

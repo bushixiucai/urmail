@@ -18,6 +18,11 @@ type Querier interface {
 	AddMarketingSuppression(ctx context.Context, arg AddMarketingSuppressionParams) (MarketingSuppressions, error)
 	AddSupportAttachment(ctx context.Context, arg AddSupportAttachmentParams) (AddSupportAttachmentRow, error)
 	AddSupportMessage(ctx context.Context, arg AddSupportMessageParams) (TicketMessages, error)
+	// MAIL-02: global routing-cycle preflight for a candidate alias. Returns a
+	// boolean only; no cross-tenant rows or graph structure are exposed. Exempt
+	// from tenant_id predicate per AGENTS.md (platform_*.sql): the cycle lives in
+	// the platform-wide graph by definition.
+	AliasWouldCycle(ctx context.Context, arg AliasWouldCycleParams) (bool, error)
 	ArchiveRetentionCandidateDigest(ctx context.Context, arg ArchiveRetentionCandidateDigestParams) (ArchiveRetentionCandidateDigestRow, error)
 	AuditLegacyCredentialUse(ctx context.Context, arg AuditLegacyCredentialUseParams) error
 	AuthenticateApplicationCredential(ctx context.Context, arg AuthenticateApplicationCredentialParams) (AuthenticateApplicationCredentialRow, error)

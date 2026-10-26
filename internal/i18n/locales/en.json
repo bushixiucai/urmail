@@ -62,6 +62,7 @@
   "ai.admin.usage_help": "Enter only verified actual tokens and currency-micro costs. Release requires confirmed zero usage and cost. BYO/local cost must be zero. Fresh reservations are rejected; unknown outcomes are never automatically released.",
   "ai.admin.usage_invalid": "Enter explicit non-negative safe integers, currency and reason. Release requires zero/zero; BYO/local cannot incur platform cost.",
   "alias.already_exists": "Alias rule already exists",
+  "alias.cycle": "This rule would create a routing loop with existing forwarding rules",
   "alias.kind.alias": "Alias",
   "alias.kind.catchall": "Catch-all",
   "alias.kind.forward": "Forward",

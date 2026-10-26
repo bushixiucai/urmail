@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const aliasWouldCycle = `-- name: AliasWouldCycle :one
+SELECT urmail_alias_would_cycle($1, $2, $3) AS would_cycle
+`
+
+type AliasWouldCycleParams struct {
+	Domain    string `json:"domain"`
+	LocalPart string `json:"local_part"`
+	Target    string `json:"target"`
+}
+
+// MAIL-02: global routing-cycle preflight for a candidate alias. Returns a
+// boolean only; no cross-tenant rows or graph structure are exposed. Exempt
+// from tenant_id predicate per AGENTS.md (platform_*.sql): the cycle lives in
+// the platform-wide graph by definition.
+func (q *Queries) AliasWouldCycle(ctx context.Context, arg AliasWouldCycleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, aliasWouldCycle, arg.Domain, arg.LocalPart, arg.Target)
+	var would_cycle bool
+	err := row.Scan(&would_cycle)
+	return would_cycle, err
+}
+
 const platformListAliases = `-- name: PlatformListAliases :many
 SELECT d.fqdn AS domain, a.local_part, a.target, a.kind,
  ARRAY(SELECT m.address FROM mailboxes m JOIN domains md ON md.id=m.domain_id AND md.tenant_id=m.tenant_id

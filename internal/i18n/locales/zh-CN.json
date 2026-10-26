@@ -62,6 +62,7 @@
   "ai.admin.usage_help": "仅按已核实事实填写实际 token 和微币种成本。释放仅限确认未消耗的0/0；BYO/本地模型成本必须为0。未过期预占会被后端拒绝，未知结果不会自动释放。",
   "ai.admin.usage_invalid": "请填写明确的非负安全整数、币种和理由；释放须0/0，BYO/本地不得计平台成本。",
   "alias.already_exists": "别名或规则已存在",
+  "alias.cycle": "该规则将与现有转发规则形成路由环路",
   "alias.kind.alias": "别名",
   "alias.kind.catchall": "全收地址",
   "alias.kind.forward": "转发",
