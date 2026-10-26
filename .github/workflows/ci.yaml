@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref.
 concurrency:
