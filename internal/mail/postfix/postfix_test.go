@@ -1,6 +1,7 @@
 package postfix_test
 
 import (
+	"errors"
 	"flag"
 	"go/parser"
 	"go/token"
@@ -387,6 +388,28 @@ func TestErrorPaths(t *testing.T) {
 		_, err := postfix.Generate(node, snap)
 		if err == nil || !strings.Contains(err.Error(), postfix.ErrAliasCycle.Error()) {
 			t.Errorf("expected ErrAliasCycle, got %v", err)
+		}
+	})
+
+	// MAIL-01 follow-up: a render failure must name the offending alias so an
+	// operator can locate the row immediately.
+	t.Run("invalid_target_error_names_alias_coordinates", func(t *testing.T) {
+		snap := postfix.Snapshot{
+			Domains: []postfix.Domain{
+				{FQDN: "example.com", Status: "active"},
+			},
+			Aliases: []postfix.Alias{
+				{Domain: "example.com", LocalPart: "poison", Target: "a*b@outside.test", Kind: "alias"},
+			},
+		}
+		_, err := postfix.Generate(node, snap)
+		if err == nil || !errors.Is(err, postfix.ErrInvalidTarget) {
+			t.Fatalf("expected ErrInvalidTarget, got %v", err)
+		}
+		for _, want := range []string{"poison", "example.com"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q does not name alias coordinate %q", err, want)
+			}
 		}
 	})
 

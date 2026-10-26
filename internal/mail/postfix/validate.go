@@ -129,10 +129,12 @@ func Validate(node NodeConfig, snap Snapshot) error {
 			}
 		}
 
-		// Target must be valid email
+		// Target must be valid email. The alias coordinates in the message let
+		// an operator locate the offending row immediately instead of grepping
+		// the whole mailbox_aliases table (audit MAIL-01 follow-up).
 		target := strings.ToLower(a.Target)
 		if !isValidEmail(target) {
-			return fmt.Errorf("%w: invalid target %q", ErrInvalidTarget, a.Target)
+			return fmt.Errorf("%w: invalid target %q for alias %s@%s", ErrInvalidTarget, a.Target, a.LocalPart, a.Domain)
 		}
 
 		// Conflict check: same (domain, local_part)
