@@ -1,4 +1,7 @@
-import json,re,ssl,urllib.request,urllib.parse,http.cookiejar,pathlib,imaplib,secrets
+import json,re,ssl,urllib.request,urllib.parse,http.cookiejar,pathlib,imaplib,secrets,sys
+# Roundcube packaging is retired; this chain required /usr/share/urmail/roundcube (manage.sh).
+print('SKIP Roundcube packaging is retired; w13-roundcube-chain is not run')
+sys.exit(0)
 f=json.load(open('/root/w13-private-fixture.json'));base='https://box.w13.test';ctx=ssl.create_default_context(cafile='/var/lib/urmail-agent/certs/panel/fullchain.pem');jar=http.cookiejar.CookieJar();opener=urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx),urllib.request.HTTPCookieProcessor(jar))
 def call(path,data=None,headers=None):
  body=urllib.parse.urlencode(data).encode()if data is not None else None;req=urllib.request.Request(base+path,body,headers or {});response=opener.open(req,timeout=30);return response.read().decode(),response

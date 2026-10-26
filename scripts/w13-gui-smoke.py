@@ -61,10 +61,17 @@ def main():
         digest, path = line.split()
         if not re.search(r'^' + re.escape(digest) + r'\s+' + re.escape(path) + r'$', baseline_runtime, re.M):
             parser.error('Installed binaries changed since the bound protocol matrix; rerun that matrix first')
-    bridge_hashes = subprocess.check_output(['docker', 'exec', args.container, 'sha256sum', '/usr/share/urmail/roundcube/plugins/urmail_bridge/bridge.js', '/usr/share/roundcube/plugins/urmail_bridge/bridge.js'], text=True).splitlines()
-    expected_bridge = hashlib.sha256(subprocess.check_output(['git', 'show', identity['source_commit'] + ':packaging/roundcube/plugins/urmail_bridge/bridge.js'])).hexdigest()
-    if any(line.split()[0] != expected_bridge for line in bridge_hashes):
-        parser.error('Installed Roundcube script differs from the bound source; do not treat overlays as final-package evidence')
+    # Roundcube packaging is retired (packaging/roundcube and /usr/share/urmail/roundcube removed).
+    skip = {
+        'skipped': True,
+        'reason': 'Roundcube packaging is retired; GUI smoke that required packaging/roundcube and /usr/share/urmail/roundcube is not run',
+        'source_commit': identity['source_commit'],
+        'package_sha256': actual,
+        'harness_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
+    (evidence / 'gui-result.json').write_text(json.dumps(skip, indent=2) + '\n')
+    print('SKIP Roundcube packaging is retired; w13-gui-smoke does not require packaging/roundcube or /usr/share/urmail/roundcube')
+    return
     inspect = json.loads(subprocess.check_output(['docker', 'inspect', args.container], text=True))[0]
     if inspect['HostConfig'].get('PortBindings'):
         parser.error('Application container must not expose public ports')

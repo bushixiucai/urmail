@@ -28,6 +28,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
+	"github.com/bushixiucai/urmail/internal/mailboxschedule"
 	"github.com/bushixiucai/urmail/internal/marketing"
 	"github.com/bushixiucai/urmail/internal/notify"
 	"github.com/bushixiucai/urmail/internal/payment"
@@ -35,6 +36,7 @@ import (
 	refundService "github.com/bushixiucai/urmail/internal/refund"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".
@@ -185,6 +187,19 @@ func run() error {
 		return fmt.Errorf("configure marketing worker: %w", workerErr)
 	}
 	go marketingWorker.Run(ctx)
+	webmailVault := webmail.NewMemoryVault()
+	smtpAddr := "127.0.0.1:587"
+	if cfg.WebmailNative && !cfg.Quarantined && secretBox != nil {
+		schedWorker := mailboxschedule.NewWorker(mailboxschedule.Options{
+			Pool:      platformPool,
+			Secrets:   secretBox,
+			Vault:     webmailVault,
+			Dialer:    webmail.NetDialer{Addr: cfg.IMAPAddr},
+			Submitter: webmail.NetSubmitter{Addr: smtpAddr},
+			Logger:    logger,
+		})
+		go schedWorker.Run(ctx)
+	}
 	var queueReader handlers.QueueReader
 	telemetryStream := cfg.MyHostname
 	if telemetryStream == "" {
@@ -207,6 +222,8 @@ func run() error {
 		RoundcubeEnabled:    cfg.RoundcubeEnabled,
 		WebmailNative:       cfg.WebmailNative,
 		IMAPAddr:            cfg.IMAPAddr,
+		SMTPAddr:            smtpAddr,
+		WebmailVault:        webmailVault,
 		MetricsToken:        cfg.MetricsToken,
 		SieveActivator:      sieveActivator,
 		AICloudEndpoints:    cfg.AICloudEndpoints,

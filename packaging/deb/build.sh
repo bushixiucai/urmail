@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Build the urMail.cn Debian package.
 #
-# The package contains only urMail.cn's own artefacts. Third-party components
-# (Nextcloud, Roundcube, Z-Push) are installed from their upstream sources at
-# install time, so they are deliberately not bundled: bundling them would
-# pull their AGPL obligations into the distribution.
+# The package contains urMail.cn's own artifacts and service configuration.
+# Native Go webmail replaces the retired PHP, Roundcube, Nextcloud and Z-Push
+# stacks; those applications are neither bundled nor installed by this package.
 set -euo pipefail
 
 VERSION="${1:-0.1.0}"

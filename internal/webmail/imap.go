@@ -33,9 +33,20 @@ type Client interface {
 	ListFolders(ctx context.Context) ([]Folder, error)
 	ListMessages(ctx context.Context, folder string, opts ListOpts) (ListResult, error)
 	GetMessage(ctx context.Context, folder string, uid uint32) (*Message, error)
+	GetAttachment(ctx context.Context, folder string, uid uint32, partID string) (filename, contentType string, data []byte, err error)
 	SetFlags(ctx context.Context, folder string, uids []uint32, add, remove []string) error
 	MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) error
 	DeleteMessages(ctx context.Context, folder string, uids []uint32, expunge bool) error
+	// EnsureDraftsFolder resolves SPECIAL-USE \Drafts (or name Drafts), creating
+	// DraftsFolderName when missing. Returns the IMAP mailbox name.
+	EnsureDraftsFolder(ctx context.Context) (string, error)
+	// SaveDraft APPENDs MIME with \Draft into the drafts folder. When replaceUID
+	// is non-zero, the previous UID is deleted+expunged after a successful APPEND
+	// (append-new-then-delete-old). A successful result always includes verified
+	// UIDPLUS identity; CleanupPending reports a failed old-draft removal.
+	SaveDraft(ctx context.Context, from string, msg Outgoing, replaceUID, replaceUIDValidity uint32) (DraftSaveResult, error)
+	// FolderUIDValidity binds subsequent reads to the current mailbox identity.
+	FolderUIDValidity(ctx context.Context, folder string) (uint32, error)
 	Close() error
 }
 
@@ -46,8 +57,8 @@ type Dialer interface {
 
 // NetDialer dials a loopback IMAP listener with LOGIN + LIST.
 type NetDialer struct {
-	Addr        string
-	Timeout     time.Duration
+	Addr    string
+	Timeout time.Duration
 	// TLS wraps the TCP connection (IMAPS). When nil, TLS is used automatically
 	// for :993. ServerName defaults to the dial host; set InsecureSkipVerify for
 	// loopback Dovecot with a hostname cert (box.urmail.cn).
@@ -70,9 +81,9 @@ func (d NetDialer) Dial(ctx context.Context, address, password string) (Client, 
 	}
 	raw, err := dial(ctx, "tcp", d.Addr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDialFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDialFailed, err)
 	}
-	conn := net.Conn(raw)
+	conn := raw
 	useTLS := d.TLS != nil || strings.HasSuffix(d.Addr, ":993")
 	if useTLS {
 		cfg := d.TLS
@@ -89,30 +100,39 @@ func (d NetDialer) Dial(ctx context.Context, address, password string) (Client, 
 			}
 		}
 		tlsConn := tls.Client(raw, cfg)
-		if err = tlsConn.HandshakeContext(ctx); err != nil {
+		handshakeCtx, cancelHandshake := context.WithTimeout(ctx, timeout)
+		err = tlsConn.HandshakeContext(handshakeCtx)
+		cancelHandshake()
+		if err != nil {
 			_ = raw.Close()
-			return nil, fmt.Errorf("%w: %v", ErrDialFailed, err)
+			return nil, fmt.Errorf("%w: %w", ErrDialFailed, err)
 		}
 		conn = tlsConn
 	}
 	_ = conn.SetDeadline(time.Now().Add(timeout))
-	c := &imapConn{conn: conn, r: bufio.NewReader(conn), tag: 0}
-	if err = c.readGreeting(); err != nil {
+	c := &imapConn{conn: conn, r: bufio.NewReader(conn), tag: 0, timeout: timeout}
+	finishGreeting := c.guardIO(ctx)
+	err = c.readGreeting()
+	finishGreeting()
+	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("%w: %v", ErrDialFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDialFailed, err)
 	}
 	if err = c.command(ctx, "LOGIN", quoteIMAP(address), quoteIMAP(password)); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("%w: %v", ErrDialFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDialFailed, err)
 	}
 	_ = conn.SetDeadline(time.Time{})
 	return c, nil
 }
 
 type imapConn struct {
-	conn net.Conn
-	r    *bufio.Reader
-	tag  int
+	conn                net.Conn
+	r                   *bufio.Reader
+	tag                 int
+	timeout             time.Duration
+	validities          map[string]uint32
+	selectedUIDValidity uint32
 }
 
 func (c *imapConn) nextTag() string {
@@ -132,6 +152,8 @@ func (c *imapConn) readGreeting() error {
 }
 
 func (c *imapConn) command(ctx context.Context, verb string, args ...string) error {
+	finish := c.guardIO(ctx)
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -168,6 +190,8 @@ func (c *imapConn) command(ctx context.Context, verb string, args ...string) err
 
 // ListFolders runs LIST "" "*" and parses untagged LIST responses.
 func (c *imapConn) ListFolders(ctx context.Context) ([]Folder, error) {
+	finish := c.guardIO(ctx)
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -202,6 +226,7 @@ func (c *imapConn) Close() error {
 	if c.conn == nil {
 		return nil
 	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 	_, _ = io.WriteString(c.conn, c.nextTag()+" LOGOUT\r\n")
 	err := c.conn.Close()
 	c.conn = nil
@@ -279,4 +304,26 @@ func readIMAPString(s string) (string, string, bool) {
 		return parts[0], "", true
 	}
 	return parts[0], parts[1], true
+}
+
+// guardIO bounds both unresponsive peers and cancellation while blocked in I/O.
+// Each Client is single-owner, so no commands may run concurrently on it.
+func (c *imapConn) guardIO(ctx context.Context) func() {
+	budget := c.timeout
+	if budget <= 0 {
+		budget = 10 * time.Second
+	}
+	deadline := time.Now().Add(budget)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = c.conn.SetDeadline(deadline)
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { _ = c.conn.SetDeadline(time.Now()); close(done) })
+	return func() {
+		if !stop() {
+			<-done
+		}
+		_ = c.conn.SetDeadline(time.Time{})
+	}
 }

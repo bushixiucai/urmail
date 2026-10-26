@@ -449,6 +449,28 @@ type MailboxOperationTickets struct {
 	Kind        string             `json:"kind"`
 }
 
+type MailboxScheduledSends struct {
+	ID               int64              `json:"id"`
+	TenantID         int64              `json:"tenant_id"`
+	MailboxID        int64              `json:"mailbox_id"`
+	DraftFolder      string             `json:"draft_folder"`
+	DraftUid         int64              `json:"draft_uid"`
+	SendAt           pgtype.Timestamptz `json:"send_at"`
+	Status           string             `json:"status"`
+	Attempts         int32              `json:"attempts"`
+	LastError        pgtype.Text        `json:"last_error"`
+	SmtpSecret       string             `json:"smtp_secret"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	DraftUidvalidity int64              `json:"draft_uidvalidity"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	RequestHash      string             `json:"request_hash"`
+	ClaimToken       int64              `json:"claim_token"`
+	LeaseUntil       pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt    pgtype.Timestamptz `json:"next_attempt_at"`
+	SentAt           pgtype.Timestamptz `json:"sent_at"`
+}
+
 type MailboxSessions struct {
 	TokenHash       string             `json:"token_hash"`
 	TenantID        int64              `json:"tenant_id"`

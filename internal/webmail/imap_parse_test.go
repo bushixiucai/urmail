@@ -47,8 +47,38 @@ func TestParseMIMEBodyMultipart(t *testing.T) {
 	if text != "hello" || html != "<p>hi</p>" {
 		t.Fatalf("text=%q html=%q", text, html)
 	}
-	if len(atts) != 1 || atts[0].Filename != "a.pdf" {
+	if len(atts) != 1 || atts[0].Filename != "a.pdf" || atts[0].PartID != "3" {
 		t.Fatalf("atts=%#v", atts)
+	}
+}
+
+func TestExtractMIMEPartBase64(t *testing.T) {
+	// "PDFDATA" base64-encoded
+	raw := "MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/mixed; boundary=bnd\r\n\r\n" +
+		"--bnd\r\nContent-Type: text/plain\r\n\r\nhello\r\n" +
+		"--bnd\r\nContent-Type: application/pdf; name=\"a.pdf\"\r\n" +
+		"Content-Disposition: attachment; filename=\"a.pdf\"\r\n" +
+		"Content-Transfer-Encoding: base64\r\n\r\n" +
+		"UERGREFUQQ==\r\n" +
+		"--bnd--\r\n"
+	filename, ct, data, err := extractMIMEPart([]byte(raw), "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filename != "a.pdf" || ct != "application/pdf" {
+		t.Fatalf("meta filename=%q ct=%q", filename, ct)
+	}
+	if string(data) != "PDFDATA" {
+		t.Fatalf("data=%q", data)
+	}
+	_, _, _, err = extractMIMEPart([]byte(raw), "9")
+	if err == nil {
+		t.Fatal("expected missing part")
+	}
+	text, _, atts := parseMIMEBody([]byte(raw))
+	if text != "hello" || len(atts) != 1 || atts[0].PartID != "2" || atts[0].Size != int64(len("PDFDATA")) {
+		t.Fatalf("parse text=%q atts=%#v", text, atts)
 	}
 }
 

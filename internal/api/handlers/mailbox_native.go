@@ -36,6 +36,8 @@ type MailboxNativeHandler struct {
 	Vault     webmail.CredentialVault
 	Dialer    webmail.Dialer
 	Submitter webmail.Submitter
+	// Secrets seals SMTP passwords into mailbox_scheduled_sends.smtp_secret.
+	Secrets SecretsBox
 	// Pool is required for self-service password change (platform transaction).
 	Pool *db.Pool
 }

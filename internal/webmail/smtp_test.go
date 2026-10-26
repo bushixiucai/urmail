@@ -11,7 +11,7 @@ import (
 )
 
 func TestNetSubmitterSend(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -38,11 +38,11 @@ func TestNetSubmitterSend(t *testing.T) {
 			return
 		}
 		write("235 OK")
-		line, _ = r.ReadString('\n') // MAIL
+		_, _ = r.ReadString('\n') // MAIL
 		write("250 OK")
-		line, _ = r.ReadString('\n') // RCPT
+		_, _ = r.ReadString('\n') // RCPT
 		write("250 OK")
-		line, _ = r.ReadString('\n') // DATA
+		_, _ = r.ReadString('\n') // DATA
 		write("354 Go")
 		var payload strings.Builder
 		for {

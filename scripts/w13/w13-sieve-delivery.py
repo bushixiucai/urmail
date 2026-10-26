@@ -1,4 +1,7 @@
-import json,pathlib,ssl,urllib.request,urllib.error,secrets,email.message,smtplib,imaplib,time,hashlib
+import json,pathlib,ssl,urllib.request,urllib.error,secrets,email.message,smtplib,imaplib,time,hashlib,sys
+# Depends on Roundcube-issued Sieve session from retired packaging; fail-soft.
+print('SKIP Roundcube packaging is retired; w13-sieve-delivery is not run')
+sys.exit(0)
 f=json.load(open('/root/w13-private-fixture.json'));session=json.load(open('/root/w13-sieve-session.json'));cookies=json.load(open('/root/w13-rc-cookie.json'));token=next(c['value']for c in cookies if c['name']=='urmail_mailbox_sieve');base='https://box.w13.test';context=ssl.create_default_context(cafile='/var/lib/urmail-agent/certs/panel/fullchain.pem')
 marker='w13-sieve-'+secrets.token_hex(8);rules={'rules':[{'header':'subject','match':'contains','value':marker,'action':'fileinto','folder':'W13 Reviewed'}],'vacation':{'enabled':False}}
 def save(confirmed):

@@ -17,6 +17,7 @@ type restoredWorkSpec struct {
 }
 
 var restoredWorkSpecs = []restoredWorkSpec{
+	{"mailbox_scheduled_sends", "status", "held", []string{"pending", "sending", "preparing", "submitting", "uncertain", "held"}},
 	{"refunds", "status", "uncertain", []string{"pending", "approved", "processing", "uncertain"}},
 	{"marketing_recipients", "status", "uncertain", []string{"queued", "claimed", "leased", "submitting", "uncertain"}},
 	{"marketing_campaigns", "status", "paused", []string{"scheduled", "running"}},
@@ -156,10 +157,13 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 			}
 		}
 		assignments := []string{state + "=$2"}
+		if spec.table == "mailbox_scheduled_sends" && columns["smtp_secret"] {
+			assignments = append(assignments, "smtp_secret=''")
+		}
 		if spec.table == "payment_checkout_intents" && columns["restore_hold"] {
 			assignments = append(assignments, "restore_hold=true")
 		}
-		for _, name := range []string{"fence", "lease_fence"} {
+		for _, name := range []string{"fence", "lease_fence", "claim_token"} {
 			if columns[name] {
 				column := pgx.Identifier{name}.Sanitize()
 				assignments = append(assignments, column+"="+column+"+1")

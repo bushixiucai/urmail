@@ -11,10 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  changeMailboxPassword,
-  clearMailboxSession,
-} from "./mailbox-api";
+import { changeMailboxPassword, clearMailboxSession } from "./mailbox-api";
 
 interface MailboxPasswordDialogProps {
   open: boolean;

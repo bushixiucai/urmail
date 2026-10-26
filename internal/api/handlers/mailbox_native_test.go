@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,20 +74,29 @@ func (f *fakeMailboxSessions) GetMailboxSession(ctx context.Context, tokenHash s
 }
 
 type fakeIMAPClient struct {
-	folders  []webmail.Folder
-	listed   webmail.ListResult
-	message  *webmail.Message
-	flagged  []uint32
-	moved    []uint32
-	deleted  []uint32
-	moveTo   string
-	expunged bool
+	folders        []webmail.Folder
+	listed         webmail.ListResult
+	message        *webmail.Message
+	flagged        []uint32
+	moved          []uint32
+	deleted        []uint32
+	moveTo         string
+	expunged       bool
+	lastListOpts   webmail.ListOpts
+	draftFolder    string
+	savedDraft     webmail.Outgoing
+	replaceUID     uint32
+	nextDraftUID   uint32
+	attachmentErr  error
+	draftErr       error
+	cleanupPending bool
 }
 
 func (f *fakeIMAPClient) ListFolders(context.Context) ([]webmail.Folder, error) {
 	return webmail.WithEncodedNames(f.folders), nil
 }
-func (f *fakeIMAPClient) ListMessages(context.Context, string, webmail.ListOpts) (webmail.ListResult, error) {
+func (f *fakeIMAPClient) ListMessages(_ context.Context, _ string, opts webmail.ListOpts) (webmail.ListResult, error) {
+	f.lastListOpts = opts
 	return f.listed, nil
 }
 func (f *fakeIMAPClient) GetMessage(_ context.Context, _ string, uid uint32) (*webmail.Message, error) {
@@ -94,6 +104,20 @@ func (f *fakeIMAPClient) GetMessage(_ context.Context, _ string, uid uint32) (*w
 		return nil, fmt.Errorf("message not found")
 	}
 	return f.message, nil
+}
+func (f *fakeIMAPClient) GetAttachment(_ context.Context, _ string, uid uint32, partID string) (string, string, []byte, error) {
+	if f.attachmentErr != nil {
+		return "", "", nil, f.attachmentErr
+	}
+	if f.message == nil || f.message.UID != uid {
+		return "", "", nil, fmt.Errorf("message not found")
+	}
+	for _, a := range f.message.Attachments {
+		if a.PartID == partID {
+			return a.Filename, a.ContentType, []byte("attachment-bytes"), nil
+		}
+	}
+	return "", "", nil, fmt.Errorf("attachment not found")
 }
 func (f *fakeIMAPClient) SetFlags(_ context.Context, _ string, uids []uint32, _, _ []string) error {
 	f.flagged = append([]uint32{}, uids...)
@@ -108,6 +132,51 @@ func (f *fakeIMAPClient) DeleteMessages(_ context.Context, _ string, uids []uint
 	f.deleted = append([]uint32{}, uids...)
 	f.expunged = expunge
 	return nil
+}
+func (f *fakeIMAPClient) EnsureDraftsFolder(context.Context) (string, error) {
+	if name := webmail.ResolveDraftsFolder(f.folders); name != "" {
+		f.draftFolder = name
+		return name, nil
+	}
+	f.draftFolder = webmail.DraftsFolderName
+	f.folders = append(f.folders, webmail.Folder{
+		Name: webmail.DraftsFolderName, Delimiter: "/", Flags: []string{`\Drafts`},
+	})
+	return f.draftFolder, nil
+}
+func (f *fakeIMAPClient) FolderUIDValidity(context.Context, string) (uint32, error) {
+	return 9, nil
+}
+
+func (f *fakeIMAPClient) SaveDraft(_ context.Context, _ string, msg webmail.Outgoing, replaceUID, replaceUIDValidity uint32) (webmail.DraftSaveResult, error) {
+	if f.draftErr != nil {
+		return webmail.DraftSaveResult{}, f.draftErr
+	}
+	if replaceUID != 0 && replaceUIDValidity != 9 {
+		return webmail.DraftSaveResult{}, webmail.ErrDraftChanged
+	}
+	folder, err := f.EnsureDraftsFolder(context.Background())
+	if err != nil {
+		return webmail.DraftSaveResult{}, err
+	}
+	f.savedDraft = msg
+	f.replaceUID = replaceUID
+	if replaceUID != 0 {
+		f.deleted = append([]uint32{}, replaceUID)
+		f.expunged = true
+	}
+	uid := f.nextDraftUID
+	if uid == 0 {
+		uid = 101
+	}
+	f.nextDraftUID = uid + 1
+	return webmail.DraftSaveResult{
+		Folder:         folder,
+		NameEnc:        webmail.EncodeFolderName(folder),
+		UID:            uid,
+		UIDValidity:    9,
+		CleanupPending: f.cleanupPending,
+	}, nil
 }
 func (f *fakeIMAPClient) Close() error { return nil }
 
@@ -159,7 +228,11 @@ func newNativeTestRouter(t *testing.T, h *MailboxNativeHandler, sessions middlew
 	auth.POST("/folders/:name/messages/move", h.MoveMessages)
 	auth.POST("/folders/:name/messages/delete", h.DeleteMessages)
 	auth.GET("/folders/:name/messages/:uid", h.GetMessage)
+	auth.GET("/folders/:name/messages/:uid/attachments/:part_id", h.GetAttachment)
 	auth.POST("/send", h.SendMessage)
+	auth.PUT("/drafts", h.SaveDraft)
+	auth.GET("/drafts", h.ListDrafts)
+	auth.DELETE("/drafts/:uid", h.DeleteDraft)
 	auth.POST("/password", h.ChangePassword)
 	auth.DELETE("/session", h.DeleteSession)
 	return r
@@ -169,7 +242,7 @@ func loginNative(t *testing.T, r *gin.Engine, email, password string) string {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mailbox/session", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/mailbox/session", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -210,7 +283,7 @@ func TestMailboxNativeCreateSessionAndListFolders(t *testing.T) {
 	token := loginNative(t, r, "Alice@Example.test", password)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/mailbox/folders", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -230,7 +303,7 @@ func TestMailboxNativeCreateSessionAndListFolders(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/mailbox/session", nil)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/mailbox/session", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -260,7 +333,7 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 			MessageSummary: webmail.MessageSummary{UID: 7, Subject: "Hello"},
 			Text:           "plain",
 			HTML:           "<p>plain</p>",
-			Attachments:    []webmail.AttachmentMeta{{Filename: "a.txt", ContentType: "text/plain", Size: 1}},
+			Attachments:    []webmail.AttachmentMeta{{PartID: "3", Filename: "a.txt", ContentType: "text/plain", Size: 1}},
 		},
 	}
 	submit := &fakeSubmitter{}
@@ -285,7 +358,7 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 			reader = bytes.NewReader(nil)
 		}
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(method, path, reader)
+		req := httptest.NewRequestWithContext(context.Background(), method, path, reader)
 		req.Header.Set("Authorization", "Bearer "+token)
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
@@ -301,6 +374,13 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	w = auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7", nil)
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"plain"`)) {
 		t.Fatalf("get message %d %s", w.Code, w.Body.String())
+	}
+	w = auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7/attachments/3", nil)
+	if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), []byte("attachment-bytes")) {
+		t.Fatalf("get attachment %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Content-Disposition"), "a.txt") {
+		t.Fatalf("disposition=%q", w.Header().Get("Content-Disposition"))
 	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/flags", map[string]any{
 		"uids": []int{7}, "add": []string{`\Seen`},
@@ -326,6 +406,180 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	if w.Code != http.StatusOK || submit.last.Subject != "Hi" {
 		t.Fatalf("send %d %#v", w.Code, submit.last)
 	}
+	submit.err = fmt.Errorf("acceptance reply lost: %w", webmail.ErrSubmitUncertain)
+	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{
+		"to": []string{"bob@example.test"}, "text": "do not blindly repeat",
+	})
+	if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("MAILBOX_SEND_UNCERTAIN")) {
+		t.Fatalf("uncertain SMTP result %d %s", w.Code, w.Body.String())
+	}
+	for _, failure := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{webmail.ErrAttachmentTooLarge, http.StatusRequestEntityTooLarge, "ATTACHMENT_TOO_LARGE"},
+		{webmail.ErrInvalidMIME, http.StatusUnprocessableEntity, "ATTACHMENT_INVALID"},
+	} {
+		imap.attachmentErr = failure.err
+		w = auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7/attachments/3", nil)
+		if w.Code != failure.status || !bytes.Contains(w.Body.Bytes(), []byte(failure.code)) || strings.Contains(w.Header().Get("Content-Disposition"), "attachment") {
+			t.Fatalf("attachment failure %d %s", w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestMailboxNativeDraftsSaveListDelete(t *testing.T) {
+	loginAttempts = newLoginLimiter()
+	password := "correct-horse-battery"
+	hash, err := domainMail.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	sessions := &fakeMailboxSessions{}
+	imap := &fakeIMAPClient{
+		folders: []webmail.Folder{{Name: "INBOX", Delimiter: "/"}},
+		listed: webmail.ListResult{
+			Total: 1,
+			Messages: []webmail.MessageSummary{{
+				UID: 101, Subject: "Draft hi", Flags: []string{`\Draft`},
+			}},
+		},
+	}
+	h := &MailboxNativeHandler{
+		Enabled:  true,
+		Auth:     fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: hash},
+		Sessions: sessions,
+		Vault:    webmail.NewMemoryVault(),
+		Dialer:   &fakeDialer{wantAddress: "alice@example.test", client: imap},
+	}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", password)
+	auth := func(method, path string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		var reader *bytes.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			reader = bytes.NewReader(raw)
+		} else {
+			reader = bytes.NewReader(nil)
+		}
+		w := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(context.Background(), method, path, reader)
+		req.Header.Set("Authorization", "Bearer "+token)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	w := auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{
+		"to": []string{"bob@example.test"}, "subject": "Draft hi", "text": "body",
+		"attachments": []map[string]string{{
+			"filename": "a.txt", "content_type": "text/plain",
+			"content_base64": "aGVsbG8=",
+		}},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("save draft %d %s", w.Code, w.Body.String())
+	}
+	if imap.savedDraft.Subject != "Draft hi" || len(imap.savedDraft.Attachments) != 1 {
+		t.Fatalf("saved=%#v", imap.savedDraft)
+	}
+	var saved struct {
+		UID         uint32 `json:"uid"`
+		Folder      string `json:"folder"`
+		UIDValidity uint32 `json:"uid_validity"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil || saved.UID != 101 || saved.Folder != "Drafts" || saved.UIDValidity != 9 {
+		t.Fatalf("save body=%s", w.Body.String())
+	}
+
+	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{
+		"uid": saved.UID, "uid_validity": saved.UIDValidity, "subject": "Draft hi 2", "text": "updated",
+	})
+	if w.Code != http.StatusOK || imap.replaceUID != 101 || !imap.expunged {
+		t.Fatalf("replace %d replaceUID=%d expunge=%v body=%s", w.Code, imap.replaceUID, imap.expunged, w.Body.String())
+	}
+
+	w = auth(http.MethodGet, "/api/v1/mailbox/drafts?limit=10", nil)
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"Draft hi"`)) {
+		t.Fatalf("list %d %s", w.Code, w.Body.String())
+	}
+
+	w = auth(http.MethodDelete, "/api/v1/mailbox/drafts/101?uid_validity=9", nil)
+	if w.Code != http.StatusOK || len(imap.deleted) != 1 || imap.deleted[0] != 101 {
+		t.Fatalf("delete %d deleted=%v", w.Code, imap.deleted)
+	}
+	imap.deleted = nil
+	w = auth(http.MethodDelete, "/api/v1/mailbox/drafts/101?uid_validity=10", nil)
+	if w.Code != http.StatusConflict || len(imap.deleted) != 0 {
+		t.Fatalf("stale draft deletion %d deleted=%v", w.Code, imap.deleted)
+	}
+	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"uid": 102, "uid_validity": 10, "text": "stale"})
+	if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("DRAFT_CHANGED")) {
+		t.Fatalf("stale draft save %d %s", w.Code, w.Body.String())
+	}
+	imap.draftErr = webmail.ErrDraftUncertain
+	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"text": "unconfirmed"})
+	if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("DRAFT_SAVE_UNCERTAIN")) {
+		t.Fatalf("uncertain draft %d %s", w.Code, w.Body.String())
+	}
+	imap.draftErr, imap.cleanupPending = nil, true
+	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"text": "saved new copy"})
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"cleanup_pending":true`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"uid_validity":9`)) {
+		t.Fatalf("partial cleanup %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMailboxNativeListMessagesSearchQuery(t *testing.T) {
+	loginAttempts = newLoginLimiter()
+	password := "correct-horse-battery"
+	hash, err := domainMail.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	sessions := &fakeMailboxSessions{}
+	imap := &fakeIMAPClient{
+		folders: []webmail.Folder{{Name: "INBOX", Delimiter: "/"}},
+		listed: webmail.ListResult{
+			Messages: []webmail.MessageSummary{{UID: 3, Subject: "hit"}},
+			Total:    1,
+		},
+	}
+	h := &MailboxNativeHandler{
+		Enabled:  true,
+		Auth:     fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: hash},
+		Sessions: sessions,
+		Vault:    webmail.NewMemoryVault(),
+		Dialer:   &fakeDialer{wantAddress: "alice@example.test", client: imap},
+	}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", password)
+	folder := webmail.EncodeFolderName("INBOX")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages?q=from:bob+is:unseen&limit=10", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list search %d %s", w.Code, w.Body.String())
+	}
+	if imap.lastListOpts.Query != "from:bob is:unseen" {
+		t.Fatalf("query=%q", imap.lastListOpts.Query)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"q":"from:bob is:unseen"`)) {
+		t.Fatalf("body=%s", w.Body.String())
+	}
+
+	bad := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages?q=before:1", nil)
+	bad.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, bad)
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("INVALID_SEARCH_QUERY")) {
+		t.Fatalf("bad q %d %s", w.Code, w.Body.String())
+	}
 }
 
 func TestMailboxNativeRejectsBadPassword(t *testing.T) {
@@ -345,7 +599,7 @@ func TestMailboxNativeRejectsBadPassword(t *testing.T) {
 	r := newNativeTestRouter(t, h, sessions)
 	body, _ := json.Marshal(map[string]string{"email": "alice@example.test", "password": "wrong"})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mailbox/session", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/mailbox/session", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -357,12 +611,12 @@ func TestMailboxNativeDisabled(t *testing.T) {
 	h := &MailboxNativeHandler{Enabled: false}
 	r := newNativeTestRouter(t, h, &fakeMailboxSessions{})
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mailbox/status", nil))
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/status", nil))
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"native":false`)) {
 		t.Fatalf("status = %d %s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mailbox/session", bytes.NewReader([]byte(`{"email":"a@b.c","password":"x"}`)))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/mailbox/session", bytes.NewReader([]byte(`{"email":"a@b.c","password":"x"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusServiceUnavailable {
@@ -381,7 +635,7 @@ func TestMailboxNativeFoldersRequireBearer(t *testing.T) {
 	}
 	r := newNativeTestRouter(t, h, sessions)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mailbox/folders", nil))
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d", w.Code)
 	}
@@ -406,7 +660,7 @@ func TestMailboxNativePasswordRequiresPool(t *testing.T) {
 	token := loginNative(t, r, "alice@example.test", password)
 	body, _ := json.Marshal(map[string]string{"old_password": password, "new_password": "new-secret-password"})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mailbox/password", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/mailbox/password", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)

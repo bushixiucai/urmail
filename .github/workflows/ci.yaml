@@ -88,6 +88,15 @@ jobs:
       - name: Test
         run: npm test -- --run
 
+      - name: Install browser for isolated webmail privacy regression
+        run: npx playwright install --with-deps chromium
+
+      - name: Test native webmail privacy in Chromium
+        env:
+          URMAIL_E2E_NATIVE_FIXTURE: "1"
+          URMAIL_E2E_BASE_URL: http://127.0.0.1:5187
+        run: npx playwright test e2e/native-webmail.spec.ts --workers=1
+
       - name: Build
         run: npm run build
 
@@ -119,7 +128,7 @@ jobs:
       - name: Test against PostgreSQL
         env:
           URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail?sslmode=disable
-        run: go test -race -p 1 ./internal/db/... ./internal/api/... ./internal/reconcile/...
+        run: go test -race -p 1 ./internal/db/... ./internal/api/... ./internal/reconcile/... ./internal/mailboxschedule/...
 
   embed:
     name: Embedded frontend

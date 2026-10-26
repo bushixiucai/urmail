@@ -44,6 +44,9 @@ func seedRestoreExternalWork(t *testing.T, dsn string, latest bool) {
  SELECT id INTO t FROM tenants WHERE slug='restore-replay'; SELECT id INTO o FROM orders WHERE order_no='restore-order';
  INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES(t,'restore.example.test','active','fixture',now()) RETURNING id INTO d;
  INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes) VALUES(t,d,'alice','alice@restore.example.test','unused',1024) RETURNING id INTO m;
+ INSERT INTO mailbox_scheduled_sends(tenant_id,mailbox_id,draft_folder,draft_uid,draft_uidvalidity,send_at,status,smtp_secret,claim_token,lease_until)
+ SELECT t,m,'Drafts',n,9,now()-interval '1 hour',state,'enc:fixture',4,now()+interval '1 hour'
+ FROM (VALUES(1,'pending'),(2,'preparing'),(3,'submitting'),(4,'uncertain'),(5,'sent'),(6,'cancelled')) v(n,state);
  INSERT INTO marketing_channels(tenant_id,name,kind,sender_address,encrypted_config) VALUES(t,'restore','dedicated_gateway','alice@restore.example.test','enc:v1:fixture') RETURNING id INTO c;
  INSERT INTO marketing_templates(tenant_id,name,subject,text_body) VALUES(t,'restore','subject','body') RETURNING id INTO tpl;
  INSERT INTO marketing_lists(tenant_id,name) VALUES(t,'restore') RETURNING id INTO l;
@@ -196,6 +199,8 @@ func TestNativeDatabaseRestoreQuarantinesExternalReplay(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 	checks := []struct{ name, query string }{
+		{"scheduled external replay remains held", `SELECT count(*)=4 AND bool_and(status='held' AND smtp_secret='' AND lease_until IS NULL AND claim_token>=5) FROM mailbox_scheduled_sends WHERE draft_uid<=4`},
+		{"scheduled completed history retained", `SELECT count(*)=2 AND bool_and(status IN('sent','cancelled')) FROM mailbox_scheduled_sends WHERE draft_uid>4`},
 		{"approved refund fact retained", `SELECT status='uncertain' AND approved_by IS NOT NULL AND approval_reason='Approved before snapshot' AND amount_cents=200 AND provider_refund_no='upstream-stable-refund' FROM refunds WHERE refund_no='approved-stable-refund'`},
 		{"completed refund untouched", `SELECT status='completed' AND amount_cents=300 FROM refunds WHERE refund_no='completed-stable-refund'`},
 		{"marketing retains quota and stable recipient but invalidates lease", `SELECT count(*)=2 AND bool_and(status='uncertain' AND reserved AND lease_owner IS NULL AND lease_until IS NULL AND fence>=3) FROM marketing_recipients WHERE email<>'sent@example.test'`},

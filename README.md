@@ -10,8 +10,8 @@ urMail.cn 把「域名邮箱」这件事做成一个**可售卖、可自助开�
 
 | 能力 | 说明 |
 |---|---|
-| 多租户 | 域名即租户。用户、别名、配额、账单、审计全部按租户强隔离（PostgreSQL Row-Level Security + 应用层双保险） |
-| 唯一事实源 | PostgreSQL。Dovecot 的 userdb 与配额、Postfix 的别名与策略、Roundcube 的认证，全部直接读同一份数据 |
+| 多租户 | 一个租户可管理多个域名。用户、别名、配额、账单、审计全部按租户强隔离（PostgreSQL Row-Level Security + 应用层双保险） |
+| 唯一事实源 | PostgreSQL。Dovecot 的 userdb 与配额、Postfix 的别名与策略、原生 Webmail 的邮箱身份和任务状态读取同一份数据 |
 | 自助开通 | 加域名 → 自动 DNS → 自动证书 → 自动开邮箱，零人工介入 |
 | 双 DNS 模式 | **全托管**（把 NS 指向我们）或**委派**（通过 Cloudflare / 阿里云 / 腾讯云 / DNSPod API 自动写入记录） |
 | 商业闭环 | 套餐 → 下单 → 支付（微信 / 支付宝 / 聚合 / Stripe / PayPal）→ 自动开通 → 计量 → 到期续费 / 退款 / 发票 |
@@ -20,6 +20,8 @@ urMail.cn 把「域名邮箱」这件事做成一个**可售卖、可自助开�
 | 多语言 | 后端与前端**共享同一份消息目录**，不会出现前后端文案不一致 |
 
 ## 实施与验收状态
+
+原生网页邮箱入口为 `/webmail`，邮箱身份独立登录，通过 Go API 使用 IMAP/SMTP。PHP、Roundcube 和 Nextcloud 已退出当前产品栈。2026-10-26 的修复在 schema 77 增加定时任务领取凭证、取消边界、幂等和恢复 hold；已提交但结果不确定的邮件停止自动重投。升级后的旧任务和恢复后的任务需要核对，不会自动重新发送。本轮本地验收见 `docs/acceptance/native-webmail-remediation-2026-10-26.md`，不代表生产部署或公网验收。
 
 第三轮修复覆盖权限、认证、事务、配置应用、配额、管理面和交付工具。当前验证记录见本机 `docs/acceptance/m1-m4-v3.md`；正式发布版本须在验收后确定，源码实现和本地测试不等于生产上线。新增的 v1 接口子集契约在 `api/v1-remediation.openapi.yaml`。
 
@@ -83,6 +85,19 @@ AGPL-3.0。见 [LICENSE](LICENSE)。
 > 该 fork 的代码以 CC0 1.0 释置于公有领域。
 
 ## 本地运维验收
+
+原生 Webmail 的协议、HTTP 和 PostgreSQL 组合验收可在独占 Docker 容器中运行：
+
+```bash
+python3 scripts/native-webmail-protocol-acceptance.py
+```
+
+脚本要求本地存在 `urmail-v3-runtime:22.04` 镜像（可用 `--image` 指定同等运行镜像），仅使用无外网、无宿主端口的临时容器与测试数据，退出时清理容器。它验证草稿、定时发送、真实 SMTP/LMTP、Bcc 和大附件哈希；不验证新装、生产配置或公网证书。浏览器远程资源屏蔽回归会自动启动本地 Vite：
+
+```bash
+cd web
+URMAIL_E2E_NATIVE_FIXTURE=1 npx playwright test e2e/native-webmail.spec.ts
+```
 
 安装器最多等待 240 秒，覆盖三分钟的配置应用预算与启动准备；失败仍以非零退出。`urmailctl config status --wait 90s` 只有在首次配置应用完成、必要服务探针成功且 desired/applied generation 一致时才成功。`/api/v1/healthz` 用于进程与数据库存活检查，两者用途不同。
 

@@ -248,6 +248,7 @@ type Querier interface {
 	PlatformAuthorizeBillingOrder(ctx context.Context, arg PlatformAuthorizeBillingOrderParams) (int64, error)
 	PlatformAuthorizeMarketingSend(ctx context.Context, arg PlatformAuthorizeMarketingSendParams) (string, error)
 	PlatformBeginArchivePurge(ctx context.Context, arg PlatformBeginArchivePurgeParams) error
+	PlatformBeginMailboxScheduledSendSubmission(ctx context.Context, arg PlatformBeginMailboxScheduledSendSubmissionParams) (MailboxScheduledSends, error)
 	PlatformBillingCalendarReviewExcludingOrder(ctx context.Context, arg PlatformBillingCalendarReviewExcludingOrderParams) (bool, error)
 	PlatformBillingLegacyIssues(ctx context.Context) ([]PlatformBillingLegacyIssuesRow, error)
 	PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (BrandHosts, error)
@@ -256,12 +257,14 @@ type Querier interface {
 	PlatformBindRegisteredOwner(ctx context.Context, arg PlatformBindRegisteredOwnerParams) error
 	PlatformCancelActiveSubscriptions(ctx context.Context, tenantID int64) (int64, error)
 	PlatformCancelArchivePurgeIntent(ctx context.Context, arg PlatformCancelArchivePurgeIntentParams) error
+	PlatformCancelMailboxScheduledSend(ctx context.Context, arg PlatformCancelMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformCancelPendingOrder(ctx context.Context, id int64) (Orders, error)
 	PlatformChangeMailboxPasswordCAS(ctx context.Context, arg PlatformChangeMailboxPasswordCASParams) (int64, error)
 	PlatformChangeSupportTicket(ctx context.Context, arg PlatformChangeSupportTicketParams) (Tickets, error)
 	PlatformClaimApprovedRefund(ctx context.Context) (Refunds, error)
 	PlatformClaimDNSPlan(ctx context.Context, leaseOwner pgtype.Text) (DnsChangePlans, error)
 	PlatformClaimEmailNotification(ctx context.Context) (NotificationOutbox, error)
+	PlatformClaimMailboxScheduledSend(ctx context.Context) (MailboxScheduledSends, error)
 	PlatformClaimMarketingRecipient(ctx context.Context, leaseOwner string) (MarketingRecipients, error)
 	PlatformClaimMerchantWebhook(ctx context.Context, arg PlatformClaimMerchantWebhookParams) (PaymentWebhookInbox, error)
 	PlatformClaimOnboarding(ctx context.Context, leasedBy pgtype.Text) (OnboardingTasks, error)
@@ -286,6 +289,8 @@ type Querier interface {
 	PlatformCreateLegacyAlias(ctx context.Context, arg PlatformCreateLegacyAliasParams) (MailboxAliases, error)
 	PlatformCreateLegacyDomain(ctx context.Context, arg PlatformCreateLegacyDomainParams) (int64, error)
 	PlatformCreateLegacyMailbox(ctx context.Context, arg PlatformCreateLegacyMailboxParams) (int64, error)
+	// Service-only schedule metadata; message bodies stay in IMAP.
+	PlatformCreateMailboxScheduledSend(ctx context.Context, arg PlatformCreateMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformCreateMailboxSession(ctx context.Context, arg PlatformCreateMailboxSessionParams) (MailboxSessions, error)
 	PlatformCreateMailboxTicket(ctx context.Context, arg PlatformCreateMailboxTicketParams) (MailboxOperationTickets, error)
 	PlatformCreateManagedInvoice(ctx context.Context, arg PlatformCreateManagedInvoiceParams) (int64, error)
@@ -336,6 +341,7 @@ type Querier interface {
 	PlatformFinishAIRequest(ctx context.Context, arg PlatformFinishAIRequestParams) (int64, error)
 	PlatformFinishArchivePurge(ctx context.Context, arg PlatformFinishArchivePurgeParams) error
 	PlatformFinishEmailNotification(ctx context.Context, arg PlatformFinishEmailNotificationParams) (int64, error)
+	PlatformFinishMailboxScheduledSend(ctx context.Context, arg PlatformFinishMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformFinishMarketingSend(ctx context.Context, arg PlatformFinishMarketingSendParams) (bool, error)
 	PlatformFinishMerchantWebhook(ctx context.Context, arg PlatformFinishMerchantWebhookParams) (int64, error)
 	PlatformFlagApprovedRefund(ctx context.Context, arg PlatformFlagApprovedRefundParams) error
@@ -363,6 +369,9 @@ type Querier interface {
 	// Platform-side archive writes. The archive pipe runs outside a tenant
 	// transaction, so these queries live in a platform_*.sql file.
 	PlatformGetMailboxByAddress(ctx context.Context, address string) (PlatformGetMailboxByAddressRow, error)
+	PlatformGetMailboxScheduledSend(ctx context.Context, arg PlatformGetMailboxScheduledSendParams) (MailboxScheduledSends, error)
+	PlatformGetMailboxScheduledSendAddress(ctx context.Context, arg PlatformGetMailboxScheduledSendAddressParams) (string, error)
+	PlatformGetMailboxScheduledSendByKey(ctx context.Context, arg PlatformGetMailboxScheduledSendByKeyParams) (MailboxScheduledSends, error)
 	PlatformGetMailboxSession(ctx context.Context, tokenHash string) (PlatformGetMailboxSessionRow, error)
 	PlatformGetMailboxSessionForRevocation(ctx context.Context, tokenHash string) (PlatformGetMailboxSessionForRevocationRow, error)
 	PlatformGetMailboxSieve(ctx context.Context, arg PlatformGetMailboxSieveParams) (PlatformGetMailboxSieveRow, error)
@@ -432,6 +441,7 @@ type Querier interface {
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListDomains(ctx context.Context) ([]PlatformListDomainsRow, error)
+	PlatformListMailboxScheduledSends(ctx context.Context, arg PlatformListMailboxScheduledSendsParams) ([]MailboxScheduledSends, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListMailboxes(ctx context.Context) ([]PlatformListMailboxesRow, error)
@@ -513,6 +523,7 @@ type Querier interface {
 	PlatformRecordSubscriptionTerm(ctx context.Context, arg PlatformRecordSubscriptionTermParams) error
 	PlatformRecoverMarketingClaims(ctx context.Context) (int64, error)
 	PlatformRecoverMarketingSubmissions(ctx context.Context) (int64, error)
+	PlatformRecoverStaleMailboxScheduledSends(ctx context.Context) (int64, error)
 	PlatformRedeemCoupon(ctx context.Context, arg PlatformRedeemCouponParams) (string, error)
 	PlatformRefreshAIAlerts(ctx context.Context) error
 	PlatformRefreshDNSOnboardingAlerts(ctx context.Context) error
@@ -532,6 +543,7 @@ type Querier interface {
 	PlatformRepairLegacySubscriptionPeriod(ctx context.Context, arg PlatformRepairLegacySubscriptionPeriodParams) (int64, error)
 	PlatformReplySupportTicket(ctx context.Context, arg PlatformReplySupportTicketParams) (TicketMessages, error)
 	PlatformRequestCheckoutCancel(ctx context.Context, arg PlatformRequestCheckoutCancelParams) (PaymentCheckoutIntents, error)
+	PlatformRequeueMailboxScheduledSend(ctx context.Context, arg PlatformRequeueMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformReserveAIRequest(ctx context.Context, arg PlatformReserveAIRequestParams) (AiUsageRequests, error)
 	PlatformResetBrandTheme(ctx context.Context, id int64) (int64, error)
 	PlatformResetDeliveryQueueContexts(ctx context.Context, stream string) error

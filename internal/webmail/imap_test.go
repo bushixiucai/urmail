@@ -44,7 +44,7 @@ func TestParseLIST(t *testing.T) {
 }
 
 func TestNetDialerListFolders(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestNetDialerListFolders(t *testing.T) {
 }
 
 func TestNetDialerListAndGetMessage(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -173,8 +173,77 @@ func TestNetDialerListAndGetMessage(t *testing.T) {
 	}
 }
 
+func TestNetDialerListMessagesSearch(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	env := `("17-Oct-2026 10:00:00 +0000" "Subj" (("Alice" NIL "alice" "example.test")) NIL NIL NIL NIL NIL NIL NIL)`
+	searchLine := make(chan string, 1)
+	go func() {
+		conn, _ := ln.Accept()
+		defer conn.Close()
+		w := bufio.NewWriter(conn)
+		r := bufio.NewReader(conn)
+		_, _ = io.WriteString(w, "* OK ready\r\n")
+		_ = w.Flush()
+		line, _ := r.ReadString('\n')
+		tag := strings.Fields(line)[0]
+		_, _ = io.WriteString(w, tag+" OK\r\n")
+		_ = w.Flush()
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			tag = strings.Fields(line)[0]
+			switch {
+			case strings.Contains(line, "SELECT"):
+				_, _ = io.WriteString(w, tag+" OK [READ-WRITE]\r\n")
+			case strings.Contains(line, "UID SEARCH"):
+				searchLine <- strings.TrimSpace(line)
+				_, _ = io.WriteString(w, "* SEARCH 9\r\n"+tag+" OK\r\n")
+			case strings.Contains(line, "UID FETCH") && strings.Contains(line, "ENVELOPE"):
+				_, _ = io.WriteString(w, `* 1 FETCH (UID 9 FLAGS () RFC822.SIZE 3 ENVELOPE `+env+")\r\n")
+				_, _ = io.WriteString(w, tag+" OK\r\n")
+			case strings.Contains(line, "LOGOUT"):
+				_, _ = io.WriteString(w, tag+" OK\r\n")
+				_ = w.Flush()
+				return
+			default:
+				_, _ = io.WriteString(w, tag+" OK\r\n")
+			}
+			_ = w.Flush()
+		}
+	}()
+
+	client, err := (NetDialer{Addr: ln.Addr().String(), Timeout: 2 * time.Second}).Dial(context.Background(), "u@e.test", "pw")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	listed, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 10, Query: "subject:Hi from:a is:unseen"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if listed.Total != 1 || len(listed.Messages) != 1 || listed.Messages[0].UID != 9 {
+		t.Fatalf("listed=%#v", listed)
+	}
+	cmd := <-searchLine
+	for _, want := range []string{"UID SEARCH", "UNSEEN", `SUBJECT "Hi"`, `FROM "a"`} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("missing %q in %q", want, cmd)
+		}
+	}
+	if strings.Contains(cmd, "ALL") {
+		t.Fatalf("unexpected ALL in %q", cmd)
+	}
+}
+
 func TestNetDialerFlagsMoveDelete(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}

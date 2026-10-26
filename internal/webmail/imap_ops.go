@@ -5,20 +5,24 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
 	"net/mail"
 	"strconv"
 	"strings"
 )
 
 // ListMessages SELECTs the folder, UIDs newest-first, then FETCHes a page.
+// When opts.Query is set, uses UID SEARCH with BuildSearchCriteria(q) instead
+// of ALL; see BuildSearchCriteria for q semantics.
 func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpts) (ListResult, error) {
 	opts = ClampListOpts(opts)
+	criteria, err := BuildSearchCriteria(opts.Query)
+	if err != nil {
+		return ListResult{}, err
+	}
 	if err := c.selectFolder(ctx, folder); err != nil {
 		return ListResult{}, err
 	}
-	uids, err := c.uidSearchAll(ctx)
+	uids, err := c.uidSearch(ctx, criteria)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -64,17 +68,75 @@ func (c *imapConn) GetMessage(ctx context.Context, folder string, uid uint32) (*
 	if err != nil {
 		return nil, err
 	}
-	msg := &Message{MessageSummary: summaries[0], Attachments: []AttachmentMeta{}}
+	msg := &Message{MessageSummary: summaries[0], UIDValidity: c.selectedUIDValidity, Attachments: []AttachmentMeta{}}
 	if len(rawBody) > 0 {
-		text, html, atts := parseMIMEBody(rawBody)
+		text, html, atts, parseErr := parseMIMEBodyStrict(rawBody)
+		if parseErr != nil {
+			return nil, parseErr
+		}
 		msg.Text = text
 		msg.HTML = html
 		msg.Attachments = atts
+		msg.To, msg.Cc, msg.Bcc = parseHeaderRecipients(rawBody)
 	}
 	return msg, nil
 }
 
+func parseHeaderRecipients(raw []byte) (to, cc, bcc []Address) {
+	msg, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return nil, nil, nil
+	}
+	return addressesFromHeader(msg.Header.Get("To")),
+		addressesFromHeader(msg.Header.Get("Cc")),
+		addressesFromHeader(msg.Header.Get("Bcc"))
+}
+
+func addressesFromHeader(raw string) []Address {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	list, err := mail.ParseAddressList(raw)
+	if err != nil || len(list) == 0 {
+		return nil
+	}
+	out := make([]Address, 0, len(list))
+	for _, a := range list {
+		if a == nil || a.Address == "" {
+			continue
+		}
+		out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+	}
+	return out
+}
+
+// GetAttachment re-FETCHes BODY[] and returns one part by PartID numbering
+// matching parseMIMEBody (top-level multipart parts, 1-based).
+func (c *imapConn) GetAttachment(ctx context.Context, folder string, uid uint32, partID string) (filename, contentType string, data []byte, err error) {
+	if uid == 0 {
+		return "", "", nil, fmt.Errorf("invalid uid")
+	}
+	partID = strings.TrimSpace(partID)
+	if partID == "" {
+		return "", "", nil, fmt.Errorf("attachment not found")
+	}
+	if err := c.selectFolder(ctx, folder); err != nil {
+		return "", "", nil, err
+	}
+	rawBody, err := c.uidFetchBody(ctx, uid)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if len(rawBody) == 0 {
+		return "", "", nil, fmt.Errorf("attachment not found")
+	}
+	return extractMIMEPart(rawBody, partID)
+}
+
 func (c *imapConn) uidFetchBody(ctx context.Context, uid uint32) ([]byte, error) {
+	finish := c.guardIO(ctx)
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -181,21 +243,81 @@ func (c *imapConn) DeleteMessages(ctx context.Context, folder string, uids []uin
 }
 
 func (c *imapConn) selectFolder(ctx context.Context, folder string) error {
-	if err := ctx.Err(); err != nil {
-		return err
+	validity, err := c.selectMailbox(ctx, folder, false)
+	if err == nil {
+		c.selectedUIDValidity = validity
 	}
-	if folder == "" {
-		return fmt.Errorf("empty folder")
-	}
-	return c.command(ctx, "SELECT", quoteIMAP(folder))
+	return err
 }
 
-func (c *imapConn) uidSearchAll(ctx context.Context) ([]uint32, error) {
+// FolderUIDValidity binds a mailbox generation for subsequent SELECT/FETCH calls.
+func (c *imapConn) FolderUIDValidity(ctx context.Context, folder string) (uint32, error) {
+	validity, err := c.selectMailbox(ctx, folder, true)
+	if err != nil {
+		return 0, err
+	}
+	if c.validities == nil {
+		c.validities = make(map[string]uint32)
+	}
+	c.validities[folder] = validity
+	return validity, nil
+}
+
+func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bool) (uint32, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if folder == "" {
+		return 0, fmt.Errorf("empty folder")
+	}
+	finish := c.guardIO(ctx)
+	defer finish()
+	tag := c.nextTag()
+	if _, err := io.WriteString(c.conn, tag+" SELECT "+quoteIMAP(folder)+"\r\n"); err != nil {
+		return 0, err
+	}
+	var validity uint32
+	for {
+		line, err := c.r.ReadString('\n')
+		if err != nil {
+			return 0, err
+		}
+		upper := strings.ToUpper(line)
+		if i := strings.Index(upper, "[UIDVALIDITY "); i >= 0 {
+			field := strings.SplitN(upper[i+len("[UIDVALIDITY "):], "]", 2)[0]
+			n, parseErr := strconv.ParseUint(strings.TrimSpace(field), 10, 32)
+			if parseErr == nil {
+				validity = uint32(n)
+			}
+		}
+		if strings.HasPrefix(line, tag+" OK") {
+			expected := c.validities[folder]
+			if (required || expected != 0) && validity == 0 {
+				return 0, ErrDraftChanged
+			}
+			if expected != 0 && validity != expected {
+				return 0, ErrDraftChanged
+			}
+			return validity, nil
+		}
+		if strings.HasPrefix(line, tag+" ") {
+			return 0, fmt.Errorf("%s", strings.TrimSpace(line))
+		}
+	}
+}
+
+func (c *imapConn) uidSearch(ctx context.Context, criteria string) ([]uint32, error) {
+	finish := c.guardIO(ctx)
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if criteria == "" {
+		criteria = "ALL"
+	}
 	tag := c.nextTag()
-	if _, err := io.WriteString(c.conn, tag+" UID SEARCH ALL\r\n"); err != nil {
+	// criteria is produced only by BuildSearchCriteria (quoted literals).
+	if _, err := io.WriteString(c.conn, tag+" UID SEARCH "+criteria+"\r\n"); err != nil {
 		return nil, err
 	}
 	var lines []string
@@ -218,6 +340,8 @@ func (c *imapConn) uidSearchAll(ctx context.Context) ([]uint32, error) {
 }
 
 func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]MessageSummary, error) {
+	finish := c.guardIO(ctx)
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -329,69 +453,4 @@ func trailingLiteralSize(line string) (int, bool) {
 		return 0, false
 	}
 	return n, true
-}
-
-func parseMIMEBody(raw []byte) (text, html string, atts []AttachmentMeta) {
-	atts = []AttachmentMeta{}
-	msg, err := mail.ReadMessage(bytes.NewReader(raw))
-	if err != nil {
-		// Treat as plain body if headers are missing.
-		return string(raw), "", atts
-	}
-	ct := msg.Header.Get("Content-Type")
-	if ct == "" {
-		ct = "text/plain"
-	}
-	media, params, err := mime.ParseMediaType(ct)
-	if err != nil {
-		body, _ := io.ReadAll(io.LimitReader(msg.Body, 8<<20))
-		return string(body), "", atts
-	}
-	if strings.HasPrefix(media, "multipart/") {
-		mr := multipart.NewReader(msg.Body, params["boundary"])
-		partID := 0
-		for {
-			part, partErr := mr.NextPart()
-			if partErr == io.EOF {
-				break
-			}
-			if partErr != nil {
-				break
-			}
-			partID++
-			body, _ := io.ReadAll(io.LimitReader(part, 8<<20))
-			pct := part.Header.Get("Content-Type")
-			if pct == "" {
-				pct = "application/octet-stream"
-			}
-			pmedia, pparams, _ := mime.ParseMediaType(pct)
-			filename := part.FileName()
-			if filename == "" {
-				filename = pparams["name"]
-			}
-			disp := part.Header.Get("Content-Disposition")
-			isAttach := strings.HasPrefix(strings.ToLower(disp), "attachment") || filename != ""
-			switch {
-			case pmedia == "text/plain" && text == "" && !isAttach:
-				text = string(body)
-			case pmedia == "text/html" && html == "" && !isAttach:
-				html = string(body)
-			case isAttach || (!strings.HasPrefix(pmedia, "text/") && pmedia != "multipart/alternative" && pmedia != "multipart/related"):
-				atts = append(atts, AttachmentMeta{
-					PartID:      strconv.Itoa(partID),
-					Filename:    filename,
-					ContentType: pmedia,
-					Size:        int64(len(body)),
-				})
-			}
-		}
-		return text, html, atts
-	}
-	body, _ := io.ReadAll(io.LimitReader(msg.Body, 8<<20))
-	switch media {
-	case "text/html":
-		return "", string(body), atts
-	default:
-		return string(body), "", atts
-	}
 }

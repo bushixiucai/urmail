@@ -46,13 +46,13 @@ type Options struct {
 	// Reconcile is the configuration reconcile trigger.
 	Reconcile handlers.ReconcileTrigger
 	// Recall processes persisted local mailbox recalls through the root agent.
-	Recall              handlers.RecallExpunger
-	Queue               handlers.QueueReader
-	TelemetryStream     string
-	RoundcubeBridgeKey  string
-	RoundcubeEnabled    bool
-	WebmailNative       bool
-	IMAPAddr            string
+	Recall             handlers.RecallExpunger
+	Queue              handlers.QueueReader
+	TelemetryStream    string
+	RoundcubeBridgeKey string
+	RoundcubeEnabled   bool
+	WebmailNative      bool
+	IMAPAddr           string
 	// SMTPAddr is the loopback submission endpoint for native webmail send.
 	// Empty defaults to 127.0.0.1:587.
 	SMTPAddr            string
@@ -219,6 +219,7 @@ func New(opts Options) *gin.Engine {
 		Vault:     webmailVault,
 		Dialer:    webmail.NetDialer{Addr: opts.IMAPAddr},
 		Submitter: webmail.NetSubmitter{Addr: smtpAddr},
+		Secrets:   opts.Secrets,
 		Pool:      opts.PlatformPool,
 	}
 	deliveryHandler := &handlers.DeliveryHandler{Store: appQueries, Platform: platformQueries, Queue: opts.Queue, Stream: opts.TelemetryStream}
@@ -246,7 +247,14 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/folders/:name/messages/move", mailboxNative.MoveMessages)
 			mailboxAuthed.POST("/folders/:name/messages/delete", mailboxNative.DeleteMessages)
 			mailboxAuthed.GET("/folders/:name/messages/:uid", mailboxNative.GetMessage)
+			mailboxAuthed.GET("/folders/:name/messages/:uid/attachments/:part_id", mailboxNative.GetAttachment)
 			mailboxAuthed.POST("/send", mailboxNative.SendMessage)
+			mailboxAuthed.PUT("/drafts", mailboxNative.SaveDraft)
+			mailboxAuthed.GET("/drafts", mailboxNative.ListDrafts)
+			mailboxAuthed.DELETE("/drafts/:uid", mailboxNative.DeleteDraft)
+			mailboxAuthed.POST("/scheduled-sends", mailboxNative.CreateScheduledSend)
+			mailboxAuthed.GET("/scheduled-sends", mailboxNative.ListScheduledSends)
+			mailboxAuthed.DELETE("/scheduled-sends/:id", mailboxNative.CancelScheduledSend)
 			mailboxAuthed.POST("/password", mailboxNative.ChangePassword)
 			mailboxAuthed.DELETE("/session", mailboxNative.DeleteSession)
 		}

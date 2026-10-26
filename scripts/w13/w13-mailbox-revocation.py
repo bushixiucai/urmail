@@ -1,6 +1,9 @@
 import os
-import json,ssl,urllib.request,urllib.error,pathlib,urllib.parse
+import json,ssl,urllib.request,urllib.error,pathlib,urllib.parse,sys
 from importlib.machinery import SourceFileLoader
+# Depends on Roundcube logout hook from retired packaging; fail-soft.
+print('SKIP Roundcube packaging is retired; w13-mailbox-revocation is not run')
+sys.exit(0)
 Panel=SourceFileLoader('panel',os.environ.get('URMAIL_W13_SOURCE','/workspace')+'/scripts/remediation-http-smoke.py').load_module().Panel
 base='https://box.w13.test';context=ssl.create_default_context(cafile='/var/lib/urmail-agent/certs/panel/fullchain.pem');cookies=json.load(open('/root/w13-rc-cookie.json'));sieve=next(c['value']for c in cookies if c['name']=='urmail_mailbox_sieve');rccookie='; '.join(c['name']+'='+c['value']for c in cookies if c['path'].startswith('/mail'))
 def get(path,headers):

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -96,6 +97,10 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 		Attachments: atts,
 	})
 	if err != nil {
+		if errors.Is(err, webmail.ErrSubmitUncertain) {
+			authError(c, http.StatusConflict, "MAILBOX_SEND_UNCERTAIN")
+			return
+		}
 		authError(c, http.StatusBadGateway, "SMTP_UNAVAILABLE")
 		return
 	}

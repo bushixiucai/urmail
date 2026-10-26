@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"errors"
+	"mime"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
@@ -11,9 +14,23 @@ import (
 )
 
 // ListMessages returns a page of UID summaries for a folder.
+//
+// Query params:
+//   - limit, offset — pagination (clamped by webmail.ClampListOpts)
+//   - q — optional search string; when set, IMAP UID SEARCH replaces ALL.
+//     See webmail.BuildSearchCriteria for supported forms (subject:/from:/
+//     text:/is:unseen and bare text → OR SUBJECT/FROM). Invalid q → 400.
 func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	folder, ok := h.folderParam(c)
 	if !ok {
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	q := strings.TrimSpace(c.Query("q"))
+	// Validate before dialing so bad q fails closed without an IMAP round-trip.
+	if _, err := webmail.BuildSearchCriteria(q); err != nil {
+		authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
 		return
 	}
 	client, _, ok := h.dialIMAP(c)
@@ -22,10 +39,13 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	}
 	defer func() { _ = client.Close() }()
 
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	offset, _ := strconv.Atoi(c.Query("offset"))
-	result, err := client.ListMessages(c.Request.Context(), folder, webmail.ListOpts{Limit: limit, Offset: offset})
+	opts := webmail.ClampListOpts(webmail.ListOpts{Limit: limit, Offset: offset, Query: q})
+	result, err := client.ListMessages(c.Request.Context(), folder, opts)
 	if err != nil {
+		if errors.Is(err, webmail.ErrInvalidSearchQuery) {
+			authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+			return
+		}
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
 	}
@@ -35,8 +55,9 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"messages": result.Messages,
 		"total":    result.Total,
-		"limit":    webmail.ClampListOpts(webmail.ListOpts{Limit: limit, Offset: offset}).Limit,
-		"offset":   webmail.ClampListOpts(webmail.ListOpts{Limit: limit, Offset: offset}).Offset,
+		"limit":    opts.Limit,
+		"offset":   opts.Offset,
+		"q":        q,
 	})
 }
 
@@ -69,6 +90,69 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		msg.Attachments = []webmail.AttachmentMeta{}
 	}
 	c.JSON(http.StatusOK, msg)
+}
+
+// GetAttachment streams one MIME part as a downloadable attachment.
+// GET /mailbox/folders/:name/messages/:uid/attachments/:part_id
+func (h *MailboxNativeHandler) GetAttachment(c *gin.Context) {
+	folder, ok := h.folderParam(c)
+	if !ok {
+		return
+	}
+	uid, err := strconv.ParseUint(c.Param("uid"), 10, 32)
+	if err != nil || uid == 0 {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	partID := strings.TrimSpace(c.Param("part_id"))
+	if partID == "" || len(partID) > 64 {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	for _, r := range partID {
+		if r < '0' || r > '9' {
+			if r != '.' {
+				authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+				return
+			}
+		}
+	}
+	client, _, ok := h.dialIMAP(c)
+	if !ok {
+		return
+	}
+	defer func() { _ = client.Close() }()
+	filename, _, data, err := client.GetAttachment(c.Request.Context(), folder, uint32(uid), partID)
+	if err != nil {
+		if errors.Is(err, webmail.ErrAttachmentTooLarge) {
+			authError(c, http.StatusRequestEntityTooLarge, "ATTACHMENT_TOO_LARGE")
+			return
+		}
+		if errors.Is(err, webmail.ErrInvalidMIME) {
+			authError(c, http.StatusUnprocessableEntity, "ATTACHMENT_INVALID")
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			authError(c, http.StatusNotFound, "ATTACHMENT_NOT_FOUND")
+			return
+		}
+		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+		return
+	}
+	safeName := path.Base(strings.ReplaceAll(filename, "\\", "/"))
+	if safeName == "." || safeName == "/" || safeName == "" {
+		safeName = "attachment-" + partID
+	}
+	disp := mime.FormatMediaType("attachment", map[string]string{"filename": safeName})
+	if disp == "" {
+		disp = `attachment; filename="attachment-` + partID + `"`
+	}
+	c.Header("Content-Disposition", disp)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Security-Policy", "default-src 'none'; sandbox")
+	c.Header("Cache-Control", "no-store")
+	// Always octet-stream + nosniff (same posture as support/archive downloads).
+	c.Data(http.StatusOK, "application/octet-stream", data)
 }
 
 type mailboxFlagsRequest struct {

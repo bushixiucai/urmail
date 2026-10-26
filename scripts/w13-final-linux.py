@@ -90,8 +90,8 @@ subprocess.run(['install','-m','0644','/var/lib/urmail-agent/certs/panel/fullcha
 subprocess.run(['install','-m','0644','/var/lib/urmail-agent/certs/mail/box.w13.test.cert','/usr/local/share/ca-certificates/urmail-w13-mail.crt'],check=True)
 subprocess.run(['update-ca-certificates'],check=True)
 envpath=pathlib.Path('/etc/urmail/urmaild.env');lines=[x for x in envpath.read_text().splitlines()if not x.startswith('URMAIL_AI_LOCAL_ENDPOINTS=')];envpath.write_text('\n'.join(lines)+'\nURMAIL_AI_LOCAL_ENDPOINTS=http://127.0.0.1:11434\n')
-subprocess.run(['/usr/share/urmail/roundcube/manage.sh','configure'],check=True)
-subprocess.run(['/usr/share/urmail/roundcube/manage.sh','install'],check=True)
+# Roundcube packaging is retired; do not call /usr/share/urmail/roundcube/manage.sh.
+print('SKIP Roundcube packaging is retired; manage.sh configure/install not run')
 subprocess.run(['systemctl','restart','urmaild'],check=True)
 for i in range(60):
  try:
@@ -118,7 +118,14 @@ for i in range(40):
 else:raise RuntimeError('owned local-only model fixture did not start')
 '''
     guest('local-model', ['python3', '-c', model_start])
+    # Roundcube packaging is retired; skip steps that required manage.sh / Roundcube HTTP.
+    retired_roundcube = {'roundcube-chain', 'sieve-delivery', 'mailbox-revocation'}
     for name in ['fixture', 'protocol', 'enable-ai', 'roundcube-chain', 'sieve-delivery', 'archive-kill', 'health', 'mailbox-revocation']:
+        if name in retired_roundcube:
+            message = 'SKIP Roundcube packaging is retired; not running w13-' + name + '.py\n'
+            print(message, end='')
+            (evidence / (name + '.log')).write_text(message)
+            continue
         guest(name, ['env', 'URMAIL_W13_SOURCE=/opt/urmail-final-source', 'python3', '/opt/urmail-final-tests/w13-' + name + '.py'])
     print('Local final Linux chain completed. Review evidence and genuine external gates separately.')
 

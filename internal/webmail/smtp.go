@@ -9,12 +9,16 @@ import (
 	"io"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"time"
 )
 
 // ErrSubmitFailed is returned when SMTP submission is rejected or unreachable.
 var ErrSubmitFailed = errors.New("webmail smtp submit failed")
+
+// ErrSubmitUncertain means DATA may have been accepted; callers must not retry blindly.
+var ErrSubmitUncertain = errors.New("webmail smtp submission outcome uncertain")
 
 // Submitter sends mail via local submission with AUTH.
 type Submitter interface {
@@ -47,10 +51,16 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 	}
 	conn, err := dial(ctx, "tcp", addr)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	defer func() { _ = conn.Close() }()
+	deadline := time.Now().Add(timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = conn.SetDeadline(deadline)
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
 
 	host, _, _ := net.SplitHostPort(addr)
 	if host == "" {
@@ -64,7 +74,7 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 	}
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -72,21 +82,21 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 		// Loopback submission: accept the local Postfix cert without public PKI.
 		tlsCfg := &tls.Config{ServerName: tlsServerName, InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec // intentional for 127.0.0.1 submission
 		if err = client.StartTLS(tlsCfg); err != nil {
-			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+			return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 		}
 	}
 	if ok, _ := client.Extension("AUTH"); !ok {
 		return fmt.Errorf("%w: AUTH not advertised", ErrSubmitFailed)
 	}
 	if err = client.Auth(smtp.PlainAuth("", address, password, host)); err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	from := msg.From
 	if from == "" {
 		from = address
 	}
 	if err = client.Mail(from); err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	rcpts := uniqueAddrs(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
 	if len(rcpts) == 0 {
@@ -94,24 +104,29 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 	}
 	for _, rcpt := range rcpts {
 		if err = client.Rcpt(rcpt); err != nil {
-			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+			return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 		}
 	}
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
-	payload := buildMIME(from, msg)
+	payload := BuildMIME(from, msg) // SMTP: never emit Bcc headers
 	if _, err = io.WriteString(w, payload); err != nil {
-		_ = w.Close()
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		// Do not Close the DATA writer on a partial write: that could submit a
+		// truncated message. The connection is closed by the outer defer.
+		return fmt.Errorf("%w: %w", ErrSubmitUncertain, err)
 	}
 	if err = w.Close(); err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+		var reply *textproto.Error
+		if errors.As(err, &reply) && reply.Code >= 400 && reply.Code <= 599 {
+			return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+		}
+		return fmt.Errorf("%w: %w", ErrSubmitUncertain, err)
 	}
-	if err = client.Quit(); err != nil {
-		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
-	}
+	// A successful final DATA reply is the submission commit point. QUIT only
+	// tears down the session; its failure must never cause another delivery.
+	_ = client.Quit()
 	return nil
 }
 
@@ -132,7 +147,17 @@ func uniqueAddrs(in []string) []string {
 	return out
 }
 
-func buildMIME(from string, msg Outgoing) string {
+// BuildMIME renders an RFC822 message for SMTP DATA (no Bcc header).
+func BuildMIME(from string, msg Outgoing) string {
+	return buildMIME(from, msg, false)
+}
+
+// BuildDraftMIME is BuildMIME plus a Bcc header so drafts can resume recipients.
+func BuildDraftMIME(from string, msg Outgoing) string {
+	return buildMIME(from, msg, true)
+}
+
+func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 	var b strings.Builder
 	writeHeader := func(k, v string) {
 		v = strings.ReplaceAll(v, "\r", "")
@@ -149,7 +174,14 @@ func buildMIME(from string, msg Outgoing) string {
 	if len(msg.Cc) > 0 {
 		writeHeader("Cc", strings.Join(msg.Cc, ", "))
 	}
+	if includeBcc && len(msg.Bcc) > 0 {
+		writeHeader("Bcc", strings.Join(msg.Bcc, ", "))
+	}
 	writeHeader("Subject", msg.Subject)
+	id := strings.TrimSpace(msg.MessageID)
+	if strings.HasPrefix(id, "<") && strings.HasSuffix(id, ">") && strings.Contains(id, "@") && !strings.ContainsAny(id, "\r\n\t ") {
+		writeHeader("Message-ID", id)
+	}
 	writeHeader("MIME-Version", "1.0")
 
 	hasAtt := len(msg.Attachments) > 0

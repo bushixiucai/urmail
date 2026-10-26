@@ -3274,7 +3274,7 @@ paths:
                 allow_cloud: {type: boolean}
                 confirmed: {type: boolean, description: Must be explicitly true to allow cloud content export.}
       responses:
-        '204': {description: Exact target authorized, or cloud export revoked.}
+        '204': {description: 'Exact target authorized, or cloud export revoked.'}
         '409': {description: Configuration changed; reload and review the new target.}
         default: {$ref: '#/components/responses/Error'}
   /mailbox/sieve/session:
@@ -3302,7 +3302,7 @@ paths:
                 confirmed: {type: boolean, enum: [true]}
                 expected_version: {type: string, pattern: '^[a-f0-9]{64}$'}
       responses:
-        '200': {description: Persisted rules, new version and activation state.}
+        '200': {description: 'Persisted rules, new version and activation state.'}
         '409': {description: Another editor changed the rules; reload and review.}
         default: {$ref: '#/components/responses/Error'}
   /platform/tenants/{id}/ai/configuration:
@@ -3313,7 +3313,7 @@ paths:
       description: Platform administrator only. Never returns encrypted or plaintext credentials. An unconfigured tenant still returns cloud_endpoints and local-only consent defaults.
       security: [{Bearer: []}]
       responses:
-        '200': {description: configured, configuration, cloud_endpoints and tenant_consent.}
+        '200': {description: 'configured, configuration, cloud_endpoints and tenant_consent.'}
         default: {$ref: '#/components/responses/Error'}
     post:
       summary: Configure a platform provider without authorizing tenant cloud export.
@@ -3381,7 +3381,7 @@ paths:
                 reason: {type: string, minLength: 10, maxLength: 2000}
       responses:
         '200': {description: Observed accounting persisted with an audit record.}
-        '409': {description: Not uncertain, stale or incompatible resolution.}
+        '409': {description: 'Not uncertain, stale or incompatible resolution.'}
         default: {$ref: '#/components/responses/Error'}
   /platform/tenants/{id}/billing-calendar:
     parameters:
@@ -3447,7 +3447,7 @@ paths:
                 first_paid_at: {type: string, format: date-time, example: '2024-01-31T09:00:00+08:00'}
                 reason: {type: string, minLength: 20, maxLength: 1000, writeOnly: true}
       responses:
-        '200': {description: Verified state, with the same response shape as GET.}
+        '200': {description: 'Verified state, with the same response shape as GET.'}
         '400': {description: Invalid timezone/timestamp/reason.}
         '401': {description: Authentication required.}
         '403': {description: Platform staff authorization or CSRF rejected.}
@@ -3460,7 +3460,11 @@ paths:
     post:
       tags: [M8 mailbox continuity]
       summary: Change the independently authenticated mailbox password
+      deprecated: true
       description: >-
+        DEPRECATED — Roundcube packaging is retired and never activates by default
+        (URMAIL_ROUNDCUBE_ENABLED defaults to false). When disabled the route is not
+        mounted and clients receive 404. Retained only for historical contract documentation.
         Documents the change_password operation; other existing bridge actions remain unchanged.
         Panel Bearer identity never authorizes this operation. Requires the Roundcube service
         HMAC over POST, exact path, timestamp, nonce and raw JSON body, plus an independently
@@ -3521,8 +3525,259 @@ paths:
         '409': {description: Nonce replay or concurrent password change, $ref: '#/components/responses/Error'}
         '429': {description: MAILBOX_PASSWORD_RATE_LIMITED, $ref: '#/components/responses/Error'}
         '503': {description: Bridge, database or mandatory audit unavailable; mutation not acknowledged, $ref: '#/components/responses/Error'}
+  /mailbox/status:
+    get:
+      tags: [Native mailbox]
+      summary: Report whether native webmail is enabled
+      security: []
+      responses:
+        '200':
+          description: Feature status, not proof that mail protocols are ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [native]
+                properties:
+                  native: {type: boolean}
+  /mailbox/session:
+    post:
+      tags: [Native mailbox]
+      summary: Authenticate an independent mailbox identity
+      security: []
+      description: Mailbox password only. A panel login never grants mailbox content access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email}
+                password: {type: string, format: password}
+      responses:
+        '200':
+          description: Process-bound native session. Keep tokens in private client storage.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, address, expires_at]
+                properties:
+                  token: {type: string}
+                  address: {type: string, format: email}
+                  expires_at: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Native mailbox]
+      summary: Revoke this mailbox session
+      security: [{MailboxBearer: []}]
+      responses:
+        '200': {description: Session revoked and process-local credential cleared.}
+        '401': {$ref: '#/components/responses/Error'}
+  /mailbox/folders/{name}/messages:
+    get:
+      tags: [Native mailbox]
+      summary: List or search one mailbox folder
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: name, in: path, required: true, schema: {type: string}, description: URL-safe encoded folder name returned by the folders endpoint.}
+      - {name: limit, in: query, schema: {type: integer, default: 50, minimum: 1, maximum: 100}}
+      - {name: offset, in: query, schema: {type: integer, default: 0, minimum: 0}}
+      - name: q
+        in: query
+        schema: {type: string}
+        description: 'Optional IMAP search: subject:, from:, text:, is:unseen, or bare text matching subject/from. Invalid search returns INVALID_SEARCH_QUERY.'
+      responses:
+        '200': {description: 'Newest-first messages and total hit count, limit, offset and q. UID values are scoped to this folder and its UIDVALIDITY.'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/folders/{name}/messages/{uid}:
+    get:
+      tags: [Native mailbox]
+      summary: Read one independently authenticated mailbox message
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: name, in: path, required: true, schema: {type: string}}
+      - {name: uid, in: path, required: true, schema: {type: integer, minimum: 1, maximum: 4294967295}}
+      responses:
+        '200': {description: 'Message includes uid_validity, To/Cc/Bcc, plain/HTML bodies and attachment metadata. Untrusted HTML requires isolated rendering with remote resources blocked.'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/folders/{name}/messages/{uid}/attachments/{part_id}:
+    get:
+      tags: [Native mailbox]
+      summary: Download a complete decoded MIME attachment
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: name, in: path, required: true, schema: {type: string}}
+      - {name: uid, in: path, required: true, schema: {type: integer, minimum: 1, maximum: 4294967295}}
+      - {name: part_id, in: path, required: true, schema: {type: string, pattern: '^[0-9]+(\.[0-9]+)*$'}}
+      responses:
+        '200':
+          description: Complete file with attachment disposition, nosniff and no-store. No partial success on truncation. The decoded attachment limit is 16 MiB.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '413': {description: ATTACHMENT_TOO_LARGE, $ref: '#/components/responses/Error'}
+        '422': {description: ATTACHMENT_INVALID, $ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/send:
+    post:
+      tags: [Native mailbox]
+      summary: Submit a mailbox-authenticated message to local SMTP
+      security: [{MailboxBearer: []}]
+      description: SMTP acceptance is not final recipient delivery. An uncertain result must be checked before any resend. Bcc is part of the envelope and is never emitted in SMTP message headers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NativeMailboxCompose'}
+      responses:
+        '200': {description: Local SMTP accepted the message. QUIT failure after acceptance does not change this result.}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {description: MAILBOX_SEND_UNCERTAIN. Submission may have succeeded; do not automatically resend., $ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/drafts:
+    put:
+      tags: [Native mailbox]
+      summary: Save a new draft or replace an explicitly identified draft
+      security: [{MailboxBearer: []}]
+      description: Content stays in IMAP. To replace, include uid and uid_validity from the original message. Missing or changed identity is rejected before append. Preserve Bcc, HTML and every attachment when editing existing drafts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+              - {$ref: '#/components/schemas/NativeMailboxCompose'}
+              - type: object
+                properties:
+                  uid: {type: integer, minimum: 0, maximum: 4294967295}
+                  uid_validity: {type: integer, minimum: 1, maximum: 4294967295}
+      responses:
+        '200':
+          description: Use the new UID for subsequent edits. cleanup_pending means this new draft is saved but an old copy remains; do not append it again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [saved, folder, name_enc, uid, uid_validity, cleanup_pending]
+                properties:
+                  saved: {type: boolean, enum: [true]}
+                  folder: {type: string}
+                  name_enc: {type: string}
+                  uid: {type: integer, minimum: 1}
+                  uid_validity: {type: integer, minimum: 1}
+                  cleanup_pending: {type: boolean}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {description: DRAFT_CHANGED or DRAFT_SAVE_UNCERTAIN. Inspect Drafts before attempting another save., $ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+    get:
+      tags: [Native mailbox]
+      summary: List drafts in the resolved IMAP Drafts folder
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: limit, in: query, schema: {type: integer, default: 50, minimum: 1, maximum: 100}}
+      - {name: offset, in: query, schema: {type: integer, default: 0, minimum: 0}}
+      responses:
+        '200': {description: 'Draft messages, folder, name_enc, total, limit and offset.'}
+        '401': {$ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/drafts/{uid}:
+    delete:
+      tags: [Native mailbox]
+      summary: Delete one draft from the authenticated mailbox
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: uid, in: path, required: true, schema: {type: integer, minimum: 1, maximum: 4294967295}}
+      - {name: uid_validity, in: query, required: true, schema: {type: integer, minimum: 1, maximum: 4294967295}, description: Folder identity from the original draft. Changed identity blocks deletion.}
+      responses:
+        '200': {description: Draft expunged.}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {description: DRAFT_CHANGED. The original draft identity no longer matches., $ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/scheduled-sends:
+    post:
+      tags: [Native mailbox]
+      summary: Schedule a previously saved, identified IMAP draft
+      security: [{MailboxBearer: []}]
+      description: Same idempotency key and payload returns the original task, including its terminal state. Different payload under that key or another active task for this draft returns conflict. The worker never blindly retries uncertain SMTP submissions. Existing pre-safety tasks and restored active tasks are held for review.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draft_uid, draft_uidvalidity, send_at]
+              properties:
+                draft_uid: {type: integer, minimum: 1, maximum: 4294967295}
+                draft_uidvalidity: {type: integer, minimum: 1, maximum: 4294967295}
+                send_at: {type: string, format: date-time, description: Must be more than 30 seconds in the future for a new task. Retained unchanged across retries.}
+      responses:
+        '200':
+          description: Created or replayed mailbox-scoped task.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NativeMailboxSchedule'}
+        '400': {description: Invalid parameters or missing SCHEDULE_IDEMPOTENCY_REQUIRED., $ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {description: SCHEDULE_CONFLICT or DRAFT_CHANGED., $ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+    get:
+      tags: [Native mailbox]
+      summary: List pending and terminal tasks for this mailbox
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: limit, in: query, schema: {type: integer, default: 50, minimum: 1, maximum: 100}}
+      - {name: offset, in: query, schema: {type: integer, default: 0, minimum: 0}}
+      responses:
+        '200':
+          description: Newest-first tasks, including failures and review holds. Error values are stable codes, not SMTP transcripts or credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/NativeMailboxSchedule'}}
+        '401': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /mailbox/scheduled-sends/{id}:
+    delete:
+      tags: [Native mailbox]
+      summary: Cancel before SMTP submission begins
+      security: [{MailboxBearer: []}]
+      description: Cancellation atomically invalidates a preparing worker. Success guarantees that this task will not submit SMTP. After the worker enters submitting, cancellation returns conflict. Replaying an already successful cancellation is safe.
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      responses:
+        '200': {description: cancelled=true and item. A cancelled task cannot submit mail.}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {description: Unknown task or another mailbox/tenant., $ref: '#/components/responses/Error'}
+        '409': {description: SCHEDULE_CANNOT_CANCEL. Submission started or task is terminal/on hold., $ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
+    MailboxBearer:
+      type: http
+      scheme: bearer
+      description: Independent native mailbox-session token. Panel bearer tokens never authorize mailbox contents.
     Bearer:
       type: http
       scheme: bearer
@@ -3541,6 +3796,41 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    NativeMailboxCompose:
+      type: object
+      properties:
+        to: {type: array, items: {type: string, format: email}}
+        cc: {type: array, items: {type: string, format: email}}
+        bcc: {type: array, items: {type: string, format: email}}
+        subject: {type: string, maxLength: 998}
+        text: {type: string}
+        html: {type: string}
+        attachments:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [filename, content_type, content_base64]
+            properties:
+              filename: {type: string}
+              content_type: {type: string}
+              content_base64: {type: string, format: byte, description: 'One nonempty attachment, at most 5 MiB decoded.'}
+    NativeMailboxSchedule:
+      type: object
+      required: [id, draft_folder, draft_uid, draft_uidvalidity, send_at, status, attempts, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        draft_folder: {type: string}
+        draft_uid: {type: integer, minimum: 1}
+        draft_uidvalidity: {type: integer, minimum: 0, description: Zero only on pre-safety tasks held for review.}
+        send_at: {type: string, format: date-time}
+        next_attempt_at: {type: string, format: date-time}
+        sent_at: {type: string, format: date-time}
+        status: {type: string, enum: [pending, preparing, submitting, sent, uncertain, failed, cancelled, held]}
+        attempts: {type: integer, minimum: 0}
+        last_error: {type: string, description: Stable safe failure or review code.}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     Error:
       type: object
       properties:

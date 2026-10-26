@@ -2,10 +2,13 @@ package webmail
 
 import "time"
 
-// ListOpts controls UID listing pagination. Limit is capped by the dialer.
+// ListOpts controls UID listing pagination and optional SEARCH.
+// When Query is non-empty, ListMessages runs UID SEARCH with criteria from
+// BuildSearchCriteria instead of ALL; total is the search hit count.
 type ListOpts struct {
 	Limit  int
 	Offset int
+	Query  string
 }
 
 const (
@@ -62,6 +65,10 @@ type AttachmentMeta struct {
 // Message is a single message body view for the lean inbox.
 type Message struct {
 	MessageSummary
+	UIDValidity uint32           `json:"uid_validity"`
+	To          []Address        `json:"to,omitempty"`
+	Cc          []Address        `json:"cc,omitempty"`
+	Bcc         []Address        `json:"bcc,omitempty"` // present on drafts; omitted on normal mail
 	Text        string           `json:"text,omitempty"`
 	HTML        string           `json:"html,omitempty"`
 	Attachments []AttachmentMeta `json:"attachments"`
@@ -69,6 +76,8 @@ type Message struct {
 
 // Outgoing is a basic SMTP submission payload.
 type Outgoing struct {
+	// MessageID is an optional stable tracking identity, never a delivery deduplication guarantee.
+	MessageID   string
 	From        string
 	To          []string
 	Cc          []string
