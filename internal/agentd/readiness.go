@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/smtp"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -28,11 +29,7 @@ var probeRetryBackoff = []time.Duration{150 * time.Millisecond, 350 * time.Milli
 // probeMailReadiness checks application greetings, not merely open master
 // sockets. A live Dovecot master cannot establish usable login workers by itself.
 func (m *ApplyManager) probeMailReadiness(ctx context.Context) error {
-	certificate, err := os.ReadFile(certificateCertPath(m.certificatePaths(m.hostname()))) // #nosec G304 -- fixed root-owned installed hostname consumer certificate.
-	if err != nil {
-		return fmt.Errorf("read installed mail certificate: %w", err)
-	}
-	tlsConfig, expected, err := installedTLSConfig(certificate, m.hostname())
+	tlsConfig, expected, err := m.mailReadinessTLSConfig()
 	if err != nil {
 		return err
 	}
@@ -65,6 +62,17 @@ func (m *ApplyManager) probeMailReadiness(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (m *ApplyManager) mailReadinessTLSConfig() (*tls.Config, []byte, error) {
+	// Postfix and Dovecot consume this pair. The panel can have an independent
+	// bootstrap certificate, so its preferred fullchain is not mail trust.
+	path := filepath.Join(m.root, "certs/mail", m.hostname()+".cert")
+	certificate, err := os.ReadFile(path) // #nosec G304 -- fixed root-owned installed mail consumer selected by validated hostname.
+	if err != nil {
+		return nil, nil, fmt.Errorf("read installed mail certificate: %w", err)
+	}
+	return installedTLSConfig(certificate, m.hostname())
 }
 
 func probeWithRetry(ctx context.Context, attempt func(context.Context) error) error {

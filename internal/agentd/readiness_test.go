@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -127,6 +129,45 @@ func TestReadinessStrictTLSAndInstalledConsumerIdentity(t *testing.T) {
 	}
 	if _, _, err = installedTLSConfig(certificate, "wrong.example.test"); err == nil {
 		t.Fatal("installed certificate with wrong SAN accepted")
+	}
+}
+
+func TestMailReadinessUsesMailConsumerWhenPanelCertificateDiffers(t *testing.T) {
+	m := testManager(t)
+	panelPair, panelCertificate := readinessCertificate(t, m.hostname(), 2*time.Hour)
+	mailPair, mailCertificate := readinessCertificate(t, m.hostname(), 2*time.Hour)
+	for path, certificate := range map[string][]byte{
+		filepath.Join(m.root, "certs/panel/fullchain.pem"):        panelCertificate,
+		filepath.Join(m.root, "certs/mail", m.hostname()+".cert"): mailCertificate,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, certificate, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, expected, err := m.mailReadinessTLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		pair      tls.Certificate
+		wantError bool
+	}{
+		{"installed mail consumer", mailPair, false},
+		{"panel identity on mail listener", panelPair, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			address := greetingFixture(t, &tc.pair, "* OK ready\r\n", false)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			err := probeGreeting(ctx, address, "* OK", cfg, expected)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("err=%v wantError=%v", err, tc.wantError)
+			}
+		})
 	}
 }
 
