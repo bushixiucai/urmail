@@ -45,8 +45,7 @@ func (h *MailboxNativeHandler) SaveDraft(c *gin.Context) {
 	defer func() { _ = client.Close() }()
 
 	var req mailboxDraftRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+	if !bindMailboxMessage(c, &req) {
 		return
 	}
 	if len(req.Subject) > 998 || !utf8.ValidString(req.Subject) {
@@ -173,13 +172,19 @@ func (h *MailboxNativeHandler) DeleteDraft(c *gin.Context) {
 
 func decodeSendAttachments(c *gin.Context, in []mailboxSendAttachment) ([]webmail.OutgoingAttachment, bool) {
 	var atts []webmail.OutgoingAttachment
+	totalBytes := 0
 	for _, a := range in {
 		raw, err := base64.StdEncoding.DecodeString(a.ContentB64)
 		if err != nil {
 			raw, err = base64.RawStdEncoding.DecodeString(a.ContentB64)
 		}
-		if err != nil || len(raw) == 0 || len(raw) > maxSendAttachmentBytes {
+		if err != nil || len(raw) == 0 {
 			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+			return nil, false
+		}
+		totalBytes += len(raw)
+		if len(raw) > maxSendAttachmentBytes || totalBytes > maxSendTotalAttachmentBytes {
+			authError(c, http.StatusRequestEntityTooLarge, "MAILBOX_MESSAGE_TOO_LARGE")
 			return nil, false
 		}
 		atts = append(atts, webmail.OutgoingAttachment{

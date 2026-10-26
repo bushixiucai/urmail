@@ -218,6 +218,7 @@ func newNativeTestRouter(t *testing.T, h *MailboxNativeHandler, sessions middlew
 	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	r.Use(middleware.BodyLimitWithMailboxUploads(1<<20, 16<<20))
 	r.GET("/api/v1/mailbox/status", h.Status)
 	r.POST("/api/v1/mailbox/session", h.CreateSession)
 	auth := r.Group("/api/v1/mailbox")

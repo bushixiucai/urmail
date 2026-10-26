@@ -3634,7 +3634,7 @@ paths:
       tags: [Native mailbox]
       summary: Submit a mailbox-authenticated message to local SMTP
       security: [{MailboxBearer: []}]
-      description: SMTP acceptance is not final recipient delivery. An uncertain result must be checked before any resend. Bcc is part of the envelope and is never emitted in SMTP message headers.
+      description: Uploads are limited to 16 MiB of JSON, 5 MiB per decoded attachment and 10 MiB of decoded attachments in total. SMTP acceptance is not final recipient delivery. An uncertain result must be checked before any resend. Bcc is part of the envelope and is never emitted in SMTP message headers.
       requestBody:
         required: true
         content:
@@ -3645,13 +3645,14 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '409': {description: MAILBOX_SEND_UNCERTAIN. Submission may have succeeded; do not automatically resend., $ref: '#/components/responses/Error'}
+        '413': {description: MAILBOX_MESSAGE_TOO_LARGE., $ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
   /mailbox/drafts:
     put:
       tags: [Native mailbox]
       summary: Save a new draft or replace an explicitly identified draft
       security: [{MailboxBearer: []}]
-      description: Content stays in IMAP. To replace, include uid and uid_validity from the original message. Missing or changed identity is rejected before append. Preserve Bcc, HTML and every attachment when editing existing drafts.
+      description: Content stays in IMAP. Uploads are limited to 16 MiB of JSON and 10 MiB of decoded attachments in total. To replace, include uid and uid_validity from the original message. Missing or changed identity is rejected before append. Preserve Bcc, HTML and every attachment when editing existing drafts.
       requestBody:
         required: true
         content:
@@ -3681,6 +3682,7 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '409': {description: DRAFT_CHANGED or DRAFT_SAVE_UNCERTAIN. Inspect Drafts before attempting another save., $ref: '#/components/responses/Error'}
+        '413': {description: MAILBOX_MESSAGE_TOO_LARGE., $ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
     get:
       tags: [Native mailbox]
@@ -3807,6 +3809,7 @@ components:
         html: {type: string}
         attachments:
           type: array
+          description: At most 10 MiB of decoded bytes in total; each nonempty file is at most 5 MiB.
           maxItems: 10
           items:
             type: object

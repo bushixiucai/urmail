@@ -29,6 +29,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
+  assertAttachmentTotal,
   clearMailboxSession,
   deleteMailboxSession,
   deleteMessages,
@@ -349,6 +350,7 @@ export function MailboxInboxPage() {
             a.content_type || "application/octet-stream",
           ),
         );
+        assertAttachmentTotal(atts);
       }
       if (currentFolderRef.current !== draftFolder) return;
       openCompose(composeFromSavedDraft(message, atts));

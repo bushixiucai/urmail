@@ -521,3 +521,68 @@ it("does not reset compose contents when the inbox receives the saved draft UID"
     text: "Keep current input",
   });
 });
+
+it("refuses an over-budget restored draft without dropping any existing attachment", async () => {
+  sessionStorageReady();
+  const base = mockMailboxApi({
+    folders: [
+      {
+        name: "Drafts",
+        name_enc: "drafts",
+        delimiter: "/",
+        flags: ["\\Drafts"],
+      },
+    ],
+  });
+  const bytes = new Uint8Array(5 * 1024 * 1024);
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("/attachments/"))
+      return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer };
+    if (/\/messages\/\d+$/.test(u))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          uid: 1,
+          uid_validity: 9,
+          subject: "Original draft",
+          from: [],
+          date: "",
+          flags: ["\\Seen"],
+          size: 0,
+          text: "original",
+          attachments: ["1", "2", "3"].map((part_id) => ({
+            part_id,
+            filename: `${part_id}.bin`,
+            content_type: "application/octet-stream",
+            size: 1,
+          })),
+        }),
+      };
+    return base(url, init);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <MemoryRouter>
+      <MailboxInboxPage />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByText("Hello inbox"));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "page.webmail.compose_edit_draft",
+    }),
+  );
+  const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
+  expect(alert.textContent).toBe("error.MAILBOX_MESSAGE_TOO_LARGE");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    fetcher.mock.calls.filter(([url]) => url.includes("/attachments/")),
+  ).toHaveLength(3);
+  expect(
+    fetcher.mock.calls.some(
+      ([, init]) => init?.method === "PUT" || init?.method === "DELETE",
+    ),
+  ).toBe(false);
+});

@@ -215,9 +215,40 @@ export interface OutgoingAttachment {
 }
 
 export const MAX_SEND_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+export const MAX_SEND_TOTAL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** Count decoded bytes without allocating another decoded attachment copy. */
+export function attachmentDecodedBytes(attachment: OutgoingAttachment): number {
+  const base64 = attachment.content_base64.replace(/\s/g, "");
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+export function attachmentTotalBytes(
+  attachments: OutgoingAttachment[],
+): number {
+  return attachments.reduce(
+    (total, attachment) => total + attachmentDecodedBytes(attachment),
+    0,
+  );
+}
+
+/** Match the server's decoded aggregate limit before serializing JSON. */
+export function assertAttachmentTotal(
+  attachments: OutgoingAttachment[] = [],
+): void {
+  if (attachmentTotalBytes(attachments) > MAX_SEND_TOTAL_ATTACHMENT_BYTES) {
+    throw new ApiRequestError(413, {
+      error: {
+        code: "MAILBOX_MESSAGE_TOO_LARGE",
+        message: "error.MAILBOX_MESSAGE_TOO_LARGE",
+      },
+    });
+  }
+}
 export const MAX_SEND_ATTACHMENTS = 10;
 
-export function sendMessage(body: {
+export async function sendMessage(body: {
   to: string[];
   cc?: string[];
   bcc?: string[];
@@ -226,6 +257,7 @@ export function sendMessage(body: {
   html?: string;
   attachments?: OutgoingAttachment[];
 }) {
+  assertAttachmentTotal(body.attachments);
   return mailboxRequest<{ sent: boolean }>("/api/v1/mailbox/send", {
     method: "POST",
     body,
@@ -233,7 +265,7 @@ export function sendMessage(body: {
 }
 
 /** Save (or replace) a draft via IMAP APPEND into SPECIAL-USE \Drafts. */
-export function saveDraft(body: {
+export async function saveDraft(body: {
   uid?: number;
   uid_validity?: number;
   to?: string[];
@@ -244,6 +276,7 @@ export function saveDraft(body: {
   html?: string;
   attachments?: OutgoingAttachment[];
 }) {
+  assertAttachmentTotal(body.attachments);
   return mailboxRequest<{
     saved: boolean;
     cleanup_pending?: boolean;
@@ -375,13 +408,14 @@ export async function fetchAttachmentAsOutgoing(
     throw new Error("ATTACHMENT_TOO_LARGE");
   }
   const bytes = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++)
-    binary += String.fromCharCode(bytes[i]!);
+  const chunks: string[] = [];
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
+  }
   return {
     filename: filename || `attachment-${partId}`,
     content_type: contentType || "application/octet-stream",
-    content_base64: btoa(binary),
+    content_base64: btoa(chunks.join("")),
   };
 }
 

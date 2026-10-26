@@ -126,7 +126,7 @@ func New(opts Options) *gin.Engine {
 		})
 	}
 
-	engine.Use(middleware.BodyLimit(1 << 20))
+	engine.Use(middleware.BodyLimitWithMailboxUploads(1<<20, 16<<20))
 	engine.Use(middleware.Timeout(30 * time.Second))
 
 	// /metrics is operator-facing telemetry and must not be world-readable

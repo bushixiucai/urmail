@@ -23,6 +23,7 @@ vi.mock("./mailbox-api", async (importOriginal) => ({
   scheduleSend: vi.fn(),
   sendMessage: vi.fn(),
   deleteDraft: vi.fn(),
+  fileToOutgoingAttachment: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -217,4 +218,42 @@ describe("mailbox compose persistence", () => {
     );
     await screen.findByText("page.webmail.compose_cleanup_pending");
   });
+});
+
+it("enforces the aggregate attachment budget while preserving selected files", async () => {
+  compose();
+  const size = mailboxApi.MAX_SEND_ATTACHMENT_BYTES;
+  const padding = (3 - (size % 3)) % 3;
+  const encoded =
+    "A".repeat(Math.ceil(size / 3) * 4 - padding) + "=".repeat(padding);
+  vi.mocked(mailboxApi.fileToOutgoingAttachment).mockImplementation(
+    async (file) => ({
+      filename: file.name,
+      content_type: "application/octet-stream",
+      content_base64: encoded,
+    }),
+  );
+  const files = ["a.bin", "b.bin", "c.bin"].map((name) => {
+    const file = new File([], name);
+    Object.defineProperty(file, "size", { value: size });
+    return file;
+  });
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_attach"), {
+    target: { files },
+  });
+  await screen.findByText("page.webmail.compose_attach_total_limit");
+  expect(screen.getByText("a.bin")).toBeTruthy();
+  expect(screen.getByText("b.bin")).toBeTruthy();
+  expect(screen.queryByText("c.bin")).toBeNull();
+  expect(mailboxApi.fileToOutgoingAttachment).toHaveBeenCalledTimes(2);
+  fireEvent.click(
+    screen.getAllByRole("button", {
+      name: "page.webmail.compose_attach_remove",
+    })[0],
+  );
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_attach"), {
+    target: { files: [files[2]] },
+  });
+  await screen.findByText("c.bin");
+  expect(screen.getByText("b.bin")).toBeTruthy();
 });

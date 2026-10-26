@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
@@ -30,6 +29,7 @@ type mailboxSendRequest struct {
 }
 
 const maxSendAttachmentBytes = 5 << 20
+const maxSendTotalAttachmentBytes = 10 << 20
 const maxSendAttachments = 10
 
 // SendMessage submits mail via local SMTP AUTH using the vaulted password.
@@ -47,8 +47,7 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	var req mailboxSendRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+	if !bindMailboxMessage(c, &req) {
 		return
 	}
 	to := cleanAddrs(req.To)
@@ -66,21 +65,9 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	var atts []webmail.OutgoingAttachment
-	for _, a := range req.Attachments {
-		raw, err := base64.StdEncoding.DecodeString(a.ContentB64)
-		if err != nil {
-			raw, err = base64.RawStdEncoding.DecodeString(a.ContentB64)
-		}
-		if err != nil || len(raw) == 0 || len(raw) > maxSendAttachmentBytes {
-			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-			return
-		}
-		atts = append(atts, webmail.OutgoingAttachment{
-			Filename:    strings.TrimSpace(a.Filename),
-			ContentType: strings.TrimSpace(a.ContentType),
-			Content:     raw,
-		})
+	atts, ok := decodeSendAttachments(c, req.Attachments)
+	if !ok {
+		return
 	}
 	password, ok := h.vaultPassword(c)
 	if !ok {
@@ -122,4 +109,18 @@ func cleanAddrs(in []string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// bindMailboxMessage keeps transport overflow distinct from malformed JSON.
+func bindMailboxMessage(c *gin.Context, target any) bool {
+	if err := c.ShouldBindJSON(target); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			authError(c, http.StatusRequestEntityTooLarge, "MAILBOX_MESSAGE_TOO_LARGE")
+		} else {
+			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		}
+		return false
+	}
+	return true
 }

@@ -1,5 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { scheduleSend } from "./mailbox-api";
+import {
+  attachmentDecodedBytes,
+  attachmentTotalBytes,
+  assertAttachmentTotal,
+  MAX_SEND_ATTACHMENT_BYTES,
+  MAX_SEND_TOTAL_ATTACHMENT_BYTES,
+  saveDraft,
+  scheduleSend,
+  sendMessage,
+} from "./mailbox-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -26,4 +35,70 @@ it("binds schedule retries to the idempotency header and exact UIDVALIDITY", asy
     "Idempotency-Key": "replay-key-1234567890",
   });
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual(body);
+});
+
+function sizedAttachment(size: number) {
+  const padding = (3 - (size % 3)) % 3;
+  return {
+    filename: "bytes.bin",
+    content_type: "application/octet-stream",
+    content_base64:
+      "A".repeat(Math.ceil(size / 3) * 4 - padding) + "=".repeat(padding),
+  };
+}
+
+it("counts decoded aggregate bytes including base64 padding", () => {
+  for (const size of [0, 1, 2, 3, 4, MAX_SEND_ATTACHMENT_BYTES]) {
+    expect(attachmentDecodedBytes(sizedAttachment(size))).toBe(size);
+  }
+  const pair = [
+    sizedAttachment(MAX_SEND_ATTACHMENT_BYTES),
+    sizedAttachment(MAX_SEND_ATTACHMENT_BYTES),
+  ];
+  expect(attachmentTotalBytes(pair)).toBe(MAX_SEND_TOTAL_ATTACHMENT_BYTES);
+  expect(() => assertAttachmentTotal(pair)).not.toThrow();
+  expect(() => assertAttachmentTotal([...pair, sizedAttachment(1)])).toThrow();
+});
+
+it("rejects an oversized aggregate before sending or replacing a draft", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const attachments = [
+    sizedAttachment(MAX_SEND_ATTACHMENT_BYTES),
+    sizedAttachment(MAX_SEND_ATTACHMENT_BYTES),
+    sizedAttachment(1),
+  ];
+  const body = {
+    to: ["bob@example.test"],
+    subject: "large",
+    text: "body",
+    attachments,
+  };
+  await expect(sendMessage(body)).rejects.toMatchObject({
+    status: 413,
+    code: "MAILBOX_MESSAGE_TOO_LARGE",
+  });
+  await expect(
+    saveDraft({ ...body, uid: 7, uid_validity: 9 }),
+  ).rejects.toMatchObject({ status: 413, code: "MAILBOX_MESSAGE_TOO_LARGE" });
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("preserves the server aggregate size error in the standard API error path", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 413,
+      json: async () => ({
+        error: {
+          code: "MAILBOX_MESSAGE_TOO_LARGE",
+          message: "error.MAILBOX_MESSAGE_TOO_LARGE",
+        },
+      }),
+    }),
+  );
+  await expect(
+    sendMessage({ to: ["bob@example.test"], subject: "body", text: "body" }),
+  ).rejects.toMatchObject({ status: 413, code: "MAILBOX_MESSAGE_TOO_LARGE" });
 });

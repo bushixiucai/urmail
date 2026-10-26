@@ -11,10 +11,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  attachmentTotalBytes,
   deleteDraft,
   fileToOutgoingAttachment,
   formatFrom,
   MAX_SEND_ATTACHMENT_BYTES,
+  MAX_SEND_TOTAL_ATTACHMENT_BYTES,
   MAX_SEND_ATTACHMENTS,
   MessageDetail,
   OutgoingAttachment,
@@ -192,6 +194,17 @@ export function MailboxComposeDialog({
           t("page.webmail.compose_attach_too_large", {
             name: file.name,
             size: Math.floor(MAX_SEND_ATTACHMENT_BYTES / (1024 * 1024)),
+          }),
+        );
+        continue;
+      }
+      if (
+        attachmentTotalBytes(next) + file.size >
+        MAX_SEND_TOTAL_ATTACHMENT_BYTES
+      ) {
+        setError(
+          t("page.webmail.compose_attach_total_limit", {
+            size: MAX_SEND_TOTAL_ATTACHMENT_BYTES / (1024 * 1024),
           }),
         );
         continue;
@@ -532,6 +545,7 @@ export function MailboxComposeDialog({
               {t("page.webmail.compose_attach_hint", {
                 max: MAX_SEND_ATTACHMENTS,
                 size: Math.floor(MAX_SEND_ATTACHMENT_BYTES / (1024 * 1024)),
+                total: MAX_SEND_TOTAL_ATTACHMENT_BYTES / (1024 * 1024),
               })}
             </p>
             {attachments.length > 0 && (
