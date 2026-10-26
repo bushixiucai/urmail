@@ -28,35 +28,7 @@ func calendarDatabaseAt63(t *testing.T) (string, *pgx.Conn, int64, int64) {
 	t.Helper()
 	ctx := t.Context()
 	dsn := testdb.New(t)
-	source, err := iofs.New(db.FS(), ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	migrationURL, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	params := migrationURL.Query()
-	params.Set("role", "urmail_migrate")
-	migrationURL.RawQuery = params.Encode()
-	sqlDB, err := sql.Open("pgx", migrationURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	driver, err := migratepgx.WithInstance(sqlDB, &migratepgx.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := migrate.NewWithInstance("iofs", source, "pgx5", driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Migrate(63); err != nil {
-		t.Fatal(err)
-	}
-	if a, b := m.Close(); a != nil || b != nil {
-		t.Fatal(a, b)
-	}
+	testdb.MigrateTo(t, dsn, 63)
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

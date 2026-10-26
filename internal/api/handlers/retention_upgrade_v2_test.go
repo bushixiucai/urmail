@@ -1,13 +1,9 @@
 package handlers
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
-	"github.com/golang-migrate/migrate/v4"
-	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
@@ -18,28 +14,7 @@ import (
 func TestRetentionUpgradeStopsLegacyPolicyWithoutInventingGrant(t *testing.T) {
 	ctx := t.Context()
 	dsn := testdb.New(t)
-	source, err := iofs.New(db.FS(), ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	connection, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	driver, err := migratepgx.WithInstance(connection, &migratepgx.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	migration, err := migrate.NewWithInstance("iofs", source, "pgx5", driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = migration.Migrate(57); err != nil {
-		t.Fatal(err)
-	}
-	if a, b := migration.Close(); a != nil || b != nil {
-		t.Fatal(a, b)
-	}
+	testdb.MigrateTo(t, dsn, 57)
 	p, err := db.OpenPlatform(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

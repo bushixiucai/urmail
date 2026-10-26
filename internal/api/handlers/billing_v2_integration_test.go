@@ -242,7 +242,9 @@ func TestBillingV2UpgradeUsesFrozenNominalBasis(t *testing.T) {
 	if err := SettleOrder(ctx, p, payload.Order.ID); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now().UTC().Add(-15 * 24 * time.Hour)
+	// PostgreSQL timestamps retain microseconds, so compare the persisted
+	// boundary at that precision rather than a nanosecond-only fixture value.
+	start := time.Now().UTC().Add(-15 * 24 * time.Hour).Truncate(time.Microsecond)
 	end := start.Add(30 * 24 * time.Hour)
 	if _, err := p.Exec(ctx, "UPDATE subscription_terms SET period_start=$2,billing_period_start=$2,period_end=$3 WHERE tenant_id=$1", tenant, start, end); err != nil {
 		t.Fatal(err)

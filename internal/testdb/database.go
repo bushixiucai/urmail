@@ -6,12 +6,18 @@ package testdb
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
@@ -91,6 +97,88 @@ func New(t testing.TB) string {
 		t.Fatalf("unlock cluster bootstrap: %v", unlockErr)
 	}
 	return target.String()
+}
+
+// MigrateTo builds a historical fixture without depending on retired roles
+// left behind by another test. Keep role creation and migration under the same
+// cluster lock used by production Up, which may retire these roles again.
+func MigrateTo(t testing.TB, dsn string, version uint) {
+	t.Helper()
+	target, err := url.Parse(dsn)
+	if err != nil || !strings.HasPrefix(target.Path, "/urmail_fixture_") {
+		t.Fatal("historical migrations require an owned fixture database")
+	}
+	ctx := context.Background()
+	maintenance := *target
+	maintenance.Path = "/postgres"
+	query := maintenance.Query()
+	query.Del("role")
+	maintenance.RawQuery = query.Encode()
+	admin, err := pgx.Connect(ctx, maintenance.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = admin.Close(ctx) }()
+	if _, err = admin.Exec(ctx, "SELECT pg_advisory_lock($1)", bootstrapLock); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = admin.Exec(ctx, "SELECT pg_advisory_unlock($1)", bootstrapLock) }()
+	// Historical schema 0042 predates retirement. These are fixture-only,
+	// inert owners; current bootstrap and production permissions stay unchanged.
+	if version >= 42 {
+		if _, err = admin.Exec(ctx, `DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_roundcube') THEN
+  CREATE ROLE urmail_roundcube NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ END IF;
+ IF NOT pg_has_role('urmail_migrate','urmail_roundcube','MEMBER') THEN
+  GRANT urmail_roundcube TO urmail_migrate;
+ END IF;
+END $$`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if version >= 68 {
+		if _, err = admin.Exec(ctx, `DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='urmail_nextcloud') THEN
+  CREATE ROLE urmail_nextcloud NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ END IF;
+ IF NOT pg_has_role('urmail_migrate','urmail_nextcloud','MEMBER') THEN
+  GRANT urmail_nextcloud TO urmail_migrate;
+ END IF;
+END $$`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source, err := iofs.New(db.FS(), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := target.Query()
+	params.Set("role", "urmail_migrate")
+	target.RawQuery = params.Encode()
+	connection, err := sql.Open("pgx", target.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, err := migratepgx.WithInstance(connection, &migratepgx.Config{})
+	if err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	migration, err := migrate.NewWithInstance("iofs", source, "pgx5", driver)
+	if err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	defer func() {
+		a, b := migration.Close()
+		if a != nil || b != nil {
+			t.Error(a, b)
+		}
+	}()
+	if err = migration.Migrate(version); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		t.Fatal(err)
+	}
 }
 
 // OpenMigrated creates one owned fixture and opens the two production roles.
