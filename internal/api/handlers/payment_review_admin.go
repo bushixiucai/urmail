@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -119,8 +120,23 @@ func (h *PaymentReviewHandler) Resolve(c *gin.Context) {
 	}
 	requested, err := tq.PlatformCreateReviewRefund(c, store.PlatformCreateReviewRefundParams{TenantID: review.TenantID, ID: id, RefundNo: "REVIEW-" + strconv.FormatInt(id, 10), Reason: req.Reason})
 	if err != nil {
-		mapRefundApprovalError(c, err)
-		return
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// PD-01: the deterministic review refund number was taken. Reuse it
+			// only when the existing row belongs to this very review; anything
+			// else (a tenant pre-occupying the number) is a loud conflict, never
+			// a silent cross-tenant object substitution.
+			existing, byErr := tq.PlatformGetRefundByNo(c, "REVIEW-"+strconv.FormatInt(id, 10))
+			if byErr == nil && existing.TenantID == review.TenantID && existing.OrderID == review.OrderID && existing.PaymentID.Valid && existing.PaymentID.Int64 == review.PaymentID {
+				requested = existing
+			} else {
+				authError(c, 409, "PAYMENT_REVIEW_REFUND_NUMBER_TAKEN")
+				return
+			}
+		} else {
+			mapRefundApprovalError(c, err)
+			return
+		}
 	}
 	detail, _ := json.Marshal(map[string]any{"action": "request_refund", "reason": req.Reason, "refund_id": requested.ID, "status": 202, "outcome": "awaiting_refund_approval"})
 	if _, err = tq.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: review.TenantID, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: true}, Action: "REQUEST receipt.refund", TargetType: pgtype.Text{String: "payment-reviews", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail}); err != nil {

@@ -306,6 +306,10 @@ type Querier interface {
 	PlatformCreateRegisteredTenant(ctx context.Context, arg PlatformCreateRegisteredTenantParams) (int64, error)
 	PlatformCreateRegisteredUser(ctx context.Context, arg PlatformCreateRegisteredUserParams) (int64, error)
 	PlatformCreateRegistrationRequest(ctx context.Context, arg PlatformCreateRegistrationRequestParams) error
+	// PD-01: a plain INSERT. The previous ON CONFLICT(refund_no) DO UPDATE made a
+	// pre-occupied refund number from another tenant silently resolve to that
+	// foreign row. Collisions now surface as a unique violation the handler
+	// resolves explicitly (idempotent same-review retry vs loud rejection).
 	PlatformCreateReviewRefund(ctx context.Context, arg PlatformCreateReviewRefundParams) (Refunds, error)
 	PlatformCreateSettlementInvoice(ctx context.Context, arg PlatformCreateSettlementInvoiceParams) (PlatformCreateSettlementInvoiceRow, error)
 	PlatformCreateSieveBridge(ctx context.Context, arg PlatformCreateSieveBridgeParams) error
@@ -401,6 +405,7 @@ type Querier interface {
 	PlatformGetPaymentMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
 	PlatformGetPaymentReview(ctx context.Context, id int64) (PaymentManualReviews, error)
 	PlatformGetPaymentReviewForUpdate(ctx context.Context, arg PlatformGetPaymentReviewForUpdateParams) (PaymentManualReviews, error)
+	PlatformGetRefundByNo(ctx context.Context, refundNo string) (Refunds, error)
 	PlatformGetRefundForUpdate(ctx context.Context, id int64) (Refunds, error)
 	PlatformGetRefundPayment(ctx context.Context, arg PlatformGetRefundPaymentParams) (PlatformGetRefundPaymentRow, error)
 	PlatformGetRefundTargetTerm(ctx context.Context, arg PlatformGetRefundTargetTermParams) (SubscriptionTerms, error)

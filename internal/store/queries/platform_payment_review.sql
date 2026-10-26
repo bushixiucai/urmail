@@ -44,12 +44,18 @@ UPDATE orders SET status='pending' WHERE tenant_id=$1 AND id=$2 AND status IN('p
 UPDATE payment_manual_reviews SET status='fulfilled',resolution_reason=$3,resolved_by=$4,resolved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='open';
 
 -- name: PlatformCreateReviewRefund :one
+-- PD-01: a plain INSERT. The previous ON CONFLICT(refund_no) DO UPDATE made a
+-- pre-occupied refund number from another tenant silently resolve to that
+-- foreign row. Collisions now surface as a unique violation the handler
+-- resolves explicitly (idempotent same-review retry vs loud rejection).
 INSERT INTO refunds(tenant_id,order_id,payment_id,refund_no,amount_cents,currency,reason,status)
 SELECT p.tenant_id,p.order_id,p.id,$3,p.amount_cents,p.currency,$4,'pending'
 FROM payment_manual_reviews r JOIN payments p ON p.tenant_id=r.tenant_id AND p.id=r.payment_id
 WHERE r.tenant_id=$1 AND r.id=$2 AND r.status='open'
-ON CONFLICT(refund_no) DO UPDATE SET refund_no=EXCLUDED.refund_no
 RETURNING *;
+
+-- name: PlatformGetRefundByNo :one
+SELECT * FROM refunds WHERE refund_no=$1;
 
 -- name: PlatformResolveRefundedReceiptReviews :exec
 UPDATE payment_manual_reviews m SET status='refunded',resolution_reason='confirmed_refund:'||r.refund_no,resolved_by=r.approved_by,resolved_at=now()
