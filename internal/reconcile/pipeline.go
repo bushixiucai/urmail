@@ -128,10 +128,19 @@ func (p *Pipeline) StartWorker(ctx context.Context, debounce time.Duration, onRe
 		}
 		retry = nil
 		if debounce > 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(debounce):
+			timer := time.NewTimer(debounce)
+		debounceWait:
+			for {
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-p.triggerCh:
+					// Render once after the latest change has settled.
+					timer.Reset(debounce)
+				case <-timer.C:
+					break debounceWait
+				}
 			}
 		}
 		files, err := p.RenderOnce(ctx)

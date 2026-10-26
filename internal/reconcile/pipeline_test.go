@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/config"
@@ -12,6 +13,10 @@ import (
 )
 
 func TestPipelineTriggerAndDebounce(t *testing.T) {
+	synctest.Test(t, testPipelineTriggerAndDebounce)
+}
+
+func testPipelineTriggerAndDebounce(t *testing.T) {
 	cfg := &config.Config{
 		MyHostname:    "box.urmail.cn",
 		PrimaryDomain: "urmail.cn",
@@ -25,32 +30,56 @@ func TestPipelineTriggerAndDebounce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var renderCount int32
-	go p.StartWorker(ctx, 20*time.Millisecond, func(_ map[string]string) error {
-		atomic.AddInt32(&renderCount, 1)
-		return nil
-	})
+	var renderCount atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.StartWorker(ctx, 20*time.Millisecond, func(_ map[string]string) error {
+			renderCount.Add(1)
+			return nil
+		})
+	}()
 
-	// Trigger multiple bursts
+	// Queue more events while the worker is already waiting for the first one.
+	p.Trigger()
+	synctest.Wait()
+	time.Sleep(10 * time.Millisecond)
 	p.Trigger()
 	p.Trigger()
-	p.Trigger()
+	synctest.Wait()
 
-	// Wait for debounce and execution
-	time.Sleep(60 * time.Millisecond)
+	// The later burst must extend the quiet period past the original deadline.
+	time.Sleep(15 * time.Millisecond)
+	synctest.Wait()
+	if count := renderCount.Load(); count != 0 {
+		t.Fatalf("rendered before the burst settled: %d", count)
+	}
+	time.Sleep(5 * time.Millisecond)
+	synctest.Wait()
 
-	count := atomic.LoadInt32(&renderCount)
+	count := renderCount.Load()
 	if count != 1 {
 		t.Errorf("expected 1 debounced render, got %d", count)
 	}
 
 	// Trigger second round
 	p.Trigger()
-	time.Sleep(60 * time.Millisecond)
+	synctest.Wait()
+	time.Sleep(20 * time.Millisecond)
+	synctest.Wait()
 
-	count = atomic.LoadInt32(&renderCount)
+	count = renderCount.Load()
 	if count != 2 {
 		t.Errorf("expected 2 total renders, got %d", count)
+	}
+	// Cancellation during another pending quiet period must stop the worker.
+	p.Trigger()
+	synctest.Wait()
+	cancel()
+	synctest.Wait()
+	<-done
+	if count = renderCount.Load(); count != 2 {
+		t.Errorf("rendered after cancellation: %d", count)
 	}
 }
 
