@@ -187,6 +187,10 @@ func (m *ApplyManager) recordCertificateError(message string) {
 
 // RenewCertificates handles CSR certificates without a certbot renewal lineage. Reissue explicitly using
 // the locally held private key when less than thirty days remain.
+//
+// Only hostname (mail) certificate failures flip the global certificate_error /
+// ErrFailed status. Tenant domain issuance failures keep any existing self-signed
+// fallback and do not mark the box as failed — hostname LE health is independent.
 func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, error) {
 	var empty struct{}
 	if err := strictParams(raw, &empty); err != nil {
@@ -194,17 +198,20 @@ func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, e
 	}
 	m.certMu.Lock()
 	defer m.certMu.Unlock()
+	hostname := m.hostname()
 	m.mu.Lock()
-	domains := append([]string{m.hostname()}, m.domains...)
+	domains := append([]string{hostname}, m.domains...)
 	m.mu.Unlock()
-	var failed bool
+	var hostnameFailed bool
 	deadline := time.Now().Add(3 * time.Minute)
 	for _, domain := range domains {
 		if !m.certificateProvisioningAllowed(domain) {
 			continue
 		}
 		if time.Now().After(deadline) {
-			failed = true
+			if domain == hostname {
+				hostnameFailed = true
+			}
 			break
 		}
 		path := certificateCertPath(m.certificatePaths(domain))
@@ -221,18 +228,19 @@ func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, e
 		budget := min(time.Until(deadline), 2*time.Minute)
 		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		if err := m.issueCertificateContext(ctx, domain); err != nil {
-			failed = true
+			if domain == hostname {
+				hostnameFailed = true
+			}
+			// Domain issuance failed: leave existing fallback cert in place.
 		}
 		cancel()
 	}
-	if failed {
+	if hostnameFailed {
 		m.recordCertificateError("certificate renewal failed")
-	} else {
-		m.recordCertificateError("")
-	}
-	if failed {
 		return "", "", fmt.Errorf("%w: certificate renewal failed", ErrFailed)
 	}
+	// Hostname is current or was successfully reissued — clear sticky error.
+	m.recordCertificateError("")
 	return "certificates current", "", nil
 }
 

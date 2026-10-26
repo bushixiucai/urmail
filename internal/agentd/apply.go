@@ -214,15 +214,18 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	}
 	generation := hex.EncodeToString(sum.Sum(nil))
 	if m.status.Ready && m.status.Applied == generation {
-		m.status.Ready = false
+		// Keep Ready=true while rechecking so concurrent config.status readers
+		// do not flap on probe:smtp25 during an otherwise healthy generation.
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := m.checkMailReadiness(ctx); err != nil {
+			m.status.Ready = false
 			m.status.Error = "configuration readiness failed at " + m.status.Step + ": " + err.Error()
 			m.publish()
 			return "", "", fmt.Errorf("%w: %s", ErrFailed, m.status.Error)
 		}
 		m.status.Step = "ready"
+		m.status.Error = ""
 		m.status.Ready = true
 		m.publish()
 		return generation, "", nil

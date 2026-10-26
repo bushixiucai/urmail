@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/mail/postfix"
 )
 
 func certificateAuthority(t *testing.T) (*x509.Certificate, *rsa.PrivateKey, []byte) {
@@ -238,6 +239,66 @@ func TestCertificateNetworkWaitDoesNotBlockConfiguration(t *testing.T) {
 	}
 	close(release)
 	<-done
+}
+
+func TestCertificateRenewKeepsDomainFallbackWithoutStickyError(t *testing.T) {
+	m := testManager(t)
+	domain := "tenant.example.com"
+	m.domains = []string{domain}
+	if err := m.ensureBootstrap(ApplyParams{Postfix: postfix.Snapshot{Domains: []postfix.Domain{{FQDN: domain, Status: "active"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	ca, caKey, caPEM := certificateAuthority(t)
+	caPath := filepath.Join(m.root, "ca.pem")
+	if err := os.WriteFile(caPath, caPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.cfg.ACMERootCA = caPath
+
+	keyPEM, err := os.ReadFile(certificateKeyPath(m.certificatePaths(m.hostname())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(keyPEM)
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, err := certs.GenerateCSR(key, m.hostname(), []string{m.hostname()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued := signedCSR(t, csr, ca, caKey, caPEM, m.hostname(), time.Now().Add(90*24*time.Hour))
+	if err := m.installCertificateFiles(m.hostname(), issued, keyPEM); err != nil {
+		t.Fatal(err)
+	}
+
+	domainCertPath := certificateCertPath(m.certificatePaths(domain))
+	beforeDomain, err := os.ReadFile(domainCertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.recordCertificateError("certificate renewal failed")
+
+	m.run = func(_ context.Context, path string, _ ...string) error {
+		if path == "/usr/bin/certbot" {
+			return errors.New("dns/http-01 failed")
+		}
+		return nil
+	}
+	if _, _, err := m.RenewCertificates(json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("hostname-healthy renew failed: %v", err)
+	}
+	if m.status.CertificateError != "" {
+		t.Fatalf("sticky certificate_error %q", m.status.CertificateError)
+	}
+	afterDomain, err := os.ReadFile(domainCertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterDomain) != string(beforeDomain) {
+		t.Fatal("domain fallback replaced after failed issue")
+	}
 }
 
 func TestCertificateRenewsImportedECDSAIdentityWithoutChangingKey(t *testing.T) {

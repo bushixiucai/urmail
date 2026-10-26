@@ -9,13 +9,13 @@ import (
 func TestFilterPreservedExternalFilesSkipsNSDWebAndOpenDKIM(t *testing.T) {
 	cfg := &config.Config{PreserveExternalNSD: true, PreserveExternalWeb: true, PreserveExternalOpenDKIM: true}
 	files := map[string]string{
-		"/etc/postfix/main.cf":           "postfix",
-		"/etc/dovecot/dovecot.conf":      "dovecot",
-		"/etc/nsd/nsd.conf.d/zones.conf": "zones",
+		"/etc/postfix/main.cf":            "postfix",
+		"/etc/dovecot/dovecot.conf":       "dovecot",
+		"/etc/nsd/nsd.conf.d/zones.conf":  "zones",
 		"/etc/nsd/zones/example.test.txt": "zone",
-		"/etc/nginx/conf.d/mail.conf":    "nginx",
-		"/etc/opendkim.conf":             "dkim",
-		"/etc/opendkim/KeyTable":         "keys",
+		"/etc/nginx/conf.d/mail.conf":     "nginx",
+		"/etc/opendkim.conf":              "dkim",
+		"/etc/opendkim/KeyTable":          "keys",
 	}
 	filtered := filterPreservedExternalFiles(cfg, files)
 	if _, ok := filtered["/etc/postfix/main.cf"]; !ok {

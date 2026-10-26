@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,14 @@ import (
 	"strings"
 	"time"
 )
+
+// probeAttemptBudget is long enough for one greeting/TLS attempt yet short
+// enough that a few retries still fit inside the unchanged-generation budget.
+const probeAttemptBudget = 2 * time.Second
+
+// probeRetryBackoff absorbs brief Postfix/Dovecot restart races without
+// masking a sustained SMTP outage (retries still exhaust the parent context).
+var probeRetryBackoff = []time.Duration{150 * time.Millisecond, 350 * time.Millisecond, 700 * time.Millisecond}
 
 // probeMailReadiness checks application greetings, not merely open master
 // sockets. A live Dovecot master cannot establish usable login workers by itself.
@@ -38,22 +47,49 @@ func (m *ApplyManager) probeMailReadiness(ctx context.Context) error {
 	} {
 		m.status.Step = "probe:" + probe.name
 		m.publish()
-		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		var config *tls.Config
 		if probe.secure {
 			config = tlsConfig
 		}
 		if probe.name == "submission587" {
-			err = probeSubmissionTLS(probeCtx, probe.address, tlsConfig, expected)
+			err = probeWithRetry(ctx, func(attemptCtx context.Context) error {
+				return probeSubmissionTLS(attemptCtx, probe.address, tlsConfig, expected)
+			})
 		} else {
-			err = probeGreeting(probeCtx, probe.address, probe.banner, config, expected)
+			err = probeWithRetry(ctx, func(attemptCtx context.Context) error {
+				return probeGreeting(attemptCtx, probe.address, probe.banner, config, expected)
+			})
 		}
-		cancel()
 		if err != nil {
 			return fmt.Errorf("%s readiness: %w", probe.name, err)
 		}
 	}
 	return nil
+}
+
+func probeWithRetry(ctx context.Context, attempt func(context.Context) error) error {
+	var last error
+	for i := 0; ; i++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, probeAttemptBudget)
+		last = attempt(attemptCtx)
+		cancel()
+		if last == nil {
+			return nil
+		}
+		if i >= len(probeRetryBackoff) {
+			return last
+		}
+		timer := time.NewTimer(probeRetryBackoff[i])
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if errors.Is(last, context.DeadlineExceeded) || errors.Is(last, context.Canceled) {
+				return last
+			}
+			return fmt.Errorf("%w: %w", ctx.Err(), last)
+		case <-timer.C:
+		}
+	}
 }
 
 func installedTLSConfig(certificate []byte, hostname string) (*tls.Config, []byte, error) {

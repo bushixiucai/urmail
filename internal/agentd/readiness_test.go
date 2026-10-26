@@ -8,9 +8,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -164,6 +166,65 @@ func TestReadinessUnchangedGenerationStillChecksWorkers(t *testing.T) {
 	}
 	if m.status.Ready || m.status.Applied != old || m.status.Error == "" {
 		t.Fatalf("false deduplicated ready %+v", m.status)
+	}
+}
+
+func TestReadinessUnchangedGenerationDoesNotFlapReadyWhileProbing(t *testing.T) {
+	m := testManager(t)
+	if _, _, err := m.Apply(emptyApply()); err != nil {
+		t.Fatal(err)
+	}
+	sawReadyFalse := false
+	m.readinessProbe = func(context.Context) error {
+		if value := m.published.Load(); value != nil {
+			status := value.(ApplyStatus)
+			if !status.Ready {
+				sawReadyFalse = true
+			}
+			if status.Step != "probe:mail" && status.Step != "ready" {
+				t.Fatalf("unexpected mid-recheck step %q", status.Step)
+			}
+		}
+		return nil
+	}
+	if _, _, err := m.Apply(emptyApply()); err != nil {
+		t.Fatal(err)
+	}
+	if sawReadyFalse {
+		t.Fatal("unchanged-generation recheck published ready:false before probe finished")
+	}
+	if !m.status.Ready || m.status.Step != "ready" {
+		t.Fatalf("healthy recheck lost ready %+v", m.status)
+	}
+}
+
+func TestProbeWithRetryRecoversFromTransientFailure(t *testing.T) {
+	var attempts atomic.Int32
+	err := probeWithRetry(context.Background(), func(context.Context) error {
+		if attempts.Add(1) < 3 {
+			return errors.New("connection refused")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("attempts=%d want 3", got)
+	}
+}
+
+func TestProbeWithRetryStillFailsAfterExhaustion(t *testing.T) {
+	var attempts atomic.Int32
+	err := probeWithRetry(context.Background(), func(context.Context) error {
+		attempts.Add(1)
+		return errors.New("connection refused")
+	})
+	if err == nil {
+		t.Fatal("exhausted retries accepted")
+	}
+	if got := attempts.Load(); got != int32(len(probeRetryBackoff)+1) {
+		t.Fatalf("attempts=%d want %d", got, len(probeRetryBackoff)+1)
 	}
 }
 
