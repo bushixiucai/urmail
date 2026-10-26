@@ -2,7 +2,9 @@
 """Exercise release downloads on an explicitly disposable Ubuntu installation.
 
 This runs the real installer, including successful package installation. It is
-intended for a fresh test VM, never an existing mail server.
+intended for a fresh test VM, never an existing mail server. A temporary
+installer copy trusts a per-run fixture key; the production trust key is untouched.
+Use --download-only for isolated signature/download checks without installation.
 """
 import argparse
 import hashlib
@@ -30,11 +32,60 @@ def print_failure_output(output, environment):
     print("\n".join(text.splitlines()[-100:]), flush=True)
 
 
+def prepare_signed_fixture(source, directory, manifest, download_only):
+    """Sign fixture manifests and replace only a disposable installer's trust key."""
+    key = directory / "fixture-signing.key"
+    public = directory / "fixture-signing.pub"
+    subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(key)],
+                   check=True, capture_output=True)
+    key.chmod(0o600)
+    subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout", "-out", str(public)],
+                   check=True, capture_output=True)
+    original = source.read_text()
+    pinned_key = r"-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+-----END PUBLIC KEY-----"
+    installer, replacements = re.subn(pinned_key, lambda _match: public.read_text().rstrip(), original)
+    assert replacements == 1, "expected exactly one installer release trust key"
+    if download_only:
+        # Exercise the actual download and verification block on isolated Linux
+        # without installing dependencies, the package, or a database.
+        dependency_start = installer.index("# Dependencies\n")
+        package_start = installer.index("# Package\n", dependency_start)
+        installer = installer[:dependency_start] + installer[package_start:]
+        installer = installer[:installer.index('log "installing the package"')]
+        installer += 'printf "%s\\n" "Release download contract verified."\n'
+    target = directory / "install-fixture.sh"
+    target.write_text(installer)
+    artifacts = {}
+    for mode in ["latest", "fixed", "missing-signature", "bad-signature", "tampered-manifest",
+                 "bad-hash", "wrong-arch", "missing-manifest", "missing-package"]:
+        value = dict(manifest)
+        if mode == "bad-hash":
+            value["sha256"] = "0" * 64
+        if mode == "wrong-arch":
+            value["architecture"] = "amd64" if manifest["architecture"] == "arm64" else "arm64"
+        raw = json.dumps(value).encode()
+        document = directory / (mode + ".json")
+        signature = directory / (mode + ".sig")
+        document.write_bytes(raw)
+        subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(key), "-rawin",
+                        "-in", str(document), "-out", str(signature)], check=True, capture_output=True)
+        signed = signature.read_bytes()
+        if mode == "bad-signature":
+            signed = bytes([signed[0] ^ 1]) + signed[1:]
+        if mode == "tampered-manifest":
+            value["sha256"] = "1" * 64
+            raw = json.dumps(value).encode()
+        artifacts[mode] = (raw, signed)
+    return target, artifacts
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--disposable", action="store_true")
     parser.add_argument("--package", required=True, type=Path)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--download-only", action="store_true",
+                        help="test download/signature contracts without dependency or package installation")
     args = parser.parse_args()
     if not args.disposable or os.geteuid() != 0:
         parser.error("requires root and --disposable on a test VM")
@@ -43,6 +94,13 @@ def main():
     manifest = {"version": args.version, "architecture": arch,
                 "filename": package.name, "sha256": hashlib.sha256(package.read_bytes()).hexdigest()}
     state = {"mode": "latest"}
+    fixture = tempfile.TemporaryDirectory(prefix="urmail-release-signing-")
+    source = Path(__file__).resolve().parents[1] / "installer/install.sh"
+    try:
+        installer, artifacts = prepare_signed_fixture(source, Path(fixture.name), manifest, args.download_only)
+    except BaseException:
+        fixture.cleanup()
+        raise
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -59,15 +117,16 @@ def main():
                 if state["mode"] == "missing-manifest":
                     self.send_error(404)
                     return
-                value = dict(manifest)
-                if state["mode"] == "bad-hash":
-                    value["sha256"] = "0" * 64
-                if state["mode"] == "wrong-arch":
-                    value["architecture"] = "amd64" if arch == "arm64" else "arm64"
-                raw = json.dumps(value).encode()
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(raw)
+                self.wfile.write(artifacts[state["mode"]][0])
+            elif name == f"manifest-{arch}.json.sig":
+                if state["mode"] == "missing-signature":
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(artifacts[state["mode"]][1])
             elif name == package.name and state["mode"] != "missing-package":
                 self.send_response(200)
                 self.end_headers()
@@ -80,11 +139,13 @@ def main():
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     base = f"http://127.0.0.1:{server.server_port}"
-    installer = Path(__file__).resolve().parents[1] / "installer/install.sh"
     try:
         logs = tempfile.mkdtemp(prefix="urmail-release-test-")
         print(f"Private installer evidence: {logs}", flush=True)
-        for mode, expected in [("bad-hash", "Package checksum mismatch"),
+        for mode, expected in [("missing-signature", "Release manifest signature missing"),
+                               ("bad-signature", "Release manifest signature verification failed"),
+                               ("tampered-manifest", "Release manifest signature verification failed"),
+                               ("bad-hash", "Package checksum mismatch"),
                                ("wrong-arch", "Invalid release manifest"),
                                ("missing-manifest", "404"), ("missing-package", "Release download failed"),
                                ("latest", None), ("fixed", None)]:
@@ -108,6 +169,7 @@ def main():
     finally:
         server.shutdown()
         server.server_close()
+        fixture.cleanup()
 
 
 if __name__ == "__main__":
