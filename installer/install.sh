@@ -84,6 +84,19 @@ else
 	TMP_DIR="$(mktemp -d)"
 	trap 'rm -rf "$TMP_DIR"' EXIT
 	curl -fLsS --retry 3 --connect-timeout 20 --max-time 60 "$RELEASE_BASE/manifest-${ARCH}.json" -o "$TMP_DIR/manifest.json"
+	# HOST-01: the manifest carries the release authority. Verify an Ed25519
+	# signature against the key pinned below before trusting any hash in it;
+	# a compromised mirror or release upload then fails closed.
+	cat > "$TMP_DIR/urmail-release.pub" <<'PUBKEY'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEABZSB9NcZcucX2QGvb4OkDNzYJ++HSmVRswL0lB8PZs8=
+-----END PUBLIC KEY-----
+PUBKEY
+	curl -fLsS --retry 3 --connect-timeout 20 --max-time 60 "$RELEASE_BASE/manifest-${ARCH}.json.sig" -o "$TMP_DIR/manifest.json.sig" \
+		|| die "Release manifest signature missing; refusing unverified install."
+	openssl pkeyutl -verify -pubin -inkey "$TMP_DIR/urmail-release.pub" -rawin \
+		-in "$TMP_DIR/manifest.json" -sigfile "$TMP_DIR/manifest.json.sig" \
+		> /dev/null 2>&1 || die "Release manifest signature verification failed."
 	mapfile -t ASSET < <(python3 - "$TMP_DIR/manifest.json" "$ARCH" "$RELEASE_VERSION" <<'PYCODE'
 import json, re, sys
 m = json.load(open(sys.argv[1]))
