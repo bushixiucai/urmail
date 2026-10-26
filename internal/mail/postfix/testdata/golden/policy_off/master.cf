@@ -11,12 +11,16 @@ submission inet n       -       n       -       -       smtpd
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_reject_unlisted_recipient=no
   -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_milters=inet:127.0.0.1:12301, inet:127.0.0.1:12302
+  -o milter_default_action=tempfail
 smtps     inet  n       -       n       -       -       smtpd
   -o syslog_name=postfix/smtps
   -o smtpd_tls_wrappermode=yes
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_reject_unlisted_recipient=no
   -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_milters=inet:127.0.0.1:12301, inet:127.0.0.1:12302
+  -o milter_default_action=tempfail
 pickup    unix  n       -       y       60      1       pickup
 cleanup   unix  n       -       y       -       0       cleanup
 qmgr      unix  n       -       n       300     1       qmgr

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,7 +28,10 @@ import (
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/logging"
+	"github.com/bushixiucai/urmail/internal/mail/frombind"
+	"github.com/bushixiucai/urmail/internal/mail/frommilter"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
+	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/mailboxschedule"
 	"github.com/bushixiucai/urmail/internal/marketing"
 	"github.com/bushixiucai/urmail/internal/notify"
@@ -127,6 +131,26 @@ func run() error {
 	go notify.Run(ctx, platformPool, logger)
 	notificationWorker := &notify.Worker{Pool: platformPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
 	go notificationWorker.Run(ctx, logger)
+
+	// MAIL-04: Postfix submission/smtps consult this From-authorization
+	// milter before accepting a message; it fails closed (submission-side
+	// tempfail) when unavailable. Port 25 inbound is deliberately not gated
+	// on it.
+	listenConfig := net.ListenConfig{}
+	frombindListener, frombindErr := listenConfig.Listen(ctx, "tcp", "127.0.0.1:12302")
+	if frombindErr != nil {
+		logger.Error("frombind milter listen failed; authenticated submissions will tempfail", zap.Error(frombindErr))
+	} else {
+		authorizer := frombind.MapFileAuthorizer{
+			Path: "/etc/postfix/" + postfix.FileSenderLoginMap,
+		}
+		go func() {
+			logger.Info("frombind milter listening", zap.String("addr", "127.0.0.1:12302"))
+			// The listener closes with ctx, so the final Serve error is the
+			// expected shutdown signal and is logged at info level.
+			logger.Info("frombind milter stopped", zap.Error(frommilter.Serve(frombindListener, authorizer)))
+		}()
+	}
 
 	// The Postfix submission/smtps services ask this socket whether an
 	// authenticated sender is still within their plan's daily send limit.

@@ -55,6 +55,14 @@ func TestV80PreserveGoldenAndPolicyOrder(t *testing.T) {
 	if strings.Count(files[postfix.FileMasterCF], "smtpd_sasl_auth_enable=yes") != 2 {
 		t.Fatal("submission/smtps AUTH enablement changed")
 	}
+	// MAIL-04: submission/smtps must carry the From-authorization milter in
+	// addition to the DKIM chain.
+	if !strings.Contains(files[postfix.FileMasterCF], "smtpd_milters=inet:127.0.0.1:12301, inet:127.0.0.1:8893, inet:127.0.0.1:12302") {
+		t.Fatal("submission/smtps From-authorization milter missing")
+	}
+	if strings.Count(files[postfix.FileMasterCF], "-o milter_default_action=tempfail") != 2 {
+		t.Fatal("submission/smtps fail-closed milter action missing")
+	}
 	if !strings.Contains(files[postfix.FileSenderLoginMap], "manual@example.com self@example.com") {
 		t.Fatalf("explicit alias sender authority absent: %q", files[postfix.FileSenderLoginMap])
 	}
