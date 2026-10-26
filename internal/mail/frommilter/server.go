@@ -70,6 +70,16 @@ const (
 	maxPacket    = 1 << 21 // 2 MiB: bounded headers per message
 )
 
+// DebugLog receives per-packet traces when set. Production leaves it nil;
+// the isolated acceptance harness uses it to diagnose protocol issues.
+var DebugLog func(format string, args ...any)
+
+func debugf(format string, args ...any) {
+	if DebugLog != nil {
+		DebugLog(format, args...)
+	}
+}
+
 // Handler resolves the authorization for one message.
 type Handler interface {
 	// Authorize receives the authenticated login ("" when the session has no
@@ -118,8 +128,10 @@ func optNeg(w io.Writer, payload []byte) error {
 	reply[4] = cmdOptNeg
 	binary.BigEndian.PutUint32(reply[5:9], protoVersion)
 	binary.BigEndian.PutUint32(reply[9:13], 0) // no write actions requested
-	skip := binary.BigEndian.Uint32(payload[8:12]) | flagNoRcpt | flagNoBody
-	binary.BigEndian.PutUint32(reply[13:17], skip)
+	// Only request the events we actually want skipped. Echoing the MTA's
+	// offered mask would ask it to suppress header and EOH events too, which
+	// the decision requires.
+	binary.BigEndian.PutUint32(reply[13:17], flagNoRcpt|flagNoBody)
 	binary.BigEndian.PutUint32(reply[:4], 13)
 	_, err := w.Write(reply)
 	return err
@@ -152,14 +164,15 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 	case cmdOptNeg:
 		return 0, false, optNeg(w, payload)
 	case cmdMacro:
-		// payload: one stage byte immediately followed by NUL-separated
-		// name/value pairs (no separator between the stage byte and the first
-		// name). Only the MAIL stage carries {auth_authen}.
+		// MACO packets carry context for the NEXT event and expect NO reply;
+		// answering would desynchronize the response stream (Postfix would
+		// read our 'c' as the verdict of the following command).
 		if len(payload) == 0 {
-			return resContinue, false, nil
+			return 0, false, nil
 		}
 		stage := payload[0]
 		fields := splitNUL(payload[1:])
+		debugf("macro stage=%q fields=%q", stage, fields)
 		if stage == 'M' {
 			for i := 0; i+1 < len(fields); i += 2 {
 				if fields[i] == "{auth_authen}" {
@@ -167,7 +180,7 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 				}
 			}
 		}
-		return resContinue, false, nil
+		return 0, false, nil
 	case cmdConnect, cmdHelo, cmdData, cmdUnknown:
 		return resContinue, false, nil
 	case cmdMail:
@@ -176,6 +189,7 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 		return resContinue, false, nil
 	case cmdHeader:
 		fields := splitNUL(payload)
+		debugf("header fields=%q", fields)
 		if len(fields) >= 1 && strings.EqualFold(fields[0], "From") {
 			value := ""
 			if len(fields) >= 2 {
@@ -185,14 +199,16 @@ func (s *session) handlePacket(h Handler, pkt []byte, w io.Writer) (response byt
 		}
 		return resContinue, false, nil
 	case cmdEOH:
-		reject, _ := h.Authorize(s.login, s.fromHeaders)
+		reject, reason := h.Authorize(s.login, s.fromHeaders)
+		debugf("EOH login=%q froms=%q reject=%v reason=%q", s.login, s.fromHeaders, reject, reason)
 		if reject {
 			return resReject, false, nil
 		}
 		return resContinue, false, nil
 	case cmdAbort:
+		// ABORT expects no reply per the milter protocol.
 		s.reset()
-		return resContinue, false, nil
+		return 0, false, nil
 	case cmdEOB:
 		return resContinue, false, nil
 	case cmdQuit:

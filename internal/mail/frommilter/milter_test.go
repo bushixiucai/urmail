@@ -126,14 +126,9 @@ func TestMilterSessionRejectsSpoofedAndAllowsOwn(t *testing.T) {
 		t.Fatalf("optneg response = %q", got)
 	}
 
+	// MACRO packets carry context for the next event and expect no reply.
 	cl.send(macroPacket("C", "{client_addr}", "127.0.0.1"))
-	if got := cl.readResponse(); got != resContinue {
-		t.Fatalf("connect macro response = %q", got)
-	}
 	cl.send(macroPacket("M", "{auth_authen}", "alice@a.test"))
-	if got := cl.readResponse(); got != resContinue {
-		t.Fatalf("mail macro response = %q", got)
-	}
 	cl.send(mailPacket("<alice@a.test>"))
 	if got := cl.readResponse(); got != resContinue {
 		t.Fatalf("mail response = %q", got)
@@ -150,13 +145,7 @@ func TestMilterSessionRejectsSpoofedAndAllowsOwn(t *testing.T) {
 
 	// ABORT resets per-message state: no stale From headers survive.
 	cl.send([]byte{cmdAbort})
-	if got := cl.readResponse(); got != resContinue {
-		t.Fatalf("abort response = %q", got)
-	}
 	cl.send(macroPacket("M", "{auth_authen}", "alice@a.test"))
-	if got := cl.readResponse(); got != resContinue {
-		t.Fatalf("mail macro after abort response = %q", got)
-	}
 	cl.send(mailPacket("<loop@a.test>"))
 	if got := cl.readResponse(); got != resContinue {
 		t.Fatalf("mail after abort response = %q", got)
@@ -180,9 +169,6 @@ func TestMilterSessionRejectsSpoofedAndAllowsOwn(t *testing.T) {
 	// Unauthenticated inbound (no {auth_authen}) must continue: foreign
 	// From domains are normal on inbound mail.
 	cl.send(macroPacket("M", "{auth_authen}", ""))
-	if got := cl.readResponse(); got != resContinue {
-		t.Fatalf("empty auth macro response = %q", got)
-	}
 	cl.send(mailPacket("<outsider@elsewhere.test>"))
 	if got := cl.readResponse(); got != resContinue {
 		t.Fatalf("unauth mail response = %q", got)
