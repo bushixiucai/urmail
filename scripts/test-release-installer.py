@@ -10,11 +10,24 @@ import http.server
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
 import threading
 import urllib.parse
+
+
+def print_failure_output(output, environment):
+    """Expose useful CI diagnostics without publishing installer credentials."""
+    text = output.decode("utf-8", errors="replace")
+    for key, value in environment.items():
+        if value and any(word in key for word in ("PASSWORD", "TOKEN", "SECRET")):
+            text = text.replace(value, "[REDACTED]")
+    text = re.sub(r"(postgres(?:ql)?://[^\s:/]+:)[^\s@]+(@)", r"\1[REDACTED]\2", text)
+    text = re.sub(r"(?im)^([^\n=]*(?:password|token|secret)[^\n=]*=).*$", r"\1[REDACTED]", text)
+    print("Sanitized installer failure output:", flush=True)
+    print("\n".join(text.splitlines()[-100:]), flush=True)
 
 
 def main():
@@ -83,6 +96,9 @@ def main():
             result = subprocess.run(["bash", str(installer)], env=env, capture_output=True, timeout=900)
             output = result.stdout + result.stderr
             Path(logs, mode + ".log").write_bytes(output)
+            if ((expected is None and result.returncode != 0)
+                    or (expected is not None and (result.returncode == 0 or expected.encode() not in output))):
+                print_failure_output(output, env)
             if expected is None:
                 assert result.returncode == 0, f"{mode}: installer failed (exit {result.returncode})"
             else:

@@ -372,7 +372,16 @@ if [ ! -f "$MAIL_CERT_DIR/$MYHOSTNAME.cert" ]; then
 fi
 
 log "applying database migrations"
-urmailctl migrate up
+# Historical migrations briefly need retired cluster roles. Use the fixed local
+# peer bootstrap identity for this one command, with ordinary migration work
+# still running as urmail_migrate. The migrator temporarily clears that role
+# only for guarded cluster-role operations; no superuser URL is persisted.
+MIGRATION_BOOTSTRAP_URL="postgresql://postgres/$DB_NAME?host=/var/run/postgresql&port=5432&sslmode=disable&role=urmail_migrate"
+runuser -u postgres -- env URMAIL_ENV_FILE=/dev/null \
+  URMAIL_DATABASE_URL="$MIGRATION_BOOTSTRAP_URL" \
+  URMAIL_DATABASE_URL_PLATFORM="$MIGRATION_BOOTSTRAP_URL" \
+  URMAIL_DATABASE_URL_MIGRATE="$MIGRATION_BOOTSTRAP_URL" \
+  /usr/bin/urmailctl migrate up
 
 ADMIN_EMAIL="${URMAIL_ADMIN_EMAIL:-admin@$PRIMARY_DOMAIN}"
 ADMIN_PASSWORD="${URMAIL_ADMIN_PASSWORD:-$(openssl rand -hex 12)}"
