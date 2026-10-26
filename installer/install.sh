@@ -390,7 +390,7 @@ log "applying database migrations"
 # still running as urmail_migrate. The migrator temporarily clears that role
 # only for guarded cluster-role operations; no superuser URL is persisted.
 MIGRATION_BOOTSTRAP_URL="postgresql://postgres/$DB_NAME?host=/var/run/postgresql&port=5432&sslmode=disable&role=urmail_migrate"
-runuser -u postgres -- env URMAIL_ENV_FILE=/dev/null \
+runuser -u postgres -- env URMAIL_ENV_FILE=/dev/null URMAIL_POLICY_ENABLED=true \
   URMAIL_DATABASE_URL="$MIGRATION_BOOTSTRAP_URL" \
   URMAIL_DATABASE_URL_PLATFORM="$MIGRATION_BOOTSTRAP_URL" \
   URMAIL_DATABASE_URL_MIGRATE="$MIGRATION_BOOTSTRAP_URL" \
