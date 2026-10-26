@@ -23,11 +23,16 @@ type Box struct {
 	aead cipher.AEAD
 }
 
-// Load derives the encryption key from the RSA master key at path.
+// Load derives the encryption key from the master key at path.
+// Accepts either an RSA private key PEM (SHA-256 of PKCS#1 DER) or a raw
+// 32-byte AES key (installer / cutover hosts sometimes ship the latter).
 func Load(path string) (*Box, error) {
 	raw, err := os.ReadFile(path) //nolint:gosec // The master-key path is trusted operator configuration.
 	if err != nil {
 		return nil, fmt.Errorf("read master key: %w", err)
+	}
+	if len(raw) == 32 {
+		return New(raw)
 	}
 	block, _ := pem.Decode(raw)
 	if block == nil {
