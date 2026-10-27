@@ -17,7 +17,24 @@ import (
 	"github.com/bushixiucai/urmail/internal/config"
 )
 
+// version is stamped by the release build.
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 {
+		if len(os.Args) == 2 {
+			switch os.Args[1] {
+			case "--version", "-version":
+				fmt.Printf("urmaild-agent %s\n", version)
+				return
+			case "--help", "-h":
+				fmt.Println("Usage: urmaild-agent [--version|--help] (configuration is read from the environment)")
+				return
+			}
+		}
+		fmt.Fprintln(os.Stderr, "urmaild-agent: unexpected arguments; use --help")
+		os.Exit(2)
+	}
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "urmaild-agent: %v\n", err)
 		os.Exit(1)
