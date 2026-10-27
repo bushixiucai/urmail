@@ -62,7 +62,7 @@ apt-get update -qq
 apt-get install -y --no-install-recommends \
 	rsyslog nginx postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd \
 	dovecot-sieve dovecot-managesieved dovecot-pgsql nsd opendkim postgresql \
-	ca-certificates curl gnupg openssl certbot rsync duplicity python3-venv
+	ca-certificates curl gnupg openssl certbot rsync duplicity python3-venv age openssh-client
 
 # ---------------------------------------------------------------------------
 # Package
@@ -89,7 +89,7 @@ else
 	# a compromised mirror or release upload then fails closed.
 	cat > "$TMP_DIR/urmail-release.pub" <<'PUBKEY'
 -----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEABZSB9NcZcucX2QGvb4OkDNzYJ++HSmVRswL0lB8PZs8=
+MCowBQYDK2VwAyEA1bFMpOvlJfO//7iurp/YGZuJvzN1nY61E5wAZXh8jTk=
 -----END PUBLIC KEY-----
 PUBKEY
 	curl -fLsS --retry 3 --connect-timeout 20 --max-time 60 "$RELEASE_BASE/manifest-${ARCH}.json.sig" -o "$TMP_DIR/manifest.json.sig" \
@@ -274,10 +274,7 @@ DB_DOVECOT_URL="postgres://urmail_dovecot:$DB_DOVECOT_PASS@127.0.0.1:5432/$DB_NA
 ENV_FILE=/etc/urmail/urmaild.env
 log "writing ${ENV_FILE}"
 install -d -o root -g mailinabox -m 0750 /etc/urmail
-if [ -f "$ENV_FILE" ]; then
-	sed -i '/^URMAIL_DATABASE_URL/d' "$ENV_FILE"
-fi
-cat >>"$ENV_FILE" <<EOF
+python3 /usr/share/urmail/configure-env.py "$ENV_FILE" <<EOF
 URMAIL_DATABASE_URL=$DB_APP_URL
 URMAIL_DATABASE_URL_PLATFORM=$DB_PLATFORM_URL
 URMAIL_DATABASE_URL_MIGRATE=$DB_MIGRATE_URL
@@ -288,6 +285,10 @@ URMAIL_AGENT_SOCKET=/run/urmail/agent.sock
 URMAIL_POLICY_SOCKET=/run/urmail-policy/policy.sock
 URMAIL_POLICY_ENABLED=true
 URMAIL_ARCHIVE_ENABLED=true
+URMAIL_WEBMAIL_NATIVE=true
+URMAIL_CARDDAV_ENABLED=true
+URMAIL_CALDAV_ENABLED=true
+URMAIL_EAS_ENABLED=true
 URMAIL_DNS_PROVIDER=
 URMAIL_CLOUDFLARE_TOKEN=
 URMAIL_DNSPOD_TOKEN=
@@ -295,6 +296,8 @@ URMAIL_ALIYUN_ACCESS_KEY_ID=
 URMAIL_ALIYUN_ACCESS_KEY_SECRET=
 URMAIL_STRIPE_SECRET_KEY=
 URMAIL_STRIPE_WEBHOOK_SECRET=
+URMAIL_ACME_SERVER=
+URMAIL_ACME_ROOT_CA=
 URMAIL_MASTER_KEY_PATH=/etc/urmail/master.key
 URMAIL_LOG_LEVEL=info
 URMAIL_LOCALE=zh-CN
@@ -305,21 +308,6 @@ URMAIL_NAMESERVERS=$NAMESERVERS
 EOF
 chown root:mailinabox "$ENV_FILE"
 chmod 0640 "$ENV_FILE"
-python3 - "$ENV_FILE" <<'PYCODE'
-import os, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-values = {}
-for line in path.read_text().splitlines():
-    key, sep, value = line.partition("=")
-    if sep and not key.startswith("#"):
-        values[key] = value
-for key in ("URMAIL_DNS_PROVIDER", "URMAIL_CLOUDFLARE_TOKEN", "URMAIL_DNSPOD_TOKEN", "URMAIL_ALIYUN_ACCESS_KEY_ID", "URMAIL_ALIYUN_ACCESS_KEY_SECRET", "URMAIL_STRIPE_SECRET_KEY", "URMAIL_STRIPE_WEBHOOK_SECRET", "URMAIL_ACME_SERVER", "URMAIL_ACME_ROOT_CA"):
-    if key in os.environ:
-        values[key] = os.environ[key]
-if any("\n" in value or "\r" in value for value in values.values()):
-    raise SystemExit("Environment values must not contain line breaks")
-path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
-PYCODE
 # Root service configuration is not shared with the unprivileged daemon.
 install -o root -g root -m 0600 "$ENV_FILE" /etc/urmail/agent.env
 # Root-only ACME trust and DNS listen settings remain authoritative unless

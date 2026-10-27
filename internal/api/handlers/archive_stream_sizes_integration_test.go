@@ -50,17 +50,19 @@ func TestArchiveExportLayeredSizesOverRealHTTP(t *testing.T) {
 	}
 	brand := scalar("INSERT INTO brands(slug,name) VALUES('archive-layers','Archive Layers') RETURNING id")
 	user := scalar("INSERT INTO users(email,password_hash) VALUES('archive-layers@example.test','hash') RETURNING id")
+	// ARC-001/PD-112: the grant creator must differ from the beneficiary.
+	grantor := scalar("INSERT INTO users(email,password_hash) VALUES('archive-layers-grantor@example.test','hash') RETURNING id")
 	tenant := scalar("INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Layers','archive-layers','active') RETURNING id", brand)
-	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", user, tenant); err != nil {
+	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'owner')", user, tenant, grantor, tenant); err != nil {
 		t.Fatal(err)
 	}
 	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verified_at,verification_token) VALUES($1,'archive-layers.test','active',now(),'token') RETURNING id", tenant)
 	mailbox := scalar("INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status) VALUES($1,$2,'alice','alice@archive-layers.test','hash',1024,'active') RETURNING id", tenant, domain)
-	tx, err := app.UserTx(ctx, tenant, user)
+	tx, err := app.UserTx(ctx, tenant, grantor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "export", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "layered export integrity verification", GrantedBy: pgtype.Int8{Int64: user, Valid: true}}); err != nil {
+	if _, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "export", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "layered export integrity verification", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}}); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}

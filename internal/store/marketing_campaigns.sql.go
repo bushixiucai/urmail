@@ -176,6 +176,57 @@ func (q *Queries) GetMarketingCampaign(ctx context.Context, arg GetMarketingCamp
 	return i, err
 }
 
+const getMarketingCampaignReport = `-- name: GetMarketingCampaignReport :one
+SELECT c.id AS campaign_id,c.name,c.status,
+ COALESCE(s.sent,0)::bigint AS sent,COALESCE(s.failed,0)::bigint AS failed,
+ COALESCE(s.uncertain,0)::bigint AS uncertain,COALESCE(s.unsubscribed,0)::bigint AS unsubscribed,
+ COALESCE(s.bounced,0)::bigint AS bounced,COALESCE(s.bounced_unknown,0)::bigint AS bounced_unknown,
+ (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id)::bigint AS total_recipients,
+ (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id AND r.status IN('queued','leased','submitting'))::bigint AS pending_recipients
+FROM marketing_campaigns c LEFT JOIN marketing_campaign_stats s ON s.tenant_id=c.tenant_id AND s.campaign_id=c.id
+WHERE c.tenant_id=$1 AND c.id=$2
+`
+
+type GetMarketingCampaignReportParams struct {
+	TenantID int64 `json:"tenant_id"`
+	ID       int64 `json:"id"`
+}
+
+type GetMarketingCampaignReportRow struct {
+	CampaignID        int64  `json:"campaign_id"`
+	Name              string `json:"name"`
+	Status            string `json:"status"`
+	Sent              int64  `json:"sent"`
+	Failed            int64  `json:"failed"`
+	Uncertain         int64  `json:"uncertain"`
+	Unsubscribed      int64  `json:"unsubscribed"`
+	Bounced           int64  `json:"bounced"`
+	BouncedUnknown    int64  `json:"bounced_unknown"`
+	TotalRecipients   int64  `json:"total_recipients"`
+	PendingRecipients int64  `json:"pending_recipients"`
+}
+
+// MKT-005 outcome report. Counters come from the incremental
+// marketing_campaign_stats row; pending/total come from recipient facts.
+func (q *Queries) GetMarketingCampaignReport(ctx context.Context, arg GetMarketingCampaignReportParams) (GetMarketingCampaignReportRow, error) {
+	row := q.db.QueryRow(ctx, getMarketingCampaignReport, arg.TenantID, arg.ID)
+	var i GetMarketingCampaignReportRow
+	err := row.Scan(
+		&i.CampaignID,
+		&i.Name,
+		&i.Status,
+		&i.Sent,
+		&i.Failed,
+		&i.Uncertain,
+		&i.Unsubscribed,
+		&i.Bounced,
+		&i.BouncedUnknown,
+		&i.TotalRecipients,
+		&i.PendingRecipients,
+	)
+	return i, err
+}
+
 const listMarketingCampaigns = `-- name: ListMarketingCampaigns :many
 SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
 `

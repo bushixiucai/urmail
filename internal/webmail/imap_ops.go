@@ -10,9 +10,25 @@ import (
 	"strings"
 )
 
-// ListMessages SELECTs the folder, UIDs newest-first, then FETCHes a page.
-// When opts.Query is set, uses UID SEARCH with BuildSearchCriteria(q) instead
-// of ALL; see BuildSearchCriteria for q semantics.
+// ListMessages SELECTs the folder, computes the ordered UID sequence, then
+// FETCHes one cursor-anchored page.
+//
+// Ordering: SortBy "" keeps the historical arrival order (UID descending,
+// newest first). A non-empty SortBy uses UID SORT when the server advertises
+// SORT; otherwise the fallback fetches up to MaxSortScan summaries and sorts
+// them locally (SortSummaries) — ServerSorted=false tells the client which
+// path ran. When opts.Query is set, UID SEARCH criteria from
+// BuildSearchCriteria(q) replace ALL; see BuildSearchCriteria for semantics.
+//
+// Pagination: see the ListOpts contract — CursorUID anchors the page inside
+// the ordered sequence, so new arrivals cannot duplicate or skip existing
+// messages across pages.
+//
+// Threading: opts.Thread stamps thread_id/thread_count. With
+// THREAD=REFERENCES advertised the server computes the grouping
+// (ThreadMode "server"); otherwise the client path groups over the fetched
+// summaries (bounded by MaxSortScan, ThreadMode "client" — counts cover the
+// loaded set only).
 func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpts) (ListResult, error) {
 	opts = ClampListOpts(opts)
 	criteria, err := BuildSearchCriteria(opts.Query)
@@ -22,31 +38,96 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if err := c.selectFolder(ctx, folder); err != nil {
 		return ListResult{}, err
 	}
-	uids, err := c.uidSearch(ctx, criteria)
-	if err != nil {
-		return ListResult{}, err
+
+	var ordered []uint32
+	serverSorted := false
+	// allSummaries caches summaries fetched for sort/thread fallbacks.
+	var allSummaries []MessageSummary
+	if opts.SortBy != "" {
+		if uids, sortErr := c.uidSort(ctx, criteria, imapSortKey(opts.SortBy, opts.SortDesc)); sortErr == nil {
+			ordered, serverSorted = uids, true
+		}
 	}
-	total := len(uids)
-	// Newest first.
-	for i, j := 0, len(uids)-1; i < j; i, j = i+1, j-1 {
-		uids[i], uids[j] = uids[j], uids[i]
+	if ordered == nil {
+		uids, err := c.uidSearch(ctx, criteria)
+		if err != nil {
+			return ListResult{}, err
+		}
+		// Newest first for arrival order; SortSummaries reorders as needed.
+		for i, j := 0, len(uids)-1; i < j; i, j = i+1, j-1 {
+			uids[i], uids[j] = uids[j], uids[i]
+		}
+		ordered = uids
+		if opts.SortBy != "" || opts.Thread {
+			if len(ordered) > MaxSortScan {
+				ordered = ordered[:MaxSortScan]
+			}
+			if allSummaries, err = c.uidFetchSummaries(ctx, ordered); err != nil {
+				return ListResult{}, err
+			}
+			SortSummaries(allSummaries, opts.SortBy, opts.SortDesc)
+			ordered = ordered[:0]
+			for _, s := range allSummaries {
+				ordered = append(ordered, s.UID)
+			}
+		}
 	}
-	if opts.Offset >= len(uids) {
-		return ListResult{Messages: []MessageSummary{}, Total: total}, nil
+
+	total := len(ordered)
+	var page []uint32
+	var next uint32
+	if opts.CursorUID != 0 {
+		page, next = PageAfterCursor(ordered, opts.CursorUID, opts.Limit)
+	} else {
+		if opts.Offset >= len(ordered) {
+			page = nil
+		} else {
+			end := opts.Offset + opts.Limit
+			if end > len(ordered) {
+				end = len(ordered)
+			}
+			page = ordered[opts.Offset:end]
+			if end < len(ordered) {
+				next = ordered[end-1]
+			}
+		}
 	}
-	end := opts.Offset + opts.Limit
-	if end > len(uids) {
-		end = len(uids)
-	}
-	page := uids[opts.Offset:end]
 	if len(page) == 0 {
-		return ListResult{Messages: []MessageSummary{}, Total: total}, nil
+		return ListResult{Messages: []MessageSummary{}, Total: total, Sort: opts.SortBy, ServerSorted: serverSorted}, nil
 	}
 	summaries, err := c.uidFetchSummaries(ctx, page)
 	if err != nil {
 		return ListResult{}, err
 	}
-	return ListResult{Messages: summaries, Total: total}, nil
+
+	threadMode := ""
+	if opts.Thread {
+		threadMode = "client"
+		if roots, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
+			ApplyThreads(summaries, roots)
+			threadMode = "server"
+		} else {
+			set := allSummaries
+			if set == nil {
+				if len(ordered) > MaxSortScan {
+					ordered = ordered[:MaxSortScan]
+				}
+				set, err = c.uidFetchSummaries(ctx, ordered)
+				if err != nil {
+					return ListResult{}, err
+				}
+			}
+			ApplyThreads(summaries, BuildThreads(set))
+		}
+	}
+	return ListResult{
+		Messages:     summaries,
+		Total:        total,
+		NextCursor:   next,
+		Sort:         opts.SortBy,
+		ServerSorted: serverSorted,
+		ThreadMode:   threadMode,
+	}, nil
 }
 
 // GetMessage FETCHes one UID and prefers text/plain + text/html body parts.
@@ -77,17 +158,19 @@ func (c *imapConn) GetMessage(ctx context.Context, folder string, uid uint32) (*
 		msg.Text = text
 		msg.HTML = html
 		msg.Attachments = atts
-		msg.To, msg.Cc, msg.Bcc = parseHeaderRecipients(rawBody)
+		msg.AttachmentsCapped = len(atts) >= MaxAttachmentsPerMessage
+		msg.ReplyTo, msg.To, msg.Cc, msg.Bcc = parseHeaderRecipients(rawBody)
 	}
 	return msg, nil
 }
 
-func parseHeaderRecipients(raw []byte) (to, cc, bcc []Address) {
+func parseHeaderRecipients(raw []byte) (replyTo, to, cc, bcc []Address) {
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
-	return addressesFromHeader(msg.Header.Get("To")),
+	return addressesFromHeader(msg.Header.Get("Reply-To")),
+		addressesFromHeader(msg.Header.Get("To")),
 		addressesFromHeader(msg.Header.Get("Cc")),
 		addressesFromHeader(msg.Header.Get("Bcc"))
 }
@@ -223,7 +306,9 @@ func (c *imapConn) MoveMessages(ctx context.Context, folder string, uids []uint3
 	return c.command(ctx, "UID MOVE", formatUIDSet(uids), quoteIMAP(dest))
 }
 
-// DeleteMessages marks UIDs \Deleted and optionally expunges them.
+// DeleteMessages marks the given UIDs \Deleted and, when expunge is set,
+// removes only those UIDs. A server without UIDPLUS must fail the call.
+// Falling back to EXPUNGE would remove every other client's \Deleted mail.
 func (c *imapConn) DeleteMessages(ctx context.Context, folder string, uids []uint32, expunge bool) error {
 	if len(uids) == 0 {
 		return nil
@@ -234,12 +319,7 @@ func (c *imapConn) DeleteMessages(ctx context.Context, folder string, uids []uin
 	if !expunge {
 		return nil
 	}
-	uidSet := formatUIDSet(uids)
-	if err := c.command(ctx, "UID EXPUNGE", uidSet); err != nil {
-		// Fallback for servers without UIDPLUS.
-		return c.command(ctx, "EXPUNGE")
-	}
-	return nil
+	return c.command(ctx, "UID EXPUNGE", formatUIDSet(uids))
 }
 
 func (c *imapConn) selectFolder(ctx context.Context, folder string) error {

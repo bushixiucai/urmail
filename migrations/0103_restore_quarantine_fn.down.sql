@@ -1,0 +1,1 @@
+-- Prior definitions are restored by replaying migration 0102.

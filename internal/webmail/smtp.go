@@ -2,7 +2,6 @@ package webmail
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/certs"
 )
 
 // ErrSubmitFailed is returned when SMTP submission is rejected or unreachable.
@@ -20,9 +21,16 @@ var ErrSubmitFailed = errors.New("webmail smtp submit failed")
 // ErrSubmitUncertain means DATA may have been accepted; callers must not retry blindly.
 var ErrSubmitUncertain = errors.New("webmail smtp submission outcome uncertain")
 
+// Submission is the outcome of one SMTP attempt. Raw is the exact DATA
+// payload, without a Bcc header, so a later Sent APPEND cannot leak Bcc or
+// require another delivery.
+type Submission struct {
+	Raw []byte
+}
+
 // Submitter sends mail via local submission with AUTH.
 type Submitter interface {
-	Send(ctx context.Context, address, password string, msg Outgoing) error
+	Send(ctx context.Context, address, password string, msg Outgoing) (Submission, error)
 }
 
 // NetSubmitter dials a loopback SMTP listener (typically 127.0.0.1:587).
@@ -30,12 +38,17 @@ type NetSubmitter struct {
 	Addr        string
 	Timeout     time.Duration
 	DialContext func(ctx context.Context, network, address string) (net.Conn, error)
+	// LoopbackPolicy scopes the STARTTLS certificate exemption (MAIL-006).
+	// Nil keeps the deployment default: loopback Postfix accepts the local
+	// certificate without public PKI, while every non-loopback submission
+	// endpoint verifies the chain and name — see certs.LoopbackTLSConfig.
+	LoopbackPolicy *certs.LoopbackCertificatePolicy
 }
 
 // Send authenticates as address and submits a simple MIME message.
-func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Outgoing) error {
+func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Outgoing) (Submission, error) {
 	if address == "" || password == "" {
-		return ErrSubmitFailed
+		return Submission{}, ErrSubmitFailed
 	}
 	addr := s.Addr
 	if addr == "" {
@@ -51,7 +64,7 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 	}
 	conn, err := dial(ctx, "tcp", addr)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	defer func() { _ = conn.Close() }()
 	deadline := time.Now().Add(timeout)
@@ -66,68 +79,74 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	// NewClient name must stay localhost/127.0.0.1 so PlainAuth allows AUTH after STARTTLS
-	// (or on test doubles without TLS). SNI uses the real mail hostname separately.
-	tlsServerName := host
-	if host == "127.0.0.1" || host == "::1" || host == "localhost" {
-		tlsServerName = "box.urmail.cn"
-	}
+	// NewClient name must stay localhost/127.0.0.1 so PlainAuth allows AUTH
+	// after STARTTLS (or on test doubles without TLS). The SNI/verification
+	// identity for STARTTLS is decided by certs.LoopbackTLSConfig below.
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	defer func() { _ = client.Close() }()
 
 	if ok, _ := client.Extension("STARTTLS"); ok {
-		// Loopback submission: accept the local Postfix cert without public PKI.
-		tlsCfg := &tls.Config{ServerName: tlsServerName, InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec // intentional for 127.0.0.1 submission
+		policy := s.LoopbackPolicy
+		if policy == nil {
+			// Deployment default: loopback submission accepts the local
+			// Postfix certificate without public PKI; the exemption is scoped
+			// by certs.LoopbackTLSConfig and never applies off-loopback.
+			policy = &certs.LoopbackCertificatePolicy{ServerName: "box.urmail.cn", SkipVerification: true}
+		}
+		tlsCfg, tlsErr := certs.LoopbackTLSConfig(addr, *policy)
+		if tlsErr != nil {
+			return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, tlsErr)
+		}
 		if err = client.StartTLS(tlsCfg); err != nil {
-			return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+			return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 		}
 	}
 	if ok, _ := client.Extension("AUTH"); !ok {
-		return fmt.Errorf("%w: AUTH not advertised", ErrSubmitFailed)
+		return Submission{}, fmt.Errorf("%w: AUTH not advertised", ErrSubmitFailed)
 	}
 	if err = client.Auth(smtp.PlainAuth("", address, password, host)); err != nil {
-		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	from := msg.From
 	if from == "" {
 		from = address
 	}
 	if err = client.Mail(from); err != nil {
-		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	rcpts := uniqueAddrs(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
 	if len(rcpts) == 0 {
-		return fmt.Errorf("%w: no recipients", ErrSubmitFailed)
+		return Submission{}, fmt.Errorf("%w: no recipients", ErrSubmitFailed)
 	}
 	for _, rcpt := range rcpts {
 		if err = client.Rcpt(rcpt); err != nil {
-			return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+			return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 		}
 	}
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	payload := BuildMIME(from, msg) // SMTP: never emit Bcc headers
 	if _, err = io.WriteString(w, payload); err != nil {
 		// Do not Close the DATA writer on a partial write: that could submit a
 		// truncated message. The connection is closed by the outer defer.
-		return fmt.Errorf("%w: %w", ErrSubmitUncertain, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitUncertain, err)
 	}
 	if err = w.Close(); err != nil {
 		var reply *textproto.Error
 		if errors.As(err, &reply) && reply.Code >= 400 && reply.Code <= 599 {
-			return fmt.Errorf("%w: %w", ErrSubmitFailed, err)
+			return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 		}
-		return fmt.Errorf("%w: %w", ErrSubmitUncertain, err)
+		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitUncertain, err)
 	}
 	// A successful final DATA reply is the submission commit point. QUIT only
 	// tears down the session; its failure must never cause another delivery.
 	_ = client.Quit()
-	return nil
+	return Submission{Raw: []byte(payload)}, nil
 }
 
 func uniqueAddrs(in []string) []string {
@@ -182,6 +201,12 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 	if strings.HasPrefix(id, "<") && strings.HasSuffix(id, ">") && strings.Contains(id, "@") && !strings.ContainsAny(id, "\r\n\t ") {
 		writeHeader("Message-ID", id)
 	}
+	if msg.InReplyTo != "" {
+		writeHeader("In-Reply-To", msg.InReplyTo)
+	}
+	if msg.References != "" {
+		writeHeader("References", msg.References)
+	}
 	writeHeader("MIME-Version", "1.0")
 
 	hasAtt := len(msg.Attachments) > 0
@@ -211,7 +236,15 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 			}
 			b.WriteString("Content-Type: " + ct + "; name=\"" + sanitizeFilename(name) + "\"\r\n")
 			b.WriteString("Content-Transfer-Encoding: base64\r\n")
-			b.WriteString("Content-Disposition: attachment; filename=\"" + sanitizeFilename(name) + "\"\r\n\r\n")
+			disposition := "attachment"
+			if att.Inline {
+				disposition = "inline"
+			}
+			b.WriteString("Content-Disposition: " + disposition + "; filename=\"" + sanitizeFilename(name) + "\"\r\n")
+			if att.ContentID != "" {
+				writeHeader("Content-ID", "<"+strings.Trim(att.ContentID, "<>")+">")
+			}
+			b.WriteString("\r\n")
 			b.WriteString(wrapBase64(base64.StdEncoding.EncodeToString(att.Content)))
 			b.WriteString("\r\n")
 		}

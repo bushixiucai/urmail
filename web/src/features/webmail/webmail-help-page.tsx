@@ -58,6 +58,20 @@ export function WebmailHelpPage() {
             </dd>
           </div>
         </dl>
+        <div className="space-y-1 border-t pt-4">
+          <p className="font-medium text-foreground">
+            {t("page.webmail.help_migration_title")}
+          </p>
+          <p className="text-muted-foreground">
+            {t("page.webmail.help_migration_export")}
+          </p>
+          <p className="text-muted-foreground">
+            {t("page.webmail.help_migration_import")}
+          </p>
+          <p className="text-muted-foreground">
+            {t("page.webmail.help_migration_mail")}
+          </p>
+        </div>
         {loaded && native ? (
           <p>
             <Link to="/webmail/inbox" className="underline text-primary">

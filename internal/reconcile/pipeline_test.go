@@ -3,6 +3,7 @@ package reconcile_test
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -112,4 +113,41 @@ func TestPipelineRetriesWithoutAnotherTriggerAndClearsFailure(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("successful retry did not clear failure")
+}
+
+// OPS-008 acceptance 1: rendering one snapshot twice yields byte-identical
+// output, and rendering is a pure dry-run — RenderOnce returns the file map
+// and writes nothing anywhere. Whether the newer HTTP services get vhost
+// coverage is asserted by the agent apply tests: managed vhosts proxy the
+// whole host to urmaild, so autoconfig, /.well-known/carddav,
+// /api/v1/carddav, /api/v1/caldav and /api/v1/eas ride the existing domain
+// vhosts without their own generated files.
+func TestRenderOnceIsDeterministicDryRun(t *testing.T) {
+	cfg := &config.Config{
+		MyHostname:    "box.urmail.cn",
+		PrimaryDomain: "urmail.cn",
+		StorageRoot:   "/var/mail",
+		DatabaseURL:   "host=127.0.0.1 dbname=urmail user=urmail_dovecot",
+		ListenAddr:    "127.0.0.1:8080",
+	}
+	p := reconcile.NewPipeline(cfg, &mockQuerier{}, "192.0.2.1", []string{"ns1.urmail.cn"})
+	ctx := context.Background()
+
+	first, err := p.RenderOnce(ctx)
+	if err != nil {
+		t.Fatalf("RenderOnce: %v", err)
+	}
+	if len(first) == 0 {
+		t.Fatal("RenderOnce produced no files")
+	}
+	second, err := p.RenderOnce(ctx)
+	if err != nil {
+		t.Fatalf("second RenderOnce: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatal("the same snapshot rendered different output")
+	}
+	if _, ok := first["/etc/nginx/conf.d/urmail/local.conf"]; !ok {
+		t.Fatal("missing /etc/nginx/conf.d/urmail/local.conf in rendered output")
+	}
 }

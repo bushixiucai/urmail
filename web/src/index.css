@@ -25,7 +25,9 @@
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* >=3:1 against --background/--muted so focus-visible rings are visible
+   * (WEBMAIL-011); was 0.708 at 2.59:1. */
+  --ring: oklch(0.556 0 0);
 }
 
 .dark {
@@ -44,7 +46,10 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
+  /* Dark-mode destructive text-on-white fails 4.5:1 (2.77:1) — use the dark
+   * background colour on destructive fills instead (7:1). The red itself
+   * stays as text colour where it reads 6.8:1 on the dark background. */
+  --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

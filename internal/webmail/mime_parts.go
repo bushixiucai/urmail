@@ -32,6 +32,7 @@ var (
 
 type mimeLeaf struct {
 	id, filename, contentType string
+	contentID                 string
 	attachment                bool
 	body                      []byte
 }
@@ -39,15 +40,21 @@ type mimeLeaf struct {
 // visitMIME walks nested multipart structures using the same part identifiers
 // for the message view, attachment download, and scheduled-draft reconstruction.
 func visitMIME(raw []byte, visit func(mimeLeaf) error) error {
+	return visitMIMELimited(raw, 0, visit)
+}
+
+// visitMIMELimited walks MIME with a per-leaf decoded-byte cap; 0 means the
+// metadata-walk default (maxDecodedMIMEBytes).
+func visitMIMELimited(raw []byte, leafLimit int64, visit func(mimeLeaf) error) error {
 	msg, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("%w: headers", ErrInvalidMIME)
 	}
 	count := 0
-	return walkMIME(textproto.MIMEHeader(msg.Header), msg.Body, "", 0, &count, visit)
+	return walkMIME(textproto.MIMEHeader(msg.Header), msg.Body, "", 0, &count, leafLimit, visit)
 }
 
-func walkMIME(header textproto.MIMEHeader, body io.Reader, id string, depth int, count *int, visit func(mimeLeaf) error) error {
+func walkMIME(header textproto.MIMEHeader, body io.Reader, id string, depth int, count *int, leafLimit int64, visit func(mimeLeaf) error) error {
 	*count++
 	if depth > maxMIMEDepth || *count > maxMIMEParts {
 		return fmt.Errorf("%w: structure limit", ErrInvalidMIME)
@@ -87,7 +94,7 @@ func walkMIME(header textproto.MIMEHeader, body io.Reader, id string, depth int,
 			if id != "" {
 				partID = id + "." + partID
 			}
-			if err := walkMIME(part.Header, part, partID, depth+1, count, visit); err != nil {
+			if err := walkMIME(part.Header, part, partID, depth+1, count, leafLimit, visit); err != nil {
 				return err
 			}
 		}
@@ -100,15 +107,23 @@ func walkMIME(header textproto.MIMEHeader, body io.Reader, id string, depth int,
 	if err == nil && dispParams["filename"] != "" {
 		filename = dispParams["filename"]
 	}
-	data, err := io.ReadAll(io.LimitReader(decoded, maxDecodedMIMEBytes+1))
+	contentID := strings.Trim(header.Get("Content-ID"), "<> \t\r\n")
+	// Leaf reads are bounded: metadata walks allow the full decoded bound,
+	// attachment downloads pass a tighter per-part cap so an oversized part
+	// fails with ErrAttachmentTooLarge without buffering past the limit.
+	leafCap := int64(maxDecodedMIMEBytes)
+	if leafLimit > 0 {
+		leafCap = leafLimit
+	}
+	data, err := io.ReadAll(io.LimitReader(decoded, leafCap+1))
 	if err != nil {
 		return fmt.Errorf("%w: transfer data", ErrInvalidMIME)
 	}
-	if len(data) > maxDecodedMIMEBytes {
+	if len(data) > int(leafCap) {
 		return ErrAttachmentTooLarge
 	}
 	attachment := disp == "attachment" || filename != "" || (media != "text/plain" && media != "text/html")
-	return visit(mimeLeaf{id: id, filename: filename, contentType: media, attachment: attachment, body: data})
+	return visit(mimeLeaf{id: id, filename: filename, contentType: media, contentID: contentID, attachment: attachment, body: data})
 }
 
 func parseMIMEBodyStrict(raw []byte) (text, html string, atts []AttachmentMeta, err error) {
@@ -116,7 +131,11 @@ func parseMIMEBodyStrict(raw []byte) (text, html string, atts []AttachmentMeta, 
 	err = visitMIME(raw, func(part mimeLeaf) error {
 		switch {
 		case part.attachment:
-			atts = append(atts, AttachmentMeta{PartID: part.id, Filename: part.filename, ContentType: part.contentType, Size: int64(len(part.body))})
+			// Surfaced attachment list is capped (WEBMAIL-007); downloads of
+			// later parts still work via their part IDs.
+			if len(atts) < MaxAttachmentsPerMessage {
+				atts = append(atts, AttachmentMeta{PartID: part.id, Filename: part.filename, ContentType: part.contentType, Size: int64(len(part.body)), ContentID: part.contentID})
+			}
 		case part.contentType == "text/plain" && text == "":
 			text = string(part.body)
 		case part.contentType == "text/html" && html == "":
@@ -134,7 +153,7 @@ func parseMIMEBody(raw []byte) (text, html string, atts []AttachmentMeta) {
 
 func extractMIMEPart(raw []byte, partID string) (filename, contentType string, data []byte, err error) {
 	found := false
-	err = visitMIME(raw, func(part mimeLeaf) error {
+	err = visitMIMELimited(raw, MaxAttachmentBytes, func(part mimeLeaf) error {
 		if part.id != partID {
 			return nil
 		}

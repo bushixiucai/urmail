@@ -14,7 +14,12 @@ import (
 )
 
 type mockQuerier struct {
-	domains []store.PlatformListDomainsRow
+	domains      []store.PlatformListDomainsRow
+	spamPolicies []store.PlatformListSpamDeliveryPoliciesRow
+}
+
+func (m *mockQuerier) PlatformListSpamDeliveryPolicies(context.Context) ([]store.PlatformListSpamDeliveryPoliciesRow, error) {
+	return m.spamPolicies, nil
 }
 
 func (m *mockQuerier) PlatformListManagedDNS(context.Context) ([]store.PlatformListManagedDNSRow, error) {
@@ -137,5 +142,34 @@ func TestAssembleSkipsDelegatedZones(t *testing.T) {
 	// postfix still sees both domains
 	if len(mailCtx.PostfixSnap.Domains) != 2 {
 		t.Errorf("postfix must still see all active domains, got %d", len(mailCtx.PostfixSnap.Domains))
+	}
+}
+
+func TestSpamDeliveryPolicyChangesRenderedGeneration(t *testing.T) {
+	cfg := &config.Config{MyHostname: "box.urmail.cn", PrimaryDomain: "urmail.cn", StorageRoot: "/var/mail", DatabaseURL: "host=127.0.0.1 user=urmail_dovecot", ListenAddr: "127.0.0.1:8080"}
+	q := &mockQuerier{}
+	before, err := reconcile.AssembleConfigContext(t.Context(), cfg, q, "192.0.2.1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldFiles, err := mail.RenderAll(*before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.spamPolicies = []store.PlatformListSpamDeliveryPoliciesRow{{MailboxAddress: "user@example.com", Scope: "mailbox", SenderAddress: "sender@vendor.test", List: "deny"}}
+	after, err := reconcile.AssembleConfigContext(t.Context(), cfg, q, "192.0.2.1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newFiles, err := mail.RenderAll(*after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "/etc/dovecot/urmail-spam/spam-before.sieve"
+	if oldFiles[key] == newFiles[key] {
+		t.Fatal("private feedback did not change rendered generation")
+	}
+	if len(after.DovecotNode.SpamPolicies) != 1 {
+		t.Fatal("private policy not in authoritative snapshot")
 	}
 }

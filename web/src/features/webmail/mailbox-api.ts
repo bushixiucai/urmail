@@ -23,6 +23,31 @@ export interface MessageSummary {
   date: string;
   flags: string[];
   size: number;
+  /** ENVELOPE threading headers (populated when requested). */
+  message_id?: string;
+  in_reply_to?: string;
+  /** Root UID of the message's thread and size of the loaded group. */
+  thread_id?: number;
+  thread_count?: number;
+  /** Cross-folder search results are tagged with their source mailbox. */
+  folder?: string;
+  folder_enc?: string;
+}
+
+export type MailboxSortKey = "date" | "subject" | "from" | "size" | "";
+
+export interface MailboxListResponse {
+  messages: MessageSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  q?: string;
+  /** Send back as `cursor` for the next stable page (0 = end). */
+  next_cursor?: number;
+  sort?: MailboxSortKey;
+  server_sorted?: boolean;
+  /** "server" (IMAP THREAD=REFERENCES) or "client" grouping. */
+  thread_mode?: "" | "server" | "client";
 }
 
 export interface AttachmentMeta {
@@ -30,17 +55,24 @@ export interface AttachmentMeta {
   filename: string;
   content_type: string;
   size: number;
+  /** RFC 2392 Content-ID of inline parts (cid: rewriting). */
+  content_id?: string;
 }
 
 export interface MessageDetail extends MessageSummary {
   uid_validity?: number;
   to?: MailboxAddress[];
   cc?: MailboxAddress[];
+  reply_to?: MailboxAddress[];
   /** Present when resuming IMAP drafts that stored Bcc. */
   bcc?: MailboxAddress[];
   text?: string;
   html?: string;
   attachments: AttachmentMeta[];
+  /** Render-time sanitization tokens (see server sanitize_html.go). */
+  notes?: string[];
+  /** More parts exist than the capped surfaced attachment list. */
+  attachments_capped?: boolean;
 }
 
 export interface MailboxSession {
@@ -151,30 +183,66 @@ export function listFolders(signal?: AbortSignal) {
 
 export function listMessages(
   nameEnc: string,
-  opts: { limit?: number; offset?: number; q?: string } = {},
+  opts: {
+    limit?: number;
+    offset?: number;
+    q?: string;
+    sort?: MailboxSortKey;
+    order?: "asc" | "desc";
+    /** UID anchor from next_cursor for stable pagination. */
+    cursor?: number;
+    thread?: boolean;
+  } = {},
   signal?: AbortSignal,
 ) {
   const params = new URLSearchParams();
   if (opts.limit != null) params.set("limit", String(opts.limit));
   if (opts.offset != null) params.set("offset", String(opts.offset));
   if (opts.q != null && opts.q.trim() !== "") params.set("q", opts.q.trim());
+  if (opts.sort) params.set("sort", opts.sort);
+  if (opts.order) params.set("order", opts.order);
+  if (opts.cursor) params.set("cursor", String(opts.cursor));
+  if (opts.thread) params.set("thread", "1");
   const qs = params.toString();
-  return mailboxRequest<{
-    messages: MessageSummary[];
-    total: number;
-    limit: number;
-    offset: number;
-    q?: string;
-  }>(
+  return mailboxRequest<MailboxListResponse>(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages${qs ? `?${qs}` : ""}`,
     { signal },
   );
 }
 
-export function getMessage(nameEnc: string, uid: number, signal?: AbortSignal) {
+/**
+ * Cross-folder search: bounded fan-out across the selected folders (default:
+ * all top-level folders), merged by date. Results carry folder/folder_enc.
+ */
+export function crossFolderSearch(
+  q: string,
+  opts: { folders?: string[]; limit?: number } = {},
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ q: q.trim() });
+  if (opts.folders?.length) params.set("folders", opts.folders.join(","));
+  if (opts.limit != null) params.set("limit", String(opts.limit));
+  return mailboxRequest<{
+    messages: MessageSummary[];
+    total: number;
+    q: string;
+  }>(`/api/v1/mailbox/search?${params}`, { signal });
+}
+
+export function getMessage(
+  nameEnc: string,
+  uid: number,
+  opts?: { loadImages?: boolean; signal?: AbortSignal },
+) {
+  const params = new URLSearchParams();
+  // Per-message "load images" privacy opt-in (WEBMAIL-007): default request
+  // keeps remote images blocked server-side.
+  if (opts?.loadImages) params.set("load_images", "1");
+  const qs = params.toString();
   return mailboxRequest<MessageDetail>(
-    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}`,
-    { signal },
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}` +
+      (qs ? "?" + qs : ""),
+    { signal: opts?.signal },
   );
 }
 
@@ -258,10 +326,13 @@ export async function sendMessage(body: {
   attachments?: OutgoingAttachment[];
 }) {
   assertAttachmentTotal(body.attachments);
-  return mailboxRequest<{ sent: boolean }>("/api/v1/mailbox/send", {
-    method: "POST",
-    body,
-  });
+  return mailboxRequest<{ sent: boolean; sent_copy?: "saved" | "pending" }>(
+    "/api/v1/mailbox/send",
+    {
+      method: "POST",
+      body,
+    },
+  );
 }
 
 /** Save (or replace) a draft via IMAP APPEND into SPECIAL-USE \Drafts. */
@@ -514,4 +585,158 @@ export function hasFlag(flags: string[] | undefined, flag: string): boolean {
   if (!flags) return false;
   const target = flag.toLowerCase();
   return flags.some((f) => f.toLowerCase() === target);
+}
+
+export interface MailboxContact {
+  id: number;
+  version: number;
+  display_name: string;
+  emails: { address: string; label?: string }[];
+}
+
+export function listContacts() {
+  return mailboxRequest<{ contacts: MailboxContact[] }>(
+    "/api/v1/mailbox/contacts",
+  );
+}
+
+export function createContact(displayName: string, email: string) {
+  return mailboxRequest<MailboxContact>("/api/v1/mailbox/contacts", {
+    method: "POST",
+    body: { display_name: displayName, emails: [{ address: email }] },
+  });
+}
+
+export interface MailboxAttendee {
+  email: string;
+  /** iTIP PARTSTAT: needs-action (default), accepted, declined, tentative. */
+  partstat: string;
+}
+
+export interface MailboxEvent {
+  id: number;
+  version: number;
+  summary: string;
+  starts_at: string;
+  ends_at: string;
+  attendees?: MailboxAttendee[];
+}
+
+export function listEvents(start: string, end: string) {
+  const q = new URLSearchParams({ start, end });
+  return mailboxRequest<{ events: MailboxEvent[] }>(
+    "/api/v1/mailbox/calendars/events?" + q.toString(),
+  );
+}
+
+export function createEvent(summary: string, startsAt: string, endsAt: string) {
+  return mailboxRequest<MailboxEvent>("/api/v1/mailbox/calendars/events", {
+    method: "POST",
+    body: { summary, starts_at: startsAt, ends_at: endsAt, timezone: "UTC" },
+  });
+}
+export async function sendEventInvitations(
+  id: number,
+  method: "request" | "cancel",
+  confirm: boolean,
+): Promise<{ queued: number; sequence: number; method: string }> {
+  return mailboxRequest(
+    "/api/v1/mailbox/calendars/events/" + id + "/invitations",
+    {
+      method: "POST",
+      body: { confirm, method },
+    },
+  );
+}
+
+// WEBMAIL-005/006: mailbox-user self-service settings.
+
+export interface MailboxSettingsView {
+  display_name: string;
+  signature_text: string;
+  signature_html: string;
+  preferences: Record<string, unknown>;
+  version: number;
+  updated_at: string;
+  address: string;
+}
+
+export function getMailboxSettings() {
+  return mailboxRequest<MailboxSettingsView>("/api/v1/mailbox/settings");
+}
+
+export function saveMailboxSettings(body: {
+  display_name: string;
+  signature_text: string;
+  signature_html: string;
+  preferences?: Record<string, unknown>;
+  expected_version: number;
+}) {
+  return mailboxRequest<{ saved: boolean; version: number }>(
+    "/api/v1/mailbox/settings",
+    { method: "PUT", body },
+  );
+}
+
+export interface MailboxIdentity {
+  address: string;
+  primary: boolean;
+}
+
+export function listMailboxIdentities() {
+  return mailboxRequest<{ identities: MailboxIdentity[] }>(
+    "/api/v1/mailbox/identities",
+  );
+}
+
+export function getMailboxQuota() {
+  return mailboxRequest<{ used_bytes: number; quota_bytes: number }>(
+    "/api/v1/mailbox/quota",
+  );
+}
+
+export interface MailboxSieveRule {
+  header: "subject" | "from" | "to" | "cc";
+  match: "contains" | "is";
+  value: string;
+  action: "fileinto" | "keep" | "discard";
+  folder?: string;
+}
+
+export interface MailboxForwarding {
+  enabled: boolean;
+  target: string;
+  keep_copy: boolean;
+}
+
+export interface MailboxVacation {
+  enabled: boolean;
+  subject: string;
+  message: string;
+  days: number;
+}
+
+export interface MailboxRulesView {
+  rules: {
+    rules: MailboxSieveRule[];
+    forwarding?: MailboxForwarding;
+    vacation: MailboxVacation;
+  };
+  version: string;
+  state: string;
+}
+
+export function getMailboxRules() {
+  return mailboxRequest<MailboxRulesView>("/api/v1/mailbox/rules");
+}
+
+export function saveMailboxRules(body: {
+  rules: MailboxRulesView["rules"];
+  confirmed: boolean;
+  expected_version: string;
+}) {
+  return mailboxRequest<{ saved: boolean; state: string; version: string }>(
+    "/api/v1/mailbox/rules",
+    { method: "PUT", body },
+  );
 }

@@ -149,6 +149,11 @@ type Config struct {
 	// WebmailNative enables the native IMAP-proxy webmail API under
 	// /api/v1/mailbox/... . It is off by default and independent of Roundcube.
 	WebmailNative bool
+	// Protocol flags default to the existing enabled behavior. Explicit false
+	// disables discovery and every transport alias without disabling the UI.
+	CardDAVEnabled bool
+	CalDAVEnabled  bool
+	EASEnabled     bool
 	// IMAPAddr is the loopback IMAP endpoint urmaild dials as the webmail proxy.
 	// Used only when WebmailNative is true.
 	IMAPAddr         string
@@ -213,6 +218,29 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	protocolFlag := func(key string) (bool, error) {
+		raw := strings.TrimSpace(values[key])
+		if raw == "" {
+			return true, nil
+		}
+		value, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			return false, fmt.Errorf("%s must be a boolean", key)
+		}
+		return value, nil
+	}
+	cardDAVEnabled, err := protocolFlag("URMAIL_CARDDAV_ENABLED")
+	if err != nil {
+		return nil, err
+	}
+	calDAVEnabled, err := protocolFlag("URMAIL_CALDAV_ENABLED")
+	if err != nil {
+		return nil, err
+	}
+	easEnabled, err := protocolFlag("URMAIL_EAS_ENABLED")
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		DevMode:                     parseBool(values["URMAIL_DEV_MODE"]),
 		MarketingEnabled:            parseBool(values["URMAIL_MARKETING_ENABLED"]),
@@ -256,6 +284,9 @@ func Load() (*Config, error) {
 		RoundcubeBridgeKey:          values["URMAIL_ROUNDCUBE_BRIDGE_KEY"],
 		RoundcubeEnabled:            parseBool(values["URMAIL_ROUNDCUBE_ENABLED"]),
 		WebmailNative:               parseBool(values["URMAIL_WEBMAIL_NATIVE"]),
+		CardDAVEnabled:              cardDAVEnabled,
+		CalDAVEnabled:               calDAVEnabled,
+		EASEnabled:                  easEnabled,
 		IMAPAddr:                    values["URMAIL_IMAP_ADDR"],
 		MetricsToken:                values["URMAIL_METRICS_TOKEN"],
 		AICloudEndpoints:            splitCSV(values["URMAIL_AI_CLOUD_ENDPOINTS"]),

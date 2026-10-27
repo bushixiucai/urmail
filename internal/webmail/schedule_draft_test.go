@@ -38,6 +38,12 @@ func (f *fakeDraftClient) GetAttachment(_ context.Context, _ string, uid uint32,
 func (f *fakeDraftClient) SetFlags(context.Context, string, []uint32, []string, []string) error {
 	return nil
 }
+func (f *fakeDraftClient) SaveSentCopy(context.Context, []byte) (DraftSaveResult, error) {
+	return DraftSaveResult{}, nil
+}
+func (f *fakeDraftClient) MoveToTrash(context.Context, string, []uint32) (string, error) {
+	return "Trash", nil
+}
 func (f *fakeDraftClient) MoveMessages(context.Context, string, []uint32, string) error { return nil }
 func (f *fakeDraftClient) DeleteMessages(context.Context, string, []uint32, bool) error {
 	return nil

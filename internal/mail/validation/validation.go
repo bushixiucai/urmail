@@ -10,30 +10,56 @@ import (
 )
 
 // HostnameRegex validates RFC 1123 hostnames: labels of 1-63 alphanumeric or hyphens,
-// cannot start/end with hyphen, total <= 255 characters.
-var HostnameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
+// cannot start/end with hyphen, total <= 255 characters. The final label may also
+// be an IDNA A-label (xn--...): MAIL-004 split IDN domains (supported, stored as
+// A-labels) from EAI local parts (unsupported). Unicode hostnames are rejected
+// here on purpose — use NormalizeDomain at input boundaries to convert U-labels
+// to this A-label form before storage/rendering.
+var HostnameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(xn--[a-zA-Z0-9-]{2,59}|[a-zA-Z]{2,63})$`)
 
 // LocalPartRegex validates the local part of an email address per RFC 5321.
 var LocalPartRegex = regexp.MustCompile("^[a-zA-Z0-9_.!#$%&'*+/=?^`{|}~-]+$")
 
 // DomainNameRegex accepts a DNS name with an optional trailing dot, as it
-// appears in zone files.
-var DomainNameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}\.?$`)
+// appears in zone files. Like HostnameRegex the final label may be an IDN
+// A-label.
+var DomainNameRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(xn--[a-zA-Z0-9-]{2,59}|[a-zA-Z]{2,63})\.?$`)
 
-// IsValidHostname checks if a hostname complies with RFC 1123.
+// IsValidHostname checks if a hostname complies with RFC 1123 and, for
+// IDN A-labels, that the punycode actually decodes back to a valid U-label
+// (idna-stable). Hand-written labels such as "xn--hello.example" fail even
+// though the regex alone would accept them.
 func IsValidHostname(h string) bool {
 	if len(h) == 0 || len(h) > 255 {
 		return false
 	}
-	return HostnameRegex.MatchString(h)
+	if !HostnameRegex.MatchString(h) {
+		return false
+	}
+	_, err := NormalizeDomain(h)
+	return err == nil
 }
 
-// IsValidDomainName checks a DNS name that may carry a trailing dot.
+// IsValidDomainName checks a DNS name that may carry a trailing dot, with
+// the same IDN A-label stability rule as IsValidHostname.
 func IsValidDomainName(d string) bool {
 	if len(d) == 0 || len(d) > 255 {
 		return false
 	}
-	return DomainNameRegex.MatchString(d)
+	if !DomainNameRegex.MatchString(d) {
+		return false
+	}
+	_, err := NormalizeDomain(d)
+	return err == nil
+}
+
+// IsValidLocalPart reports whether local is within the generator-safe ASCII
+// local-part grammar shared by IsValidEmail and NormalizeEmail.
+func IsValidLocalPart(local string) bool {
+	if len(local) == 0 || len(local) > 64 || !LocalPartRegex.MatchString(local) || strings.ContainsAny(local, "*?/\\") {
+		return false
+	}
+	return true
 }
 
 // IsValidEmail is the canonical mailbox/alias-target grammar shared by the
@@ -41,13 +67,20 @@ func IsValidDomainName(d string) bool {
 // RFC 5321 with the generator-safe subset: no glob characters (* ? / \)
 // because targets end up verbatim inside Postfix maps, and at most 64
 // characters.
+// IsValidEmail is the canonical mailbox/alias-target grammar shared by the
+// API validators and the configuration generators. The local part follows
+// RFC 5321 with the generator-safe subset: no glob characters (* ? / \\)
+// because targets end up verbatim inside Postfix maps, and at most 64
+// characters. The domain must already be in wire form (ASCII or IDN
+// A-label); U-label input and non-ASCII local parts are rejected — use
+// NormalizeEmail for input normalization and the EAI capability boundary.
 func IsValidEmail(addr string) bool {
 	parts := strings.Split(addr, "@")
 	if len(parts) != 2 {
 		return false
 	}
 	local, domain := parts[0], parts[1]
-	if len(local) == 0 || len(local) > 64 || !LocalPartRegex.MatchString(local) || strings.ContainsAny(local, "*?/\\") {
+	if !IsValidLocalPart(local) {
 		return false
 	}
 	return IsValidHostname(domain)

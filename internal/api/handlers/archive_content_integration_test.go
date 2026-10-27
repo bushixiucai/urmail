@@ -39,8 +39,10 @@ func TestArchiveContentAuthorizationAuditExportAndRetentionPreview(t *testing.T)
 	}
 	brand := scalar("INSERT INTO brands(slug,name) VALUES('archive-http','Archive HTTP') RETURNING id")
 	user := scalar("INSERT INTO users(email,password_hash) VALUES('archive-owner@example.test','hash') RETURNING id")
+	// ARC-001/PD-112: the grant creator must differ from the beneficiary.
+	grantor := scalar("INSERT INTO users(email,password_hash) VALUES('archive-grantor@example.test','hash') RETURNING id")
 	tenant := scalar("INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Archive','archive-http','active') RETURNING id", brand)
-	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", user, tenant); err != nil {
+	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'owner')", user, tenant, grantor, tenant); err != nil {
 		t.Fatal(err)
 	}
 	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verified_at,verification_token) VALUES($1,'archive-http.test','active',now(),'token') RETURNING id", tenant)
@@ -81,12 +83,12 @@ func TestArchiveContentAuthorizationAuditExportAndRetentionPreview(t *testing.T)
 	}
 	grant := func(scope string) int64 {
 		t.Helper()
-		tx, err := app.UserTx(ctx, tenant, user)
+		tx, err := app.UserTx(ctx, tenant, grantor)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer tx.Rollback(ctx)
-		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "explicit content review", GrantedBy: pgtype.Int8{Int64: user, Valid: true}})
+		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "explicit content review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,8 +238,10 @@ func TestLargeArchiveExportAndAttachmentWaitForAuditCommit(t *testing.T) {
 	}
 	brand := scalar("INSERT INTO brands(slug,name) VALUES('archive-large','Archive Large') RETURNING id")
 	user := scalar("INSERT INTO users(email,password_hash) VALUES('archive-large@example.test','hash') RETURNING id")
+	// ARC-001/PD-112: the grant creator must differ from the beneficiary.
+	grantor := scalar("INSERT INTO users(email,password_hash) VALUES('archive-large-grantor@example.test','hash') RETURNING id")
 	tenant := scalar("INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Large','archive-large','active') RETURNING id", brand)
-	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", user, tenant); err != nil {
+	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'owner')", user, tenant, grantor, tenant); err != nil {
 		t.Fatal(err)
 	}
 	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verified_at,verification_token) VALUES($1,'archive-large.test','active',now(),'token') RETURNING id", tenant)
@@ -254,11 +258,11 @@ func TestLargeArchiveExportAndAttachmentWaitForAuditCommit(t *testing.T) {
 	}
 	entry := scalar("SELECT id FROM archive_entries WHERE tenant_id=$1", tenant)
 	for _, scope := range []string{"full_content", "export"} {
-		tx, err := app.UserTx(ctx, tenant, user)
+		tx, err := app.UserTx(ctx, tenant, grantor)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "large original review", GrantedBy: pgtype.Int8{Int64: user, Valid: true}})
+		_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "large original review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatal(err)

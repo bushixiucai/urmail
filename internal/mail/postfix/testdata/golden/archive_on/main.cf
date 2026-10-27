@@ -31,11 +31,23 @@ smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
 smtpd_sasl_auth_enable = yes
 
+# Abuse & resource limits (MAIL-003), enforced by anvil
+anvil_rate_time_unit = 60s
+smtpd_client_connection_count_limit = 20
+smtpd_client_connection_rate_limit = 60
+smtpd_client_auth_rate_limit = 15
+smtpd_client_message_rate_limit = 120
+smtpd_client_recipient_rate_limit = 240
+smtpd_error_sleep_time = 5s
+smtpd_soft_error_limit = 5
+smtpd_hard_error_limit = 10
+
 # DKIM signing through OpenDKIM on loopback. If the milter is down,
 # accept the message unsigned instead of blocking mail delivery.
 milter_default_action = accept
 milter_protocol = 6
-smtpd_milters = inet:127.0.0.1:12301
+header_checks = regexp:/etc/postfix/urmail/spam-header-checks
+smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:11339
 non_smtpd_milters = inet:127.0.0.1:12301
 
 # Sender login restrictions

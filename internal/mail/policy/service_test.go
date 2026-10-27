@@ -2,6 +2,7 @@ package policy_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/mail/policy"
@@ -142,5 +143,22 @@ func TestRecipientSubscriptionCheckedBeforeAuthenticatedBypass(t *testing.T) {
 		if decision.Action != policy.ActionDefer {
 			t.Fatalf("expired recipient allowed for identity %q: %+v", identity, decision)
 		}
+	}
+}
+func TestEvaluateSuspendedEntitlementReason(t *testing.T) {
+	q := &countingQuota{allowed: false, err: policy.ErrSuspended}
+	svc := policy.NewService()
+	svc.QuotaChecker = q
+
+	d := svc.Evaluate(context.Background(), &policy.Request{
+		SASLUsername:  "user@example.com",
+		ClientAddress: "10.0.0.1",
+		QueueID:       "Q9",
+	})
+	if d.Action != policy.ActionReject {
+		t.Fatalf("expected REJECT, got %v", d.Action)
+	}
+	if !strings.Contains(d.Reason, "suspended") {
+		t.Fatalf("expected explicit suspended reason, got %q", d.Reason)
 	}
 }

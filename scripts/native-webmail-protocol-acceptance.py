@@ -17,7 +17,10 @@ import uuid
 
 
 def run(args, **kwargs):
-    return subprocess.run(args, check=True, text=True, capture_output=True, **kwargs)
+    result = subprocess.run(args, text=True, capture_output=True, **kwargs)
+    if result.returncode:
+        raise RuntimeError(f"{args!r} failed ({result.returncode}):\n{result.stdout}\n{result.stderr}")
+    return result
 
 
 def main():

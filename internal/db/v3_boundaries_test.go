@@ -173,9 +173,18 @@ func TestV3AllocationConcurrencyAndPastDue(t *testing.T) {
 	}
 	_, err = p.Exec(ctx, "INSERT INTO domains(tenant_id,fqdn,verification_token) VALUES($1,'expired.example.test','x')", tid)
 	v3Code(t, err, "SUBSCRIPTION_EXPIRED")
+	// BILL-005 (0086): inbound mail keeps working during the confirmed
+	// 7-day delinquency grace; only the send/marketing gates close.
 	var allowed bool
+	if err = p.QueryRow(ctx, "SELECT urmail_mail_allowed($1)", tid).Scan(&allowed); err != nil || !allowed {
+		t.Fatalf("mail within the 7-day grace must stay allowed: allowed=%v err=%v", allowed, err)
+	}
+	// Beyond the grace window the mail gate closes as well.
+	if _, err = p.Exec(ctx, "UPDATE subscriptions SET period_start=now()-interval '30 days',period_end=now()-interval '9 days' WHERE tenant_id=$1", tid); err != nil {
+		t.Fatal(err)
+	}
 	if err = p.QueryRow(ctx, "SELECT urmail_mail_allowed($1)", tid).Scan(&allowed); err != nil || allowed {
-		t.Fatalf("expired mail allowed=%v err=%v", allowed, err)
+		t.Fatalf("expired mail beyond the grace window allowed=%v err=%v", allowed, err)
 	}
 }
 

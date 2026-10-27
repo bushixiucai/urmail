@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -69,13 +70,26 @@ func (h *BillingHandler) ScheduleChange(c *gin.Context) {
 	c.JSON(200, gin.H{"change": change, "payment_required": true})
 }
 
-// CancelSubscription preserves the full prepaid period and all stored terms.
+// CancelSubscription toggles auto-renew for the paid subscription. The
+// explicit desired state comes from the request body (`cancel_at_period_end`);
+// an empty body keeps the historical default of turning auto-renew off at the
+// paid period end. Re-enabling is the same authorized endpoint with
+// `cancel_at_period_end:false`. The prepaid period and all stored terms are
+// preserved either way.
 func (h *BillingHandler) CancelSubscription(c *gin.Context) {
 	tid, ok := middleware.GetTenantID(c)
 	if !ok {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
+	var body struct {
+		CancelAtPeriodEnd *bool `json:"cancel_at_period_end"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	desired := body.CancelAtPeriodEnd == nil || *body.CancelAtPeriodEnd
 	q, ok := middleware.QueriesFromCtx(c)
 	if !ok {
 		authError(c, 503, "DB_ERROR")
@@ -103,7 +117,7 @@ func (h *BillingHandler) CancelSubscription(c *gin.Context) {
 		authError(c, 409, "MIGRATION_ENTITLEMENT_PRESERVED")
 		return
 	}
-	sub, err := queries.CancelSubscriptionAtPaidEnd(c, store.CancelSubscriptionAtPaidEndParams{TenantID: tid, CancelAtPeriodEnd: true})
+	sub, err := queries.CancelSubscriptionAtPaidEnd(c, store.CancelSubscriptionAtPaidEndParams{TenantID: tid, CancelAtPeriodEnd: desired})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "SUBSCRIPTION_REQUIRED")
 		return

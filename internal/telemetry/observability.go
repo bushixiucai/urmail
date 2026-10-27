@@ -6,8 +6,10 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
@@ -33,14 +35,19 @@ type Thresholds struct {
 	ResourceUsedFraction  float64 `json:"resource_used_fraction"`
 	CertificateDays       int     `json:"certificate_days"`
 	CollectorStaleSeconds int     `json:"collector_stale_seconds"`
+	// OPS-003: a successful backup older than this (default 26h for a daily
+	// schedule with margin) or a failed latest run raises a backup alert.
+	BackupMaxAgeSeconds int64 `json:"backup_max_age_seconds"`
 }
 
 // DefaultThresholds returns conservative initial operator thresholds.
 func DefaultThresholds() Thresholds {
-	return Thresholds{QueueCount: 1000, QueueAgeSeconds: 3600, ResourceUsedFraction: 0.90, CertificateDays: 7, CollectorStaleSeconds: 120}
+	// CertificateDays fires at T-30 so the T-14 and T-3 severity escalations
+	// are reachable before expiry.
+	return Thresholds{QueueCount: 1000, QueueAgeSeconds: 3600, ResourceUsedFraction: 0.90, CertificateDays: 30, CollectorStaleSeconds: 120, BackupMaxAgeSeconds: 26 * 3600}
 }
 func (t Thresholds) validate() error {
-	if t.QueueCount < 1 || t.QueueCount > 1000000 || t.QueueAgeSeconds < 1 || t.ResourceUsedFraction <= 0 || t.ResourceUsedFraction >= 1 || t.CertificateDays < 1 || t.CollectorStaleSeconds < 10 || t.CollectorStaleSeconds > 3600 {
+	if t.QueueCount < 1 || t.QueueCount > 1000000 || t.QueueAgeSeconds < 1 || t.ResourceUsedFraction <= 0 || t.ResourceUsedFraction >= 1 || t.CertificateDays < 1 || t.BackupMaxAgeSeconds < 3600 || t.CollectorStaleSeconds < 10 || t.CollectorStaleSeconds > 3600 {
 		return errors.New("invalid operational thresholds")
 	}
 	return nil
@@ -55,6 +62,10 @@ type Observation struct {
 	CollectorObserved *time.Time
 	CollectionGap     bool
 	CPUUsed           *float64
+	// OPS-003 additions: backup pipeline facts and an endpoint certificate
+	// probe fallback when the host observer could not read a certificate.
+	Backup                *BackupObservation
+	CertificateProbedDays *float64
 }
 
 // Observer returns only fixed, typed root-agent observations.
@@ -133,6 +144,18 @@ func Conditions(o Observation, t Thresholds) (map[string]bool, map[string]float6
 		values["queue_oldest_age_seconds"] = oldest
 		conditions["telemetry_queue_pressure"] = o.Queue.Truncated || len(o.Queue.Entries) >= t.QueueCount || oldest >= float64(t.QueueAgeSeconds)
 	}
+	if o.Host == nil && o.CertificateProbedDays != nil {
+		values["certificate_remaining_seconds"] = *o.CertificateProbedDays * 86400
+		conditions["telemetry_certificate_expiring"] = *o.CertificateProbedDays <= float64(t.CertificateDays)
+	}
+	if o.Backup != nil {
+		stale, failed := BackupConditions(*o.Backup)
+		conditions["telemetry_backup_stale"] = stale
+		conditions["telemetry_backup_failed"] = failed
+	} else {
+		conditions["telemetry_backup_stale"] = true
+		conditions["telemetry_backup_failed"] = false
+	}
 	if o.Host != nil {
 		conditions["telemetry_resource_pressure"] = false
 		if o.Host.MemoryTotal == 0 {
@@ -187,10 +210,16 @@ func Conditions(o Observation, t Thresholds) (map[string]bool, map[string]float6
 
 // Evaluator persists firing/recovery facts and notifications in one transaction.
 type Evaluator struct {
-	Pool         *db.Pool
-	Source       Observer
-	Stream       string
-	previousHost *agentd.HostObservation
+	Pool   *db.Pool
+	Source Observer
+	Stream string
+	// CertificateAddress optionally enables the OPS-003 TLS endpoint expiry
+	// probe when the host observer cannot read the certificate file, for
+	// example "mail.example.cn:443". Empty disables the probe.
+	CertificateAddress string
+	previousHost       *agentd.HostObservation
+	readinessMu        sync.Mutex
+	lastReadiness      ReadinessReport
 }
 
 // Poll evaluates the configured stream; collection failures remain visible conditions.
@@ -200,7 +229,8 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	}
 	q := store.New(e.Pool.Pool)
 	thresholds := DefaultThresholds()
-	settings, err := q.PlatformListSettings(ctx)
+	started := time.Now()
+	settings, err := q.PlatformGetObservabilityThresholds(ctx)
 	if err != nil {
 		databaseReachable.Set(0)
 		return err
@@ -212,6 +242,10 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 				return errors.New("invalid operational thresholds")
 			}
 		}
+	}
+	backup, backupErr := q.PlatformBackupFreshness(ctx)
+	if backupErr != nil && !errors.Is(backupErr, pgx.ErrNoRows) {
+		return backupErr
 	}
 	observation, probeErr := e.Source.Observe(ctx)
 	if observation.Now.IsZero() {
@@ -238,6 +272,20 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 			}
 		}
 		e.previousHost = observation.Host
+	}
+	if backupErr == nil {
+		observation.Backup = &BackupObservation{LatestState: backup.LatestState, AvailableState: true, MaxAgeSeconds: float64(thresholds.BackupMaxAgeSeconds)}
+		if backup.LastSuccessAt.Valid {
+			success := backup.LastSuccessAt.Time
+			observation.Backup.LastSuccessAt = &success
+		}
+	}
+	if e.CertificateAddress != "" && (observation.Host == nil || (observation.Host.CertificateExpiresAt == nil && observation.Host.CertificateUnavailable)) {
+		probeCtx, probeCancel := context.WithTimeout(ctx, 6*time.Second)
+		if days, probeErr := ProbeCertificateDaysRemaining(probeCtx, e.CertificateAddress, time.Now().UTC()); probeErr == nil {
+			observation.CertificateProbedDays = &days
+		}
+		probeCancel()
 	}
 	conditions, values := Conditions(observation, thresholds)
 	stats := e.Pool.Stat()
@@ -270,9 +318,26 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 		observationMetric.WithLabelValues(key).Set(value)
 	}
 	for kind, firing := range conditions {
-		PublishCondition(kind, firing)
+		if kind == "telemetry_certificate_expiring" {
+			PublishAlertSeverity(kind, firing, e.certificateSeverity(values))
+		} else {
+			PublishAlert(kind, firing)
+		}
 	}
+	if err = e.recordReadiness(ctx, conditions); err != nil {
+		probeErr = errors.Join(probeErr, err)
+	}
+	evaluationDuration.Observe(time.Since(started).Seconds())
 	return probeErr
+}
+
+// certificateSeverity maps the observed certificate remaining seconds onto
+// the T-30/T-14/T-3 severity tiers; an empty result keeps the default label.
+func (e *Evaluator) certificateSeverity(values map[string]float64) string {
+	if seconds, ok := values["certificate_remaining_seconds"]; ok {
+		return CertificateExpirySeverity(seconds / 86400)
+	}
+	return ""
 }
 
 // Start runs bounded evaluation without emitting mail or unscoped raw log contents.

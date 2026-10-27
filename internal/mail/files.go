@@ -10,7 +10,7 @@ import (
 
 // SecretFile identifies every generated credential or private key.
 func SecretFile(path string) bool {
-	return filepath.Base(path) == "db.conf" || strings.HasSuffix(path, ".private") || strings.HasSuffix(path, ".key")
+	return strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") || strings.HasSuffix(path, "/urmail-spam/spam-before.svbin") || filepath.Base(path) == "db.conf" || strings.HasSuffix(path, ".private") || strings.HasSuffix(path, ".key")
 }
 
 // ExportFiles exports a configuration without following symlinks. The export

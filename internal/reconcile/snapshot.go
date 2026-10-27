@@ -24,6 +24,7 @@ import (
 
 // StoreQuerier abstracts the platform queries needed to assemble snapshots.
 type StoreQuerier interface {
+	PlatformListSpamDeliveryPolicies(context.Context) ([]store.PlatformListSpamDeliveryPoliciesRow, error)
 	PlatformListManagedDNS(context.Context) ([]store.PlatformListManagedDNSRow, error)
 	PlatformListDomains(ctx context.Context) ([]store.PlatformListDomainsRow, error)
 	PlatformListMailboxes(ctx context.Context) ([]store.PlatformListMailboxesRow, error)
@@ -69,6 +70,18 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			Selector:   row.DkimSelector,
 			PrivateKey: row.DkimPrivateKey.String,
 		}
+	}
+
+	spamRows, err := q.PlatformListSpamDeliveryPolicies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list private spam delivery policies: %w", err)
+	}
+	if len(spamRows) > 10000 {
+		return nil, fmt.Errorf("private spam delivery policy limit exceeded")
+	}
+	spamPolicies := make([]dovecot.SpamPolicy, 0, len(spamRows))
+	for _, r := range spamRows {
+		spamPolicies = append(spamPolicies, dovecot.SpamPolicy{MailboxAddress: r.MailboxAddress, Scope: r.Scope, SenderAddress: r.SenderAddress, SenderDomain: r.SenderDomain, List: r.List})
 	}
 
 	hostname := cfg.MyHostname
@@ -223,6 +236,7 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		PostfixSnap: pfSnap,
 
 		DovecotNode: dovecot.NodeConfig{
+			SpamPolicies:  spamPolicies,
 			V80Preserve:   cfg.PostfixV80Preserve,
 			Hostname:      hostname,
 			PrimaryDomain: cfg.PrimaryDomain,

@@ -107,6 +107,11 @@ const WebmailHelpPage = lazy(() =>
     default: m.WebmailHelpPage,
   })),
 );
+const ClientGuidesPage = lazy(() =>
+  import("@/features/guides/client-guides-page").then((m) => ({
+    default: m.ClientGuidesPage,
+  })),
+);
 const MailboxLoginPage = lazy(() =>
   import("@/features/webmail/mailbox-login-page").then((m) => ({
     default: m.MailboxLoginPage,
@@ -115,6 +120,16 @@ const MailboxLoginPage = lazy(() =>
 const MailboxInboxPage = lazy(() =>
   import("@/features/webmail/mailbox-inbox-page").then((m) => ({
     default: m.MailboxInboxPage,
+  })),
+);
+const MailboxSettingsPage = lazy(() =>
+  import("@/features/webmail/mailbox-settings-page").then((m) => ({
+    default: m.MailboxSettingsPage,
+  })),
+);
+const MailboxPeoplePage = lazy(() =>
+  import("@/features/webmail/mailbox-people-page").then((m) => ({
+    default: m.MailboxPeoplePage,
   })),
 );
 const NotFoundPage = lazy(() =>
@@ -220,11 +235,37 @@ export function App() {
                 }
               />
               <Route
+                path="/webmail/settings"
+                element={
+                  <LazyPage>
+                    <MailboxSettingsPage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/people"
+                element={
+                  <LazyPage>
+                    <MailboxPeoplePage />
+                  </LazyPage>
+                }
+              />
+              <Route
                 path="/webmail/help"
                 element={
                   <LazyPage>
                     <main className="mx-auto max-w-lg px-4 py-10">
                       <WebmailHelpPage />
+                    </main>
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/guides/clients"
+                element={
+                  <LazyPage>
+                    <main className="mx-auto max-w-3xl px-4 py-10">
+                      <ClientGuidesPage />
                     </main>
                   </LazyPage>
                 }

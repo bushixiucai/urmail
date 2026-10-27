@@ -23,20 +23,26 @@ import (
 // ErrChannelUnavailable prevents unimplemented egress from falling back to mail.
 var ErrChannelUnavailable = errors.New("dedicated marketing channel is unavailable")
 
+// crlf guards header and envelope injection.
+var crlf = string([]byte{0x0d, 0x0a})
+
 // ErrPermanentBounce identifies a definitive SMTP recipient rejection.
 var ErrPermanentBounce = errors.New("marketing recipient permanently refused")
 
 // SMTPConfig is stored only as encrypted configuration by platform operators.
 type SMTPConfig struct {
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	From        string `json:"from"`
-	Dedicated   bool   `json:"dedicated"`
-	ImplicitTLS bool   `json:"implicit_tls"`
-	FeedbackKey string `json:"feedback_key,omitempty"`
-	SourceIP    string `json:"source_ip,omitempty"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	From     string `json:"from"`
+	// BounceAddress is the per-channel campaign RETURN-PATH (envelope MAIL
+	// FROM). Optional; when set the gateway can route complaints to it.
+	BounceAddress string `json:"bounce_address,omitempty"`
+	Dedicated     bool   `json:"dedicated"`
+	ImplicitTLS   bool   `json:"implicit_tls"`
+	FeedbackKey   string `json:"feedback_key,omitempty"`
+	SourceIP      string `json:"source_ip,omitempty"`
 }
 
 // Validate refuses ambiguous/shared egress and header injection.
@@ -51,18 +57,27 @@ func (c SMTPConfig) Validate(kind string) error {
 	if (c.Username == "") != (c.Password == "") {
 		return ErrChannelUnavailable
 	}
+	if c.BounceAddress != "" {
+		bounce, err := mail.ParseAddress(c.BounceAddress)
+		if err != nil || bounce.Address != c.BounceAddress || strings.ContainsAny(c.BounceAddress, crlf) {
+			return ErrChannelUnavailable
+		}
+	}
 	return nil
 }
 
 // Delivery is an immutable recipient/content snapshot passed to one sender.
 type Delivery struct {
-	ID             int64
-	TenantID       int64
-	CampaignID     int64
-	Email          string
-	Subject        string
-	Body           string
-	MessageID      string
+	ID         int64
+	TenantID   int64
+	CampaignID int64
+	Email      string
+	Subject    string
+	Body       string
+	MessageID  string
+	// EnvelopeFrom is the bounce-address RETURN-PATH; empty falls back to the
+	// channel sender address in the client.
+	EnvelopeFrom   string
 	UnsubscribeURL string
 	BeforeData     func(context.Context) error
 }
@@ -132,7 +147,14 @@ func sendSMTP(ctx context.Context, cfg SMTPConfig, d Delivery, roots *x509.CertP
 			return errors.New("marketing gateway authentication failed")
 		}
 	}
-	if err = client.Mail(cfg.From); err != nil {
+	envelope := cfg.From
+	if d.EnvelopeFrom != "" {
+		if _, err = mail.ParseAddress(d.EnvelopeFrom); err != nil || strings.ContainsAny(d.EnvelopeFrom, crlf) {
+			return errors.New("invalid marketing bounce address")
+		}
+		envelope = d.EnvelopeFrom
+	}
+	if err = client.Mail(envelope); err != nil {
 		return errors.New("marketing sender refused")
 	}
 	if err = client.Rcpt(d.Email); err != nil {
@@ -144,7 +166,7 @@ func sendSMTP(ctx context.Context, cfg SMTPConfig, d Delivery, roots *x509.CertP
 	}
 	if d.BeforeData != nil {
 		if err = d.BeforeData(ctx); err != nil {
-			return errors.New("marketing authorization revoked before DATA")
+			return fmt.Errorf("marketing authorization revoked before DATA: %w", err)
 		}
 	}
 	writer, err := client.Data()

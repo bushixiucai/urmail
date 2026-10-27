@@ -171,6 +171,7 @@ func TestGoldenCases(t *testing.T) {
 		filename string
 	}{
 		{postfix.FileMainCF, "main.cf"},
+		{postfix.FileSpamHeaderChecks, "spam-header-checks"},
 		{postfix.FileMasterCF, "master.cf"},
 		{postfix.FileVirtualMailboxMap, "virtual_mailbox.map"},
 		{postfix.FileVirtualAliasMap, "virtual_alias.map"},

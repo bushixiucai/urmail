@@ -16,6 +16,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/bushixiucai/urmail/internal/backupauto"
 )
 
 // probeAttemptBudget is long enough for one greeting/TLS attempt yet short
@@ -162,7 +166,115 @@ func (m *ApplyManager) checkMailReadiness(ctx context.Context) error {
 	if m.readinessProbe != nil {
 		return m.readinessProbe(ctx)
 	}
-	return m.probeMailReadiness(ctx)
+	if err := m.probeMailReadiness(ctx); err != nil {
+		return err
+	}
+	return m.probeNewServiceReadiness(ctx)
+}
+
+// probeNewServiceReadiness covers the services added after the original mail
+// stack with database-state probes: the DAV (CardDAV/CalDAV) and EAS
+// endpoints serve from the collaboration schema of migration 0084, and the
+// automated offsite backup records its runs in backup_runs (0120). Database
+// probes behave identically on a developer laptop and on a production host,
+// unlike network probes that depend on listeners a test host does not have.
+func (m *ApplyManager) probeNewServiceReadiness(ctx context.Context) error {
+	if m.pool == nil {
+		// Fixture managers carry no database; their readiness is injected
+		// through readinessProbe instead.
+		return nil
+	}
+	if m.cfg == nil || m.cfg.WebmailNative || m.cfg.CardDAVEnabled || m.cfg.CalDAVEnabled || m.cfg.EASEnabled {
+		if err := m.probeCollabSchema(ctx); err != nil {
+			return err
+		}
+	}
+	return m.probeBackupOffsite(ctx)
+}
+
+// collabTables is the collaboration schema DAV and EAS read and write.
+// Missing objects mean migration 0084 was not applied: the endpoints would
+// mount and then serve nothing, so readiness must fail explicitly instead.
+var collabTables = []string{
+	"mailbox_addressbooks", "mailbox_contacts", "mailbox_calendars",
+	"mailbox_events", "mailbox_changes", "mailbox_sync_cursors", "mailbox_jobs",
+}
+
+func (m *ApplyManager) probeCollabSchema(ctx context.Context) error {
+	m.status.Step = "probe:collab"
+	m.publish()
+	rows, err := m.pool.Query(ctx, `SELECT t.name FROM unnest($1::text[]) AS t(name)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND c.relname = t.name)`, collabTables)
+	if err != nil {
+		return fmt.Errorf("collaboration schema probe: %w", err)
+	}
+	var missing []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return fmt.Errorf("collaboration schema probe: %w", err)
+		}
+		missing = append(missing, name)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("collaboration schema probe: %w", err)
+	}
+	rows.Close()
+	if len(missing) > 0 {
+		return fmt.Errorf("collaboration schema incomplete (DAV/EAS, migration 0084): missing tables %s; apply migrations before enabling the endpoints", strings.Join(missing, ", "))
+	}
+	return m.probeSchemaVersion(ctx)
+}
+
+// probeSchemaVersion fails when a migration interrupted mid-apply left
+// schema_migrations dirty: configuration would converge onto a schema whose
+// version is not actually known-good. A pre-migration database without the
+// table is reported by the table probe above instead.
+func (m *ApplyManager) probeSchemaVersion(ctx context.Context) error {
+	var dirty bool
+	err := m.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE dirty)").Scan(&dirty)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+			return nil
+		}
+		return fmt.Errorf("schema version probe: %w", err)
+	}
+	if dirty {
+		return errors.New("schema_migrations is dirty: a migration did not finish; resolve it before enabling the new endpoints")
+	}
+	return nil
+}
+
+func (m *ApplyManager) probeBackupOffsite(ctx context.Context) error {
+	m.status.Step = "probe:backup"
+	m.publish()
+	health, err := (&backupauto.StateRecorder{Pool: m.pool}).LastRunHealth(ctx)
+	if errors.Is(err, backupauto.ErrBackupOffsiteDisabled) {
+		// No backup_runs table: automated offsite backup is not provisioned
+		// on this installation, so there is no state to fail on.
+		return nil
+	}
+	if err != nil {
+		if errors.Is(err, backupauto.ErrNoRuns) {
+			// Feature configured but the first scheduled run has not happened.
+			return nil
+		}
+		return fmt.Errorf("backup offsite probe: %w", err)
+	}
+	if health.State == backupauto.StateFailed {
+		return fmt.Errorf("last offsite backup run %s failed: %s", health.RunUID, health.Error)
+	}
+	if health.StaleRun(time.Now()) {
+		return fmt.Errorf("offsite backup run %s is stuck in state %q since %s: the backup worker stopped making progress",
+			health.RunUID, health.State, health.StartedAt.Format(time.RFC3339))
+	}
+	return nil
 }
 
 func probeSubmissionTLS(ctx context.Context, address string, config *tls.Config, expected []byte) error {

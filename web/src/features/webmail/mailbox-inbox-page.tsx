@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
+  ArrowDownWideNarrow,
   ChevronLeft,
   Flag,
   Folder,
+  Layers,
   LogOut,
   Mail,
   MailOpen,
@@ -12,6 +14,7 @@ import {
   Pencil,
   RefreshCw,
   Reply,
+  ReplyAll,
   Forward,
   Trash2,
   KeyRound,
@@ -31,6 +34,7 @@ import {
 import {
   assertAttachmentTotal,
   clearMailboxSession,
+  crossFolderSearch,
   deleteMailboxSession,
   deleteMessages,
   downloadAttachment,
@@ -45,12 +49,14 @@ import {
   listFolders,
   listMessages,
   MailboxFolder,
+  MailboxSortKey,
   MessageDetail,
   MessageSummary,
   moveMessages,
   MAX_SEND_ATTACHMENTS,
   OutgoingAttachment,
 } from "./mailbox-api";
+import { decorateThreads } from "./mailbox-threading";
 import {
   ComposeDraft,
   composeFromSavedDraft,
@@ -60,7 +66,8 @@ import {
 import { MailboxPasswordDialog } from "./mailbox-password-dialog";
 import { MailboxScheduledDialog } from "./mailbox-scheduled-dialog";
 import { MailboxSearchBox } from "./mailbox-search-box";
-import { sanitizeHtmlMail } from "./sanitize-html-mail";
+import { attachmentDisplayName } from "./attachment-name";
+import { MessageHTMLFrame } from "./mailbox-message-view";
 import { useMailboxNative } from "./use-mailbox-native";
 import { WebmailHelpPage } from "./webmail-help-page";
 
@@ -94,6 +101,9 @@ export function MailboxInboxPage() {
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
   const [checkedUids, setCheckedUids] = useState<number[]>([]);
   const [detail, setDetail] = useState<MessageDetail | null>(null);
+  // Per-message "load images" privacy opt-in (WEBMAIL-007); reset when
+  // another message is opened.
+  const [loadImages, setLoadImages] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -110,8 +120,22 @@ export function MailboxInboxPage() {
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list");
   const [foldersOpen, setFoldersOpen] = useState(false);
   const [searchQ, setSearchQ] = useState("");
+  // WEBMAIL-004: sort + conversation grouping + cross-folder search scope.
+  const [sortBy, setSortBy] = useState<MailboxSortKey>("");
+  const [sortAsc, setSortAsc] = useState(false);
+  const [threadGroup, setThreadGroup] = useState(false);
+  const [searchAllFolders, setSearchAllFolders] = useState(false);
+  const [crossResults, setCrossResults] = useState<MessageSummary[] | null>(
+    null,
+  );
+  const [threadFilter, setThreadFilter] = useState<string | null>(null);
+  const [cursor, setCursor] = useState(0);
+  const [nextCursor, setNextCursor] = useState(0);
+  const [cursorHistory, setCursorHistory] = useState<number[]>([]);
   const currentFolderRef = useRef(folderEnc);
   currentFolderRef.current = folderEnc;
+  /** Folder the currently open UID lives in (differs for cross-folder hits). */
+  const selectedEncRef = useRef<string | null>(null);
   const listRequest = useRef<{
     generation: number;
     controller?: AbortController;
@@ -131,6 +155,11 @@ export function MailboxInboxPage() {
   );
 
   const pageUids = useMemo(() => messages.map((m) => m.uid), [messages]);
+  /** Conversation grouping for the current page (server ids when present). */
+  const decoratedMessages = useMemo(
+    () => decorateThreads(messages),
+    [messages],
+  );
   const allPageSelected =
     pageUids.length > 0 && pageUids.every((uid) => checkedUids.includes(uid));
   const somePageSelected =
@@ -178,6 +207,12 @@ export function MailboxInboxPage() {
       pageOffset: number,
       signal?: AbortSignal,
       q?: string,
+      pageOpts?: {
+        cursor?: number;
+        sort?: MailboxSortKey;
+        order?: "asc" | "desc";
+        thread?: boolean;
+      },
     ) => {
       listRequest.current.controller?.abort();
       const controller = new AbortController();
@@ -189,7 +224,15 @@ export function MailboxInboxPage() {
       try {
         const res = await listMessages(
           enc,
-          { limit: PAGE_SIZE, offset: pageOffset, q },
+          {
+            limit: PAGE_SIZE,
+            offset: pageOpts?.cursor ? 0 : pageOffset,
+            q,
+            cursor: pageOpts?.cursor,
+            sort: pageOpts?.sort,
+            order: pageOpts?.order,
+            thread: pageOpts?.thread,
+          },
           controller.signal,
         );
         if (
@@ -201,6 +244,7 @@ export function MailboxInboxPage() {
         setMessages(res.messages ?? []);
         setTotal(res.total);
         setOffset(res.offset);
+        setNextCursor(res.next_cursor ?? 0);
       } catch (err) {
         if (
           !controller.signal.aborted &&
@@ -215,6 +259,16 @@ export function MailboxInboxPage() {
     [],
   );
 
+  /** Options describing the current sort/group selection for reloads. */
+  const listOpts = useCallback(
+    () => ({
+      sort: sortBy,
+      order: (sortAsc ? "asc" : "desc") as "asc" | "desc",
+      thread: threadGroup,
+    }),
+    [sortBy, sortAsc, threadGroup],
+  );
+
   const refresh = useCallback(async () => {
     if (!hasMailboxSession()) return;
     setBusy(true);
@@ -222,14 +276,33 @@ export function MailboxInboxPage() {
     try {
       await loadFolders();
       const enc = currentFolderRef.current;
-      if (enc) await loadMessages(enc, offset, undefined, searchQ);
+      if (enc)
+        await loadMessages(
+          enc,
+          offset,
+          undefined,
+          searchQ,
+          cursor || cursorHistory.length
+            ? { ...listOpts(), cursor }
+            : listOpts(),
+        );
     } catch (err) {
       if (handleAuthError(err)) return;
       setError(errorMessage(err, t, "page.webmail.load_failed"));
     } finally {
       setBusy(false);
     }
-  }, [handleAuthError, loadFolders, loadMessages, offset, searchQ, t]);
+  }, [
+    handleAuthError,
+    loadFolders,
+    loadMessages,
+    offset,
+    searchQ,
+    t,
+    listOpts,
+    cursor,
+    cursorHistory.length,
+  ]);
 
   useEffect(() => {
     if (!nativeLoaded || !native || !hasMailboxSession()) return;
@@ -255,8 +328,13 @@ export function MailboxInboxPage() {
     clearChecked();
     setSearchQ("");
     setMobilePane("list");
+    setCrossResults(null);
+    setThreadFilter(null);
+    setCursor(0);
+    setNextCursor(0);
+    setCursorHistory([]);
     setBusy(true);
-    loadMessages(folderEnc, 0, controller.signal, "")
+    loadMessages(folderEnc, 0, controller.signal, "", listOpts())
       .catch((err) => {
         if (controller.signal.aborted) return;
         if (handleAuthError(err)) return;
@@ -266,21 +344,27 @@ export function MailboxInboxPage() {
         if (!controller.signal.aborted) setBusy(false);
       });
     return () => controller.abort();
-  }, [folderEnc, loadMessages, handleAuthError, t, clearChecked]);
+  }, [folderEnc, loadMessages, handleAuthError, t, clearChecked, listOpts]);
 
   useEffect(() => {
     if (!folderEnc || selectedUid == null) {
       setDetail(null);
       return;
     }
+    // Cross-folder results can open a UID that lives in another mailbox.
+    const detailEnc = selectedEncRef.current ?? folderEnc;
+    setLoadImages(false);
     const controller = new AbortController();
-    getMessage(folderEnc, selectedUid, controller.signal)
+    getMessage(detailEnc, selectedUid, {
+      loadImages,
+      signal: controller.signal,
+    })
       .then(async (msg) => {
         if (controller.signal.aborted) return;
         setDetail(msg);
         if (!hasFlag(msg.flags, "\\Seen")) {
           try {
-            await flagMessages(folderEnc, {
+            await flagMessages(detailEnc, {
               uids: [selectedUid],
               add: ["\\Seen"],
             });
@@ -303,7 +387,7 @@ export function MailboxInboxPage() {
         setError(errorMessage(err, t, "page.webmail.load_failed"));
       });
     return () => controller.abort();
-  }, [folderEnc, selectedUid, handleAuthError, t]);
+  }, [folderEnc, selectedUid, loadImages, handleAuthError, t]);
 
   if (!nativeLoaded) {
     return (
@@ -363,7 +447,15 @@ export function MailboxInboxPage() {
   };
 
   const openMessage = (uid: number) => {
+    selectedEncRef.current = folderEnc;
     setSelectedUid(uid);
+    setMobilePane("detail");
+  };
+
+  /** Open a cross-folder search hit in its own mailbox. */
+  const openCrossMessage = (m: MessageSummary) => {
+    selectedEncRef.current = m.folder_enc ?? folderEnc;
+    setSelectedUid(m.uid);
     setMobilePane("detail");
   };
 
@@ -375,6 +467,7 @@ export function MailboxInboxPage() {
     currentFolderRef.current = enc;
     listRequest.current.generation += 1;
     listRequest.current.controller?.abort();
+    selectedEncRef.current = null;
     setMessages([]);
     setFolderEnc(enc);
     setFoldersOpen(false);
@@ -474,7 +567,7 @@ export function MailboxInboxPage() {
         setMobilePane("list");
       }
       clearChecked();
-      await loadMessages(folderEnc, offset, undefined, searchQ);
+      await loadMessages(folderEnc, offset, undefined, searchQ, listOpts());
     } catch (err) {
       if (handleAuthError(err)) return;
       setError(errorMessage(err, t, "page.webmail.action_failed"));
@@ -496,7 +589,7 @@ export function MailboxInboxPage() {
       setMoveTo("");
       setBulkMoveTo("");
       clearChecked();
-      await loadMessages(folderEnc, offset, undefined, searchQ);
+      await loadMessages(folderEnc, offset, undefined, searchQ, listOpts());
     } catch (err) {
       if (handleAuthError(err)) return;
       setError(errorMessage(err, t, "page.webmail.action_failed"));
@@ -520,11 +613,25 @@ export function MailboxInboxPage() {
     }
   };
 
-  const loadPage = (nextOffset: number) => {
+  const loadPage = (dir: "next" | "prev") => {
     if (!folderEnc) return;
     clearChecked();
+    setThreadFilter(null);
     setBusy(true);
-    void loadMessages(folderEnc, nextOffset, undefined, searchQ)
+    let target = 0;
+    if (dir === "next") {
+      target = nextCursor;
+      setCursorHistory((h) => [...h, cursor]);
+    } else {
+      const history = [...cursorHistory];
+      target = history.pop() ?? 0;
+      setCursorHistory(history);
+    }
+    setCursor(target);
+    void loadMessages(folderEnc, 0, undefined, searchQ, {
+      ...listOpts(),
+      cursor: target,
+    })
       .catch((err) => {
         if (handleAuthError(err)) return;
         setError(errorMessage(err, t, "page.webmail.load_failed"));
@@ -532,14 +639,61 @@ export function MailboxInboxPage() {
       .finally(() => setBusy(false));
   };
 
-  const runSearch = (q: string) => {
-    if (!folderEnc) return;
-    setSearchQ(q);
+  const resetListCursor = () => {
+    setCursor(0);
+    setNextCursor(0);
+    setCursorHistory([]);
+    setThreadFilter(null);
     clearChecked();
     setSelectedUid(null);
     setDetail(null);
+  };
+
+  const runSearch = (q: string) => {
+    if (!folderEnc) return;
+    setSearchQ(q);
+    resetListCursor();
     setBusy(true);
-    void loadMessages(folderEnc, 0, undefined, q)
+    if (searchAllFolders && q.trim() !== "") {
+      setCrossResults(null);
+      void crossFolderSearch(q)
+        .then((res) => {
+          setCrossResults(res.messages ?? []);
+          setTotal(res.total ?? 0);
+        })
+        .catch((err) => {
+          if (handleAuthError(err)) return;
+          setError(errorMessage(err, t, "page.webmail.load_failed"));
+        })
+        .finally(() => setBusy(false));
+      return;
+    }
+    setCrossResults(null);
+    void loadMessages(folderEnc, 0, undefined, q, listOpts())
+      .catch((err) => {
+        if (handleAuthError(err)) return;
+        setError(errorMessage(err, t, "page.webmail.load_failed"));
+      })
+      .finally(() => setBusy(false));
+  };
+
+  /** Re-list on sort / direction / conversation-toggle changes. */
+  const applyListOptions = (
+    sort: MailboxSortKey,
+    asc: boolean,
+    threads: boolean,
+  ) => {
+    if (!folderEnc) return;
+    setSortBy(sort);
+    setSortAsc(asc);
+    setThreadGroup(threads);
+    resetListCursor();
+    setBusy(true);
+    void loadMessages(folderEnc, 0, undefined, searchQ, {
+      sort,
+      order: asc ? "asc" : "desc",
+      thread: threads,
+    })
       .catch((err) => {
         if (handleAuthError(err)) return;
         setError(errorMessage(err, t, "page.webmail.load_failed"));
@@ -548,7 +702,7 @@ export function MailboxInboxPage() {
   };
 
   const folderList = (
-    <ul className="space-y-0.5">
+    <ul className="space-y-0.5" aria-label={t("page.webmail.folders")}>
       {folders.map((f) => (
         <li key={f.name_enc}>
           <button
@@ -652,6 +806,16 @@ export function MailboxInboxPage() {
             className="min-h-11 md:min-h-8"
             asChild
           >
+            <Link to="/webmail/settings">
+              {t("page.webmail.settings_title")}
+            </Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="min-h-11 md:min-h-8"
+            asChild
+          >
             <Link to="/webmail/help">{t("page.webmail.help_title")}</Link>
           </Button>
           <Button
@@ -699,6 +863,86 @@ export function MailboxInboxPage() {
               disabled={busy || !folderEnc}
               onSearch={runSearch}
             />
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <select
+                aria-label={t("page.webmail.sort_by")}
+                className="h-11 md:h-8 rounded-md border border-input bg-background px-2 text-xs"
+                value={sortBy}
+                onChange={(e) =>
+                  applyListOptions(
+                    e.target.value as MailboxSortKey,
+                    sortAsc,
+                    threadGroup,
+                  )
+                }
+                disabled={busy || !folderEnc}
+              >
+                <option value="">{t("page.webmail.sort_date")}</option>
+                <option value="date">{t("page.webmail.sort_date")}</option>
+                <option value="subject">
+                  {t("page.webmail.sort_subject")}
+                </option>
+                <option value="from">{t("page.webmail.sort_from")}</option>
+                <option value="size">{t("page.webmail.sort_size")}</option>
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="min-h-11 md:min-h-8"
+                aria-label={
+                  sortAsc
+                    ? t("page.webmail.sort_ascending")
+                    : t("page.webmail.sort_descending")
+                }
+                disabled={busy || !folderEnc}
+                onClick={() => applyListOptions(sortBy, !sortAsc, threadGroup)}
+              >
+                <ArrowDownWideNarrow
+                  className={sortAsc ? "h-3.5 w-3.5 rotate-180" : "h-3.5 w-3.5"}
+                />
+                {sortAsc
+                  ? t("page.webmail.sort_ascending")
+                  : t("page.webmail.sort_descending")}
+              </Button>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none min-h-11 md:min-h-0">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 md:h-4 md:w-4 accent-primary"
+                  checked={threadGroup}
+                  disabled={busy || !folderEnc}
+                  onChange={(e) =>
+                    applyListOptions(sortBy, sortAsc, e.target.checked)
+                  }
+                />
+                <Layers className="h-3.5 w-3.5" />
+                {t("page.webmail.thread_group")}
+              </label>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none min-h-11 md:min-h-0">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 md:h-4 md:w-4 accent-primary"
+                  checked={searchAllFolders}
+                  disabled={busy || !folderEnc}
+                  onChange={(e) => {
+                    setSearchAllFolders(e.target.checked);
+                    setCrossResults(null);
+                  }}
+                />
+                {t("page.webmail.search_all_folders")}
+              </label>
+              {threadFilter != null && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="min-h-11 md:min-h-8"
+                  onClick={() => setThreadFilter(null)}
+                >
+                  {t("page.webmail.thread_show_all")}
+                </Button>
+              )}
+            </div>
             <div className="flex items-center gap-2 min-h-11">
               <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none min-h-11">
                 <input
@@ -792,16 +1036,41 @@ export function MailboxInboxPage() {
               </div>
             )}
           </div>
-          <ul className="flex-1 overflow-y-auto divide-y min-h-0">
-            {messages.length === 0 && !busy ? (
-              <li className="p-4 text-sm text-muted-foreground">
-                {t("page.webmail.empty_folder")}
-              </li>
-            ) : (
-              messages.map((m) => {
+          <ul
+            className="flex-1 overflow-y-auto divide-y min-h-0"
+            aria-label={t("page.webmail.message_list")}
+          >
+            {(() => {
+              const showing =
+                crossResults ??
+                (() => {
+                  if (threadFilter == null) return messages;
+                  return decoratedMessages
+                    .filter((d) => d.threadKey === threadFilter)
+                    .map((d) => d.message);
+                })();
+              if (showing.length === 0 && !busy) {
+                return (
+                  <li className="p-4 text-sm text-muted-foreground">
+                    {crossResults
+                      ? t("page.webmail.search_no_results")
+                      : t("page.webmail.empty_folder")}
+                  </li>
+                );
+              }
+              const threadCountOf = (m: MessageSummary): number =>
+                crossResults
+                  ? 1
+                  : (decoratedMessages.find((d) => d.message.uid === m.uid)
+                      ?.threadCount ?? 1);
+              const threadKeyOf = (m: MessageSummary): string =>
+                decoratedMessages.find((d) => d.message.uid === m.uid)
+                  ?.threadKey ?? String(m.uid);
+              return showing.map((m) => {
                 const unread = !hasFlag(m.flags, "\\Seen");
                 const flagged = hasFlag(m.flags, "\\Flagged");
                 const checked = checkedUids.includes(m.uid);
+                const threadCount = threadCountOf(m);
                 return (
                   <li key={m.uid} className="flex items-stretch min-w-0">
                     <label className="flex items-center px-2 shrink-0 cursor-pointer min-h-14 md:min-h-0">
@@ -809,7 +1078,12 @@ export function MailboxInboxPage() {
                         type="checkbox"
                         className="h-5 w-5 accent-primary"
                         checked={checked}
-                        aria-label={t("page.webmail.select_message_row")}
+                        aria-label={t("page.webmail.select_message_named", {
+                          name:
+                            formatFrom(m.from) ||
+                            m.subject ||
+                            t("page.webmail.no_subject"),
+                        })}
                         onChange={() =>
                           setCheckedUids((prev) => toggleUid(prev, m.uid))
                         }
@@ -818,14 +1092,22 @@ export function MailboxInboxPage() {
                     </label>
                     <button
                       type="button"
-                      className={`flex-1 min-w-0 text-left px-2 py-3 md:py-2 hover:bg-muted/60 min-h-14 md:min-h-0 ${
-                        selectedUid === m.uid ? "bg-muted" : ""
-                      }`}
-                      onClick={() => openMessage(m.uid)}
+                      className={
+                        "flex-1 min-w-0 text-left px-2 py-3 md:py-2 hover:bg-muted/60 min-h-14 md:min-h-0 " +
+                        (selectedUid === m.uid ? "bg-muted" : "")
+                      }
+                      onClick={() =>
+                        crossResults ? openCrossMessage(m) : openMessage(m.uid)
+                      }
                     >
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         {flagged && (
                           <Flag className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
+                        )}
+                        {crossResults && m.folder && (
+                          <span className="shrink-0 rounded bg-muted px-1 py-0.5">
+                            {m.folder}
+                          </span>
                         )}
                         <span className="truncate flex-1 min-w-0">
                           {formatFrom(m.from) ||
@@ -836,24 +1118,48 @@ export function MailboxInboxPage() {
                         </span>
                       </div>
                       <p
-                        className={`text-sm truncate ${unread ? "font-semibold" : ""}`}
+                        className={
+                          "text-sm truncate " + (unread ? "font-semibold" : "")
+                        }
                       >
                         {m.subject || t("page.webmail.no_subject")}
                       </p>
                     </button>
+                    {threadGroup && !crossResults && threadCount > 1 && (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 px-2 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                        aria-label={t("page.webmail.thread_filter", {
+                          count: threadCount,
+                        })}
+                        title={t("page.webmail.thread_filter", {
+                          count: threadCount,
+                        })}
+                        onClick={() =>
+                          setThreadFilter(
+                            threadKeyOf(m) === threadFilter
+                              ? null
+                              : threadKeyOf(m),
+                          )
+                        }
+                      >
+                        <Layers className="h-3 w-3" />
+                        {threadCount}
+                      </button>
+                    )}
                   </li>
                 );
-              })
-            )}
+              });
+            })()}
           </ul>
-          {(offset > 0 || offset + messages.length < total) && (
+          {!crossResults && (cursorHistory.length > 0 || nextCursor) && (
             <div className="flex gap-2 p-2 border-t">
               <Button
                 size="sm"
                 variant="outline"
                 className="min-h-11 md:min-h-8"
-                disabled={offset <= 0 || busy || !folderEnc}
-                onClick={() => loadPage(Math.max(0, offset - PAGE_SIZE))}
+                disabled={cursorHistory.length === 0 || busy || !folderEnc}
+                onClick={() => loadPage("prev")}
               >
                 {t("page.webmail.prev_page")}
               </Button>
@@ -861,10 +1167,8 @@ export function MailboxInboxPage() {
                 size="sm"
                 variant="outline"
                 className="min-h-11 md:min-h-8"
-                disabled={
-                  offset + messages.length >= total || busy || !folderEnc
-                }
-                onClick={() => loadPage(offset + PAGE_SIZE)}
+                disabled={!nextCursor || busy || !folderEnc}
+                onClick={() => loadPage("next")}
               >
                 {t("page.webmail.next_page")}
               </Button>
@@ -937,6 +1241,17 @@ export function MailboxInboxPage() {
                         variant="outline"
                         className="min-h-11 md:min-h-8"
                         onClick={() =>
+                          openCompose(draftFromMessage("reply-all", detail))
+                        }
+                      >
+                        <ReplyAll className="h-3.5 w-3.5 mr-1" />
+                        {t("page.webmail.compose_reply_all")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="min-h-11 md:min-h-8"
+                        onClick={() =>
                           openCompose(draftFromMessage("forward", detail))
                         }
                       >
@@ -1000,12 +1315,11 @@ export function MailboxInboxPage() {
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
                 {detail.html ? (
-                  <iframe
-                    title={t("page.webmail.message_body")}
-                    sandbox=""
-                    referrerPolicy="no-referrer"
-                    className="w-full min-h-[280px] rounded border bg-background"
-                    srcDoc={sanitizeHtmlMail(detail.html)}
+                  <MessageHTMLFrame
+                    html={detail.html}
+                    notes={detail.notes ?? []}
+                    loadImages={loadImages}
+                    onLoadImages={() => setLoadImages(true)}
                   />
                 ) : (
                   <pre className="whitespace-pre-wrap break-words text-sm font-sans">
@@ -1024,7 +1338,7 @@ export function MailboxInboxPage() {
                           className="flex flex-wrap items-center gap-2 min-w-0"
                         >
                           <span className="truncate min-w-0">
-                            {a.filename || a.part_id}{" "}
+                            {attachmentDisplayName(a.filename, a.part_id)}{" "}
                             <span className="text-xs text-muted-foreground">
                               ({a.content_type}, {a.size} B)
                             </span>
@@ -1072,12 +1386,24 @@ export function MailboxInboxPage() {
         draft={composeDraft}
         onSent={() => {
           if (folderEnc)
-            void loadMessages(folderEnc, offset, undefined, searchQ);
+            void loadMessages(
+              folderEnc,
+              offset,
+              undefined,
+              searchQ,
+              listOpts(),
+            );
         }}
         onDraftSaved={() => {
           const drafts = folders.find((f) => isDraftsFolder(f));
           if (drafts && folderEnc === drafts.name_enc) {
-            void loadMessages(folderEnc, offset, undefined, searchQ);
+            void loadMessages(
+              folderEnc,
+              offset,
+              undefined,
+              searchQ,
+              listOpts(),
+            );
           }
         }}
       />

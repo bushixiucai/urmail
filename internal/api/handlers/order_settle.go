@@ -634,6 +634,14 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 	if err = queries.PlatformMarkCheckoutReceived(ctx, store.PlatformMarkCheckoutReceivedParams{TenantID: tenantID, OrderID: id}); err != nil {
 		return err
 	}
+	// BILL-004: a successful settlement supersedes the previous billing
+	// cycle. Cancel the still-pending renewal attempts of the old cycle in
+	// the same transaction so they can neither retry nor notify again; the
+	// claim query additionally refuses periods that no longer match, which
+	// closes the enqueue/claim race window.
+	if err = queries.PlatformCancelSupersededRenewalAttempts(ctx, tenantID); err != nil {
+		return err
+	}
 	if err = settlementAudit(ctx, queries, tenantID, id, opts, "settled"); err != nil {
 		return err
 	}

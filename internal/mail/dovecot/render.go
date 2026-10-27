@@ -27,7 +27,11 @@ func renderDovecotConf(node NodeConfig) string {
 
 	b.WriteString("# Authentication\n")
 	b.WriteString("disable_plaintext_auth = yes\n")
-	b.WriteString("auth_mechanisms = plain login\n\n")
+	b.WriteString("auth_mechanisms = plain login\n")
+	// MAIL-003: slow repeated password guessing on IMAP/POP3. The delay is
+	// per authentication attempt failure and is part of the generated policy,
+	// so it is reinstated on every service restart (durable protection).
+	b.WriteString("auth_failure_delay = 2 secs\n\n")
 
 	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-sql.conf.ext\n\n")
 
@@ -65,7 +69,13 @@ func renderDovecotConf(node NodeConfig) string {
 	b.WriteString("  }\n")
 	b.WriteString("}\n\n")
 
-	fmt.Fprintf(&b, "plugin {\n  sieve = file:%s/sieve/%%u.sieve\n}\n\n", storageRoot)
+	fmt.Fprintf(&b, "plugin {\n  sieve = file:%s/sieve/%%u.sieve\n", storageRoot)
+	// MAIL-002: the global before-script runs BEFORE the user's own script
+	// and evaluates recipient-scoped sender rules before shared classification.
+	// Both managed and legacy mailboxes inherit this entry point; imported
+	// global/user scripts remain subsequent hooks.
+	b.WriteString("  sieve_before = /etc/dovecot/urmail-spam/spam-before.sieve\n")
+	b.WriteString("}\n\n")
 	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-mailboxes.conf.ext\n")
 	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-quota.conf.ext\n")
 
@@ -108,7 +118,7 @@ func renderDBConf(node NodeConfig) string {
 	fmt.Fprintf(&b, "connect = %s\n", node.DatabaseURL)
 	b.WriteString("default_pass_scheme = SHA512-CRYPT\n\n")
 	b.WriteString("password_query = SELECT m.address AS user, m.password_hash AS password FROM mailboxes m JOIN tenants t ON t.id = m.tenant_id JOIN domains d ON d.id = m.domain_id AND d.tenant_id = m.tenant_id WHERE m.address = '%u' AND m.status = 'active' AND t.status = 'active' AND d.status = 'active' AND urmail_domain_mail_ready(m.tenant_id,m.domain_id);\n\n")
-	fmt.Fprintf(&b, "user_query = SELECT m.address AS user, '%s' AS uid, '%s' AS gid, '%s/mail/mailboxes/%%d/%%n' AS home, '*:bytes=' || CASE WHEN m.quota_bytes = -1 THEN '0' ELSE m.quota_bytes::text END AS quota_rule, CASE WHEN urmail_mail_allowed(m.tenant_id) THEN '' ELSE 'expired' END AS acl_groups, %s FROM mailboxes m JOIN tenants t ON t.id = m.tenant_id JOIN domains d ON d.id = m.domain_id AND d.tenant_id = m.tenant_id WHERE m.address = '%%u' AND ((m.status = 'active' AND t.status = 'active' AND d.status = 'active' AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)) OR '%%s' = 'doveadm');\n\n", mailUID, mailGID, storageRoot, legacySieveUserFields(storageRoot))
+	fmt.Fprintf(&b, "user_query = SELECT m.address AS user, '%s' AS uid, '%s' AS gid, '%s/mail/mailboxes/%%d/%%n' AS home, '*:bytes=' || CASE WHEN m.quota_bytes = -1 THEN '0' ELSE m.quota_bytes::text END AS quota_rule, CASE WHEN urmail_mail_readable(m.tenant_id) THEN '' ELSE 'expired' END AS acl_groups, %s FROM mailboxes m JOIN tenants t ON t.id = m.tenant_id JOIN domains d ON d.id = m.domain_id AND d.tenant_id = m.tenant_id WHERE m.address = '%%u' AND ((m.status = 'active' AND t.status = 'active' AND d.status = 'active' AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)) OR '%%s' = 'doveadm');\n\n", mailUID, mailGID, storageRoot, legacySieveUserFields(storageRoot))
 	b.WriteString("iterate_query = SELECT m.address AS user FROM mailboxes m JOIN tenants t ON t.id = m.tenant_id JOIN domains d ON d.id = m.domain_id AND d.tenant_id = m.tenant_id WHERE m.status = 'active' AND t.status = 'active' AND d.status = 'active' AND urmail_domain_mail_ready(m.tenant_id,m.domain_id);\n")
 	return b.String()
 }
@@ -174,5 +184,5 @@ func renderDovecotQuota() string {
 // the only raw-script authority. NULL extra fields leave managed defaults alone.
 // These fixed templates are never derived from mailbox-controlled script text.
 func legacySieveUserFields(storageRoot string) string {
-	return fmt.Sprintf("CASE WHEN m.sieve_mode='legacy_v80' THEN 'file:%s/mail/sieve/%%d/%%n;active=%s/mail/sieve/%%d/%%n.sieve' ELSE 'file:%s/sieve/%%u.sieve' END AS sieve, CASE WHEN m.sieve_mode='legacy_v80' THEN '%s/mail/sieve/%%d/%%n' ELSE NULL END AS sieve_dir, CASE WHEN m.sieve_mode='legacy_v80' THEN '/etc/dovecot/sieve-spam.sieve' ELSE NULL END AS sieve_before, CASE WHEN m.sieve_mode='legacy_v80' THEN '%s/mail/sieve/global_before' ELSE NULL END AS sieve_before2, CASE WHEN m.sieve_mode='legacy_v80' THEN '%s/mail/sieve/global_after' ELSE NULL END AS sieve_after, CASE WHEN m.sieve_mode='legacy_v80' THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from", storageRoot, storageRoot, storageRoot, storageRoot, storageRoot, storageRoot)
+	return fmt.Sprintf("CASE WHEN m.sieve_mode='legacy_v80' THEN 'file:%s/mail/sieve/%%d/%%n;active=%s/mail/sieve/%%d/%%n.sieve' ELSE 'file:%s/sieve/%%u.sieve' END AS sieve, CASE WHEN m.sieve_mode='legacy_v80' THEN '%s/mail/sieve/%%d/%%n' ELSE NULL END AS sieve_dir, CASE WHEN m.sieve_mode='legacy_v80' THEN '%s/mail/sieve/global_before' ELSE NULL END AS sieve_before2, CASE WHEN m.sieve_mode='legacy_v80' THEN '%s/mail/sieve/global_after' ELSE NULL END AS sieve_after, CASE WHEN m.sieve_mode='legacy_v80' THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from", storageRoot, storageRoot, storageRoot, storageRoot, storageRoot, storageRoot)
 }

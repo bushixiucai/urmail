@@ -1,4 +1,10 @@
-import { act, cleanup, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { BillingLifecycle } from "./lifecycle";
 const state = vi.hoisted(() => ({ request: vi.fn(), t: (key: string) => key }));
@@ -56,4 +62,47 @@ it("preserves non-expiring mail rights without offering cancellation, scheduling
       ([, options]) => !options?.method || options.method === "GET",
     ),
   ).toBe(true);
+});
+
+it("re-enables automatic renewal explicitly without changing paid dates", async () => {
+  let canceled = true;
+  state.request.mockImplementation(
+    (
+      path: string,
+      options?: { method?: string; body?: { cancel_at_period_end?: boolean } },
+    ) => {
+      if (path.endsWith("/subscription/cancel")) {
+        canceled = options?.body?.cancel_at_period_end ?? true;
+        return Promise.resolve({});
+      }
+      return Promise.resolve(
+        path.endsWith("/subscription")
+          ? {
+              subscription: {
+                plan_id: "paid",
+                status: "active",
+                period_end: "2027-01-01T00:00:00Z",
+                entitlement_source: "paid",
+                cancel_at_period_end: canceled,
+              },
+            }
+          : { orders: [], payments: [], refunds: [], plans: [], domains: [] },
+      );
+    },
+  );
+  const view = render(<BillingLifecycle />);
+  const resume = await view.findByRole("button", {
+    name: "billing_lifecycle.resume_subscription",
+  });
+  fireEvent.click(resume);
+  await waitFor(() =>
+    expect(state.request).toHaveBeenCalledWith(
+      "/api/v1/billing/subscription/cancel",
+      { method: "POST", body: { cancel_at_period_end: false } },
+    ),
+  );
+  await view.findByRole("button", {
+    name: "billing_lifecycle.cancel_subscription",
+  });
+  expect(view.getByText(/2027-01-01T00:00:00Z/)).toBeTruthy();
 });

@@ -66,7 +66,7 @@ ORDER BY (status = 'queued') DESC, occurred_at DESC
 LIMIT 1;
 
 -- name: PlatformInboundAllowed :one
-SELECT COALESCE((SELECT urmail_mail_allowed(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed;
+SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed;
 
 -- name: PlatformCommissionRate :one
 SELECT commission_bps FROM channels WHERE id=$1;

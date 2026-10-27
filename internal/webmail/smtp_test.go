@@ -62,7 +62,7 @@ func TestNetSubmitterSend(t *testing.T) {
 	}()
 
 	sub := NetSubmitter{Addr: ln.Addr().String(), Timeout: 2 * time.Second}
-	err = sub.Send(context.Background(), "alice@example.test", "secret", Outgoing{
+	_, err = sub.Send(context.Background(), "alice@example.test", "secret", Outgoing{
 		To:      []string{"bob@example.test"},
 		Subject: "Hi",
 		Text:    "Hello bob",

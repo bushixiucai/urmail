@@ -149,6 +149,7 @@ func NewProductionRegistry(manager *ApplyManager) *Registry {
 	registry.Register(OpCertificateStatus, manager.CertificateStatus)
 	registry.Register(OpCertificateIssue, manager.IssueCertificate)
 	registry.Register(OpCertificateRenew, manager.RenewCertificates)
+	registry.Register(OpBackupLocalCreate, BackupLocalCreate)
 	return registry
 }
 

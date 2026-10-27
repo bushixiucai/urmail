@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "operating_systems": ["Ubuntu 22.04", "Ubuntu 24.04"],
+  "architectures": ["amd64", "arm64"],
+  "public_ports": {
+    "25/tcp": "SMTP inbound",
+    "465/tcp": "SMTP submission with implicit TLS",
+    "587/tcp": "SMTP submission with STARTTLS",
+    "993/tcp": "IMAP over TLS",
+    "995/tcp": "POP3 over TLS",
+    "80/tcp": "HTTP redirect and ACME challenge",
+    "443/tcp": "HTTPS panel, Webmail, CardDAV, CalDAV and ActiveSync",
+    "53/tcp+udp": "Optional authoritative DNS only"
+  },
+  "private_listeners": ["127.0.0.1:8080", "PostgreSQL loopback/socket", "agent Unix socket", "policy Unix socket", "loopback mail milters"],
+  "deployment_flags": {
+    "URMAIL_WEBMAIL_NATIVE": {"new_install": true, "upgrade": "preserve; legacy absent means false"},
+    "URMAIL_CARDDAV_ENABLED": {"new_install": true, "upgrade": "preserve; legacy absent means true"},
+    "URMAIL_CALDAV_ENABLED": {"new_install": true, "upgrade": "preserve; legacy absent means true"},
+    "URMAIL_EAS_ENABLED": {"new_install": true, "upgrade": "preserve; legacy absent means true"}
+  },
+  "requirements": ["Root for installation and controlled system operations", "Verified domain and hostname", "Publicly trusted matching certificate before public client acceptance", "Inbound and outbound mail reachability", "Operator-configured storage, backup capacity and recovery objective", "Independently protected age recovery identity"],
+  "optional_integrations": ["AI provider", "Payment provider", "Marketing SMTP", "External DNS provider", "Authoritative DNS", "S3 or SFTP offsite storage"],
+  "unsupported": ["Website hosting", "Network drive", "Legacy PHP groupware", "Debian or arbitrary Linux distributions", "Claiming emulated amd64 results as native acceptance"]
+}

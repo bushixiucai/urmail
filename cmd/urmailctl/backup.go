@@ -24,6 +24,9 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	} else if selected {
 		return runV80Backup(ctx, args, os.Stdout)
 	}
+	if len(args) > 0 && (args[0] == "offsite" || args[0] == "upload" || args[0] == "verify-offsite" || args[0] == "decrypt") {
+		return runBackupOffsite(ctx, args)
+	}
 	outDir := "/var/backups/urmail"
 	includeMail, maintenance := false, false
 	for i := 0; i < len(args); i++ {

@@ -77,6 +77,8 @@ jobs:
           chmod 0600 "$keydir/release.pem"
           openssl pkeyutl -sign -inkey "$keydir/release.pem" -rawin \
             -in "dist/manifest-${ARCH}.json" -out "dist/manifest-${ARCH}.json.sig"
+          openssl pkeyutl -verify -pubin -inkey packaging/urmail-release.pub -rawin \
+            -in "dist/manifest-${ARCH}.json" -sigfile "dist/manifest-${ARCH}.json.sig"
           rm -rf "$keydir"
       - name: Upload package and manifest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

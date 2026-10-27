@@ -152,7 +152,7 @@ func (q *Queries) PlatformFinishAIRequest(ctx context.Context, arg PlatformFinis
 }
 
 const platformGetAIProvider = `-- name: PlatformGetAIProvider :one
-SELECT tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at FROM ai_provider_configs WHERE tenant_id=$1
+SELECT tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros FROM ai_provider_configs WHERE tenant_id=$1
 `
 
 func (q *Queries) PlatformGetAIProvider(ctx context.Context, tenantID int64) (AiProviderConfigs, error) {
@@ -180,6 +180,10 @@ func (q *Queries) PlatformGetAIProvider(ctx context.Context, tenantID int64) (Ai
 		&i.CloudConsentBy,
 		&i.CloudConsentAt,
 		&i.CloudConsentRevokedAt,
+		&i.DailyTokenLimit,
+		&i.DailyCostMicros,
+		&i.MonthlyTokenLimit,
+		&i.MonthlyCostMicros,
 	)
 	return i, err
 }
@@ -462,6 +466,76 @@ func (q *Queries) PlatformReserveAIRequest(ctx context.Context, arg PlatformRese
 	return i, err
 }
 
+const platformReserveMailboxAIRequest = `-- name: PlatformReserveMailboxAIRequest :one
+INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,provider,model,cost_currency,input_rate,output_rate,reserved_tokens,reserved_cost_micros)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, period_end, mode, provider, model, cost_currency, input_rate, output_rate, status, reserved_tokens, reserved_cost_micros, actual_tokens, actual_cost_micros, result, review_reason, reviewed_by, reviewed_at, created_at, updated_at
+`
+
+type PlatformReserveMailboxAIRequestParams struct {
+	TenantID           int64              `json:"tenant_id"`
+	MailboxID          int64              `json:"mailbox_id"`
+	RequestKey         string             `json:"request_key"`
+	InputDigest        string             `json:"input_digest"`
+	PeriodStart        pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
+	Mode               string             `json:"mode"`
+	Provider           string             `json:"provider"`
+	Model              string             `json:"model"`
+	CostCurrency       string             `json:"cost_currency"`
+	InputRate          int64              `json:"input_rate"`
+	OutputRate         int64              `json:"output_rate"`
+	ReservedTokens     int64              `json:"reserved_tokens"`
+	ReservedCostMicros int64              `json:"reserved_cost_micros"`
+}
+
+func (q *Queries) PlatformReserveMailboxAIRequest(ctx context.Context, arg PlatformReserveMailboxAIRequestParams) (AiUsageRequests, error) {
+	row := q.db.QueryRow(ctx, platformReserveMailboxAIRequest,
+		arg.TenantID,
+		arg.MailboxID,
+		arg.RequestKey,
+		arg.InputDigest,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.Mode,
+		arg.Provider,
+		arg.Model,
+		arg.CostCurrency,
+		arg.InputRate,
+		arg.OutputRate,
+		arg.ReservedTokens,
+		arg.ReservedCostMicros,
+	)
+	var i AiUsageRequests
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.MailboxID,
+		&i.RequestKey,
+		&i.InputDigest,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.Mode,
+		&i.Provider,
+		&i.Model,
+		&i.CostCurrency,
+		&i.InputRate,
+		&i.OutputRate,
+		&i.Status,
+		&i.ReservedTokens,
+		&i.ReservedCostMicros,
+		&i.ActualTokens,
+		&i.ActualCostMicros,
+		&i.Result,
+		&i.ReviewReason,
+		&i.ReviewedBy,
+		&i.ReviewedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const platformResolveAIUsage = `-- name: PlatformResolveAIUsage :one
 UPDATE ai_usage_requests SET status=$3,actual_tokens=$4,actual_cost_micros=$5,review_reason=$6,reviewed_by=$7,reviewed_at=now(),updated_at=now()
 WHERE tenant_id=$1 AND id=$2 AND status='uncertain' AND cost_currency=$8
@@ -509,11 +583,35 @@ func (q *Queries) PlatformResolveAIUsage(ctx context.Context, arg PlatformResolv
 	return i, err
 }
 
+const platformSetAIBudget = `-- name: PlatformSetAIBudget :exec
+UPDATE ai_provider_configs SET daily_token_limit=$1,daily_cost_micros=$2,monthly_token_limit=$3,monthly_cost_micros=$4,updated_at=now()
+WHERE tenant_id=$5
+`
+
+type PlatformSetAIBudgetParams struct {
+	DailyTokenLimit   int64 `json:"daily_token_limit"`
+	DailyCostMicros   int64 `json:"daily_cost_micros"`
+	MonthlyTokenLimit int64 `json:"monthly_token_limit"`
+	MonthlyCostMicros int64 `json:"monthly_cost_micros"`
+	TenantID          int64 `json:"tenant_id"`
+}
+
+func (q *Queries) PlatformSetAIBudget(ctx context.Context, arg PlatformSetAIBudgetParams) error {
+	_, err := q.db.Exec(ctx, platformSetAIBudget,
+		arg.DailyTokenLimit,
+		arg.DailyCostMicros,
+		arg.MonthlyTokenLimit,
+		arg.MonthlyCostMicros,
+		arg.TenantID,
+	)
+	return err
+}
+
 const platformSetAIProvider = `-- name: PlatformSetAIProvider :one
 INSERT INTO ai_provider_configs(tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,input_micros_per_million,output_micros_per_million,cost_currency)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE(NULLIF($11::text,''),'CNY'))
 ON CONFLICT(tenant_id) DO UPDATE SET mode=EXCLUDED.mode,provider=EXCLUDED.provider,endpoint=EXCLUDED.endpoint,model=EXCLUDED.model,encrypted_key=EXCLUDED.encrypted_key,enabled=EXCLUDED.enabled,local_only=EXCLUDED.local_only,input_micros_per_million=EXCLUDED.input_micros_per_million,output_micros_per_million=EXCLUDED.output_micros_per_million,cost_currency=EXCLUDED.cost_currency,updated_at=now()
-RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at
+RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros
 `
 
 type PlatformSetAIProviderParams struct {
@@ -567,6 +665,10 @@ func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIPr
 		&i.CloudConsentBy,
 		&i.CloudConsentAt,
 		&i.CloudConsentRevokedAt,
+		&i.DailyTokenLimit,
+		&i.DailyCostMicros,
+		&i.MonthlyTokenLimit,
+		&i.MonthlyCostMicros,
 	)
 	return i, err
 }
@@ -593,6 +695,29 @@ func (q *Queries) PlatformSetMailboxSieve(ctx context.Context, arg PlatformSetMa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const platformSumAIUsageBetween = `-- name: PlatformSumAIUsageBetween :one
+SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0)::bigint AS tokens,COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0)::bigint AS cost_micros
+FROM ai_usage_requests WHERE tenant_id=$1 AND status<>'released' AND created_at>=$2 AND created_at<$3
+`
+
+type PlatformSumAIUsageBetweenParams struct {
+	TenantID    int64              `json:"tenant_id"`
+	WindowStart pgtype.Timestamptz `json:"window_start"`
+	WindowEnd   pgtype.Timestamptz `json:"window_end"`
+}
+
+type PlatformSumAIUsageBetweenRow struct {
+	Tokens     int64 `json:"tokens"`
+	CostMicros int64 `json:"cost_micros"`
+}
+
+func (q *Queries) PlatformSumAIUsageBetween(ctx context.Context, arg PlatformSumAIUsageBetweenParams) (PlatformSumAIUsageBetweenRow, error) {
+	row := q.db.QueryRow(ctx, platformSumAIUsageBetween, arg.TenantID, arg.WindowStart, arg.WindowEnd)
+	var i PlatformSumAIUsageBetweenRow
+	err := row.Scan(&i.Tokens, &i.CostMicros)
+	return i, err
 }
 
 const tenantConsentAICloud = `-- name: TenantConsentAICloud :exec

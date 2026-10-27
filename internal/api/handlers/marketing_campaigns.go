@@ -253,6 +253,11 @@ func (h *MarketingHandler) Contacts(c *gin.Context) {
 }
 
 // ImportContacts requires explicit provenance and consent. Import never sends.
+// The batch is all-or-nothing (MKT-001): every row is validated first, and any
+// invalid row fails the whole import with a 422 response listing each rejected
+// row, so a tenant never silently loses part of a batch and never gets a
+// partially imported list. Valid batches are stored through the request's
+// tenant transaction, unchanged.
 func (h *MarketingHandler) ImportContacts(c *gin.Context) {
 	tenant, ok := marketingTenant(c)
 	if !ok {
@@ -273,12 +278,31 @@ func (h *MarketingHandler) ImportContacts(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	for _, contact := range input.Contacts {
-		address, err := mail.ParseAddress(contact.Email)
-		if err != nil || address.Address != contact.Email || len(contact.Email) > 254 || strings.ContainsAny(contact.Email, "\r\n") || len(strings.TrimSpace(contact.ConsentSource)) == 0 || len(contact.ConsentSource) > 256 {
-			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-			return
+	type rowError struct {
+		Row    int    `json:"row"`
+		Reason string `json:"reason"`
+	}
+	rowErrors := make([]rowError, 0)
+	for index, contact := range input.Contacts {
+		var reason string
+		address, parseErr := mail.ParseAddress(contact.Email)
+		switch {
+		case parseErr != nil || address.Address != contact.Email || strings.ContainsAny(contact.Email, "\r\n"):
+			reason = "invalid_email"
+		case len(contact.Email) > 254:
+			reason = "email_too_long"
+		case len(strings.TrimSpace(contact.ConsentSource)) == 0:
+			reason = "missing_consent_source"
+		case len(contact.ConsentSource) > 256:
+			reason = "consent_source_too_long"
 		}
+		if reason != "" {
+			rowErrors = append(rowErrors, rowError{Row: index, Reason: reason})
+		}
+	}
+	if len(rowErrors) > 0 {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": gin.H{"code": "CONTACTS_INVALID", "details": rowErrors}})
+		return
 	}
 	q := requestStore(c, h.Store)
 	for _, contact := range input.Contacts {
@@ -415,4 +439,33 @@ func (h *MarketingHandler) Recipients(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"recipients": rows})
+}
+
+// CampaignReport returns the tenant-visible outcome report for one campaign.
+// Counters come from the incremental stats row maintained by recipient
+// transitions; pending/total come from live recipient facts.
+// GET /marketing/campaigns/:campaign_id/report
+func (h *MarketingHandler) CampaignReport(c *gin.Context) {
+	tenant, ok := marketingTenant(c)
+	if !ok {
+		return
+	}
+	campaignID, ok := marketingID(c, "campaign_id")
+	if !ok {
+		return
+	}
+	if h.Store == nil {
+		authError(c, http.StatusServiceUnavailable, "MARKETING_UNAVAILABLE")
+		return
+	}
+	row, err := h.Store.GetMarketingCampaignReport(c.Request.Context(), store.GetMarketingCampaignReportParams{TenantID: tenant, ID: campaignID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		authError(c, http.StatusNotFound, "CAMPAIGN_NOT_FOUND")
+		return
+	}
+	if err != nil {
+		authError(c, http.StatusBadGateway, "MARKETING_UNAVAILABLE")
+		return
+	}
+	c.JSON(http.StatusOK, row)
 }

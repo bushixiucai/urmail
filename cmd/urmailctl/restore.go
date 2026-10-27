@@ -8,9 +8,13 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	domainRestore "github.com/bushixiucai/urmail/internal/domain/restore"
 )
 
 func runRestore(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "mailbox" {
+		return runMailboxRestore(ctx, args[1:])
+	}
 	if _, selected, err := selectedFileProfile(args); err != nil {
 		return err
 	} else if selected {
@@ -63,6 +67,9 @@ func runRestore(ctx context.Context, args []string) error {
 	if dumpPath == "" || !force {
 		return fmt.Errorf("restore requires --dump FILE and --force (it overwrites the target database)")
 	}
+	if manifestPath == "" || (mailPath != "" && configPath == "") {
+		return fmt.Errorf("restore requires --manifest")
+	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("restore must run as root")
 	}
@@ -90,13 +97,11 @@ func runRestore(ctx context.Context, args []string) error {
 			return fmt.Errorf("restore requires the migration database role")
 		}
 	}
-	if mailPath != "" && (manifestPath == "" || configPath == "") {
-		return fmt.Errorf("mail restore requires --manifest and --config")
+	if manifestPath == "" || (mailPath != "" && configPath == "") {
+		return fmt.Errorf("restore requires --manifest")
 	}
-	if manifestPath != "" {
-		if err := verifyBackupManifest(manifestPath, []string{dumpPath, configPath, mailPath}, mailPath != ""); err != nil {
-			return err
-		}
+	if err := verifyBackupManifest(manifestPath, []string{dumpPath, configPath, mailPath}, mailPath != ""); err != nil {
+		return err
 	}
 	var targetURLs map[string]string
 	if configPath != "" {
@@ -164,7 +169,26 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 	var cmd *exec.Cmd
 	if !databaseRestored {
-		if err = restoreDatabaseArchive(ctx, databaseURL, dumpPath, config.RestoreQuarantineMarker, operationLock); err != nil {
+		err = domainRestore.BeforeOverwrite(ctx, func(ctx context.Context) error {
+			pool, openErr := db.OpenPlatform(ctx, databaseURL)
+			if openErr != nil {
+				return openErr
+			}
+			defer pool.Close()
+			tx, txErr := pool.PlatformTx(ctx)
+			if txErr != nil {
+				return txErr
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			var active bool
+			if scanErr := tx.QueryRow(ctx, "SELECT urmail_begin_restore_quarantine()").Scan(&active); scanErr != nil || !active {
+				return domainRestore.ErrQuarantine
+			}
+			return tx.Commit(ctx)
+		}, func(ctx context.Context) error {
+			return restoreDatabaseArchive(ctx, databaseURL, dumpPath, config.RestoreQuarantineMarker, operationLock)
+		})
+		if err != nil {
 			return err
 		}
 		if err = writeRestoreProof(config.RestoreQuarantineMarker, "database-restored.json", restoreInputProof{state.ID, fingerprint}); err != nil {
@@ -213,6 +237,23 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 
 	if err = completeRestoreQuarantine(config.RestoreQuarantineMarker, state.ID); err != nil {
+		return err
+	}
+	pool, err := db.OpenPlatform(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	tx, err := pool.PlatformTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var released bool
+	if err = tx.QueryRow(ctx, "SELECT urmail_release_restore_quarantine()").Scan(&released); err != nil || !released {
+		return fmt.Errorf("restore quarantine remains active")
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
 	fmt.Printf("restore complete (mail_contents=%t); QUARANTINED id=%s; writers remain stopped. Reconcile archive spool, marketing claims, queue, financial state and telemetry source before explicit release.\n", mailPath != "", state.ID)

@@ -85,7 +85,7 @@ function removeEventHandlers(el: Element): void {
   }
 }
 
-function neutralizeUrlAttrs(el: Element): void {
+function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
   const names: string[] = [];
   for (let i = 0; i < el.attributes.length; i++) {
     names.push(el.attributes[i].name);
@@ -110,6 +110,7 @@ function neutralizeUrlAttrs(el: Element): void {
     }
     // Remote backgrounds / posters / etc. — strip for privacy parity with img.
     if (
+      !allowRemote &&
       (lower === "src" ||
         lower === "poster" ||
         lower === "background" ||
@@ -131,9 +132,10 @@ function hardenAnchor(el: Element): void {
   el.setAttribute("target", "_blank");
 }
 
-function shouldStripImg(el: Element): boolean {
+function shouldStripImg(el: Element, allowRemote = false): boolean {
   const src = el.getAttribute("src");
-  if (src != null && (isRemoteUrl(src) || isDangerousUrl(src))) return true;
+  if (src != null && isDangerousUrl(src)) return true;
+  if (src != null && isRemoteUrl(src) && !allowRemote) return true;
   const srcset = el.getAttribute("srcset");
   if (srcset) {
     const remote = srcset.split(",").some((part) => {
@@ -151,7 +153,7 @@ function isMetaRefresh(el: Element): boolean {
   return equiv != null && equiv.trim().toLowerCase() === "refresh";
 }
 
-function sanitizeElement(el: Element): void {
+function sanitizeElement(el: Element, allowRemote = false): void {
   const tag = el.tagName.toLowerCase();
 
   if (STRIP_TAGS.has(tag) || isMetaRefresh(el)) {
@@ -159,19 +161,19 @@ function sanitizeElement(el: Element): void {
     return;
   }
 
-  if (tag === "img" && shouldStripImg(el)) {
+  if (tag === "img" && shouldStripImg(el, allowRemote)) {
     el.remove();
     return;
   }
 
   removeEventHandlers(el);
-  neutralizeUrlAttrs(el);
+  neutralizeUrlAttrs(el, allowRemote);
   hardenAnchor(el);
 
   // Child list mutates as we remove nodes — snapshot first.
   const children = Array.from(el.children);
   for (const child of children) {
-    sanitizeElement(child);
+    sanitizeElement(child, allowRemote);
   }
 }
 
@@ -179,18 +181,24 @@ function sanitizeElement(el: Element): void {
  * Sanitize HTML email for safe display in a sandboxed iframe via srcDoc.
  * Preserves document structure (styles in &lt;head&gt;, etc.).
  */
-export function sanitizeHtmlMail(html: string): string {
+export function sanitizeHtmlMail(
+  html: string,
+  opts?: { allowRemoteImages?: boolean },
+): string {
   if (!html) return "";
+  const allowRemote = opts?.allowRemoteImages === true;
   const doc = new DOMParser().parseFromString(html, "text/html");
   if (doc.documentElement) {
-    sanitizeElement(doc.documentElement);
+    sanitizeElement(doc.documentElement, allowRemote);
   }
   // This policy is independent of the host page: CSS backgrounds, imports,
   // fonts, SVG references and media cannot contact remote origins.
   const policy = doc.createElement("meta");
   policy.httpEquiv = "Content-Security-Policy";
   policy.content =
-    "default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
+    "default-src 'none'; img-src " +
+    (allowRemote ? "https: http: " : "") +
+    "data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
   doc.head.prepend(policy);
   return "<!doctype html>" + (doc.documentElement?.outerHTML ?? "");
 }

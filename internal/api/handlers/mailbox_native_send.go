@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,6 +20,7 @@ type mailboxSendAttachment struct {
 }
 
 type mailboxSendRequest struct {
+	From        string                  `json:"from"`
 	To          []string                `json:"to"`
 	Cc          []string                `json:"cc"`
 	Bcc         []string                `json:"bcc"`
@@ -50,6 +52,28 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	if !bindMailboxMessage(c, &req) {
 		return
 	}
+	// From is never client-trusted: it must be the session address or an
+	// alias-sender grant reviewed for this mailbox. Fail closed when no
+	// authorization source is configured.
+	from := normalizeFromCandidate(req.From)
+	if from == "" {
+		from = session.Address
+	}
+	if from != session.Address {
+		allowed := false
+		if h.SelfSettings != nil {
+			granted, err := h.SelfSettings.SenderIdentityAllowed(c.Request.Context(), session.TenantID, session.Address, from)
+			if err != nil {
+				authError(c, http.StatusBadGateway, "MAIL_POLICY_UNAVAILABLE")
+				return
+			}
+			allowed = granted
+		}
+		if !allowed {
+			authError(c, http.StatusForbidden, "MAILBOX_FROM_NOT_AUTHORIZED")
+			return
+		}
+	}
 	to := cleanAddrs(req.To)
 	cc := cleanAddrs(req.Cc)
 	bcc := cleanAddrs(req.Bcc)
@@ -69,12 +93,23 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if h.MaySend != nil {
+		allowed, err := h.MaySend(c.Request.Context(), session.TenantID, session.MailboxID)
+		if err != nil {
+			authError(c, http.StatusBadGateway, "MAIL_POLICY_UNAVAILABLE")
+			return
+		}
+		if !allowed {
+			authError(c, http.StatusForbidden, "MAIL_SENDING_SUSPENDED")
+			return
+		}
+	}
 	password, ok := h.vaultPassword(c)
 	if !ok {
 		return
 	}
-	err := h.Submitter.Send(c.Request.Context(), session.Address, password, webmail.Outgoing{
-		From:        session.Address,
+	submission, err := h.Submitter.Send(c.Request.Context(), session.Address, password, webmail.Outgoing{
+		From:        from,
 		To:          to,
 		Cc:          cc,
 		Bcc:         bcc,
@@ -91,7 +126,19 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "SMTP_UNAVAILABLE")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"sent": true})
+	// SMTP has accepted the message. A Sent failure is reported, never retried as another send.
+	if h.Dialer != nil && len(submission.Raw) > 0 {
+		if client, _, ok := h.dialIMAP(c); ok {
+			defer func() { _ = client.Close() }()
+			if _, copyErr := client.SaveSentCopy(c.Request.Context(), submission.Raw); copyErr != nil {
+				c.JSON(http.StatusOK, gin.H{"sent": true, "sent_copy": "pending"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"sent": true, "sent_copy": "saved"})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"sent": true, "sent_copy": "pending"})
 }
 
 func cleanAddrs(in []string) []string {
@@ -123,4 +170,15 @@ func bindMailboxMessage(c *gin.Context, target any) bool {
 		return false
 	}
 	return true
+}
+
+// MailAllowed adapts a mail-service allowlist lookup into the send guard
+// signature; it returns nil when no allowlist is configured.
+func MailAllowed(q interface {
+	MailServiceAllowed(context.Context, int64) (bool, error)
+}) func(context.Context, int64, int64) (bool, error) {
+	if q == nil {
+		return nil
+	}
+	return func(ctx context.Context, tenantID, _ int64) (bool, error) { return q.MailServiceAllowed(ctx, tenantID) }
 }

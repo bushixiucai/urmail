@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
 	"strings"
 	"sync"
@@ -133,6 +134,13 @@ func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
 
 	if s.QuotaChecker != nil {
 		allowed, err := s.QuotaChecker.CheckAndIncrement(ctx, identity)
+		if errors.Is(err, ErrSuspended) {
+			forget()
+			return Decision{
+				Action: ActionReject,
+				Reason: "Mail sending suspended; settle the outstanding balance to restore sending",
+			}
+		}
 		if err != nil {
 			forget()
 			return Decision{

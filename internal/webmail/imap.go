@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/certs"
 )
 
 // ErrDialFailed is returned when the IMAP endpoint cannot be reached or
@@ -47,6 +49,10 @@ type Client interface {
 	SaveDraft(ctx context.Context, from string, msg Outgoing, replaceUID, replaceUIDValidity uint32) (DraftSaveResult, error)
 	// FolderUIDValidity binds subsequent reads to the current mailbox identity.
 	FolderUIDValidity(ctx context.Context, folder string) (uint32, error)
+	// SaveSentCopy stores the SMTP payload in Sent. The payload must not contain a Bcc header.
+	SaveSentCopy(ctx context.Context, raw []byte) (DraftSaveResult, error)
+	// MoveToTrash moves UIDs into Trash without expunging them.
+	MoveToTrash(ctx context.Context, folder string, uids []uint32) (string, error)
 	Close() error
 }
 
@@ -64,6 +70,11 @@ type NetDialer struct {
 	// loopback Dovecot with a hostname cert (box.urmail.cn).
 	TLS         *tls.Config
 	DialContext func(ctx context.Context, network, address string) (net.Conn, error)
+	// LoopbackPolicy scopes the loopback certificate exemption (MAIL-006).
+	// Nil keeps the deployment default: loopback destinations are exempt from
+	// verification (SNI box.urmail.cn), every other destination verifies the
+	// chain and name — see certs.LoopbackTLSConfig.
+	LoopbackPolicy *certs.LoopbackCertificatePolicy
 }
 
 // Dial authenticates against Addr and returns a Client that owns the connection.
@@ -86,17 +97,21 @@ func (d NetDialer) Dial(ctx context.Context, address, password string) (Client, 
 	conn := raw
 	useTLS := d.TLS != nil || strings.HasSuffix(d.Addr, ":993")
 	if useTLS {
-		cfg := d.TLS
+		var cfg *tls.Config
+		cfg = d.TLS
 		if cfg == nil {
-			host, _, _ := net.SplitHostPort(d.Addr)
-			serverName := host
-			if host == "127.0.0.1" || host == "::1" || host == "localhost" {
-				serverName = "box.urmail.cn"
+			policy := d.LoopbackPolicy
+			if policy == nil {
+				// Deployment default: the webmail process talks to the local
+				// Dovecot over 127.0.0.1, where the dial address cannot match
+				// the public hostname certificate. The exemption is scoped by
+				// certs.LoopbackTLSConfig and never applies off-loopback.
+				policy = &certs.LoopbackCertificatePolicy{ServerName: "box.urmail.cn", SkipVerification: true}
 			}
-			cfg = &tls.Config{
-				ServerName:         serverName,
-				InsecureSkipVerify: true, //nolint:gosec // loopback IMAPS to Dovecot hostname cert
-				MinVersion:         tls.VersionTLS12,
+			var cfgErr error
+			cfg, cfgErr = certs.LoopbackTLSConfig(d.Addr, *policy)
+			if cfgErr != nil {
+				return nil, fmt.Errorf("%w: %w", ErrDialFailed, cfgErr)
 			}
 		}
 		tlsConn := tls.Client(raw, cfg)

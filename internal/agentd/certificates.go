@@ -157,6 +157,11 @@ func (m *ApplyManager) IssueCertificate(raw json.RawMessage) (string, string, er
 	if !allowed || !validation.IsValidHostname(p.Domain) || !m.certificateProvisioningAllowed(p.Domain) {
 		return "", "", fmt.Errorf("%w: certificate domain is not registered", ErrRejected)
 	}
+	// Brand hosts (OPS-101) are issued only after ownership verification;
+	// they are intentionally absent from the configured domain list above.
+	if !m.certificateAllowedBrandHost(p.Domain) {
+		return "", "", fmt.Errorf("%w: brand host is not verified", ErrRejected)
+	}
 	m.certMu.Lock()
 	defer m.certMu.Unlock()
 	if err := m.issueCertificate(p.Domain); err != nil {
@@ -178,11 +183,63 @@ func (m *ApplyManager) certificateAllowed(domain string) bool {
 	}
 	return false
 }
+
+// brandHostCertEligible reports whether the hostname is a brand host whose
+// ownership has been verified (OPS-101). Pending-verify or failed brand
+// hosts are never issued material, and the store query fails closed.
+func (m *ApplyManager) brandHostCertEligible(domain string) bool {
+	if m.pool == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	eligible, err := store.New(m.pool.Pool).PlatformBrandHostCertEligible(ctx, domain)
+	return err == nil && eligible
+}
+
+// certificateAllowedBrandHost accepts a domain when it is either a configured
+// platform domain or a verified brand host.
+func (m *ApplyManager) certificateAllowedBrandHost(domain string) bool {
+	m.mu.Lock()
+	allowed := m.certificateAllowed(domain)
+	m.mu.Unlock()
+	if allowed {
+		return true
+	}
+	return m.brandHostCertEligible(domain)
+}
 func (m *ApplyManager) recordCertificateError(message string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.status.CertificateError = message
 	_ = m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains})
+}
+
+// certRenewBackoff bounds how often a failing ACME renewal is retried: the
+// first failure delays the next automatic attempt by 5 minutes, doubling up to
+// a hard cap of 8 hours. The delay only gates automatic renewals — a failure
+// never removes the previous certificate or blocks explicit operator action
+// for longer than one backoff window.
+const (
+	certRenewBackoffBase = 5 * time.Minute
+	certRenewBackoffMax  = 8 * time.Hour
+)
+
+func certRenewDelay(failures int) time.Duration {
+	if failures <= 0 {
+		return 0
+	}
+	delay := certRenewBackoffBase
+	for i := 1; i < failures; i++ {
+		delay *= 2
+		if delay >= certRenewBackoffMax {
+			return certRenewBackoffMax
+		}
+	}
+	if delay > certRenewBackoffMax {
+		return certRenewBackoffMax
+	}
+	return delay
 }
 
 // RenewCertificates handles CSR certificates without a certbot renewal lineage. Reissue explicitly using
@@ -191,6 +248,11 @@ func (m *ApplyManager) recordCertificateError(message string) {
 // Only hostname (mail) certificate failures flip the global certificate_error /
 // ErrFailed status. Tenant domain issuance failures keep any existing self-signed
 // fallback and do not mark the box as failed — hostname LE health is independent.
+//
+// MAIL-006: consecutive ACME failures back off exponentially (bounded by
+// certRenewBackoffMax) so a stuck provider is not hammered on every config
+// apply. During the backoff window the call is a no-op that keeps the last
+// failure status; the installed certificates and service config are untouched.
 func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, error) {
 	var empty struct{}
 	if err := strictParams(raw, &empty); err != nil {
@@ -198,6 +260,9 @@ func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, e
 	}
 	m.certMu.Lock()
 	defer m.certMu.Unlock()
+	if time.Now().Before(m.certRenewNextTry) {
+		return "certificate renewal deferred by backoff", "", nil
+	}
 	hostname := m.hostname()
 	m.mu.Lock()
 	domains := append([]string{hostname}, m.domains...)
@@ -236,10 +301,15 @@ func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, e
 		cancel()
 	}
 	if hostnameFailed {
+		m.certRenewFails++
+		m.certRenewNextTry = time.Now().Add(certRenewDelay(m.certRenewFails))
 		m.recordCertificateError("certificate renewal failed")
 		return "", "", fmt.Errorf("%w: certificate renewal failed", ErrFailed)
 	}
-	// Hostname is current or was successfully reissued — clear sticky error.
+	// Hostname is current or was successfully reissued — clear sticky error
+	// and reset the failure backoff.
+	m.certRenewFails = 0
+	m.certRenewNextTry = time.Time{}
 	m.recordCertificateError("")
 	return "certificates current", "", nil
 }

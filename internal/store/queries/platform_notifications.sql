@@ -24,13 +24,81 @@ FROM payment_manual_reviews r WHERE r.status='open' ON CONFLICT(dedupe_key) DO N
 SELECT value FROM settings WHERE scope='platform' AND scope_id=0 AND key='notification_channel';
 
 -- name: PlatformClaimEmailNotification :one
-UPDATE notification_outbox n SET state='uncertain',lease_until=now()+interval '1 minute',fence=fence+1,attempts=attempts+1
-FROM (SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=now() ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1) candidate
+-- OPS-103: claims one due email notification with a SKIP LOCKED lease. The
+-- row stays 'pending' while leased, so a crashed worker's lease expiry makes
+-- it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP
+-- submission later moves it to the unreplayable 'uncertain' state.
+UPDATE notification_outbox n SET lease_until=now()+interval '2 minutes',fence=fence+1,attempts=attempts+1
+FROM (SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=now()
+ AND (lease_until IS NULL OR lease_until<now()) AND attempts<8
+ ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1) candidate
 WHERE n.id=candidate.id RETURNING n.*;
 
 -- name: PlatformFinishEmailNotification :execrows
-UPDATE notification_outbox SET state=$3,delivered_at=CASE WHEN $3='delivered' THEN now() ELSE NULL END,lease_until=NULL,next_attempt_at=now()+interval '5 minutes'
-WHERE id=$1 AND fence=$2 AND state='uncertain';
+-- Retries use exponential backoff of 1<<max(attempts-1,0) minutes capped at
+-- 64 minutes; once attempts reach 8 a failing message is poisoned into the
+-- 'failed' state and surfaced through telemetry instead of retrying forever.
+UPDATE notification_outbox SET
+ state=CASE WHEN $3::text='pending' AND attempts>=8 THEN 'failed' ELSE $3 END,
+ delivered_at=CASE WHEN $3='delivered' THEN now() ELSE NULL END,
+ lease_until=NULL,
+ last_error=CASE WHEN $3='delivered' THEN NULL ELSE NULLIF($4::text,'') END,
+ next_attempt_at=CASE WHEN $3='pending' THEN now()+make_interval(secs=>(60*(1<<LEAST(GREATEST(attempts-1,0),6)))::int) ELSE next_attempt_at END
+WHERE id=$1 AND fence=$2 AND state='pending';
+
+-- name: PlatformQuarantinePoisonEmailNotifications :execrows
+-- A worker that died repeatedly before finishing leaves an at-cap pending
+-- row; its expired lease makes the poison sweep the one place that finalizes it.
+UPDATE notification_outbox SET state='failed',last_error='notification delivery attempts exhausted',lease_until=NULL
+WHERE channel='email' AND state='pending' AND attempts>=8 AND (lease_until IS NULL OR lease_until<now());
+
+-- name: PlatformMaxNotificationID :one
+SELECT COALESCE(max(id),0)::bigint AS max_id FROM notification_outbox;
+
+-- name: PlatformCountNewNotifications :many
+SELECT channel,kind,count(*)::bigint AS count FROM notification_outbox
+WHERE id>sqlc.arg(after_id) GROUP BY channel,kind;
+
+-- name: PlatformNotificationOutboxCounts :many
+SELECT channel,kind,state,count(*)::bigint AS count FROM notification_outbox GROUP BY channel,kind,state;
+
+-- name: PlatformEnqueueSubscriptionLifecycleNotices :exec
+-- OPS-103 lifecycle gap closure: grace-period start (past_due), suspension
+-- after the grace period ends (tenant suspended) and restoration after a late
+-- settlement (a renewal attempt that succeeded only once its paid period had
+-- already lapsed). Dedupe keys make every episode idempotent; in-app rows are
+-- delivered atomically with the insert, email rows enter the retry queue.
+WITH sources AS (
+ SELECT s.tenant_id,s.id AS subscription_id,s.plan_id,s.period_end,'grace'::text AS event
+ FROM subscriptions s JOIN tenants t ON t.id=s.tenant_id
+ WHERE s.status='past_due' AND t.status IN('active','pending')
+ UNION ALL
+ SELECT s.tenant_id,s.id,s.plan_id,s.period_end,'restored'
+ FROM subscriptions s
+ JOIN subscription_renewal_attempts a ON a.subscription_id=s.id AND a.tenant_id=s.tenant_id
+  AND a.state='succeeded' AND a.period_end<=a.updated_at
+ WHERE s.status='active'
+ UNION ALL
+ SELECT t.id,NULL::bigint,s.plan_id,NULL::timestamptz,'suspended'
+ FROM tenants t JOIN subscriptions s ON s.tenant_id=t.id
+ WHERE t.status='suspended' AND s.status IN('past_due','active')
+)
+INSERT INTO notification_outbox(tenant_id,user_id,kind,message_key,params,dedupe_key,channel,state,recipient,recipient_verified)
+SELECT src.tenant_id,t.owner_user_id,'subscription_'||src.event,'notification.subscription_'||src.event,
+ jsonb_build_object('plan',src.plan_id,'period_end',src.period_end),
+ CASE src.event
+  WHEN 'suspended' THEN 'lifecycle:suspended:'||src.tenant_id
+  WHEN 'restored' THEN 'lifecycle:restored:'||src.subscription_id||':'||extract(epoch FROM src.period_end)::text
+  ELSE 'lifecycle:grace:'||src.subscription_id||':'||extract(epoch FROM src.period_end)::text END,
+ ch.channel,
+ CASE WHEN ch.channel='in_app' THEN 'delivered' ELSE 'pending' END,
+ CASE WHEN ch.channel='email' THEN tc.email END,ch.channel='email'
+FROM sources src
+JOIN tenants t ON t.id=src.tenant_id
+LEFT JOIN tenant_contacts tc ON tc.tenant_id=src.tenant_id
+CROSS JOIN (VALUES('in_app'),('email')) ch(channel)
+WHERE (ch.channel='in_app' AND t.owner_user_id IS NOT NULL) OR (ch.channel='email' AND tc.email IS NOT NULL)
+ON CONFLICT(dedupe_key) DO NOTHING;
 
 -- name: PlatformCountOpenPaymentReviews :one
 SELECT count(*) FROM payment_manual_reviews WHERE status='open';

@@ -32,6 +32,10 @@ type AiProviderConfigs struct {
 	CloudConsentBy         pgtype.Int8        `json:"cloud_consent_by"`
 	CloudConsentAt         pgtype.Timestamptz `json:"cloud_consent_at"`
 	CloudConsentRevokedAt  pgtype.Timestamptz `json:"cloud_consent_revoked_at"`
+	DailyTokenLimit        int64              `json:"daily_token_limit"`
+	DailyCostMicros        int64              `json:"daily_cost_micros"`
+	MonthlyTokenLimit      int64              `json:"monthly_token_limit"`
+	MonthlyCostMicros      int64              `json:"monthly_cost_micros"`
 }
 
 type AiUsageRequests struct {
@@ -99,6 +103,21 @@ type ApplicationCredentials struct {
 	CredentialVersion int64              `json:"credential_version"`
 }
 
+type ArchiveApprovalRequests struct {
+	ID              int64              `json:"id"`
+	TenantID        int64              `json:"tenant_id"`
+	InvestigationID int64              `json:"investigation_id"`
+	RequesterUserID int64              `json:"requester_user_id"`
+	Action          string             `json:"action"`
+	SourceDigest    string             `json:"source_digest"`
+	State           string             `json:"state"`
+	ApproverUserID  pgtype.Int8        `json:"approver_user_id"`
+	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	EvidenceDigest  pgtype.Text        `json:"evidence_digest"`
+	EvidenceBody    []byte             `json:"evidence_body"`
+}
+
 type ArchiveContent struct {
 	EntryID          int64              `json:"entry_id"`
 	TenantID         int64              `json:"tenant_id"`
@@ -130,6 +149,33 @@ type ArchiveEntries struct {
 	RawSha256  string             `json:"raw_sha256"`
 }
 
+type ArchiveInvestigationMembers struct {
+	InvestigationID int64              `json:"investigation_id"`
+	TenantID        int64              `json:"tenant_id"`
+	UserID          int64              `json:"user_id"`
+	RemovedAt       pgtype.Timestamptz `json:"removed_at"`
+}
+
+type ArchiveInvestigationSources struct {
+	ID              int64              `json:"id"`
+	InvestigationID int64              `json:"investigation_id"`
+	TenantID        int64              `json:"tenant_id"`
+	ArchiveEntryID  int64              `json:"archive_entry_id"`
+	AddedBy         int64              `json:"added_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type ArchiveInvestigations struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	Title     string             `json:"title"`
+	Purpose   string             `json:"purpose"`
+	Status    string             `json:"status"`
+	CreatedBy int64              `json:"created_by"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type AuditLogs struct {
 	ID          int64              `json:"id"`
 	TenantID    pgtype.Int8        `json:"tenant_id"`
@@ -140,6 +186,21 @@ type AuditLogs struct {
 	TargetID    pgtype.Text        `json:"target_id"`
 	Detail      []byte             `json:"detail"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type BackupRuns struct {
+	ID               int64              `json:"id"`
+	RunUid           string             `json:"run_uid"`
+	State            string             `json:"state"`
+	Scope            string             `json:"scope"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
+	Bytes            int64              `json:"bytes"`
+	DurationMs       int64              `json:"duration_ms"`
+	Error            string             `json:"error"`
+	ManifestName     string             `json:"manifest_name"`
+	OffsiteUri       string             `json:"offsite_uri"`
+	RetentionDeleted int32              `json:"retention_deleted"`
 }
 
 type BillingCalendars struct {
@@ -175,10 +236,25 @@ type BillingQuotes struct {
 	DocumentSnapshot []byte             `json:"document_snapshot"`
 }
 
+type BrandHostChallenges struct {
+	Hostname    string             `json:"hostname"`
+	TokenDigest string             `json:"token_digest"`
+	Method      string             `json:"method"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	ConsumedAt  pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type BrandHosts struct {
-	Hostname  string             `json:"hostname"`
-	BrandID   int64              `json:"brand_id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Hostname      string             `json:"hostname"`
+	BrandID       int64              `json:"brand_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	Status        string             `json:"status"`
+	FailureReason pgtype.Text        `json:"failure_reason"`
+	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
+	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
+	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Brands struct {
@@ -383,6 +459,17 @@ type DnsZoneVersions struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type DomainTransportSecurity struct {
+	ID             int64              `json:"id"`
+	TenantID       int64              `json:"tenant_id"`
+	DomainID       int64              `json:"domain_id"`
+	MtastsPolicyID string             `json:"mtasts_policy_id"`
+	MtastsMode     string             `json:"mtasts_mode"`
+	TlsRptRua      string             `json:"tls_rpt_rua"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Domains struct {
 	ID                    int64              `json:"id"`
 	TenantID              int64              `json:"tenant_id"`
@@ -423,6 +510,41 @@ type Invoices struct {
 	SourcePaymentID  pgtype.Int8        `json:"source_payment_id"`
 }
 
+type MailboxAddressbooks struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Name      string             `json:"name"`
+	Version   int64              `json:"version"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type MailboxAiChunks struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	MailboxID         int64              `json:"mailbox_id"`
+	Folder            string             `json:"folder"`
+	FolderUidvalidity int64              `json:"folder_uidvalidity"`
+	MessageUid        int64              `json:"message_uid"`
+	ChunkIndex        int32              `json:"chunk_index"`
+	ContentVersion    int32              `json:"content_version"`
+	Content           string             `json:"content"`
+	ContentDigest     string             `json:"content_digest"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type MailboxAiDrafts struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Subject   string             `json:"subject"`
+	Body      string             `json:"body"`
+	Version   int64              `json:"version"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MailboxAliases struct {
 	ID           int64              `json:"id"`
 	TenantID     int64              `json:"tenant_id"`
@@ -433,6 +555,152 @@ type MailboxAliases struct {
 	Active       bool               `json:"active"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	SenderLogins []string           `json:"sender_logins"`
+}
+
+type MailboxCalendars struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Name      string             `json:"name"`
+	Timezone  string             `json:"timezone"`
+	Color     string             `json:"color"`
+	Version   int64              `json:"version"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type MailboxChanges struct {
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	MailboxID    int64              `json:"mailbox_id"`
+	ResourceType string             `json:"resource_type"`
+	ResourceID   int64              `json:"resource_id"`
+	Version      int64              `json:"version"`
+	Deleted      bool               `json:"deleted"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type MailboxContactGroupMembers struct {
+	TenantID  int64 `json:"tenant_id"`
+	MailboxID int64 `json:"mailbox_id"`
+	GroupID   int64 `json:"group_id"`
+	ContactID int64 `json:"contact_id"`
+}
+
+type MailboxContactGroups struct {
+	ID            int64              `json:"id"`
+	TenantID      int64              `json:"tenant_id"`
+	MailboxID     int64              `json:"mailbox_id"`
+	AddressbookID int64              `json:"addressbook_id"`
+	Name          string             `json:"name"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type MailboxContacts struct {
+	ID            int64              `json:"id"`
+	TenantID      int64              `json:"tenant_id"`
+	MailboxID     int64              `json:"mailbox_id"`
+	AddressbookID int64              `json:"addressbook_id"`
+	Version       int64              `json:"version"`
+	DisplayName   string             `json:"display_name"`
+	GivenName     string             `json:"given_name"`
+	FamilyName    string             `json:"family_name"`
+	Emails        []byte             `json:"emails"`
+	Phones        []byte             `json:"phones"`
+	Note          string             `json:"note"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type MailboxEasCollectionState struct {
+	ID          int64              `json:"id"`
+	TenantID    int64              `json:"tenant_id"`
+	MailboxID   int64              `json:"mailbox_id"`
+	DeviceID    string             `json:"device_id"`
+	FolderID    string             `json:"folder_id"`
+	SyncEpoch   int64              `json:"sync_epoch"`
+	ChangeSeq   int64              `json:"change_seq"`
+	UidValidity int64              `json:"uid_validity"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MailboxEasDevices struct {
+	ID              int64              `json:"id"`
+	TenantID        int64              `json:"tenant_id"`
+	MailboxID       int64              `json:"mailbox_id"`
+	DeviceID        string             `json:"device_id"`
+	ProtocolVersion string             `json:"protocol_version"`
+	UserAgent       string             `json:"user_agent"`
+	PolicyKey       int64              `json:"policy_key"`
+	Provisioned     bool               `json:"provisioned"`
+	LastSeenAt      pgtype.Timestamptz `json:"last_seen_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	PingHeartbeat   int32              `json:"ping_heartbeat"`
+	PingFolders     []byte             `json:"ping_folders"`
+}
+
+type MailboxEasFolderState struct {
+	ID          int64  `json:"id"`
+	TenantID    int64  `json:"tenant_id"`
+	MailboxID   int64  `json:"mailbox_id"`
+	DeviceID    string `json:"device_id"`
+	FolderID    string `json:"folder_id"`
+	ParentID    string `json:"parent_id"`
+	DisplayName string `json:"display_name"`
+	FolderType  int32  `json:"folder_type"`
+	FolderClass string `json:"folder_class"`
+	ChangeSeq   int64  `json:"change_seq"`
+}
+
+type MailboxEasItemState struct {
+	TenantID    int64  `json:"tenant_id"`
+	MailboxID   int64  `json:"mailbox_id"`
+	DeviceID    string `json:"device_id"`
+	FolderID    string `json:"folder_id"`
+	ItemID      string `json:"item_id"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type MailboxEvents struct {
+	ID          int64              `json:"id"`
+	TenantID    int64              `json:"tenant_id"`
+	MailboxID   int64              `json:"mailbox_id"`
+	CalendarID  int64              `json:"calendar_id"`
+	Uid         string             `json:"uid"`
+	Version     int64              `json:"version"`
+	Sequence    int32              `json:"sequence"`
+	Summary     string             `json:"summary"`
+	Description string             `json:"description"`
+	Location    string             `json:"location"`
+	StartsAt    pgtype.Timestamptz `json:"starts_at"`
+	EndsAt      pgtype.Timestamptz `json:"ends_at"`
+	AllDay      bool               `json:"all_day"`
+	Timezone    string             `json:"timezone"`
+	Rrule       string             `json:"rrule"`
+	Status      string             `json:"status"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+	Attendees   []byte             `json:"attendees"`
+}
+
+type MailboxJobs struct {
+	ID             int64              `json:"id"`
+	TenantID       int64              `json:"tenant_id"`
+	MailboxID      int64              `json:"mailbox_id"`
+	Kind           string             `json:"kind"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	Payload        []byte             `json:"payload"`
+	Status         string             `json:"status"`
+	ClaimToken     int64              `json:"claim_token"`
+	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	Attempts       int32              `json:"attempts"`
+	LastError      pgtype.Text        `json:"last_error"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MailboxOperationTickets struct {
@@ -482,9 +750,62 @@ type MailboxSessions struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type MailboxSettings struct {
+	MailboxID     int64              `json:"mailbox_id"`
+	TenantID      int64              `json:"tenant_id"`
+	Version       int32              `json:"version"`
+	DisplayName   string             `json:"display_name"`
+	SignatureText string             `json:"signature_text"`
+	SignatureHtml string             `json:"signature_html"`
+	Preferences   []byte             `json:"preferences"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MailboxSpamFeedback struct {
+	ID            int64              `json:"id"`
+	TenantID      int64              `json:"tenant_id"`
+	MailboxID     int64              `json:"mailbox_id"`
+	MessageID     string             `json:"message_id"`
+	Folder        string             `json:"folder"`
+	Verdict       string             `json:"verdict"`
+	SenderAddress string             `json:"sender_address"`
+	SenderDomain  string             `json:"sender_domain"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type MailboxSpamSenders struct {
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Scope     string             `json:"scope"`
+	Address   string             `json:"address"`
+	Domain    string             `json:"domain"`
+	List      string             `json:"list"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MailboxSpamTokens struct {
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Token     string             `json:"token"`
+	SpamCount int32              `json:"spam_count"`
+	HamCount  int32              `json:"ham_count"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MailboxStorageReservations struct {
 	Address   string `json:"address"`
 	MailboxID int64  `json:"mailbox_id"`
+}
+
+type MailboxSyncCursors struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Protocol  string             `json:"protocol"`
+	ClientKey string             `json:"client_key"`
+	CursorID  int64              `json:"cursor_id"`
+	Epoch     int64              `json:"epoch"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MailboxUsage struct {
@@ -523,6 +844,18 @@ type ManagedDnsZones struct {
 	Records   []byte             `json:"records"`
 	PlanID    pgtype.UUID        `json:"plan_id"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MarketingCampaignStats struct {
+	TenantID       int64              `json:"tenant_id"`
+	CampaignID     int64              `json:"campaign_id"`
+	Sent           int64              `json:"sent"`
+	Failed         int64              `json:"failed"`
+	Uncertain      int64              `json:"uncertain"`
+	Unsubscribed   int64              `json:"unsubscribed"`
+	Bounced        int64              `json:"bounced"`
+	BouncedUnknown int64              `json:"bounced_unknown"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MarketingCampaigns struct {
@@ -567,6 +900,42 @@ type MarketingFeedback struct {
 	Status      string             `json:"status"`
 	PayloadHash string             `json:"payload_hash"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type MarketingFlowPositions struct {
+	ID                int64              `json:"id"`
+	TenantID          int64              `json:"tenant_id"`
+	FlowID            int64              `json:"flow_id"`
+	Email             string             `json:"email"`
+	StepKey           string             `json:"step_key"`
+	Unsubscribed      bool               `json:"unsubscribed"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	WaitUntil         pgtype.Timestamptz `json:"wait_until"`
+	DeliveryUncertain bool               `json:"delivery_uncertain"`
+	LeaseOwner        pgtype.Text        `json:"lease_owner"`
+	LeaseUntil        pgtype.Timestamptz `json:"lease_until"`
+	LeaseFence        int64              `json:"lease_fence"`
+}
+
+type MarketingFlowSteps struct {
+	ID              int64  `json:"id"`
+	TenantID        int64  `json:"tenant_id"`
+	FlowID          int64  `json:"flow_id"`
+	StepKey         string `json:"step_key"`
+	Kind            string `json:"kind"`
+	NextKey         string `json:"next_key"`
+	OpenedKey       string `json:"opened_key"`
+	UnsubscribedKey string `json:"unsubscribed_key"`
+	Position        int32  `json:"position"`
+	WaitSeconds     int32  `json:"wait_seconds"`
+}
+
+type MarketingFlows struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	Name      string             `json:"name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type MarketingLists struct {
@@ -642,6 +1011,7 @@ type NotificationOutbox struct {
 	Fence             int64              `json:"fence"`
 	Attempts          int32              `json:"attempts"`
 	SecretPayload     pgtype.Text        `json:"secret_payload"`
+	LastError         pgtype.Text        `json:"last_error"`
 }
 
 type OnboardingTasks struct {
@@ -881,6 +1251,13 @@ type RegistrationRequests struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
+type RestoreQuarantine struct {
+	Singleton bool               `json:"singleton"`
+	Active    bool               `json:"active"`
+	Reason    string             `json:"reason"`
+	StartedAt pgtype.Timestamptz `json:"started_at"`
+}
+
 type RetentionPolicies struct {
 	ID                   int64              `json:"id"`
 	TenantID             int64              `json:"tenant_id"`
@@ -941,6 +1318,20 @@ type SubscriptionChanges struct {
 	Status         string             `json:"status"`
 	RequestedBy    int64              `json:"requested_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type SubscriptionRenewalAttempts struct {
+	ID             int64              `json:"id"`
+	TenantID       int64              `json:"tenant_id"`
+	SubscriptionID int64              `json:"subscription_id"`
+	PeriodEnd      pgtype.Timestamptz `json:"period_end"`
+	State          string             `json:"state"`
+	Attempts       int32              `json:"attempts"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError      string             `json:"last_error"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DedupeKey      string             `json:"dedupe_key"`
 }
 
 type SubscriptionTerms struct {

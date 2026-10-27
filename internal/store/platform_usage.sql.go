@@ -177,7 +177,7 @@ func (q *Queries) PlatformCommissionRate(ctx context.Context, id int64) (int32, 
 }
 
 const platformInboundAllowed = `-- name: PlatformInboundAllowed :one
-SELECT COALESCE((SELECT urmail_mail_allowed(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed
+SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed
 `
 
 func (q *Queries) PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error) {

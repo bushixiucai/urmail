@@ -9,6 +9,7 @@ RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
         ca-certificates \
         dovecot-imapd \
         dovecot-lmtpd \
+        dovecot-sieve \
         openssl \
         postfix \
         postgresql-14 \

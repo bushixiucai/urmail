@@ -42,7 +42,13 @@ export function MailboxSearchBox({
         aria-label={t("page.webmail.search_aria")}
         className="h-8 text-sm"
       />
-      <Button type="submit" size="sm" variant="secondary" disabled={disabled}>
+      <Button
+        type="submit"
+        size="sm"
+        variant="secondary"
+        disabled={disabled}
+        className="min-h-11 md:min-h-8"
+      >
         <Search className="h-3.5 w-3.5 mr-1" />
         {t("page.webmail.search")}
       </Button>

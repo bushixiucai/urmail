@@ -241,7 +241,7 @@ describe("mailbox inbox bulk selection (W4)", () => {
     await screen.findByText("Hello inbox");
 
     const rowChecks = screen.getAllByLabelText(
-      "page.webmail.select_message_row",
+      "page.webmail.select_message_named",
     );
     fireEvent.click(rowChecks[0]);
 

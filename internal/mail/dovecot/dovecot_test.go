@@ -89,6 +89,7 @@ func TestGoldenCases(t *testing.T) {
 		{dovecot.FileDBConf, "db.conf"},
 		{dovecot.FileDovecotMailboxes, "dovecot-mailboxes.conf.ext"},
 		{dovecot.FileDovecotQuota, "dovecot-quota.conf.ext"},
+		{dovecot.FileSpamSieve, "spam-before.sieve"},
 	}
 
 	for _, tc := range cases {
@@ -98,8 +99,8 @@ func TestGoldenCases(t *testing.T) {
 				t.Fatalf("Generate failed: %v", err)
 			}
 
-			if len(out) != 7 {
-				t.Fatalf("expected 7 files, got %d", len(out))
+			if len(out) != 8 {
+				t.Fatalf("expected 8 files, got %d", len(out))
 			}
 
 			goldenDir := filepath.Join("testdata", "golden", tc.name)

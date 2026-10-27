@@ -79,9 +79,14 @@ func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
 // mirrors only a subset of the store row: the DKIM private key and the
 // verification token are server-side data and must never cross the HTTP
 // boundary.
+//
+// FQDN is the canonical wire form (lowercase A-label) used for storage, DNS,
+// certificates and the mail maps. DisplayFQDN is the U-label form for user
+// display only; no server-side input may be built from it (MAIL-004).
 type DomainResponse struct {
 	ID                int64              `json:"id"`
 	FQDN              string             `json:"fqdn"`
+	DisplayFQDN       string             `json:"display_fqdn"`
 	Mode              string             `json:"mode"`
 	Status            string             `json:"status"`
 	Selector          string             `json:"selector"`
@@ -110,11 +115,23 @@ func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt 
 		ProvisioningState: state,
 		ID:                id,
 		FQDN:              fqdn,
+		DisplayFQDN:       displayFQDN(fqdn),
 		Mode:              mode,
 		Status:            status,
 		Selector:          selector,
 		CreatedAt:         createdAt,
 	}
+}
+
+// displayFQDN renders a stored A-label as its U-label form. A row that no
+// longer passes the IDNA boundary (legacy or hand-edited data) falls back to
+// the stored value so one bad row cannot fail a list or update response.
+func displayFQDN(fqdn string) string {
+	display, err := validation.DomainToUnicode(fqdn)
+	if err != nil || display == "" {
+		return fqdn
+	}
+	return display
 }
 
 // List serves the tenant management operation.
@@ -164,8 +181,13 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		return
 	}
 
-	fqdn := strings.ToLower(strings.TrimSpace(req.FQDN))
-	if !validation.IsValidHostname(fqdn) {
+	// MAIL-004: normalize at the boundary instead of rejecting Unicode input.
+	// Every accepted spelling of one domain (U-label, A-label, mixed case,
+	// trailing dot, alternate label separators) becomes the same lowercase
+	// A-label, so the domains.fqdn unique key can only ever hold one row.
+	// A full address is not a domain and must never be split here.
+	fqdn, err := validation.NormalizeDomain(req.FQDN)
+	if err != nil || strings.Contains(req.FQDN, "@") {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "INVALID_FQDN", "message": "domain.invalid_fqdn"},
 		})

@@ -16,8 +16,13 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/autoconfig"
+	"github.com/bushixiucai/urmail/internal/caldav"
+	"github.com/bushixiucai/urmail/internal/carddav"
+	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
+	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/onboarding"
 	"github.com/bushixiucai/urmail/internal/payment"
@@ -52,7 +57,11 @@ type Options struct {
 	RoundcubeBridgeKey string
 	RoundcubeEnabled   bool
 	WebmailNative      bool
-	IMAPAddr           string
+	// Nil preserves the historical protocol-enabled behavior for embedders.
+	CardDAVEnabled *bool
+	CalDAVEnabled  *bool
+	EASEnabled     *bool
+	IMAPAddr       string
 	// SMTPAddr is the loopback submission endpoint for native webmail send.
 	// Empty defaults to 127.0.0.1:587.
 	SMTPAddr            string
@@ -63,6 +72,9 @@ type Options struct {
 	MetricsToken        string
 	// WebmailVault holds IMAP passwords for live native sessions (process memory).
 	WebmailVault webmail.CredentialVault
+	// WebmailSubmitter is the loopback submission endpoint for mailbox-originated
+	// outbound mail such as calendar invitations.
+	WebmailSubmitter webmail.Submitter
 
 	// Audit receives one row per successful mutating tenant request.
 	Audit middleware.AuditWriter
@@ -99,6 +111,18 @@ func New(opts Options) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
+	engine.Use(collaborationProtocolGate(opts))
+	clientConfig := autoconfig.Config{PrimaryMailHost: opts.MyHostname, POP3Enabled: true, CardDAVPath: "/api/v1/carddav/", CalDAVPath: "/caldav/", EASPath: "/Microsoft-Server-ActiveSync"}
+	if !protocolEnabled(opts.CardDAVEnabled) {
+		clientConfig.CardDAVPath = "-"
+	}
+	if !protocolEnabled(opts.CalDAVEnabled) {
+		clientConfig.CalDAVPath = "-"
+	}
+	if !protocolEnabled(opts.EASEnabled) {
+		clientConfig.EASPath = "-"
+	}
+	autoconfig.Mount(engine, clientConfig)
 
 	// The reverse proxy is the only trusted peer. Client-supplied
 	// X-Forwarded-For headers must not influence rate limiting or audit IPs.
@@ -167,6 +191,7 @@ func New(opts Options) *gin.Engine {
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
+	archiveEvidence := handlers.ArchiveEvidence{Q: platformQueries}
 	archiveContent := &handlers.ArchiveContentHandler{Store: appQueries}
 	refundAdmin := &handlers.RefundAdminHandler{Store: platformQueries}
 	invoiceProfile := &handlers.InvoiceProfileHandler{Store: appQueries, Platform: platformQueries}
@@ -215,6 +240,10 @@ func New(opts Options) *gin.Engine {
 	if smtpAddr == "" {
 		smtpAddr = "127.0.0.1:587"
 	}
+	aiDrafts := handlers.AIDrafts{Q: platformQueries}
+	aiSearchAsk := &handlers.AISearchAsk{Pool: opts.PlatformPool, Dialer: webmail.NetDialer{Addr: opts.IMAPAddr}, Vault: webmailVault, ModelFor: handlers.TenantCitationModel(opts.PlatformPool, opts.Secrets, opts.AICloudEndpoints, opts.AILocalEndpoints)}
+	aiSearchAsk.Accounting = handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
+	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
 	mailboxNative := &handlers.MailboxNativeHandler{
 		Enabled:   opts.WebmailNative && platformQueries != nil,
 		Auth:      nativeStore,
@@ -224,12 +253,79 @@ func New(opts Options) *gin.Engine {
 		Submitter: webmail.NetSubmitter{Addr: smtpAddr},
 		Secrets:   opts.Secrets,
 		Pool:      opts.PlatformPool,
+		MaySend:   handlers.MailAllowed(platformQueries),
+		// WEBMAIL-005/006 mailbox self-service: signature, identities,
+		// quota and managed-sieve rules through the existing safe pipeline.
+		SelfSettings: handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool},
+		Rules:        handlers.StoreMailboxRules{Pool: opts.PlatformPool},
+		Sieve:        opts.SieveActivator,
 	}
+	if protocolEnabled(opts.EASEnabled) && platformQueries != nil {
+		easServer := eas.NewServer(opts.PlatformPool)
+		easServer.Vault = webmailVault
+		easServer.Submitter = mailboxNative.Submitter
+		easServer.Dialer = mailboxNative.Dialer
+		easServer.MaySend = mailboxNative.MaySend
+		easServer.SenderAllowed = mailboxNative.SelfSettings.SenderIdentityAllowed
+		easServer.EmailFolders = eas.EmailFoldersFrom(mailboxNative.Dialer, webmailVault)
+		easServer.Mail = eas.MailSourceFromDialer(mailboxNative.Dialer, webmailVault)
+		mailboxNative.EAS = easServer
+	}
+	contactsHandler := handlers.MailboxContactsHandler{Service: appcollab.Service{Q: platformQueries}, GroupStore: platformQueries, Groups: platformQueries}
+	calendarHandler := handlers.MailboxCalendarHandler{Service: appcollab.Service{Q: platformQueries}, Submitter: opts.WebmailSubmitter, Vault: opts.WebmailVault}
 	deliveryHandler := &handlers.DeliveryHandler{Store: appQueries, Platform: platformQueries, Queue: opts.Queue, Stream: opts.TelemetryStream}
 	marketingHandler := &handlers.MarketingHandler{Store: appQueries, Platform: platformQueries, Secrets: opts.Secrets}
 	marketingSuppressionHandler := &handlers.MarketingSuppressionHandler{Store: appQueries, Tokens: opts.MarketingTokens, AppPool: opts.AppPool, Messages: opts.Messages}
 
 	engine.GET("/internal/metrics", middleware.MetricsAccess(opts.MetricsToken), gin.WrapH(promhttp.Handler()))
+	// DAV-001 CardDAV adapter. It authenticates mailbox Bearer sessions
+	// itself (same lookup as RequireMailboxAuth) and needs the WebDAV methods
+	// PROPFIND/REPORT, which gin's Any() does not cover.
+	protocolAuth := mailboxNative.ProtocolAuth()
+	if platformQueries != nil && protocolEnabled(opts.CardDAVEnabled) {
+		carddavServer := &carddav.Handler{Service: appcollab.Service{Q: platformQueries}, Sessions: nativeStore, Prefix: "/api/v1/carddav"}
+		engine.Any("/.well-known/carddav", gin.WrapH(carddavServer))
+		v1Any := func(method, path string) {
+			engine.Handle(method, path, protocolAuth, gin.WrapH(carddavServer))
+		}
+		for _, m := range []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "PROPFIND", "REPORT"} {
+			v1Any(m, "/api/v1/carddav/*path")
+		}
+	}
+	// Mount the writable CalDAV server, not the legacy read-only export
+	// helper. Both aliases keep one authenticated mailbox principal.
+	for _, method := range []string{"GET", "HEAD", "OPTIONS", "PROPFIND", "REPORT"} {
+		engine.Handle(method, "/.well-known/caldav", func(c *gin.Context) {
+			c.Redirect(http.StatusMovedPermanently, "/caldav/")
+		})
+	}
+	if platformQueries != nil && protocolEnabled(opts.CalDAVEnabled) {
+		calendarServer := caldav.NewServer(platformQueries)
+		serveCalendar := func(c *gin.Context) {
+			session, ok := middleware.GetMailboxSession(c)
+			if !ok {
+				c.AbortWithStatus(http.StatusUnauthorized)
+				return
+			}
+			ctx := caldav.WithSession(c.Request.Context(), caldav.Session{TenantID: session.TenantID, MailboxID: session.MailboxID})
+			request := c.Request.WithContext(ctx)
+			if strings.HasPrefix(request.URL.Path, "/api/v1/caldav") {
+				urlCopy := *request.URL
+				urlCopy.Path = "/caldav" + strings.TrimPrefix(urlCopy.Path, "/api/v1/caldav")
+				request.URL = &urlCopy
+			}
+			calendarServer.ServeHTTP(c.Writer, request)
+		}
+		for _, method := range []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "PROPFIND", "REPORT"} {
+			engine.Handle(method, "/caldav/*path", protocolAuth, serveCalendar)
+			engine.Handle(method, "/api/v1/caldav/*path", protocolAuth, serveCalendar)
+		}
+	}
+	// Standard devices authenticate here, before the shared EAS transport.
+	engine.OPTIONS("/Microsoft-Server-ActiveSync", protocolAuth, mailboxNative.EASOptions)
+	engine.POST("/Microsoft-Server-ActiveSync", protocolAuth, mailboxNative.EASCommand)
+	engine.OPTIONS("/api/v1/eas", protocolAuth, mailboxNative.EASOptions)
+	engine.POST("/api/v1/eas", protocolAuth, mailboxNative.EASCommand)
 	v1 := engine.Group("/api/v1")
 	{
 		v1.GET("/healthz", healthz(opts))
@@ -238,6 +334,10 @@ func New(opts Options) *gin.Engine {
 			v1.POST("/roundcube/bridge", mailboxBridge.Bridge)
 		}
 		v1.GET("/mailbox/status", mailboxNative.Status)
+		v1.GET("/internal/status/ready", func(c *gin.Context) {
+			c.Set("statusReadyQuerier", opts.PlatformPool)
+			handlers.StatusReady(c)
+		})
 		v1.POST("/mailbox/session", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
 		}), mailboxNative.CreateSession)
@@ -245,12 +345,16 @@ func New(opts Options) *gin.Engine {
 		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore, webmailVault))
 		{
 			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
+			// WEBMAIL-004 cross-folder search (bounded fan-out + date merge).
+			mailboxAuthed.GET("/search", mailboxNative.CrossFolderSearch)
 			mailboxAuthed.GET("/folders/:name/messages", mailboxNative.ListMessages)
 			mailboxAuthed.POST("/folders/:name/messages/flags", mailboxNative.FlagMessages)
 			mailboxAuthed.POST("/folders/:name/messages/move", mailboxNative.MoveMessages)
 			mailboxAuthed.POST("/folders/:name/messages/delete", mailboxNative.DeleteMessages)
 			mailboxAuthed.GET("/folders/:name/messages/:uid", mailboxNative.GetMessage)
 			mailboxAuthed.GET("/folders/:name/messages/:uid/attachments/:part_id", mailboxNative.GetAttachment)
+			mailboxAuthed.GET("/folders/:name/messages/:uid/raw", mailboxNative.GetRawMessage)
+			mailboxAuthed.POST("/folders/:name/import", mailboxNative.ImportMessage)
 			mailboxAuthed.POST("/send", mailboxNative.SendMessage)
 			mailboxAuthed.PUT("/drafts", mailboxNative.SaveDraft)
 			mailboxAuthed.GET("/drafts", mailboxNative.ListDrafts)
@@ -259,6 +363,55 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.GET("/scheduled-sends", mailboxNative.ListScheduledSends)
 			mailboxAuthed.DELETE("/scheduled-sends/:id", mailboxNative.CancelScheduledSend)
 			mailboxAuthed.POST("/password", mailboxNative.ChangePassword)
+			// WEBMAIL-005 signature, display name, preferences, identities.
+			mailboxAuthed.GET("/settings", mailboxNative.GetSettings)
+			mailboxAuthed.PUT("/settings", mailboxNative.PutSettings)
+			mailboxAuthed.GET("/identities", mailboxNative.ListIdentities)
+			// WEBMAIL-006 server-authoritative quota visibility.
+			mailboxAuthed.GET("/quota", mailboxNative.GetQuota)
+			// WEBMAIL-006 user self-service managed-sieve rules.
+			mailboxAuthed.GET("/rules", mailboxNative.GetRules)
+			mailboxAuthed.PUT("/rules", mailboxNative.PutRules)
+			// MAIL-002: user spam feedback drives the per-mailbox allow/deny
+			// delivery policies; private rules never classify another recipient.
+			mailboxAuthed.POST("/spam/feedback", (&handlers.MailboxSpamFeedback{Pool: opts.AppPool, Reconcile: opts.Reconcile}).Feedback)
+			mailboxAuthed.GET("/contacts", contactsHandler.ListContacts)
+			mailboxAuthed.POST("/contacts", contactsHandler.CreateContact)
+			mailboxAuthed.PUT("/contacts/:id", contactsHandler.UpdateContact)
+			mailboxAuthed.DELETE("/contacts/:id", contactsHandler.DeleteContact)
+			mailboxAuthed.GET("/contacts/:id/vcard", contactsHandler.ExportContact)
+			mailboxAuthed.GET("/contacts/export.vcf", contactsHandler.ExportContactsVCF)
+			mailboxAuthed.POST("/contacts/import", contactsHandler.ImportContact)
+			mailboxAuthed.POST("/contacts/import.csv", contactsHandler.ImportContactsCSV)
+			mailboxAuthed.GET("/contacts/groups", contactsHandler.ListGroups)
+			mailboxAuthed.POST("/contacts/groups", contactsHandler.CreateGroup)
+			mailboxAuthed.DELETE("/contacts/groups/:id", contactsHandler.DeleteGroup)
+			mailboxAuthed.POST("/contacts/groups/members", contactsHandler.AddGroupMember)
+			mailboxAuthed.GET("/carddav/addressbook", contactsHandler.CardDAVReport)
+			mailboxAuthed.Handle("PROPFIND", "/carddav/addressbook", contactsHandler.CardDAVPropfind)
+			mailboxAuthed.PUT("/carddav/addressbook", contactsHandler.CardDAVWrite)
+			mailboxAuthed.DELETE("/carddav/addressbook", contactsHandler.CardDAVWrite)
+			mailboxAuthed.GET("/caldav/calendar", calendarHandler.CalDAVReport)
+			mailboxAuthed.Handle("PROPFIND", "/caldav/calendar", calendarHandler.CalDAVPropfind)
+			mailboxAuthed.PUT("/caldav/calendar", calendarHandler.CalDAVWrite)
+			mailboxAuthed.DELETE("/caldav/calendar", calendarHandler.CalDAVWrite)
+			mailboxAuthed.OPTIONS("/eas", mailboxNative.EASOptions)
+			mailboxAuthed.POST("/eas", mailboxNative.EASCommand)
+			mailboxAuthed.POST("/ai/drafts", aiDrafts.Create)
+			mailboxAuthed.GET("/ai/drafts/:id", aiDrafts.Get)
+			mailboxAuthed.PUT("/ai/drafts/:id", aiDrafts.Update)
+			mailboxAuthed.POST("/ai/search-ask", aiSearchAsk.Handle)
+			// AI-005 server-authoritative tenant budget visibility.
+			mailboxAuthed.GET("/ai/budget", aiBudgetStatus.BudgetStatus)
+			mailboxAuthed.GET("/calendars/events", calendarHandler.ListEvents)
+			mailboxAuthed.POST("/calendars/events", calendarHandler.CreateEvent)
+			mailboxAuthed.POST("/calendars/events/:id/invitations", calendarHandler.SendInvitations)
+			mailboxAuthed.POST("/calendars/events/:id/reply", calendarHandler.IngestReply)
+			mailboxAuthed.PUT("/calendars/events/:id", calendarHandler.UpdateEvent)
+			mailboxAuthed.DELETE("/calendars/events/:id", calendarHandler.DeleteEvent)
+			mailboxAuthed.GET("/calendars/events/:id/ics", calendarHandler.ExportEvent)
+			mailboxAuthed.GET("/calendars/export.ics", calendarHandler.ExportCalendarICS)
+			mailboxAuthed.POST("/calendars/import", calendarHandler.ImportEvent)
 			mailboxAuthed.DELETE("/session", mailboxNative.DeleteSession)
 		}
 		v1.POST("/mailbox/sieve/exchange", sieveBridge.Exchange)
@@ -379,6 +532,7 @@ func New(opts Options) *gin.Engine {
 				platform.GET("/tenants/:id/ai/usage", aiConfiguration.PlatformUsage)
 				platform.POST("/tenants/:id/ai/health", middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), aiConfiguration.PlatformHealth)
 				platform.POST("/tenants/:id/ai/usage/:request_id/resolve", aiConfiguration.ResolveUsage)
+				platform.POST("/tenants/:id/ai/budget", aiConfiguration.PlatformBudgetPut)
 				platform.PUT("/tenants/:id/ai", aiConfiguration.PlatformPut)
 				platform.POST("/tenants/:id/ai/requests/:request_id/resolve", aiConfiguration.ResolveUsage)
 				platform.GET("/reminder-policy", (&handlers.NotificationConfigHandler{Store: platformQueries, Secrets: opts.Secrets}).ReminderPolicy)
@@ -496,6 +650,7 @@ func New(opts Options) *gin.Engine {
 			protected.GET("/mail/health", middleware.RequireRole("owner", "admin"), deliveryHandler.Health)
 			protected.GET("/mail/queue", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), deliveryHandler.QueueForTenant)
 			protected.GET("/marketing/campaigns/:campaign_id/preview", middleware.RequireRole("owner", "admin"), marketingHandler.PreviewCampaign)
+			protected.GET("/marketing/campaigns/:campaign_id/report", middleware.RequireRole("owner", "admin"), marketingHandler.CampaignReport)
 			protected.GET("/notifications", notificationHandler.List)
 			protected.POST("/ai/consent", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(10, time.Minute, middleware.TenantRateKey), aiConfiguration.Consent)
 			protected.GET("/ai/configuration", middleware.RequireRole("owner", "admin"), aiConfiguration.Get)
@@ -552,6 +707,7 @@ func New(opts Options) *gin.Engine {
 			protected.GET("/archive/:id/attachments/:attachment", middleware.RequireRole("owner", "admin"), archiveContent.Attachment)
 			protected.GET("/archive/:id/content", middleware.RequireRole("owner", "admin"), archiveContent.Content)
 			protected.GET("/archive/:id/export", middleware.RequireRole("owner", "admin"), archiveContent.Export)
+			protected.GET("/archive/evidence/:id", archiveEvidence.Download)
 			protected.GET("/archive/retention", middleware.RequireRole("owner", "admin"), archiveContent.RetentionStatus)
 			protected.DELETE("/archive/retention", middleware.RequireRole("owner", "admin"), archiveContent.RetentionDisable)
 			protected.POST("/archive/retention/preview", middleware.RequireRole("owner", "admin"), archiveContent.RetentionPreview)
@@ -662,5 +818,23 @@ func i18nCatalog(opts Options) gin.HandlerFunc {
 			locale = i18n.DefaultLocale
 		}
 		c.JSON(http.StatusOK, opts.Messages.Raw(locale))
+	}
+}
+
+// protocolEnabled gives callers with pre-existing Options literal values the
+// same behavior, while configuration-loaded false remains unambiguous.
+func protocolEnabled(value *bool) bool { return value == nil || *value }
+
+func collaborationProtocolGate(opts Options) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		card := path == "/.well-known/carddav" || path == "/api/v1/carddav" || strings.HasPrefix(path, "/api/v1/carddav/") || strings.HasPrefix(path, "/api/v1/mailbox/carddav/")
+		calendar := path == "/.well-known/caldav" || path == "/caldav" || strings.HasPrefix(path, "/caldav/") || path == "/api/v1/caldav" || strings.HasPrefix(path, "/api/v1/caldav/") || strings.HasPrefix(path, "/api/v1/mailbox/caldav/")
+		easRequest := path == "/Microsoft-Server-ActiveSync" || path == "/api/v1/eas" || path == "/api/v1/mailbox/eas"
+		if (card && !protocolEnabled(opts.CardDAVEnabled)) || (calendar && !protocolEnabled(opts.CalDAVEnabled)) || (easRequest && !protocolEnabled(opts.EASEnabled)) {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		c.Next()
 	}
 }

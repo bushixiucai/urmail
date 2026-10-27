@@ -84,7 +84,7 @@ func TestNativeWebmailRuntime(t *testing.T) {
 	}
 	rebuilt.From = "alice@example.test"
 	t.Log("PASS real draft replacement, stale UIDVALIDITY refusal, search, Bcc/HTML/attachment roundtrip")
-	if err = (webmail.NetSubmitter{Addr: "127.0.0.1:587", Timeout: 10 * time.Second}).Send(ctx, "alice@example.test", password, rebuilt); err != nil {
+	if _, err = (webmail.NetSubmitter{Addr: "127.0.0.1:587", Timeout: 10 * time.Second}).Send(ctx, "alice@example.test", password, rebuilt); err != nil {
 		t.Fatalf("real SMTP submission: %v", err)
 	}
 	for _, address := range []string{"bob@example.test", "hidden@example.test"} {

@@ -157,12 +157,29 @@ export function BillingLifecycle() {
             {subscription.entitlement_source === "migration_legacy" ? (
               <p>{t("billing_lifecycle.migration_purchase")}</p>
             ) : subscription.cancel_at_period_end ? (
-              <p>{t("billing_lifecycle.cancellation_scheduled")}</p>
+              <>
+                <p>{t("billing_lifecycle.cancellation_scheduled")}</p>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() =>
+                    void act("subscription/cancel", {
+                      cancel_at_period_end: false,
+                    })
+                  }
+                >
+                  {t("billing_lifecycle.resume_subscription")}
+                </Button>
+              </>
             ) : (
               <Button
                 variant="outline"
                 disabled={busy}
-                onClick={() => void act("subscription/cancel")}
+                onClick={() =>
+                  void act("subscription/cancel", {
+                    cancel_at_period_end: true,
+                  })
+                }
               >
                 {t("billing_lifecycle.cancel_subscription")}
               </Button>

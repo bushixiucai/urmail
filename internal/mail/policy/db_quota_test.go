@@ -201,3 +201,33 @@ func TestExplicitDailyQuotaZeroAndUnlimited(t *testing.T) {
 		}
 	}
 }
+
+// suspendedUsageStore returns pgx.ErrNoRows like the entitlement-filtered
+// SQL lookup does when outbound sending is paused (overdue past grace).
+type suspendedUsageStore struct{ locked bool }
+
+func (s *suspendedUsageStore) GetMailboxDailySent(context.Context, string) (store.GetMailboxDailySentRow, error) {
+	return store.GetMailboxDailySentRow{}, pgx.ErrNoRows
+}
+
+func (s *suspendedUsageStore) GetMailboxDailySentForUpdate(context.Context, string) (store.GetMailboxDailySentForUpdateRow, error) {
+	s.locked = true
+	return store.GetMailboxDailySentForUpdateRow{}, pgx.ErrNoRows
+}
+
+func (s *suspendedUsageStore) IncrementMailboxDailySent(_ context.Context, arg store.IncrementMailboxDailySentParams) (int32, error) {
+	return arg.MessagesSent, nil
+}
+
+func TestCheckAndIncrementSuspendedEntitlement(t *testing.T) {
+	ctx := context.Background()
+	store := &suspendedUsageStore{}
+	checker := policy.NewLockingDBQuotaChecker(store, 100)
+	allowed, err := checker.CheckAndIncrement(ctx, "user@example.com")
+	if allowed || !errors.Is(err, policy.ErrSuspended) {
+		t.Fatalf("expected ErrSuspended, got allowed=%v err=%v", allowed, err)
+	}
+	if !store.locked {
+		t.Error("expected locking checker to lock mailbox row")
+	}
+}

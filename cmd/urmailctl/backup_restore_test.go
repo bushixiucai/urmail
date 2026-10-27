@@ -37,6 +37,9 @@ func TestBackupManifestChecksTamperAndScope(t *testing.T) {
 	if err := verifyBackupManifest(manifest, []string{file}, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := verifyBackupManifest(manifest, nil, false); err == nil {
+		t.Fatal("omitted manifest artifact accepted")
+	}
 	if err := verifyBackupManifest(manifest, []string{file}, true); err == nil {
 		t.Fatal("metadata accepted as complete mail backup")
 	}

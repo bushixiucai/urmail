@@ -3,32 +3,34 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/backupauto"
 )
 
+// verifyBackupManifest verifies plaintext restore artifacts against the
+// backup manifest. Both manifest versions are accepted: version 1 is the
+// historical plaintext manifest; version 2 keeps the same PLAINTEXT name,
+// size and SHA-256 fields per artifact (the encrypted offsite form is
+// described by extra fields that backupauto.DecodeManifest validates), so
+// an operator who ran "backup decrypt" verifies the decrypted artifacts
+// exactly as before. Unsupported future versions fail closed inside
+// backupauto.DecodeManifest.
 func verifyBackupManifest(manifestPath string, files []string, requireMail bool) error {
-	raw, err := os.ReadFile(manifestPath) // #nosec G304 G703 -- root explicitly selects the backup manifest.
+	manifest, err := backupauto.LoadManifest(manifestPath) // #nosec G703 -- root explicitly selects the backup manifest.
 	if err != nil {
 		return err
 	}
-	var m backupManifest
-	if err = json.Unmarshal(raw, &m); err != nil {
-		return err
-	}
-	if m.Version != 1 {
-		return fmt.Errorf("unsupported backup manifest version")
-	}
-	if requireMail && (m.Scope != "local-mail-and-metadata" || !m.Consistent) {
+	if requireMail && (manifest.Scope != backupauto.ScopeComplete || !manifest.Consistent) {
 		return fmt.Errorf("mail restore requires a complete maintenance-window backup")
 	}
-	entries := map[string]backupArtifact{}
-	for _, entry := range m.Artifacts {
+	entries := map[string]backupauto.Artifact{}
+	for _, entry := range manifest.Artifacts {
 		if filepath.Base(entry.Name) != entry.Name || entry.Name == "." {
 			return fmt.Errorf("invalid artifact name")
 		}
@@ -52,6 +54,18 @@ func verifyBackupManifest(manifestPath string, files []string, requireMail bool)
 		}
 		if hash != entry.SHA256 || info.Size() != entry.Size {
 			return fmt.Errorf("backup checksum/size mismatch for %s", filepath.Base(name))
+		}
+	}
+
+	provided := map[string]struct{}{}
+	for _, name := range files {
+		if name != "" {
+			provided[filepath.Base(name)] = struct{}{}
+		}
+	}
+	for name := range entries {
+		if _, ok := provided[name]; !ok {
+			return fmt.Errorf("manifest artifact not provided")
 		}
 	}
 	return nil

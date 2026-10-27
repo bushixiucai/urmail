@@ -63,6 +63,9 @@ install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/
 install -m 0644 "$ROOT/packaging/nginx/urmail-ssl.conf" "$STAGE/etc/nginx/snippets/urmail-ssl.conf"
 install -m 0644 "$ROOT/packaging/dovecot/99-urmail.conf" "$STAGE/etc/dovecot/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/internal/db/bootstrap.sql" "$STAGE/usr/share/urmail/bootstrap.sql"
+install -m 0644 "$ROOT/installer/configure-env.py" "$STAGE/usr/share/urmail/configure-env.py"
+install -m 0644 "$ROOT/packaging/selfhost-capabilities.json" "$STAGE/usr/share/urmail/selfhost-capabilities.json"
+install -m 0644 "$ROOT/packaging/SELFHOST.md" "$STAGE/usr/share/urmail/SELFHOST.md"
 install -d "$STAGE/usr/share/urmail/locales"
 install -m 0644 "$ROOT/internal/i18n/locales/en.json" "$ROOT/internal/i18n/locales/zh-CN.json" "$STAGE/usr/share/urmail/locales/"
 
@@ -73,7 +76,7 @@ Section: mail
 Priority: optional
 Architecture: $ARCH
 Maintainer: urMail.cn <support@urmail.cn>
-Depends: rsyslog, nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot
+Depends: rsyslog, nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot, age, openssh-client, python3
 Description: urMail.cn multi-tenant email SaaS platform
  A self-hosted platform for selling domain mailboxes: multi-tenancy, quotas,
  billing, payment, DNS onboarding, certificates, observability and compliance.

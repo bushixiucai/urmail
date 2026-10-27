@@ -78,11 +78,16 @@ func (h *DNSPlanHandler) prepareDNS(c *gin.Context) bool {
 			authError(c, http.StatusBadRequest, "DNS_CREDENTIAL_INVALID")
 			return false
 		}
-		input.Zone = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(input.Zone), "."))
-		if !validation.IsValidHostname(input.Zone) {
+		input.Zone = strings.TrimSpace(input.Zone)
+		// MAIL-004: a provider zone may be typed in Unicode form. Normalize it
+		// to the same lowercase A-label used for domains.fqdn so the ownership
+		// comparison below cannot be bypassed or broken by an alias spelling.
+		zoneName, err := validation.NormalizeDomain(input.Zone)
+		if err != nil {
 			authError(c, http.StatusBadRequest, "DNS_CREDENTIAL_INVALID")
 			return false
 		}
+		input.Zone = zoneName
 		d, err := store.New(h.Service.Pool.Pool).PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
 		if err != nil || d.Status != "active" || !d.VerifiedAt.Valid || (d.Fqdn != input.Zone && !strings.HasSuffix(d.Fqdn, "."+input.Zone)) {
 			authError(c, http.StatusForbidden, "DNS_ZONE_UNAUTHORIZED")

@@ -20,13 +20,14 @@ import {
   MAX_SEND_ATTACHMENTS,
   MessageDetail,
   OutgoingAttachment,
+  getMailboxAddress,
   saveDraft,
   scheduleSend,
   ScheduleSendRequest,
   sendMessage,
 } from "./mailbox-api";
 
-export type ComposeMode = "new" | "reply" | "forward" | "draft";
+export type ComposeMode = "new" | "reply" | "reply-all" | "forward" | "draft";
 
 export interface ComposeDraft {
   mode: ComposeMode;
@@ -68,18 +69,61 @@ function formatAddrList(
     .join(", ");
 }
 
+function ownAddresses(): Set<string> {
+  const own = new Set<string>();
+  const address = getMailboxAddress();
+  if (address) own.add(address.toLowerCase());
+  return own;
+}
+
+function collectRecipients(
+  groups: ({ email: string }[] | undefined)[],
+  own: Set<string>,
+  already: Set<string>,
+): string[] {
+  const out: string[] = [];
+  for (const group of groups) {
+    for (const addr of group ?? []) {
+      const email = addr.email?.trim();
+      if (!email) continue;
+      const key = email.toLowerCase();
+      if (own.has(key) || already.has(key)) continue;
+      already.add(key);
+      out.push(email);
+    }
+  }
+  return out;
+}
+
 export function draftFromMessage(
-  mode: "reply" | "forward",
+  mode: "reply" | "reply-all" | "forward",
   msg: MessageDetail,
 ): ComposeDraft {
   const from = formatFrom(msg.from);
-  if (mode === "reply") {
-    const replyTo = msg.from?.[0]?.email ?? "";
+  const own = ownAddresses();
+  if (mode === "reply" || mode === "reply-all") {
+    const authors = msg.reply_to?.length ? msg.reply_to : msg.from;
+    const seen = new Set<string>();
+    const authorList = collectRecipients([authors], own, seen);
+    let toList = authorList;
+    if (mode === "reply") {
+      toList = authorList.slice(0, 1);
+      seen.clear();
+      if (toList[0]) seen.add(toList[0].toLowerCase());
+    } else if (authorList.length === 0) {
+      toList = collectRecipients([msg.to], own, seen);
+    }
+    const ccList =
+      mode === "reply-all"
+        ? collectRecipients([msg.to, msg.cc], own, seen)
+        : [];
+    const to = toList.join(", ");
+    const cc = ccList.join(", ");
     const subj = msg.subject?.startsWith("Re:")
       ? msg.subject
       : `Re: ${msg.subject || ""}`;
     const quoted = `\n\n---\n${from}\n\n${msg.text || ""}`;
-    return { mode, to: replyTo, subject: subj, text: quoted };
+    return { mode, to, cc, subject: subj, text: quoted };
   }
   const subj = msg.subject?.startsWith("Fwd:")
     ? msg.subject
@@ -128,6 +172,7 @@ export function MailboxComposeDialog({
   >();
   const [draftUncertain, setDraftUncertain] = useState(false);
   const [sendUncertain, setSendUncertain] = useState(false);
+  const [sentCopyPending, setSentCopyPending] = useState(false);
   const [cleanupPending, setCleanupPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -281,7 +326,7 @@ export function MailboxComposeDialog({
     }
     setBusy(true);
     try {
-      await sendMessage({
+      const res = await sendMessage({
         to: recipients,
         cc: splitAddrs(cc),
         bcc: splitAddrs(bcc),
@@ -290,6 +335,7 @@ export function MailboxComposeDialog({
         text,
         attachments: attachments.length ? attachments : undefined,
       });
+      setSentCopyPending(res.sent_copy === "pending");
       // Best-effort: remove the IMAP draft after a successful send.
       if (draftUid && draftUidValidity) {
         try {
@@ -298,7 +344,9 @@ export function MailboxComposeDialog({
           /* non-fatal */
         }
       }
-      onOpenChange(false);
+      if (res.sent_copy !== "pending") {
+        onOpenChange(false);
+      }
       onSent();
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
@@ -436,6 +484,11 @@ export function MailboxComposeDialog({
               {t("page.webmail.compose_cleanup_pending")}
             </p>
           )}
+          {sentCopyPending && (
+            <p role="alert" className="text-sm text-destructive">
+              {t("page.webmail.compose_sent_copy_pending")}
+            </p>
+          )}
           {savedHint && !error && (
             <p className="text-sm text-muted-foreground" role="status">
               {t("page.webmail.compose_draft_saved")}
@@ -560,6 +613,12 @@ export function MailboxComposeDialog({
                       type="button"
                       size="sm"
                       variant="ghost"
+                      aria-label={t(
+                        "page.webmail.compose_attach_remove_named",
+                        {
+                          name: a.filename,
+                        },
+                      )}
                       onClick={() => removeAttachment(i)}
                       disabled={editingLocked}
                     >

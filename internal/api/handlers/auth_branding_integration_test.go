@@ -330,6 +330,13 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 			}
 			return out.Brand.Slug, out.Source
 		}
+		// OPS-101 lifecycle: a host row is born pending-verify and must not
+		// win host-based branding authority — the explicit brand link still
+		// applies, which proves the request did not take the host path.
+		if slug, source := public("panel.example.test:443", "/branding?brand=linked"); slug != "linked" || source != "link" {
+			t.Fatalf("pending-verify host granted branding authority: slug=%s source=%s", slug, source)
+		}
+		exec("UPDATE brand_hosts SET status='active' WHERE hostname='panel.example.test'")
 		if slug, source := public("panel.example.test:443", "/branding?brand=linked"); slug != "hosted" || source != "host" {
 			t.Fatal("authorized host did not win")
 		}

@@ -25,6 +25,15 @@ func startMailTelemetry(ctx context.Context, cfg *config.Config, pool *db.Pool, 
 	go collector.Start(ctx, logger)
 }
 
+// mailCertificateProbeAddress returns the loopback HTTPS endpoint for the
+// OPS-003 certificate expiry fallback probe; empty when no hostname is known.
+func mailCertificateProbeAddress(cfg *config.Config) string {
+	if cfg.MyHostname == "" {
+		return ""
+	}
+	return "127.0.0.1:443"
+}
+
 // startMailObservability remains read-only toward host services.
 func startMailObservability(ctx context.Context, cfg *config.Config, pool *db.Pool, logger *zap.Logger) {
 	if cfg.DevMode || cfg.Quarantined {
@@ -35,5 +44,6 @@ func startMailObservability(ctx context.Context, cfg *config.Config, pool *db.Po
 		stream = "local"
 	}
 	evaluator := &telemetry.Evaluator{Pool: pool, Stream: stream, Source: telemetry.RuntimeObserver{Client: agent.NewClient(cfg.AgentSocket)}}
+	evaluator.CertificateAddress = mailCertificateProbeAddress(cfg)
 	go evaluator.Start(ctx, logger)
 }

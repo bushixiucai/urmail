@@ -46,6 +46,10 @@ type Options struct {
 	Sender         Sender
 }
 
+// terminalSkips are authorization outcomes that can never recover within the
+// grace window; the recipient is skipped with its recorded reason.
+var terminalSkips = map[string]bool{"entitlement_denied": true, "quota_unconfigured": true, "channel_unavailable": true, "sender_unavailable": true, "timezone_invalid": true}
+
 // Worker owns one process identity; the database owns every durable attempt.
 type Worker struct {
 	opts Options
@@ -136,16 +140,30 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if outcome != "authorized" {
-		if outcome != "suppressed" && outcome != "stale" {
-			_, err = q.PlatformReleaseMarketingClaim(ctx, store.PlatformReleaseMarketingClaimParams{TenantID: recipient.TenantID, ID: recipient.ID, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, Fence: recipient.Fence})
+		// Permanent execution-time precondition failures end the recipient
+		// forever with a recorded reason: the overdue policy forbids marketing
+		// from lingering after entitlement, plan or channel gates close.
+		if terminalSkips[outcome] {
+			if _, err = q.PlatformSkipMarketingRecipient(ctx, store.PlatformSkipMarketingRecipientParams{TenantID: recipient.TenantID, RecipientID: recipient.ID, LeaseOwner: w.id, Fence: recipient.Fence, Reason: outcome}); err != nil {
+				return false, err
+			}
+			revocations.WithLabelValues(outcome).Inc()
+			return true, nil
 		}
-		return false, err
+		if outcome != "suppressed" && outcome != "stale" {
+			if _, relErr := q.PlatformReleaseMarketingClaim(ctx, store.PlatformReleaseMarketingClaimParams{TenantID: recipient.TenantID, ID: recipient.ID, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, Fence: recipient.Fence}); relErr != nil {
+				// The periodic PlatformRecoverMarketingClaims pass still requeues
+				// the abandoned claim, so surfacing this failure ends the poll.
+				w.opts.Logger.Warn("marketing claim release failed", zap.Error(relErr))
+			}
+		}
+		return false, nil
 	}
 	u, _ := url.Parse(w.opts.UnsubscribeURL)
 	query := u.Query()
 	query.Set("token", w.opts.Tokens.GenerateUnsubscribeToken(recipient.TenantID, recipient.Email))
 	u.RawQuery = query.Encode()
-	delivery := Delivery{ID: recipient.ID, TenantID: recipient.TenantID, CampaignID: recipient.CampaignID, Email: recipient.Email, Subject: data.SubjectSnapshot.String, Body: data.BodySnapshot.String, MessageID: fmt.Sprintf("marketing-%d-%d@%s", recipient.CampaignID, recipient.ID, w.opts.Hostname), UnsubscribeURL: u.String()}
+	delivery := Delivery{ID: recipient.ID, TenantID: recipient.TenantID, CampaignID: recipient.CampaignID, Email: recipient.Email, Subject: data.SubjectSnapshot.String, Body: data.BodySnapshot.String, MessageID: fmt.Sprintf("marketing-%d-%d@%s", recipient.CampaignID, recipient.ID, w.opts.Hostname), EnvelopeFrom: cfg.BounceAddress, UnsubscribeURL: u.String()}
 	delivery.BeforeData = func(checkCtx context.Context) error {
 		allowed, checkErr := q.PlatformMarketingAttemptStillAllowed(checkCtx, store.PlatformMarketingAttemptStillAllowedParams{TenantID: recipient.TenantID, RecipientID: recipient.ID, LeaseOwner: w.id, Fence: recipient.Fence})
 		if checkErr != nil {
@@ -157,6 +175,22 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 		return nil
 	}
 	sendErr := w.opts.Sender(ctx, cfg, delivery)
+	// A revocation that landed between claim and DATA terminates this
+	// recipient immediately: refund the reservation, record the reason, and
+	// never retry. This is the unsubscribe linearization point.
+	if sendErr != nil && errors.Is(sendErr, ErrStale) {
+		finishCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		revoked, revokeErr := q.PlatformMarkMarketingRecipientRevoked(finishCtx, store.PlatformMarkMarketingRecipientRevokedParams{TenantID: recipient.TenantID, RecipientID: recipient.ID, LeaseOwner: w.id, Fence: recipient.Fence})
+		if revokeErr != nil {
+			return false, revokeErr
+		}
+		if !revoked {
+			return false, ErrStale
+		}
+		revocations.WithLabelValues("unsubscribed_mid_run").Inc()
+		return true, nil
+	}
 	result := "sent"
 	if sendErr != nil {
 		result = "failed"

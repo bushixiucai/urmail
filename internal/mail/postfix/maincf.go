@@ -63,23 +63,50 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("smtpd_sasl_type = dovecot\n")
 	b.WriteString("smtpd_sasl_path = private/auth\n")
 	b.WriteString("smtpd_sasl_auth_enable = yes\n\n")
+
+	// MAIL-003: per-client abuse budgets enforced by anvil(8). These are
+	// short windows, not bans: a legitimate office NAT that exceeds a window
+	// recovers automatically, while a credential-stuffing source is slowed
+	// and cut off long before it can exhaust the service. mynetworks clients
+	// stay exempt via smtpd_client_event_limit_exceptions so loopback
+	// reinjection and monitoring probes are never throttled.
+	b.WriteString("# Abuse & resource limits (MAIL-003), enforced by anvil\n")
+	b.WriteString("anvil_rate_time_unit = 60s\n")
+	b.WriteString("smtpd_client_connection_count_limit = 20\n")
+	b.WriteString("smtpd_client_connection_rate_limit = 60\n")
+	b.WriteString("smtpd_client_auth_rate_limit = 15\n")
+	b.WriteString("smtpd_client_message_rate_limit = 120\n")
+	b.WriteString("smtpd_client_recipient_rate_limit = 240\n")
+	b.WriteString("smtpd_error_sleep_time = 5s\n")
+	b.WriteString("smtpd_soft_error_limit = 5\n")
+	b.WriteString("smtpd_hard_error_limit = 10\n\n")
 	b.WriteString("# DKIM signing through OpenDKIM on loopback. If the milter is down,\n")
 	b.WriteString("# accept the message unsigned instead of blocking mail delivery.\n")
 	b.WriteString("milter_default_action = accept\n")
 	b.WriteString("milter_protocol = 6\n")
+	b.WriteString("header_checks = regexp:/etc/postfix/urmail/spam-header-checks\n")
+	// MAIL-002: the shared content verdict runs after the signing milters.
+	// Incoming Authentication-Results are not trusted by name. It only
+	// inserts X-UrMail-Spam headers; with milter_default_action = accept an
+	// outage of ANY milter in this chain (including the spam one) degrades to
+	// normal, unflagged delivery instead of blocking mail. That documented
+	// degrade path raises the spam_milter_unavailable operational alert.
+	// Only smtpd_milters carries the spam milter: non_smtpd (locally injected
+	// operational) mail must not be classified or Junk-filed.
+	const spamMilter = "inet:127.0.0.1:11339"
 	switch {
 	case node.V80Preserve && node.PreserveExternalOpenDKIM:
 		// Same-host cutover keeps the live OpenDKIM milter (8891) and OpenDMARC
 		// (8893). Pointing at 12301 would either miss signatures or double-sign
 		// if a second OpenDKIM were started beside the preserved unit.
-		b.WriteString("smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n")
+		b.WriteString("smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893, " + spamMilter + "\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n\n")
 	case node.V80Preserve:
 		// Preserve OpenDMARC independently; the new signer replaces old 8891.
-		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n")
+		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893, " + spamMilter + "\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n\n")
 	default:
-		b.WriteString("smtpd_milters = inet:127.0.0.1:12301\n")
+		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, " + spamMilter + "\n")
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
 	}
 

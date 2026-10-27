@@ -360,7 +360,7 @@ func TestDomainListResponseShapeHasNoSecrets(t *testing.T) {
 		t.Fatalf("expected 1 domain, got %v", domains)
 	}
 	domain := domains[0].(map[string]any)
-	assertKeys(t, domain, "id", "fqdn", "mode", "status", "selector", "created_at", "provisioning_state")
+	assertKeys(t, domain, "id", "fqdn", "display_fqdn", "mode", "status", "selector", "created_at", "provisioning_state")
 	if domain["fqdn"] != "example.com" || domain["mode"] != "managed" ||
 		domain["status"] != "active" || domain["selector"] != "mail" || domain["provisioning_state"] != "ready" {
 		t.Fatalf("unexpected domain payload: %v", domain)
@@ -405,7 +405,7 @@ func TestDomainCreateResponseShapeHasNoSecrets(t *testing.T) {
 	}
 
 	domain := shapeObject(t, body, "domain")
-	assertKeys(t, domain, "id", "fqdn", "mode", "status", "selector", "created_at", "provisioning_state")
+	assertKeys(t, domain, "id", "fqdn", "display_fqdn", "mode", "status", "selector", "created_at", "provisioning_state")
 	if domain["fqdn"] != "example.com" || domain["selector"] != "mail" || domain["provisioning_state"] != "pending" {
 		t.Fatalf("unexpected domain payload: %v", domain)
 	}

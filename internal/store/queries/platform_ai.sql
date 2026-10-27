@@ -21,6 +21,19 @@ AND (SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0) FROM ai_usa
 AND (SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) FROM ai_usage_requests WHERE tenant_id=sqlc.arg(tenant_id) AND period_start=sqlc.arg(period_start) AND status<>'released')+sqlc.arg(reserved_cost_micros)::bigint<=sqlc.arg(cost_limit)::bigint
 RETURNING *;
 
+-- name: PlatformSetAIBudget :exec
+UPDATE ai_provider_configs SET daily_token_limit=sqlc.arg(daily_token_limit),daily_cost_micros=sqlc.arg(daily_cost_micros),monthly_token_limit=sqlc.arg(monthly_token_limit),monthly_cost_micros=sqlc.arg(monthly_cost_micros),updated_at=now()
+WHERE tenant_id=sqlc.arg(tenant_id);
+
+-- name: PlatformSumAIUsageBetween :one
+SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0)::bigint AS tokens,COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0)::bigint AS cost_micros
+FROM ai_usage_requests WHERE tenant_id=sqlc.arg(tenant_id) AND status<>'released' AND created_at>=sqlc.arg(window_start) AND created_at<sqlc.arg(window_end);
+
+-- name: PlatformReserveMailboxAIRequest :one
+INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,provider,model,cost_currency,input_rate,output_rate,reserved_tokens,reserved_cost_micros)
+VALUES(sqlc.arg(tenant_id),sqlc.arg(mailbox_id),sqlc.arg(request_key),sqlc.arg(input_digest),sqlc.arg(period_start),sqlc.arg(period_end),sqlc.arg(mode),sqlc.arg(provider),sqlc.arg(model),sqlc.arg(cost_currency),sqlc.arg(input_rate),sqlc.arg(output_rate),sqlc.arg(reserved_tokens),sqlc.arg(reserved_cost_micros))
+RETURNING *;
+
 -- name: PlatformFinishAIRequest :execrows
 UPDATE ai_usage_requests SET status=sqlc.arg(status),actual_tokens=sqlc.narg(actual_tokens),actual_cost_micros=sqlc.narg(actual_cost_micros),result=sqlc.narg(result),updated_at=now()
 WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(id) AND status='reserved';

@@ -40,13 +40,21 @@ func (h *ArchiveContentHandler) authorized(c *gin.Context, scope string) (*store
 		return nil, 0, 0, false
 	}
 	q := requestStore(c, h.Store)
-	_, err := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
+	grant, err := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
 	if err != nil {
 		code := "COMPLIANCE_GRANT_REQUIRED"
 		if scope == "retention_manage" {
 			code = "RETENTION_MANAGE_REQUIRED"
 		}
 		authError(c, 403, code)
+		return nil, 0, 0, false
+	}
+	// ARC-001 / PD-112 defense in depth: the exercise-time check never trusts
+	// the stored row alone. Even when a legacy self-grant row survived
+	// (schema predating migration 0130), the exercising actor must differ
+	// from the grantor before any archive retrieval or export runs.
+	if scope != "retention_manage" && grant.GrantedBy.Valid && grant.GrantedBy.Int64 == user {
+		authError(c, 403, "FORBIDDEN")
 		return nil, 0, 0, false
 	}
 	return q, tenant, user, true
@@ -57,11 +65,18 @@ func archiveAccessAudit(c *gin.Context, q *store.Queries, tenant, user int64, ac
 	if action == "archive.export" {
 		scope = "export"
 	}
-	if _, err := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope}); err != nil {
+	grant, err := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
+	if err != nil {
 		authError(c, 403, "COMPLIANCE_GRANT_REQUIRED")
 		return false
 	}
-	err := q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: tenant, UserID: user, Action: "READ " + action, Target: target, Status: 200})
+	// Same independence re-check as authorized(): grantor and beneficiary
+	// must be independent subjects at exercise time (PD-112).
+	if grant.GrantedBy.Valid && grant.GrantedBy.Int64 == user {
+		authError(c, 403, "FORBIDDEN")
+		return false
+	}
+	err = q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: tenant, UserID: user, Action: "READ " + action, Target: target, Status: 200})
 	if err != nil {
 		middleware.RecordAuditFailure(true)
 		authError(c, 500, "DB_ERROR")

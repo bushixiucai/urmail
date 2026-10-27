@@ -75,7 +75,7 @@ func TestSMTPSubmissionCommitBoundary(t *testing.T) {
 					}
 				}
 			}()
-			err = (NetSubmitter{Addr: listener.Addr().String(), Timeout: time.Second}).Send(context.Background(), "alice@example.test", "secret", Outgoing{To: []string{"bob@example.test"}, Text: "message"})
+			_, err = (NetSubmitter{Addr: listener.Addr().String(), Timeout: time.Second}).Send(context.Background(), "alice@example.test", "secret", Outgoing{To: []string{"bob@example.test"}, Text: "message"})
 			switch mode {
 			case "quit_disconnect":
 				if err != nil {

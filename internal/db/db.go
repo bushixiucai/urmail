@@ -32,9 +32,18 @@ const tenantSetting = "urmail.tenant_id"
 // userSetting is the PostgreSQL setting that carries the current user id.
 const userSetting = "urmail.user_id"
 
+// mailboxSetting is the PostgreSQL setting that carries the current mailbox id.
+// Collaboration policies require it together with the tenant id and fail closed
+// when either value is absent.
+const mailboxSetting = "urmail.mailbox_id"
+
 // ErrNoTenant is returned when a tenant-scoped operation is attempted
 // without a tenant context.
 var ErrNoTenant = errors.New("no tenant in context")
+
+// ErrNoMailbox is returned when a mailbox-scoped operation is attempted
+// without a mailbox context.
+var ErrNoMailbox = errors.New("no mailbox in context")
 
 // Pool is a connection pool bound to one database role.
 type Pool struct {
@@ -83,18 +92,28 @@ func (p *Pool) Role() string { return p.role }
 // with SET LOCAL so it is discarded when the transaction ends, which keeps a
 // pooled connection from leaking one tenant's context into the next request.
 func (p *Pool) TenantTx(ctx context.Context, tenantID int64) (pgx.Tx, error) {
-	return p.scopedTx(ctx, tenantID, 0)
+	return p.scopedTx(ctx, tenantID, 0, 0)
 }
 
 // UserTx starts a transaction scoped to a tenant and a user. Both settings
 // are published so that the row-level security policies can distinguish
 // "the tenant" from "the person making the request".
 func (p *Pool) UserTx(ctx context.Context, tenantID, userID int64) (pgx.Tx, error) {
-	return p.scopedTx(ctx, tenantID, userID)
+	return p.scopedTx(ctx, tenantID, userID, 0)
+}
+
+// MailboxTx starts a transaction scoped to one mailbox inside one tenant.
+// Collaboration tables fail closed unless both settings are present, so a
+// panel user context cannot read contacts or calendars by tenant id alone.
+func (p *Pool) MailboxTx(ctx context.Context, tenantID, mailboxID int64) (pgx.Tx, error) {
+	if mailboxID <= 0 {
+		return nil, ErrNoMailbox
+	}
+	return p.scopedTx(ctx, tenantID, 0, mailboxID)
 }
 
 // scopedTx begins a transaction and publishes the request scope.
-func (p *Pool) scopedTx(ctx context.Context, tenantID, userID int64) (pgx.Tx, error) {
+func (p *Pool) scopedTx(ctx context.Context, tenantID, userID, mailboxID int64) (pgx.Tx, error) {
 	if tenantID <= 0 {
 		return nil, ErrNoTenant
 	}
@@ -110,6 +129,12 @@ func (p *Pool) scopedTx(ctx context.Context, tenantID, userID int64) (pgx.Tx, er
 		if _, err := tx.Exec(ctx, "SELECT set_config($1, $2, true)", userSetting, fmt.Sprintf("%d", userID)); err != nil {
 			_ = tx.Rollback(ctx)
 			return nil, fmt.Errorf("set user context: %w", err)
+		}
+	}
+	if mailboxID > 0 {
+		if _, err := tx.Exec(ctx, "SELECT set_config($1, $2, true)", mailboxSetting, fmt.Sprintf("%d", mailboxID)); err != nil {
+			_ = tx.Rollback(ctx)
+			return nil, fmt.Errorf("set mailbox context: %w", err)
 		}
 	}
 	return tx, nil

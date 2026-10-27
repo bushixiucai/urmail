@@ -179,6 +179,20 @@ describe("mailbox compose persistence", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
+  it("warns without closing when the Sent copy save is pending", async () => {
+    vi.mocked(mailboxApi.sendMessage).mockResolvedValue({
+      sent: true,
+      sent_copy: "pending",
+    });
+    const { onOpenChange } = compose();
+    fillMessage();
+    fireEvent.click(
+      screen.getByRole("button", { name: "page.webmail.compose_send" }),
+    );
+    await screen.findByText("page.webmail.compose_sent_copy_pending");
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
   it("blocks repeated send after an uncertain SMTP result", async () => {
     vi.mocked(mailboxApi.sendMessage).mockRejectedValue(
       new ApiRequestError(409, {
@@ -248,7 +262,7 @@ it("enforces the aggregate attachment budget while preserving selected files", a
   expect(mailboxApi.fileToOutgoingAttachment).toHaveBeenCalledTimes(2);
   fireEvent.click(
     screen.getAllByRole("button", {
-      name: "page.webmail.compose_attach_remove",
+      name: /page\.webmail\.compose_attach_remove_named/,
     })[0],
   );
   fireEvent.change(screen.getByLabelText("page.webmail.compose_attach"), {

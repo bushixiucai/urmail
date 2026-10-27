@@ -65,6 +65,9 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil {
 		return false, errors.New("notification origin invalid")
 	}
+	if _, err = q.PlatformQuarantinePoisonEmailNotifications(ctx); err != nil {
+		return false, err
+	}
 	item, err := q.PlatformClaimEmailNotification(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -101,20 +104,46 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 		send = SendSMTP
 	}
 	err = send(ctx, cfg, Message{ID: item.ID, To: item.Recipient.String, Subject: catalog.Lookup("notification.subject", nil), Body: body})
+	// The finish statement owns the retry decision: exponential backoff while
+	// pending and the poisoned 'failed' cap once attempts are exhausted. A
+	// confirmed-ambiguous submission stays 'uncertain' and is never replayed.
 	state := "delivered"
 	if errors.Is(err, ErrSubmissionUnknown) {
 		state = "uncertain"
 	} else if err != nil {
 		state = "pending"
-		if item.Attempts >= 5 {
-			state = "failed"
-		}
 	}
-	_, saveErr := q.PlatformFinishEmailNotification(ctx, store.PlatformFinishEmailNotificationParams{ID: item.ID, Fence: item.Fence, State: state})
-	if saveErr != nil {
+	if _, saveErr := q.PlatformFinishEmailNotification(ctx, store.PlatformFinishEmailNotificationParams{ID: item.ID, Fence: item.Fence, Column3: state, Column4: sanitizeDeliveryError(err)}); saveErr != nil {
+		notificationDeliveries.WithLabelValues("email", item.Kind, "unfinished").Inc()
 		return true, saveErr
 	}
+	notificationDeliveries.WithLabelValues("email", item.Kind, outcome(state)).Inc()
 	return true, err
+}
+
+// outcome maps a terminal state machine result onto a delivery metric.
+func outcome(state string) string {
+	switch state {
+	case "delivered":
+		return "sent"
+	case "uncertain":
+		return "uncertain"
+	default:
+		return "retrying"
+	}
+}
+
+// sanitizeDeliveryError keeps provider diagnostics one bounded, single-line
+// field: no newlines and no unbounded relay banners in durable storage.
+func sanitizeDeliveryError(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.ReplaceAll(strings.ReplaceAll(err.Error(), "\r", " "), "\n", " ")
+	if len(text) > 200 {
+		text = text[:200]
+	}
+	return text
 }
 
 // notificationCatalog uses existing user and inherited tenant preferences. Both

@@ -15,6 +15,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -36,10 +37,21 @@ type MailboxNativeHandler struct {
 	Vault     webmail.CredentialVault
 	Dialer    webmail.Dialer
 	Submitter webmail.Submitter
+	// MaySend reports whether this mailbox may submit mail. Nil preserves older routes.
+	MaySend func(context.Context, int64, int64) (bool, error)
 	// Secrets seals SMTP passwords into mailbox_scheduled_sends.smtp_secret.
 	Secrets SecretsBox
 	// Pool is required for self-service password change (platform transaction).
 	Pool *db.Pool
+	// SelfSettings serves per-mailbox signature, preferences, quota and
+	// authorized sending identities; nil keeps those endpoints disabled.
+	SelfSettings MailboxSelfSettingsStore
+	// Sieve activates persisted mailbox rule scripts; nil keeps rules read-only.
+	Sieve SieveActivator
+	// Rules reads and writes the mailbox's own managed Sieve script.
+	Rules MailboxRulesStore
+	// EAS serves the ActiveSync transport; nil keeps the not-implemented stub.
+	EAS *eas.Server
 }
 
 // MailboxNativeAuth looks up active mailbox credentials for login.

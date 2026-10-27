@@ -216,6 +216,85 @@ func TestScheduledIntentionCanBeCanceledOnlyBeforeFunding(t *testing.T) {
 	}
 }
 
+// BILL-002 role matrix: only owner/admin/billing may toggle auto-renew.
+// A plain member (and a non-member) must be rejected before any subscription
+// fact changes. The owner can both disable (empty body defaults to
+// cancel_at_period_end=true) and re-enable (cancel_at_period_end=false)
+// auto-renew on the same endpoint.
+func TestSubscriptionAutoRenewToggleRequiresBillingRole(t *testing.T) {
+	s := newBillingScenario(t)
+	ctx := context.Background()
+	s.pay(t, "high", "toggle-current")
+	var memberID int64
+	if err := s.p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('toggle-member@example.test','unused') RETURNING id").Scan(&memberID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.p.Exec(ctx, "INSERT INTO user_tenant_roles VALUES($1,$2,'member')", memberID, s.tid); err != nil {
+		t.Fatal(err)
+	}
+	var outsiderID int64
+	if err := s.p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('toggle-outsider@example.test','unused') RETURNING id").Scan(&outsiderID); err != nil {
+		t.Fatal(err)
+	}
+	roleRouter := func(uid int64) *gin.Engine {
+		r := gin.New()
+		r.Use(func(c *gin.Context) { c.Set(middleware.ContextTenantID, s.tid); c.Set(middleware.ContextUserID, uid) })
+		r.Use(middleware.RequireTenantTx(s.a, zap.NewNop()), middleware.RequireRole("owner", "admin", "billing"))
+		h := NewBillingHandler(store.New(s.a))
+		h.Pool = s.p
+		r.POST("/cancel", h.CancelSubscription)
+		return r
+	}
+	subFlag := func() bool {
+		t.Helper()
+		var flag bool
+		if err := s.p.QueryRow(ctx, "SELECT cancel_at_period_end FROM subscriptions WHERE tenant_id=$1 AND status='active'", s.tid).Scan(&flag); err != nil {
+			t.Fatal(err)
+		}
+		return flag
+	}
+	post := func(uid int64, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		w := httptest.NewRecorder()
+		roleRouter(uid).ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodPost, "/cancel", strings.NewReader(body)))
+		return w
+	}
+	for _, uid := range []int64{memberID, outsiderID} {
+		if w := post(uid, "{}"); w.Code != http.StatusForbidden {
+			t.Fatalf("user %d toggled auto-renew without a billing role: %d %s", uid, w.Code, w.Body.String())
+		}
+		if subFlag() {
+			t.Fatalf("user %d request changed the subscription flag", uid)
+		}
+		if w := post(uid, `{"cancel_at_period_end":false}`); w.Code != http.StatusForbidden {
+			t.Fatalf("user %d re-enabled auto-renew without a billing role: %d %s", uid, w.Code, w.Body.String())
+		}
+		if subFlag() {
+			t.Fatalf("user %d re-enable changed the subscription flag", uid)
+		}
+	}
+	if w := post(s.uid, "{not-json"); w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed body accepted: %d %s", w.Code, w.Body.String())
+	}
+	if w := post(s.uid, "{}"); w.Code != http.StatusOK {
+		t.Fatalf("owner disable failed: %d %s", w.Code, w.Body.String())
+	}
+	if !subFlag() {
+		t.Fatal("owner toggle did not set cancel_at_period_end")
+	}
+	// BILL-002: re-enabling auto-renew must be possible on the same endpoint.
+	if w := post(s.uid, `{"cancel_at_period_end":false}`); w.Code != http.StatusOK {
+		t.Fatalf("owner re-enable failed: %d %s", w.Code, w.Body.String())
+	}
+	if subFlag() {
+		t.Fatal("owner re-enable did not clear cancel_at_period_end")
+	}
+	// Explicit true is equivalent to the empty-body default.
+	if w := post(s.uid, `{"cancel_at_period_end":true}`); w.Code != http.StatusOK || !subFlag() {
+		t.Fatalf("explicit disable failed: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestFutureDowngradeActivationBlocksOverAllocationWithoutExtendingOldRights(t *testing.T) {
 	s := newBillingScenario(t)
 	ctx := context.Background()

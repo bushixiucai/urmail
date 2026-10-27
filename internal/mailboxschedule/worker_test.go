@@ -118,6 +118,12 @@ func (*fakeIMAP) EnsureDraftsFolder(context.Context) (string, error) { return "D
 func (*fakeIMAP) SaveDraft(context.Context, string, webmail.Outgoing, uint32, uint32) (webmail.DraftSaveResult, error) {
 	return webmail.DraftSaveResult{}, nil
 }
+func (*fakeIMAP) SaveSentCopy(context.Context, []byte) (webmail.DraftSaveResult, error) {
+	return webmail.DraftSaveResult{}, nil
+}
+func (*fakeIMAP) MoveToTrash(context.Context, string, []uint32) (string, error) {
+	return "Trash", nil
+}
 func (*fakeIMAP) Close() error { return nil }
 
 type fakeDialer struct{ client webmail.Client }
@@ -134,7 +140,7 @@ type fakeSubmitter struct {
 	before        func()
 }
 
-func (s *fakeSubmitter) Send(_ context.Context, _, _ string, msg webmail.Outgoing) error {
+func (s *fakeSubmitter) Send(_ context.Context, _, _ string, msg webmail.Outgoing) (webmail.Submission, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
@@ -142,7 +148,7 @@ func (s *fakeSubmitter) Send(_ context.Context, _, _ string, msg webmail.Outgoin
 	if s.before != nil {
 		s.before()
 	}
-	return s.err
+	return webmail.Submission{Raw: []byte("raw")}, s.err
 }
 
 func workerFixture() (*Worker, *fakeStore, *fakeIMAP, *fakeSubmitter) {
@@ -279,5 +285,16 @@ func TestWorkerChecksDraftIdentityBeforeCleanup(t *testing.T) {
 	}
 	if st.row.Status != "sent" || imap.deleted {
 		t.Fatal("accepted send deleted another mailbox generation")
+	}
+}
+
+func TestSuspendedScheduleDoesNotSubmit(t *testing.T) {
+	w, st, _, submit := workerFixture()
+	w.opts.MaySend = func(context.Context, int64, int64) (bool, error) { return false, nil }
+	if worked, err := w.Step(context.Background()); err != nil || !worked {
+		t.Fatalf("%v %v", worked, err)
+	}
+	if st.row.Status != "failed" || submit.calls != 0 {
+		t.Fatalf("%+v calls=%d", st.row, submit.calls)
 	}
 }

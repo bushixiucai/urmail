@@ -57,13 +57,54 @@ func TestLegacyFreeCapacityMigrationPreservesMailAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sql := string(migration)
-	begin := strings.Index(sql, "DO $$ DECLARE definition text; BEGIN")
-	stop := strings.Index(sql[begin:], " SELECT pg_get_functiondef('urmail_subscription_change_guard()'::regprocedure)")
-	if begin < 0 || stop < 0 {
+	var current string
+	if err := p.QueryRow(ctx, "SELECT pg_get_functiondef('urmail_mail_allowed(bigint)'::regprocedure)").Scan(&current); err != nil {
+		t.Fatal(err)
+	}
+	// 0086 rewrote the period predicate into the 7-day grace form, so 0055's
+	// literal replace no longer matches and replaying its DO block verbatim
+	// raises MAIL_CAPACITY_GATE_UPDATE_REQUIRED by design. The property under
+	// review is unchanged: activating the capacity gate on the CURRENT
+	// definition must not revoke existing mail authority. Extract the gate
+	// predicate from the migration text and apply it to the current
+	// definition the same way 0055 did to its own.
+	marker := "/* capacity_activation_gate */"
+	markerAt := strings.Index(string(migration), marker)
+	if markerAt < 0 {
 		t.Fatal("actual migration activation block absent")
 	}
-	if _, err := p.Exec(ctx, sql[begin:begin+stop]+"END $$;"); err != nil {
+	gateStart := strings.Index(string(migration)[markerAt:], "(") + markerAt
+	gateDepth, gateEnd := 0, -1
+	for index := gateStart; index < len(migration); index++ {
+		switch migration[index] {
+		case '(':
+			gateDepth++
+		case ')':
+			gateDepth--
+			if gateDepth == 0 {
+				gateEnd = index + 1
+			}
+		}
+		if gateEnd > 0 {
+			break
+		}
+	}
+	if gateEnd < 0 {
+		t.Fatal("capacity predicate is unbalanced")
+	}
+	gate := string(migration[gateStart:gateEnd])
+	if err := p.QueryRow(ctx, "SELECT pg_get_functiondef('urmail_mail_allowed(bigint)'::regprocedure)").Scan(&current); err != nil {
+		t.Fatal(err)
+	}
+	const gracePredicate = "(s.period_end + interval '7 days' > now())"
+	if !strings.Contains(current, gracePredicate) {
+		t.Fatal("current mail gate no longer carries the 0086 grace predicate; update this regression")
+	}
+	if strings.Contains(current, marker) {
+		t.Fatal("capacity gate already active")
+	}
+	patched := strings.Replace(current, gracePredicate, gracePredicate+" AND "+gate, 1)
+	if _, err := p.Exec(ctx, patched); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.QueryRow(ctx, "SELECT urmail_mail_allowed($1)", principal.TenantID).Scan(&after); err != nil {

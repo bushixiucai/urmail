@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -100,6 +102,29 @@ type CreateAliasRequest struct {
 	Kind      string `json:"kind"` // alias|catchall|forward
 }
 
+// canonicalAliasTarget normalizes a user-supplied target before validation and
+// storage (MAIL-004). The domain part may be a U-label and is stored in the
+// lowercase A-label wire form that the Postfix maps and the routers compare
+// against; a non-ASCII local part is reported as the explicit EAI capability
+// rejection instead of being silently rewritten. Every other malformed target
+// is returned unchanged so the existing INVALID_ALIAS contract, status code
+// and message stay exactly as before.
+func canonicalAliasTarget(raw string) (target string, eai bool) {
+	target = strings.ToLower(strings.TrimSpace(raw))
+	normalized, err := validation.NormalizeEmail(target)
+	if err != nil {
+		return target, errors.Is(err, validation.ErrEAUNotSupported)
+	}
+	return normalized, false
+}
+
+// respondEAINotSupported reports the documented SMTPUTF8 capability boundary.
+func respondEAINotSupported(c *gin.Context) {
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error": gin.H{"code": "EAI_NOT_SUPPORTED", "message": "mailbox.eai_not_supported"},
+	})
+}
+
 // Create handles the tenant mail management request.
 func (h *AliasHandler) Create(c *gin.Context) {
 	q := requestStore(c, h.Store)
@@ -142,7 +167,11 @@ func (h *AliasHandler) Create(c *gin.Context) {
 	}
 
 	local := strings.ToLower(strings.TrimSpace(req.LocalPart))
-	target := strings.ToLower(strings.TrimSpace(req.Target))
+	target, eai := canonicalAliasTarget(req.Target)
+	if eai {
+		respondEAINotSupported(c)
+		return
+	}
 
 	// Validate rule against domainMail
 	existingAliases, _ := q.ListAliasesByTenant(c, tenantID)
@@ -298,7 +327,12 @@ func (h *AliasHandler) Update(c *gin.Context) {
 		local = strings.ToLower(strings.TrimSpace(*in.LocalPart))
 	}
 	if in.Target != nil {
-		target = strings.ToLower(strings.TrimSpace(*in.Target))
+		normalized, eai := canonicalAliasTarget(*in.Target)
+		if eai {
+			respondEAINotSupported(c)
+			return
+		}
+		target = normalized
 	}
 	if in.Kind != nil {
 		kind = *in.Kind

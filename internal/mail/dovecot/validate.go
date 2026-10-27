@@ -26,5 +26,5 @@ func Validate(node NodeConfig) error {
 	if err := validation.ValidateDatabaseURL(node.DatabaseURL); err != nil {
 		return fmt.Errorf("%w: database URL: %w", ErrInvalidConfig, err)
 	}
-	return nil
+	return validateSpamPolicies(node.SpamPolicies)
 }

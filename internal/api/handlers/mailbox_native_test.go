@@ -178,6 +178,14 @@ func (f *fakeIMAPClient) SaveDraft(_ context.Context, _ string, msg webmail.Outg
 		CleanupPending: f.cleanupPending,
 	}, nil
 }
+func (f *fakeIMAPClient) SaveSentCopy(context.Context, []byte) (webmail.DraftSaveResult, error) {
+	return webmail.DraftSaveResult{Folder: "Sent", UID: 1, UIDValidity: 1}, nil
+}
+func (f *fakeIMAPClient) MoveToTrash(_ context.Context, _ string, uids []uint32) (string, error) {
+	f.moveTo = "Trash"
+	f.moved = append([]uint32{}, uids...)
+	return "Trash", nil
+}
 func (f *fakeIMAPClient) Close() error { return nil }
 
 type fakeDialer struct {
@@ -199,19 +207,21 @@ func (d *fakeDialer) Dial(_ context.Context, address, password string) (webmail.
 }
 
 type fakeSubmitter struct {
-	last webmail.Outgoing
-	err  error
+	last  webmail.Outgoing
+	err   error
+	calls int
 }
 
-func (s *fakeSubmitter) Send(_ context.Context, address, password string, msg webmail.Outgoing) error {
+func (s *fakeSubmitter) Send(_ context.Context, address, password string, msg webmail.Outgoing) (webmail.Submission, error) {
+	s.calls++
 	if s.err != nil {
-		return s.err
+		return webmail.Submission{}, s.err
 	}
 	if address == "" || password == "" {
-		return errors.New("missing auth")
+		return webmail.Submission{}, errors.New("missing auth")
 	}
 	s.last = msg
-	return nil
+	return webmail.Submission{Raw: []byte("From: test\r\n\r\nbody")}, nil
 }
 
 func newNativeTestRouter(t *testing.T, h *MailboxNativeHandler, sessions middleware.MailboxSessionLookup) *gin.Engine {
@@ -230,6 +240,8 @@ func newNativeTestRouter(t *testing.T, h *MailboxNativeHandler, sessions middlew
 	auth.POST("/folders/:name/messages/delete", h.DeleteMessages)
 	auth.GET("/folders/:name/messages/:uid", h.GetMessage)
 	auth.GET("/folders/:name/messages/:uid/attachments/:part_id", h.GetAttachment)
+	auth.GET("/folders/:name/messages/:uid/raw", h.GetRawMessage)
+	auth.POST("/folders/:name/import", h.ImportMessage)
 	auth.POST("/send", h.SendMessage)
 	auth.PUT("/drafts", h.SaveDraft)
 	auth.GET("/drafts", h.ListDrafts)
@@ -407,6 +419,13 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	if w.Code != http.StatusOK || submit.last.Subject != "Hi" {
 		t.Fatalf("send %d %#v", w.Code, submit.last)
 	}
+	calls := submit.calls
+	h.MaySend = func(context.Context, int64, int64) (bool, error) { return false, nil }
+	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{"to": []string{"bob@example.test"}, "text": "blocked"})
+	if w.Code != http.StatusForbidden || !bytes.Contains(w.Body.Bytes(), []byte("MAIL_SENDING_SUSPENDED")) || submit.calls != calls {
+		t.Fatalf("suspended %d calls=%d %s", w.Code, submit.calls, w.Body.String())
+	}
+	h.MaySend = func(context.Context, int64, int64) (bool, error) { return true, nil }
 	submit.err = fmt.Errorf("acceptance reply lost: %w", webmail.ErrSubmitUncertain)
 	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{
 		"to": []string{"bob@example.test"}, "text": "do not blindly repeat",
@@ -667,5 +686,136 @@ func TestMailboxNativePasswordRequiresPool(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("password without pool = %d %s", w.Code, w.Body.String())
+	}
+}
+
+type rawCapableClient struct {
+	fakeIMAPClient
+	raw       []byte
+	rawErr    error
+	imported  [][]byte
+	importErr error
+}
+
+func (c *rawCapableClient) GetRawMessage(_ context.Context, _ string, uid uint32) ([]byte, uint32, error) {
+	if c.rawErr != nil {
+		return nil, 0, c.rawErr
+	}
+	if uid == 0 {
+		return nil, 0, webmail.ErrMessageNotFound
+	}
+	return c.raw, 9, nil
+}
+
+func (c *rawCapableClient) ImportMessage(_ context.Context, _ string, raw []byte) (webmail.DraftSaveResult, error) {
+	if c.importErr != nil {
+		return webmail.DraftSaveResult{}, c.importErr
+	}
+	c.imported = append(c.imported, raw)
+	return webmail.DraftSaveResult{Folder: "INBOX", UID: 77, UIDValidity: 9}, nil
+}
+
+func TestGetRawMessageStreamsExactPayload(t *testing.T) {
+	payload := "From: a@example.test\r\n\r\nhello\r\n"
+	client := &rawCapableClient{raw: []byte(payload)}
+	sessions := &fakeMailboxSessions{}
+	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: authHash}, Sessions: sessions, Vault: webmail.NewMemoryVault(), Submitter: &fakeSubmitter{}}
+	h.Dialer = &fakeDialer{wantAddress: "alice@example.test", client: client}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", "correct-horse-battery")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/5/raw", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || w.Body.String() != payload {
+		t.Fatalf("%d %q", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "message/rfc822" {
+		t.Fatalf("content type %q", ct)
+	}
+}
+
+func TestGetRawMessageNotFound(t *testing.T) {
+	client := &rawCapableClient{rawErr: webmail.ErrMessageNotFound}
+	sessions := &fakeMailboxSessions{}
+	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: authHash}, Sessions: sessions, Vault: webmail.NewMemoryVault(), Submitter: &fakeSubmitter{}}
+	h.Dialer = &fakeDialer{wantAddress: "alice@example.test", client: client}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", "correct-horse-battery")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/99/raw", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestImportMessageStoresRawPayload(t *testing.T) {
+	client := &rawCapableClient{}
+	sessions := &fakeMailboxSessions{}
+	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: authHash}, Sessions: sessions, Vault: webmail.NewMemoryVault(), Submitter: &fakeSubmitter{}}
+	h.Dialer = &fakeDialer{wantAddress: "alice@example.test", client: client}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", "correct-horse-battery")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/mailbox/folders/INBOX/import", strings.NewReader("From: x@y\r\n\r\nhi\r\n"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "message/rfc822")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated || len(client.imported) != 1 {
+		t.Fatalf("%d %s imported=%d", w.Code, w.Body.String(), len(client.imported))
+	}
+}
+
+func TestImportMessageRejectsWrongContentType(t *testing.T) {
+	client := &rawCapableClient{}
+	sessions := &fakeMailboxSessions{}
+	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: authHash}, Sessions: sessions, Vault: webmail.NewMemoryVault(), Submitter: &fakeSubmitter{}}
+	h.Dialer = &fakeDialer{wantAddress: "alice@example.test", client: client}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", "correct-horse-battery")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/mailbox/folders/INBOX/import", strings.NewReader("hello"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnsupportedMediaType || len(client.imported) != 0 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetRawMessageNonCapableClientReturns501(t *testing.T) {
+	sessions := &fakeMailboxSessions{}
+	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{tenantID: 7, mailboxID: 9, address: "alice@example.test", hash: authHash}, Sessions: sessions, Vault: webmail.NewMemoryVault(), Submitter: &fakeSubmitter{}}
+	h.Dialer = &fakeDialer{wantAddress: "alice@example.test", client: &fakeIMAPClient{message: &webmail.Message{MessageSummary: webmail.MessageSummary{UID: 5}}}}
+	r := newNativeTestRouter(t, h, sessions)
+	token := loginNative(t, r, "alice@example.test", "correct-horse-battery")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/5/raw", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 }

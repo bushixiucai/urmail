@@ -44,6 +44,18 @@ WHERE tenant_id=$1 AND campaign_id=$2 AND status IN('queued','leased');
 -- name: ListMarketingRecipients :many
 SELECT * FROM marketing_recipients WHERE tenant_id=$1 AND campaign_id=$2 ORDER BY id LIMIT 1000;
 
+-- MKT-005 outcome report. Counters come from the incremental
+-- marketing_campaign_stats row; pending/total come from recipient facts.
+-- name: GetMarketingCampaignReport :one
+SELECT c.id AS campaign_id,c.name,c.status,
+ COALESCE(s.sent,0)::bigint AS sent,COALESCE(s.failed,0)::bigint AS failed,
+ COALESCE(s.uncertain,0)::bigint AS uncertain,COALESCE(s.unsubscribed,0)::bigint AS unsubscribed,
+ COALESCE(s.bounced,0)::bigint AS bounced,COALESCE(s.bounced_unknown,0)::bigint AS bounced_unknown,
+ (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id)::bigint AS total_recipients,
+ (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id AND r.status IN('queued','leased','submitting'))::bigint AS pending_recipients
+FROM marketing_campaigns c LEFT JOIN marketing_campaign_stats s ON s.tenant_id=c.tenant_id AND s.campaign_id=c.id
+WHERE c.tenant_id=$1 AND c.id=$2;
+
 -- name: PreviewMarketingCampaign :one
 SELECT c.id,c.tenant_id,c.name,c.status,t.subject,t.text_body,
  (SELECT count(*) FROM marketing_contacts mc WHERE mc.tenant_id=c.tenant_id AND mc.list_id=c.list_id AND mc.opted_in) AS opted_in_count,

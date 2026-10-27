@@ -148,7 +148,7 @@ describe("HTML mail network policy", () => {
     expect(policy?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
     const csp = policy?.getAttribute("content") ?? "";
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("img-src data: cid:");
+    expect(csp).toContain("img-src data:");
     expect(csp).toContain("style-src 'unsafe-inline'");
     expect(csp).toContain("font-src 'none'");
     expect(csp).toContain("connect-src 'none'");

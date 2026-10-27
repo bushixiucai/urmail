@@ -12,6 +12,10 @@ import (
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
+// ErrSuspended is returned when the mailbox lookup has no row because the
+// tenant's outbound sending entitlement is paused (e.g. overdue past grace).
+var ErrSuspended = errors.New("mailbox sending suspended")
+
 // UsageStore abstracts the lookups needed to resolve a mailbox address to its
 // usage row (mailbox_id / tenant_id) and current counters.
 type UsageStore interface {
@@ -92,7 +96,7 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 	if c.UseLock {
 		row, err := c.Store.GetMailboxDailySentForUpdate(ctx, mailboxAddress)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
+			return false, ErrSuspended
 		}
 		if err != nil {
 			return false, fmt.Errorf("query mailbox daily sent (for update): %w", err)
@@ -104,7 +108,7 @@ func (c *DBQuotaChecker) CheckAndIncrement(ctx context.Context, mailboxAddress s
 	} else {
 		row, err := c.Store.GetMailboxDailySent(ctx, mailboxAddress)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
+			return false, ErrSuspended
 		}
 		if err != nil {
 			return false, fmt.Errorf("query mailbox daily sent: %w", err)

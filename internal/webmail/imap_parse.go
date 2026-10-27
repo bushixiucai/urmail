@@ -11,25 +11,56 @@ import (
 // parseEnvelope extracts subject/from/date from an IMAP ENVELOPE s-expression.
 // ENVELOPE = (date subject from sender reply-to to cc bcc in-reply-to message-id)
 func parseEnvelope(s string) (subject string, from []Address, date time.Time) {
+	subject, from, _, date = parseEnvelopeParties(s)
+	return subject, from, date
+}
+
+// parseEnvelopeIDs extracts in-reply-to (item 8) and message-id (item 9)
+// from an ENVELOPE; both feed client-side threading.
+func parseEnvelopeIDs(s string) (inReplyTo, messageID string) {
+	trimmed := strings.TrimSpace(s)
+	if !strings.HasPrefix(trimmed, "(") {
+		return "", ""
+	}
+	inner, ok := stripOuterParens(trimmed)
+	if !ok {
+		return "", ""
+	}
+	items := splitTopLevel(inner)
+	if len(items) > 8 {
+		inReplyTo = decodeMIMEHeader(nstring(items[8]))
+	}
+	if len(items) > 9 {
+		messageID = decodeMIMEHeader(nstring(items[9]))
+	}
+	return inReplyTo, messageID
+}
+
+// parseEnvelopeParties also returns Reply-To. An empty Reply-To means the
+// sender did not set one; callers must not invent it from From.
+func parseEnvelopeParties(s string) (subject string, from, replyTo []Address, date time.Time) {
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "(") {
-		return "", nil, time.Time{}
+		return "", nil, nil, time.Time{}
 	}
 	inner, ok := stripOuterParens(s)
 	if !ok {
-		return "", nil, time.Time{}
+		return "", nil, nil, time.Time{}
 	}
 	items := splitTopLevel(inner)
 	if len(items) < 3 {
-		return "", nil, time.Time{}
+		return "", nil, nil, time.Time{}
 	}
 	dateStr := nstring(items[0])
 	subject = decodeMIMEHeader(nstring(items[1]))
 	from = parseAddressList(items[2])
+	if len(items) > 4 {
+		replyTo = parseAddressList(items[4])
+	}
 	if dateStr != "" {
 		date = parseIMAPDate(dateStr)
 	}
-	return subject, from, date
+	return subject, from, replyTo, date
 }
 
 func parseAddressList(s string) []Address {
@@ -293,12 +324,15 @@ func summaryFromAttrs(attrs map[string]string) (MessageSummary, error) {
 		return MessageSummary{}, fmt.Errorf("missing uid")
 	}
 	subject, from, date := parseEnvelope(attrs["ENVELOPE"])
+	inReplyTo, messageID := parseEnvelopeIDs(attrs["ENVELOPE"])
 	return MessageSummary{
-		UID:     uid,
-		Subject: subject,
-		From:    from,
-		Date:    date,
-		Flags:   parseFlags(attrs["FLAGS"]),
-		Size:    parseSize(attrs["RFC822.SIZE"]),
+		UID:       uid,
+		Subject:   subject,
+		From:      from,
+		Date:      date,
+		Flags:     parseFlags(attrs["FLAGS"]),
+		Size:      parseSize(attrs["RFC822.SIZE"]),
+		InReplyTo: inReplyTo,
+		MessageID: messageID,
 	}, nil
 }

@@ -14,8 +14,10 @@ import (
 const platformBindBrandHost = `-- name: PlatformBindBrandHost :one
 INSERT INTO brand_hosts(hostname,brand_id)
 SELECT $1,b.id FROM brands b WHERE b.id=$2 AND b.status='active'
-ON CONFLICT(hostname) DO UPDATE SET brand_id=EXCLUDED.brand_id
-RETURNING hostname,brand_id,created_at
+ON CONFLICT(hostname) DO UPDATE SET brand_id=EXCLUDED.brand_id,
+status='pending-verify',failure_reason=NULL,verified_at=NULL,
+cert_issued_at=NULL,activated_at=NULL,updated_at=now()
+RETURNING hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at
 `
 
 type PlatformBindBrandHostParams struct {
@@ -23,10 +25,32 @@ type PlatformBindBrandHostParams struct {
 	ID       int64  `json:"id"`
 }
 
-func (q *Queries) PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (BrandHosts, error) {
+type PlatformBindBrandHostRow struct {
+	Hostname      string             `json:"hostname"`
+	BrandID       int64              `json:"brand_id"`
+	Status        string             `json:"status"`
+	FailureReason pgtype.Text        `json:"failure_reason"`
+	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
+	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
+	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (PlatformBindBrandHostRow, error) {
 	row := q.db.QueryRow(ctx, platformBindBrandHost, arg.Hostname, arg.ID)
-	var i BrandHosts
-	err := row.Scan(&i.Hostname, &i.BrandID, &i.CreatedAt)
+	var i PlatformBindBrandHostRow
+	err := row.Scan(
+		&i.Hostname,
+		&i.BrandID,
+		&i.Status,
+		&i.FailureReason,
+		&i.VerifiedAt,
+		&i.CertIssuedAt,
+		&i.ActivatedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
@@ -58,19 +82,41 @@ func (q *Queries) PlatformDeleteUnusedPlan(ctx context.Context, code string) (in
 }
 
 const platformListBrandHosts = `-- name: PlatformListBrandHosts :many
-SELECT hostname,brand_id,created_at FROM brand_hosts ORDER BY hostname
+SELECT hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at FROM brand_hosts ORDER BY hostname
 `
 
-func (q *Queries) PlatformListBrandHosts(ctx context.Context) ([]BrandHosts, error) {
+type PlatformListBrandHostsRow struct {
+	Hostname      string             `json:"hostname"`
+	BrandID       int64              `json:"brand_id"`
+	Status        string             `json:"status"`
+	FailureReason pgtype.Text        `json:"failure_reason"`
+	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
+	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
+	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) PlatformListBrandHosts(ctx context.Context) ([]PlatformListBrandHostsRow, error) {
 	rows, err := q.db.Query(ctx, platformListBrandHosts)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []BrandHosts{}
+	items := []PlatformListBrandHostsRow{}
 	for rows.Next() {
-		var i BrandHosts
-		if err := rows.Scan(&i.Hostname, &i.BrandID, &i.CreatedAt); err != nil {
+		var i PlatformListBrandHostsRow
+		if err := rows.Scan(
+			&i.Hostname,
+			&i.BrandID,
+			&i.Status,
+			&i.FailureReason,
+			&i.VerifiedAt,
+			&i.CertIssuedAt,
+			&i.ActivatedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -268,7 +314,7 @@ func (q *Queries) PlatformUnbindBrandHost(ctx context.Context, hostname string) 
 const publicBrandByHost = `-- name: PublicBrandByHost :one
 SELECT b.id,b.slug,b.name,b.theme,b.logo_url,b.favicon_url,b.primary_color
 FROM brands b JOIN brand_hosts h ON h.brand_id=b.id
-WHERE h.hostname=$1 AND b.status='active'
+WHERE h.hostname=$1 AND b.status='active' AND h.status='active'
 `
 
 type PublicBrandByHostRow struct {

@@ -20,7 +20,7 @@ import (
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 )
 
-func localSMTP(t *testing.T, dropAfterData bool) (SMTPConfig, *x509.CertPool, <-chan string) {
+func localSMTP(t *testing.T, dropAfterData bool) (SMTPConfig, *x509.CertPool, <-chan string, <-chan string) {
 	t.Helper()
 	public, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -46,6 +46,7 @@ func localSMTP(t *testing.T, dropAfterData bool) (SMTPConfig, *x509.CertPool, <-
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	message := make(chan string, 1)
+	envelope := make(chan string, 1)
 	go func() {
 		conn, acceptErr := listener.Accept()
 		if acceptErr != nil {
@@ -79,6 +80,12 @@ func localSMTP(t *testing.T, dropAfterData bool) (SMTPConfig, *x509.CertPool, <-
 				conn = secured
 				reader = textproto.NewReader(bufio.NewReader(conn))
 			case strings.HasPrefix(line, "MAIL FROM:") || strings.HasPrefix(line, "RCPT TO:"):
+				if strings.HasPrefix(line, "MAIL FROM:") {
+					select {
+					case envelope <- line:
+					default:
+					}
+				}
 				if !write("250 Accepted") {
 					return
 				}
@@ -109,11 +116,37 @@ func localSMTP(t *testing.T, dropAfterData bool) (SMTPConfig, *x509.CertPool, <-
 	}()
 	host, portText, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portText)
-	return SMTPConfig{Host: host, Port: port, From: "sender@example.test", Dedicated: true}, roots, message
+	return SMTPConfig{Host: host, Port: port, From: "sender@example.test", Dedicated: true}, roots, message, envelope
+}
+
+// TestSMTPEnvelopeUsesCampaignBounceAddress asserts the per-campaign
+// RETURN-PATH while headers carry the per-recipient identity.
+func TestSMTPEmvelopeUsesCampaignBounceAddress(t *testing.T) {
+	cfg, roots, payload, envelope := localSMTP(t, false)
+	cfg.BounceAddress = "bounce@example.test"
+	cfg.From = "sender@example.test"
+	d := Delivery{Email: "recipient@example.test", Subject: "Subject", Body: "Body", MessageID: "campaign-7-recipient-9@example.test", EnvelopeFrom: cfg.BounceAddress, UnsubscribeURL: "https://panel.example.test/unsubscribe?token=signed"}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sendSMTP(ctx, cfg, d, roots); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case line := <-envelope:
+		if line != "MAIL FROM:<bounce@example.test>" {
+			t.Fatalf("campaign bounce address not used: %q", line)
+		}
+	case <-ctx.Done():
+		t.Fatal("no MAIL FROM observed")
+	}
+	body := <-payload
+	if !strings.Contains(body, "List-Unsubscribe: <https://panel.example.test/unsubscribe?token=signed>") || !strings.Contains(body, "Message-ID: <campaign-7-recipient-9@example.test>") {
+		t.Fatalf("per-recipient headers missing: %q", body)
+	}
 }
 
 func TestSMTPGatewayVerifiesTLSAndWritesUnsubscribeHeaders(t *testing.T) {
-	cfg, roots, payload := localSMTP(t, false)
+	cfg, roots, payload, _ := localSMTP(t, false)
 	d := Delivery{Email: "recipient@example.test", Subject: "中文 Subject", Body: "Consented body", MessageID: "campaign-1@example.test", UnsubscribeURL: "https://panel.example.test/unsubscribe?token=signed"}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -131,7 +164,7 @@ func TestSMTPGatewayVerifiesTLSAndWritesUnsubscribeHeaders(t *testing.T) {
 }
 
 func TestSMTPAcceptanceDisconnectIsUncertain(t *testing.T) {
-	cfg, roots, _ := localSMTP(t, true)
+	cfg, roots, _, _ := localSMTP(t, true)
 	err := sendSMTP(context.Background(), cfg, Delivery{Email: "recipient@example.test", Subject: "Subject", Body: "Body", MessageID: "campaign@example.test", UnsubscribeURL: "https://panel.example.test/unsubscribe"}, roots)
 	if !domainMail.IsDeliveryUncertain(err) {
 		t.Fatalf("DATA disconnect must remain uncertain: %v", err)
@@ -139,7 +172,7 @@ func TestSMTPAcceptanceDisconnectIsUncertain(t *testing.T) {
 }
 
 func TestSMTPRefusesUntrustedCertificateBeforeSending(t *testing.T) {
-	cfg, _, payload := localSMTP(t, false)
+	cfg, _, payload, _ := localSMTP(t, false)
 	err := SendSMTP(context.Background(), cfg, Delivery{Email: "recipient@example.test", Subject: "Subject", Body: "Body", MessageID: "campaign@example.test", UnsubscribeURL: "https://panel.example.test/unsubscribe"})
 	if err == nil {
 		t.Fatal("untrusted gateway certificate was accepted")
@@ -152,7 +185,7 @@ func TestSMTPRefusesUntrustedCertificateBeforeSending(t *testing.T) {
 }
 
 func TestSMTPRevocationImmediatelyBeforeData(t *testing.T) {
-	cfg, roots, messages := localSMTP(t, false)
+	cfg, roots, messages, _ := localSMTP(t, false)
 	called := false
 	d := Delivery{Email: "recipient@example.test", Subject: "Test", Body: "Body", MessageID: "check@example.test", UnsubscribeURL: "https://example.test/unsubscribe"}
 	d.BeforeData = func(context.Context) error { called = true; return context.Canceled }

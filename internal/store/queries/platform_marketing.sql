@@ -4,6 +4,10 @@ INSERT INTO marketing_channels(tenant_id,name,kind,sender_address,encrypted_conf
 -- name: PlatformGetMarketingChannel :one
 SELECT * FROM marketing_channels WHERE id=$1;
 
+-- name: PlatformGetActiveMarketingChannel :one
+SELECT id,tenant_id,name,kind,encrypted_config FROM marketing_channels
+WHERE tenant_id=$1 AND enabled AND kind='dedicated_gateway' ORDER BY id LIMIT 1;
+
 -- name: PlatformRecoverMarketingSubmissions :execrows
 UPDATE marketing_recipients SET status='uncertain',result_code='lease_expired_inflight',completed_at=now(),fence=fence+1,lease_until=NULL
 WHERE status='submitting' AND lease_until<=now();
@@ -49,6 +53,12 @@ SELECT urmail_record_marketing_feedback(@channel_id::bigint,@event_id::text,@rec
 
 -- name: PlatformUpdateMarketingChannel :one
 UPDATE marketing_channels SET name=$3,kind=$4,sender_address=$5,encrypted_config=$6,enabled=$7 WHERE tenant_id=$1 AND id=$2 RETURNING id,tenant_id,name,kind,enabled,created_at;
+
+-- name: PlatformMarkMarketingRecipientRevoked :one
+SELECT urmail_mark_marketing_recipient_revoked(@tenant_id::bigint,@recipient_id::bigint,@lease_owner::text,@fence::bigint)::boolean AS revoked;
+
+-- name: PlatformSkipMarketingRecipient :one
+SELECT urmail_skip_marketing_recipient(@tenant_id::bigint,@recipient_id::bigint,@lease_owner::text,@fence::bigint,@reason::text)::boolean AS skipped;
 
 -- name: PlatformMarketingAttemptStillAllowed :one
 SELECT EXISTS(SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id

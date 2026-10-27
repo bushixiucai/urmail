@@ -332,3 +332,158 @@ func TestPauseAndCancelDoNotAuthorizeNewAttempts(t *testing.T) {
 		})
 	}
 }
+
+// MKT-001: only authorized tenant roles may create or confirm a campaign,
+// the confirmation freezes an immutable content snapshot, a repeated
+// confirmation must not duplicate recipients, and a re-imported contact that
+// is suppressed stays deactivated.
+func TestCampaignConfirmAuthorizationSnapshotAndSuppression(t *testing.T) {
+	ctx := context.Background()
+	dsn := testdb.New(t)
+	m, err := db.NewMigrator(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.Up(ctx)
+	_ = m.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := db.OpenPlatform(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	a, err := db.OpenApp(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Close)
+	var brand, tenant, owner, member int64
+	if err = p.QueryRow(ctx, "INSERT INTO brands(slug,name) VALUES('mkt-core','MKT') RETURNING id").Scan(&brand); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('mkt-owner@example.test','unused') RETURNING id").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('mkt-member@example.test','unused') RETURNING id").Scan(&member); err != nil {
+		t.Fatal(err)
+	}
+	if err = p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status,owner_user_id) VALUES($1,'MKT','mkt-core','active',$2) RETURNING id", brand, owner).Scan(&tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'member')", owner, tenant, member, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, "INSERT INTO plans(code,name,price_cents,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features) VALUES('mkt-core','{}',100,1073741824,5,2,1000,'{\"marketing_daily_recipient_limit\":100,\"marketing_rate_per_minute\":600}') ON CONFLICT(code) DO UPDATE SET features=EXCLUDED.features"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, "UPDATE subscriptions SET plan_id='mkt-core' WHERE tenant_id=$1", tenant); err != nil {
+		t.Fatal(err)
+	}
+	var domain int64
+	if err = p.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES($1,'mkt-core.example.test','active','proof',now()) RETURNING id", tenant).Scan(&domain); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(ctx, "INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status,send_enabled) VALUES($1,$2,'sender','sender@mkt-core.example.test','unused',268435456,'active',true)", tenant, domain); err != nil {
+		t.Fatal(err)
+	}
+	q := store.New(p)
+	channel, err := q.PlatformCreateMarketingChannel(ctx, store.PlatformCreateMarketingChannelParams{TenantID: tenant, Name: "Dedicated", Kind: "dedicated_gateway", SenderAddress: "sender@mkt-core.example.test", EncryptedConfig: "enc:v1:fixture", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := q.CreateMarketingTemplate(ctx, store.CreateMarketingTemplateParams{TenantID: tenant, Name: "Core", Subject: "Frozen Subject", TextBody: "Original body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := q.CreateMarketingList(ctx, store.CreateMarketingListParams{TenantID: tenant, Name: "Core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, email := range []string{"active@example.test", "returning@example.test"} {
+		if _, err = q.UpsertMarketingContact(ctx, store.UpsertMarketingContactParams{TenantID: tenant, ListID: list.ID, Email: email, ConsentSource: "explicit test consent", OptedIn: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The tenant unsubscribed; a later re-import must not reactivate them.
+	if _, err = q.AddMarketingSuppression(ctx, store.AddMarketingSuppressionParams{TenantID: tenant, Email: "returning@example.test", Reason: "unsubscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = q.UpsertMarketingContact(ctx, store.UpsertMarketingContactParams{TenantID: tenant, ListID: list.ID, Email: "returning@example.test", ConsentSource: "re-imported list", OptedIn: true}); err != nil {
+		t.Fatal(err)
+	}
+	campaign, err := q.CreateMarketingCampaign(ctx, store.CreateMarketingCampaignParams{TenantID: tenant, Name: "Core", ChannelID: channel.ID, TemplateID: template.ID, ListID: list.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A member may neither create nor confirm a campaign. Each rejected
+	// statement aborts its transaction, so every probe uses a fresh one.
+	memberProbe := func(probe func(*store.Queries) error, label string) {
+		t.Helper()
+		tx, err := a.UserTx(ctx, tenant, member)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err = probe(store.New(tx)); err == nil || !strings.Contains(err.Error(), "MARKETING_FORBIDDEN") {
+			t.Fatalf("member %s: err=%v", label, err)
+		}
+	}
+	memberProbe(func(sq *store.Queries) error {
+		_, err := sq.CreateMarketingCampaign(ctx, store.CreateMarketingCampaignParams{TenantID: tenant, Name: "Member", ChannelID: channel.ID, TemplateID: template.ID, ListID: list.ID})
+		return err
+	}, "created a campaign")
+	memberProbe(func(sq *store.Queries) error {
+		_, err := sq.ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}})
+		return err
+	}, "confirmed a campaign")
+	// The owner confirms; the suppressed contact stays out of the recipients.
+	ownerTx, err := a.UserTx(ctx, tenant, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ownerTx.Rollback(ctx) }()
+	result, err := store.New(ownerTx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}})
+	if err != nil || result != "scheduled" {
+		_ = ownerTx.Rollback(ctx)
+		t.Fatalf("owner schedule: %s %v", result, err)
+	}
+	if err = ownerTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recipients, err := q.ListMarketingRecipients(ctx, store.ListMarketingRecipientsParams{TenantID: tenant, CampaignID: campaign.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recipients) != 1 || recipients[0].Email != "active@example.test" {
+		t.Fatalf("recipients = %+v, want only the unsuppressed contact", recipients)
+	}
+	// Editing the template after confirmation must not touch the frozen copy,
+	// and a repeated confirmation must not duplicate recipients.
+	if _, err = p.Exec(ctx, "UPDATE marketing_templates SET subject='Changed',text_body='Changed body' WHERE id=$1", template.ID); err != nil {
+		t.Fatal(err)
+	}
+	ownerTx, err = a.UserTx(ctx, tenant, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ownerTx.Rollback(ctx) }()
+	if result, err = store.New(ownerTx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}}); err != nil || result != "scheduled" {
+		_ = ownerTx.Rollback(ctx)
+		t.Fatalf("duplicate schedule: %s %v", result, err)
+	}
+	if err = ownerTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	frozen, err := q.GetMarketingCampaign(ctx, store.GetMarketingCampaignParams{TenantID: tenant, ID: campaign.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frozen.SubjectSnapshot.String != "Frozen Subject" || frozen.BodySnapshot.String != "Original body" {
+		t.Fatalf("snapshot was rewritten: %q %q", frozen.SubjectSnapshot.String, frozen.BodySnapshot.String)
+	}
+	if recipients, err = q.ListMarketingRecipients(ctx, store.ListMarketingRecipientsParams{TenantID: tenant, CampaignID: campaign.ID}); err != nil || len(recipients) != 1 {
+		t.Fatalf("duplicate confirmation changed recipients: %d %v", len(recipients), err)
+	}
+}

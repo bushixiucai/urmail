@@ -3,10 +3,11 @@ package agentd
 import (
 	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/certs"
 )
 
 // OpCertificateStatus is a fixed-path read-only trusted-chain probe.
@@ -18,6 +19,20 @@ type CertificateStatus struct {
 	Trusted   bool      `json:"trusted"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Reason    string    `json:"reason,omitempty"`
+	// MissingSANs lists the declared endpoint identities the leaf does not
+	// cover (MAIL-006 SAN completeness). Empty unless Reason is
+	// CERTIFICATE_SAN_INCOMPLETE.
+	MissingSANs []string `json:"missing_sans,omitempty"`
+}
+
+// certificateEndpointIdentities returns every endpoint served with this
+// certificate. Today each registered identity (mail hostname, tenant domain,
+// brand host) terminates its own vhost with its own certificate, so the
+// declared set is the identity itself; autoconfig/DAV/EAS are paths under the
+// same vhost and inherit the same name. Keep this the single place that grows
+// if additional per-domain endpoint hostnames are introduced.
+func certificateEndpointIdentities(domain string) []string {
+	return []string{domain}
 }
 
 // CertificateStatus validates CA chain, exact DNS SAN and current lifetime.
@@ -34,7 +49,7 @@ func (m *ApplyManager) CertificateStatus(raw json.RawMessage) (string, string, e
 	if !allowed {
 		return "", "", fmt.Errorf("%w: certificate identity is not registered", ErrRejected)
 	}
-	result := CertificateStatus{Domain: p.Domain, Reason: "CERTIFICATE_UNAVAILABLE"}
+	result := CertificateStatus{Domain: p.Domain, Reason: certs.ReasonUnavailable}
 	path := certificateCertPath(m.certificatePaths(p.Domain))
 	info, err := os.Lstat(path)
 	if err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 && info.Size() <= 1<<20 {
@@ -46,50 +61,40 @@ func (m *ApplyManager) CertificateStatus(raw json.RawMessage) (string, string, e
 	out, err := json.Marshal(result)
 	return string(out), "", err
 }
+
 func verifyCertificateStatus(domain string, raw []byte, now time.Time) CertificateStatus {
 	roots, err := x509.SystemCertPool()
 	if err != nil {
-		return CertificateStatus{Domain: domain, Reason: "CERTIFICATE_ROOTS_UNAVAILABLE"}
+		return CertificateStatus{Domain: domain, Reason: certs.ReasonRootsUnavailable}
 	}
 	return verifyCertificateStatusRoots(domain, raw, now, roots)
 }
+
+// verifyCertificateStatusRoots classifies one consumer chain for one identity.
+// Reasons are the stable certs.* verdict codes: lifetime (not-yet-valid /
+// expired), then name, then trust, then the renewal window. A name-mismatched
+// certificate is never collapsed into "untrusted" and an unusable certificate
+// is never reported as trusted with a cosmetic reason.
 func verifyCertificateStatusRoots(domain string, raw []byte, now time.Time, roots *x509.CertPool) CertificateStatus {
-	out := CertificateStatus{Domain: domain, Reason: "CERTIFICATE_INVALID"}
-	var leaf *x509.Certificate
-	intermediates := x509.NewCertPool()
-	for {
-		block, rest := pem.Decode(raw)
-		if block == nil {
-			break
-		}
-		raw = rest
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-		certificate, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return out
-		}
-		if leaf == nil {
-			leaf = certificate
-		} else {
-			intermediates.AddCert(certificate)
-		}
-	}
-	if leaf == nil {
-		return out
-	}
-	out.ExpiresAt = leaf.NotAfter
-	_, err := leaf.Verify(x509.VerifyOptions{DNSName: domain, Roots: roots, Intermediates: intermediates, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
+	chain, err := certs.ParseChain(raw)
 	if err != nil {
-		out.Reason = "CERTIFICATE_CHAIN_OR_SAN_INVALID"
+		return CertificateStatus{Domain: domain, Reason: certs.ReasonInvalid}
+	}
+	reason := chain.Classify(domain, roots, now, time.Hour)
+	out := CertificateStatus{Domain: domain, Reason: reason}
+	if chain.Leaf != nil {
+		out.ExpiresAt = chain.Leaf.NotAfter
+	}
+	if reason != "" {
 		return out
 	}
-	if leaf.NotAfter.Before(now.Add(time.Hour)) {
-		out.Reason = "CERTIFICATE_EXPIRING"
+	// The identity itself is served; the SAN gate must still hold for every
+	// declared endpoint name so a partially-scoped certificate cannot pass.
+	if gaps := certs.CoverageGaps(chain.Leaf, certificateEndpointIdentities(domain)); len(gaps) > 0 {
+		out.Reason = certs.ReasonSANIncomplete
+		out.MissingSANs = gaps
 		return out
 	}
 	out.Trusted = true
-	out.Reason = ""
 	return out
 }

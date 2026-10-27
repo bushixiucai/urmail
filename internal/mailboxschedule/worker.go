@@ -41,6 +41,7 @@ type Options struct {
 	Vault       webmail.ScheduleSealer
 	Dialer      webmail.Dialer
 	Submitter   webmail.Submitter
+	MaySend     func(context.Context, int64, int64) (bool, error)
 	Interval    time.Duration
 	TaskTimeout time.Duration
 	Logger      *zap.Logger
@@ -152,6 +153,15 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 	outgoing.From = address
 	// A stable identifier supports reconciliation; SMTP recipients need not deduplicate it.
 	outgoing.MessageID = fmt.Sprintf("<urmail-schedule-%d@localhost>", row.ID)
+	if w.opts.MaySend != nil {
+		allowed, allowErr := w.opts.MaySend(ctx, row.TenantID, row.MailboxID)
+		if allowErr != nil {
+			return w.retry(ctx, row, "preparing", "SCHEDULE_POLICY_UNAVAILABLE")
+		}
+		if !allowed {
+			return w.finish(ctx, row, "preparing", "failed", "MAIL_SENDING_SUSPENDED")
+		}
+	}
 	// This durable CAS is the cancellation boundary. No SMTP call is allowed
 	// unless this exact claim still owns a live preparing row.
 	if _, err = w.opts.Store.PlatformBeginMailboxScheduledSendSubmission(ctx, store.PlatformBeginMailboxScheduledSendSubmissionParams{ID: row.ID, ClaimToken: row.ClaimToken}); err != nil {
@@ -160,7 +170,7 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 		}
 		return err
 	}
-	err = w.opts.Submitter.Send(ctx, address, password, outgoing)
+	_, err = w.opts.Submitter.Send(ctx, address, password, outgoing)
 	if err != nil {
 		if errors.Is(err, webmail.ErrSubmitUncertain) || !errors.Is(err, webmail.ErrSubmitFailed) {
 			return w.finish(ctx, row, "submitting", "uncertain", "SCHEDULE_DELIVERY_UNCERTAIN")

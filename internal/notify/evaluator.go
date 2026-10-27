@@ -16,7 +16,21 @@ var openAlerts = prometheus.NewGauge(prometheus.GaugeOpts{Name: "urmail_payment_
 
 var workStates = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "urmail_durable_work_items", Help: "Durable work count by bounded workflow and state; no tenant, content or provider identifiers."}, []string{"workflow", "state"})
 
-func init() { prometheus.MustRegister(openAlerts, workStates) }
+// OPS-103 notification observability: monotonic enqueue and delivery counters
+// per channel and kind, plus the durable outbox depth per state machine state.
+var (
+	notificationEnqueued   = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "urmail_notifications_enqueued_total", Help: "Lifecycle notifications appended to the durable outbox by channel and kind."}, []string{"channel", "kind"})
+	notificationDeliveries = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "urmail_notifications_delivery_total", Help: "Email notification delivery attempts by channel, kind and outcome (sent, retrying, uncertain, unfinished)."}, []string{"channel", "kind", "outcome"})
+	notificationOutbox     = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "urmail_notification_outbox_items", Help: "Durable notification count per channel, kind and delivery state; no tenant or content identifiers."}, []string{"channel", "kind", "state"})
+)
+
+// lastEnqueuedID tracks the outbox watermark so idempotent enqueues are
+// counted exactly once even though the underlying rows are deduplicated.
+var lastEnqueuedID int64
+
+func init() {
+	prometheus.MustRegister(openAlerts, workStates, notificationEnqueued, notificationDeliveries, notificationOutbox)
+}
 
 // Evaluate commits condition state and deduplicated notifications together.
 func Evaluate(ctx context.Context, pool *db.Pool) error {
@@ -53,6 +67,9 @@ func Evaluate(ctx context.Context, pool *db.Pool) error {
 	if err = q.PlatformEnqueueSubscriptionReminders(ctx); err != nil {
 		return err
 	}
+	if err = q.PlatformEnqueueSubscriptionLifecycleNotices(ctx); err != nil {
+		return err
+	}
 	if err = q.PlatformRefreshPaymentAlerts(ctx); err != nil {
 		return err
 	}
@@ -77,6 +94,38 @@ func Evaluate(ctx context.Context, pool *db.Pool) error {
 	workStates.Reset()
 	for _, row := range states {
 		workStates.WithLabelValues(row.Kind, row.Status).Set(float64(row.Count))
+	}
+	if err = observeNotifications(ctx, pool); err != nil {
+		return err
+	}
+	return nil
+}
+
+// observeNotifications records the outbox watermark, monotonic enqueue counts
+// and the durable per-state depth after the evaluation transaction commits.
+func observeNotifications(ctx context.Context, pool *db.Pool) error {
+	queries := store.New(pool)
+	maxID, err := queries.PlatformMaxNotificationID(ctx)
+	if err != nil {
+		return err
+	}
+	if maxID > lastEnqueuedID {
+		counts, err := queries.PlatformCountNewNotifications(ctx, lastEnqueuedID)
+		if err != nil {
+			return err
+		}
+		for _, entry := range counts {
+			notificationEnqueued.WithLabelValues(entry.Channel, entry.Kind).Add(float64(entry.Count))
+		}
+		lastEnqueuedID = maxID
+	}
+	outbox, err := queries.PlatformNotificationOutboxCounts(ctx)
+	if err != nil {
+		return err
+	}
+	notificationOutbox.Reset()
+	for _, entry := range outbox {
+		notificationOutbox.WithLabelValues(entry.Channel, entry.Kind, entry.State).Set(float64(entry.Count))
 	}
 	return nil
 }

@@ -25,6 +25,15 @@ func Generate(node NodeConfig, snap Snapshot) (map[string]string, error) {
 		domain := strings.ToLower(strings.TrimSuffix(z.Domain, "."))
 		key := fmt.Sprintf("zones/%s.txt", domain)
 		result[key] = renderZoneFile(node, z)
+
+		if z.DNSSEC != nil {
+			signing, err := z.DNSSEC.normalized(domain)
+			if err != nil {
+				return nil, err
+			}
+			result[fmt.Sprintf("signconf/%s.conf", domain)] = renderSignConf(domain, signing, z.Serial)
+			result[fmt.Sprintf("keys/%s/rollover.state", domain)] = renderKeyMetadata(domain, signing, z.Serial)
+		}
 	}
 
 	return result, nil

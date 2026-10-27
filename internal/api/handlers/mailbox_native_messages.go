@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"path"
@@ -13,13 +14,22 @@ import (
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
-// ListMessages returns a page of UID summaries for a folder.
+// ListMessages returns a cursor-anchored page of UID summaries for a folder.
 //
 // Query params:
 //   - limit, offset — pagination (clamped by webmail.ClampListOpts)
 //   - q — optional search string; when set, IMAP UID SEARCH replaces ALL.
 //     See webmail.BuildSearchCriteria for supported forms (subject:/from:/
 //     text:/is:unseen and bare text → OR SUBJECT/FROM). Invalid q → 400.
+//   - sort — date|subject|from|size ("" = arrival order). Invalid → 400.
+//     Sorts map to IMAP SORT when advertised; otherwise the summaries are
+//     sorted server-side as a fallback (response flag server_sorted=false).
+//   - order — "asc"|"desc" (default desc for every sort key).
+//   - cursor — UID anchor from next_cursor; takes precedence over offset and
+//     keeps pagination stable while new mail arrives (webmail.ListOpts
+//     documents the contract). Expunged cursors resync from the head.
+//   - thread — "1"/"true" to stamp thread_id/thread_count (server path with
+//     THREAD=REFERENCES, client grouping otherwise; response thread_mode).
 func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	folder, ok := h.folderParam(c)
 	if !ok {
@@ -28,6 +38,15 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	q := strings.TrimSpace(c.Query("q"))
+	sortBy, err := webmail.NormalizeSortKey(c.Query("sort"))
+	if err != nil {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	order := strings.ToLower(strings.TrimSpace(c.Query("order")))
+	sortDesc := order != "asc"
+	cursor64, _ := strconv.ParseUint(c.Query("cursor"), 10, 32)
+	thread := isTruthyParam(c.Query("thread"))
 	// Validate before dialing so bad q fails closed without an IMAP round-trip.
 	if _, err := webmail.BuildSearchCriteria(q); err != nil {
 		authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
@@ -39,7 +58,15 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	}
 	defer func() { _ = client.Close() }()
 
-	opts := webmail.ClampListOpts(webmail.ListOpts{Limit: limit, Offset: offset, Query: q})
+	opts := webmail.ClampListOpts(webmail.ListOpts{
+		Limit:     limit,
+		Offset:    offset,
+		Query:     q,
+		SortBy:    sortBy,
+		SortDesc:  sortDesc,
+		CursorUID: uint32(cursor64),
+		Thread:    thread,
+	})
 	result, err := client.ListMessages(c.Request.Context(), folder, opts)
 	if err != nil {
 		if errors.Is(err, webmail.ErrInvalidSearchQuery) {
@@ -53,12 +80,65 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		result.Messages = []webmail.MessageSummary{}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"messages": result.Messages,
-		"total":    result.Total,
-		"limit":    opts.Limit,
-		"offset":   opts.Offset,
-		"q":        q,
+		"messages":      result.Messages,
+		"total":         result.Total,
+		"limit":         opts.Limit,
+		"offset":        opts.Offset,
+		"q":             q,
+		"next_cursor":   result.NextCursor,
+		"sort":          result.Sort,
+		"server_sorted": result.ServerSorted,
+		"thread_mode":   result.ThreadMode,
 	})
+}
+
+// isTruthyParam parses checkbox-style query flags.
+func isTruthyParam(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// attachmentContentDisposition builds a Content-Disposition header from an
+// untrusted MIME filename: path traversal, separators, and control characters
+// are stripped, and the result is RFC 2183/5987 encoded by mime.FormatMediaType.
+func attachmentContentDisposition(filename, partID string) string {
+	safeName := path.Base(strings.ReplaceAll(filename, "\\", "/"))
+	safeName = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, safeName)
+	if safeName == "." || safeName == "/" || safeName == "" {
+		safeName = "attachment-" + partID
+	}
+	if disp := mime.FormatMediaType("attachment", map[string]string{"filename": safeName}); disp != "" {
+		return disp
+	}
+	return "attachment; filename=\"attachment-" + partID + "\""
+}
+
+// cidAttachmentURL maps a Content-ID to the same-origin attachment endpoint
+// for this message; ok is false when no surfaced part carries that cid.
+func cidAttachmentURL(folder string, uid uint32, atts []webmail.AttachmentMeta) func(cid string) (string, bool) {
+	byID := make(map[string]string, len(atts))
+	for _, a := range atts {
+		if a.ContentID != "" {
+			byID[strings.Trim(a.ContentID, "<> ")] = a.PartID
+		}
+	}
+	return func(cid string) (string, bool) {
+		partID, ok := byID[strings.Trim(cid, "<> ")]
+		if !ok {
+			return "", false
+		}
+		return "/api/v1/mailbox/folders/" + folder +
+			"/messages/" + strconv.FormatUint(uint64(uid), 10) +
+			"/attachments/" + partID, true
+	}
 }
 
 // GetMessage returns body text/html and attachment metadata for one UID.
@@ -88,6 +168,17 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 	}
 	if msg.Attachments == nil {
 		msg.Attachments = []webmail.AttachmentMeta{}
+	}
+	if msg.HTML != "" {
+		// Render-time sanitization (WEBMAIL-007): the IMAP original stays
+		// untouched. Remote images are blocked by default for privacy;
+		// ?load_images=1 is the per-message "load images" user action.
+		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, webmail.SanitizeOptions{
+			AllowRemoteImages: isTruthyParam(c.Query("load_images")),
+			CIDRewriter:       cidAttachmentURL(folder, uint32(uid), msg.Attachments),
+		})
+		msg.HTML = safe
+		msg.Notes = notes
 	}
 	c.JSON(http.StatusOK, msg)
 }
@@ -277,4 +368,93 @@ func sanitizeFlags(flags []string) []string {
 		}
 	}
 	return out
+}
+
+// maxImportBytes bounds one imported RFC822 payload. appendLiteral enforces
+// the same ceiling at the IMAP layer; this keeps oversized uploads from being
+// buffered at all.
+const maxImportBytes = 32 << 20
+
+// GetRawMessage streams the byte-faithful RFC822 payload of one message.
+// GET /mailbox/folders/:name/messages/:uid/raw
+func (h *MailboxNativeHandler) GetRawMessage(c *gin.Context) {
+	folder, ok := h.folderParam(c)
+	if !ok {
+		return
+	}
+	uid, err := strconv.ParseUint(c.Param("uid"), 10, 32)
+	if err != nil || uid == 0 {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	client, _, ok := h.dialIMAP(c)
+	if !ok {
+		return
+	}
+	defer func() { _ = client.Close() }()
+	accessor, capable := client.(webmail.RawMessageAccessor)
+	if !capable {
+		authError(c, http.StatusNotImplemented, "MAIL_RAW_EXPORT_UNSUPPORTED")
+		return
+	}
+	raw, validity, err := accessor.GetRawMessage(c.Request.Context(), folder, uint32(uid))
+	if err != nil {
+		if errors.Is(err, webmail.ErrMessageNotFound) || strings.Contains(err.Error(), "not found") {
+			authError(c, http.StatusNotFound, "MESSAGE_NOT_FOUND")
+			return
+		}
+		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+		return
+	}
+	filename := "message-" + c.Param("uid") + ".eml"
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	c.Header("X-UIDValidity", strconv.FormatUint(uint64(validity), 10))
+	c.Data(http.StatusOK, "message/rfc822", raw)
+}
+
+// ImportMessage APPENDs a complete RFC822 payload into an existing folder.
+// POST /mailbox/folders/:name/import — body: message/rfc822 bytes.
+func (h *MailboxNativeHandler) ImportMessage(c *gin.Context) {
+	folder, ok := h.folderParam(c)
+	if !ok {
+		return
+	}
+	if ct := c.GetHeader("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "message/rfc822") {
+		authError(c, http.StatusUnsupportedMediaType, "INVALID_CONTENT_TYPE")
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBytes))
+	if err != nil {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	if len(raw) == 0 {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	client, _, ok := h.dialIMAP(c)
+	if !ok {
+		return
+	}
+	defer func() { _ = client.Close() }()
+	importer, capable := client.(webmail.MessageImporter)
+	if !capable {
+		authError(c, http.StatusNotImplemented, "MAIL_IMPORT_UNSUPPORTED")
+		return
+	}
+	result, err := importer.ImportMessage(c.Request.Context(), folder, raw)
+	if err != nil {
+		if strings.Contains(err.Error(), "too large") {
+			authError(c, http.StatusRequestEntityTooLarge, "MESSAGE_TOO_LARGE")
+			return
+		}
+		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"imported":     true,
+		"folder":       result.Folder,
+		"uid":          result.UID,
+		"uid_validity": result.UIDValidity,
+	})
 }

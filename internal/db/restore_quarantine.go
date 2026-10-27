@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -17,6 +19,9 @@ type restoredWorkSpec struct {
 }
 
 var restoredWorkSpecs = []restoredWorkSpec{
+	{"mailbox_jobs", "status", "uncertain", []string{"pending", "leased", "uncertain"}},
+	{"subscription_renewal_attempts", "state", "canceled", []string{"pending"}},
+	{"marketing_flows", "status", "paused", []string{"active"}},
 	{"mailbox_scheduled_sends", "status", "held", []string{"pending", "sending", "preparing", "submitting", "uncertain", "held"}},
 	{"refunds", "status", "uncertain", []string{"pending", "approved", "processing", "uncertain"}},
 	{"marketing_recipients", "status", "uncertain", []string{"queued", "claimed", "leased", "submitting", "uncertain"}},
@@ -202,6 +207,10 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 			}
 		}
 	}
+	if err := resetRestoredSyncAndDerivedState(ctx, tx, restoreID, held); err != nil {
+		return err
+	}
+
 	// Source authentication and one-time operation credentials cannot survive a
 	// rewind. Expiration preserves their audit identities without authenticating replay.
 	for _, table := range []string{"sessions", "mailbox_sessions", "mailbox_operation_tickets", "registration_requests", "roundcube_bridge_requests"} {
@@ -248,7 +257,7 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 			}
 		}
 	}
-	raw, _ := json.Marshal(map[string]any{"restore_id": restoreID, "held": held, "requires_schema_upgrade": unsupported, "reason": restoreReviewCode})
+	raw, _ := json.Marshal(map[string]any{"restore_id": restoreID, "sync_epoch": restoreSyncEpoch(restoreID), "held": held, "requires_schema_upgrade": unsupported, "reason": restoreReviewCode})
 	settings, err := restoreColumns(ctx, tx, "settings")
 	if err != nil {
 		return err
@@ -269,6 +278,50 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 	}
 	if strict && len(unsupported) > 0 {
 		return fmt.Errorf("restored external work cannot yet be held by this schema; keep writers quarantined and complete migrations")
+	}
+	return nil
+}
+
+// restoreSyncEpoch is stable across a resumed restore, but differs between
+// independent restores. Incrementing a snapshot epoch is insufficient: a
+// client may already have used that next epoch after the snapshot was taken.
+func restoreSyncEpoch(restoreID string) int64 {
+	digest := sha256.Sum256([]byte("urmail-restore-sync:" + restoreID))
+	return int64(binary.BigEndian.Uint64(digest[:8])&((1<<62)-1)) + 2
+}
+
+// resetRestoredSyncAndDerivedState invalidates rewindable client state and
+// derived plaintext before quarantine can be released. Original contact and
+// calendar facts, successful payment facts and audit records remain intact.
+func resetRestoredSyncAndDerivedState(ctx context.Context, tx pgx.Tx, restoreID string, held map[string]int64) error {
+	epoch := restoreSyncEpoch(restoreID)
+	operations := []struct {
+		table, required, query string
+		args                   []any
+	}{
+		{"marketing_flow_positions", "delivery_uncertain", `UPDATE marketing_flow_positions SET delivery_uncertain=true, updated_at=statement_timestamp()`, nil},
+		{"marketing_flow_positions", "lease_fence", `UPDATE marketing_flow_positions SET lease_owner=NULL, lease_until=NULL, lease_fence=lease_fence+1`, nil},
+		{"mailbox_sync_cursors", "epoch", `UPDATE mailbox_sync_cursors SET epoch=$1, cursor_id=0, updated_at=statement_timestamp()`, []any{epoch}},
+		{"mailbox_eas_collection_state", "sync_epoch", `UPDATE mailbox_eas_collection_state SET sync_epoch=$1, change_seq=0, uid_validity=0, updated_at=statement_timestamp()`, []any{epoch}},
+		{"mailbox_eas_devices", "provisioned", `UPDATE mailbox_eas_devices SET policy_key=0, provisioned=false`, nil},
+		{"mailbox_eas_devices", "ping_heartbeat", `UPDATE mailbox_eas_devices SET ping_heartbeat=0, ping_folders='[]'::jsonb`, nil},
+		{"mailbox_eas_item_state", "item_id", `DELETE FROM mailbox_eas_item_state`, nil},
+		{"mailbox_eas_folder_state", "folder_id", `DELETE FROM mailbox_eas_folder_state`, nil},
+		{"mailbox_ai_chunks", "content", `DELETE FROM mailbox_ai_chunks`, nil},
+	}
+	for _, op := range operations {
+		columns, err := restoreColumns(ctx, tx, op.table)
+		if err != nil {
+			return err
+		}
+		if !columns[op.required] {
+			continue
+		}
+		tag, err := tx.Exec(ctx, op.query, op.args...)
+		if err != nil {
+			return fmt.Errorf("reset restored %s: %w", op.table, err)
+		}
+		held[op.table] = tag.RowsAffected()
 	}
 	return nil
 }

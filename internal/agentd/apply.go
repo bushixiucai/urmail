@@ -44,9 +44,10 @@ const StateRoot = "/var/lib/urmail-agent"
 // ApplyParams deliberately excludes paths, node configuration and file bodies.
 // The caller can only supply bounded domain data consumed by pure generators.
 type ApplyParams struct {
-	Postfix postfix.Snapshot  `json:"postfix"`
-	DNS     nsd.Snapshot      `json:"dns"`
-	DKIM    opendkim.Snapshot `json:"dkim"`
+	SpamPolicies []dovecot.SpamPolicy `json:"spam_policies,omitempty"`
+	Postfix      postfix.Snapshot     `json:"postfix"`
+	DNS          nsd.Snapshot         `json:"dns"`
+	DKIM         opendkim.Snapshot    `json:"dkim"`
 }
 
 // ApplyStatus reports desired and applied generation health.
@@ -104,7 +105,11 @@ type ApplyManager struct {
 	webroot               string
 	automaticCertificates bool
 	certificatePending    atomic.Bool
-	fileWriter            func(string, []byte, os.FileMode, []string) (string, error)
+	// certRenewBackoff implements the MAIL-006 bounded renewal backoff.
+	// Guarded by certMu; zero value means "eligible to try now".
+	certRenewFails   int
+	certRenewNextTry time.Time
+	fileWriter       func(string, []byte, os.FileMode, []string) (string, error)
 }
 
 // NewApplyManager creates the serialized root configuration controller.
@@ -213,7 +218,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		_, _ = sum.Write([]byte(path + "\x00" + files[path] + "\x00"))
 	}
 	generation := hex.EncodeToString(sum.Sum(nil))
-	if m.status.Ready && m.status.Applied == generation {
+	if m.status.Ready && m.status.Applied == generation && m.spamBinaryCurrent() {
 		// Keep Ready=true while rechecking so concurrent config.status readers
 		// do not flap on probe:smtp25 during an otherwise healthy generation.
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -249,6 +254,9 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	for _, path := range append(append([]string{}, m.paths...), paths...) {
 		if strings.HasSuffix(path, ".map") {
 			targets = append(targets, path+".db")
+		}
+		if strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") {
+			targets = append(targets, strings.TrimSuffix(path, ".sieve")+".svbin")
 		}
 	}
 	for _, path := range targets {
@@ -295,6 +303,11 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 					}
 				}
 			}
+		}
+		m.status.Step = "compile:sieve"
+		m.publish()
+		if err := m.compileSpamScript(ctx); err != nil {
+			return err
 		}
 		m.status.Step = "check"
 		m.publish()
@@ -438,7 +451,7 @@ func configUnits(cfg *config.Config) []string {
 }
 
 func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
-	if len(p.Postfix.Domains) > 10000 || len(p.Postfix.Mailboxes) > 100000 || len(p.Postfix.Aliases) > 100000 || len(p.DNS.Zones) > 10000 || len(p.DKIM.Domains) > 10000 {
+	if len(p.SpamPolicies) > 10000 || len(p.Postfix.Domains) > 10000 || len(p.Postfix.Mailboxes) > 100000 || len(p.Postfix.Aliases) > 100000 || len(p.DNS.Zones) > 10000 || len(p.DKIM.Domains) > 10000 {
 		return nil, fmt.Errorf("snapshot exceeds limits")
 	}
 	cfg := m.cfg
@@ -450,6 +463,18 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 	for _, d := range p.Postfix.Domains {
 		domains[d.FQDN] = true
 	}
+	activeMailboxes := map[string]bool{}
+	for _, mb := range p.Postfix.Mailboxes {
+		if mb.Status == "active" {
+			activeMailboxes[strings.ToLower(mb.Address)] = true
+		}
+	}
+	for _, policy := range p.SpamPolicies {
+		if !activeMailboxes[strings.ToLower(policy.MailboxAddress)] {
+			return nil, fmt.Errorf("spam policy mailbox outside active snapshot")
+		}
+	}
+
 	for _, d := range p.DKIM.Domains {
 		if !domains[d.Domain] || len(d.PrivateKey) > 32768 {
 			return nil, fmt.Errorf("invalid DKIM domain")
@@ -472,7 +497,7 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 	key := filepath.Join(m.root, "certs/mail", host+".key")
 	mailContext := mail.ConfigContext{
 		PostfixNode: postfix.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, PolicyEnabled: cfg.PolicyEnabled, V80Preserve: cfg.PostfixV80Preserve, PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM, PolicySocket: cfg.PolicySocket, ArchiveEnabled: cfg.ArchiveEnabled}, PostfixSnap: p.Postfix,
-		DovecotNode: dovecot.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot, V80Preserve: cfg.PostfixV80Preserve},
+		DovecotNode: dovecot.NodeConfig{SpamPolicies: p.SpamPolicies, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot, V80Preserve: cfg.PostfixV80Preserve},
 		NSDNode:     nsd.NodeConfig{ListenAddresses: cfg.DNSListenAddresses, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, PublicIPv4: cfg.PublicIPv4, Nameservers: cfg.Nameservers}, NSDSnap: p.DNS,
 		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr, WebmailBackend: fixedWebmailBackend(cfg)}, DKIM: p.DKIM,
 	}
@@ -524,6 +549,17 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 	if _, err := writer(path, data, mode, roots); err != nil {
 		return err
 	}
+	if strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") || strings.HasSuffix(path, "/urmail-spam/spam-before.svbin") {
+		if os.Geteuid() == 0 {
+			if err := chownGroup(path, "mail"); err != nil {
+				return err
+			}
+			if err := chownGroup(filepath.Dir(path), "mail"); err != nil {
+				return err
+			}
+		}
+		return os.Chmod(filepath.Dir(path), 0750)
+	}
 	if strings.HasSuffix(path, "db.conf") {
 		if err := chownGroup(path, "dovecot"); err != nil {
 			return err
@@ -550,6 +586,34 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 	}
 	if strings.HasPrefix(path, m.target("/etc/postfix/urmail/")) || strings.HasPrefix(path, m.target("/etc/nsd/zones/")) {
 		return os.Chmod(filepath.Dir(path), 0755)
+	}
+	return nil
+}
+
+// spamBinaryCurrent repairs a missing/stale derived artifact even when the
+// canonical source generation did not change during an agent upgrade.
+func (m *ApplyManager) spamBinaryCurrent() bool {
+	source, err := os.Stat(m.target("/etc/dovecot/urmail-spam/spam-before.sieve"))
+	if err != nil || !source.Mode().IsRegular() {
+		return false
+	}
+	binary, err := os.Stat(m.target("/etc/dovecot/urmail-spam/spam-before.svbin"))
+	return err == nil && binary.Mode().IsRegular() && binary.Mode().Perm() == 0640 && !binary.ModTime().Before(source.ModTime())
+}
+
+// compileSpamScript keeps the private global source read-only for mail workers.
+// The compiled artifact participates in the same rollback journal as its source.
+func (m *ApplyManager) compileSpamScript(ctx context.Context) error {
+	const source = "/etc/dovecot/urmail-spam/spam-before.sieve"
+	const binary = "/etc/dovecot/urmail-spam/spam-before.svbin"
+	if err := m.run(ctx, "/usr/bin/sievec", source, binary); err != nil {
+		return fmt.Errorf("compile private spam sieve: %w", err)
+	}
+	if err := os.Chmod(m.target(binary), 0640); err != nil {
+		return err
+	}
+	if os.Geteuid() == 0 {
+		return chownGroup(m.target(binary), "mail")
 	}
 	return nil
 }
@@ -620,6 +684,15 @@ func (m *ApplyManager) restore(j applyJournal) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+	// Restore writes may change source/binary mtimes in either order. Compile
+	// the restored source before reloading workers so they never need write access.
+	if _, err := os.Stat(m.target("/etc/dovecot/urmail-spam/spam-before.sieve")); err == nil {
+		if err := m.compileSpamScript(ctx); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	for _, unit := range j.Reloaded {
 		if err := m.run(ctx, "/usr/bin/systemctl", "restart", unit); err != nil {
 			return fmt.Errorf("rollback %s: %w", unit, err)

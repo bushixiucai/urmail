@@ -1,0 +1,5 @@
+version: STSv1
+mode: enforce
+mx: box.urmail.cn
+mx: mx2.urmail.cn
+max_age: 86400

@@ -7,6 +7,8 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformArchivePathIndexed = `-- name: PlatformArchivePathIndexed :one
@@ -20,9 +22,30 @@ func (q *Queries) PlatformArchivePathIndexed(ctx context.Context, path string) (
 	return column_1, err
 }
 
+const platformBackupFreshness = `-- name: PlatformBackupFreshness :one
+SELECT
+ coalesce((SELECT state FROM backup_runs ORDER BY started_at DESC,id DESC LIMIT 1),'')::text AS latest_state,
+ (SELECT max(finished_at) FROM backup_runs WHERE state='success')::timestamptz AS last_success_at
+`
+
+type PlatformBackupFreshnessRow struct {
+	LatestState   string             `json:"latest_state"`
+	LastSuccessAt pgtype.Timestamptz `json:"last_success_at"`
+}
+
+// OPS-003: single-row backup freshness facts for the alert evaluator. The
+// latest run's state detects a failed pipeline; the newest successful
+// finished_at detects a stale (missed) backup schedule.
+func (q *Queries) PlatformBackupFreshness(ctx context.Context) (PlatformBackupFreshnessRow, error) {
+	row := q.db.QueryRow(ctx, platformBackupFreshness)
+	var i PlatformBackupFreshnessRow
+	err := row.Scan(&i.LatestState, &i.LastSuccessAt)
+	return i, err
+}
+
 const platformEnqueueObservabilityAlerts = `-- name: PlatformEnqueueObservabilityAlerts :exec
 INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
-SELECT kind,CASE WHEN state='firing' THEN 'notification.operational_firing' ELSE 'notification.operational_resolved' END,
+SELECT 'alert_'||CASE WHEN state='firing' THEN 'firing' ELSE 'resolved' END,CASE WHEN state='firing' THEN 'notification.operational_firing' ELSE 'notification.operational_resolved' END,
  jsonb_build_object('kind',kind,'source',alert_key,'state',state),
  'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD-HH24') ELSE extract(epoch FROM resolved_at)::text END,
  'in_app','delivered'
@@ -33,6 +56,37 @@ ON CONFLICT(dedupe_key) DO NOTHING
 func (q *Queries) PlatformEnqueueObservabilityAlerts(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, platformEnqueueObservabilityAlerts)
 	return err
+}
+
+const platformGetObservabilityThresholds = `-- name: PlatformGetObservabilityThresholds :many
+SELECT key,value FROM settings WHERE scope='platform' AND scope_id=0 AND key='observability_thresholds'
+`
+
+type PlatformGetObservabilityThresholdsRow struct {
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
+}
+
+// OPS-003: read only the operational threshold setting so the alert evaluator
+// never depends on unrelated platform settings keys.
+func (q *Queries) PlatformGetObservabilityThresholds(ctx context.Context) ([]PlatformGetObservabilityThresholdsRow, error) {
+	rows, err := q.db.Query(ctx, platformGetObservabilityThresholds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlatformGetObservabilityThresholdsRow{}
+	for rows.Next() {
+		var i PlatformGetObservabilityThresholdsRow
+		if err := rows.Scan(&i.Key, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const platformSetOperationalCondition = `-- name: PlatformSetOperationalCondition :exec

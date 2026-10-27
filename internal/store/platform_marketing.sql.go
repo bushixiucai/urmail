@@ -149,6 +149,32 @@ func (q *Queries) PlatformFinishMarketingSend(ctx context.Context, arg PlatformF
 	return finished, err
 }
 
+const platformGetActiveMarketingChannel = `-- name: PlatformGetActiveMarketingChannel :one
+SELECT id,tenant_id,name,kind,encrypted_config FROM marketing_channels
+WHERE tenant_id=$1 AND enabled AND kind='dedicated_gateway' ORDER BY id LIMIT 1
+`
+
+type PlatformGetActiveMarketingChannelRow struct {
+	ID              int64  `json:"id"`
+	TenantID        int64  `json:"tenant_id"`
+	Name            string `json:"name"`
+	Kind            string `json:"kind"`
+	EncryptedConfig string `json:"encrypted_config"`
+}
+
+func (q *Queries) PlatformGetActiveMarketingChannel(ctx context.Context, tenantID int64) (PlatformGetActiveMarketingChannelRow, error) {
+	row := q.db.QueryRow(ctx, platformGetActiveMarketingChannel, tenantID)
+	var i PlatformGetActiveMarketingChannelRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.Kind,
+		&i.EncryptedConfig,
+	)
+	return i, err
+}
+
 const platformGetMarketingChannel = `-- name: PlatformGetMarketingChannel :one
 SELECT id, tenant_id, name, kind, sender_address, encrypted_config, enabled, created_at FROM marketing_channels WHERE id=$1
 `
@@ -206,6 +232,29 @@ func (q *Queries) PlatformGetMarketingDelivery(ctx context.Context, arg Platform
 		&i.EncryptedConfig,
 	)
 	return i, err
+}
+
+const platformMarkMarketingRecipientRevoked = `-- name: PlatformMarkMarketingRecipientRevoked :one
+SELECT urmail_mark_marketing_recipient_revoked($1::bigint,$2::bigint,$3::text,$4::bigint)::boolean AS revoked
+`
+
+type PlatformMarkMarketingRecipientRevokedParams struct {
+	TenantID    int64  `json:"tenant_id"`
+	RecipientID int64  `json:"recipient_id"`
+	LeaseOwner  string `json:"lease_owner"`
+	Fence       int64  `json:"fence"`
+}
+
+func (q *Queries) PlatformMarkMarketingRecipientRevoked(ctx context.Context, arg PlatformMarkMarketingRecipientRevokedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformMarkMarketingRecipientRevoked,
+		arg.TenantID,
+		arg.RecipientID,
+		arg.LeaseOwner,
+		arg.Fence,
+	)
+	var revoked bool
+	err := row.Scan(&revoked)
+	return revoked, err
 }
 
 const platformMarketingAttemptStillAllowed = `-- name: PlatformMarketingAttemptStillAllowed :one
@@ -334,6 +383,31 @@ func (q *Queries) PlatformResolveMarketingAttempt(ctx context.Context, arg Platf
 	var resolved bool
 	err := row.Scan(&resolved)
 	return resolved, err
+}
+
+const platformSkipMarketingRecipient = `-- name: PlatformSkipMarketingRecipient :one
+SELECT urmail_skip_marketing_recipient($1::bigint,$2::bigint,$3::text,$4::bigint,$5::text)::boolean AS skipped
+`
+
+type PlatformSkipMarketingRecipientParams struct {
+	TenantID    int64  `json:"tenant_id"`
+	RecipientID int64  `json:"recipient_id"`
+	LeaseOwner  string `json:"lease_owner"`
+	Fence       int64  `json:"fence"`
+	Reason      string `json:"reason"`
+}
+
+func (q *Queries) PlatformSkipMarketingRecipient(ctx context.Context, arg PlatformSkipMarketingRecipientParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformSkipMarketingRecipient,
+		arg.TenantID,
+		arg.RecipientID,
+		arg.LeaseOwner,
+		arg.Fence,
+		arg.Reason,
+	)
+	var skipped bool
+	err := row.Scan(&skipped)
+	return skipped, err
 }
 
 const platformUpdateMarketingChannel = `-- name: PlatformUpdateMarketingChannel :one

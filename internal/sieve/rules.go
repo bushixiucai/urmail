@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
 
 // ErrInvalidRules indicates an unsafe or malformed rule set.
@@ -36,10 +38,32 @@ type Vacation struct {
 	Until   time.Time `json:"until"`
 }
 
+// Forwarding is an explicit keep-and-forward or forward-only instruction.
+// It is a pointer so scripts written before forwarding existed keep their
+// canonical form byte-for-byte and still Decode.
+type Forwarding struct {
+	Enabled  bool   `json:"enabled"`
+	Target   string `json:"target"`
+	KeepCopy bool   `json:"keep_copy"`
+}
+
 // Rules contains the complete user-confirmed mailbox policy.
 type Rules struct {
-	Rules    []Rule   `json:"rules"`
-	Vacation Vacation `json:"vacation"`
+	Rules      []Rule      `json:"rules"`
+	Forwarding *Forwarding `json:"forwarding,omitempty"`
+	Vacation   Vacation    `json:"vacation"`
+}
+
+// forwardingTargetValid accepts one concrete mailbox address as target.
+func forwardingTargetValid(target string) bool {
+	if len(target) < 3 || len(target) > 254 || target != strings.ToLower(target) {
+		return false
+	}
+	local, domain, ok := strings.Cut(target, "@")
+	if !ok || strings.Contains(domain, "@") || len(local) == 0 || len(local) > 64 {
+		return false
+	}
+	return validation.LocalPartRegex.MatchString(local) && validation.IsValidHostname(domain)
 }
 
 func literal(value string) string {
@@ -94,6 +118,16 @@ func Compile(rules Rules) (string, error) {
 			return "", ErrInvalidRules
 		}
 		out.WriteString("}\n")
+	}
+	if f := rules.Forwarding; f != nil && f.Enabled {
+		if !forwardingTargetValid(f.Target) {
+			return "", ErrInvalidRules
+		}
+		if f.KeepCopy {
+			fmt.Fprintf(&out, "redirect :copy %s;\n", literal(f.Target))
+		} else {
+			fmt.Fprintf(&out, "redirect %s; stop;\n", literal(f.Target))
+		}
 	}
 	v := rules.Vacation
 	if v.Enabled {

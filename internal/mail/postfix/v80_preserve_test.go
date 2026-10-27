@@ -69,7 +69,7 @@ func TestV80PreserveGoldenAndPolicyOrder(t *testing.T) {
 	if strings.Contains(main, "inet:127.0.0.1:8891") {
 		t.Fatal("duplicate legacy DKIM signer copied")
 	}
-	for _, required := range []string{"virtual_transport = lmtp:[127.0.0.1]:10025\n", "smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n", "non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n"} {
+	for _, required := range []string{"virtual_transport = lmtp:[127.0.0.1]:10025\n", "smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893, inet:127.0.0.1:11339\n", "non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n"} {
 		if !strings.Contains(main, required) {
 			t.Fatalf("source filtering chain missing: %s", required)
 		}

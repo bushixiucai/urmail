@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ func TestSetupCreatesPendingTenantAndRequiresExplicitFiniteGift(t *testing.T) {
 	t.Setenv("URMAIL_DATABASE_URL_PLATFORM", p.Config().ConnString())
 	t.Setenv("URMAIL_DATABASE_URL", p.Config().ConnString())
 	t.Setenv("URMAIL_POLICY_ENABLED", "true")
+	t.Setenv("URMAIL_MYHOSTNAME", "mail.example.test")
 	args := []string{"--email", "bootstrap@example.test", "--password", "fixture-initial-password-12345"}
 	if err := runSetup(ctx, args); err != nil {
 		t.Fatal(err)
@@ -74,5 +77,29 @@ func TestSetupCreatesPendingTenantAndRequiresExplicitFiniteGift(t *testing.T) {
 	}
 	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND action='SETUP platform.bootstrap'", tenant).Scan(&count); err != nil || count != 4 {
 		t.Fatalf("bootstrap audits=%d err=%v", count, err)
+	}
+}
+
+func TestSetupPreflightReadsInstalledEnvironmentFile(t *testing.T) {
+	p, _ := testdb.OpenMigrated(t)
+	uri := strings.Replace(p.Config().ConnString(), "postgres://", "postgresql://", 1)
+	path := filepath.Join(t.TempDir(), "urmaild.env")
+	content := "URMAIL_DATABASE_URL=" + uri + "\nURMAIL_DATABASE_URL_PLATFORM=" + uri + "\nURMAIL_MYHOSTNAME=box.envfile.test\nURMAIL_POLICY_ENABLED=true\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("URMAIL_ENV_FILE", path)
+	for _, key := range []string{"URMAIL_DATABASE_URL", "URMAIL_DATABASE_URL_PLATFORM", "URMAIL_MYHOSTNAME"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runSetup(t.Context(), []string{"--email", "envfile@example.test", "--password", "isolated-envfile-password-1234"}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := p.QueryRow(t.Context(), "SELECT count(*) FROM users WHERE email='envfile@example.test'").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("installed env file did not bootstrap user: count=%d err=%v", count, err)
 	}
 }

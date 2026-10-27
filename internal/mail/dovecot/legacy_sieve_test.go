@@ -18,7 +18,6 @@ func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 	for _, required := range []string{
 		"CASE WHEN m.sieve_mode='legacy_v80' THEN 'file:/home/user-data/mail/sieve/%d/%n;active=/home/user-data/mail/sieve/%d/%n.sieve' ELSE 'file:/home/user-data/sieve/%u.sieve' END AS sieve",
 		"THEN '/home/user-data/mail/sieve/%d/%n' ELSE NULL END AS sieve_dir",
-		"THEN '/etc/dovecot/sieve-spam.sieve' ELSE NULL END AS sieve_before",
 		"THEN '/home/user-data/mail/sieve/global_before' ELSE NULL END AS sieve_before2",
 		"THEN '/home/user-data/mail/sieve/global_after' ELSE NULL END AS sieve_after",
 		"THEN 'recipient' ELSE NULL END AS sieve_redirect_envelope_from",
@@ -28,9 +27,17 @@ func TestLegacySieveLocationsArePerMailboxUserDBOverrides(t *testing.T) {
 			t.Fatalf("missing constrained userdb field %s", required)
 		}
 	}
+	if strings.Contains(query, "sieve-spam.sieve") || strings.Contains(query, " AS sieve_before,") {
+		t.Fatal("legacy userdb bypassed recipient-scoped spam policy")
+	}
 	global := files[dovecot.FileDovecotConf]
-	if strings.Contains(global, "global_after") || strings.Contains(global, "sieve_before") || !strings.Contains(global, "sieve = file:/home/user-data/sieve/%u.sieve") {
+	// The legacy per-mailbox hooks stay out of the global config; the only
+	// global sieve_before is the MAIL-002 spam before-script.
+	if strings.Contains(global, "global_after") || strings.Contains(global, "sieve_before2") || strings.Contains(global, "sieve-spam.sieve") || !strings.Contains(global, "sieve = file:/home/user-data/sieve/%u.sieve") {
 		t.Fatal("legacy hooks changed global managed-mailbox defaults")
+	}
+	if !strings.Contains(global, "sieve_before = /etc/dovecot/urmail-spam/spam-before.sieve") {
+		t.Fatal("global managed path is missing the MAIL-002 spam before-script")
 	}
 }
 

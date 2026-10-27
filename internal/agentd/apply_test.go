@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 )
 
@@ -80,6 +81,13 @@ func TestConfigApplyChecksReloadsAndDeduplicates(t *testing.T) {
 	if !strings.Contains(string(local), "server_name box.example.com;") {
 		t.Fatal("panel hostname must have an exact HTTP-01 vhost")
 	}
+	// OPS-008: the newer HTTP services (autoconfig, CardDAV/CalDAV well-known
+	// and /api/v1 endpoints, EAS) ride this vhost: the whole host is proxied
+	// to urmaild, so they need no generated configuration of their own.
+	if !strings.Contains(string(local), "location / {") ||
+		!strings.Contains(string(local), "proxy_pass http://127.0.0.1:8080;") {
+		t.Fatal("panel vhost must proxy the whole host to urmaild so autoconfig, DAV and EAS ride it")
+	}
 	foundDovecot := false
 	for _, c := range commands {
 		if c == "/usr/bin/doveconf -n" {
@@ -115,13 +123,14 @@ func TestConfigApplyChecksReloadsAndDeduplicates(t *testing.T) {
 }
 
 func TestConfigApplyRollsBackEveryCommandFailure(t *testing.T) {
-	failures := []string{"opendkim -n", "doveconf -n", "postfix check", "nginx -t", "nsd-checkconf", "postmap", "restart opendkim", "restart dovecot", "restart postfix", "restart nginx", "restart nsd", "is-active --quiet nginx"}
+	failures := []string{"sievec", "opendkim -n", "doveconf -n", "postfix check", "nginx -t", "nsd-checkconf", "postmap", "restart opendkim", "restart dovecot", "restart postfix", "restart nginx", "restart nsd", "is-active --quiet nginx"}
 	for _, failure := range failures {
 		t.Run(failure, func(t *testing.T) {
 			m := testManager(t)
 			if _, _, err := m.Apply(emptyApply()); err != nil {
 				t.Fatal(err)
 			}
+			oldApplied := m.status.Applied
 			path := m.target("/etc/postfix/main.cf")
 			before, err := os.ReadFile(path)
 			if err != nil {
@@ -152,6 +161,11 @@ func TestConfigApplyRollsBackEveryCommandFailure(t *testing.T) {
 			}
 			if m.status.Ready || m.status.Degraded {
 				t.Fatalf("wrong rollback status %+v", m.status)
+			}
+			// OPS-008: a failed apply must never advance the applied
+			// generation, even though the desired generation moved.
+			if m.status.Applied != oldApplied {
+				t.Fatalf("applied generation advanced falsely: %q != %q", m.status.Applied, oldApplied)
 			}
 			if _, err := os.Stat(filepath.Join(m.root, "pending.json")); !os.IsNotExist(err) {
 				t.Fatal("successful rollback retained journal")
@@ -257,7 +271,94 @@ func TestConfigApplyRecoversInterruptedJournal(t *testing.T) {
 	}
 }
 
+func TestConfigApplyMidWriteFailureRestoresWholeTree(t *testing.T) {
+	m := testManager(t)
+	if _, _, err := m.Apply(emptyApply()); err != nil {
+		t.Fatal(err)
+	}
+	knownGood := snapshotTree(t, m.targetRoot)
+	goodGeneration := m.status.Applied
+
+	// A changed snapshot differs in several rendered files. The injected
+	// disk failure hits the second file, leaving a half-applied generation
+	// on disk that only the journal can undo.
+	m.cfg.PrimaryDomain = "changed.example.com"
+	writes := 0
+	m.fileWriter = func(path string, raw []byte, mode os.FileMode, roots []string) (string, error) {
+		writes++
+		if writes == 2 {
+			return "", errors.New("injected disk failure on second file")
+		}
+		return writeFileAtomic(path, raw, mode, roots)
+	}
+	if _, _, err := m.Apply(emptyApply()); err == nil {
+		t.Fatal("mid-write failure reported success")
+	}
+	if writes < 2 {
+		t.Fatalf("injection not exercised: %d writes", writes)
+	}
+	after := snapshotTree(t, m.targetRoot)
+	for path, content := range knownGood {
+		if after[path] != content {
+			t.Fatalf("file %s was not restored to the known-good generation", path)
+		}
+	}
+	if len(after) != len(knownGood) {
+		t.Fatalf("tree file count changed: %d != %d", len(after), len(knownGood))
+	}
+	if m.status.Applied != goodGeneration || m.status.Ready || m.status.Degraded {
+		t.Fatalf("false generation state after rollback: %+v", m.status)
+	}
+	if _, err := os.Stat(filepath.Join(m.root, "pending.json")); !os.IsNotExist(err) {
+		t.Fatal("successful rollback retained journal")
+	}
+	// The agent must converge again on the next apply.
+	m.fileWriter = nil
+	if _, _, err := m.Apply(emptyApply()); err != nil {
+		t.Fatalf("retry after mid-write failure failed: %v", err)
+	}
+	if !m.status.Ready || m.status.Applied == "" {
+		t.Fatalf("retry did not publish a ready generation: %+v", m.status)
+	}
+}
+
+// snapshotTree records every regular file below root keyed by its path below
+// the system target root.
+func snapshotTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !entry.Type().IsRegular() {
+			return nil
+		}
+		raw, err := os.ReadFile(path) // #nosec G304 -- test-owned temporary tree.
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files[rel] = string(raw)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
 func testCommand(m *ApplyManager, path string, args ...string) error {
+	if path == "/usr/bin/sievec" && len(args) == 2 {
+		source, err := os.ReadFile(m.target(args[0]))
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(m.target(args[1]), append([]byte("compiled sieve: "), source...), 0640)
+	}
 	if path == "/usr/sbin/postmap" && len(args) == 1 {
 		return os.WriteFile(m.target(args[0]+".db"), []byte("compiled map"), 0644)
 	}
@@ -292,5 +393,63 @@ func TestConfigApplyPublishesEveryStagingFailureAndSuccess(t *testing.T) {
 	}
 	if !state.Ready || state.Step != "ready" || state.Error != "" {
 		t.Fatalf("success was not published %+v", state)
+	}
+}
+
+func TestPrivateSpamPolicyIsBoundedAndChangesGeneration(t *testing.T) {
+	m := testManager(t)
+	p := ApplyParams{Postfix: postfix.Snapshot{Domains: []postfix.Domain{{FQDN: "example.com", Status: "active"}}, Mailboxes: []postfix.Mailbox{{Address: "alice@example.com", Status: "active"}}}}
+	beforeRaw, _ := json.Marshal(p)
+	before, _, err := m.Apply(beforeRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.SpamPolicies = []dovecot.SpamPolicy{{MailboxAddress: "alice@example.com", Scope: "mailbox", SenderAddress: "sender@vendor.test", List: "deny"}}
+	raw, _ := json.Marshal(p)
+	after, _, err := m.Apply(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("recipient policy did not change applied generation")
+	}
+	path := m.target("/etc/dovecot/urmail-spam/spam-before.sieve")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("private policy is world-readable: %o", info.Mode().Perm())
+	}
+	info, err = os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0750 {
+		t.Fatalf("private directory mode: %o", info.Mode().Perm())
+	}
+	p.SpamPolicies[0].MailboxAddress = "other@another.test"
+	raw, _ = json.Marshal(p)
+	if _, _, err = m.Apply(raw); err == nil {
+		t.Fatal("policy outside active mailbox snapshot accepted")
+	}
+}
+
+func TestConfigApplyRepairsMissingCompiledSieveWithoutSourceChange(t *testing.T) {
+	m := testManager(t)
+	before, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := m.target("/etc/dovecot/urmail-spam/spam-before.svbin")
+	if err = os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	after, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before || !m.status.Ready || !m.spamBinaryCurrent() {
+		t.Fatal("same-generation apply failed to repair its compiled Sieve artifact")
 	}
 }

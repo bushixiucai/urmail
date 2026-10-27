@@ -27,6 +27,9 @@ type Zone struct {
 	Serial   uint32   // SOA serial number; caller (reconcile layer) must increment on each zone update
 	Explicit bool     // Use only confirmed records; never synthesize an apex website address.
 	Records  []Record // Custom or additional records (e.g. DKIM, verification tokens)
+	// DNSSEC optionally marks the zone as signed with the key snapshot.
+	// nil keeps the zone unsigned (no signconf/key metadata rendered).
+	DNSSEC *DNSSECConfig
 }
 
 // Snapshot contains all active DNS zones to be rendered.

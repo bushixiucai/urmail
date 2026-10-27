@@ -19,6 +19,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
+	"github.com/bushixiucai/urmail/internal/domain/selfhost"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -67,8 +68,20 @@ func runSetup(ctx context.Context, args []string) error {
 	if err != nil || strings.ToLower(addr.Address) != normalizedEmail {
 		return fmt.Errorf("invalid administrator email %q", *email)
 	}
-	if len(*password) < 12 {
-		return errors.New("initial administrator password must be at least 12 characters")
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	input := selfhost.Input{DatabaseURL: cfg.DatabaseURLPlatform, AdminEmail: normalizedEmail, Password: *password, Hostname: cfg.MyHostname}
+	if err := selfhost.PreflightConnected(ctx, input, func(ctx context.Context, databaseURL string) error {
+		pool, err := db.OpenPlatform(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		pool.Close()
+		return nil
+	}); err != nil {
+		return err
 	}
 	if !slugPattern.MatchString(*brandSlug) {
 		return fmt.Errorf("invalid brand slug %q", *brandSlug)
@@ -89,10 +102,6 @@ func runSetup(ctx context.Context, args []string) error {
 		freeEnd = pgtype.Timestamptz{Time: end.UTC(), Valid: true}
 	} else if strings.TrimSpace(*freeReason) != "" {
 		return errors.New("--free-reason requires --free-until")
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
 	}
 	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
 	if err != nil {

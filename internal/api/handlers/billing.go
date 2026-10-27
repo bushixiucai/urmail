@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/billingrenew"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/payment"
@@ -1204,6 +1205,27 @@ func (h *BillingHandler) StripeWebhook(c *gin.Context) {
 		return
 	default:
 		c.JSON(http.StatusOK, gin.H{"status": "ignored"})
+		return
+	}
+	// A verified confirmation may carry a renewal settlement instead of an
+	// order. Route it through the idempotent renewal settlement path so
+	// entitlement restoration happens exactly once; duplicate or out-of-order
+	// deliveries are no-ops there.
+	routed, routeErr := billingrenew.RouteConfirmedWebhook(c.Request.Context(), h.Pool, billingrenew.ConfirmedRenewalEvent{
+		Provider:      payment.ProviderStripe,
+		ProviderTxnID: event.ProviderTxnID,
+		AmountCents:   event.AmountCents,
+		Currency:      event.Currency,
+		Raw:           raw,
+	})
+	if routeErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+		return
+	}
+	if routed {
+		// Renewal settlements have no order; a renewed subscription already
+		// settled idempotently must not fall through to order settlement.
+		c.JSON(http.StatusOK, gin.H{"received": true})
 		return
 	}
 	if event.OrderID <= 0 {

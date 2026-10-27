@@ -9,12 +9,25 @@ ON CONFLICT(alert_key) DO UPDATE SET
 
 -- name: PlatformEnqueueObservabilityAlerts :exec
 INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
-SELECT kind,CASE WHEN state='firing' THEN 'notification.operational_firing' ELSE 'notification.operational_resolved' END,
+SELECT 'alert_'||CASE WHEN state='firing' THEN 'firing' ELSE 'resolved' END,CASE WHEN state='firing' THEN 'notification.operational_firing' ELSE 'notification.operational_resolved' END,
  jsonb_build_object('kind',kind,'source',alert_key,'state',state),
  'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD-HH24') ELSE extract(epoch FROM resolved_at)::text END,
  'in_app','delivered'
 FROM operational_alerts WHERE kind LIKE 'telemetry_%' OR kind LIKE 'archive_%'
 ON CONFLICT(dedupe_key) DO NOTHING;
+
+-- OPS-003: single-row backup freshness facts for the alert evaluator. The
+-- latest run's state detects a failed pipeline; the newest successful
+-- finished_at detects a stale (missed) backup schedule.
+-- name: PlatformBackupFreshness :one
+SELECT
+ coalesce((SELECT state FROM backup_runs ORDER BY started_at DESC,id DESC LIMIT 1),'')::text AS latest_state,
+ (SELECT max(finished_at) FROM backup_runs WHERE state='success')::timestamptz AS last_success_at;
+
+-- OPS-003: read only the operational threshold setting so the alert evaluator
+-- never depends on unrelated platform settings keys.
+-- name: PlatformGetObservabilityThresholds :many
+SELECT key,value FROM settings WHERE scope='platform' AND scope_id=0 AND key='observability_thresholds';
 
 -- name: PlatformArchivePathIndexed :one
 SELECT EXISTS(SELECT 1 FROM archive_entries WHERE path= @path::text)::boolean;

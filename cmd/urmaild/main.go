@@ -22,6 +22,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	archiveStore "github.com/bushixiucai/urmail/internal/archive"
+	"github.com/bushixiucai/urmail/internal/billingrenew"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
@@ -33,6 +34,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/policy"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/mailboxschedule"
+	"github.com/bushixiucai/urmail/internal/mailspam"
 	"github.com/bushixiucai/urmail/internal/marketing"
 	"github.com/bushixiucai/urmail/internal/notify"
 	"github.com/bushixiucai/urmail/internal/payment"
@@ -133,6 +135,36 @@ func run() error {
 	go notify.Run(ctx, platformPool, logger)
 	notificationWorker := &notify.Worker{Pool: platformPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
 	go notificationWorker.Run(ctx, logger)
+	renewals := billingrenew.Worker{Store: store.New(platformPool.Pool), Settlements: billingrenew.PoolSettlementStore{Pool: platformPool}}
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			if err := renewals.RunOnce(ctx); err != nil && ctx.Err() == nil {
+				logger.Warn("renewal attempt failed", zap.Error(err))
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+
+	// OPS-001: automated encrypted offsite backups. Disabled unless the
+	// operator configures both the age recipient and an offsite destination;
+	// the privileged local backup runs through the agent's fixed
+	// backup.local.create operation (no caller-controlled parameters).
+	if backupRecipient := os.Getenv("URMAIL_BACKUP_AGE_RECIPIENT"); backupRecipient != "" {
+		if backupURI := os.Getenv("URMAIL_BACKUP_OFFSITE_URI"); backupURI != "" {
+			backupWorker, err := newBackupWorker(cfg, platformPool, backupRecipient, backupURI)
+			if err != nil {
+				logger.Warn("automated offsite backup disabled", zap.Error(err))
+			} else {
+				go backupWorker.Run(ctx, logger)
+			}
+		}
+	}
 
 	// MAIL-04: Postfix submission/smtps consult this From-authorization
 	// milter before accepting a message; it fails closed (submission-side
@@ -172,6 +204,30 @@ func run() error {
 		}()
 	}
 
+	// MAIL-002: spam verdict milter on loopback. The generated Postfix
+	// smtpd_milters chain references inet:127.0.0.1:11339 (after the
+	// DKIM/DMARC milters); main.cf keeps milter_default_action=accept, which
+	// is the documented degrade path, and unavailability raises the
+	// spam_milter_unavailable alert instead of blocking mail.
+	if !cfg.Quarantined {
+		spamVerdict := &mailspam.Engine{
+			Platform: platformPool,
+			App:      appPool,
+			Config: mailspam.EngineConfig{
+				// OpenDKIM/OpenDMARC sign Authentication-Results with the
+				// MTA hostname as authserv-id; anything else is untrusted.
+				TrustedAuthServIDs: []string{cfg.MyHostname},
+			},
+		}
+		spamMilter := &mailspam.Server{Addr: mailspam.DefaultAddr, Handler: spamVerdict}
+		go func() {
+			logger.Info("spam verdict milter listening", zap.String("addr", mailspam.DefaultAddr))
+			if err := spamMilter.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("spam verdict milter stopped", zap.Error(err))
+			}
+		}()
+	}
+
 	// The reconcile pipeline re-renders all configuration files whenever a
 	// domain or mailbox changes and pushes them through the privileged
 	// agent, followed by the affected service reloads.
@@ -186,7 +242,7 @@ func run() error {
 			if snapshot == nil {
 				return fmt.Errorf("configuration snapshot unavailable")
 			}
-			_, err := agent.NewClient(cfg.AgentSocket).Do(ctx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM})
+			_, err := agent.NewClient(cfg.AgentSocket).Do(ctx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM, SpamPolicies: snapshot.DovecotNode.SpamPolicies})
 			return err
 		})
 
@@ -213,6 +269,15 @@ func run() error {
 		return fmt.Errorf("configure marketing worker: %w", workerErr)
 	}
 	go marketingWorker.Run(ctx)
+	flowWorker, flowWorkerErr := marketing.NewFlowWorker(marketing.FlowOptions{
+		Pool:    platformPool,
+		Sender:  (&marketing.FlowSender{Pool: platformPool, Secrets: secretBox, Tokens: tokenManager, Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Content: marketing.TemplateFlowContent(platformPool)}).Send,
+		Enabled: cfg.MarketingEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined, Logger: logger,
+	})
+	if flowWorkerErr != nil {
+		return fmt.Errorf("configure marketing flow worker: %w", flowWorkerErr)
+	}
+	go flowWorker.Run(ctx)
 	webmailVault := webmail.NewMemoryVault()
 	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: store.New(platformPool.Pool)}.Get)
 	smtpAddr := "127.0.0.1:587"
@@ -223,6 +288,7 @@ func run() error {
 			Vault:     webmailVault,
 			Dialer:    webmail.NetDialer{Addr: cfg.IMAPAddr},
 			Submitter: webmail.NetSubmitter{Addr: smtpAddr},
+			MaySend:   handlers.MailAllowed(store.New(platformPool.Pool)),
 			Logger:    logger,
 		})
 		go schedWorker.Run(ctx)
@@ -248,6 +314,9 @@ func run() error {
 	engine := api.New(api.Options{
 		RoundcubeEnabled:    cfg.RoundcubeEnabled,
 		WebmailNative:       cfg.WebmailNative,
+		CardDAVEnabled:      &cfg.CardDAVEnabled,
+		CalDAVEnabled:       &cfg.CalDAVEnabled,
+		EASEnabled:          &cfg.EASEnabled,
 		IMAPAddr:            cfg.IMAPAddr,
 		SMTPAddr:            smtpAddr,
 		WebmailVault:        webmailVault,
