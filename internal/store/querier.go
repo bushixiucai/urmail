@@ -325,6 +325,8 @@ type Querier interface {
 	MarkSessionLegacyOnly(ctx context.Context, id string) error
 	// Platform-only authentication queries; never used as tenant-scoped stores.
 	MarkSessionMFAVerified(ctx context.Context, id string) error
+	MarketingCampaignReportSnapshot(ctx context.Context, arg MarketingCampaignReportSnapshotParams) ([]byte, error)
+	MarketingFlowReportSnapshot(ctx context.Context, arg MarketingFlowReportSnapshotParams) ([]byte, error)
 	ObserveDomainTransportSecurity(ctx context.Context, arg ObserveDomainTransportSecurityParams) (int64, error)
 	PauseMarketingFlowDefinition(ctx context.Context, arg PauseMarketingFlowDefinitionParams) error
 	PauseMarketingRuntimeFlows(ctx context.Context, arg PauseMarketingRuntimeFlowsParams) error
@@ -461,6 +463,7 @@ type Querier interface {
 	PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error)
 	PlatformCreateCheckoutIntent(ctx context.Context, arg PlatformCreateCheckoutIntentParams) (PaymentCheckoutIntents, error)
 	PlatformCreateDNSAction(ctx context.Context, arg PlatformCreateDNSActionParams) error
+	PlatformCreateFinancialReviewRefund(ctx context.Context, arg PlatformCreateFinancialReviewRefundParams) (Refunds, error)
 	PlatformCreateInvestigation(ctx context.Context, arg PlatformCreateInvestigationParams) (int64, error)
 	PlatformCreateLegacyAlias(ctx context.Context, arg PlatformCreateLegacyAliasParams) (MailboxAliases, error)
 	PlatformCreateLegacyDomain(ctx context.Context, arg PlatformCreateLegacyDomainParams) (int64, error)
@@ -549,6 +552,10 @@ type Querier interface {
 	PlatformFailRenewalAttempt(ctx context.Context, arg PlatformFailRenewalAttemptParams) error
 	PlatformFenceDNSPlan(ctx context.Context, arg PlatformFenceDNSPlanParams) (DnsChangePlans, error)
 	PlatformFenceOnboarding(ctx context.Context, arg PlatformFenceOnboardingParams) (OnboardingTasks, error)
+	PlatformFinancialOrderFacts(ctx context.Context, arg PlatformFinancialOrderFactsParams) ([][]byte, error)
+	PlatformFinancialPreviewValid(ctx context.Context, arg PlatformFinancialPreviewValidParams) (bool, error)
+	PlatformFinancialReadBudget(ctx context.Context) error
+	PlatformFinancialTenantOrderFacts(ctx context.Context, arg PlatformFinancialTenantOrderFactsParams) ([][]byte, error)
 	PlatformFindManagedUser(ctx context.Context, email string) (int64, error)
 	PlatformFindPaymentMerchantByScope(ctx context.Context, arg PlatformFindPaymentMerchantByScopeParams) (PaymentMerchants, error)
 	PlatformFindRegistrationRequest(ctx context.Context, tokenHash string) (RegistrationRequests, error)
@@ -772,6 +779,10 @@ type Querier interface {
 	PlatformLockCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
 	PlatformLockCouponRedemptionForAuthority(ctx context.Context, arg PlatformLockCouponRedemptionForAuthorityParams) (string, error)
 	PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error
+	PlatformLockFinancialReviewMerchants(ctx context.Context, arg PlatformLockFinancialReviewMerchantsParams) ([]int64, error)
+	PlatformLockFinancialReviewPayments(ctx context.Context, arg PlatformLockFinancialReviewPaymentsParams) ([]int64, error)
+	PlatformLockFinancialReviewRefunds(ctx context.Context, arg PlatformLockFinancialReviewRefundsParams) ([]int64, error)
+	PlatformLockFinancialTenantReader(ctx context.Context, arg PlatformLockFinancialTenantReaderParams) (int64, error)
 	PlatformLockLegacyDKIMDomains(ctx context.Context, arg PlatformLockLegacyDKIMDomainsParams) ([]PlatformLockLegacyDKIMDomainsRow, error)
 	// Explicit migration operator authority; runtime API callers cannot invoke this workflow.
 	PlatformLockLegacyImportTarget(ctx context.Context, arg PlatformLockLegacyImportTargetParams) (int64, error)
@@ -1052,6 +1063,9 @@ type Querier interface {
 	SetMailboxEASPingConfig(ctx context.Context, arg SetMailboxEASPingConfigParams) (int64, error)
 	SetMailboxImportItem(ctx context.Context, arg SetMailboxImportItemParams) (int64, error)
 	SetMailboxImportJob(ctx context.Context, arg SetMailboxImportJobParams) (MailboxImportJobs, error)
+	// Each report is one bounded SQL snapshot. The time window selects the
+	// recipient/enrollment cohort; status, suppression and outcomes are current.
+	SetMarketingReportBudget(ctx context.Context) error
 	SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error)
 	StopMarketingFlowInstance(ctx context.Context, arg StopMarketingFlowInstanceParams) (int64, error)
 	StoreRecallReviewPreview(ctx context.Context, arg StoreRecallReviewPreviewParams) (StoreRecallReviewPreviewRow, error)

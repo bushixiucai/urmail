@@ -562,6 +562,9 @@ func New(opts Options) *gin.Engine {
 
 				platform.GET("/alerts", platformNotifications.Alerts)
 				platform.POST("/orders/:id/query", paymentGateway.QueryLegacy)
+				platform.GET("/financial-reconciliation", (&handlers.FinancialReconciliation{Pool: opts.PlatformPool, Platform: true}).Report)
+				platform.GET("/financial-reconciliation/export", (&handlers.FinancialReconciliation{Pool: opts.PlatformPool, Platform: true}).Report)
+				platform.POST("/payment-reviews/:id/preview", (&handlers.PaymentReviewHandler{Pool: opts.PlatformPool}).Preview)
 				platform.GET("/payment-reviews", (&handlers.PaymentReviewHandler{Pool: opts.PlatformPool}).List)
 				platform.POST("/payment-reviews/:id/resolve", (&handlers.PaymentReviewHandler{Pool: opts.PlatformPool}).Resolve)
 				platform.GET("/billing-document-profile", invoiceProfile.GetSeller)
@@ -653,6 +656,7 @@ func New(opts Options) *gin.Engine {
 		handlers.RegisterRenewalRoutes(protected, renewalEnrollment)
 		handlers.RegisterHostedRenewalRoutes(protected, renewalEnrollment)
 		handlers.RegisterMarketingFlowRoutes(protected, appQueries, opts.MarketingEnabled && !opts.DevMode && !opts.Quarantined)
+		handlers.RegisterMarketingReportRoutes(protected, appQueries)
 		{
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
@@ -736,6 +740,8 @@ func New(opts Options) *gin.Engine {
 			protected.POST("/billing/orders/:id/cancel", middleware.RequireRole("owner", "admin", "billing"), billingHandler.CancelOrder)
 			protected.POST("/billing/refunds", middleware.RequireRole("owner", "admin", "billing"), billingHandler.CreateRefundRequest)
 			protected.GET("/billing/refunds", middleware.RequireRole("owner", "admin", "billing"), billingHandler.ListRefundRequests)
+			protected.GET("/billing/reconciliation", middleware.RequireRole("owner", "admin", "billing"), (&handlers.FinancialReconciliation{Pool: opts.AppPool}).Report)
+			protected.GET("/billing/reconciliation/export", middleware.RequireRole("owner", "admin", "billing"), (&handlers.FinancialReconciliation{Pool: opts.AppPool}).Report)
 			protected.GET("/billing/orders", middleware.RequireRole("owner", "admin", "billing"), billingHandler.Orders)
 			protected.GET("/billing/invoices/:id/pdf", middleware.RequireRole("owner", "admin", "billing"), billingHandler.InvoicePDF)
 			protected.GET("/billing/subscription", billingHandler.Subscription)

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: urMail selected v1 API contracts
-  version: 0.5.0
+  version: 0.5.1
   description: Selected endpoints added or changed in remediation and upstream alignment. This is not a complete v1 specification
     or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
     Bearer and X-CSRF-Token; present Origin/Referer must match the host.
@@ -1802,32 +1802,17 @@ paths:
           $ref: '#/components/responses/Error'
   /platform/payment-reviews/{id}/resolve:
     post:
-      tags:
-      - M5-M7 managed operations
-      summary: Explicitly fulfill or request refund for a reviewed receipt
-      description: 'fulfill_after_prepaid revalidates order/paid-term constraints in
-        settlement transaction. request_refund creates a separate approval request;
-        never immediately transfers funds. Successful financial audit commits with the
-        action. Quarantine rejects both actions. Access: platform admin.'
+      operationId: resolveFinancialReviewDecision
+      summary: Apply a previously previewed financial decision with same-transaction revalidation.
       security:
       - Bearer: []
         CSRF: []
-      responses:
-        '200':
-          description: Successful result.
-          content:
-            application/json:
-              schema:
-                type: object
-        default:
-          $ref: '#/components/responses/Error'
       parameters:
-      - name: id
-        in: path
+      - in: path
+        name: id
         required: true
         schema:
           type: integer
-          format: int64
           minimum: 1
       requestBody:
         required: true
@@ -1835,6 +1820,10 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+              - action
+              - reason
+              - preview_digest
               properties:
                 action:
                   type: string
@@ -1845,9 +1834,23 @@ paths:
                   type: string
                   minLength: 10
                   maxLength: 1000
-              required:
-              - action
-              - reason
+                preview_digest:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+      responses:
+        '200':
+          description: Verified prepaid service fulfilled once
+          with mandatory audit. No new charge.: null
+        '202':
+          description: Refund request awaits independent approval; no refund dispatch.
+        '403':
+          description: Current active platform administrator required.
+        '409':
+          description: FINANCIAL_PREVIEW_STALE for changed facts
+          restore epoch: null
+          expiry: null
+          actor: null
+          action or reason; or fulfillment/refund conflict. No rights changed.: null
   /platform/refunds:
     get:
       tags:
@@ -8787,6 +8790,467 @@ paths:
         schema:
           type: string
           example: 1,2,3
+  /platform/financial-reconciliation:
+    get:
+      operationId: listFinancialReconciliation
+      summary: Read one tenant's bounded financial facts and discrepancies.
+      security:
+      - Bearer: []
+      parameters:
+      - in: query
+        name: tenant_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: from
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      - in: query
+        name: to
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      - in: query
+        name: after
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Audited facts page
+          exact minor-unit totals by currency: null
+          and next_cursor. At most 93 days and 100 orders per page.: null
+        '400':
+          description: FINANCIAL_WINDOW_INVALID or invalid cursor.
+        '403':
+          description: Current active platform administrator required.
+  /platform/financial-reconciliation/export:
+    get:
+      operationId: exportFinancialReconciliation
+      summary: Export a complete bounded JSON frozen-fact evidence window.
+      security:
+      - Bearer: []
+      parameters:
+      - in: query
+        name: tenant_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: from
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      - in: query
+        name: to
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      responses:
+        '200':
+          description: Audited no-store JSON attachment
+          with schema version: null
+          exact minor-unit totals and SHA256. Never silently truncated.: null
+        '409':
+          description: FINANCIAL_EXPORT_LIMIT; narrow the window below 1000 orders and 8 MiB.
+        '403':
+          description: Current active platform administrator required.
+        '500':
+          description: Audit failure releases no export bytes.
+  /billing/reconciliation:
+    get:
+      operationId: listTenantFinancialReconciliation
+      summary: Read the current tenant's facts through RLS; owner, admin or billing role.
+      security:
+      - Bearer: []
+      parameters:
+      - in: query
+        name: from
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      - in: query
+        name: to
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      - in: query
+        name: after
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Audited own-tenant bounded facts page with exact currency-separated totals.
+        '400':
+          description: Invalid window or cursor.
+        '403':
+          description: Fresh billing authority required; foreign tenant filters refused.
+  /billing/reconciliation/export:
+    get:
+      operationId: exportTenantFinancialReconciliation
+      summary: Export current-tenant financial facts with RLS and mandatory audit.
+      security:
+      - Bearer: []
+      parameters:
+      - in: query
+        name: from
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      - in: query
+        name: to
+        required: true
+        schema:
+          oneOf:
+          - type: string
+            format: date
+          - type: string
+            format: date-time
+      responses:
+        '200':
+          description: Complete bounded redacted own-tenant JSON evidence attachment.
+        '403':
+          description: Fresh owner
+          admin or billing role required; foreign filters refused.: null
+        '409':
+          description: FINANCIAL_EXPORT_LIMIT; never silently truncated.
+        '500':
+          description: Mandatory audit failure releases no bytes.
+  /platform/payment-reviews/{id}/preview:
+    post:
+      operationId: previewFinancialReviewDecision
+      summary: Persist an actor-bound review proof against frozen facts and restore epoch.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              - reason
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - fulfill_after_prepaid
+                  - request_refund
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Random persisted digest
+          expires_at within 10 minutes: null
+          facts SHA256 and redacted financial facts. No economic side effects.: null
+        '403':
+          description: Fresh active platform administrator required.
+        '409':
+          description: Review no longer open or decision conflicts with current facts.
+  /marketing/reports/campaigns/{id}:
+    get:
+      operationId: getMarketingCampaignsOutcomeReport
+      summary: Read a bounded current outcome snapshot
+      description: Owner/admin only. Current status of recipients or enrollments created in [from, until); maximum
+        90 days and 10000 complete facts. Later pages require exact from/until/expected_digest; changed facts return
+        409. SMTP sent/submitted means acceptance, never delivery or opening. Unknown outcomes remain unknown. Snapshot
+        SQL rechecks active actor and current role. No cache.
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: until
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - in: query
+        name: expected_digest
+        schema:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+      responses:
+        '200':
+          description: Complete-snapshot digest, recomputable category/state counts, total_facts, page rows and next_offset.
+            Each fact includes record_kind, record_id, version, instance_id, email, state, result_code, occurred_at,
+            weight, suppressed, uncertain.
+        '400':
+          description: Invalid window/page
+        '403':
+          description: Insufficient current role
+        '404':
+          description: Unknown resource or current actor not authorized
+        '409':
+          description: Snapshot changed
+        '413':
+          description: Complete report exceeds budget
+  /marketing/reports/campaigns/{id}/export:
+    post:
+      operationId: exportMarketingCampaignsOutcomeReport
+      summary: Export all facts from the explicitly confirmed snapshot
+      description: Owner/admin with CSRF. Re-read complete facts and require expected_digest match. CSV includes metadata
+        row containing counters, scope, digest and total facts, followed by every fact; never just the current page.
+        Maximum 10000 facts / 4 MiB / 90 days / 5 second SQL budget. Formula-like cells are apostrophe escaped. Audit
+        EXPORT marketing.report is committed before response publication, binding resource/window/digest/fact count/byte
+        size. At most 10 export requests per tenant per minute.
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - from
+              - until
+              - expected_digest
+              - confirmed
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                until:
+                  type: string
+                  format: date-time
+                expected_digest:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                confirmed:
+                  type: boolean
+                  enum:
+                  - true
+      responses:
+        '200':
+          description: Complete audited CSV with X-UrMail-Report-Digest header and ASCII attachment filename
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid explicit confirmation/window
+        '403':
+          description: Insufficient active actor role or CSRF
+        '404':
+          description: Resource unavailable
+        '409':
+          description: Snapshot changed
+        '413':
+          description: Facts or CSV exceed complete-export budget
+        '429':
+          description: Export rate exceeded
+  /marketing/reports/flows/{id}:
+    get:
+      operationId: getMarketingFlowsOutcomeReport
+      summary: Read a bounded current outcome snapshot
+      description: Owner/admin only. Current status of recipients or enrollments created in [from, until); maximum
+        90 days and 10000 complete facts. Later pages require exact from/until/expected_digest; changed facts return
+        409. SMTP sent/submitted means acceptance, never delivery or opening. Unknown outcomes remain unknown. Snapshot
+        SQL rechecks active actor and current role. No cache.
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: until
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - in: query
+        name: expected_digest
+        schema:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+      responses:
+        '200':
+          description: Complete-snapshot digest, recomputable category/state counts, total_facts, page rows and next_offset.
+            Each fact includes record_kind, record_id, version, instance_id, email, state, result_code, occurred_at,
+            weight, suppressed, uncertain.
+        '400':
+          description: Invalid window/page
+        '403':
+          description: Insufficient current role
+        '404':
+          description: Unknown resource or current actor not authorized
+        '409':
+          description: Snapshot changed
+        '413':
+          description: Complete report exceeds budget
+  /marketing/reports/flows/{id}/export:
+    post:
+      operationId: exportMarketingFlowsOutcomeReport
+      summary: Export all facts from the explicitly confirmed snapshot
+      description: Owner/admin with CSRF. Re-read complete facts and require expected_digest match. CSV includes metadata
+        row containing counters, scope, digest and total facts, followed by every fact; never just the current page.
+        Maximum 10000 facts / 4 MiB / 90 days / 5 second SQL budget. Formula-like cells are apostrophe escaped. Audit
+        EXPORT marketing.report is committed before response publication, binding resource/window/digest/fact count/byte
+        size. At most 10 export requests per tenant per minute.
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - from
+              - until
+              - expected_digest
+              - confirmed
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                until:
+                  type: string
+                  format: date-time
+                expected_digest:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                confirmed:
+                  type: boolean
+                  enum:
+                  - true
+      responses:
+        '200':
+          description: Complete audited CSV with X-UrMail-Report-Digest header and ASCII attachment filename
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid explicit confirmation/window
+        '403':
+          description: Insufficient active actor role or CSRF
+        '404':
+          description: Resource unavailable
+        '409':
+          description: Snapshot changed
+        '413':
+          description: Facts or CSV exceed complete-export budget
+        '429':
+          description: Export rate exceeded
 components:
   securitySchemes:
     MailboxBearer:
