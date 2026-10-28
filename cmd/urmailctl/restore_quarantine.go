@@ -80,7 +80,7 @@ func writeQuarantineState(path string, state restoreQuarantineState) error {
 	return dir.Sync()
 }
 
-var restoreWriterUnits = []string{"urmail-cert-renew.timer", "urmail-usage-sync.timer", "urmail-cert-renew.service", "urmail-usage-sync.service", "urmail-prometheus.service", "urmail-alertmanager.service", "nginx.service", "php8.1-fpm.service", "php8.2-fpm.service", "php8.3-fpm.service", "php8.4-fpm.service", "php8.5-fpm.service", "php8.6-fpm.service", "urmaild.service", "postfix.service", "dovecot.service", "urmaild-agent.service"}
+var restoreWriterUnits = []string{"urmail-backup-auto.timer", "urmail-backup-auto.service", "urmail-cert-renew.timer", "urmail-usage-sync.timer", "urmail-cert-renew.service", "urmail-usage-sync.service", "urmail-prometheus.service", "urmail-alertmanager.service", "nginx.service", "php8.1-fpm.service", "php8.2-fpm.service", "php8.3-fpm.service", "php8.4-fpm.service", "php8.5-fpm.service", "php8.6-fpm.service", "urmaild.service", "postfix.service", "dovecot.service", "urmaild-agent.service"}
 
 func stopRestoreWriters(ctx context.Context, stop func(context.Context, string) error) error {
 	// Stop scheduling first. Never resume automatically, including on a partial failure.

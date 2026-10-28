@@ -1,0 +1,24 @@
+[Unit]
+Description=Create and verify a complete encrypted offsite urMail backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/urmail/urmaild.env
+EnvironmentFile=-/etc/urmail/agent.env
+Environment=URMAIL_ENV_FILE=/etc/urmail/agent.env
+ExecStartPre=/usr/bin/urmailctl backup-auto-resume
+ExecStart=/usr/bin/urmailctl backup-auto
+ExecStopPost=/usr/bin/urmailctl backup-auto-resume
+TimeoutStartSec=8h
+TimeoutStopSec=5min
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=read-only
+PrivateTmp=yes
+StateDirectory=urmail-backup
+StateDirectoryMode=0700

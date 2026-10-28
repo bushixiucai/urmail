@@ -12,7 +12,10 @@ ExecStartPre=/bin/chmod 0770 /run/urmail
 ExecStart=/usr/bin/urmaild-agent
 # Belt-and-suspenders with agent Listen chown: Listen can still create the
 # socket as root:root; without this, urmaild (mailinabox) gets EACCES.
-ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/urmail/agent.sock ] && chown root:mailinabox /run/urmail/agent.sock && chmod 0660 /run/urmail/agent.sock && exit 0; sleep 0.2; done; exit 1'
+# Recovery may replay an interrupted configuration journal before Listen.
+# Bound that real startup path without treating a two-second delay as failure.
+TimeoutStartSec=90s
+ExecStartPost=/bin/sh -c 'i=0; while [ "$$i" -lt 300 ]; do [ -S /run/urmail/agent.sock ] && chown root:mailinabox /run/urmail/agent.sock && chmod 0660 /run/urmail/agent.sock && exit 0; i=$$((i+1)); sleep 0.2; done; exit 1'
 Restart=always
 RestartSec=3s
 EnvironmentFile=/etc/urmail/agent.env

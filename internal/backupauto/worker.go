@@ -24,7 +24,7 @@ const staleRunThreshold = 24 * time.Hour
 
 // BackupRunner executes the privileged local backup (pg dump + tars) and
 // returns the plaintext artifacts it produced. Production wires this to the
-// agentd backup.local.create operation because urmaild runs unprivileged.
+// independent root CLI service so stopping mail writers never stops the job.
 type BackupRunner interface {
 	RunBackup(ctx context.Context, stamp string) ([]LocalArtifact, string, bool, error)
 }
@@ -138,6 +138,9 @@ func (w *Worker) due(ctx context.Context, recorder *StateRecorder) (bool, error)
 	if last.State == StateRunning || last.State == StateVerifying {
 		// A fresh crash is not yet stale; do not double-run on top of it.
 		return false, nil
+	}
+	if last.State == StateFailed {
+		return true, nil
 	}
 	interval := w.Interval
 	if interval <= 0 {

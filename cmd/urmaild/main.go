@@ -172,20 +172,8 @@ func run() error {
 		}
 	}
 
-	// OPS-001: automated encrypted offsite backups. Disabled unless the
-	// operator configures both the age recipient and an offsite destination;
-	// the privileged local backup runs through the agent's fixed
-	// backup.local.create operation (no caller-controlled parameters).
-	if backupRecipient := os.Getenv("URMAIL_BACKUP_AGE_RECIPIENT"); backupRecipient != "" && cfg.BackgroundWorkersAllowed() {
-		if backupURI := os.Getenv("URMAIL_BACKUP_OFFSITE_URI"); backupURI != "" {
-			backupWorker, err := newBackupWorker(cfg, platformPool, backupRecipient, backupURI)
-			if err != nil {
-				logger.Warn("automated offsite backup disabled", zap.Error(err))
-			} else {
-				go backupWorker.Run(ctx, logger)
-			}
-		}
-	}
+	// Complete automatic backups run in the independent root-owned systemd
+	// service, outside the daemon and agent cgroups paused by maintenance.
 
 	// MAIL-04: Postfix submission/smtps consult this From-authorization
 	// milter before accepting a message; it fails closed (submission-side

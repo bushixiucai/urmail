@@ -330,6 +330,20 @@ for key, explicit in zip(("URMAIL_ACME_SERVER", "URMAIL_ACME_ROOT_CA", "URMAIL_D
         values[key] = os.environ[key]
     elif key in old:
         values[key] = old[key]
+# Backup credentials stay exclusively in the root service environment. An
+# explicit process environment replacement wins; otherwise preserve the old
+# root-only value across repeat installation, never copy it to urmaild.env.
+for key in (
+    "URMAIL_BACKUP_AGE_RECIPIENT", "URMAIL_BACKUP_OFFSITE_URI", "URMAIL_BACKUP_POSTGRES_CONTAINER",
+    "URMAIL_BACKUP_S3_ACCESS_KEY_ID", "URMAIL_BACKUP_S3_SECRET_KEY",
+    "URMAIL_BACKUP_S3_REGION", "URMAIL_BACKUP_S3_ENDPOINT",
+    "URMAIL_BACKUP_SFTP_PASSWORD", "URMAIL_BACKUP_SFTP_KEY", "URMAIL_BACKUP_SFTP_HOST_KEY",
+    "URMAIL_BACKUP_INTERVAL_HOURS", "URMAIL_BACKUP_KEEP_DAILY", "URMAIL_BACKUP_KEEP_WEEKLY", "URMAIL_BACKUP_KEEP_MONTHLY",
+):
+    if key in os.environ:
+        values[key] = os.environ[key]
+    elif key in old:
+        values[key] = old[key]
 if any("\n" in value or "\r" in value for value in values.values()):
     raise SystemExit("Environment values must not contain line breaks")
 current.write_text("".join(key + "=" + value + "\n" for key, value in values.items()))
@@ -427,6 +441,7 @@ systemctl enable --now urmail-usage-sync.timer
 systemctl reload nginx 2>/dev/null || systemctl restart nginx
 # Allow the bounded three-minute apply and initial snapshot/bootstrap to finish.
 # Readiness still requires the applied generation and successful daemon probes.
+systemctl enable --now urmail-backup-auto.timer
 urmailctl config status --wait 240s
 
 log "urMail.cn is installed."

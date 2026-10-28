@@ -134,6 +134,11 @@ func runRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	maintenanceLock, lockErr := backupLock(backupMaintenanceRoot, "operation.lock")
+	if lockErr != nil {
+		return lockErr
+	}
+	defer func() { _ = maintenanceLock.Close() }()
 	var state restoreQuarantineState
 	databaseRestored := false
 	if resumeID != "" {

@@ -102,17 +102,26 @@ func NewS3Store(bucket, prefix string, creds S3Credentials) (OffsiteStore, error
 		}
 		scheme, hostBase, pathStyle = parsed.Scheme, parsed.Host, true
 	}
-	return &s3Store{client: http.DefaultClient, bucket: bucket, prefix: prefix, creds: creds, scheme: scheme, hostBase: hostBase, pathStyle: pathStyle}, nil
+	return &s3Store{client: http.DefaultClient, bucket: bucket, prefix: strings.Trim(prefix, "/"), creds: creds, scheme: scheme, hostBase: hostBase, pathStyle: pathStyle}, nil
 }
 
 // requestTarget returns the request path element and the Host header value
 // for one object. AWS uses virtual-host style (bucket in the hostname);
 // custom endpoints use path style because bucket subdomains rarely resolve.
 func (s *s3Store) requestTarget(name string) (pathElem, host string) {
+	pathElem = "/"
 	if s.pathStyle {
-		return "/" + s.bucket + "/" + s.prefix + "/" + name, s.hostBase
+		pathElem += s.bucket + "/"
 	}
-	return "/" + s.prefix + "/" + name, s.hostBase
+	// ListBucketV2 always addresses the bucket root. Its prefix is a query
+	// parameter, never an object path suffix.
+	if name != "" {
+		if s.prefix != "" {
+			pathElem += s.prefix + "/"
+		}
+		pathElem += name
+	}
+	return pathElem, s.hostBase
 }
 
 // signV4 computes the AWS Signature Version 4 headers. The canonical

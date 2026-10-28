@@ -61,6 +61,11 @@ func runMailboxRestore(ctx context.Context, args []string) error {
 	if os.Geteuid() != 0 {
 		return errors.New("mailbox restore requires root")
 	}
+	maintenanceLock, lockErr := backupLock(backupMaintenanceRoot, "operation.lock")
+	if lockErr != nil {
+		return lockErr
+	}
+	defer func() { _ = maintenanceLock.Close() }()
 	cfg, err := config.Load()
 	if err != nil {
 		return err

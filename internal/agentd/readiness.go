@@ -254,6 +254,9 @@ func (m *ApplyManager) probeSchemaVersion(ctx context.Context) error {
 func (m *ApplyManager) probeBackupOffsite(ctx context.Context) error {
 	m.status.Step = "probe:backup"
 	m.publish()
+	if err := m.probeBackupScheduler(ctx); err != nil {
+		return err
+	}
 	health, err := (&backupauto.StateRecorder{Pool: m.pool}).LastRunHealth(ctx)
 	if errors.Is(err, backupauto.ErrBackupOffsiteDisabled) {
 		// No backup_runs table: automated offsite backup is not provisioned
@@ -273,6 +276,23 @@ func (m *ApplyManager) probeBackupOffsite(ctx context.Context) error {
 	if health.StaleRun(time.Now()) {
 		return fmt.Errorf("offsite backup run %s is stuck in state %q since %s: the backup worker stopped making progress",
 			health.RunUID, health.State, health.StartedAt.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func (m *ApplyManager) probeBackupScheduler(ctx context.Context) error {
+	if m.cfg.BackgroundWorkersAllowed() {
+		if m.run == nil {
+			return errors.New("backup scheduler probe has no command runner")
+		}
+		if err := m.run(ctx, "/usr/bin/systemctl", "cat", "urmail-backup-auto.service"); err != nil {
+			return fmt.Errorf("complete offsite backup service is not installed: %w", err)
+		}
+		for _, action := range []string{"is-enabled", "is-active"} {
+			if err := m.run(ctx, "/usr/bin/systemctl", action, "--quiet", "urmail-backup-auto.timer"); err != nil {
+				return fmt.Errorf("complete offsite backup scheduler is not enabled and active: %w", err)
+			}
+		}
 	}
 	return nil
 }

@@ -23,6 +23,9 @@ func TestS3RetentionListsAndDeletesActualHTTPObjects(t *testing.T) {
 		}
 		calls = append(calls, request.Method+" "+request.URL.Path)
 		if request.URL.Query().Get("list-type") == "2" {
+			if request.URL.Path != "/fixture-bucket/" {
+				t.Error("ListBucketV2 must address bucket root, not an object prefix", request.URL.Path)
+			}
 			if request.URL.Query().Get("prefix") != "backups/" {
 				t.Error("listing prefix not directory-scoped")
 			}
@@ -122,5 +125,30 @@ func TestSFTPRetentionDeadlineClosesStalledSSHHandshake(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("owned stalled SSH connection leaked")
+	}
+}
+
+func TestS3RequestTargetDistinguishesBucketListingFromObjectKeys(t *testing.T) {
+	for _, pathStyle := range []bool{true, false} {
+		for _, prefix := range []string{"", "generations"} {
+			store := &s3Store{bucket: "bucket", hostBase: "fixture.test", pathStyle: pathStyle, prefix: prefix}
+			root := "/"
+			if pathStyle {
+				root += "bucket/"
+			}
+			target, host := store.requestTarget("")
+			if target != root || host != "fixture.test" {
+				t.Fatal("listing addressed object prefix", target, host)
+			}
+			object := root
+			if prefix != "" {
+				object += prefix + "/"
+			}
+			object += "owned.age"
+			target, _ = store.requestTarget("owned.age")
+			if target != object {
+				t.Fatal("object lost configured prefix", target, object)
+			}
+		}
 	}
 }

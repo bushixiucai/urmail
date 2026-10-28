@@ -21,7 +21,7 @@ func TestRestoreStopsEveryWriterAndNeverRestartsOnFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "quarantine retained") {
 		t.Fatal(err)
 	}
-	if len(units) != 15 || units[0] != "urmail-cert-renew.timer" || units[6] != "nginx.service" || units[9] != "php8.3-fpm.service" || units[13] != "urmaild.service" {
+	if len(units) != 17 || units[0] != "urmail-backup-auto.timer" || units[1] != "urmail-backup-auto.service" || units[8] != "nginx.service" || units[11] != "php8.3-fpm.service" || units[15] != "urmaild.service" {
 		t.Fatalf("unsafe stop order: %v", units)
 	}
 	if managedArchiveName("etc/urmail-roundcube/secrets.php") || managedArchiveName("etc/urmail-roundcube/pg-service.conf") || managedArchiveName("etc/urmail-roundcube/provision-state.json") {

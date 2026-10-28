@@ -232,3 +232,26 @@ func TestRetentionRefusalPreservesVerifiedBackupAndRecordsPartialDelete(t *testi
 		t.Fatal("new complete backup lost")
 	}
 }
+
+func TestInterruptedRootBackupCanRetryWithoutWaitingAnEntireSuccessInterval(t *testing.T) {
+	platform, _ := testdb.OpenMigrated(t)
+	recorder := &StateRecorder{Pool: platform}
+	id, err := recorder.StartRun(t.Context(), ScopeComplete)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The root CLI owns its exclusive operation flock before reclassifying this
+	// abandoned row; artifact files remain untouched.
+	if _, err = recorder.StaleRunning(t.Context(), 0, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	last, err := recorder.LastRun(t.Context())
+	if err != nil || last.RunUID != id || last.State != StateFailed {
+		t.Fatal("interrupted run fact missing", last, err)
+	}
+	worker := &Worker{Pool: platform, Interval: 24 * time.Hour}
+	due, err := worker.due(t.Context(), recorder)
+	if err != nil || !due {
+		t.Fatal("abandoned run prevented fresh scheduled retry", due, err)
+	}
+}

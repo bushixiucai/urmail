@@ -375,79 +375,27 @@ func parseOctal(value string) (os.FileMode, error) {
 	return os.FileMode(mode), nil
 }
 
-// OpBackupLocalCreate executes the fixed, parameter-free local backup
-// pipeline (OPS-001). It exists because urmaild runs unprivileged while the
-// backup must read /etc, the Maildirs and peer-authenticate to PostgreSQL.
-// SECURITY: the operation accepts NO caller-controlled parameters and runs
-// ONE fixed command with fixed arguments; there is deliberately no way to
-// alter the output directory, scope or any other aspect from the socket.
+// OpBackupLocalCreate queues the independent root-owned backup unit. The
+// socket never accepts paths, command arguments or maintenance parameters.
 const OpBackupLocalCreate = "backup.local.create"
 
-// backupOutputRoot is the fixed spool directory for agent-created backups.
-const backupOutputRoot = "/var/backups/urmail"
+var backupLocalCreateCommand = []string{"/usr/bin/systemctl", "start", "--no-block", "urmail-backup-auto.service"}
 
-// backupLocalCreateCommand is the complete fixed command. It is a constant
-// so no code path can append, reorder or substitute arguments.
-var backupLocalCreateCommand = []string{"/usr/bin/urmailctl", "backup", "--include-mail", "--maintenance", "--out-dir", backupOutputRoot}
-
-// BackupLocalCreateParams must be empty; any field is rejected.
+// BackupLocalCreateParams accepts no caller-controlled fields.
 type BackupLocalCreateParams struct{}
 
-// BackupLocalCreate runs the fixed backup command as root and then makes the
-// produced artifacts group-readable for the mailinabox daemon so the
-// unprivileged encryption/upload stage can read them. Timeout bounds the
-// whole backup (dumps of large hosts are the long pole); a timed-out run
-// leaves the spool for the next attempt and deletes nothing.
+// BackupLocalCreate queues work outside this agent's maintenance-stopped cgroup.
 func BackupLocalCreate(params json.RawMessage) (string, string, error) {
 	trimmed := bytes.TrimSpace(params)
 	if len(trimmed) != 0 && string(trimmed) != "null" && string(trimmed) != "{}" {
 		return "", "", fmt.Errorf("%w: %s takes no parameters", ErrRejected, OpBackupLocalCreate)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, backupLocalCreateCommand[0], backupLocalCreateCommand[1:]...) // #nosec G204 -- every element is a compile-time constant.
-	output, err := cmd.CombinedOutput()
+	command := exec.CommandContext(ctx, backupLocalCreateCommand[0], backupLocalCreateCommand[1:]...) // #nosec G204 -- fixed systemctl unit and arguments; no caller input.
+	output, err := command.CombinedOutput()
 	if err != nil {
-		return "", string(output), fmt.Errorf("%w: backup.local.create: %w: %s", ErrFailed, err, strings.TrimSpace(string(output)))
+		return "", string(output), fmt.Errorf("%w: queue independent backup: %w", ErrFailed, err)
 	}
-	if err := shareBackupArtifactsWithDaemon(backupOutputRoot); err != nil {
-		return string(output), "", fmt.Errorf("%w: share artifacts: %w", ErrFailed, err)
-	}
-	return string(output), "", nil
-}
-
-// shareBackupArtifactsWithDaemon chmods the newest backup generation to
-// 0640 root:mailinabox. Only regular files are touched; directories keep
-// their root-only mode because the daemon opens known file names, not
-// listings it could not verify anyway.
-func shareBackupArtifactsWithDaemon(root string) error {
-	group, err := user.LookupGroup("mailinabox")
-	if err != nil {
-		return nil // development host without the group: leave root-only
-	}
-	gid, err := strconv.Atoi(group.Gid)
-	if err != nil {
-		return fmt.Errorf("parse mailinabox gid %q: %w", group.Gid, err)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return fmt.Errorf("read backup spool: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.Type() != 0 { // regular files only; never follow symlinks
-			continue
-		}
-		name := entry.Name()
-		if !strings.HasPrefix(name, "urmail-") {
-			continue
-		}
-		target := filepath.Join(root, name)
-		if err := os.Chown(target, -1, gid); err != nil {
-			return fmt.Errorf("chown %s: %w", target, err)
-		}
-		if err := os.Chmod(target, 0o640); err != nil {
-			return fmt.Errorf("chmod %s: %w", target, err)
-		}
-	}
-	return nil
+	return "backup queued in urmail-backup-auto.service", "", nil
 }

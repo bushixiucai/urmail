@@ -379,7 +379,9 @@ func TestCollaborationReadinessFollowsEnabledProtocols(t *testing.T) {
 	if _, err := platform.Exec(ctx, "ALTER TABLE mailbox_events RENAME TO mailbox_events_missing"); err != nil {
 		t.Fatal(err)
 	}
-	disabled := &ApplyManager{pool: platform, cfg: &config.Config{}}
+	// This fixture isolates collaboration schema; scheduler failure paths have
+	// their own command-boundary tests.
+	disabled := &ApplyManager{pool: platform, cfg: &config.Config{}, run: func(context.Context, string, ...string) error { return nil }}
 	if err := disabled.probeNewServiceReadiness(ctx); err != nil {
 		t.Fatalf("disabled protocols require collaboration schema: %v", err)
 	}

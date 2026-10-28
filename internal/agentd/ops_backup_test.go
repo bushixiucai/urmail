@@ -39,15 +39,8 @@ func TestBackupLocalCreateAcceptsEmptyAndNull(t *testing.T) {
 }
 
 func TestBackupLocalCreateCommandIsFixed(t *testing.T) {
-	if backupLocalCreateCommand[0] != "/usr/bin/urmailctl" {
-		t.Fatal("backup command must be the fixed urmailctl binary")
-	}
-	joined := strings.Join(backupLocalCreateCommand, " ")
-	if !strings.Contains(joined, "--include-mail") || !strings.Contains(joined, "--maintenance") {
-		t.Fatal("agent backup must be a complete maintenance backup")
-	}
-	if !strings.HasPrefix(joined, "/usr/bin/urmailctl backup --include-mail --maintenance --out-dir /var/backups/urmail") {
-		t.Fatalf("unexpected fixed command: %s", joined)
+	if strings.Join(backupLocalCreateCommand, " ") != "/usr/bin/systemctl start --no-block urmail-backup-auto.service" {
+		t.Fatal("backup must queue only the fixed independent unit")
 	}
 }
 

@@ -44,6 +44,8 @@ Usage:
   urmailctl secrets compact-rejected-webhooks [--apply]
   urmailctl domain challenge --tenant-id T --domain-id D
   urmailctl domain verify --tenant-id T --domain-id D
+  urmailctl backup-auto            run the configured root-only scheduled backup
+  urmailctl backup-auto-resume     recover originally active writers after interruption
   urmailctl backup [--out-dir DIR]  dump PostgreSQL and config/certificate files
   urmailctl restore mailbox --tenant-id T --mailbox-id M --address A --mail FILE --manifest FILE [--apply-review SHA256 --rollback-dir NEW_PRIVATE_DIR]
   urmailctl restore quarantine status|release [--restore-id ID --confirm-reconciled --source-isolated --reason TEXT]
@@ -110,6 +112,10 @@ func run(args []string) error {
 		return runImportLegacyActivateMail(ctx, args[1:])
 	case "data-check":
 		return runDataCheck(ctx)
+	case "backup-auto":
+		return runBackupAuto(ctx, args[1:])
+	case "backup-auto-resume":
+		return runBackupAutoResume(ctx, args[1:])
 	case "backup":
 		return runBackup(ctx, args[1:])
 	case "restore":

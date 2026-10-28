@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -30,9 +29,7 @@ func TestSideEffectWorkersDoNotStartInMaintenanceRestoreOrDevelopment(t *testing
 			if service == nil {
 				t.Fatal("API preparation capability was removed with worker hold")
 			}
-			if _, err := newBackupWorker(cfg, nil, "invalid-age-recipient", "https://external.invalid"); err == nil || !strings.Contains(err.Error(), "disabled") {
-				t.Fatalf("offsite worker touched configuration: %v", err)
-			}
+
 			select {
 			case <-called:
 				t.Fatal("disabled worker callback ran")

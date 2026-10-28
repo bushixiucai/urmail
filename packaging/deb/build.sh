@@ -54,6 +54,7 @@ install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.service" "$STAGE/lib/
 install -m 0644 "$ROOT/packaging/systemd/urmail-cert-renew.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.service" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.timer" "$STAGE/lib/systemd/system/"
+install -m 0644 "$ROOT/packaging/systemd/urmail-backup-auto.service" "$ROOT/packaging/systemd/urmail-backup-auto.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-prometheus.service" "$ROOT/packaging/systemd/urmail-alertmanager.service" "$STAGE/lib/systemd/system/"
 install -d "$STAGE/etc/urmail/observability"
 install -m 0644 "$ROOT/packaging/observability/"*.yml "$STAGE/etc/urmail/observability/"
@@ -138,6 +139,7 @@ systemctl try-restart rsyslog.service >/dev/null 2>&1 || true
 systemctl enable urmaild-agent.service >/dev/null 2>&1 || true
 systemctl enable urmaild.service >/dev/null 2>&1 || true
 systemctl enable urmail-cert-renew.timer >/dev/null 2>&1 || true
+systemctl enable urmail-backup-auto.timer >/dev/null 2>&1 || true
 
 exit 0
 EOF
@@ -145,6 +147,8 @@ EOF
 cat >"$STAGE/DEBIAN/prerm" <<'EOF'
 #!/bin/sh
 set -e
+systemctl disable --now urmail-backup-auto.timer >/dev/null 2>&1 || true
+systemctl stop urmail-backup-auto.service >/dev/null 2>&1 || true
 systemctl disable --now urmaild.service >/dev/null 2>&1 || true
 systemctl disable --now urmaild-agent.service >/dev/null 2>&1 || true
 systemctl disable --now urmail-cert-renew.timer >/dev/null 2>&1 || true

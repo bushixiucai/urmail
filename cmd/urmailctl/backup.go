@@ -29,7 +29,20 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	outDir := "/var/backups/urmail"
 	includeMail, maintenance := false, false
+	stamp := time.Now().UTC().Format("20060102T150405Z")
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--stamp" {
+			if i+1 >= len(args) {
+				return fmt.Errorf("--stamp requires a UTC generation stamp")
+			}
+			stamp = args[i+1] // #nosec G602 -- the preceding explicit bounds check rejects a missing value.
+			i++
+			parsed, parseErr := time.Parse("20060102T150405Z", stamp)
+			if parseErr != nil || parsed.Format("20060102T150405Z") != stamp {
+				return fmt.Errorf("invalid backup generation stamp")
+			}
+			continue
+		}
 		if args[i] == "--include-mail" {
 			includeMail = true
 		}
@@ -46,6 +59,17 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("backup must run as root")
+	}
+	if backupWritersHeld() {
+		return errors.New("backup refused during restore or upgrade hold")
+	}
+	if owned, _ := ctx.Value(backupOperationContext{}).(bool); !owned {
+		operationLock, lockErr := backupLock(backupMaintenanceRoot, "operation.lock")
+		if lockErr != nil {
+			return lockErr
+		}
+		defer func() { _ = operationLock.Close() }()
+		ctx = context.WithValue(ctx, backupOperationContext{}, true)
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -76,7 +100,6 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 		}
 		defer func() { returnErr = errors.Join(returnErr, resume()) }()
 	}
-	stamp := time.Now().UTC().Format("20060102T150405Z")
 	dump := filepath.Join(outDir, "urmail-"+stamp+".dump")
 	cmd, err := backupDatabaseCommand(ctx, dbURL)
 	if err != nil {
@@ -242,29 +265,7 @@ func writeBackupManifest(path, scope string, consistent bool, files []string) er
 	return os.WriteFile(path, raw, 0o600) // #nosec G703 -- root-selected manifest destination inside the private backup directory.
 }
 func pauseBackupWriters(ctx context.Context) (func() error, error) {
-	active := []string{}
-	resume := func() error {
-		var failures []error
-		for i := len(active) - 1; i >= 0; i-- {
-			if err := exec.CommandContext(context.Background(), "/usr/bin/systemctl", "start", active[i]).Run(); err != nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
-				failures = append(failures, fmt.Errorf("restart %s after backup: %w", active[i], err))
-			}
-		}
-		return errors.Join(failures...)
-	}
-	if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
-		return nil, fmt.Errorf("maintenance requires systemd: %w", err)
-	}
-	for _, unit := range restoreWriterUnits {
-		if exec.CommandContext(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit).Run() == nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
-			if err := exec.CommandContext(ctx, "/usr/bin/systemctl", "stop", unit).Run(); err != nil { // #nosec G204 G702 -- privileged local CLI; fixed executable and separate root-controlled arguments, no shell.
-				_ = resume()
-				return nil, fmt.Errorf("stop backup writer %s: %w", unit, err)
-			}
-			active = append(active, unit)
-		}
-	}
-	return resume, nil
+	return pauseBackupWritersDurable(ctx, backupMaintenanceRoot, systemBackupUnit)
 }
 
 // validatePrivateBackupDirectory prevents a daemon-owned parent from swapping
