@@ -25,6 +25,9 @@ import (
 // Clients may also list/open Drafts via /folders/{name_enc}/messages when known.
 
 type mailboxDraftRequest struct {
+	From        string                  `json:"from"`
+	InReplyTo   string                  `json:"in_reply_to"`
+	ReplySource *mailboxReplySource     `json:"reply_source"`
 	UID         uint32                  `json:"uid"` // prior draft to replace; 0 = new
 	UIDValidity uint32                  `json:"uid_validity"`
 	To          []string                `json:"to"`
@@ -60,8 +63,18 @@ func (h *MailboxNativeHandler) SaveDraft(c *gin.Context) {
 	if !ok {
 		return
 	}
+	_, from, ok := h.authorizedIdentity(c, session, req.From)
+	if !ok {
+		return
+	}
+	inReplyTo, ok := resolveReplySource(c, client, req.ReplySource, req.InReplyTo)
+	if !ok {
+		return
+	}
 	result, err := client.SaveDraft(c.Request.Context(), session.Address, webmail.Outgoing{
-		From:        session.Address,
+		From:        from,
+		InReplyTo:   inReplyTo,
+		References:  inReplyTo,
 		To:          cleanAddrs(req.To),
 		Cc:          cleanAddrs(req.Cc),
 		Bcc:         cleanAddrs(req.Bcc),

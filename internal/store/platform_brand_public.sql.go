@@ -17,6 +17,7 @@ SELECT $1,b.id FROM brands b WHERE b.id=$2 AND b.status='active'
 ON CONFLICT(hostname) DO UPDATE SET brand_id=EXCLUDED.brand_id,
 status='pending-verify',failure_reason=NULL,verified_at=NULL,
 cert_issued_at=NULL,activated_at=NULL,updated_at=now()
+WHERE brand_hosts.status='failed' AND brand_hosts.failure_reason='revoked'
 RETURNING hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at
 `
 
@@ -300,7 +301,9 @@ func (q *Queries) PlatformSetBrandStatus(ctx context.Context, arg PlatformSetBra
 }
 
 const platformUnbindBrandHost = `-- name: PlatformUnbindBrandHost :execrows
-DELETE FROM brand_hosts WHERE hostname=$1
+WITH deleted_proof AS (DELETE FROM brand_host_challenges WHERE hostname=$1::text)
+UPDATE brand_hosts h SET status='failed',failure_reason='revoked',verified_at=NULL,
+cert_issued_at=NULL,activated_at=NULL,updated_at=now() WHERE h.hostname=$1::text
 `
 
 func (q *Queries) PlatformUnbindBrandHost(ctx context.Context, hostname string) (int64, error) {

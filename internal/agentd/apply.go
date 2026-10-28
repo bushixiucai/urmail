@@ -89,7 +89,9 @@ type CommandRunner func(context.Context, string, ...string) error
 // All transactions are serialized, and its state directory is root-owned.
 type ApplyManager struct {
 	mu                    sync.Mutex
+	dnsMu                 sync.Mutex
 	certMu                sync.Mutex
+	brandMu               sync.Mutex
 	pool                  *db.Pool
 	versions              reconcile.ZoneVersionStore
 	published             atomic.Value
@@ -101,6 +103,7 @@ type ApplyManager struct {
 	status                ApplyStatus
 	paths                 []string
 	domains               []string
+	transportDomains      []string
 	targetRoot            string
 	webroot               string
 	automaticCertificates bool
@@ -115,6 +118,15 @@ type ApplyManager struct {
 // NewApplyManager creates the serialized root configuration controller.
 func NewApplyManager(cfg *config.Config) (*ApplyManager, error) {
 	m := &ApplyManager{cfg: cfg, root: StateRoot, run: runCommand, automaticCertificates: true, fileWriter: writeFileAtomic}
+	if cfg.DNSSecondaryOnly {
+		if err := os.MkdirAll(m.root, 0700); err != nil {
+			return nil, err
+		}
+		if err := os.Chmod(m.root, 0700); err != nil {
+			return nil, err
+		}
+		return m, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
@@ -208,6 +220,13 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		return "", "", fmt.Errorf("%w: invalid domain snapshot: %w", ErrRejected, err)
 	}
 	files = filterPreservedExternalFiles(m.cfg, files)
+	_, brandManaged := files[brandManagedNginxPath]
+	retainedPaths := []string{}
+	for _, path := range m.paths {
+		if preservedExternalPath(m.cfg, path) {
+			retainedPaths = append(retainedPaths, path)
+		}
+	}
 	sum := sha256.New()
 	paths := make([]string, 0, len(files))
 	for path := range files {
@@ -218,7 +237,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		_, _ = sum.Write([]byte(path + "\x00" + files[path] + "\x00"))
 	}
 	generation := hex.EncodeToString(sum.Sum(nil))
-	if m.status.Ready && m.status.Applied == generation && m.spamBinaryCurrent() {
+	if m.status.Ready && m.status.Applied == generation && m.spamBinaryCurrent() && m.dnsDerivedCurrent(p.DNS) {
 		// Keep Ready=true while rechecking so concurrent config.status readers
 		// do not flap on probe:smtp25 during an otherwise healthy generation.
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -264,7 +283,11 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 			continue
 		}
 		m.status.Step = "stage:" + path
-		if _, _, err := resolveAllowedPath(path, allowedWriteRoots); err != nil {
+		roots := allowedWriteRoots
+		if path == brandManagedNginxPath {
+			roots = []string{filepath.Dir(brandManagedNginxPath)}
+		}
+		if _, _, err := resolveAllowedPath(path, roots); err != nil {
 			return "", "", err
 		}
 		saved, err := saveFile(m.target(path))
@@ -304,6 +327,10 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 				}
 			}
 		}
+		m.status.Step = "compile:dns-security"
+		if err := m.installDNSDerived(ctx, p.DNS); err != nil {
+			return err
+		}
 		m.status.Step = "compile:sieve"
 		m.publish()
 		if err := m.compileSpamScript(ctx); err != nil {
@@ -311,6 +338,14 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		}
 		m.status.Step = "check"
 		m.publish()
+		if brandManaged {
+			if err := m.run(ctx, "/usr/sbin/nginx", "-t"); err != nil {
+				return err
+			}
+			if err := m.verifyHybridBrandInclude(ctx); err != nil {
+				return err
+			}
+		}
 		if err := m.check(ctx, p); err != nil {
 			return err
 		}
@@ -334,7 +369,11 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		}
 		m.status.Step = "reload"
 		m.publish()
-		for _, unit := range configUnits(m.cfg) {
+		units := configUnits(m.cfg)
+		if brandManaged {
+			units = append(units, "nginx")
+		}
+		for _, unit := range units {
 			m.status.Step = "reload:" + unit
 			m.publish()
 			if !containsUnit(journal.Reloaded, unit) {
@@ -343,8 +382,12 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 			if err := m.saveJSON("pending.json", journal); err != nil {
 				return err
 			}
-			if err := m.run(ctx, "/usr/bin/systemctl", "restart", unit); err != nil {
-				return fmt.Errorf("restart %s: %w", unit, err)
+			verb := "restart"
+			if unit == "nginx" && brandManaged {
+				verb = "reload"
+			}
+			if err := m.run(ctx, "/usr/bin/systemctl", verb, unit); err != nil {
+				return fmt.Errorf("reload %s: %w", unit, err)
 			}
 		}
 		m.status.Step = "probe"
@@ -380,11 +423,14 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	}
 	m.status = ApplyStatus{Desired: generation, Applied: generation, AppliedAt: time.Now().UTC(), Ready: true, Step: "ready"}
 	m.paths = paths
+	m.paths = append(m.paths, retainedPaths...)
+	sort.Strings(m.paths)
 	m.domains = nil
 	for _, d := range p.Postfix.Domains {
 		m.domains = append(m.domains, d.FQDN)
 	}
-	if err := m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: paths, Domains: m.domains}); err != nil {
+	m.domains = append(m.domains, m.transportDomains...)
+	if err := m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains}); err != nil {
 		m.status.Ready = false
 		m.status.Degraded = true
 		return "", "", err
@@ -392,7 +438,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	if err := os.Remove(filepath.Join(m.root, "pending.json")); err != nil {
 		return "", "", err
 	}
-	if m.automaticCertificates && m.certificatePending.CompareAndSwap(false, true) {
+	if m.automaticCertificates && m.cfg.BackgroundWorkersAllowed() && m.certificatePending.CompareAndSwap(false, true) {
 		go func() { defer m.certificatePending.Store(false); _, _, _ = m.RenewCertificates(json.RawMessage(`{}`)) }()
 	}
 	return generation, "", nil
@@ -406,8 +452,10 @@ func preservedExternalPath(cfg *config.Config, path string) bool {
 		return false
 	}
 	switch {
-	case cfg.PreserveExternalNSD && (strings.HasPrefix(path, "/etc/nsd/") || path == "/etc/nsd"):
+	case (cfg.PreserveExternalNSD || cfg.WorkersHeld) && (strings.HasPrefix(path, "/etc/nsd/") || path == "/etc/nsd"):
 		return true
+	case cfg.PreserveExternalWeb && path == brandManagedNginxPath:
+		return false
 	case cfg.PreserveExternalWeb && (strings.HasPrefix(path, "/etc/nginx/") || path == "/etc/nginx"):
 		return true
 	case cfg.PreserveExternalOpenDKIM && (strings.HasPrefix(path, "/etc/opendkim") || strings.Contains(path, "/opendkim/")):
@@ -418,7 +466,7 @@ func preservedExternalPath(cfg *config.Config, path string) bool {
 }
 
 func filterPreservedExternalFiles(cfg *config.Config, files map[string]string) map[string]string {
-	if cfg == nil || (!cfg.PreserveExternalNSD && !cfg.PreserveExternalWeb && !cfg.PreserveExternalOpenDKIM) {
+	if cfg == nil || (!cfg.WorkersHeld && !cfg.PreserveExternalNSD && !cfg.PreserveExternalWeb && !cfg.PreserveExternalOpenDKIM) {
 		return files
 	}
 	filtered := make(map[string]string, len(files))
@@ -435,7 +483,7 @@ func configUnits(cfg *config.Config) []string {
 	units := make([]string, 0, len(ConfigUnits))
 	for _, unit := range ConfigUnits {
 		if cfg != nil {
-			if cfg.PreserveExternalNSD && unit == "nsd" {
+			if (cfg.PreserveExternalNSD || cfg.WorkersHeld) && unit == "nsd" {
 				continue
 			}
 			if cfg.PreserveExternalWeb && unit == "nginx" {
@@ -451,6 +499,9 @@ func configUnits(cfg *config.Config) []string {
 }
 
 func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
+	if err := m.enrichDNSSnapshot(&p.DNS); err != nil {
+		return nil, err
+	}
 	if len(p.SpamPolicies) > 10000 || len(p.Postfix.Domains) > 10000 || len(p.Postfix.Mailboxes) > 100000 || len(p.Postfix.Aliases) > 100000 || len(p.DNS.Zones) > 10000 || len(p.DKIM.Domains) > 10000 {
 		return nil, fmt.Errorf("snapshot exceeds limits")
 	}
@@ -520,6 +571,12 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 			}
 		}
 	}
+	mailContext.NginxSnap.Domains = append(mailContext.NginxSnap.Domains, m.transportNginxDomains()...)
+	brandDomains, brandErr := m.brandNginxDomains()
+	if brandErr != nil {
+		return nil, brandErr
+	}
+	mailContext.NginxSnap.Domains = append(mailContext.NginxSnap.Domains, brandDomains...)
 	if m.versions != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -527,10 +584,29 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 			return nil, err
 		}
 	}
-	return mail.RenderAll(mailContext)
+	files, err := mail.RenderAll(mailContext)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.PreserveExternalWeb {
+		hybrid, hybridErr := m.hybridBrandFiles(brandDomains)
+		if hybridErr != nil {
+			return nil, hybridErr
+		}
+		for path, content := range hybrid {
+			files[path] = content
+		}
+	}
+	if err = m.addDNSSecureFiles(files, mailContext.NSDSnap); err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func runtimeMode(path string) os.FileMode {
+	if strings.HasSuffix(path, "/urmail-spam/execute/outbound-check") {
+		return 0755
+	}
 	if mail.SecretFile(path) {
 		return 0640
 	}
@@ -538,6 +614,11 @@ func runtimeMode(path string) os.FileMode {
 }
 func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 	roots := allowedWriteRoots
+	// This single additive include is a typed capability, never a new general
+	// /etc/nginx/conf.d write root for other agent operations.
+	if path == brandManagedNginxPath {
+		roots = []string{filepath.Dir(m.target(brandManagedNginxPath))}
+	}
 	path = m.target(path)
 	if m.targetRoot != "" {
 		roots = []string{m.targetRoot}
@@ -548,6 +629,17 @@ func (m *ApplyManager) write(path string, data []byte, mode os.FileMode) error {
 	}
 	if _, err := writer(path, data, mode, roots); err != nil {
 		return err
+	}
+	if strings.HasSuffix(path, "/urmail-spam/execute/outbound-check") {
+		if os.Geteuid() == 0 {
+			if err := os.Chown(path, 0, 0); err != nil {
+				return err
+			}
+			if err := os.Chown(filepath.Dir(path), 0, 0); err != nil {
+				return err
+			}
+		}
+		return os.Chmod(filepath.Dir(path), 0755)
 	}
 	if strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") || strings.HasSuffix(path, "/urmail-spam/spam-before.svbin") {
 		if os.Geteuid() == 0 {
@@ -606,7 +698,7 @@ func (m *ApplyManager) spamBinaryCurrent() bool {
 func (m *ApplyManager) compileSpamScript(ctx context.Context) error {
 	const source = "/etc/dovecot/urmail-spam/spam-before.sieve"
 	const binary = "/etc/dovecot/urmail-spam/spam-before.svbin"
-	if err := m.run(ctx, "/usr/bin/sievec", source, binary); err != nil {
+	if err := m.run(ctx, "/usr/bin/sievec", "-P", "sieve_extprograms", "-x", "+vnd.dovecot.execute", source, binary); err != nil {
 		return fmt.Errorf("compile private spam sieve: %w", err)
 	}
 	if err := os.Chmod(m.target(binary), 0640); err != nil {
@@ -628,7 +720,7 @@ func (m *ApplyManager) check(ctx context.Context, p ApplyParams) error {
 			if m.cfg.PreserveExternalWeb && name == "nginx" {
 				continue
 			}
-			if m.cfg.PreserveExternalNSD && name == "nsd-checkconf" {
+			if (m.cfg.PreserveExternalNSD || m.cfg.WorkersHeld) && name == "nsd-checkconf" {
 				continue
 			}
 		}
@@ -638,7 +730,7 @@ func (m *ApplyManager) check(ctx context.Context, p ApplyParams) error {
 			return fmt.Errorf("check %s: %w", name, err)
 		}
 	}
-	if m.cfg != nil && m.cfg.PreserveExternalNSD {
+	if m.cfg != nil && (m.cfg.PreserveExternalNSD || m.cfg.WorkersHeld) {
 		return nil
 	}
 	for _, z := range p.DNS.Zones {
@@ -694,7 +786,11 @@ func (m *ApplyManager) restore(j applyJournal) error {
 		return err
 	}
 	for _, unit := range j.Reloaded {
-		if err := m.run(ctx, "/usr/bin/systemctl", "restart", unit); err != nil {
+		verb := "restart"
+		if unit == "nginx" && m.cfg.PreserveExternalWeb {
+			verb = "reload"
+		}
+		if err := m.run(ctx, "/usr/bin/systemctl", verb, unit); err != nil {
 			return fmt.Errorf("rollback %s: %w", unit, err)
 		}
 	}

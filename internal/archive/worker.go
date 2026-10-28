@@ -135,6 +135,9 @@ func (w *Worker) Once(ctx context.Context) error {
 		w.scanAfter = ""
 	}
 	q := store.New(w.Pool.Pool)
+	if _, expiryErr := q.PlatformExpireArchiveApprovals(ctx); expiryErr != nil {
+		failures = append(failures, expiryErr)
+	}
 	if err = w.backfill(ctx); err != nil {
 		failures = append(failures, err)
 	}

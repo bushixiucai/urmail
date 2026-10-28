@@ -19,7 +19,7 @@ WHERE s.id=$1 AND s.claim_token=$2
   JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
   WHERE m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
    AND m.status='active' AND t.status='active' AND d.status='active')
-RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at
+RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state
 `
 
 type PlatformBeginMailboxScheduledSendSubmissionParams struct {
@@ -50,6 +50,8 @@ func (q *Queries) PlatformBeginMailboxScheduledSendSubmission(ctx context.Contex
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
@@ -59,7 +61,7 @@ UPDATE mailbox_scheduled_sends
 SET status='cancelled',smtp_secret='',claim_token=claim_token+1,lease_until=NULL,
  updated_at=now(),last_error=NULL
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND status IN('pending','preparing','cancelled')
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
 `
 
 type PlatformCancelMailboxScheduledSendParams struct {
@@ -91,6 +93,8 @@ func (q *Queries) PlatformCancelMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
@@ -110,7 +114,7 @@ UPDATE mailbox_scheduled_sends s
 SET status='preparing',attempts=s.attempts+1,claim_token=s.claim_token+1,
  lease_until=now()+interval '5 minutes',updated_at=now()
 FROM candidate c WHERE s.id=c.id
-RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at
+RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state
 `
 
 func (q *Queries) PlatformClaimMailboxScheduledSend(ctx context.Context) (MailboxScheduledSends, error) {
@@ -136,6 +140,8 @@ func (q *Queries) PlatformClaimMailboxScheduledSend(ctx context.Context) (Mailbo
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
@@ -149,7 +155,7 @@ INSERT INTO mailbox_scheduled_sends(
  $1,$2,$3,$4,
  $5,$6,$6,'pending',
  $7,$8,$9
-) RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at
+) RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
 `
 
 type PlatformCreateMailboxScheduledSendParams struct {
@@ -198,6 +204,8 @@ func (q *Queries) PlatformCreateMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
@@ -207,7 +215,7 @@ UPDATE mailbox_scheduled_sends
 SET status=$1,smtp_secret='',last_error=$2,
  lease_until=NULL,updated_at=now(),sent_at=CASE WHEN $1::text='sent' THEN now() ELSE sent_at END
 WHERE id=$3 AND claim_token=$4 AND status=$5
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
 `
 
 type PlatformFinishMailboxScheduledSendParams struct {
@@ -247,12 +255,14 @@ func (q *Queries) PlatformFinishMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
 
 const platformGetMailboxScheduledSend = `-- name: PlatformGetMailboxScheduledSend :one
-SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at FROM mailbox_scheduled_sends
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state FROM mailbox_scheduled_sends
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3
 `
 
@@ -285,6 +295,8 @@ func (q *Queries) PlatformGetMailboxScheduledSend(ctx context.Context, arg Platf
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
@@ -310,7 +322,7 @@ func (q *Queries) PlatformGetMailboxScheduledSendAddress(ctx context.Context, ar
 }
 
 const platformGetMailboxScheduledSendByKey = `-- name: PlatformGetMailboxScheduledSendByKey :one
-SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at FROM mailbox_scheduled_sends
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state FROM mailbox_scheduled_sends
 WHERE tenant_id=$1 AND mailbox_id=$2 AND idempotency_key=$3
 `
 
@@ -343,12 +355,14 @@ func (q *Queries) PlatformGetMailboxScheduledSendByKey(ctx context.Context, arg 
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }
 
 const platformListMailboxScheduledSends = `-- name: PlatformListMailboxScheduledSends :many
-SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at FROM mailbox_scheduled_sends
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state FROM mailbox_scheduled_sends
 WHERE tenant_id=$1 AND mailbox_id=$2
 ORDER BY created_at DESC,id DESC
 LIMIT $4 OFFSET $3
@@ -395,6 +409,8 @@ func (q *Queries) PlatformListMailboxScheduledSends(ctx context.Context, arg Pla
 			&i.LeaseUntil,
 			&i.NextAttemptAt,
 			&i.SentAt,
+			&i.SentRaw,
+			&i.SentCopyState,
 		); err != nil {
 			return nil, err
 		}
@@ -429,7 +445,7 @@ UPDATE mailbox_scheduled_sends
 SET status='pending',next_attempt_at=$1,last_error=$2,
  lease_until=NULL,updated_at=now()
 WHERE id=$3 AND claim_token=$4 AND status=$5
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
 `
 
 type PlatformRequeueMailboxScheduledSendParams struct {
@@ -469,6 +485,8 @@ func (q *Queries) PlatformRequeueMailboxScheduledSend(ctx context.Context, arg P
 		&i.LeaseUntil,
 		&i.NextAttemptAt,
 		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
 	)
 	return i, err
 }

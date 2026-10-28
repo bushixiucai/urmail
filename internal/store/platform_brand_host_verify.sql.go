@@ -13,8 +13,8 @@ import (
 
 const platformBrandHostCertEligible = `-- name: PlatformBrandHostCertEligible :one
 SELECT EXISTS(
-  SELECT 1 FROM brand_hosts
-  WHERE hostname = $1 AND status IN ('verified','cert-issued','active')
+  SELECT 1 FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
+  WHERE h.hostname = $1 AND h.status IN ('verified','cert-issued','active')
 ) AS eligible
 `
 
@@ -23,6 +23,53 @@ func (q *Queries) PlatformBrandHostCertEligible(ctx context.Context, hostname st
 	var eligible bool
 	err := row.Scan(&eligible)
 	return eligible, err
+}
+
+const platformBrandHostCertificateTransition = `-- name: PlatformBrandHostCertificateTransition :execrows
+UPDATE brand_hosts h SET status=$1,failure_reason=$2,
+ cert_issued_at=CASE WHEN $1::text IN ('cert-issued','active') THEN now() ELSE h.cert_issued_at END,
+ activated_at=CASE WHEN $1::text='active' THEN now() ELSE NULL END,updated_at=now()
+WHERE h.hostname=$3 AND h.brand_id=$4
+AND h.verified_at=$5 AND h.status=$6
+AND EXISTS(SELECT 1 FROM brands b WHERE b.id=h.brand_id AND b.status='active')
+AND EXISTS(SELECT 1 FROM platform_admins a JOIN users u ON u.id=a.user_id AND u.status='active' WHERE a.user_id=$7)
+`
+
+type PlatformBrandHostCertificateTransitionParams struct {
+	NextStatus     string             `json:"next_status"`
+	FailureReason  pgtype.Text        `json:"failure_reason"`
+	Hostname       string             `json:"hostname"`
+	BrandID        int64              `json:"brand_id"`
+	VerifiedAt     pgtype.Timestamptz `json:"verified_at"`
+	ExpectedStatus string             `json:"expected_status"`
+	ActorID        int64              `json:"actor_id"`
+}
+
+func (q *Queries) PlatformBrandHostCertificateTransition(ctx context.Context, arg PlatformBrandHostCertificateTransitionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformBrandHostCertificateTransition,
+		arg.NextStatus,
+		arg.FailureReason,
+		arg.Hostname,
+		arg.BrandID,
+		arg.VerifiedAt,
+		arg.ExpectedStatus,
+		arg.ActorID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformBrandHostReserved = `-- name: PlatformBrandHostReserved :one
+SELECT EXISTS(SELECT 1 FROM domains WHERE fqdn=$1)
+`
+
+func (q *Queries) PlatformBrandHostReserved(ctx context.Context, fqdn string) (bool, error) {
+	row := q.db.QueryRow(ctx, platformBrandHostReserved, fqdn)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const platformConsumeBrandHostChallenge = `-- name: PlatformConsumeBrandHostChallenge :execrows
@@ -128,6 +175,28 @@ func (q *Queries) PlatformInsertBrandHostChallenge(ctx context.Context, arg Plat
 	return err
 }
 
+const platformLockBrandHost = `-- name: PlatformLockBrandHost :one
+SELECT h.hostname, h.brand_id, h.created_at, h.status, h.failure_reason, h.verified_at, h.cert_issued_at, h.activated_at, h.updated_at FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
+WHERE h.hostname=$1 FOR UPDATE OF h
+`
+
+func (q *Queries) PlatformLockBrandHost(ctx context.Context, hostname string) (BrandHosts, error) {
+	row := q.db.QueryRow(ctx, platformLockBrandHost, hostname)
+	var i BrandHosts
+	err := row.Scan(
+		&i.Hostname,
+		&i.BrandID,
+		&i.CreatedAt,
+		&i.Status,
+		&i.FailureReason,
+		&i.VerifiedAt,
+		&i.CertIssuedAt,
+		&i.ActivatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const platformSetBrandHostLifecycle = `-- name: PlatformSetBrandHostLifecycle :execrows
 UPDATE brand_hosts SET status = $2,
   failure_reason = $3,
@@ -152,6 +221,55 @@ func (q *Queries) PlatformSetBrandHostLifecycle(ctx context.Context, arg Platfor
 		arg.VerifiedAt,
 		arg.CertIssuedAt,
 		arg.ActivatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformTenantBrandMatches = `-- name: PlatformTenantBrandMatches :one
+SELECT EXISTS(SELECT 1 FROM tenants WHERE id=$1 AND brand_id=$2 AND status IN ('active','pending'))
+`
+
+type PlatformTenantBrandMatchesParams struct {
+	ID      int64 `json:"id"`
+	BrandID int64 `json:"brand_id"`
+}
+
+func (q *Queries) PlatformTenantBrandMatches(ctx context.Context, arg PlatformTenantBrandMatchesParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformTenantBrandMatches, arg.ID, arg.BrandID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const platformVerifyBrandHostProof = `-- name: PlatformVerifyBrandHostProof :execrows
+WITH consumed AS (
+ UPDATE brand_host_challenges c SET consumed_at=now()
+ WHERE c.hostname=$3 AND c.token_digest=$4
+ AND c.consumed_at IS NULL AND c.expires_at>now()
+ RETURNING c.hostname
+)
+UPDATE brand_hosts h SET status='verified',verified_at=now(),cert_issued_at=NULL,
+ activated_at=NULL,failure_reason=NULL,updated_at=now()
+FROM consumed WHERE h.hostname=consumed.hostname AND h.brand_id=$1
+AND h.updated_at=$2
+`
+
+type PlatformVerifyBrandHostProofParams struct {
+	BrandID           int64              `json:"brand_id"`
+	ExpectedUpdatedAt pgtype.Timestamptz `json:"expected_updated_at"`
+	Hostname          string             `json:"hostname"`
+	TokenDigest       string             `json:"token_digest"`
+}
+
+func (q *Queries) PlatformVerifyBrandHostProof(ctx context.Context, arg PlatformVerifyBrandHostProofParams) (int64, error) {
+	result, err := q.db.Exec(ctx, platformVerifyBrandHostProof,
+		arg.BrandID,
+		arg.ExpectedUpdatedAt,
+		arg.Hostname,
+		arg.TokenDigest,
 	)
 	if err != nil {
 		return 0, err

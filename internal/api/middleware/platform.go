@@ -16,6 +16,10 @@ type PlatformAdminChecker interface {
 // RequirePlatformAdmin rejects users who are not platform administrators.
 func RequirePlatformAdmin(checker PlatformAdminChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !CanonicalHostAllowed(c) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "FORBIDDEN"}})
+			return
+		}
 		userID, ok := GetUserID(c)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})

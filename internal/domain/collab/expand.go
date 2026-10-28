@@ -1,14 +1,53 @@
 package collab
 
 import (
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/teambition/rrule-go"
 )
 
 // ExpandInstances returns bounded occurrences inside the window.
 // Weekly, monthly, and yearly rules use the start date's weekday or day.
-// Exceptions and attendees are not represented.
+// Single-occurrence overrides preserve the original series identity.
 func ExpandInstances(event Event, windowStart, windowEnd time.Time) ([]time.Time, error) {
+	norm, err := NormalizeEvent(event)
+	if err != nil {
+		return nil, err
+	}
+	if norm.Status == statusCancelled {
+		return nil, nil
+	}
+	base := norm
+	base.Overrides = nil
+	starts, err := expandBaseInstances(base, windowStart, windowEnd)
+	if err != nil {
+		return nil, err
+	}
+	replaced := map[int64]bool{}
+	for _, override := range norm.Overrides {
+		replaced[override.RecurrenceID.UnixNano()] = true
+	}
+	result := make([]time.Time, 0, len(starts)+len(norm.Overrides))
+	for _, start := range starts {
+		if !replaced[start.UnixNano()] {
+			result = append(result, start)
+		}
+	}
+	for _, override := range norm.Overrides {
+		if override.Status != statusCancelled && overlaps(override.StartsAt, override.EndsAt, windowStart, windowEnd) {
+			result = append(result, override.StartsAt)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Before(result[j]) })
+	if len(result) > MaxInstances {
+		return nil, ErrInvalidEvent
+	}
+	return result, nil
+}
+
+func expandBaseInstances(event Event, windowStart, windowEnd time.Time) ([]time.Time, error) {
 	norm, err := NormalizeEvent(event)
 	if err != nil {
 		return nil, err
@@ -16,104 +55,65 @@ func ExpandInstances(event Event, windowStart, windowEnd time.Time) ([]time.Time
 	if !windowEnd.After(windowStart) {
 		return nil, ErrInvalidEvent
 	}
+	if norm.Status == statusCancelled {
+		return nil, nil
+	}
 	if norm.RRule == "" {
 		if overlaps(norm.StartsAt, norm.EndsAt, windowStart, windowEnd) {
 			return []time.Time{norm.StartsAt}, nil
 		}
 		return nil, nil
 	}
-	upper := strings.ToUpper(norm.RRule)
-	count := MaxInstances
-	if strings.Contains(upper, "COUNT=") {
-		n, err := countValue(upper)
-		if err != nil {
-			return nil, ErrInvalidEvent
-		}
-		count = n
-	}
-	step := recurrenceStep(upper)
-	if step == "" {
+	loc, err := time.LoadLocation(norm.Timezone)
+	if err != nil {
 		return nil, ErrInvalidEvent
 	}
-	var out []time.Time
-	start := norm.StartsAt
-	for i := 0; i < count && len(out) < MaxInstances; i++ {
-		occ := advance(start, step, i)
-		end := occ.Add(norm.EndsAt.Sub(norm.StartsAt))
-		if end.After(windowEnd) && occ.After(windowEnd) {
-			break
+	base, exception := splitException(norm.RRule)
+	options, err := rrule.StrToROptionInLocation(base, loc)
+	if err != nil {
+		return nil, ErrInvalidEvent
+	}
+	options.Dtstart = norm.StartsAt.In(loc)
+	rule, err := rrule.NewRRule(*options)
+	if err != nil {
+		return nil, ErrInvalidEvent
+	}
+	next := rule.Iterator()
+	out := []time.Time{}
+	exceptions := map[string]bool{}
+	if exception != "" {
+		for _, v := range strings.Split(exception, ",") {
+			exceptions[v] = true
 		}
-		if excluded(norm.RRule, occ) {
+	}
+	remainingExceptions := len(exceptions)
+	for scanned := 0; scanned < 20000; scanned++ {
+		occurrence, ok := next()
+		if !ok {
+			if remainingExceptions != 0 {
+				return nil, ErrInvalidEvent
+			}
+			return out, nil
+		}
+		occurrence = occurrence.UTC()
+		if stamp := occurrence.Format("20060102T150405Z"); exceptions[stamp] {
+			delete(exceptions, stamp)
+			remainingExceptions--
 			continue
 		}
-		if overlaps(occ, end, windowStart, windowEnd) {
-			out = append(out, occ)
+		if !occurrence.Before(windowEnd) && remainingExceptions == 0 {
+			return out, nil
 		}
-	}
-	if exception, ok := exceptionTime(norm.RRule); ok {
-		matched := false
-		for i := 0; i < count && i < MaxInstances; i++ {
-			if advance(start, step, i).UTC().Equal(exception) {
-				matched = true
-				break
+		if overlaps(occurrence, OccurrenceEnd(norm, occurrence), windowStart, windowEnd) {
+			out = append(out, occurrence)
+			if len(out) > MaxInstances {
+				return nil, ErrInvalidEvent
 			}
 		}
-		if !matched {
-			return nil, ErrInvalidEvent
-		}
 	}
-	return out, nil
-}
-
-func recurrenceStep(rule string) string {
-	switch {
-	case strings.Contains(rule, "FREQ=DAILY"):
-		return "daily"
-	case strings.Contains(rule, "FREQ=WEEKLY"):
-		return "weekly"
-	case strings.Contains(rule, "FREQ=MONTHLY"):
-		return "monthly"
-	case strings.Contains(rule, "FREQ=YEARLY"):
-		return "yearly"
-	default:
-		return ""
-	}
-}
-
-func advance(start time.Time, step string, n int) time.Time {
-	switch step {
-	case "daily":
-		return start.AddDate(0, 0, n)
-	case "weekly":
-		return start.AddDate(0, 0, 7*n)
-	case "monthly":
-		return start.AddDate(0, n, 0)
-	case "yearly":
-		return start.AddDate(n, 0, 0)
-	default:
-		return start
-	}
+	return nil, ErrInvalidEvent
 }
 
 func overlaps(start, end, windowStart, windowEnd time.Time) bool {
 	return start.Before(windowEnd) && end.After(windowStart)
-}
-
-func excluded(rule string, occ time.Time) bool {
-	_, value, ok := strings.Cut(strings.ToUpper(rule), "EXDATE=")
-	if !ok {
-		return false
-	}
-	value, _, _ = strings.Cut(value, ";")
-	return strings.Contains(value, occ.UTC().Format("20060102T150405Z"))
-}
-
-func exceptionTime(rule string) (time.Time, bool) {
-	_, value, ok := strings.Cut(strings.ToUpper(rule), "EXDATE=")
-	if !ok {
-		return time.Time{}, false
-	}
-	value, _, _ = strings.Cut(value, ";")
-	parsed, err := time.Parse("20060102T150405Z", value)
-	return parsed, err == nil
 }

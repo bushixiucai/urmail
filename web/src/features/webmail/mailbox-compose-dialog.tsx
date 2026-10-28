@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { MailboxAIPanel } from "./mailbox-ai-panel";
+import type { MailboxAISource } from "./mailbox-api";
 import { ApiRequestError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +23,10 @@ import {
   MessageDetail,
   OutgoingAttachment,
   getMailboxAddress,
+  getMailboxSettings,
+  listMailboxIdentities,
+  MailboxSettingsView,
+  MailboxIdentity,
   saveDraft,
   scheduleSend,
   ScheduleSendRequest,
@@ -30,6 +36,11 @@ import {
 export type ComposeMode = "new" | "reply" | "reply-all" | "forward" | "draft";
 
 export interface ComposeDraft {
+  from?: string;
+  replyRecipients?: string[];
+  quoteText?: string;
+  aiSource?: MailboxAISource;
+  inReplyTo?: string;
   mode: ComposeMode;
   /** IMAP UID when editing a saved draft (replace on next save). */
   uid?: number;
@@ -95,6 +106,22 @@ function collectRecipients(
   return out;
 }
 
+function originalQuoteBody(msg: MessageDetail): string {
+  if (msg.text) return msg.text;
+  const template = document.createElement("template");
+  template.innerHTML = msg.html ?? "";
+  template.content
+    .querySelectorAll("script,style,noscript,template")
+    .forEach((node) => node.remove());
+  template.content
+    .querySelectorAll("br")
+    .forEach((node) => node.replaceWith("\n"));
+  template.content
+    .querySelectorAll("p,div,li")
+    .forEach((node) => node.append(document.createTextNode("\n")));
+  return template.content.textContent?.trim() ?? "";
+}
+
 export function draftFromMessage(
   mode: "reply" | "reply-all" | "forward",
   msg: MessageDetail,
@@ -106,11 +133,7 @@ export function draftFromMessage(
     const seen = new Set<string>();
     const authorList = collectRecipients([authors], own, seen);
     let toList = authorList;
-    if (mode === "reply") {
-      toList = authorList.slice(0, 1);
-      seen.clear();
-      if (toList[0]) seen.add(toList[0].toLowerCase());
-    } else if (authorList.length === 0) {
+    if (mode === "reply-all" && authorList.length === 0) {
       toList = collectRecipients([msg.to], own, seen);
     }
     const ccList =
@@ -122,14 +145,27 @@ export function draftFromMessage(
     const subj = msg.subject?.startsWith("Re:")
       ? msg.subject
       : `Re: ${msg.subject || ""}`;
-    const quoted = `\n\n---\n${from}\n\n${msg.text || ""}`;
-    return { mode, to, cc, subject: subj, text: quoted };
+    const quoted = `\n\n---\n${from}\n\n${originalQuoteBody(msg)}`;
+    return {
+      mode,
+      to,
+      cc,
+      subject: subj,
+      text: quoted,
+      quoteText: quoted,
+      inReplyTo: msg.message_id,
+      replyRecipients: [
+        ...(msg.to ?? []),
+        ...(msg.cc ?? []),
+        ...(msg.from ?? []),
+      ].map((value) => value.email),
+    };
   }
   const subj = msg.subject?.startsWith("Fwd:")
     ? msg.subject
     : `Fwd: ${msg.subject || ""}`;
-  const body = `\n\n---------- Forwarded message ----------\nFrom: ${from}\nSubject: ${msg.subject || ""}\n\n${msg.text || ""}`;
-  return { mode, to: "", subject: subj, text: body };
+  const body = `\n\n---------- Forwarded message ----------\nFrom: ${from}\nSubject: ${msg.subject || ""}\n\n${originalQuoteBody(msg)}`;
+  return { mode, to: "", subject: subj, text: body, quoteText: body };
 }
 
 /** Resume an IMAP draft into the compose dialog. */
@@ -139,6 +175,8 @@ export function composeFromSavedDraft(
 ): ComposeDraft {
   return {
     mode: "draft",
+    from: msg.from?.[0]?.email,
+    inReplyTo: msg.in_reply_to,
     uid: msg.uid,
     uidValidity: msg.uid_validity,
     to: formatAddrList(msg.to),
@@ -151,6 +189,32 @@ export function composeFromSavedDraft(
   };
 }
 
+export function chooseMailboxIdentity(
+  settings: MailboxSettingsView,
+  identities: MailboxIdentity[],
+  draft: ComposeDraft,
+): string {
+  const allowed = new Set(
+    identities.map((value) => value.address.toLowerCase()),
+  );
+  if (draft.from) return draft.from;
+  const fallback =
+    typeof settings.preferences.default_from === "string" &&
+    allowed.has(settings.preferences.default_from)
+      ? settings.preferences.default_from
+      : settings.address;
+  if (
+    (draft.mode === "reply" || draft.mode === "reply-all") &&
+    settings.preferences.reply_identity !== "default"
+  ) {
+    const match = draft.replyRecipients?.find((value) =>
+      allowed.has(value.toLowerCase()),
+    );
+    if (match) return match.toLowerCase();
+  }
+  return fallback;
+}
+
 export function MailboxComposeDialog({
   open,
   onOpenChange,
@@ -159,6 +223,16 @@ export function MailboxComposeDialog({
   onDraftSaved,
 }: MailboxComposeDialogProps) {
   const { t } = useTranslation();
+  const [from, setFrom] = useState("");
+  const [quoteOriginal, setQuoteOriginal] = useState(true);
+  const [identityChoices, setIdentityChoices] = useState<MailboxIdentity[]>([]);
+  const [identitySettings, setIdentitySettings] =
+    useState<MailboxSettingsView | null>(null);
+  const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
+  const bodyRevision = useRef(0);
+  const recipientRevision = useRef(0);
+  const insertedSignature = useRef({ text: "", html: "" });
+  const automaticHTMLSignature = useRef("");
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [bcc, setBcc] = useState("");
@@ -191,6 +265,7 @@ export function MailboxComposeDialog({
   useEffect(() => {
     if (!open) return;
     setTo(draft.to ?? "");
+    setQuoteOriginal(!!draft.quoteText);
     setCc(draft.cc ?? "");
     setBcc(draft.bcc ?? "");
     setHtml(draft.html ?? "");
@@ -211,6 +286,139 @@ export function MailboxComposeDialog({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [open, draft]);
 
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const revision = bodyRevision.current;
+    const recipientSnapshot = recipientRevision.current;
+    setIdentitiesLoaded(false);
+    setFrom(draft.from ?? getMailboxAddress() ?? "");
+    insertedSignature.current = { text: "", html: "" };
+    automaticHTMLSignature.current = "";
+    void Promise.all([getMailboxSettings(), listMailboxIdentities()])
+      .then(([settings, list]) => {
+        if (!active) return;
+        setIdentitySettings(settings);
+        setIdentityChoices(list.identities);
+        setIdentitiesLoaded(true);
+        const selected = chooseMailboxIdentity(
+          settings,
+          list.identities,
+          draft,
+        );
+        setFrom(selected);
+        if (
+          draft.mode !== "draft" &&
+          draft.quoteText &&
+          bodyRevision.current === revision
+        ) {
+          const include = settings.preferences.quote_original !== false;
+          setQuoteOriginal(include);
+          if (!include) setText((value) => value.replace(draft.quoteText!, ""));
+        }
+
+        if (
+          (draft.mode === "reply" || draft.mode === "reply-all") &&
+          recipientSnapshot === recipientRevision.current
+        ) {
+          const owned = new Set(
+            list.identities.map((identity) => identity.address.toLowerCase()),
+          );
+          let recipients = splitAddrs(draft.to ?? "").filter(
+            (value) => !owned.has(value.toLowerCase()),
+          );
+          if (!recipients.length) {
+            const fallback = (draft.replyRecipients ?? []).filter(
+              (value) => !owned.has(value.toLowerCase()),
+            );
+            recipients =
+              draft.mode === "reply" ? fallback.slice(0, 1) : fallback;
+          }
+          const toSet = new Set(recipients.map((value) => value.toLowerCase()));
+          setTo([...new Set(recipients)].join(", "));
+          setCc(
+            splitAddrs(draft.cc ?? "")
+              .filter(
+                (value) =>
+                  !owned.has(value.toLowerCase()) &&
+                  !toSet.has(value.toLowerCase()),
+              )
+              .join(", "),
+          );
+        }
+
+        if (draft.mode !== "draft" && bodyRevision.current === revision) {
+          const profile =
+            settings.identity_profiles?.[selected] ??
+            (selected === settings.address
+              ? settings
+              : { signature_text: "", signature_html: "" });
+          const textPart = profile.signature_text
+            ? "\n\n-- \n" + profile.signature_text
+            : "";
+          const htmlPart = profile.signature_html
+            ? "<br><br>" + profile.signature_html
+            : "";
+          setText((value) => value + textPart);
+          automaticHTMLSignature.current = htmlPart;
+          if (draft.html && htmlPart) setHtml((value) => value + htmlPart);
+          insertedSignature.current = { text: textPart, html: htmlPart };
+        }
+      })
+      .catch(() => {
+        if (active) {
+          const primary = getMailboxAddress() ?? "";
+          setIdentityChoices(
+            primary ? [{ address: primary, primary: true }] : [],
+          );
+          setError(t("page.webmail.settings_load_failed"));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, draft, t]);
+  const identityInvalid =
+    identitiesLoaded &&
+    !!from &&
+    !identityChoices.some((value) => value.address === from);
+  const changeIdentity = (selected: string) => {
+    bodyRevision.current++;
+    setFrom(selected);
+    const profile =
+      identitySettings?.identity_profiles?.[selected] ??
+      (selected === identitySettings?.address ? identitySettings : null);
+    const nextText = profile?.signature_text
+      ? "\n\n-- \n" + profile.signature_text
+      : "";
+    const nextHtml = profile?.signature_html
+      ? "<br><br>" + profile.signature_html
+      : "";
+    const old = insertedSignature.current;
+    setText(
+      (value) => (old.text ? value.replace(old.text, "") : value) + nextText,
+    );
+    automaticHTMLSignature.current = nextHtml;
+    setHtml((value) =>
+      value
+        ? (old.html ? value.replace(old.html, "") : value) + nextHtml
+        : value,
+    );
+    insertedSignature.current = { text: nextText, html: nextHtml };
+  };
+
+  const toggleQuote = (include: boolean) => {
+    bodyRevision.current++;
+    setQuoteOriginal(include);
+    if (!draft.quoteText) return;
+    setText((value) =>
+      include
+        ? value.includes(draft.quoteText!)
+          ? value
+          : value + draft.quoteText!
+        : value.replace(draft.quoteText!, ""),
+    );
+  };
   const titleKey =
     draft.mode === "reply"
       ? "page.webmail.compose_reply"
@@ -268,21 +476,41 @@ export function MailboxComposeDialog({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const onSaveDraft = async () => {
-    if (editingLocked) return;
+  const outgoingHTML = (bodyText: string, rawHTML: string) => {
+    if (rawHTML || !automaticHTMLSignature.current) return rawHTML;
+    const plain = insertedSignature.current.text
+      ? bodyText.replace(insertedSignature.current.text, "")
+      : bodyText;
+    return (
+      plain
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br>") + automaticHTMLSignature.current
+    );
+  };
+  const onSaveDraft = async (proposal?: {
+    subject: string;
+    text: string;
+    html: string;
+  }) => {
+    if (editingLocked || identityInvalid || !identitiesLoaded) return;
     setError(null);
     setSavedHint(false);
     setBusy(true);
     try {
       const res = await saveDraft({
+        from,
+        in_reply_to: draft.inReplyTo,
+        reply_source: draft.aiSource,
         uid: draftUid,
         uid_validity: draftUidValidity,
         to: splitAddrs(to),
         cc: splitAddrs(cc),
         bcc: splitAddrs(bcc),
-        html,
-        subject,
-        text,
+        html: outgoingHTML(proposal?.text ?? text, proposal?.html ?? html),
+        subject: proposal?.subject ?? subject,
+        text: proposal?.text ?? text,
         attachments: attachments.length ? attachments : undefined,
       });
       if (!res.uid || !res.uid_validity)
@@ -294,6 +522,7 @@ export function MailboxComposeDialog({
         onDraftSaved?.(res.uid);
       }
       setSavedHint(true);
+      return true;
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
         if (err.code === "DRAFT_SAVE_UNCERTAIN") setDraftUncertain(true);
@@ -314,7 +543,7 @@ export function MailboxComposeDialog({
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (editingLocked) return;
+    if (editingLocked || identityInvalid || !identitiesLoaded) return;
     setError(null);
     const recipients = splitAddrs(to);
     if (
@@ -327,10 +556,12 @@ export function MailboxComposeDialog({
     setBusy(true);
     try {
       const res = await sendMessage({
+        from,
+        in_reply_to: draft.inReplyTo,
         to: recipients,
         cc: splitAddrs(cc),
         bcc: splitAddrs(bcc),
-        html,
+        html: outgoingHTML(text, html),
         subject,
         text,
         attachments: attachments.length ? attachments : undefined,
@@ -367,7 +598,7 @@ export function MailboxComposeDialog({
   };
 
   const onSchedule = async () => {
-    if (busy || draftUncertain || sendUncertain) return;
+    if (busy || draftUncertain || sendUncertain || !identitiesLoaded) return;
     setError(null);
     setScheduledHint(false);
     if (!scheduleAttempt.current) {
@@ -394,6 +625,9 @@ export function MailboxComposeDialog({
     try {
       if (!scheduleAttempt.current) {
         const saved = await saveDraft({
+          from,
+          in_reply_to: draft.inReplyTo,
+          reply_source: draft.aiSource,
           uid: draftUid,
           uid_validity: draftUidValidity,
           to: splitAddrs(to),
@@ -401,7 +635,7 @@ export function MailboxComposeDialog({
           bcc: splitAddrs(bcc),
           subject,
           text,
-          html,
+          html: outgoingHTML(text, html),
           attachments: attachments.length ? attachments : undefined,
         });
         if (!saved.uid || !saved.uid_validity)
@@ -499,6 +733,76 @@ export function MailboxComposeDialog({
               {t("page.webmail.compose_scheduled")}
             </p>
           )}
+          {identitiesLoaded && draft.mode !== "draft" && draft.quoteText && (
+            <label className="flex min-h-11 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={quoteOriginal}
+                disabled={editingLocked}
+                onChange={(e) => toggleQuote(e.target.checked)}
+              />
+              {t("page.webmail.compose_quote_original")}
+            </label>
+          )}
+          <MailboxAIPanel
+            mode="compose"
+            source={draft.aiSource}
+            subject={subject}
+            body={text || html}
+            disabled={editingLocked}
+            onApply={async (proposal) => {
+              setSubject(proposal.subject);
+              bodyRevision.current++;
+              const marker = insertedSignature.current.text;
+              const adopted =
+                marker && !proposal.body.includes(marker.trim())
+                  ? proposal.body + marker
+                  : proposal.body;
+              setText(adopted);
+              if (draft.quoteText)
+                setQuoteOriginal(adopted.includes(draft.quoteText));
+              setHtml("");
+              const saved = await onSaveDraft({
+                subject: proposal.subject,
+                text: adopted,
+                html: "",
+              });
+              if (!saved) throw new Error("AI_DRAFT_SAVE_FAILED");
+            }}
+          />
+          <div className="space-y-1.5">
+            <label htmlFor="compose-from" className="text-sm font-medium">
+              {t("page.webmail.compose_from")}
+            </label>
+            <select
+              id="compose-from"
+              value={from}
+              disabled={editingLocked || !identitiesLoaded}
+              onChange={(e) => changeIdentity(e.target.value)}
+              className="h-11 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              {identityChoices.map((identity) => (
+                <option key={identity.address} value={identity.address}>
+                  {identitySettings?.identity_profiles?.[identity.address]
+                    ?.display_name ??
+                    (identity.primary
+                      ? identitySettings?.display_name
+                      : "")}{" "}
+                  &lt;{identity.address}&gt;
+                </option>
+              ))}
+              {identityInvalid && (
+                <option value={from} disabled>
+                  {from} — {t("page.webmail.identity_revoked")}
+                </option>
+              )}
+            </select>
+            {identityInvalid && (
+              <p role="alert" className="text-sm text-destructive">
+                {t("page.webmail.identity_revoked")}
+              </p>
+            )}
+          </div>
           <div className="space-y-1.5">
             <label htmlFor="compose-to" className="text-sm font-medium">
               {t("page.webmail.compose_to")}
@@ -507,7 +811,10 @@ export function MailboxComposeDialog({
               id="compose-to"
               disabled={editingLocked}
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(e) => {
+                recipientRevision.current++;
+                setTo(e.target.value);
+              }}
               placeholder="a@example.com"
             />
           </div>
@@ -519,7 +826,10 @@ export function MailboxComposeDialog({
               id="compose-cc"
               disabled={editingLocked}
               value={cc}
-              onChange={(e) => setCc(e.target.value)}
+              onChange={(e) => {
+                recipientRevision.current++;
+                setCc(e.target.value);
+              }}
             />
           </div>
           <div className="space-y-1.5">
@@ -530,7 +840,10 @@ export function MailboxComposeDialog({
               id="compose-bcc"
               value={bcc}
               disabled={editingLocked}
-              onChange={(e) => setBcc(e.target.value)}
+              onChange={(e) => {
+                recipientRevision.current++;
+                setBcc(e.target.value);
+              }}
             />
           </div>
           <div className="space-y-1.5">
@@ -558,7 +871,12 @@ export function MailboxComposeDialog({
               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               disabled={editingLocked}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                bodyRevision.current++;
+                if (draft.quoteText)
+                  setQuoteOriginal(e.target.value.includes(draft.quoteText));
+                setText(e.target.value);
+              }}
             />
           </div>
           {html !== "" && (
@@ -574,7 +892,10 @@ export function MailboxComposeDialog({
                 rows={8}
                 value={html}
                 disabled={editingLocked}
-                onChange={(e) => setHtml(e.target.value)}
+                onChange={(e) => {
+                  bodyRevision.current++;
+                  setHtml(e.target.value);
+                }}
                 className="w-full rounded-md border border-input bg-background p-2 font-mono text-sm"
               />
             </div>
@@ -654,7 +975,7 @@ export function MailboxComposeDialog({
               type="button"
               variant="secondary"
               onClick={() => void onSaveDraft()}
-              disabled={editingLocked}
+              disabled={editingLocked || !identitiesLoaded}
             >
               {busy ? t("state.loading") : t("page.webmail.compose_save_draft")}
             </Button>
@@ -663,6 +984,7 @@ export function MailboxComposeDialog({
               variant="secondary"
               onClick={() => void onSchedule()}
               disabled={
+                !identitiesLoaded ||
                 busy ||
                 draftUncertain ||
                 sendUncertain ||
@@ -671,7 +993,7 @@ export function MailboxComposeDialog({
             >
               {busy ? t("state.loading") : t("page.webmail.compose_schedule")}
             </Button>
-            <Button type="submit" disabled={editingLocked}>
+            <Button type="submit" disabled={editingLocked || !identitiesLoaded}>
               {busy ? t("state.loading") : t("page.webmail.compose_send")}
             </Button>
           </DialogFooter>

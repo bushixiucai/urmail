@@ -1,7 +1,9 @@
 package collab
 
 import (
+	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // VCard renders one contact as vCard 3.0.
@@ -11,77 +13,156 @@ func VCard(in Contact) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString("BEGIN:VCARD\r\nVERSION:3.0\r\n")
-	b.WriteString("FN:" + escapeVCard(norm.DisplayName) + "\r\n")
-	b.WriteString("N:" + escapeVCard(norm.FamilyName) + ";" + escapeVCard(norm.GivenName) + ";;;\r\n")
+	line := func(value string) { b.WriteString(foldICal(value)); b.WriteString("\r\n") }
+	line("BEGIN:VCARD")
+	line("VERSION:3.0")
+	line("FN:" + escapeVCard(norm.DisplayName))
+	line("N:" + escapeVCard(norm.FamilyName) + ";" + escapeVCard(norm.GivenName) + ";;;")
 	for _, email := range norm.Emails {
-		b.WriteString("EMAIL;TYPE=INTERNET:" + escapeVCard(email.Address) + "\r\n")
+		parameters := ";TYPE=INTERNET"
+		if strings.EqualFold(email.Label, "home") || strings.EqualFold(email.Label, "work") {
+			parameters += "," + strings.ToUpper(email.Label)
+		}
+		if email.Label != "" {
+			parameters += ";X-URMAIL-LABEL=" + url.QueryEscape(email.Label)
+		}
+		line("EMAIL" + parameters + ":" + escapeVCard(email.Address))
 	}
 	for _, phone := range norm.Phones {
-		b.WriteString("TEL:" + escapeVCard(phone.Number) + "\r\n")
+		parameters := ""
+		if phone.Label != "" {
+			parameters = ";X-URMAIL-LABEL=" + url.QueryEscape(phone.Label)
+		}
+		line("TEL" + parameters + ":" + escapeVCard(phone.Number))
 	}
 	if norm.Note != "" {
-		b.WriteString("NOTE:" + escapeVCard(norm.Note) + "\r\n")
+		line("NOTE:" + escapeVCard(norm.Note))
 	}
-	b.WriteString("END:VCARD\r\n")
+	line("END:VCARD")
 	return b.String(), nil
 }
 
-// ParseVCard reads one vCard 3.0 body and rejects a second card.
+// ParseVCard accepts a single UTF-8 vCard 3.0 with folded lines. Unsupported
+// legacy transfer encodings are refused instead of importing corrupted text.
 func ParseVCard(raw string) (Contact, error) {
-	raw = strings.ReplaceAll(raw, "\r\n", "\n")
-	lines := strings.Split(raw, "\n")
-	var current Contact
-	var done Contact
-	cards := 0
-	seen := false
-	for _, line := range lines {
-		line = strings.TrimRight(line, "\r")
-		if line == "" || strings.HasPrefix(line, " ") {
-			continue
-		}
-		switch {
-		case strings.EqualFold(line, "BEGIN:VCARD"):
-			if seen {
-				return Contact{}, ErrInvalidContact
-			}
-			seen = true
-		case strings.EqualFold(line, "END:VCARD"):
-			if !seen {
-				return Contact{}, ErrInvalidContact
-			}
-			contact, err := NormalizeContact(current)
-			if err != nil {
-				return Contact{}, err
-			}
-			done = contact
-			cards++
-			seen = false
-			current = Contact{}
-		case strings.HasPrefix(strings.ToUpper(line), "FN:"):
-			current.DisplayName = unescapeVCard(line[3:])
-		case strings.HasPrefix(strings.ToUpper(line), "N:"):
-			parts := strings.Split(unescapeVCard(line[2:]), ";")
-			if len(parts) > 0 {
-				current.FamilyName = parts[0]
-			}
-			if len(parts) > 1 {
-				current.GivenName = parts[1]
-			}
-		case strings.Contains(strings.ToUpper(line), "EMAIL") && strings.Contains(line, ":"):
-			value := line[strings.LastIndex(line, ":")+1:]
-			current.Emails = append(current.Emails, Email{Address: unescapeVCard(value)})
-		case strings.HasPrefix(strings.ToUpper(line), "TEL"):
-			value := line[strings.LastIndex(line, ":")+1:]
-			current.Phones = append(current.Phones, Phone{Number: unescapeVCard(value)})
-		case strings.HasPrefix(strings.ToUpper(line), "NOTE:"):
-			current.Note = unescapeVCard(line[5:])
-		}
-	}
-	if cards != 1 {
+	if len(raw) > 200000 || !utf8.ValidString(raw) {
 		return Contact{}, ErrInvalidContact
 	}
-	return done, nil
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	lines := []string{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') && len(lines) > 0 {
+			lines[len(lines)-1] += line[1:]
+		} else {
+			lines = append(lines, line)
+		}
+	}
+	var result Contact
+	inside := false
+	cards := 0
+	for _, line := range lines {
+		if strings.EqualFold(line, "BEGIN:VCARD") {
+			if inside || cards > 0 {
+				return Contact{}, ErrInvalidContact
+			}
+			inside = true
+			continue
+		}
+		if strings.EqualFold(line, "END:VCARD") {
+			if !inside {
+				return Contact{}, ErrInvalidContact
+			}
+			cards++
+			inside = false
+			continue
+		}
+		if !inside || line == "" {
+			continue
+		}
+		head, value, ok := strings.Cut(line, ":")
+		if !ok {
+			return Contact{}, ErrInvalidContact
+		}
+		parts := strings.Split(head, ";")
+		name := strings.ToUpper(parts[0])
+		if i := strings.LastIndexByte(name, '.'); i >= 0 {
+			name = name[i+1:]
+		}
+		label := ""
+		for _, parameter := range parts[1:] {
+			key, v, _ := strings.Cut(parameter, "=")
+			switch strings.ToUpper(key) {
+			case "ENCODING":
+				if !strings.EqualFold(v, "8BIT") {
+					return Contact{}, ErrInvalidContact
+				}
+			case "CHARSET":
+				if !strings.EqualFold(v, "UTF-8") {
+					return Contact{}, ErrInvalidContact
+				}
+			case "X-URMAIL-LABEL":
+				decoded, err := url.QueryUnescape(v)
+				if err != nil {
+					return Contact{}, ErrInvalidContact
+				}
+				label = decoded
+			case "TYPE":
+				for _, kind := range strings.Split(strings.ToLower(v), ",") {
+					if label == "" && (kind == "home" || kind == "work" || kind == "cell" || kind == "mobile") {
+						label = kind
+					}
+				}
+			}
+		}
+		switch name {
+		case "VERSION":
+			if value != "3.0" {
+				return Contact{}, ErrInvalidContact
+			}
+		case "FN":
+			result.DisplayName = unescapeVCard(value)
+		case "N":
+			values := splitVCardValues(value)
+			if len(values) > 0 {
+				result.FamilyName = unescapeVCard(values[0])
+			}
+			if len(values) > 1 {
+				result.GivenName = unescapeVCard(values[1])
+			}
+		case "EMAIL":
+			result.Emails = append(result.Emails, Email{Address: unescapeVCard(value), Label: label})
+		case "TEL":
+			result.Phones = append(result.Phones, Phone{Number: unescapeVCard(value), Label: label})
+		case "NOTE":
+			result.Note = unescapeVCard(value)
+		}
+	}
+	if cards != 1 || inside {
+		return Contact{}, ErrInvalidContact
+	}
+	return NormalizeContact(result)
+}
+
+func splitVCardValues(value string) []string {
+	out := []string{}
+	start := 0
+	escaped := false
+	for i, c := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if c == ';' {
+			out = append(out, value[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, value[start:])
 }
 
 func escapeVCard(value string) string {

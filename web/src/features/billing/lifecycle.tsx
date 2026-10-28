@@ -1,3 +1,4 @@
+import { RenewalEnrollment } from "./renewal-enrollment";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -59,6 +60,7 @@ export function BillingLifecycle() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [renewalRevision, setRenewalRevision] = useState(0);
   const [change, setChange] = useState<Change | null>(null);
   const [plan, setPlan] = useState("");
   const [domain, setDomain] = useState("");
@@ -88,6 +90,7 @@ export function BillingLifecycle() {
     setReceipts(o.payments ?? []);
     setRefunds(r.refunds ?? []);
     setSubscription(s.subscription);
+    setRenewalRevision((revision) => revision + 1);
     setChange(s.scheduled_change);
     setPlans(p.plans ?? []);
     setDomains(
@@ -186,6 +189,7 @@ export function BillingLifecycle() {
             )}
           </section>
         )}
+        {renewalRevision > 0 && <RenewalEnrollment key={renewalRevision} />}
         <section className="space-y-3">
           <h3 className="font-semibold">{t("billing_lifecycle.change")}</h3>
           {change && (

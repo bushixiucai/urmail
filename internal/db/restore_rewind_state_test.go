@@ -45,17 +45,18 @@ func TestRestoreRewindHoldsNewSideEffectsAndInvalidatesDerivedState(t *testing.T
 		t.Fatalf("new epoch=%d %v", epoch, err)
 	}
 	checks := map[string]string{
-		"renewal cannot re-charge":       `SELECT state='canceled' AND last_error LIKE '%RESTORE_RECONCILIATION_REQUIRED%' FROM subscription_renewal_attempts WHERE subscription_id=7001`,
-		"successful payment preserved":   `SELECT state='succeeded' FROM subscription_renewal_attempts WHERE subscription_id=7002`,
-		"flow paused":                    `SELECT status='paused' FROM marketing_flows WHERE name='restore flow'`,
-		"flow fence invalidated":         `SELECT delivery_uncertain AND lease_owner IS NULL AND lease_until IS NULL AND lease_fence>7 FROM marketing_flow_positions`,
-		"pending invitation held":        `SELECT status='uncertain' FROM mailbox_jobs WHERE idempotency_key='invite-pending'`,
-		"completed invitation preserved": `SELECT status='done' FROM mailbox_jobs WHERE idempotency_key='invite-done'`,
-		"old AI plaintext purged":        `SELECT NOT EXISTS(SELECT 1 FROM mailbox_ai_chunks)`,
-		"old EAS snapshots purged":       `SELECT NOT EXISTS(SELECT 1 FROM mailbox_eas_item_state) AND NOT EXISTS(SELECT 1 FROM mailbox_eas_folder_state)`,
-		"device reprovision required":    `SELECT NOT provisioned AND policy_key=0 AND ping_heartbeat=0 AND ping_folders='[]'::jsonb FROM mailbox_eas_devices`,
-		"collection epoch reset":         `SELECT sync_epoch=urmail_restore_sync_epoch() AND change_seq=0 AND uid_validity=0 FROM mailbox_eas_collection_state`,
-		"DAV cursor reset":               `SELECT epoch=urmail_restore_sync_epoch() AND cursor_id=0 FROM mailbox_sync_cursors`,
+		"renewal cannot re-charge":                        `SELECT state='canceled' AND last_error LIKE '%RESTORE_RECONCILIATION_REQUIRED%' FROM subscription_renewal_attempts WHERE subscription_id=7001`,
+		"successful payment preserved":                    `SELECT state='succeeded' FROM subscription_renewal_attempts WHERE subscription_id=7002`,
+		"flow paused":                                     `SELECT status='paused' FROM marketing_flows WHERE name='restore flow'`,
+		"flow fence invalidated":                          `SELECT delivery_uncertain AND lease_owner IS NULL AND lease_until IS NULL AND lease_fence>7 FROM marketing_flow_positions`,
+		"flow position remains held on flow reactivation": `SELECT stopped_at IS NOT NULL AND last_error='RESTORE_RECONCILIATION_REQUIRED' FROM marketing_flow_positions`,
+		"pending invitation held":                         `SELECT status='uncertain' FROM mailbox_jobs WHERE idempotency_key='invite-pending'`,
+		"completed invitation preserved":                  `SELECT status='done' FROM mailbox_jobs WHERE idempotency_key='invite-done'`,
+		"old AI plaintext purged":                         `SELECT NOT EXISTS(SELECT 1 FROM mailbox_ai_chunks)`,
+		"old EAS snapshots purged":                        `SELECT NOT EXISTS(SELECT 1 FROM mailbox_eas_item_state) AND NOT EXISTS(SELECT 1 FROM mailbox_eas_folder_state)`,
+		"device reprovision required":                     `SELECT NOT provisioned AND policy_key=0 AND ping_heartbeat=0 AND ping_folders='[]'::jsonb FROM mailbox_eas_devices`,
+		"collection epoch reset":                          `SELECT sync_epoch=urmail_restore_sync_epoch() AND change_seq=0 AND uid_validity=0 FROM mailbox_eas_collection_state`,
+		"DAV cursor reset":                                `SELECT epoch=urmail_restore_sync_epoch() AND cursor_id=0 FROM mailbox_sync_cursors`,
 	}
 	for name, query := range checks {
 		var ok bool
@@ -83,4 +84,18 @@ func TestRestoreRewindHoldsNewSideEffectsAndInvalidatesDerivedState(t *testing.T
 	if err != nil || resumed != epoch {
 		t.Fatalf("resumed restore changed epoch: %d %v", resumed, err)
 	}
+	// A legacy flow's uncertainty quiet period must not make an explicit
+	// flow-level reactivation release restored per-position side effects.
+	if _, err = conn.Exec(ctx, `UPDATE marketing_flow_positions SET updated_at=now()-interval '11 minutes'; UPDATE marketing_flows SET status='active' WHERE name='restore flow'`); err != nil {
+		t.Fatal(err)
+	}
+	q = store.New(conn)
+	if _, err = q.PlatformRecoverMarketingFlowUncertain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = q.PlatformClaimMarketingFlowPositions(ctx, store.PlatformClaimMarketingFlowPositionsParams{Batch: 10, LeaseOwner: "post-restore-worker", LeaseSeconds: 60})
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("restored position replayed after aging and flow reactivation: %+v %v", claimed, err)
+	}
+
 }

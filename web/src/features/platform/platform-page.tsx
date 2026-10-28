@@ -1,3 +1,4 @@
+import { BrandHostLifecycle } from "./brand-host-lifecycle";
 import { validNewPassword } from "@/lib/password-policy";
 import { BillingCalendarAdmin } from "./billing-calendar-admin";
 import { PlatformAIAdmin } from "./platform-ai-admin";
@@ -818,6 +819,7 @@ export function PlatformPage() {
                 className="flex flex-wrap items-center justify-between gap-2 py-2"
               >
                 <span className="break-all">{host.hostname}</span>
+                <BrandHostLifecycle hostname={host.hostname} onChange={load} />
                 <Button
                   variant="outline"
                   size="sm"

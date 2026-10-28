@@ -102,6 +102,48 @@ export function PaymentMerchantAdmin() {
                   · {m.currencies.join(" / ")}
                 </p>
               </div>
+              {m.provider === "stripe" && (
+                <div className="space-y-2">
+                  <p className="max-w-prose text-xs text-muted-foreground">
+                    {t("billing_hosted.merchant_help")}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy || !m.enabled || !m.ready}
+                    onClick={() => {
+                      setBusy(true);
+                      setNotice("");
+                      void request<{ verified: boolean }>(
+                        `/api/v1/platform/payment-merchants/${m.id}/recurring/verify`,
+                        {
+                          method: "POST",
+                          body: { adapter_key: "stripe_off_session_v1" },
+                        },
+                      )
+                        .then((result) => {
+                          setNotice(
+                            t(
+                              result.verified
+                                ? "billing_hosted.merchant_verified"
+                                : "billing_hosted.merchant_unverified",
+                            ),
+                          );
+                          setRevision((r) => r + 1);
+                        })
+                        .catch((e: unknown) => setNotice(errorMessage(e)))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    {t("billing_hosted.merchant_verify")}
+                  </Button>
+                  {(!m.enabled || !m.ready) && (
+                    <p className="text-xs">
+                      {t("billing_hosted.merchant_unverified")}
+                    </p>
+                  )}
+                </div>
+              )}
               <Button
                 type="button"
                 variant="outline"

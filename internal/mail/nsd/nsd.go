@@ -25,6 +25,10 @@ func Generate(node NodeConfig, snap Snapshot) (map[string]string, error) {
 		domain := strings.ToLower(strings.TrimSuffix(z.Domain, "."))
 		key := fmt.Sprintf("zones/%s.txt", domain)
 		result[key] = renderZoneFile(node, z)
+		if z.Sign {
+			// The privileged apply transaction fills this derived file before checking or reload.
+			result[fmt.Sprintf("zones/%s.signed", domain)] = ""
+		}
 
 		if z.DNSSEC != nil {
 			signing, err := z.DNSSEC.normalized(domain)

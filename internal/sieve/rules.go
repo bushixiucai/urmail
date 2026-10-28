@@ -21,11 +21,12 @@ const sourcePrefix = "# urmail-rules:"
 
 // Rule is one bounded header condition and delivery action.
 type Rule struct {
-	Header string `json:"header"`
-	Match  string `json:"match"`
-	Value  string `json:"value"`
-	Action string `json:"action"`
-	Folder string `json:"folder,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
+	Header   string `json:"header"`
+	Match    string `json:"match"`
+	Value    string `json:"value"`
+	Action   string `json:"action"`
+	Folder   string `json:"folder,omitempty"`
 }
 
 // Vacation is a finite, deduplicated automatic reply schedule.
@@ -93,6 +94,9 @@ func Compile(rules Rules) (string, error) {
 	var out strings.Builder
 	out.WriteString(sourcePrefix + base64.RawStdEncoding.EncodeToString(raw) + "\n")
 	out.WriteString("require [\"fileinto\",\"mailbox\",\"vacation\",\"envelope\",\"date\",\"relational\"];\n")
+	if rules.Forwarding != nil && rules.Forwarding.Enabled && rules.Forwarding.KeepCopy {
+		out.WriteString("require \"copy\";\n")
+	}
 	for _, rule := range rules.Rules {
 		if rule.Header != "subject" && rule.Header != "from" && rule.Header != "to" && rule.Header != "cc" {
 			return "", ErrInvalidRules
@@ -102,6 +106,15 @@ func Compile(rules Rules) (string, error) {
 		}
 		if len(rule.Value) == 0 || len(rule.Value) > 2000 || strings.ContainsRune(rule.Value, 0) {
 			return "", ErrInvalidRules
+		}
+		if rule.Action != "fileinto" && rule.Action != "keep" && rule.Action != "discard" {
+			return "", ErrInvalidRules
+		}
+		if rule.Action == "fileinto" && !folderValid(rule.Folder) {
+			return "", ErrInvalidRules
+		}
+		if rule.Disabled {
+			continue
 		}
 		fmt.Fprintf(&out, "if header :%s %s %s {\n", rule.Match, literal(rule.Header), literal(rule.Value))
 		switch rule.Action {
@@ -160,7 +173,9 @@ func Decode(script string) (Rules, error) {
 		return rules, ErrInvalidRules
 	}
 	canonical, err := Compile(rules)
-	if err != nil || canonical != script {
+	// The only accepted historical form omitted the required copy extension.
+	legacyCopy := rules.Forwarding != nil && rules.Forwarding.Enabled && rules.Forwarding.KeepCopy && strings.Replace(canonical, "require \"copy\";\n", "", 1) == script
+	if err != nil || (canonical != script && !legacyCopy) {
 		return rules, ErrInvalidRules
 	}
 	return rules, nil

@@ -20,6 +20,7 @@ type mailboxSendAttachment struct {
 }
 
 type mailboxSendRequest struct {
+	InReplyTo   string                  `json:"in_reply_to"`
 	From        string                  `json:"from"`
 	To          []string                `json:"to"`
 	Cc          []string                `json:"cc"`
@@ -52,27 +53,9 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	if !bindMailboxMessage(c, &req) {
 		return
 	}
-	// From is never client-trusted: it must be the session address or an
-	// alias-sender grant reviewed for this mailbox. Fail closed when no
-	// authorization source is configured.
-	from := normalizeFromCandidate(req.From)
-	if from == "" {
-		from = session.Address
-	}
-	if from != session.Address {
-		allowed := false
-		if h.SelfSettings != nil {
-			granted, err := h.SelfSettings.SenderIdentityAllowed(c.Request.Context(), session.TenantID, session.Address, from)
-			if err != nil {
-				authError(c, http.StatusBadGateway, "MAIL_POLICY_UNAVAILABLE")
-				return
-			}
-			allowed = granted
-		}
-		if !allowed {
-			authError(c, http.StatusForbidden, "MAILBOX_FROM_NOT_AUTHORIZED")
-			return
-		}
+	_, from, ok := h.authorizedIdentity(c, session, req.From)
+	if !ok {
+		return
 	}
 	to := cleanAddrs(req.To)
 	cc := cleanAddrs(req.Cc)
@@ -108,8 +91,14 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !validReplyHeader(req.InReplyTo) {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
 	submission, err := h.Submitter.Send(c.Request.Context(), session.Address, password, webmail.Outgoing{
 		From:        from,
+		InReplyTo:   req.InReplyTo,
+		References:  req.InReplyTo,
 		To:          to,
 		Cc:          cc,
 		Bcc:         bcc,
@@ -181,4 +170,43 @@ func MailAllowed(q interface {
 		return nil
 	}
 	return func(ctx context.Context, tenantID, _ int64) (bool, error) { return q.MailServiceAllowed(ctx, tenantID) }
+}
+
+type mailboxReplySource struct {
+	Folder      string `json:"folder_enc"`
+	UID         uint32 `json:"uid"`
+	UIDValidity uint32 `json:"uid_validity"`
+}
+
+func validReplyHeader(value string) bool {
+	return len(value) <= 998 && !strings.ContainsAny(value, "\r\n\x00")
+}
+func resolveReplySource(c *gin.Context, client webmail.Client, source *mailboxReplySource, header string) (string, bool) {
+	if !validReplyHeader(header) {
+		authError(c, 400, "INVALID_PARAMS")
+		return "", false
+	}
+	if source == nil {
+		return header, true
+	}
+	folder, err := webmail.DecodeFolderName(source.Folder)
+	if err != nil || source.UID == 0 || source.UIDValidity == 0 {
+		authError(c, 400, "INVALID_PARAMS")
+		return "", false
+	}
+	validity, err := client.FolderUIDValidity(c, folder)
+	if err != nil || validity != source.UIDValidity {
+		authError(c, 409, "AI_SOURCE_CHANGED")
+		return "", false
+	}
+	original, err := client.GetMessage(c, folder, source.UID)
+	if err != nil || original == nil || original.UIDValidity != validity {
+		authError(c, 409, "AI_SOURCE_CHANGED")
+		return "", false
+	}
+	if !validReplyHeader(original.MessageID) {
+		authError(c, 409, "AI_SOURCE_CHANGED")
+		return "", false
+	}
+	return original.MessageID, true
 }

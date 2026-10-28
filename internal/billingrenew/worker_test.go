@@ -16,6 +16,8 @@ type fakeStore struct {
 	row              store.SubscriptionRenewalAttempts
 	claimed          bool
 	failed, notified int
+	canceled         int
+	state            string
 	uncertain        int
 	lastFailure      string
 	dedupeKeys       []string
@@ -48,6 +50,25 @@ func (f *fakeStore) PlatformSetRenewalDedupeKey(_ context.Context, arg store.Pla
 }
 func (f *fakeStore) PlatformGetRenewalChargeContext(context.Context, int64) (store.PlatformGetRenewalChargeContextRow, error) {
 	return store.PlatformGetRenewalChargeContextRow{}, pgx.ErrNoRows
+}
+
+func (f *fakeStore) PlatformRecoverRenewalLeases(context.Context) error { return nil }
+func (f *fakeStore) PlatformCompleteRenewalClaim(_ context.Context, p store.PlatformCompleteRenewalClaimParams) (int64, error) {
+	f.state = p.Column4
+	f.lastFailure = p.LastError
+	switch p.Column4 {
+	case "canceled":
+		f.canceled++
+	case "uncertain":
+		f.uncertain++
+	case "failed":
+		f.failed++
+	}
+	return 1, nil
+}
+func (f *fakeStore) BeginCharge(_ context.Context, row store.SubscriptionRenewalAttempts, key string) (store.SubscriptionRenewalAttempts, error) {
+	f.dedupeKeys = append(f.dedupeKeys, key)
+	return row, nil
 }
 
 type fakeSettlements struct {
@@ -88,18 +109,18 @@ func (f fakeResolver) ChargerFor(_ context.Context, _ store.SubscriptionRenewalA
 
 func TestRunOnceDoesNotInventPayment(t *testing.T) {
 	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 4}}
-	if err := (Worker{Store: f}).RunOnce(context.Background()); err != nil || f.failed != 1 || f.notified != 1 {
+	if err := (Worker{Store: f, Coordinator: f}).RunOnce(context.Background()); err != nil || f.canceled != 1 || f.notified != 0 {
 		t.Fatalf("err=%v failed=%d notified=%d", err, f.failed, f.notified)
 	}
-	if f.lastFailure != "NO_SAVED_PAYMENT_METHOD" {
+	if f.lastFailure != "ADAPTER_UNAVAILABLE" {
 		t.Fatalf("unexpected failure reason %q", f.lastFailure)
 	}
 }
 
 func TestRunOnceWithoutChargingChannelKeepsExplicitFailure(t *testing.T) {
 	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 4}}
-	w := Worker{Store: f, Chargers: fakeResolver{err: ErrNoChargingChannel}}
-	if err := w.RunOnce(context.Background()); err != nil || f.failed != 1 || f.notified != 1 {
+	w := Worker{Store: f, Coordinator: f, Chargers: fakeResolver{err: ErrNoChargingChannel}}
+	if err := w.RunOnce(context.Background()); err != nil || f.canceled != 1 || f.notified != 0 {
 		t.Fatalf("err=%v failed=%d notified=%d", err, f.failed, f.notified)
 	}
 	if len(f.dedupeKeys) != 0 {
@@ -112,14 +133,14 @@ func TestRunOnceChargeSuccessSettlesIdempotently(t *testing.T) {
 	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 7, TenantID: 3, SubscriptionID: 9, PeriodEnd: pgtype.Timestamptz{Time: periodEnd, Valid: true}}}
 	settlements := &fakeSettlements{}
 	charger := &fakeCharger{outcome: ChargeOutcome{Status: ChargeSucceeded, ProviderTxnID: "txn_1", AmountCents: 1000, Currency: "CNY"}}
-	w := Worker{Store: f, Chargers: fakeResolver{charger: charger, req: ChargeRequest{AmountCents: 1000, Currency: "CNY"}}, Settlements: settlements}
+	w := Worker{Store: f, Coordinator: f, Chargers: fakeResolver{charger: charger, req: ChargeRequest{AmountCents: 1000, Currency: "CNY"}}, Settlements: settlements}
 	if err := w.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if len(settlements.params) != 1 || settlements.params[0].ProviderTxnID != "txn_1" || settlements.params[0].AttemptID != 7 {
 		t.Fatalf("unexpected settlement params %+v", settlements.params)
 	}
-	if len(f.dedupeKeys) != 1 || f.dedupeKeys[0] != RenewalDedupeKey(9, periodEnd, 7) {
+	if len(f.dedupeKeys) != 1 || f.dedupeKeys[0] != RenewalDedupeKey(9, periodEnd, 7)+":charge-1" {
 		t.Fatalf("dedupe key not recorded: %v", f.dedupeKeys)
 	}
 	if len(charger.reqs) != 1 || charger.reqs[0].IdempotencyKey == "" {
@@ -130,7 +151,7 @@ func TestRunOnceChargeSuccessSettlesIdempotently(t *testing.T) {
 func TestRunOnceChargeUncertainDefersWithoutRecharge(t *testing.T) {
 	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 7, TenantID: 3}}
 	charger := &fakeCharger{outcome: ChargeOutcome{Status: ChargeUncertain}}
-	w := Worker{Store: f, Chargers: fakeResolver{charger: charger}, Settlements: &fakeSettlements{}}
+	w := Worker{Store: f, Coordinator: f, Chargers: fakeResolver{charger: charger}, Settlements: &fakeSettlements{}}
 	if err := w.RunOnce(context.Background()); err != nil || f.uncertain != 1 {
 		t.Fatalf("err=%v uncertain=%d", err, f.uncertain)
 	}
@@ -139,14 +160,14 @@ func TestRunOnceChargeUncertainDefersWithoutRecharge(t *testing.T) {
 	}
 }
 
-func TestRunOnceChargeErrorIsExplicitFailure(t *testing.T) {
+func TestRunOnceChargeErrorIsUncertain(t *testing.T) {
 	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 7, TenantID: 3}}
 	charger := &fakeCharger{err: errors.New("gateway down")}
-	w := Worker{Store: f, Chargers: fakeResolver{charger: charger}, Settlements: &fakeSettlements{}}
-	if err := w.RunOnce(context.Background()); err != nil || f.failed != 1 || f.notified != 1 {
+	w := Worker{Store: f, Coordinator: f, Chargers: fakeResolver{charger: charger}, Settlements: &fakeSettlements{}}
+	if err := w.RunOnce(context.Background()); err != nil || f.uncertain != 1 || f.notified != 0 {
 		t.Fatalf("err=%v failed=%d notified=%d", err, f.failed, f.notified)
 	}
-	if f.lastFailure != "PROVIDER_CHARGE_DECLINED" {
+	if f.lastFailure != "PROVIDER_UNCERTAIN" {
 		t.Fatalf("unexpected failure reason %q", f.lastFailure)
 	}
 }
@@ -154,9 +175,33 @@ func TestRunOnceChargeErrorIsExplicitFailure(t *testing.T) {
 func TestRunOnceChargeSuccessWithoutSettlementStoreFails(t *testing.T) {
 	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 7, TenantID: 3}}
 	charger := &fakeCharger{outcome: ChargeOutcome{Status: ChargeSucceeded, ProviderTxnID: "txn_1", AmountCents: 1000, Currency: "CNY"}}
-	w := Worker{Store: f, Chargers: fakeResolver{charger: charger}}
-	if err := w.RunOnce(context.Background()); err == nil {
-		t.Fatal("a confirmed charge without a settlement path must fail loudly")
+	w := Worker{Store: f, Coordinator: f, Chargers: fakeResolver{charger: charger}}
+	if err := w.RunOnce(context.Background()); err != nil || f.uncertain != 1 {
+		t.Fatal("a confirmed charge without settlement must be held uncertain")
+	}
+}
+
+type reconcilingCharger struct {
+	fakeCharger
+	queries int
+}
+
+func (f *reconcilingCharger) Query(_ context.Context, _ ChargeRequest) (ChargeOutcome, error) {
+	f.queries++
+	return ChargeOutcome{Status: ChargeUncertain}, nil
+}
+func TestRunOnceUnknownNeverChargesAgain(t *testing.T) {
+	f := &fakeStore{row: store.SubscriptionRenewalAttempts{ID: 7, TenantID: 3, SideEffectIntentAt: pgtype.Timestamptz{Time: time.Now().AddDate(-1, 0, 0), Valid: true}, DedupeKey: "original"}}
+	charger := &reconcilingCharger{}
+	w := Worker{Store: f, Coordinator: f, Chargers: fakeResolver{charger: charger, req: ChargeRequest{IdempotencyKey: "original"}}}
+	for range 3 {
+		f.claimed = false
+		if err := w.RunOnce(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(charger.reqs) != 0 || charger.queries != 3 || f.uncertain != 3 {
+		t.Fatalf("charge=%d query=%d uncertain=%d", len(charger.reqs), charger.queries, f.uncertain)
 	}
 }
 

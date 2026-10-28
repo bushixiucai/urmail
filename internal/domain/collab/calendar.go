@@ -2,6 +2,8 @@ package collab
 
 import (
 	"errors"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,17 +21,22 @@ const statusCancelled = "cancelled" //nolint:misspell // RFC 5545 spelling
 
 // Event is one calendar entry.
 type Event struct {
-	Summary      string
-	Description  string
-	Location     string
-	StartsAt     time.Time
-	EndsAt       time.Time
-	AllDay       bool
-	Timezone     string
-	RRule        string
-	Status       string
-	RecurrenceID string
-	Attendees    []string
+	Organizer       string
+	Sequence        int
+	UID             string
+	ReminderMinutes []int
+	Overrides       []OccurrenceOverride
+	Summary         string
+	Description     string
+	Location        string
+	StartsAt        time.Time
+	EndsAt          time.Time
+	AllDay          bool
+	Timezone        string
+	RRule           string
+	Status          string
+	RecurrenceID    string
+	Attendees       []string
 	// AttendeeStatus maps an attendee email to its iTIP PARTSTAT value.
 	// Entries for unknown attendees or unknown values are dropped; nil means
 	// every attendee is still "needs-action".
@@ -38,7 +45,12 @@ type Event struct {
 
 // NormalizeEvent checks bounds and recurrence shape without expanding it.
 func NormalizeEvent(in Event) (Event, error) {
+	if utf8.RuneCountInString(in.UID) > 255 || strings.ContainsAny(in.UID, "\r\n") || utf8.RuneCountInString(in.Summary) > 500 || utf8.RuneCountInString(in.Location) > 500 {
+		return Event{}, ErrInvalidEvent
+	}
+
 	out := Event{
+		UID: cleanLine(in.UID, 255), Organizer: strings.ToLower(strings.TrimSpace(in.Organizer)), Sequence: in.Sequence,
 		Summary:        cleanLine(in.Summary, 500),
 		Description:    strings.TrimSpace(in.Description),
 		Location:       cleanLine(in.Location, 500),
@@ -52,13 +64,16 @@ func NormalizeEvent(in Event) (Event, error) {
 		Attendees:      cleanAttendees(in.Attendees),
 		AttendeeStatus: cleanAttendeeStatus(in.AttendeeStatus, cleanAttendees(in.Attendees)),
 	}
+	if out.Sequence < 0 || out.Sequence > 2147483647 || (out.Organizer != "" && !validAttendee(out.Organizer)) {
+		return Event{}, ErrInvalidEvent
+	}
 	if out.Timezone == "" {
 		out.Timezone = "UTC"
 	}
 	if _, err := time.LoadLocation(out.Timezone); err != nil {
 		return Event{}, ErrInvalidEvent
 	}
-	if out.Summary == "" || !out.EndsAt.After(out.StartsAt) {
+	if out.Summary == "" || out.StartsAt.IsZero() || out.EndsAt.IsZero() || !out.EndsAt.After(out.StartsAt) {
 		return Event{}, ErrInvalidEvent
 	}
 	if utf8.RuneCountInString(out.Description) > 8000 {
@@ -72,73 +87,119 @@ func NormalizeEvent(in Event) (Event, error) {
 	default:
 		return Event{}, ErrInvalidEvent
 	}
+	if out.AllDay {
+		loc, _ := time.LoadLocation(out.Timezone)
+		for _, stamp := range []time.Time{out.StartsAt, out.EndsAt} {
+			local := stamp.In(loc)
+			if local.Hour() != 0 || local.Minute() != 0 || local.Second() != 0 || local.Nanosecond() != 0 {
+				return Event{}, ErrInvalidEvent
+			}
+		}
+	}
 	if out.RRule != "" && !allowedRRule(out.RRule) {
 		return Event{}, ErrInvalidEvent
 	}
 	if len(in.Attendees) > 0 && len(out.Attendees) != len(in.Attendees) {
 		return Event{}, ErrInvalidEvent
 	}
+	if in.ReminderMinutes != nil {
+		if len(in.ReminderMinutes) > 5 {
+			return Event{}, ErrInvalidEvent
+		}
+		out.ReminderMinutes = append([]int{}, in.ReminderMinutes...)
+		sort.Ints(out.ReminderMinutes)
+		for i, minutes := range out.ReminderMinutes {
+			if minutes < 0 || minutes > 40320 || (i > 0 && out.ReminderMinutes[i-1] == minutes) {
+				return Event{}, ErrInvalidEvent
+			}
+		}
+	}
+	if err := normalizeOverrides(&out, in.Overrides); err != nil {
+		return Event{}, err
+	}
 	return out, nil
 }
 
 func allowedRRule(rule string) bool {
-	upper := strings.ToUpper(rule)
-	if strings.Contains(upper, "COUNT=") {
-		n, err := countValue(upper)
-		if err != nil || n < 1 || n > MaxInstances {
+	if len(rule) > 500 || strings.ContainsAny(rule, "\r\n") {
+		return false
+	}
+	base, _ := splitException(rule)
+	seen := map[string]bool{}
+	for _, part := range strings.Split(strings.ToUpper(base), ";") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok || seen[key] || value == "" {
+			return false
+		}
+		seen[key] = true
+		switch key {
+		case "FREQ":
+			if value != "DAILY" && value != "WEEKLY" && value != "MONTHLY" && value != "YEARLY" {
+				return false
+			}
+		case "COUNT":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > MaxInstances {
+				return false
+			}
+		case "INTERVAL":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 366 {
+				return false
+			}
+		case "UNTIL":
+			if _, err := time.Parse("20060102T150405Z", value); err != nil {
+				return false
+			}
+		case "BYDAY", "WKST":
+			for _, day := range strings.Split(value, ",") {
+				switch day {
+				case "MO", "TU", "WE", "TH", "FR", "SA", "SU":
+				default:
+					return false
+				}
+			}
+		case "BYMONTH":
+			for _, v := range strings.Split(value, ",") {
+				n, err := strconv.Atoi(v)
+				if err != nil || n < 1 || n > 12 {
+					return false
+				}
+			}
+		case "BYMONTHDAY":
+			for _, v := range strings.Split(value, ",") {
+				n, err := strconv.Atoi(v)
+				if err != nil || n < 1 || n > 31 {
+					return false
+				}
+			}
+		default:
 			return false
 		}
 	}
-	ok := false
-	for _, freq := range []string{"FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY", "FREQ=YEARLY"} {
-		if strings.Contains(upper, freq) {
-			ok = true
-		}
+	return seen["FREQ"] && validException(strings.ToUpper(rule))
+}
+
+func validException(rule string) bool {
+	_, raw := splitException(rule)
+	if raw == "" {
+		return true
 	}
-	if !ok || strings.Count(rule, ";") >= 8 || !validException(upper) {
+	values := strings.Split(raw, ",")
+	if len(values) > MaxInstances {
 		return false
 	}
-	for _, r := range rule {
-		if r == '\r' || r == '\n' {
+	seen := map[string]bool{}
+	for _, value := range values {
+		if seen[value] {
+			return false
+		}
+		seen[value] = true
+		if _, err := time.Parse("20060102T150405Z", value); err != nil {
 			return false
 		}
 	}
 	return true
-}
-
-func countValue(rule string) (int, error) {
-	i := strings.Index(rule, "COUNT=")
-	if i < 0 {
-		return 0, errors.New("missing")
-	}
-	rest := rule[i+len("COUNT="):]
-	if end := strings.IndexByte(rest, ';'); end >= 0 {
-		rest = rest[:end]
-	}
-	if rest == "" {
-		return 0, errors.New("empty")
-	}
-	v := 0
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return 0, errors.New("nan")
-		}
-		v = v*10 + int(r-'0')
-	}
-	return v, nil
-}
-
-func validException(rule string) bool {
-	_, value, ok := strings.Cut(rule, "EXDATE=")
-	if !ok {
-		return true
-	}
-	value, _, _ = strings.Cut(value, ";")
-	if len(value) != 16 || !strings.HasSuffix(value, "Z") {
-		return false
-	}
-	_, err := time.Parse("20060102T150405Z", value)
-	return err == nil
 }
 
 func cleanAttendees(in []string) []string {

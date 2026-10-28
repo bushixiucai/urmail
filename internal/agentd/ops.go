@@ -21,6 +21,9 @@ const OpSieveActivate = "mailbox.sieve.activate"
 // Whitelists for the M1 operations. Every value that reaches the filesystem
 // or a command line passes through one of these.
 
+// OpMailboxRecallPreview is the fixed read-only local-copy inventory operation.
+const OpMailboxRecallPreview = "mailbox.recall.preview"
+
 // allowedWriteRoots lists the directories the agent may write into.
 var allowedWriteRoots = []string{
 	"/etc/urmail",

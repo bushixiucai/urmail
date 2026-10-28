@@ -18,11 +18,13 @@ export function MessageHTMLFrame({
   notes,
   loadImages,
   onLoadImages,
+  inlineImages,
 }: {
   html: string;
   notes: string[];
   loadImages: boolean;
   onLoadImages: () => void;
+  inlineImages?: Record<string, string>;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -69,7 +71,10 @@ export function MessageHTMLFrame({
           "w-full rounded border bg-background " +
           (expanded ? "h-[80vh]" : "h-[420px]")
         }
-        srcDoc={sanitizeHtmlMail(html, { allowRemoteImages: loadImages })}
+        srcDoc={sanitizeHtmlMail(html, {
+          allowRemoteImages: loadImages,
+          inlineImages,
+        })}
       />
       <div className="flex justify-end">
         <Button

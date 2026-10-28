@@ -42,6 +42,9 @@ const (
 // pendingMFALogin is a first-factor-authenticated login awaiting its second
 // factor.
 type pendingMFALogin struct {
+	OriginHost        string
+	BrandID           int64
+	OriginBound       bool
 	CredentialVersion int64
 	UserID            int64
 	LimiterKey        string
@@ -74,6 +77,21 @@ func newMFATokenStore() *mfaTokenStore {
 
 // issue registers a pending second-factor login and returns its token.
 func (s *mfaTokenStore) issue(userID int64, limiterKey string, versions ...int64) (string, error) {
+	version := int64(0)
+	if len(versions) > 0 {
+		version = versions[0]
+	}
+	return s.issueAtOrigin(userID, limiterKey, version, "", 0, false)
+}
+
+// issueForRequest binds both MFA legs to the same actual HTTP host and brand.
+func (s *mfaTokenStore) issueForRequest(c *gin.Context, userID int64, limiterKey string, version int64) (string, error) {
+	brand, _ := c.Get(middleware.ContextBrandID)
+	brandID, _ := brand.(int64)
+	return s.issueAtOrigin(userID, limiterKey, version, middleware.OriginHost(c.Request.Host), brandID, true)
+}
+
+func (s *mfaTokenStore) issueAtOrigin(userID int64, limiterKey string, version int64, origin string, brandID int64, bound bool) (string, error) {
 	token, err := randomHexToken()
 	if err != nil {
 		return "", err
@@ -91,11 +109,7 @@ func (s *mfaTokenStore) issue(userID int64, limiterKey string, versions ...int64
 		mfaCapacityRejections.Inc()
 		return "", errors.New("MFA challenge capacity exhausted")
 	}
-	version := int64(0)
-	if len(versions) > 0 {
-		version = versions[0]
-	}
-	s.entries[token] = pendingMFALogin{CredentialVersion: version,
+	s.entries[token] = pendingMFALogin{CredentialVersion: version, OriginHost: origin, BrandID: brandID, OriginBound: bound,
 		UserID:     userID,
 		LimiterKey: limiterKey,
 		ExpiresAt:  s.now().Add(mfaTokenTTL),
@@ -392,6 +406,12 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{"code": "MFA_TOKEN_INVALID", "message": "auth.mfa_invalid_token"},
 		})
+		return
+	}
+	brand, _ := c.Get(middleware.ContextBrandID)
+	brandID, _ := brand.(int64)
+	if pending.OriginBound && (pending.OriginHost != middleware.OriginHost(c.Request.Host) || pending.BrandID != brandID) || !pending.OriginBound && brandID != 0 {
+		authError(c, http.StatusUnauthorized, "SESSION_ORIGIN_MISMATCH")
 		return
 	}
 	ipKey := ipKeyFromLimiterKey(pending.LimiterKey)

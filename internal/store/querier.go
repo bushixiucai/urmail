@@ -23,6 +23,29 @@ type Querier interface {
 	// from tenant_id predicate per AGENTS.md (platform_*.sql): the cycle lives in
 	// the platform-wide graph by definition.
 	AliasWouldCycle(ctx context.Context, arg AliasWouldCycleParams) (bool, error)
+	ArchiveCasesAddMember(ctx context.Context, arg ArchiveCasesAddMemberParams) (int64, error)
+	ArchiveCasesAddSource(ctx context.Context, arg ArchiveCasesAddSourceParams) (int64, error)
+	ArchiveCasesApproval(ctx context.Context, arg ArchiveCasesApprovalParams) (ArchiveCasesApprovalRow, error)
+	ArchiveCasesApprovals(ctx context.Context, arg ArchiveCasesApprovalsParams) ([]ArchiveCasesApprovalsRow, error)
+	ArchiveCasesClose(ctx context.Context, arg ArchiveCasesCloseParams) (ArchiveInvestigations, error)
+	ArchiveCasesCreate(ctx context.Context, arg ArchiveCasesCreateParams) (int64, error)
+	ArchiveCasesDecideApproval(ctx context.Context, arg ArchiveCasesDecideApprovalParams) (int64, error)
+	ArchiveCasesEligibleMembers(ctx context.Context, tenantID int64) ([]ArchiveCasesEligibleMembersRow, error)
+	ArchiveCasesExportVisible(ctx context.Context, arg ArchiveCasesExportVisibleParams) (bool, error)
+	ArchiveCasesGet(ctx context.Context, arg ArchiveCasesGetParams) (ArchiveInvestigations, error)
+	ArchiveCasesGetEvidence(ctx context.Context, arg ArchiveCasesGetEvidenceParams) (ArchiveEvidenceExports, error)
+	ArchiveCasesGrantEligible(ctx context.Context, arg ArchiveCasesGrantEligibleParams) (bool, error)
+	ArchiveCasesList(ctx context.Context, tenantID int64) ([]ArchiveInvestigations, error)
+	ArchiveCasesLock(ctx context.Context, arg ArchiveCasesLockParams) (ArchiveInvestigations, error)
+	ArchiveCasesMembers(ctx context.Context, arg ArchiveCasesMembersParams) ([]ArchiveCasesMembersRow, error)
+	ArchiveCasesRemoveMember(ctx context.Context, arg ArchiveCasesRemoveMemberParams) (int64, error)
+	ArchiveCasesRemoveSource(ctx context.Context, arg ArchiveCasesRemoveSourceParams) (int64, error)
+	ArchiveCasesRequestApproval(ctx context.Context, arg ArchiveCasesRequestApprovalParams) (int64, error)
+	ArchiveCasesSaveEvidence(ctx context.Context, arg ArchiveCasesSaveEvidenceParams) (ArchiveEvidenceExports, error)
+	ArchiveCasesSnapshot(ctx context.Context, arg ArchiveCasesSnapshotParams) ([]byte, error)
+	ArchiveCasesSnapshotDigest(ctx context.Context, arg ArchiveCasesSnapshotDigestParams) (string, error)
+	ArchiveCasesSources(ctx context.Context, arg ArchiveCasesSourcesParams) ([]ArchiveCasesSourcesRow, error)
+	ArchiveCasesWithdrawApproval(ctx context.Context, arg ArchiveCasesWithdrawApprovalParams) (int64, error)
 	ArchiveRetentionCandidateDigest(ctx context.Context, arg ArchiveRetentionCandidateDigestParams) (ArchiveRetentionCandidateDigestRow, error)
 	AuditLegacyCredentialUse(ctx context.Context, arg AuditLegacyCredentialUseParams) error
 	AuthenticateApplicationCredential(ctx context.Context, arg AuthenticateApplicationCredentialParams) (AuthenticateApplicationCredentialRow, error)
@@ -43,14 +66,18 @@ type Querier interface {
 	CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error)
 	ClaimEASSend(ctx context.Context, arg ClaimEASSendParams) (int64, error)
 	ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchiveEntryLegalHoldParams) (ArchiveEntries, error)
+	ClearExpiredMailboxImportPayloads(ctx context.Context, tenantID int64) error
 	ConfirmArchiveRetentionPreview(ctx context.Context, arg ConfirmArchiveRetentionPreviewParams) error
 	ConfirmDNSPlan(ctx context.Context, arg ConfirmDNSPlanParams) error
+	ConfirmRecallReview(ctx context.Context, arg ConfirmRecallReviewParams) (ConfirmRecallReviewRow, error)
 	// Removes one recovery code (given as its stored SHA-256 hex hash) from the
 	// user's code list. Zero rows affected means the code did not match.
 	ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error)
 	CountDeliveryEventsByStatus(ctx context.Context, arg CountDeliveryEventsByStatusParams) ([]CountDeliveryEventsByStatusRow, error)
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
+	CountMarketingFlowDefinitions(ctx context.Context, tenantID int64) (int64, error)
+	CountMarketingFlowLiveInstances(ctx context.Context, tenantID int64) (int64, error)
 	CreateAlias(ctx context.Context, arg CreateAliasParams) (MailboxAliases, error)
 	CreateApplicationCredential(ctx context.Context, arg CreateApplicationCredentialParams) (CreateApplicationCredentialRow, error)
 	// Append-only audit trail for tenant-visible history.
@@ -65,8 +92,17 @@ type Querier interface {
 	// bill stays reproducible after a later plan price edit (M5 review 3.31).
 	CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoices, error)
 	CreateMailbox(ctx context.Context, arg CreateMailboxParams) (Mailboxes, error)
+	CreateMailboxImportItem(ctx context.Context, arg CreateMailboxImportItemParams) error
+	CreateMailboxImportJob(ctx context.Context, arg CreateMailboxImportJobParams) (MailboxImportJobs, error)
 	CreateMarketingCampaign(ctx context.Context, arg CreateMarketingCampaignParams) (MarketingCampaigns, error)
+	CreateMarketingFlowContentSnapshot(ctx context.Context, arg CreateMarketingFlowContentSnapshotParams) error
+	CreateMarketingFlowDefinition(ctx context.Context, arg CreateMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error)
+	CreateMarketingFlowEntry(ctx context.Context, arg CreateMarketingFlowEntryParams) (MarketingFlowEntries, error)
+	CreateMarketingFlowInstance(ctx context.Context, arg CreateMarketingFlowInstanceParams) (int64, error)
+	CreateMarketingFlowVersion(ctx context.Context, arg CreateMarketingFlowVersionParams) (MarketingFlowVersions, error)
 	CreateMarketingList(ctx context.Context, arg CreateMarketingListParams) (MarketingLists, error)
+	CreateMarketingRuntimeFlow(ctx context.Context, arg CreateMarketingRuntimeFlowParams) (int64, error)
+	CreateMarketingRuntimeStep(ctx context.Context, arg CreateMarketingRuntimeStepParams) error
 	CreateMarketingTemplate(ctx context.Context, arg CreateMarketingTemplateParams) (MarketingTemplates, error)
 	CreateOnboardingTask(ctx context.Context, arg CreateOnboardingTaskParams) (OnboardingTasks, error)
 	CreateOrder(ctx context.Context, arg CreateOrderParams) (Orders, error)
@@ -89,6 +125,7 @@ type Querier interface {
 	DeleteSession(ctx context.Context, id string) error
 	DeleteTenantSetting(ctx context.Context, arg DeleteTenantSettingParams) error
 	DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error)
+	DisableDomainTransportSecurity(ctx context.Context, arg DisableDomainTransportSecurityParams) (int64, error)
 	DisableTenantRetentionPolicy(ctx context.Context, tenantID int64) error
 	DisableUserMFA(ctx context.Context, id int64) error
 	EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error
@@ -130,6 +167,7 @@ type Querier interface {
 	GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams) (GetDomainByFQDNRow, error)
 	GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (GetDomainByIDRow, error)
 	GetDomainProvisioning(ctx context.Context, arg GetDomainProvisioningParams) (GetDomainProvisioningRow, error)
+	GetDomainTransportSecurity(ctx context.Context, arg GetDomainTransportSecurityParams) (DomainTransportSecurity, error)
 	GetEASSend(ctx context.Context, arg GetEASSendParams) (GetEASSendRow, error)
 	GetEffectivePlan(ctx context.Context, pTenant int64) (Plans, error)
 	GetInvoiceByID(ctx context.Context, arg GetInvoiceByIDParams) (Invoices, error)
@@ -148,10 +186,19 @@ type Querier interface {
 	// Locks the mailbox row to serialize concurrent daily sent quota evaluation
 	GetMailboxDailySentForUpdate(ctx context.Context, address string) (GetMailboxDailySentForUpdateRow, error)
 	GetMailboxEASPingConfig(ctx context.Context, arg GetMailboxEASPingConfigParams) (GetMailboxEASPingConfigRow, error)
+	GetMailboxImportByKey(ctx context.Context, arg GetMailboxImportByKeyParams) (MailboxImportJobs, error)
+	GetMailboxImportJob(ctx context.Context, arg GetMailboxImportJobParams) (MailboxImportJobs, error)
 	GetMarketingCampaign(ctx context.Context, arg GetMarketingCampaignParams) (MarketingCampaigns, error)
 	// MKT-005 outcome report. Counters come from the incremental
 	// marketing_campaign_stats row; pending/total come from recipient facts.
 	GetMarketingCampaignReport(ctx context.Context, arg GetMarketingCampaignReportParams) (GetMarketingCampaignReportRow, error)
+	GetMarketingFlowDefinition(ctx context.Context, arg GetMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error)
+	GetMarketingFlowEntry(ctx context.Context, arg GetMarketingFlowEntryParams) (MarketingFlowEntries, error)
+	GetMarketingFlowInstance(ctx context.Context, arg GetMarketingFlowInstanceParams) (int64, error)
+	GetMarketingFlowList(ctx context.Context, arg GetMarketingFlowListParams) (int64, error)
+	GetMarketingFlowTemplate(ctx context.Context, arg GetMarketingFlowTemplateParams) (GetMarketingFlowTemplateRow, error)
+	GetMarketingFlowVersion(ctx context.Context, arg GetMarketingFlowVersionParams) (MarketingFlowVersions, error)
+	GetMarketingFlowVersionForRevision(ctx context.Context, arg GetMarketingFlowVersionForRevisionParams) (MarketingFlowVersions, error)
 	GetMarketingSuppression(ctx context.Context, arg GetMarketingSuppressionParams) (MarketingSuppressions, error)
 	GetOnboardingTaskByDomain(ctx context.Context, arg GetOnboardingTaskByDomainParams) (OnboardingTasks, error)
 	GetOrderByID(ctx context.Context, arg GetOrderByIDParams) (Orders, error)
@@ -209,15 +256,24 @@ type Querier interface {
 	ListDNSCredentials(ctx context.Context, arg ListDNSCredentialsParams) ([]ListDNSCredentialsRow, error)
 	ListDNSPlans(ctx context.Context, arg ListDNSPlansParams) ([]DnsChangePlans, error)
 	ListDeliveryEventsByTenant(ctx context.Context, tenantID pgtype.Int8) ([]DeliveryEvents, error)
+	ListDomainTLSReports(ctx context.Context, arg ListDomainTLSReportsParams) ([]ListDomainTLSReportsRow, error)
 	ListDomainsByTenant(ctx context.Context, tenantID int64) ([]ListDomainsByTenantRow, error)
 	ListInvoicesByOrder(ctx context.Context, arg ListInvoicesByOrderParams) ([]Invoices, error)
 	ListInvoicesByTenant(ctx context.Context, tenantID int64) ([]Invoices, error)
+	ListMailboxImportItems(ctx context.Context, arg ListMailboxImportItemsParams) ([]MailboxImportItems, error)
+	ListMailboxImportJobs(ctx context.Context, arg ListMailboxImportJobsParams) ([]MailboxImportJobs, error)
 	ListMailboxesByDomain(ctx context.Context, arg ListMailboxesByDomainParams) ([]Mailboxes, error)
 	ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]Mailboxes, error)
 	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
 	ListMarketingCampaigns(ctx context.Context, tenantID int64) ([]MarketingCampaigns, error)
 	ListMarketingChannels(ctx context.Context, tenantID int64) ([]ListMarketingChannelsRow, error)
 	ListMarketingContacts(ctx context.Context, arg ListMarketingContactsParams) ([]MarketingContacts, error)
+	ListMarketingFlowDefinitions(ctx context.Context, tenantID int64) ([]ListMarketingFlowDefinitionsRow, error)
+	ListMarketingFlowEligibleContacts(ctx context.Context, arg ListMarketingFlowEligibleContactsParams) ([]string, error)
+	ListMarketingFlowInstances(ctx context.Context, arg ListMarketingFlowInstancesParams) ([]ListMarketingFlowInstancesRow, error)
+	ListMarketingFlowNodeExecutions(ctx context.Context, arg ListMarketingFlowNodeExecutionsParams) ([]ListMarketingFlowNodeExecutionsRow, error)
+	ListMarketingFlowPublishedContent(ctx context.Context, arg ListMarketingFlowPublishedContentParams) ([]ListMarketingFlowPublishedContentRow, error)
+	ListMarketingFlowVersions(ctx context.Context, arg ListMarketingFlowVersionsParams) ([]ListMarketingFlowVersionsRow, error)
 	ListMarketingLists(ctx context.Context, tenantID int64) ([]MarketingLists, error)
 	ListMarketingRecipients(ctx context.Context, arg ListMarketingRecipientsParams) ([]MarketingRecipients, error)
 	ListMarketingSuppressions(ctx context.Context, tenantID int64) ([]MarketingSuppressions, error)
@@ -238,6 +294,9 @@ type Querier interface {
 	LockArchiveRetentionPreview(ctx context.Context, arg LockArchiveRetentionPreviewParams) (RetentionPreviews, error)
 	LockEASSendCopy(ctx context.Context, arg LockEASSendCopyParams) (LockEASSendCopyRow, error)
 	LockMailboxEASSync(ctx context.Context, arg LockMailboxEASSyncParams) error
+	LockMailboxImportJob(ctx context.Context, arg LockMailboxImportJobParams) (MailboxImportJobs, error)
+	LockMailboxImportOwner(ctx context.Context, arg LockMailboxImportOwnerParams) (LockMailboxImportOwnerRow, error)
+	LockMailboxImportTenantBudget(ctx context.Context, tenantID int64) error
 	MailServiceAllowed(ctx context.Context, dollar_1 int64) (bool, error)
 	// Mailbox-scoped retrieval index queries for cross-mail AI Q&A.
 	// Every statement repeats the tenant and mailbox predicates; RLS on
@@ -245,6 +304,10 @@ type Querier interface {
 	// mailbox principal context.
 	MailboxAIChunkMessageStates(ctx context.Context, arg MailboxAIChunkMessageStatesParams) ([]MailboxAIChunkMessageStatesRow, error)
 	MailboxEASPingCollectionChanged(ctx context.Context, arg MailboxEASPingCollectionChangedParams) (bool, error)
+	MailboxImportItemViews(ctx context.Context, arg MailboxImportItemViewsParams) ([]byte, error)
+	MailboxImportRecoverExpiredLeases(ctx context.Context, arg MailboxImportRecoverExpiredLeasesParams) error
+	MailboxImportReservedBytes(ctx context.Context, arg MailboxImportReservedBytesParams) (int64, error)
+	MailboxImportStorageBudget(ctx context.Context, arg MailboxImportStorageBudgetParams) (MailboxImportStorageBudgetRow, error)
 	MailboxSpamApplyTokenDelta(ctx context.Context, arg MailboxSpamApplyTokenDeltaParams) (int64, error)
 	MailboxSpamCountFeedback(ctx context.Context, arg MailboxSpamCountFeedbackParams) (int64, error)
 	// MAIL-002: per-mailbox spam feedback, sender allow/deny rules and learned
@@ -262,10 +325,15 @@ type Querier interface {
 	MarkSessionLegacyOnly(ctx context.Context, id string) error
 	// Platform-only authentication queries; never used as tenant-scoped stores.
 	MarkSessionMFAVerified(ctx context.Context, id string) error
+	ObserveDomainTransportSecurity(ctx context.Context, arg ObserveDomainTransportSecurityParams) (int64, error)
+	PauseMarketingFlowDefinition(ctx context.Context, arg PauseMarketingFlowDefinitionParams) error
+	PauseMarketingRuntimeFlows(ctx context.Context, arg PauseMarketingRuntimeFlowsParams) error
 	PendingRefundForTerm(ctx context.Context, arg PendingRefundForTermParams) (bool, error)
 	PlanSnapshotFitsResources(ctx context.Context, arg PlanSnapshotFitsResourcesParams) (bool, error)
 	PlatformAIUsage(ctx context.Context, tenantID int64) ([]PlatformAIUsageRow, error)
+	PlatformAcceptMailboxScheduledSend(ctx context.Context, arg PlatformAcceptMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformAckMailboxPasswordRevocation(ctx context.Context, arg PlatformAckMailboxPasswordRevocationParams) (int64, error)
+	PlatformAcknowledgeCalendarReminder(ctx context.Context, arg PlatformAcknowledgeCalendarReminderParams) (int64, error)
 	PlatformAcknowledgeCollectorGap(ctx context.Context, arg PlatformAcknowledgeCollectorGapParams) (int64, error)
 	// Promote imported delegated domains for mail routing without claiming managed DNS.
 	// mode and dns_explicit stay delegated/false so NSD reconcile emits no zones.
@@ -277,9 +345,11 @@ type Querier interface {
 	PlatformAdvanceMarketingFlow(ctx context.Context, arg PlatformAdvanceMarketingFlowParams) (PlatformAdvanceMarketingFlowRow, error)
 	PlatformAdvanceOnboarding(ctx context.Context, arg PlatformAdvanceOnboardingParams) (int64, error)
 	PlatformAdvanceOnboardingTask(ctx context.Context, arg PlatformAdvanceOnboardingTaskParams) (int64, error)
+	PlatformAdvanceRenewalEnrollment(ctx context.Context, arg PlatformAdvanceRenewalEnrollmentParams) error
 	PlatformAdvanceScheduledPlanChanges(ctx context.Context) error
 	PlatformApplyArchiveRetention(ctx context.Context) ([]PlatformApplyArchiveRetentionRow, error)
 	PlatformApplyManagedDNS(ctx context.Context, arg PlatformApplyManagedDNSParams) error
+	PlatformApproveRecurringCapability(ctx context.Context, arg PlatformApproveRecurringCapabilityParams) error
 	PlatformApproveRefund(ctx context.Context, arg PlatformApproveRefundParams) (Refunds, error)
 	PlatformArchiveCopyLifecycle(ctx context.Context, arg PlatformArchiveCopyLifecycleParams) (PlatformArchiveCopyLifecycleRow, error)
 	PlatformArchivePathIndexed(ctx context.Context, path string) (bool, error)
@@ -287,6 +357,7 @@ type Querier interface {
 	// claiming worker still owns the lease.
 	PlatformArmMarketingFlowWait(ctx context.Context, arg PlatformArmMarketingFlowWaitParams) (int64, error)
 	PlatformAttributeAuthenticatedDeliveryLifecycle(ctx context.Context, arg PlatformAttributeAuthenticatedDeliveryLifecycleParams) error
+	PlatformAuditRecurringSetup(ctx context.Context, arg PlatformAuditRecurringSetupParams) error
 	PlatformAuthorizeBillingOrder(ctx context.Context, arg PlatformAuthorizeBillingOrderParams) (int64, error)
 	// Execution-time re-verification for the flow send step: entitlement,
 	// flow-active, unsubscribe and suppression are checked in one statement
@@ -299,15 +370,24 @@ type Querier interface {
 	PlatformBackupFreshness(ctx context.Context) (PlatformBackupFreshnessRow, error)
 	PlatformBeginArchivePurge(ctx context.Context, arg PlatformBeginArchivePurgeParams) error
 	PlatformBeginMailboxScheduledSendSubmission(ctx context.Context, arg PlatformBeginMailboxScheduledSendSubmissionParams) (MailboxScheduledSends, error)
+	PlatformBeginMarketingFlowSend(ctx context.Context, arg PlatformBeginMarketingFlowSendParams) (string, error)
+	PlatformBeginRenewalCharge(ctx context.Context, arg PlatformBeginRenewalChargeParams) (SubscriptionRenewalAttempts, error)
 	PlatformBillingCalendarReviewExcludingOrder(ctx context.Context, arg PlatformBillingCalendarReviewExcludingOrderParams) (bool, error)
 	PlatformBillingLegacyIssues(ctx context.Context) ([]PlatformBillingLegacyIssuesRow, error)
 	PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (PlatformBindBrandHostRow, error)
 	PlatformBindInvoicePayment(ctx context.Context, arg PlatformBindInvoicePaymentParams) error
 	PlatformBindOnboardingDomain(ctx context.Context, arg PlatformBindOnboardingDomainParams) (int64, error)
+	PlatformBindOwnedCalendarOrganizer(ctx context.Context, arg PlatformBindOwnedCalendarOrganizerParams) (int64, error)
 	PlatformBindRegisteredOwner(ctx context.Context, arg PlatformBindRegisteredOwnerParams) error
+	PlatformBindRenewalPaymentOrder(ctx context.Context, arg PlatformBindRenewalPaymentOrderParams) error
+	PlatformBindSchedulingEvent(ctx context.Context, arg PlatformBindSchedulingEventParams) (int64, error)
 	PlatformBrandHostCertEligible(ctx context.Context, hostname string) (bool, error)
+	PlatformBrandHostCertificateTransition(ctx context.Context, arg PlatformBrandHostCertificateTransitionParams) (int64, error)
+	PlatformBrandHostReserved(ctx context.Context, fqdn string) (bool, error)
+	PlatformCalendarRestoreCutoff(ctx context.Context) (pgtype.Timestamptz, error)
 	PlatformCancelActiveSubscriptions(ctx context.Context, tenantID int64) (int64, error)
 	PlatformCancelArchivePurgeIntent(ctx context.Context, arg PlatformCancelArchivePurgeIntentParams) error
+	PlatformCancelIneligibleRenewals(ctx context.Context) error
 	PlatformCancelMailboxScheduledSend(ctx context.Context, arg PlatformCancelMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformCancelPendingOrder(ctx context.Context, id int64) (Orders, error)
 	// BILL-004: a settled order supersedes the old billing cycle. Pending
@@ -315,17 +395,22 @@ type Querier interface {
 	// whose subscription is no longer billable, are canceled with an explicit
 	// reason so they can never be retried or notify the tenant again.
 	PlatformCancelSupersededRenewalAttempts(ctx context.Context, tenantID int64) error
+	PlatformCancelUnstartedRenewals(ctx context.Context, arg PlatformCancelUnstartedRenewalsParams) error
 	PlatformChangeMailboxPasswordCAS(ctx context.Context, arg PlatformChangeMailboxPasswordCASParams) (int64, error)
 	PlatformChangePanelMFA(ctx context.Context, arg PlatformChangePanelMFAParams) (int64, error)
 	PlatformChangeSupportTicket(ctx context.Context, arg PlatformChangeSupportTicketParams) (Tickets, error)
 	PlatformCheckMarketingEmailSuppressed(ctx context.Context, arg PlatformCheckMarketingEmailSuppressedParams) (bool, error)
+	PlatformCheckMarketingFlowLease(ctx context.Context, arg PlatformCheckMarketingFlowLeaseParams) (bool, error)
 	PlatformClaimApprovedRefund(ctx context.Context) (Refunds, error)
+	PlatformClaimCalendarInvitation(ctx context.Context, arg PlatformClaimCalendarInvitationParams) error
+	PlatformClaimCalendarResponse(ctx context.Context, arg PlatformClaimCalendarResponseParams) error
 	PlatformClaimDNSPlan(ctx context.Context, leaseOwner pgtype.Text) (DnsChangePlans, error)
 	// OPS-103: claims one due email notification with a SKIP LOCKED lease. The
 	// row stays 'pending' while leased, so a crashed worker's lease expiry makes
 	// it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP
 	// submission later moves it to the unreplayable 'uncertain' state.
 	PlatformClaimEmailNotification(ctx context.Context) (NotificationOutbox, error)
+	PlatformClaimMailTransfer(ctx context.Context, arg PlatformClaimMailTransferParams) error
 	PlatformClaimMailboxJob(ctx context.Context) (MailboxJobs, error)
 	PlatformClaimMailboxScheduledSend(ctx context.Context) (MailboxScheduledSends, error)
 	// Claim a bounded batch of due positions with SKIP LOCKED. A position is due
@@ -337,33 +422,42 @@ type Querier interface {
 	PlatformClaimMerchantWebhook(ctx context.Context, arg PlatformClaimMerchantWebhookParams) (PaymentWebhookInbox, error)
 	PlatformClaimOnboarding(ctx context.Context, leasedBy pgtype.Text) (OnboardingTasks, error)
 	PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]PlatformClaimOnboardingTaskRow, error)
+	PlatformClaimOwnedScheduledSentCopy(ctx context.Context, arg PlatformClaimOwnedScheduledSentCopyParams) (MailboxScheduledSends, error)
+	// Stripe renewal confirmations are reconciled with GET only. No capture or
+	// charge operation is permitted when retrying an uncertain receipt.
+	PlatformClaimRecurringWebhook(ctx context.Context, arg PlatformClaimRecurringWebhookParams) (PaymentWebhookInbox, error)
 	PlatformClaimRefundByID(ctx context.Context, arg PlatformClaimRefundByIDParams) (Refunds, error)
-	// BILL-004: only an attempt whose recorded period_end is still the
-	// subscription's current billable cycle may be claimed. A settled order or a
-	// completed renewal advances (or cancels) the cycle, so a stale attempt is
-	// never claimed again and can therefore never retry or notify the tenant.
 	PlatformClaimRenewalAttempt(ctx context.Context) (SubscriptionRenewalAttempts, error)
+	PlatformClaimScheduledSentCopy(ctx context.Context) (MailboxScheduledSends, error)
 	PlatformClearCheckoutRestoreHold(ctx context.Context, arg PlatformClearCheckoutRestoreHoldParams) error
 	PlatformCollectorHealth(ctx context.Context) ([]CollectorCheckpoints, error)
 	PlatformCommissionRate(ctx context.Context, id int64) (int32, error)
+	PlatformCommitMarketingFlowFenced(ctx context.Context, arg PlatformCommitMarketingFlowFencedParams) (string, error)
 	// Advance a wait step whose wait_until elapsed, without sending anything.
 	// The database function re-checks uncertain, unsubscribe, the wait and the
 	// sending gate under FOR UPDATE, so it is the linearization point.
 	PlatformCommitMarketingFlowWait(ctx context.Context, arg PlatformCommitMarketingFlowWaitParams) (string, error)
 	PlatformCompactLegacyRejectedWebhooks(ctx context.Context) (int64, error)
 	PlatformCompleteDNSAction(ctx context.Context, arg PlatformCompleteDNSActionParams) (int64, error)
+	PlatformCompleteMailTransfer(ctx context.Context, arg PlatformCompleteMailTransferParams) (int64, error)
 	PlatformCompleteMarketingCampaigns(ctx context.Context) (int64, error)
 	PlatformCompleteOnboardingTask(ctx context.Context, arg PlatformCompleteOnboardingTaskParams) (int64, error)
 	PlatformCompleteRecall(ctx context.Context, arg PlatformCompleteRecallParams) (PlatformCompleteRecallRow, error)
+	PlatformCompleteRenewalClaim(ctx context.Context, arg PlatformCompleteRenewalClaimParams) (int64, error)
+	PlatformCompleteScheduledSentCopy(ctx context.Context, arg PlatformCompleteScheduledSentCopyParams) (MailboxScheduledSends, error)
 	PlatformConfigureTenantAI(ctx context.Context, arg PlatformConfigureTenantAIParams) error
 	PlatformConfirmDomainRecovery(ctx context.Context, arg PlatformConfirmDomainRecoveryParams) (int64, error)
 	PlatformConsumeBrandHostChallenge(ctx context.Context, hostname string) (int64, error)
 	PlatformConsumeMailboxTicket(ctx context.Context, arg PlatformConsumeMailboxTicketParams) (PlatformConsumeMailboxTicketRow, error)
 	PlatformConsumeRegistrationRequest(ctx context.Context, tokenHash string) error
+	PlatformContactImportDuplicate(ctx context.Context, arg PlatformContactImportDuplicateParams) (bool, error)
+	PlatformConvergeRecurringRuntime(ctx context.Context, arg PlatformConvergeRecurringRuntimeParams) error
 	PlatformCountBillingCalendarReviewTenants(ctx context.Context) (int64, error)
 	PlatformCountLegacyMFASecrets(ctx context.Context) (int64, error)
 	PlatformCountNewNotifications(ctx context.Context, afterID int64) ([]PlatformCountNewNotificationsRow, error)
 	PlatformCountOpenPaymentReviews(ctx context.Context) (int64, error)
+	PlatformCountOpenRecurringSetups(ctx context.Context, tenantID int64) (int64, error)
+	PlatformCountRecentTLSReports(ctx context.Context, arg PlatformCountRecentTLSReportsParams) (int64, error)
 	PlatformCreateAnnouncement(ctx context.Context, arg PlatformCreateAnnouncementParams) (Announcements, error)
 	PlatformCreateCheckoutIntent(ctx context.Context, arg PlatformCreateCheckoutIntentParams) (PaymentCheckoutIntents, error)
 	PlatformCreateDNSAction(ctx context.Context, arg PlatformCreateDNSActionParams) error
@@ -373,16 +467,18 @@ type Querier interface {
 	PlatformCreateLegacyMailbox(ctx context.Context, arg PlatformCreateLegacyMailboxParams) (int64, error)
 	// Service-only schedule metadata; message bodies stay in IMAP.
 	PlatformCreateMailboxScheduledSend(ctx context.Context, arg PlatformCreateMailboxScheduledSendParams) (MailboxScheduledSends, error)
-	PlatformCreateMailboxSession(ctx context.Context, arg PlatformCreateMailboxSessionParams) (MailboxSessions, error)
+	PlatformCreateMailboxSession(ctx context.Context, arg PlatformCreateMailboxSessionParams) (PlatformCreateMailboxSessionRow, error)
 	PlatformCreateMailboxTicket(ctx context.Context, arg PlatformCreateMailboxTicketParams) (MailboxOperationTickets, error)
 	PlatformCreateManagedInvoice(ctx context.Context, arg PlatformCreateManagedInvoiceParams) (int64, error)
 	PlatformCreateManagedTenant(ctx context.Context, arg PlatformCreateManagedTenantParams) (int64, error)
 	PlatformCreateManagedUser(ctx context.Context, arg PlatformCreateManagedUserParams) (int64, error)
 	PlatformCreateMarketingChannel(ctx context.Context, arg PlatformCreateMarketingChannelParams) (PlatformCreateMarketingChannelRow, error)
 	PlatformCreatePaymentMerchant(ctx context.Context, arg PlatformCreatePaymentMerchantParams) (PlatformCreatePaymentMerchantRow, error)
+	PlatformCreateRecurringSetup(ctx context.Context, arg PlatformCreateRecurringSetupParams) (RecurringSetupIntents, error)
 	PlatformCreateRegisteredTenant(ctx context.Context, arg PlatformCreateRegisteredTenantParams) (int64, error)
 	PlatformCreateRegisteredUser(ctx context.Context, arg PlatformCreateRegisteredUserParams) (int64, error)
 	PlatformCreateRegistrationRequest(ctx context.Context, arg PlatformCreateRegistrationRequestParams) error
+	PlatformCreateRenewalOrder(ctx context.Context, arg PlatformCreateRenewalOrderParams) (Orders, error)
 	// PD-01: a plain INSERT. The previous ON CONFLICT(refund_no) DO UPDATE made a
 	// pre-occupied refund number from another tenant silently resolve to that
 	// foreign row. Collisions now surface as a unique violation the handler
@@ -398,6 +494,7 @@ type Querier interface {
 	PlatformDataIssues(ctx context.Context) ([]PlatformDataIssuesRow, error)
 	PlatformDeferRefundEntitlement(ctx context.Context, arg PlatformDeferRefundEntitlementParams) error
 	PlatformDeferRefundReconciliation(ctx context.Context, arg PlatformDeferRefundReconciliationParams) error
+	PlatformDeferScheduledSentCopy(ctx context.Context, arg PlatformDeferScheduledSentCopyParams) error
 	PlatformDeleteBrand(ctx context.Context, id int64) (int64, error)
 	PlatformDeleteBrandHostChallenge(ctx context.Context, hostname string) error
 	PlatformDeleteBrandSetting(ctx context.Context, arg PlatformDeleteBrandSettingParams) error
@@ -407,6 +504,7 @@ type Querier interface {
 	PlatformDeleteSetting(ctx context.Context, key string) error
 	PlatformDeleteUnusedPlan(ctx context.Context, code string) (int64, error)
 	PlatformDemotePreviousOwners(ctx context.Context, arg PlatformDemotePreviousOwnersParams) error
+	PlatformDiscardStaleCalendarReminders(ctx context.Context) error
 	PlatformEncryptLegacyMFASecret(ctx context.Context, arg PlatformEncryptLegacyMFASecretParams) (int64, error)
 	PlatformEnqueueAIAlerts(ctx context.Context) error
 	PlatformEnqueueContactVerification(ctx context.Context, arg PlatformEnqueueContactVerificationParams) error
@@ -434,6 +532,7 @@ type Querier interface {
 	PlatformEnsureManagedBrand(ctx context.Context, arg PlatformEnsureManagedBrandParams) (int64, error)
 	PlatformEvidenceVisible(ctx context.Context, arg PlatformEvidenceVisibleParams) (bool, error)
 	PlatformExpireAIReservations(ctx context.Context, tenantID int64) error
+	PlatformExpireArchiveApprovals(ctx context.Context) (int64, error)
 	PlatformExpireDNSClaims(ctx context.Context) (int64, error)
 	PlatformExpireMerchantWebhookClaims(ctx context.Context) (int64, error)
 	PlatformExpireOnboarding(ctx context.Context) (int64, error)
@@ -455,8 +554,12 @@ type Querier interface {
 	PlatformFindRegistrationRequest(ctx context.Context, tokenHash string) (RegistrationRequests, error)
 	PlatformFindRenewalAttemptByDedupeKey(ctx context.Context, dedupeKey string) (SubscriptionRenewalAttempts, error)
 	PlatformFindRenewalAttemptForPayment(ctx context.Context, arg PlatformFindRenewalAttemptForPaymentParams) (SubscriptionRenewalAttempts, error)
+	PlatformFindSchedulingEvent(ctx context.Context, arg PlatformFindSchedulingEventParams) (MailboxEvents, error)
+	PlatformFindTLSReportFingerprint(ctx context.Context, arg PlatformFindTLSReportFingerprintParams) (string, error)
 	PlatformFinishAIRequest(ctx context.Context, arg PlatformFinishAIRequestParams) (int64, error)
 	PlatformFinishArchivePurge(ctx context.Context, arg PlatformFinishArchivePurgeParams) error
+	PlatformFinishCalendarInvitation(ctx context.Context, arg PlatformFinishCalendarInvitationParams) (int64, error)
+	PlatformFinishCalendarResponse(ctx context.Context, arg PlatformFinishCalendarResponseParams) (int64, error)
 	// Retries use exponential backoff of 1<<max(attempts-1,0) minutes capped at
 	// 64 minutes; once attempts reach 8 a failing message is poisoned into the
 	// 'failed' state and surfaced through telemetry instead of retrying forever.
@@ -464,6 +567,8 @@ type Querier interface {
 	PlatformFinishMailboxScheduledSend(ctx context.Context, arg PlatformFinishMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformFinishMarketingSend(ctx context.Context, arg PlatformFinishMarketingSendParams) (bool, error)
 	PlatformFinishMerchantWebhook(ctx context.Context, arg PlatformFinishMerchantWebhookParams) (int64, error)
+	PlatformFinishRecurringWebhook(ctx context.Context, arg PlatformFinishRecurringWebhookParams) (int64, error)
+	PlatformFinishReviewedRecall(ctx context.Context, arg PlatformFinishReviewedRecallParams) (PlatformFinishReviewedRecallRow, error)
 	PlatformFlagApprovedRefund(ctx context.Context, arg PlatformFlagApprovedRefundParams) error
 	PlatformFlagCheckoutReview(ctx context.Context, arg PlatformFlagCheckoutReviewParams) error
 	PlatformFreezeInvoiceDocumentSnapshot(ctx context.Context, arg PlatformFreezeInvoiceDocumentSnapshotParams) (int64, error)
@@ -484,9 +589,12 @@ type Querier interface {
 	PlatformGetCheckoutIntent(ctx context.Context, arg PlatformGetCheckoutIntentParams) (PaymentCheckoutIntents, error)
 	PlatformGetCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
 	PlatformGetContact(ctx context.Context, arg PlatformGetContactParams) (MailboxContacts, error)
+	PlatformGetContactGroup(ctx context.Context, arg PlatformGetContactGroupParams) (MailboxContactGroups, error)
 	PlatformGetCouponReissue(ctx context.Context, arg PlatformGetCouponReissueParams) (Coupons, error)
 	// Platform-private credentials and durable side-effect journals.
 	PlatformGetDNSCredential(ctx context.Context, arg PlatformGetDNSCredentialParams) (DnsCredentials, error)
+	PlatformGetDNSSecurity(ctx context.Context, fqdn string) (PlatformGetDNSSecurityRow, error)
+	PlatformGetDataImportReceipt(ctx context.Context, arg PlatformGetDataImportReceiptParams) (MailboxJobs, error)
 	PlatformGetDeliveryQueueContext(ctx context.Context, arg PlatformGetDeliveryQueueContextParams) (DeliveryQueueContexts, error)
 	PlatformGetDocumentProfile(ctx context.Context, arg PlatformGetDocumentProfileParams) ([]byte, error)
 	// These queries intentionally use only columns already present in schema 25.
@@ -514,6 +622,7 @@ type Querier interface {
 	PlatformGetMarketingDelivery(ctx context.Context, arg PlatformGetMarketingDeliveryParams) (PlatformGetMarketingDeliveryRow, error)
 	// The durable marketingflow.Store lives on the same tables.
 	PlatformGetMarketingFlowPosition(ctx context.Context, arg PlatformGetMarketingFlowPositionParams) (PlatformGetMarketingFlowPositionRow, error)
+	PlatformGetMarketingFlowSnapshotContent(ctx context.Context, arg PlatformGetMarketingFlowSnapshotContentParams) (PlatformGetMarketingFlowSnapshotContentRow, error)
 	// Flow step content resolves from the tenant template named by the step key.
 	PlatformGetMarketingFlowTemplate(ctx context.Context, arg PlatformGetMarketingFlowTemplateParams) (PlatformGetMarketingFlowTemplateRow, error)
 	PlatformGetMerchantOrderByReference(ctx context.Context, arg PlatformGetMerchantOrderByReferenceParams) (Orders, error)
@@ -538,11 +647,17 @@ type Querier interface {
 	PlatformGetPaymentMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
 	PlatformGetPaymentReview(ctx context.Context, id int64) (PaymentManualReviews, error)
 	PlatformGetPaymentReviewForUpdate(ctx context.Context, arg PlatformGetPaymentReviewForUpdateParams) (PaymentManualReviews, error)
+	PlatformGetRecurringAdminCapability(ctx context.Context, merchantID int64) (PaymentRecurringCapabilities, error)
+	PlatformGetRecurringSetup(ctx context.Context, arg PlatformGetRecurringSetupParams) (RecurringSetupIntents, error)
+	PlatformGetRecurringSetupByKey(ctx context.Context, arg PlatformGetRecurringSetupByKeyParams) (RecurringSetupIntents, error)
 	PlatformGetRefundByNo(ctx context.Context, refundNo string) (Refunds, error)
 	PlatformGetRefundForUpdate(ctx context.Context, id int64) (Refunds, error)
 	PlatformGetRefundPayment(ctx context.Context, arg PlatformGetRefundPaymentParams) (PlatformGetRefundPaymentRow, error)
 	PlatformGetRefundTargetTerm(ctx context.Context, arg PlatformGetRefundTargetTermParams) (SubscriptionTerms, error)
+	PlatformGetRenewalBinding(ctx context.Context, arg PlatformGetRenewalBindingParams) (SubscriptionRenewalAuthorizations, error)
 	PlatformGetRenewalChargeContext(ctx context.Context, id int64) (PlatformGetRenewalChargeContextRow, error)
+	PlatformGetRenewalEnrollment(ctx context.Context, arg PlatformGetRenewalEnrollmentParams) (SubscriptionRenewalEnrollments, error)
+	PlatformGetRenewalFrozenTerm(ctx context.Context, arg PlatformGetRenewalFrozenTermParams) (PlatformGetRenewalFrozenTermRow, error)
 	PlatformGetRenewalPayment(ctx context.Context, arg PlatformGetRenewalPaymentParams) (Payments, error)
 	PlatformGetSieveActivationTarget(ctx context.Context, arg PlatformGetSieveActivationTargetParams) (PlatformGetSieveActivationTargetRow, error)
 	PlatformGetSieveBridge(ctx context.Context, tokenHash string) (PlatformGetSieveBridgeRow, error)
@@ -567,12 +682,16 @@ type Querier interface {
 	PlatformInsertContact(ctx context.Context, arg PlatformInsertContactParams) (PlatformInsertContactRow, error)
 	PlatformInsertContactGroup(ctx context.Context, arg PlatformInsertContactGroupParams) (MailboxContactGroups, error)
 	PlatformInsertContactGroupMember(ctx context.Context, arg PlatformInsertContactGroupMemberParams) (int64, error)
+	PlatformInsertDataImportReceipt(ctx context.Context, arg PlatformInsertDataImportReceiptParams) error
 	PlatformInsertEvent(ctx context.Context, arg PlatformInsertEventParams) (PlatformInsertEventRow, error)
 	PlatformInsertMailboxSettings(ctx context.Context, arg PlatformInsertMailboxSettingsParams) (int64, error)
 	PlatformInsertMarketingFlow(ctx context.Context, arg PlatformInsertMarketingFlowParams) (int64, error)
 	PlatformInsertMarketingFlowStep(ctx context.Context, arg PlatformInsertMarketingFlowStepParams) error
 	PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error)
+	PlatformInsertRenewalBinding(ctx context.Context, arg PlatformInsertRenewalBindingParams) (SubscriptionRenewalAuthorizations, error)
+	PlatformInsertRenewalEnrollment(ctx context.Context, arg PlatformInsertRenewalEnrollmentParams) (SubscriptionRenewalEnrollments, error)
 	PlatformInsertRenewalPayment(ctx context.Context, arg PlatformInsertRenewalPaymentParams) (Payments, error)
+	PlatformInvalidateRenewalEnrollments(ctx context.Context) error
 	PlatformIssueReplacementCoupon(ctx context.Context, arg PlatformIssueReplacementCouponParams) (Coupons, error)
 	PlatformLegacyImportTargetFacts(ctx context.Context, tenantID int64) (PlatformLegacyImportTargetFactsRow, error)
 	PlatformLegacyPeriodRepairCandidate(ctx context.Context, arg PlatformLegacyPeriodRepairCandidateParams) (PlatformLegacyPeriodRepairCandidateRow, error)
@@ -589,10 +708,15 @@ type Querier interface {
 	PlatformListBrandSettings(ctx context.Context, scopeID int64) ([]PlatformListBrandSettingsRow, error)
 	PlatformListBrandThemes(ctx context.Context) ([]PlatformListBrandThemesRow, error)
 	PlatformListBrands(ctx context.Context) ([]PlatformListBrandsRow, error)
+	PlatformListCalendarEventsPage(ctx context.Context, arg PlatformListCalendarEventsPageParams) ([]MailboxEvents, error)
+	PlatformListCalendarReminders(ctx context.Context, arg PlatformListCalendarRemindersParams) ([]PlatformListCalendarRemindersRow, error)
+	PlatformListCalendarSyncEvents(ctx context.Context, arg PlatformListCalendarSyncEventsParams) ([]MailboxEvents, error)
 	PlatformListChanges(ctx context.Context, arg PlatformListChangesParams) ([]MailboxChanges, error)
 	PlatformListChannels(ctx context.Context) ([]Channels, error)
+	PlatformListContactGroupMembers(ctx context.Context, arg PlatformListContactGroupMembersParams) ([]MailboxContacts, error)
 	PlatformListContactGroups(ctx context.Context, arg PlatformListContactGroupsParams) ([]MailboxContactGroups, error)
 	PlatformListContacts(ctx context.Context, arg PlatformListContactsParams) ([]MailboxContacts, error)
+	PlatformListContactsPage(ctx context.Context, arg PlatformListContactsPageParams) ([]MailboxContacts, error)
 	PlatformListCouponReissues(ctx context.Context) ([]Coupons, error)
 	PlatformListCoupons(ctx context.Context) ([]Coupons, error)
 	// Platform query for DKIM signing configuration.
@@ -600,6 +724,8 @@ type Querier interface {
 	// reconcile worker needs every active domain's key to build the signing table.
 	PlatformListDKIMDomains(ctx context.Context) ([]PlatformListDKIMDomainsRow, error)
 	PlatformListDNSActions(ctx context.Context, planID pgtype.UUID) ([]DnsRecordActions, error)
+	PlatformListDNSSecurity(ctx context.Context) ([]PlatformListDNSSecurityRow, error)
+	PlatformListDataImportReceipts(ctx context.Context, arg PlatformListDataImportReceiptsParams) ([]PlatformListDataImportReceiptsRow, error)
 	// Platform query for Postfix configuration generator.
 	// Exempt from tenant_id predicate per AGENTS.md (platform_*.sql).
 	PlatformListDomains(ctx context.Context) ([]PlatformListDomainsRow, error)
@@ -617,9 +743,13 @@ type Querier interface {
 	PlatformListPaymentManualReviews(ctx context.Context) ([]PaymentManualReviews, error)
 	PlatformListPaymentMerchants(ctx context.Context) ([]PlatformListPaymentMerchantsRow, error)
 	PlatformListPlans(ctx context.Context) ([]Plans, error)
+	PlatformListRecurringCapabilities(ctx context.Context) ([]PlatformListRecurringCapabilitiesRow, error)
+	PlatformListRecurringEvidenceRefreshCandidates(ctx context.Context, adapterKeys []string) ([]PlatformListRecurringEvidenceRefreshCandidatesRow, error)
+	PlatformListRecurringSetups(ctx context.Context, arg PlatformListRecurringSetupsParams) ([]RecurringSetupIntents, error)
 	PlatformListRefundEntitlementsDue(ctx context.Context) ([]Refunds, error)
 	PlatformListRefundsForApproval(ctx context.Context, dollar_1 string) ([]Refunds, error)
 	PlatformListRefundsToReconcile(ctx context.Context) ([]Refunds, error)
+	PlatformListRenewalBindings(ctx context.Context, arg PlatformListRenewalBindingsParams) ([]SubscriptionRenewalAuthorizations, error)
 	PlatformListSettings(ctx context.Context) ([]PlatformListSettingsRow, error)
 	PlatformListSieveScripts(ctx context.Context) ([]PlatformListSieveScriptsRow, error)
 	// Only the privileged configuration assembler reads the fleet-wide policy.
@@ -628,22 +758,37 @@ type Querier interface {
 	PlatformListSpamDeliveryPolicies(ctx context.Context) ([]PlatformListSpamDeliveryPoliciesRow, error)
 	PlatformListSupportMessages(ctx context.Context, arg PlatformListSupportMessagesParams) ([]TicketMessages, error)
 	PlatformListSupportTickets(ctx context.Context, beforeID int64) ([]Tickets, error)
+	PlatformListTenantRenewalAttempts(ctx context.Context, tenantID int64) ([]SubscriptionRenewalAttempts, error)
 	PlatformListTenants(ctx context.Context) ([]PlatformListTenantsRow, error)
+	PlatformListTransportSecurity(ctx context.Context) ([]PlatformListTransportSecurityRow, error)
 	PlatformLockAliasSenderMailboxes(ctx context.Context, arg PlatformLockAliasSenderMailboxesParams) ([]string, error)
 	// Privileged, audited maintenance of explicit sender identities; no content access.
 	PlatformLockAliasSenderTarget(ctx context.Context, arg PlatformLockAliasSenderTargetParams) (PlatformLockAliasSenderTargetRow, error)
 	PlatformLockArchivePurgeCandidate(ctx context.Context, arg PlatformLockArchivePurgeCandidateParams) (PlatformLockArchivePurgeCandidateRow, error)
 	PlatformLockBillingTenant(ctx context.Context, dollar_1 int64) error
+	PlatformLockBrandHost(ctx context.Context, hostname string) (BrandHosts, error)
 	PlatformLockBrandSettingsBrand(ctx context.Context, id int64) (int64, error)
+	PlatformLockCalendarInvitationEvent(ctx context.Context, arg PlatformLockCalendarInvitationEventParams) (MailboxEvents, error)
 	PlatformLockCollectorCheckpoint(ctx context.Context, stream string) (CollectorCheckpoints, error)
 	PlatformLockCouponRedemptionForAuthority(ctx context.Context, arg PlatformLockCouponRedemptionForAuthorityParams) (string, error)
+	PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error
 	PlatformLockLegacyDKIMDomains(ctx context.Context, arg PlatformLockLegacyDKIMDomainsParams) ([]PlatformLockLegacyDKIMDomainsRow, error)
 	// Explicit migration operator authority; runtime API callers cannot invoke this workflow.
 	PlatformLockLegacyImportTarget(ctx context.Context, arg PlatformLockLegacyImportTargetParams) (int64, error)
 	PlatformLockLegacyMFASecrets(ctx context.Context, limit int32) ([]PlatformLockLegacyMFASecretsRow, error)
 	PlatformLockPaymentMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
+	PlatformLockRecallAuthority(ctx context.Context, arg PlatformLockRecallAuthorityParams) (int64, error)
 	PlatformLockRecallForExpunge(ctx context.Context, arg PlatformLockRecallForExpungeParams) (PlatformLockRecallForExpungeRow, error)
+	PlatformLockRecallMailbox(ctx context.Context, arg PlatformLockRecallMailboxParams) (string, error)
 	PlatformLockRecallTenant(ctx context.Context, dollar_1 int64) error
+	PlatformLockRecurringAdminActor(ctx context.Context, id int64) (int64, error)
+	PlatformLockRecurringAdminCapability(ctx context.Context, merchantID int64) (PaymentRecurringCapabilities, error)
+	PlatformLockRecurringAdminMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
+	PlatformLockRecurringBindingTarget(ctx context.Context, arg PlatformLockRecurringBindingTargetParams) (int64, error)
+	PlatformLockRecurringSetup(ctx context.Context, arg PlatformLockRecurringSetupParams) (RecurringSetupIntents, error)
+	PlatformLockRecurringSetupActor(ctx context.Context, arg PlatformLockRecurringSetupActorParams) (string, error)
+	PlatformLockRecurringSetupCapability(ctx context.Context, merchantID int64) (int64, error)
+	PlatformLockRecurringSetupMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
 	PlatformLockRegistrationEmail(ctx context.Context, dollar_1 string) error
 	PlatformLockRenewalAttempt(ctx context.Context, arg PlatformLockRenewalAttemptParams) (SubscriptionRenewalAttempts, error)
 	PlatformLockRetentionPurgePolicy(ctx context.Context, arg PlatformLockRetentionPurgePolicyParams) (bool, error)
@@ -665,17 +810,19 @@ type Querier interface {
 	PlatformMarkDomainReady(ctx context.Context, arg PlatformMarkDomainReadyParams) (int64, error)
 	PlatformMarkManagedInvoicePaid(ctx context.Context, id int64) (int64, error)
 	PlatformMarkMarketingFlowUncertain(ctx context.Context, arg PlatformMarkMarketingFlowUncertainParams) (string, error)
+	PlatformMarkMarketingFlowUncertainFenced(ctx context.Context, arg PlatformMarkMarketingFlowUncertainFencedParams) (int64, error)
 	// An unsubscribe recorded between claim and send is terminal for the whole
 	// flow position: current and all subsequent steps stop.
 	PlatformMarkMarketingFlowUnsubscribed(ctx context.Context, arg PlatformMarkMarketingFlowUnsubscribedParams) (int64, error)
 	PlatformMarkMarketingRecipientRevoked(ctx context.Context, arg PlatformMarkMarketingRecipientRevokedParams) (bool, error)
 	PlatformMarkRefundEntitlementApplied(ctx context.Context, id int64) error
 	PlatformMarkRenewalAttemptSucceeded(ctx context.Context, arg PlatformMarkRenewalAttemptSucceededParams) error
-	// An uncertain provider result must never be resolved by charging again
-	// blindly: keep the attempt retryable, mark the explicit reason, and delay.
-	// The provider-side idempotency key (dedupe_key) makes the retry safe.
+	// An uncertain provider result permits read-only reconciliation only.
+	// Retain intent even when this compatibility operation observes a lost reply.
 	PlatformMarkRenewalAttemptUncertain(ctx context.Context, arg PlatformMarkRenewalAttemptUncertainParams) error
+	PlatformMarkScheduledSentCopyUnknown(ctx context.Context, arg PlatformMarkScheduledSentCopyUnknownParams) (MailboxScheduledSends, error)
 	PlatformMarketingAttemptStillAllowed(ctx context.Context, arg PlatformMarketingAttemptStillAllowedParams) (bool, error)
+	PlatformMarketingFlowIsVersioned(ctx context.Context, arg PlatformMarketingFlowIsVersionedParams) (bool, error)
 	PlatformMarketingFlowMayAdvance(ctx context.Context, arg PlatformMarketingFlowMayAdvanceParams) (bool, error)
 	// Execution-time re-verification used by Store.StillAllowed: the sendable
 	// check returns the step only when unsubscribe, wait, uncertainty and the
@@ -697,6 +844,8 @@ type Querier interface {
 	PlatformPruneMailboxTickets(ctx context.Context) error
 	PlatformPruneRoundcubeRequests(ctx context.Context) error
 	PlatformPublicThemeSettings(ctx context.Context, scopeID int64) ([]PlatformPublicThemeSettingsRow, error)
+	PlatformPublicTransportSecurity(ctx context.Context, fqdn string) (PlatformPublicTransportSecurityRow, error)
+	PlatformPublishDueCalendarReminders(ctx context.Context) (int64, error)
 	PlatformPurgeLegacyRejectedWebhooks(ctx context.Context) (int64, error)
 	PlatformPurgeRejectedWebhookMetadata(ctx context.Context) (int64, error)
 	PlatformPutDeliveryQueueContext(ctx context.Context, arg PlatformPutDeliveryQueueContextParams) error
@@ -706,25 +855,30 @@ type Querier interface {
 	PlatformQueueAuthenticatedTenant(ctx context.Context, arg PlatformQueueAuthenticatedTenantParams) (int64, error)
 	PlatformReadEvidenceBody(ctx context.Context, arg PlatformReadEvidenceBodyParams) ([]byte, error)
 	PlatformReanchorBillingCalendar(ctx context.Context, arg PlatformReanchorBillingCalendarParams) (BillingCalendars, error)
+	PlatformRecallActorAuthorized(ctx context.Context, arg PlatformRecallActorAuthorizedParams) (bool, error)
 	// ARC-01: expunge matches on Message-ID, so recalling one archived copy of a
 	// message must be refused while another copy of the same Message-ID for the
 	// same mailbox is under legal hold -- the mailbox expunge would destroy the
 	// held copy's Maildir original too. Exempt from tenant_id predicate per
 	// AGENTS.md (platform_*.sql); the agent is the caller.
 	PlatformRecallHoldConflict(ctx context.Context, arg PlatformRecallHoldConflictParams) (bool, error)
+	PlatformRecallPreviewSource(ctx context.Context, arg PlatformRecallPreviewSourceParams) (PlatformRecallPreviewSourceRow, error)
 	PlatformRecomputePaidEntitlementEnd(ctx context.Context, tenantID int64) error
 	PlatformReconfirmObservedRefund(ctx context.Context, arg PlatformReconfirmObservedRefundParams) (int64, error)
 	PlatformRecordCollectedDeliveryEvent(ctx context.Context, arg PlatformRecordCollectedDeliveryEventParams) (int64, error)
 	PlatformRecordMailboxUsage(ctx context.Context, arg PlatformRecordMailboxUsageParams) error
 	PlatformRecordMailboxUsageError(ctx context.Context, arg PlatformRecordMailboxUsageErrorParams) error
 	PlatformRecordMarketingFeedback(ctx context.Context, arg PlatformRecordMarketingFeedbackParams) (string, error)
+	PlatformRecordMarketingFlowExecution(ctx context.Context, arg PlatformRecordMarketingFlowExecutionParams) (int64, error)
 	PlatformRecordMerchantWebhook(ctx context.Context, arg PlatformRecordMerchantWebhookParams) (PaymentWebhookInbox, error)
 	PlatformRecordPaymentManualReview(ctx context.Context, arg PlatformRecordPaymentManualReviewParams) error
 	PlatformRecordRefundProviderState(ctx context.Context, arg PlatformRecordRefundProviderStateParams) (int64, error)
 	PlatformRecordRejectedWebhook(ctx context.Context, arg PlatformRecordRejectedWebhookParams) (bool, error)
 	// Service-only operations: authenticated Roundcube plugin; never panel identity.
 	PlatformRecordRoundcubeNonce(ctx context.Context, nonce string) error
+	PlatformRecordSchedulingReply(ctx context.Context, arg PlatformRecordSchedulingReplyParams) (PlatformRecordSchedulingReplyRow, error)
 	PlatformRecordSubscriptionTerm(ctx context.Context, arg PlatformRecordSubscriptionTermParams) error
+	PlatformRecordTLSReport(ctx context.Context, arg PlatformRecordTLSReportParams) (int64, error)
 	PlatformRecoverMarketingClaims(ctx context.Context) (int64, error)
 	// Flow tick worker: recover expired leases and stale uncertain deliveries.
 	// An uncertain delivery stays frozen for a quiet period, then the position
@@ -734,11 +888,13 @@ type Querier interface {
 	PlatformRecoverMarketingFlowLeases(ctx context.Context) (int64, error)
 	PlatformRecoverMarketingFlowUncertain(ctx context.Context) (int64, error)
 	PlatformRecoverMarketingSubmissions(ctx context.Context) (int64, error)
+	PlatformRecoverRenewalLeases(ctx context.Context) error
 	PlatformRecoverStaleMailboxScheduledSends(ctx context.Context) (int64, error)
 	PlatformRedeemCoupon(ctx context.Context, arg PlatformRedeemCouponParams) (string, error)
 	PlatformRefreshAIAlerts(ctx context.Context) error
 	PlatformRefreshDNSOnboardingAlerts(ctx context.Context) error
 	PlatformRefreshPaymentAlerts(ctx context.Context) error
+	PlatformRefreshRecurringEvidence(ctx context.Context, arg PlatformRefreshRecurringEvidenceParams) (int64, error)
 	PlatformRefreshRefundAlerts(ctx context.Context) error
 	PlatformRefundStateCounts(ctx context.Context) ([]PlatformRefundStateCountsRow, error)
 	PlatformRefundTenant(ctx context.Context, id int64) (int64, error)
@@ -750,6 +906,8 @@ type Querier interface {
 	PlatformReleaseMarketingClaim(ctx context.Context, arg PlatformReleaseMarketingClaimParams) (int64, error)
 	// Release the claim only when this worker still owns the lease and fence.
 	PlatformReleaseMarketingFlowLease(ctx context.Context, arg PlatformReleaseMarketingFlowLeaseParams) (int64, error)
+	PlatformReleaseMarketingFlowReservation(ctx context.Context, arg PlatformReleaseMarketingFlowReservationParams) (bool, error)
+	PlatformRemoveContactGroupMember(ctx context.Context, arg PlatformRemoveContactGroupMemberParams) (int64, error)
 	PlatformRemoveRegistrationGift(ctx context.Context, tenantID int64) error
 	PlatformRenameTenant(ctx context.Context, arg PlatformRenameTenantParams) (int64, error)
 	PlatformRenewDNSLease(ctx context.Context, arg PlatformRenewDNSLeaseParams) (int64, error)
@@ -782,6 +940,7 @@ type Querier interface {
 	PlatformRevokeMailboxSession(ctx context.Context, tokenHash string) error
 	PlatformRevokeRefundTerm(ctx context.Context, arg PlatformRevokeRefundTermParams) error
 	PlatformRevokeRegistrationRequests(ctx context.Context, email string) error
+	PlatformRevokeRenewalEnrollment(ctx context.Context, arg PlatformRevokeRenewalEnrollmentParams) error
 	PlatformRevokeSieveBridge(ctx context.Context, tokenHash string) error
 	PlatformRotateDomainRecoveryToken(ctx context.Context, arg PlatformRotateDomainRecoveryTokenParams) (int64, error)
 	PlatformRotatePanelPassword(ctx context.Context, arg PlatformRotatePanelPasswordParams) (int64, error)
@@ -790,6 +949,7 @@ type Querier interface {
 	PlatformSaveMarketingFlowPosition(ctx context.Context, arg PlatformSaveMarketingFlowPositionParams) error
 	PlatformSaveMerchantCheckout(ctx context.Context, arg PlatformSaveMerchantCheckoutParams) (int64, error)
 	PlatformSaveVerifiedContact(ctx context.Context, arg PlatformSaveVerifiedContactParams) error
+	PlatformScheduleCalendarReminder(ctx context.Context, arg PlatformScheduleCalendarReminderParams) error
 	PlatformSearchContacts(ctx context.Context, arg PlatformSearchContactsParams) ([]MailboxContacts, error)
 	PlatformSetAIBudget(ctx context.Context, arg PlatformSetAIBudgetParams) error
 	PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIProviderParams) (AiProviderConfigs, error)
@@ -797,6 +957,7 @@ type Querier interface {
 	PlatformSetArchiveOriginalHash(ctx context.Context, arg PlatformSetArchiveOriginalHashParams) error
 	PlatformSetBrandHostLifecycle(ctx context.Context, arg PlatformSetBrandHostLifecycleParams) (int64, error)
 	PlatformSetBrandStatus(ctx context.Context, arg PlatformSetBrandStatusParams) (int64, error)
+	PlatformSetDNSSecurity(ctx context.Context, arg PlatformSetDNSSecurityParams) (DomainDnsSecurity, error)
 	PlatformSetDocumentProfile(ctx context.Context, arg PlatformSetDocumentProfileParams) error
 	PlatformSetExplicitDNS(ctx context.Context, arg PlatformSetExplicitDNSParams) error
 	PlatformSetLegacyDKIM(ctx context.Context, arg PlatformSetLegacyDKIMParams) (int64, error)
@@ -804,15 +965,22 @@ type Querier interface {
 	PlatformSetManagedFreeTerm(ctx context.Context, arg PlatformSetManagedFreeTermParams) error
 	PlatformSetOperationalCondition(ctx context.Context, arg PlatformSetOperationalConditionParams) error
 	PlatformSetPlanPrice(ctx context.Context, arg PlatformSetPlanPriceParams) (PlatformSetPlanPriceRow, error)
+	PlatformSetRecurringRuntime(ctx context.Context, arg PlatformSetRecurringRuntimeParams) error
 	PlatformSetRenewalDedupeKey(ctx context.Context, arg PlatformSetRenewalDedupeKeyParams) error
 	PlatformSetTenantOwner(ctx context.Context, arg PlatformSetTenantOwnerParams) (int64, error)
 	PlatformSetupTenant(ctx context.Context, arg PlatformSetupTenantParams) (PlatformSetupTenantRow, error)
+	// Service-only lookup. The principal comes from a kernel-authenticated local
+	// Dovecot helper, not from a tenant-controlled HTTP request or message header.
+	PlatformSieveOutboundAllowed(ctx context.Context, address string) (bool, error)
 	PlatformSkipMarketingRecipient(ctx context.Context, arg PlatformSkipMarketingRecipientParams) (bool, error)
 	PlatformSubmitDNSAction(ctx context.Context, arg PlatformSubmitDNSActionParams) (int64, error)
 	PlatformSubmitDNSRollback(ctx context.Context, arg PlatformSubmitDNSRollbackParams) (int64, error)
 	PlatformSumAIUsageBetween(ctx context.Context, arg PlatformSumAIUsageBetweenParams) (PlatformSumAIUsageBetweenRow, error)
 	PlatformTakeMailboxDailyQuota(ctx context.Context, arg PlatformTakeMailboxDailyQuotaParams) (bool, error)
+	PlatformTakeReminderScan(ctx context.Context) ([]MailboxEvents, error)
+	PlatformTenantBrandMatches(ctx context.Context, arg PlatformTenantBrandMatchesParams) (bool, error)
 	PlatformTouchMerchantCheckout(ctx context.Context, arg PlatformTouchMerchantCheckoutParams) error
+	PlatformTransportCertificateAllowed(ctx context.Context, fqdn string) (bool, error)
 	PlatformUnbindBrandHost(ctx context.Context, hostname string) (int64, error)
 	PlatformUpdateAIDraft(ctx context.Context, arg PlatformUpdateAIDraftParams) (int64, error)
 	PlatformUpdateAnnouncement(ctx context.Context, arg PlatformUpdateAnnouncementParams) (Announcements, error)
@@ -822,6 +990,7 @@ type Querier interface {
 	PlatformUpdateMarketingChannel(ctx context.Context, arg PlatformUpdateMarketingChannelParams) (PlatformUpdateMarketingChannelRow, error)
 	PlatformUpdateOrderPaid(ctx context.Context, arg PlatformUpdateOrderPaidParams) (int64, error)
 	PlatformUpdatePaymentMerchant(ctx context.Context, arg PlatformUpdatePaymentMerchantParams) (PlatformUpdatePaymentMerchantRow, error)
+	PlatformUpdateRecurringSetup(ctx context.Context, arg PlatformUpdateRecurringSetupParams) (RecurringSetupIntents, error)
 	PlatformUpdateRefundedInvoice(ctx context.Context, arg PlatformUpdateRefundedInvoiceParams) error
 	PlatformUpdateRefundedOrder(ctx context.Context, arg PlatformUpdateRefundedOrderParams) error
 	PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUpdateTenantStatusParams) (PlatformUpdateTenantStatusRow, error)
@@ -832,17 +1001,24 @@ type Querier interface {
 	PlatformUpsertPlan(ctx context.Context, arg PlatformUpsertPlanParams) (Plans, error)
 	PlatformUpsertSetting(ctx context.Context, arg PlatformUpsertSettingParams) error
 	PlatformUsageMailboxes(ctx context.Context) ([]PlatformUsageMailboxesRow, error)
+	PlatformVerifyBrandHostProof(ctx context.Context, arg PlatformVerifyBrandHostProofParams) (int64, error)
+	PlatformVersionedMarketingFlowMayAdvance(ctx context.Context, arg PlatformVersionedMarketingFlowMayAdvanceParams) (bool, error)
 	PlatformVoidManagedInvoice(ctx context.Context, id int64) (int64, error)
 	PlatformWebhookMaintenanceStats(ctx context.Context) (PlatformWebhookMaintenanceStatsRow, error)
 	PreviewArchiveRetention(ctx context.Context, arg PreviewArchiveRetentionParams) (RetentionPreviews, error)
 	PreviewMarketingCampaign(ctx context.Context, arg PreviewMarketingCampaignParams) (PreviewMarketingCampaignRow, error)
 	PublicBrandByHost(ctx context.Context, hostname string) (PublicBrandByHostRow, error)
 	PublicBrandBySlug(ctx context.Context, slug string) (PublicBrandBySlugRow, error)
+	PublishDomainTransportSecurity(ctx context.Context, arg PublishDomainTransportSecurityParams) (DomainTransportSecurity, error)
+	PublishMarketingFlowDefinition(ctx context.Context, arg PublishMarketingFlowDefinitionParams) error
+	RecallMessageCopies(ctx context.Context, arg RecallMessageCopiesParams) ([]RecallMessageCopiesRow, error)
 	// A conflict returns zero rows so the collector can recognize a safe replay.
 	// Compatibility writes hash the typed canonical payload; unknown tenant IDs
 	// remain NULL. The managed collector uses its physical source-event identity.
 	// occurred_at must come from the source line, never the replay wall clock.
 	RecordDeliveryEvent(ctx context.Context, arg RecordDeliveryEventParams) (int64, error)
+	RecordMailboxImportAudit(ctx context.Context, arg RecordMailboxImportAuditParams) error
+	RecordMarketingFlowAudit(ctx context.Context, arg RecordMarketingFlowAuditParams) error
 	RecordTenantAudit(ctx context.Context, arg RecordTenantAuditParams) error
 	RedeemCoupon(ctx context.Context, arg RedeemCouponParams) (string, error)
 	RedeemTenantTrial(ctx context.Context, arg RedeemTenantTrialParams) (pgtype.Timestamptz, error)
@@ -856,6 +1032,7 @@ type Querier interface {
 	ReserveDNSZoneVersion(ctx context.Context, arg ReserveDNSZoneVersionParams) (int64, error)
 	ResolvePurchaseDomain(ctx context.Context, arg ResolvePurchaseDomainParams) (int64, error)
 	RestoreArchiveCopy(ctx context.Context, arg RestoreArchiveCopyParams) (int64, error)
+	RetryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error)
 	ReviewDNSPlan(ctx context.Context, arg ReviewDNSPlanParams) error
 	RevokeApplicationCredential(ctx context.Context, arg RevokeApplicationCredentialParams) (int64, error)
 	RevokeComplianceGrant(ctx context.Context, arg RevokeComplianceGrantParams) (ComplianceGrants, error)
@@ -867,12 +1044,18 @@ type Querier interface {
 	ScheduleSubscriptionChange(ctx context.Context, arg ScheduleSubscriptionChangeParams) (SubscriptionChanges, error)
 	SearchArchiveContent(ctx context.Context, arg SearchArchiveContentParams) ([]SearchArchiveContentRow, error)
 	SearchMailboxAIChunks(ctx context.Context, arg SearchMailboxAIChunksParams) ([]SearchMailboxAIChunksRow, error)
+	SearchMailboxAIChunksInScope(ctx context.Context, arg SearchMailboxAIChunksInScopeParams) ([]SearchMailboxAIChunksInScopeRow, error)
 	SelfServicePurchaseAllowed(ctx context.Context, arg SelfServicePurchaseAllowedParams) (pgtype.Bool, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
 	SetInvoicePDFPath(ctx context.Context, arg SetInvoicePDFPathParams) error
 	SetMFASecret(ctx context.Context, arg SetMFASecretParams) error
 	SetMailboxEASPingConfig(ctx context.Context, arg SetMailboxEASPingConfigParams) (int64, error)
+	SetMailboxImportItem(ctx context.Context, arg SetMailboxImportItemParams) (int64, error)
+	SetMailboxImportJob(ctx context.Context, arg SetMailboxImportJobParams) (MailboxImportJobs, error)
 	SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error)
+	StopMarketingFlowInstance(ctx context.Context, arg StopMarketingFlowInstanceParams) (int64, error)
+	StoreRecallReviewPreview(ctx context.Context, arg StoreRecallReviewPreviewParams) (StoreRecallReviewPreviewRow, error)
+	SupportDiagnosticMailboxCounts(ctx context.Context, tenantID int64) (SupportDiagnosticMailboxCountsRow, error)
 	TenantConsentAICloud(ctx context.Context, arg TenantConsentAICloudParams) error
 	// Tenant outcomes use the last observation per queue lifecycle/recipient,
 	// not the number of log lines or deferred retries.
@@ -884,6 +1067,7 @@ type Querier interface {
 	UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuotaParams) (Mailboxes, error)
 	UpdateMailboxSettings(ctx context.Context, arg UpdateMailboxSettingsParams) (UpdateMailboxSettingsRow, error)
 	UpdateMailboxStatus(ctx context.Context, arg UpdateMailboxStatusParams) (Mailboxes, error)
+	UpdateMarketingFlowDefinition(ctx context.Context, arg UpdateMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error)
 	UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusParams) (Orders, error)
 	UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error
 	UpdateTenantSettings(ctx context.Context, arg UpdateTenantSettingsParams) (Tenants, error)

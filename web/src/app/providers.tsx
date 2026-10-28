@@ -1,3 +1,4 @@
+import { ThemeProvider } from "./theme-provider";
 import { adaptCatalogue } from "./catalogue";
 import {
   createContext,
@@ -103,11 +104,14 @@ export function I18nProvider({
     };
   }, [locale]);
 
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
   const value = useMemo(() => ({ locale, setLocale }), [locale]);
 
   return (
     <I18nContext.Provider value={value}>
-      {ready ? children : null}
+      <ThemeProvider>{ready ? children : null}</ThemeProvider>
     </I18nContext.Provider>
   );
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -26,6 +27,9 @@ const (
 //
 //   - empty / whitespace → "ALL" (same as omitting q)
 //   - is:unseen | unseen → UNSEEN
+//   - since:YYYY-MM-DD / before:YYYY-MM-DD → internal-date inclusive/exclusive
+//   - has:attachment → client BODYSTRUCTURE filtering before pagination
+//   - to:<text> / body:<text> → TO/BODY quoted search
 //   - from:<text>        → FROM "<quoted>"
 //   - subject:<text>     → SUBJECT "<quoted>"
 //   - text:<text>        → TEXT "<quoted>" (header+body substring)
@@ -34,27 +38,34 @@ const (
 // Multiple criteria are ANDed. String literals are always quoteIMAP-escaped;
 // control characters and unknown key: prefixes are rejected. Callers must not
 // append raw user input to the IMAP command — only the returned criteria.
+// ListMessages also applies the metadata filter returned by buildSearchPlan.
 func BuildSearchCriteria(q string) (string, error) {
+	criteria, _, err := buildSearchPlan(q)
+	return criteria, err
+}
+
+func buildSearchPlan(q string) (string, bool, error) {
+	hasAttachment := false
 	q = strings.TrimSpace(q)
 	if q == "" {
-		return "ALL", nil
+		return "ALL", hasAttachment, nil
 	}
 	if utf8.RuneCountInString(q) > MaxSearchQueryLen {
-		return "", fmt.Errorf("%w: too long", ErrInvalidSearchQuery)
+		return "", false, fmt.Errorf("%w: too long", ErrInvalidSearchQuery)
 	}
 	if strings.ContainsFunc(q, isUnsafeSearchRune) {
-		return "", fmt.Errorf("%w: forbidden characters", ErrInvalidSearchQuery)
+		return "", false, fmt.Errorf("%w: forbidden characters", ErrInvalidSearchQuery)
 	}
 
 	tokens, err := tokenizeSearchQuery(q)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if len(tokens) == 0 {
-		return "ALL", nil
+		return "ALL", hasAttachment, nil
 	}
 	if len(tokens) > MaxSearchTokens {
-		return "", fmt.Errorf("%w: too many terms", ErrInvalidSearchQuery)
+		return "", false, fmt.Errorf("%w: too many terms", ErrInvalidSearchQuery)
 	}
 
 	var parts []string
@@ -64,27 +75,42 @@ func BuildSearchCriteria(q string) (string, error) {
 		switch {
 		case lower == "unseen" || lower == "is:unseen":
 			parts = append(parts, "UNSEEN")
+		case lower == "has:attachment":
+			hasAttachment = true
+		case hasSearchField(tok, "since") || hasSearchField(tok, "before"):
+			key, value, _ := strings.Cut(tok, ":")
+			date, dateErr := time.Parse("2006-01-02", value)
+			if dateErr != nil || date.Year() < 1 {
+				return "", false, fmt.Errorf("%w: invalid date", ErrInvalidSearchQuery)
+			}
+			parts = append(parts, strings.ToUpper(key)+" "+date.Format("02-Jan-2006"))
+		case hasSearchField(tok, "to") || hasSearchField(tok, "body"):
+			key, value, _ := strings.Cut(tok, ":")
+			if value == "" {
+				return "", false, fmt.Errorf("%w: empty field", ErrInvalidSearchQuery)
+			}
+			parts = append(parts, strings.ToUpper(key)+" "+quoteIMAP(value))
 		case hasSearchField(tok, "from"):
 			val := searchFieldValue(tok, "from")
 			if val == "" {
-				return "", fmt.Errorf("%w: empty from", ErrInvalidSearchQuery)
+				return "", false, fmt.Errorf("%w: empty from", ErrInvalidSearchQuery)
 			}
 			parts = append(parts, "FROM "+quoteIMAP(val))
 		case hasSearchField(tok, "subject"):
 			val := searchFieldValue(tok, "subject")
 			if val == "" {
-				return "", fmt.Errorf("%w: empty subject", ErrInvalidSearchQuery)
+				return "", false, fmt.Errorf("%w: empty subject", ErrInvalidSearchQuery)
 			}
 			parts = append(parts, "SUBJECT "+quoteIMAP(val))
 		case hasSearchField(tok, "text"):
 			val := searchFieldValue(tok, "text")
 			if val == "" {
-				return "", fmt.Errorf("%w: empty text", ErrInvalidSearchQuery)
+				return "", false, fmt.Errorf("%w: empty text", ErrInvalidSearchQuery)
 			}
 			parts = append(parts, "TEXT "+quoteIMAP(val))
 		case strings.Contains(tok, ":"):
 			// Reject unknown key: prefixes so users cannot smuggle IMAP ops.
-			return "", fmt.Errorf("%w: unsupported field", ErrInvalidSearchQuery)
+			return "", false, fmt.Errorf("%w: unsupported field", ErrInvalidSearchQuery)
 		default:
 			bare = append(bare, tok)
 		}
@@ -98,9 +124,9 @@ func BuildSearchCriteria(q string) (string, error) {
 	}
 
 	if len(parts) == 0 {
-		return "ALL", nil
+		return "ALL", hasAttachment, nil
 	}
-	return strings.Join(parts, " "), nil
+	return strings.Join(parts, " "), hasAttachment, nil
 }
 
 func hasSearchField(tok, key string) bool {

@@ -19,8 +19,12 @@ type restoredWorkSpec struct {
 }
 
 var restoredWorkSpecs = []restoredWorkSpec{
+	{"recall_requests", "status", "expired", []string{"preview"}},
+	{"recall_requests", "status", "uncertain", []string{"pending", "uncertain"}},
 	{"mailbox_jobs", "status", "uncertain", []string{"pending", "leased", "uncertain"}},
-	{"subscription_renewal_attempts", "state", "canceled", []string{"pending"}},
+	{"subscription_renewal_attempts", "state", "canceled", []string{"pending", "preparing"}},
+	{"subscription_renewal_attempts", "state", "uncertain", []string{"charging", "uncertain", "reconciling"}},
+	{"subscription_renewal_enrollments", "state", "needs_reauthorization", []string{"active"}},
 	{"marketing_flows", "status", "paused", []string{"active"}},
 	{"mailbox_scheduled_sends", "status", "held", []string{"pending", "sending", "preparing", "submitting", "uncertain", "held"}},
 	{"refunds", "status", "uncertain", []string{"pending", "approved", "processing", "uncertain"}},
@@ -162,6 +166,12 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 			}
 		}
 		assignments := []string{state + "=$2"}
+		if spec.table == "recall_requests" && columns["reason"] {
+			assignments = append(assignments, "reason=CASE WHEN position('"+restoreReviewCode+"' IN coalesce(reason,''))>0 THEN reason ELSE concat_ws('; ',nullif(reason,''),'"+restoreReviewCode+"') END")
+			if columns["preview_expires_at"] && spec.target == "expired" {
+				assignments = append(assignments, "preview_expires_at=LEAST(preview_expires_at,statement_timestamp())")
+			}
+		}
 		if spec.table == "mailbox_scheduled_sends" && columns["smtp_secret"] {
 			assignments = append(assignments, "smtp_secret=''")
 		}
@@ -193,7 +203,7 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 		if err != nil {
 			return fmt.Errorf("hold restored %s: %w", spec.table, err)
 		}
-		held[spec.table] = result.RowsAffected()
+		held[spec.table] += result.RowsAffected()
 		if triggerMode != "" && triggerMode != "D" {
 			mode := "ENABLE"
 			switch triggerMode {
@@ -206,6 +216,34 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 				return err
 			}
 		}
+	}
+	// Provider ownership and merchant approval may have been revoked after the
+	// snapshot. Preserve their original facts, but require fresh verification.
+	for _, spec := range []struct{ table, column, assignment string }{{"subscription_renewal_authorizations", "revoked_at", "revoked_at=COALESCE(revoked_at,statement_timestamp())"}, {"payment_recurring_capabilities", "merchant_approved", "merchant_approved=false,runtime_available=false"}} {
+		columns, e := restoreColumns(ctx, tx, spec.table)
+		if e != nil {
+			return e
+		}
+		if columns[spec.column] {
+			if _, e = tx.Exec(ctx, "UPDATE "+pgx.Identifier{"public", spec.table}.Sanitize()+" SET "+spec.assignment); e != nil {
+				return e
+			}
+		}
+	}
+	if err := invalidateRestoredTransportObservations(ctx, tx, held); err != nil {
+		return err
+	}
+	if err := invalidateRestoredBrandHostProofs(ctx, tx, held); err != nil {
+		return err
+	}
+	if err := holdRestoredScheduledSentCopies(ctx, tx, held); err != nil {
+		return err
+	}
+	if err := holdRestoredMailboxImports(ctx, tx, restoreID, held); err != nil {
+		return err
+	}
+	if err := holdRestoredRecurringSetups(ctx, tx, restoreID, held); err != nil {
+		return err
 	}
 	if err := resetRestoredSyncAndDerivedState(ctx, tx, restoreID, held); err != nil {
 		return err
@@ -263,7 +301,7 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 		return err
 	}
 	if settings["value"] {
-		if _, err = tx.Exec(ctx, `INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'restore_replay_review',$1) ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value,updated_at=statement_timestamp()`, raw); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'restore_replay_review',$1::jsonb||jsonb_build_object('restored_at',statement_timestamp())) ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value||jsonb_build_object('restored_at',CASE WHEN settings.value->>'restore_id'=EXCLUDED.value->>'restore_id' THEN COALESCE(settings.value->'restored_at',to_jsonb(settings.updated_at)) ELSE EXCLUDED.value->'restored_at' END),updated_at=statement_timestamp()`, raw); err != nil {
 			return err
 		}
 	}
@@ -299,8 +337,13 @@ func resetRestoredSyncAndDerivedState(ctx context.Context, tx pgx.Tx, restoreID 
 		table, required, query string
 		args                   []any
 	}{
+		{"archive_approval_requests", "case_version", `INSERT INTO audit_logs(tenant_id,action,target_type,target_id,detail)
+ SELECT tenant_id,'restore.archive_approval_expired','archive_approval',id::text,jsonb_build_object('restore_id',$1::text,'previous_state',state,'source_digest',source_digest)
+ FROM archive_approval_requests WHERE case_version>0 AND state IN('pending','approved')`, []any{restoreID}},
+		{"archive_approval_requests", "case_version", `UPDATE archive_approval_requests SET state='expired',decision_reason=$1 WHERE case_version>0 AND state IN('pending','approved')`, []any{restoreReviewCode + ":" + restoreID}},
 		{"marketing_flow_positions", "delivery_uncertain", `UPDATE marketing_flow_positions SET delivery_uncertain=true, updated_at=statement_timestamp()`, nil},
 		{"marketing_flow_positions", "lease_fence", `UPDATE marketing_flow_positions SET lease_owner=NULL, lease_until=NULL, lease_fence=lease_fence+1`, nil},
+		{"marketing_flow_positions", "stopped_at", `UPDATE marketing_flow_positions SET stopped_at=COALESCE(stopped_at,statement_timestamp()),last_error='RESTORE_RECONCILIATION_REQUIRED',updated_at=statement_timestamp()`, nil},
 		{"mailbox_sync_cursors", "epoch", `UPDATE mailbox_sync_cursors SET epoch=$1, cursor_id=0, updated_at=statement_timestamp()`, []any{epoch}},
 		{"mailbox_eas_collection_state", "sync_epoch", `UPDATE mailbox_eas_collection_state SET sync_epoch=$1, change_seq=0, uid_validity=0, updated_at=statement_timestamp()`, []any{epoch}},
 		{"mailbox_eas_devices", "provisioned", `UPDATE mailbox_eas_devices SET policy_key=0, provisioned=false`, nil},

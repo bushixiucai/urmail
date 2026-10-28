@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainSettings "github.com/bushixiucai/urmail/internal/domain/settings"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -38,7 +39,11 @@ type BrandingStore interface {
 }
 
 // BrandingHandler resolves visual branding and manages authorized host bindings.
-type BrandingHandler struct{ Store BrandingStore }
+type BrandingHandler struct {
+	Store       BrandingStore
+	PrimaryHost string
+	Reconcile   ReconcileTrigger
+}
 
 // NewBrandingHandler wires the platform-scoped branding store.
 func NewBrandingHandler(s BrandingStore) *BrandingHandler {
@@ -283,9 +288,26 @@ func (h *BrandingHandler) BindHost(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
+	if hostname == h.PrimaryHost {
+		authError(c, 409, "BRAND_HOST_CONFLICT")
+		return
+	}
+	if q, ok := requestStore(c, h.Store).(interface {
+		PlatformBrandHostReserved(context.Context, string) (bool, error)
+	}); ok {
+		reserved, err := q.PlatformBrandHostReserved(c, hostname)
+		if err != nil {
+			authError(c, 503, "DB_ERROR")
+			return
+		}
+		if reserved {
+			authError(c, 409, "BRAND_HOST_CONFLICT")
+			return
+		}
+	}
 	host, err := requestStore(c, h.Store).PlatformBindBrandHost(c, store.PlatformBindBrandHostParams{Hostname: hostname, ID: req.BrandID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		authError(c, http.StatusNotFound, "NOT_FOUND")
+		authError(c, http.StatusConflict, "BRAND_HOST_CONFLICT")
 		return
 	}
 	if err != nil {
@@ -303,6 +325,9 @@ func (h *BrandingHandler) UnbindHost(c *gin.Context) {
 		return
 	}
 	affected, err := requestStore(c, h.Store).PlatformUnbindBrandHost(c, host)
+	if err == nil && affected > 0 && h.Reconcile != nil {
+		middleware.AfterCommit(c, func() { h.Reconcile.Trigger() })
+	}
 	brandMutationResult(c, affected, err)
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -24,6 +25,10 @@ type SecretBox interface{ DecryptString(string) (string, error) }
 
 // Store uses claim-token CAS for every transition after claiming.
 type Store interface {
+	SentCopyStore
+	PlatformAcceptMailboxScheduledSend(context.Context, store.PlatformAcceptMailboxScheduledSendParams) (store.MailboxScheduledSends, error)
+	PlatformClaimScheduledSentCopy(context.Context) (store.MailboxScheduledSends, error)
+
 	PlatformRecoverStaleMailboxScheduledSends(context.Context) (int64, error)
 	PlatformClaimMailboxScheduledSend(context.Context) (store.MailboxScheduledSends, error)
 	PlatformGetMailboxScheduledSendAddress(context.Context, store.PlatformGetMailboxScheduledSendAddressParams) (string, error)
@@ -109,6 +114,28 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if _, err := w.opts.Store.PlatformRecoverStaleMailboxScheduledSends(ctx); err != nil {
 		return false, err
 	}
+	copyRow, copyErr := w.opts.Store.PlatformClaimScheduledSentCopy(ctx)
+	if copyErr == nil {
+		taskCtx, cancel := context.WithTimeout(ctx, w.opts.TaskTimeout)
+		defer cancel()
+		password, err := w.opts.Secrets.DecryptString(copyRow.SmtpSecret)
+		if err != nil {
+			return true, deferSentCopy(taskCtx, w.opts.Store, copyRow, err)
+		}
+		address, err := w.opts.Store.PlatformGetMailboxScheduledSendAddress(taskCtx, store.PlatformGetMailboxScheduledSendAddressParams{TenantID: copyRow.TenantID, MailboxID: copyRow.MailboxID})
+		if err != nil {
+			return true, deferSentCopy(taskCtx, w.opts.Store, copyRow, err)
+		}
+		client, err := w.opts.Dialer.Dial(taskCtx, address, password)
+		if err != nil {
+			return true, deferSentCopy(taskCtx, w.opts.Store, copyRow, err)
+		}
+		defer func() { _ = client.Close() }()
+		return true, RepairSentCopy(taskCtx, w.opts.Store, copyRow, client)
+	}
+	if !errors.Is(copyErr, pgx.ErrNoRows) {
+		return false, copyErr
+	}
 	row, err := w.opts.Store.PlatformClaimMailboxScheduledSend(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -150,7 +177,28 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 	if err != nil {
 		return w.retry(ctx, row, "preparing", "SCHEDULE_DRAFT_UNAVAILABLE")
 	}
-	outgoing.From = address
+	if outgoing.From == "" {
+		outgoing.From = address
+	}
+	from, parseErr := mail.ParseAddress(outgoing.From)
+	if parseErr != nil {
+		return w.finish(ctx, row, "preparing", "failed", "MAILBOX_FROM_NOT_AUTHORIZED")
+	}
+	if from.Address != address {
+		checker, ok := w.opts.Store.(interface {
+			PlatformMailboxSenderIdentityAllowed(context.Context, store.PlatformMailboxSenderIdentityAllowedParams) (int64, error)
+		})
+		if !ok {
+			return w.finish(ctx, row, "preparing", "failed", "MAILBOX_FROM_NOT_AUTHORIZED")
+		}
+		allowed, err := checker.PlatformMailboxSenderIdentityAllowed(ctx, store.PlatformMailboxSenderIdentityAllowedParams{TenantID: row.TenantID, Sender: address, FromAddress: from.Address})
+		if err != nil {
+			return w.retry(ctx, row, "preparing", "SCHEDULE_POLICY_UNAVAILABLE")
+		}
+		if allowed != 1 {
+			return w.finish(ctx, row, "preparing", "failed", "MAILBOX_FROM_NOT_AUTHORIZED")
+		}
+	}
 	// A stable identifier supports reconciliation; SMTP recipients need not deduplicate it.
 	outgoing.MessageID = fmt.Sprintf("<urmail-schedule-%d@localhost>", row.ID)
 	if w.opts.MaySend != nil {
@@ -170,27 +218,27 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 		}
 		return err
 	}
-	_, err = w.opts.Submitter.Send(ctx, address, password, outgoing)
+	submission, err := w.opts.Submitter.Send(ctx, address, password, outgoing)
 	if err != nil {
 		if errors.Is(err, webmail.ErrSubmitUncertain) || !errors.Is(err, webmail.ErrSubmitFailed) {
 			return w.finish(ctx, row, "submitting", "uncertain", "SCHEDULE_DELIVERY_UNCERTAIN")
 		}
 		return w.retry(ctx, row, "submitting", "SCHEDULE_SMTP_REJECTED")
 	}
-	// Persist acceptance before deleting the source. A DB error here leaves
-	// submitting for safe uncertain recovery and never reaches retry().
-	if err = w.finish(ctx, row, "submitting", "sent", ""); err != nil {
+	// Persist both acceptance and the exact SMTP bytes before any APPEND.
+	// Failure leaves submitting for uncertain recovery, never SMTP retry.
+	finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	accepted, err := w.opts.Store.PlatformAcceptMailboxScheduledSend(finalCtx, store.PlatformAcceptMailboxScheduledSendParams{
+		TenantID: row.TenantID, MailboxID: row.MailboxID, ID: row.ID, ClaimToken: row.ClaimToken, SentRaw: submission.Raw})
+	if err != nil {
 		return err
 	}
-	validity, err = client.FolderUIDValidity(ctx, row.DraftFolder)
-	if err != nil || int64(validity) != row.DraftUidvalidity {
-		w.opts.Logger.Warn("scheduled send accepted; source mailbox identity changed", zap.Int64("id", row.ID))
-		return nil
+	w.audit(finalCtx, accepted, "mailbox.scheduled_send.sent", "SENT_COPY_PENDING")
+	if w.opts.Vault != nil {
+		w.opts.Vault.DeleteSchedule(row.ID)
 	}
-	if err = client.DeleteMessages(ctx, row.DraftFolder, []uint32{uid}, true); err != nil {
-		w.opts.Logger.Warn("scheduled send accepted; draft cleanup pending", zap.Int64("id", row.ID))
-	}
-	return nil
+	return RepairSentCopy(ctx, w.opts.Store, accepted, client)
 }
 
 func (w *Worker) finish(ctx context.Context, row store.MailboxScheduledSends, expected, status, code string) error {

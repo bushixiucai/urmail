@@ -104,69 +104,108 @@ func contactAppData(c collab.Contact) *Node {
 	return app
 }
 
-// calendarAppData renders one stored event as MS-ASCAL application data.
-// recurrence may be nil for single events. When a stored series cannot be
-// represented in the implemented Recurrence subset, callers expand the series
-// into individual occurrences and pass recTypeOccurrence instead.
+// calendarAppData renders MS-ASCAL compact UTC dates and sibling Exceptions.
 func calendarAppData(e collab.Event, occurrence time.Time, rec *recurrenceData, uid string) *Node {
 	app := Element(pageAirSync, tokApplicationData)
-	if e.Summary != "" {
-		app.Add(Text(pageCalendar, tokCalSubject, e.Summary))
-	}
-	if e.Location != "" {
-		app.Add(Text(pageCalendar, tokCalLocation, e.Location))
-	}
-	start := e.StartsAt
-	end := e.EndsAt
+	start, end := e.StartsAt, e.EndsAt
 	if !occurrence.IsZero() {
-		// Expanded occurrence: shift the series bounds onto this instance.
 		start = occurrence
 		end = occurrence.Add(e.EndsAt.Sub(e.StartsAt))
+		for _, ov := range e.Overrides {
+			if ov.RecurrenceID.Equal(occurrence) {
+				e.Summary, e.Description, e.Location, e.AllDay, e.Status = ov.Summary, ov.Description, ov.Location, ov.AllDay, ov.Status
+				start, end = ov.StartsAt, ov.EndsAt
+				break
+			}
+		}
 	}
-	app.Add(Text(pageCalendar, tokCalStartTime, start.UTC().Format(easTime)))
-	app.Add(Text(pageCalendar, tokCalEndTime, end.UTC().Format(easTime)))
-	app.Add(Text(pageCalendar, tokCalDtStamp, time.Now().UTC().Format(easTime)))
+	app.Children = append(app.Children, Text(pageCalendar, tokCalSubject, e.Summary), Text(pageCalendar, tokCalLocation, e.Location), Text(pageCalendar, tokCalStartTime, start.UTC().Format(calendarTime)), Text(pageCalendar, tokCalEndTime, end.UTC().Format(calendarTime)), Text(pageCalendar, tokCalDtStamp, time.Now().UTC().Format(calendarTime)), Text(pageCalendar, tokCalAllDayEvent, boolInt(e.AllDay)))
+	if len(e.ReminderMinutes) > 0 {
+		minutes := e.ReminderMinutes[0]
+		for _, value := range e.ReminderMinutes {
+			minutes = max(minutes, value)
+		}
+		app.Add(Text(pageCalendar, 0x24, strconv.Itoa(minutes)))
+	}
+	if e.Organizer != "" {
+		app.Add(Text(pageCalendar, 0x19, e.Organizer))
+	}
+	if zone := calendarZoneWire(e.Timezone, start); zone != "" {
+		app.Add(Text(pageCalendar, tokCalTimezone, zone))
+	}
 	if uid != "" {
 		app.Add(Text(pageCalendar, tokCalUID, uid))
 	}
-	app.Add(Text(pageCalendar, tokCalAllDayEvent, boolInt(e.AllDay)))
-	// BusyStatus: 1 = tentative, 2 = busy; canceled events stay busy.
 	busy := "2"
 	if e.Status == "tentative" {
 		busy = "1"
 	}
+	if e.Status == "cancelled" { //nolint:misspell // RFC 5545 value
+		busy = "0"
+	} //nolint:misspell // RFC 5545 value
 	app.Add(Text(pageCalendar, tokCalBusyStatus, busy))
+	if e.Description != "" {
+		app.Add(Element(pageAirSyncBase, tokBaseBody, Text(pageAirSyncBase, tokBaseType, "1"), Text(pageAirSyncBase, tokBaseData, e.Description)))
+	}
 	if rec != nil {
-		recNode := Element(pageCalendar, tokCalRecurrence)
-		recNode.Add(Text(pageCalendar, tokCalRecType, strconv.Itoa(rec.typ)))
-		recNode.Add(Text(pageCalendar, tokCalRecInterval, strconv.Itoa(rec.interval)))
+		rn := Element(pageCalendar, tokCalRecurrence, Text(pageCalendar, tokCalRecType, strconv.Itoa(rec.typ)), Text(pageCalendar, tokCalRecInterval, strconv.Itoa(rec.interval)))
+		loc, err := time.LoadLocation(e.Timezone)
+		if err != nil {
+			loc = time.UTC
+		}
+		local := e.StartsAt.In(loc)
+		if rec.typ == recTypeWeekly {
+			days := rec.days
+			if days == 0 {
+				days = 1 << int(local.Weekday())
+			}
+			rn.Add(Text(pageCalendar, tokCalDayOfWeek, strconv.Itoa(days)))
+			rn.Add(Text(pageCalendar, tokCalFirstDayOfWeek, strconv.Itoa(rec.weekStart)))
+		}
+		if rec.typ == recTypeMonthly || rec.typ == recTypeYearly {
+			day := rec.day
+			if day == 0 {
+				day = local.Day()
+			}
+			rn.Add(Text(pageCalendar, tokCalDayOfMonth, strconv.Itoa(day)))
+		}
+		if rec.typ == recTypeYearly {
+			month := rec.month
+			if month == 0 {
+				month = int(local.Month())
+			}
+			rn.Add(Text(pageCalendar, tokCalMonthOfYear, strconv.Itoa(month)))
+		}
 		if !rec.until.IsZero() {
-			recNode.Add(Text(pageCalendar, tokCalRecUntil, rec.until.UTC().Format(easTime)))
+			rn.Add(Text(pageCalendar, tokCalRecUntil, rec.until.UTC().Format(calendarTime)))
 		}
 		if rec.count > 0 {
-			recNode.Add(Text(pageCalendar, tokCalRecCount, strconv.Itoa(rec.count)))
+			rn.Add(Text(pageCalendar, tokCalRecCount, strconv.Itoa(rec.count)))
 		}
-		if len(rec.exceptions) > 0 {
-			exs := Element(pageCalendar, tokCalExceptions)
-			for _, ex := range rec.exceptions {
-				exs.Add(Element(pageCalendar, tokCalException,
-					Text(pageCalendar, tokCalExcDeleted, "1"),
-					Text(pageCalendar, tokCalExcStartTime, ex.UTC().Format(easTime))))
+		app.Add(rn)
+		exceptions := Element(pageCalendar, tokCalExceptions)
+		for _, ex := range rec.exceptions {
+			exceptions.Add(Element(pageCalendar, tokCalException, Text(pageCalendar, tokCalExcDeleted, "1"), Text(pageCalendar, tokCalExcStartTime, ex.UTC().Format(calendarTime))))
+		}
+		for _, ov := range e.Overrides {
+			deleted := ov.Status == "cancelled" //nolint:misspell // RFC 5545 value
+			ex := Element(pageCalendar, tokCalException, Text(pageCalendar, tokCalExcDeleted, boolInt(deleted)), Text(pageCalendar, tokCalExcStartTime, ov.RecurrenceID.UTC().Format(calendarTime)))
+			if !deleted {
+				ex.Children = append(ex.Children, Text(pageCalendar, tokCalSubject, ov.Summary), Text(pageCalendar, tokCalLocation, ov.Location), Text(pageCalendar, tokCalStartTime, ov.StartsAt.UTC().Format(calendarTime)), Text(pageCalendar, tokCalEndTime, ov.EndsAt.UTC().Format(calendarTime)), Text(pageCalendar, tokCalAllDayEvent, boolInt(ov.AllDay)), Element(pageAirSyncBase, tokBaseBody, Text(pageAirSyncBase, tokBaseType, "1"), Text(pageAirSyncBase, tokBaseData, ov.Description)))
 			}
-			recNode.Add(exs)
+			exceptions.Add(ex)
 		}
-		app.Add(recNode)
+		if len(exceptions.Children) > 0 {
+			app.Add(exceptions)
+		}
 	}
 	return app
 }
 
-// recurrenceData is the representable subset of a stored RRULE.
 type recurrenceData struct {
-	typ        int         // MS-ASCAL Recurrence Type
-	interval   int         // every N days/weeks/months/years
-	count      int         // COUNT, 0 = none
-	until      time.Time   // UNTIL, zero = none
-	exceptions []time.Time // EXDATE occurrences, only the first is stored
+	typ, interval, count, days, day, month, weekStart int
+	until                                             time.Time
+	exceptions                                        []time.Time
 }
 
 // recurrence types per MS-ASCAL.
@@ -196,7 +235,7 @@ func parseRecurrence(rrule string) (recurrenceData, bool) {
 			}
 		}
 	}
-	rec := recurrenceData{interval: 1, exceptions: exceptions}
+	rec := recurrenceData{interval: 1, exceptions: exceptions, weekStart: 1}
 	for _, part := range strings.Split(strings.ToUpper(base), ";") {
 		key, value, _ := strings.Cut(part, "=")
 		switch key {
@@ -225,6 +264,44 @@ func parseRecurrence(rrule string) (recurrenceData, bool) {
 				return recurrenceData{}, false
 			}
 			rec.count = n
+		case "BYDAY":
+			for _, day := range strings.Split(value, ",") {
+				index := -1
+				for i, name := range []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"} {
+					if name == day {
+						index = i
+						break
+					}
+				}
+				if index < 0 {
+					return recurrenceData{}, false
+				}
+				rec.days |= 1 << index
+			}
+		case "BYMONTHDAY":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 31 {
+				return recurrenceData{}, false
+			}
+			rec.day = n
+		case "BYMONTH":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 12 {
+				return recurrenceData{}, false
+			}
+			rec.month = n
+		case "WKST":
+			found := false
+			for i, name := range []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"} {
+				if value == name {
+					rec.weekStart = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				return recurrenceData{}, false
+			}
 		case "UNTIL":
 			t, err := time.Parse("20060102T150405Z", value)
 			if err != nil {
@@ -236,7 +313,13 @@ func parseRecurrence(rrule string) (recurrenceData, bool) {
 			return recurrenceData{}, false
 		}
 	}
-	if rec.typ == recTypeWeekly && rec.interval != 1 {
+	if rec.typ != recTypeWeekly && rec.days != 0 {
+		return recurrenceData{}, false
+	}
+	if rec.typ != recTypeMonthly && rec.typ != recTypeYearly && rec.day != 0 {
+		return recurrenceData{}, false
+	}
+	if rec.typ != recTypeYearly && rec.month != 0 {
 		return recurrenceData{}, false
 	}
 	return rec, true

@@ -24,21 +24,25 @@ func RequiredRecords(domain, policyID, mode string, mx []string, tlsRptRUA strin
 	}
 	policy := MTASTSPolicy{
 		ID:   policyID,
-		Mode: MTASTSPolicyMode(modeOrEnforce(mode)),
+		Mode: MTASTSPolicyMode(modeOrTesting(mode)),
 		MX:   mx,
 	}
 	if _, err := RenderWellKnown(policy); err != nil {
 		return nil, err
 	}
+	uri := strings.TrimPrefix(TLSRPTRecord(tlsRptRUA), tlsrptPrefix+"; rua=")
+	if !ValidTLSReportURI(uri) {
+		return nil, fmt.Errorf("%w: valid report destination is required", ErrInvalidMTASTS)
+	}
 	return []RecordSpec{
-		{Name: "_mta-sts", Type: "TXT", Value: MTASTSTXTRecord(policyID), Reason: "MTA-STS policy advertisement (RFC 8460)"},
+		{Name: "_mta-sts", Type: "TXT", Value: MTASTSTXTRecord(policyID), Reason: "MTA-STS policy advertisement (RFC 8461)"},
 		{Name: "_smtp._tls", Type: "TXT", Value: TLSRPTRecord(tlsRptRUA), Reason: "TLS-RPT report destination (RFC 8460)"},
 	}, nil
 }
 
-func modeOrEnforce(mode string) string {
+func modeOrTesting(mode string) string {
 	if strings.TrimSpace(mode) == "" {
-		return string(MTASTSEnforce)
+		return string(MTASTSTesting)
 	}
 	return mode
 }

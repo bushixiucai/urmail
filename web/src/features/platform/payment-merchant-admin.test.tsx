@@ -62,6 +62,9 @@ it("edits safe metadata without exposing or replacing existing credentials", asy
   });
   const view = render(<PaymentMerchantAdmin />);
   await settle();
+  expect(
+    view.getByRole("button", { name: "billing_hosted.merchant_verify" }),
+  ).toHaveProperty("disabled", true);
   fireEvent.click(view.getByRole("button", { name: "payment.config.edit" }));
   expect(view.getByLabelText("payment.config.account")).toHaveProperty(
     "readOnly",
@@ -104,5 +107,48 @@ it("keeps unknown limits blank and rejects incomplete contract evidence before s
   );
   expect(
     state.request.mock.calls.some(([, options]) => options?.method === "POST"),
+  ).toBe(false);
+});
+
+it("verifies Stripe off-session capability without manufacturing a tenant binding", async () => {
+  const merchants = [
+    {
+      id: 5,
+      provider: "stripe",
+      environment: "sandbox",
+      account_id: "acct_fixture",
+      name: "Stripe",
+      enabled: true,
+      ready: true,
+      adapter_available: true,
+      currencies: ["USD"],
+    },
+  ];
+  state.request.mockImplementation(
+    (_path: string, options?: { method: string }) =>
+      Promise.resolve(
+        options?.method === "POST" ? { verified: true } : { merchants },
+      ),
+  );
+  const view = render(<PaymentMerchantAdmin />);
+  await settle();
+  fireEvent.click(
+    view.getByRole("button", { name: "billing_hosted.merchant_verify" }),
+  );
+  await settle();
+  expect(
+    state.request.mock.calls.find(([, options]) => options?.method === "POST"),
+  ).toEqual([
+    "/api/v1/platform/payment-merchants/5/recurring/verify",
+    { method: "POST", body: { adapter_key: "stripe_off_session_v1" } },
+  ]);
+  expect(view.getByRole("status").textContent).toBe(
+    "billing_hosted.merchant_verified",
+  );
+  expect(
+    state.request.mock.calls.some(
+      ([path]) =>
+        path.includes("recurring-authorizations") || path.endsWith("/enroll"),
+    ),
   ).toBe(false);
 });

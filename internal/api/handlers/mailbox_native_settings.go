@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -21,23 +22,25 @@ import (
 
 // MailboxSettings is one mailbox's self-service identity snapshot.
 type MailboxSettings struct {
-	DisplayName   string          `json:"display_name"`
-	SignatureText string          `json:"signature_text"`
-	SignatureHTML string          `json:"signature_html"`
-	Preferences   json.RawMessage `json:"preferences"`
-	Version       int64           `json:"version"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	IdentityProfiles json.RawMessage `json:"identity_profiles"`
+	DisplayName      string          `json:"display_name"`
+	SignatureText    string          `json:"signature_text"`
+	SignatureHTML    string          `json:"signature_html"`
+	Preferences      json.RawMessage `json:"preferences"`
+	Version          int64           `json:"version"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 // MailboxSettingsSave carries an optimistic-concurrency settings write.
 type MailboxSettingsSave struct {
-	TenantID        int64
-	MailboxID       int64
-	DisplayName     string
-	SignatureText   string
-	SignatureHTML   string
-	Preferences     json.RawMessage
-	ExpectedVersion int64
+	IdentityProfiles json.RawMessage
+	TenantID         int64
+	MailboxID        int64
+	DisplayName      string
+	SignatureText    string
+	SignatureHTML    string
+	Preferences      json.RawMessage
+	ExpectedVersion  int64
 }
 
 // ErrSettingsConflict reports a lost optimistic-concurrency race.
@@ -88,12 +91,13 @@ func (s StoreMailboxSelfSettings) Settings(ctx context.Context, tenantID, mailbo
 		return MailboxSettings{}, err
 	}
 	return MailboxSettings{
-		DisplayName:   row.DisplayName,
-		SignatureText: row.SignatureText,
-		SignatureHTML: row.SignatureHtml,
-		Preferences:   row.Preferences,
-		Version:       int64(row.Version),
-		UpdatedAt:     row.UpdatedAt.Time,
+		DisplayName:      row.DisplayName,
+		SignatureText:    row.SignatureText,
+		SignatureHTML:    row.SignatureHtml,
+		Preferences:      row.Preferences,
+		IdentityProfiles: row.IdentityProfiles,
+		Version:          int64(row.Version),
+		UpdatedAt:        row.UpdatedAt.Time,
 	}, nil
 }
 
@@ -109,13 +113,14 @@ func (s StoreMailboxSelfSettings) SaveSettings(ctx context.Context, save Mailbox
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	params := store.PlatformUpdateMailboxSettingsParams{
-		TenantID:        save.TenantID,
-		MailboxID:       save.MailboxID,
-		DisplayName:     save.DisplayName,
-		SignatureText:   save.SignatureText,
-		SignatureHtml:   save.SignatureHTML,
-		Preferences:     save.Preferences,
-		ExpectedVersion: int32(save.ExpectedVersion),
+		TenantID:         save.TenantID,
+		MailboxID:        save.MailboxID,
+		DisplayName:      save.DisplayName,
+		SignatureText:    save.SignatureText,
+		SignatureHtml:    save.SignatureHTML,
+		Preferences:      save.Preferences,
+		IdentityProfiles: save.IdentityProfiles,
+		ExpectedVersion:  int32(save.ExpectedVersion),
 	}
 	n, err := q.PlatformUpdateMailboxSettings(ctx, params)
 	if err != nil {
@@ -136,12 +141,13 @@ func (s StoreMailboxSelfSettings) SaveSettings(ctx context.Context, save Mailbox
 		return 0, ErrSettingsConflict
 	}
 	inserted, err := q.PlatformInsertMailboxSettings(ctx, store.PlatformInsertMailboxSettingsParams{
-		TenantID:      save.TenantID,
-		MailboxID:     save.MailboxID,
-		DisplayName:   save.DisplayName,
-		SignatureText: save.SignatureText,
-		SignatureHtml: save.SignatureHTML,
-		Preferences:   save.Preferences,
+		TenantID:         save.TenantID,
+		MailboxID:        save.MailboxID,
+		DisplayName:      save.DisplayName,
+		SignatureText:    save.SignatureText,
+		SignatureHtml:    save.SignatureHTML,
+		Preferences:      save.Preferences,
+		IdentityProfiles: save.IdentityProfiles,
 	})
 	if err != nil {
 		return 0, err
@@ -203,11 +209,12 @@ func (s StoreMailboxSelfSettings) SenderIdentityAllowed(ctx context.Context, ten
 }
 
 type mailboxSettingsRequest struct {
-	DisplayName     string          `json:"display_name"`
-	SignatureText   string          `json:"signature_text"`
-	SignatureHTML   string          `json:"signature_html"`
-	Preferences     json.RawMessage `json:"preferences"`
-	ExpectedVersion int64           `json:"expected_version"`
+	IdentityProfiles json.RawMessage `json:"identity_profiles"`
+	DisplayName      string          `json:"display_name"`
+	SignatureText    string          `json:"signature_text"`
+	SignatureHTML    string          `json:"signature_html"`
+	Preferences      json.RawMessage `json:"preferences"`
+	ExpectedVersion  int64           `json:"expected_version"`
 }
 
 func (h *MailboxNativeHandler) settingsReady(c *gin.Context) (webmail.Session, bool) {
@@ -239,13 +246,14 @@ func (h *MailboxNativeHandler) GetSettings(c *gin.Context) {
 		settings.Preferences = json.RawMessage("{}")
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"display_name":   settings.DisplayName,
-		"signature_text": settings.SignatureText,
-		"signature_html": settings.SignatureHTML,
-		"preferences":    settings.Preferences,
-		"version":        settings.Version,
-		"updated_at":     settings.UpdatedAt.UTC().Format(time.RFC3339),
-		"address":        session.Address,
+		"display_name":      settings.DisplayName,
+		"identity_profiles": json.RawMessage(defaultProfiles(settings.IdentityProfiles)),
+		"signature_text":    settings.SignatureText,
+		"signature_html":    settings.SignatureHTML,
+		"preferences":       settings.Preferences,
+		"version":           settings.Version,
+		"updated_at":        settings.UpdatedAt.UTC().Format(time.RFC3339),
+		"address":           session.Address,
 	})
 }
 
@@ -255,7 +263,7 @@ func (h *MailboxNativeHandler) PutSettings(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if c.Request.ContentLength > 65536 {
+	if c.Request.ContentLength > 131072 {
 		authError(c, http.StatusRequestEntityTooLarge, "MAILBOX_SETTINGS_TOO_LARGE")
 		return
 	}
@@ -283,19 +291,41 @@ func (h *MailboxNativeHandler) PutSettings(c *gin.Context) {
 		authError(c, http.StatusBadRequest, mailboxsettings.ErrSignature.Error())
 		return
 	}
+	html, _ = webmail.SanitizeHTML(html)
 	prefs, err := mailboxsettings.Preferences(req.Preferences)
 	if err != nil {
 		authError(c, http.StatusBadRequest, mailboxsettings.ErrPreferences.Error())
 		return
 	}
+	profiles, ok := h.normalizeIdentityProfiles(c, session, req.IdentityProfiles)
+	if !ok {
+		return
+	}
+	// The primary identity keeps its original scalar columns for old clients.
+	// A profile editor may submit all identities together; canonicalize the
+	// primary presentation here instead of keeping a second conflicting copy.
+	if len(profiles) > 0 {
+		var presentations map[string]mailboxIdentityProfile
+		if json.Unmarshal(profiles, &presentations) == nil {
+			if primary, ok := presentations[session.Address]; ok {
+				name, text, html = primary.DisplayName, primary.SignatureText, primary.SignatureHTML
+				delete(presentations, session.Address)
+				profiles, _ = json.Marshal(presentations)
+			}
+		}
+	}
+	if !h.validatePresentationPreferences(c, session, prefs) {
+		return
+	}
 	version, err := h.SelfSettings.SaveSettings(c.Request.Context(), MailboxSettingsSave{
-		TenantID:        session.TenantID,
-		MailboxID:       session.MailboxID,
-		DisplayName:     name,
-		SignatureText:   text,
-		SignatureHTML:   html,
-		Preferences:     prefs,
-		ExpectedVersion: req.ExpectedVersion,
+		TenantID:         session.TenantID,
+		MailboxID:        session.MailboxID,
+		DisplayName:      name,
+		SignatureText:    text,
+		SignatureHTML:    html,
+		Preferences:      prefs,
+		IdentityProfiles: profiles,
+		ExpectedVersion:  req.ExpectedVersion,
 	})
 	if errors.Is(err, ErrSettingsConflict) {
 		authError(c, http.StatusConflict, "MAILBOX_SETTINGS_VERSION_CONFLICT")
@@ -354,5 +384,20 @@ func (h *MailboxNativeHandler) GetQuota(c *gin.Context) {
 
 // normalizeFromCandidate lowercases and bounds a client-provided From.
 func normalizeFromCandidate(raw string) string {
-	return strings.TrimSpace(strings.ToLower(raw))
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 998 || strings.ContainsAny(raw, "\r\n\x00") {
+		return ""
+	}
+	address, err := mail.ParseAddress(raw)
+	if err != nil || address.Address == "" {
+		return ""
+	}
+	return strings.ToLower(address.Address)
+}
+
+func defaultProfiles(raw []byte) []byte {
+	if len(raw) == 0 {
+		return []byte("{}")
+	}
+	return raw
 }

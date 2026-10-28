@@ -35,3 +35,20 @@ func TestOperationOutputSchemasAndNoAutomaticActions(t *testing.T) {
 		t.Fatal("default unconfigured cloud enabled")
 	}
 }
+
+func TestDraftSuggestionsRemainBoundedAndDoNotCarryRecipients(t *testing.T) {
+	for _, operation := range []string{"draft_new", "draft_reply"} {
+		request, err := BuildOperation(OperationInput{Operation: operation, Body: "Selected source", Draft: "My existing text", Instruction: "Write a short reply"})
+		if err != nil || request.MaxTokens == nil || *request.MaxTokens != 2048 {
+			t.Fatalf("unbounded draft request: %+v %v", request, err)
+		}
+		if _, err := ValidateOperation(operation, `{"subject":"Suggestion","body":"Editable body"}`); err != nil {
+			t.Fatal(err)
+		}
+		for _, raw := range []string{`{"subject":"Suggestion","body":"Editable body","to":["attacker@example.test"]}`, `{"subject":"Bad\r\nBcc: attacker@example.test","body":"Body"}`, `{"subject":"Suggestion","body":"Body","send":true}`} {
+			if _, err := ValidateOperation(operation, raw); err == nil {
+				t.Fatalf("unsafe suggestion accepted: %s", raw)
+			}
+		}
+	}
+}

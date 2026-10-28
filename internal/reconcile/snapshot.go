@@ -24,6 +24,8 @@ import (
 
 // StoreQuerier abstracts the platform queries needed to assemble snapshots.
 type StoreQuerier interface {
+	PlatformListTransportSecurity(context.Context) ([]store.PlatformListTransportSecurityRow, error)
+	PlatformListDNSSecurity(context.Context) ([]store.PlatformListDNSSecurityRow, error)
 	PlatformListSpamDeliveryPolicies(context.Context) ([]store.PlatformListSpamDeliveryPoliciesRow, error)
 	PlatformListManagedDNS(context.Context) ([]store.PlatformListManagedDNSRow, error)
 	PlatformListDomains(ctx context.Context) ([]store.PlatformListDomainsRow, error)
@@ -182,6 +184,9 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		})
 	}
 
+	if err := attachDNSSecurity(ctx, q, nsdZones); err != nil {
+		return nil, err
+	}
 	// 3. Nginx Snapshot
 	nginxDomains := make([]nginx.DomainConfig, 0, len(domains))
 	for _, d := range domains {
@@ -205,6 +210,9 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 		})
 	}
 
+	if err := attachTransportSecurity(ctx, q, nsdZones, &nginxDomains, hostname); err != nil {
+		return nil, err
+	}
 	if len(nameservers) == 0 {
 		nameservers = []string{"ns1." + cfg.PrimaryDomain}
 	}

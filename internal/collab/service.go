@@ -112,7 +112,7 @@ func (s Service) UpdateContact(ctx context.Context, p Principal, id, version int
 
 // EnsureCalendar returns the live calendar with this name, creating it once.
 // timezone is stored on create; an empty value is UTC. Recurrence exceptions
-// are not stored: domain RecurrenceID is ignored at persistence.
+// are stored on the series row in recurrence_overrides.
 func (s Service) EnsureCalendar(ctx context.Context, p Principal, name, timezone string) (store.MailboxCalendars, error) {
 	name = strings.TrimSpace(name)
 	timezone = strings.TrimSpace(timezone)
@@ -136,13 +136,16 @@ func (s Service) EnsureCalendar(ctx context.Context, p Principal, name, timezone
 }
 
 // CreateEvent validates and inserts one event. A blank UID is generated.
-// RecurrenceID is not a column and is not persisted.
+// Single-occurrence edits are carried in the series override snapshot.
 func (s Service) CreateEvent(ctx context.Context, p Principal, calendarID int64, uid string, in collab.Event) (store.PlatformInsertEventRow, error) {
 	norm, err := collab.NormalizeEvent(in)
 	if err != nil {
 		return store.PlatformInsertEventRow{}, err
 	}
 	uid = strings.TrimSpace(uid)
+	if uid == "" {
+		uid = norm.UID
+	}
 	if uid == "" {
 		uid, err = newEventUID()
 		if err != nil {
@@ -154,13 +157,14 @@ func (s Service) CreateEvent(ctx context.Context, p Principal, calendarID int64,
 		Summary: norm.Summary, Description: norm.Description, Location: norm.Location,
 		StartsAt: timestamptz(norm.StartsAt), EndsAt: timestamptz(norm.EndsAt),
 		AllDay: norm.AllDay, Timezone: norm.Timezone, Rrule: norm.RRule, Status: norm.Status,
-		Attendees: attendeeJSON(norm.Attendees, norm.AttendeeStatus),
+		Attendees:           attendeeJSON(norm.Attendees, norm.AttendeeStatus),
+		RecurrenceOverrides: encodeOverrides(norm.Overrides), Reminders: encodeReminders(norm.ReminderMinutes),
 	})
 	return row, mapWrite(err)
 }
 
 // UpdateEvent refuses a stale version instead of overwriting.
-// RecurrenceID is not a column and is not persisted.
+// Single-occurrence edits are carried in the series override snapshot.
 func (s Service) UpdateEvent(ctx context.Context, p Principal, id, version int64, in collab.Event) (store.PlatformUpdateEventRow, error) {
 	norm, err := collab.NormalizeEvent(in)
 	if err != nil {
@@ -170,8 +174,9 @@ func (s Service) UpdateEvent(ctx context.Context, p Principal, id, version int64
 		Summary: norm.Summary, Description: norm.Description, Location: norm.Location,
 		StartsAt: timestamptz(norm.StartsAt), EndsAt: timestamptz(norm.EndsAt),
 		AllDay: norm.AllDay, Timezone: norm.Timezone, Rrule: norm.RRule, Status: norm.Status,
-		Attendees: attendeeJSON(norm.Attendees, norm.AttendeeStatus),
-		TenantID:  p.TenantID, MailboxID: p.MailboxID, ID: id, ExpectedVersion: version,
+		Attendees:           attendeeJSON(norm.Attendees, norm.AttendeeStatus),
+		RecurrenceOverrides: encodeOverrides(norm.Overrides), Reminders: encodeReminders(norm.ReminderMinutes),
+		TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id, ExpectedVersion: version,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.PlatformUpdateEventRow{}, ErrConflict
@@ -298,15 +303,28 @@ func AddGroupMember(ctx context.Context, q GroupMemberStore, p Principal, groupI
 	return nil
 }
 
-// eventFromRow rebuilds the domain event from the stored row.
-func eventFromRow(row store.MailboxEvents) (collab.Event, []string, error) {
+// EventFromRow rebuilds the domain event from the stored row.
+func EventFromRow(row store.MailboxEvents) (collab.Event, []string, error) {
 	emails, status := decodeAttendees(row.Attendees)
+	overrides, err := collab.DecodeOccurrenceOverrides(row.RecurrenceOverrides)
+	if err != nil {
+		return collab.Event{}, nil, err
+	}
+	var reminders []int
+	if len(row.Reminders) > 0 {
+		if err = json.Unmarshal(row.Reminders, &reminders); err != nil {
+			return collab.Event{}, nil, err
+		}
+	}
 	event, err := collab.NormalizeEvent(collab.Event{
-		Summary: row.Summary, Description: row.Description, Location: row.Location,
+		UID: row.Uid, Organizer: row.Organizer, Sequence: int(row.Sequence), ReminderMinutes: reminders, Overrides: overrides, Summary: row.Summary, Description: row.Description, Location: row.Location,
 		StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, AllDay: row.AllDay,
 		Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status,
 		Attendees: emails, AttendeeStatus: status,
 	})
+	if row.InvitationDigest != "" {
+		event.Sequence = int(row.InvitationSequence)
+	}
 	return event, emails, err
 }
 
@@ -324,7 +342,7 @@ func (s Service) ApplyReply(ctx context.Context, p Principal, id int64, reply co
 	if reply.UID != row.Uid {
 		return store.PlatformUpdateEventRow{}, collab.ErrInvalidEvent
 	}
-	event, emails, err := eventFromRow(row)
+	event, emails, err := EventFromRow(row)
 	if err != nil {
 		return store.PlatformUpdateEventRow{}, err
 	}
@@ -349,4 +367,20 @@ func (s Service) ApplyReply(ctx context.Context, p Principal, id int64, reply co
 // accepts both stored shapes (legacy strings and answered objects).
 func DecodeAttendees(raw []byte) ([]string, map[string]string) {
 	return decodeAttendees(raw)
+}
+
+func encodeOverrides(overrides []collab.OccurrenceOverride) []byte {
+	if overrides == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(overrides)
+	return raw
+}
+
+func encodeReminders(minutes []int) []byte {
+	if minutes == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(minutes)
+	return raw
 }

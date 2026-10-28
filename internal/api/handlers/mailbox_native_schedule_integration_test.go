@@ -64,6 +64,7 @@ func TestScheduleHTTPIdempotencyCancellationAndIsolation(t *testing.T) {
 	a.POST("/scheduled-sends", h.CreateScheduledSend)
 	a.GET("/scheduled-sends", h.ListScheduledSends)
 	a.DELETE("/scheduled-sends/:id", h.CancelScheduledSend)
+	a.POST("/scheduled-sends/:id/repair-sent-copy", h.RepairScheduledSentCopy)
 	request := func(method, path, key string, body []byte) *httptest.ResponseRecorder {
 		req := httptest.NewRequestWithContext(ctx, method, path, bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -172,12 +173,42 @@ func TestScheduleHTTPIdempotencyCancellationAndIsolation(t *testing.T) {
 	if w = request(http.MethodPost, "/api/v1/mailbox/scheduled-sends", "schedule-bypass-held", body); w.Code != http.StatusConflict {
 		t.Fatalf("held task bypass %d %s", w.Code, w.Body.String())
 	}
+
+	// A fresh owner's IMAP session can repair a restored accepted copy after the
+	// original scheduled credential was removed. No SMTP submitter is configured.
+	if _, err = p.Exec(ctx, `UPDATE mailbox_scheduled_sends SET status='sent',sent_at=now(),sent_copy_state='held',sent_raw=$2,smtp_secret='',lease_until=NULL WHERE id=$1`, claim.ID, []byte("Message-ID: <repair-http@fixture>\r\n\r\naccepted")); err != nil {
+		t.Fatal(err)
+	}
+	h.Dialer = sentRepairHTTPDialer{}
+	repairPath := "/api/v1/mailbox/scheduled-sends/" + strconv.FormatInt(claim.ID, 10) + "/repair-sent-copy"
+	if w = request(http.MethodPost, repairPath, "", nil); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"sent_copy_state":"complete"`)) {
+		t.Fatalf("fresh owner repair %d %s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("accepted")) || bytes.Contains(w.Body.Bytes(), []byte("sent_raw")) {
+		t.Fatal("private repair payload leaked into response")
+	}
+	if w = request(http.MethodPost, repairPath, "", nil); w.Code != 200 {
+		t.Fatalf("completed repair replay %d", w.Code)
+	}
 	// Mailbox authentication still requires exact tenant/mailbox scope.
 	sessions.byHash[hash] = webmail.Session{TokenHash: hash, TenantID: tenant + 1, MailboxID: mailbox, Address: "other@schedule.example.test", ExpiresAt: time.Now().Add(time.Hour)}
+	if w = request(http.MethodPost, repairPath, "", nil); w.Code != http.StatusNotFound {
+		t.Fatalf("cross tenant repair %d", w.Code)
+	}
 	if w = request(http.MethodDelete, path, "", nil); w.Code != http.StatusNotFound {
 		t.Fatalf("cross tenant cancel %d", w.Code)
 	}
 	if w = request(http.MethodGet, "/api/v1/mailbox/scheduled-sends", "", nil); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"items":[]`)) {
 		t.Fatalf("cross tenant list %d %s", w.Code, w.Body.String())
 	}
+}
+
+type sentRepairHTTPDialer struct{}
+type sentRepairHTTPClient struct{ *fakeIMAPClient }
+
+func (sentRepairHTTPDialer) Dial(context.Context, string, string) (webmail.Client, error) {
+	return &sentRepairHTTPClient{fakeIMAPClient: &fakeIMAPClient{}}, nil
+}
+func (*sentRepairHTTPClient) FindSentCopy(context.Context, []byte) (webmail.DraftSaveResult, bool, error) {
+	return webmail.DraftSaveResult{Folder: "Sent", UID: 77, UIDValidity: 9}, true, nil
 }

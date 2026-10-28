@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"errors"
-	"io"
 	"mime"
 	"net/http"
 	"path"
@@ -81,6 +80,7 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"messages":      result.Messages,
+		"uid_validity":  result.UIDValidity,
 		"total":         result.Total,
 		"limit":         opts.Limit,
 		"offset":        opts.Offset,
@@ -123,7 +123,7 @@ func attachmentContentDisposition(filename, partID string) string {
 
 // cidAttachmentURL maps a Content-ID to the same-origin attachment endpoint
 // for this message; ok is false when no surfaced part carries that cid.
-func cidAttachmentURL(folder string, uid uint32, atts []webmail.AttachmentMeta) func(cid string) (string, bool) {
+func cidAttachmentURL(folder string, uid uint32, atts []webmail.AttachmentMeta, validity ...uint32) func(cid string) (string, bool) {
 	byID := make(map[string]string, len(atts))
 	for _, a := range atts {
 		if a.ContentID != "" {
@@ -135,9 +135,13 @@ func cidAttachmentURL(folder string, uid uint32, atts []webmail.AttachmentMeta) 
 		if !ok {
 			return "", false
 		}
-		return "/api/v1/mailbox/folders/" + folder +
+		url := "/api/v1/mailbox/folders/" + webmail.EncodeFolderName(folder) +
 			"/messages/" + strconv.FormatUint(uint64(uid), 10) +
-			"/attachments/" + partID, true
+			"/attachments/" + partID
+		if len(validity) > 0 && validity[0] != 0 {
+			url += "?uid_validity=" + strconv.FormatUint(uint64(validity[0]), 10)
+		}
+		return url, true
 	}
 }
 
@@ -157,6 +161,14 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
+	if value := c.Query("uid_validity"); value != "" {
+		expected, parseErr := strconv.ParseUint(value, 10, 32)
+		actual, readErr := client.FolderUIDValidity(c.Request.Context(), folder)
+		if parseErr != nil || readErr != nil || expected == 0 || uint64(actual) != expected {
+			authError(c, 409, "AI_SOURCE_CHANGED")
+			return
+		}
+	}
 	msg, err := client.GetMessage(c.Request.Context(), folder, uint32(uid))
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -164,6 +176,10 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 			return
 		}
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+		return
+	}
+	if value := c.Query("uid_validity"); value != "" && value != strconv.FormatUint(uint64(msg.UIDValidity), 10) {
+		authError(c, 409, "AI_SOURCE_CHANGED")
 		return
 	}
 	if msg.Attachments == nil {
@@ -175,7 +191,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		// ?load_images=1 is the per-message "load images" user action.
 		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, webmail.SanitizeOptions{
 			AllowRemoteImages: isTruthyParam(c.Query("load_images")),
-			CIDRewriter:       cidAttachmentURL(folder, uint32(uid), msg.Attachments),
+			CIDRewriter:       cidAttachmentURL(folder, uint32(uid), msg.Attachments, msg.UIDValidity),
 		})
 		msg.HTML = safe
 		msg.Notes = notes
@@ -213,6 +229,16 @@ func (h *MailboxNativeHandler) GetAttachment(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
+	if value, provided := c.GetQuery("uid_validity"); provided {
+		expected, parseErr := strconv.ParseUint(value, 10, 32)
+		if parseErr != nil || expected == 0 {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		if !mailboxExpectedValidity(c, client, folder, uint32(expected), true) {
+			return
+		}
+	}
 	filename, _, data, err := client.GetAttachment(c.Request.Context(), folder, uint32(uid), partID)
 	if err != nil {
 		if errors.Is(err, webmail.ErrAttachmentTooLarge) {
@@ -247,9 +273,10 @@ func (h *MailboxNativeHandler) GetAttachment(c *gin.Context) {
 }
 
 type mailboxFlagsRequest struct {
-	UIDs   []uint32 `json:"uids"`
-	Add    []string `json:"add"`
-	Remove []string `json:"remove"`
+	UIDValidity uint32   `json:"uid_validity"`
+	UIDs        []uint32 `json:"uids"`
+	Add         []string `json:"add"`
+	Remove      []string `json:"remove"`
 }
 
 // FlagMessages adds/removes IMAP flags for UIDs in a folder.
@@ -278,6 +305,9 @@ func (h *MailboxNativeHandler) FlagMessages(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
+	if !mailboxExpectedValidity(c, client, folder, req.UIDValidity, true) {
+		return
+	}
 	if err := client.SetFlags(c.Request.Context(), folder, req.UIDs, add, remove); err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
@@ -286,8 +316,9 @@ func (h *MailboxNativeHandler) FlagMessages(c *gin.Context) {
 }
 
 type mailboxMoveRequest struct {
-	UIDs []uint32 `json:"uids"`
-	To   string   `json:"to"`
+	UIDValidity uint32   `json:"uid_validity"`
+	UIDs        []uint32 `json:"uids"`
+	To          string   `json:"to"`
 }
 
 // MoveMessages moves UIDs to another folder (IMAP UID MOVE).
@@ -315,6 +346,9 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
+	if !mailboxExpectedValidity(c, client, folder, req.UIDValidity, true) {
+		return
+	}
 	if err := client.MoveMessages(c.Request.Context(), folder, req.UIDs, dest); err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
@@ -323,8 +357,9 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 }
 
 type mailboxDeleteRequest struct {
-	UIDs    []uint32 `json:"uids"`
-	Expunge bool     `json:"expunge"`
+	UIDValidity uint32   `json:"uid_validity"`
+	UIDs        []uint32 `json:"uids"`
+	Expunge     bool     `json:"expunge"`
 }
 
 // DeleteMessages marks UIDs \Deleted and optionally expunges.
@@ -348,6 +383,9 @@ func (h *MailboxNativeHandler) DeleteMessages(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
+	if !mailboxExpectedValidity(c, client, folder, req.UIDValidity, true) {
+		return
+	}
 	if err := client.DeleteMessages(c.Request.Context(), folder, req.UIDs, req.Expunge); err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
@@ -370,11 +408,6 @@ func sanitizeFlags(flags []string) []string {
 	return out
 }
 
-// maxImportBytes bounds one imported RFC822 payload. appendLiteral enforces
-// the same ceiling at the IMAP layer; this keeps oversized uploads from being
-// buffered at all.
-const maxImportBytes = 32 << 20
-
 // GetRawMessage streams the byte-faithful RFC822 payload of one message.
 // GET /mailbox/folders/:name/messages/:uid/raw
 func (h *MailboxNativeHandler) GetRawMessage(c *gin.Context) {
@@ -392,6 +425,16 @@ func (h *MailboxNativeHandler) GetRawMessage(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
+	if value, provided := c.GetQuery("uid_validity"); provided {
+		expected, parseErr := strconv.ParseUint(value, 10, 32)
+		if parseErr != nil || expected == 0 {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		if !mailboxExpectedValidity(c, client, folder, uint32(expected), true) {
+			return
+		}
+	}
 	accessor, capable := client.(webmail.RawMessageAccessor)
 	if !capable {
 		authError(c, http.StatusNotImplemented, "MAIL_RAW_EXPORT_UNSUPPORTED")
@@ -412,49 +455,7 @@ func (h *MailboxNativeHandler) GetRawMessage(c *gin.Context) {
 	c.Data(http.StatusOK, "message/rfc822", raw)
 }
 
-// ImportMessage APPENDs a complete RFC822 payload into an existing folder.
-// POST /mailbox/folders/:name/import — body: message/rfc822 bytes.
+// ImportMessage refuses the legacy raw write without a reviewed durable receipt.
 func (h *MailboxNativeHandler) ImportMessage(c *gin.Context) {
-	folder, ok := h.folderParam(c)
-	if !ok {
-		return
-	}
-	if ct := c.GetHeader("Content-Type"); ct != "" && !strings.HasPrefix(strings.ToLower(ct), "message/rfc822") {
-		authError(c, http.StatusUnsupportedMediaType, "INVALID_CONTENT_TYPE")
-		return
-	}
-	raw, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBytes))
-	if err != nil {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-		return
-	}
-	if len(raw) == 0 {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-		return
-	}
-	client, _, ok := h.dialIMAP(c)
-	if !ok {
-		return
-	}
-	defer func() { _ = client.Close() }()
-	importer, capable := client.(webmail.MessageImporter)
-	if !capable {
-		authError(c, http.StatusNotImplemented, "MAIL_IMPORT_UNSUPPORTED")
-		return
-	}
-	result, err := importer.ImportMessage(c.Request.Context(), folder, raw)
-	if err != nil {
-		if strings.Contains(err.Error(), "too large") {
-			authError(c, http.StatusRequestEntityTooLarge, "MESSAGE_TOO_LARGE")
-			return
-		}
-		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{
-		"imported":     true,
-		"folder":       result.Folder,
-		"uid":          result.UID,
-		"uid_validity": result.UIDValidity,
-	})
+	authError(c, http.StatusConflict, "MAIL_IMPORT_PREVIEW_REQUIRED")
 }

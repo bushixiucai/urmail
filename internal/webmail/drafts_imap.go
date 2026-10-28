@@ -42,7 +42,7 @@ func (c *imapConn) createMailbox(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	err := c.command(ctx, "CREATE", quoteIMAP(name))
+	err := c.command(ctx, "CREATE", quoteIMAP(encodeMailboxWire(name)))
 	if err == nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (c *imapConn) appendLiteral(ctx context.Context, folder string, flags []str
 	var b strings.Builder
 	b.WriteString(tag)
 	b.WriteString(" APPEND ")
-	b.WriteString(quoteIMAP(folder))
+	b.WriteString(quoteIMAP(encodeMailboxWire(folder)))
 	if len(flags) > 0 {
 		b.WriteString(" (")
 		b.WriteString(strings.Join(flags, " "))

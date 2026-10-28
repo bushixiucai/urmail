@@ -84,6 +84,7 @@ func TestNativeWebmailRuntime(t *testing.T) {
 	}
 	rebuilt.From = "alice@example.test"
 	t.Log("PASS real draft replacement, stale UIDVALIDITY refusal, search, Bcc/HTML/attachment roundtrip")
+	exerciseRuntimeFolders(ctx, t, sender, replaced)
 	if _, err = (webmail.NetSubmitter{Addr: "127.0.0.1:587", Timeout: 10 * time.Second}).Send(ctx, "alice@example.test", password, rebuilt); err != nil {
 		t.Fatalf("real SMTP submission: %v", err)
 	}
@@ -172,4 +173,68 @@ func verifyRuntimeDelivery(ctx context.Context, t *testing.T, client webmail.Cli
 	if err != nil || sha256.Sum256(download) != sha256.Sum256(payload) {
 		t.Fatalf("delivered attachment mismatch: %v", err)
 	}
+}
+
+func exerciseRuntimeFolders(ctx context.Context, t *testing.T, client webmail.Client, draft webmail.DraftSaveResult) {
+	t.Helper()
+	manager, ok := client.(webmail.FolderManager)
+	if !ok {
+		t.Fatal("real IMAP lacks folder management")
+	}
+	name := "项目 & 资料"
+	if err := manager.CreateFolder(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	folders, err := client.ListFolders(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, folder := range folders {
+		if folder.Name == name {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("Unicode created folder not decoded from LIST")
+	}
+	copyResult, err := manager.TransferMessages(ctx, draft.Folder, []uint32{draft.UID}, name, false)
+	if err != nil || len(copyResult.Results) != 1 || copyResult.Results[0].Status != "success" || copyResult.UIDValidity == 0 {
+		t.Fatalf("real COPYUID result %+v %v", copyResult, err)
+	}
+	if _, err = client.GetMessage(ctx, draft.Folder, draft.UID); err != nil {
+		t.Fatal("copy removed original")
+	}
+	uid := copyResult.Results[0].DestinationUID
+	if _, err = client.GetMessage(ctx, name, uid); err != nil {
+		t.Fatal(err)
+	}
+	renamed := "已改名"
+	if err = manager.RenameFolder(ctx, name, renamed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.GetMessage(ctx, renamed, uid); err != nil {
+		t.Fatal("rename lost message")
+	}
+	if err = manager.CreateFolder(ctx, "Recycle-test"); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := manager.TransferMessages(ctx, renamed, []uint32{uid}, "Recycle-test", true)
+	if err != nil || moved.Results[0].Status != "success" {
+		t.Fatalf("real MOVEUID %+v %v", moved, err)
+	}
+	if err = manager.DeleteFolder(ctx, renamed); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := manager.TransferMessages(ctx, "Recycle-test", []uint32{moved.Results[0].DestinationUID}, "INBOX", true)
+	if err != nil || restored.Results[0].Status != "success" {
+		t.Fatalf("real restore %+v %v", restored, err)
+	}
+	if err = client.DeleteMessages(ctx, "INBOX", []uint32{restored.Results[0].DestinationUID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err = manager.DeleteFolder(ctx, "Recycle-test"); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("PASS real Unicode folder create/rename/delete, UIDPLUS copy, recoverable move/restore and retained original")
 }

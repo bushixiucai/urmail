@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -81,12 +82,27 @@ func (h *RegistrationHandler) Register(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(c) }()
 	q := store.New(tx)
+	if current, branded := c.Get(middleware.ContextBrandID); branded {
+		host, valid := normalizeBrandHost(c.Request.Host)
+		registered, e := q.PublicBrandByHost(c, host)
+		if !valid || e != nil || registered.ID != current.(int64) {
+			authError(c, 403, "BRAND_HOST_TENANT_MISMATCH")
+			return
+		}
+		if req.Brand == "" {
+			req.Brand = registered.Slug
+		}
+	}
 	if req.Brand == "" {
 		req.Brand = "default"
 	}
 	brand, err := q.PublicBrandBySlug(c, req.Brand)
 	if err != nil {
 		authError(c, 400, "REGISTRATION_UNAVAILABLE")
+		return
+	}
+	if current, branded := c.Get(middleware.ContextBrandID); branded && brand.ID != current.(int64) {
+		authError(c, 403, "BRAND_HOST_TENANT_MISMATCH")
 		return
 	}
 	if err = q.PlatformLockRegistrationEmail(c, req.Email); err != nil {
@@ -165,6 +181,14 @@ func (h *RegistrationHandler) Verify(c *gin.Context) {
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
+	}
+	if current, branded := c.Get(middleware.ContextBrandID); branded {
+		host, valid := normalizeBrandHost(c.Request.Host)
+		registered, e := q.PublicBrandByHost(c, host)
+		if !valid || e != nil || registered.ID != current.(int64) || pending.BrandID != current.(int64) {
+			authError(c, 403, "BRAND_HOST_TENANT_MISMATCH")
+			return
+		}
 	}
 	uid, err := q.PlatformCreateRegisteredUser(c, store.PlatformCreateRegisteredUserParams{Email: pending.Email, PasswordHash: pending.PasswordHash})
 	if err != nil {

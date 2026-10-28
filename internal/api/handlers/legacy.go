@@ -75,6 +75,10 @@ type LegacyAccessStore interface {
 }
 
 func (h *LegacyHandler) authorize(c *gin.Context) bool {
+	if !middleware.CanonicalHostAllowed(c) {
+		authError(c, http.StatusForbidden, "FORBIDDEN")
+		return false
+	}
 	// Browser-cached Basic authentication must not permit cross-site form writes.
 	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 		for _, header := range []string{"Origin", "Referer"} {

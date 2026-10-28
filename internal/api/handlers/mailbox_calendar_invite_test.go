@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,6 +47,18 @@ func invitationHandler(t *testing.T, st *fakeCalendarStore, submitter webmail.Su
 		sender = SendInvitationsAs(submitter)
 	}
 	h := MailboxCalendarHandler{Service: appcollab.Service{Q: st}, InviteSender: sender}
+	h.invitationJournal = func(ctx context.Context, p appcollab.Principal, row store.MailboxEvents, method string, cancelEvent bool) (func(context.Context) error, error) {
+		if !defaultInvitationGate.allow(row.Uid, int64(row.Sequence), method) {
+			return nil, errInvitationAlreadySent
+		}
+		if cancelEvent {
+			if _, err := st.PlatformDeleteEvent(ctx, store.PlatformDeleteEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID, Version: row.Version}); err != nil {
+				return nil, err
+			}
+		}
+		return func(context.Context) error { return nil }, nil
+	}
+
 	r := gin.New()
 	r.POST("/api/v1/mailbox/calendars/events/:id/invitations", func(c *gin.Context) {
 		c.Set(middleware.ContextMailboxSession, webmail.Session{TenantID: 7, MailboxID: 9, Address: "organizer@example.test"})
@@ -231,7 +244,7 @@ func TestDeleteEventWithNotifySendsCancel(t *testing.T) {
 	}
 }
 
-func TestIngestReplyUpdatesOnlyMatchingAttendee(t *testing.T) {
+func TestIngestReplyRequiresVerifiedMailboxMessage(t *testing.T) {
 	attendees, _ := json.Marshal([]string{"ada@example.test", "bob@example.test"})
 	st := &fakeCalendarStore{}
 	st.put(store.MailboxEvents{
@@ -243,26 +256,43 @@ func TestIngestReplyUpdatesOnlyMatchingAttendee(t *testing.T) {
 	r, _, _ := invitationHandler(t, st, &fakeInvitationSubmitter{})
 	body := "BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-42@urmail\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:bob@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
 	w := invitationRequest(r, http.MethodPost, "/api/v1/mailbox/calendars/events/42/reply", body)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "INVITATION_SOURCE_REQUIRED") {
+		t.Fatalf("raw claimed attendee was trusted: %d %s", w.Code, w.Body.String())
 	}
-	emails, status := appcollab.DecodeAttendees(st.stored[42].Attendees)
-	if len(emails) != 2 || status["bob@example.test"] != collab.PartStatAccepted {
-		t.Fatalf("stored %+v %v", emails, status)
+	_, status := appcollab.DecodeAttendees(st.stored[42].Attendees)
+	if status["bob@example.test"] == collab.PartStatAccepted {
+		t.Fatal("raw response changed attendee")
 	}
-	if state, ok := status["ada@example.test"]; ok && state != collab.PartStatNeedsAction {
-		t.Fatalf("ada forged: %q", state)
+}
+
+// defaultInvitationGate rate limits invitation bursts for every calendar
+// handler in this process: one burst per event UID, SEQUENCE and method, so
+// re-POSTing the same event version cannot storm the mail system. Sending
+// again becomes possible after the next SEQUENCE bump (an event update).
+var defaultInvitationGate = newInvitationGate()
+
+type invitationGate struct {
+	mu   sync.Mutex
+	sent map[string]bool
+}
+
+func newInvitationGate() *invitationGate {
+	return &invitationGate{sent: map[string]bool{}}
+}
+
+func (g *invitationGate) key(uid string, sequence int64, method string) string {
+	return fmt.Sprintf("%s|%d|%s", uid, sequence, method)
+}
+
+// allow claims the one-shot slot; it returns false when this exact
+// invitation already went out.
+func (g *invitationGate) allow(uid string, sequence int64, method string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := g.key(uid, sequence, method)
+	if g.sent[key] {
+		return false
 	}
-	// Forgery: replier is not an attendee.
-	forged := strings.Replace(body, "bob@example.test", "mallory@example.test", 1)
-	w = invitationRequest(r, http.MethodPost, "/api/v1/mailbox/calendars/events/42/reply", forged)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("forgery status=%d body=%s", w.Code, w.Body.String())
-	}
-	// Wrong UID is refused too.
-	w = invitationRequest(r, http.MethodPost, "/api/v1/mailbox/calendars/events/42/reply",
-		strings.Replace(body, "uid-42@urmail", "uid-other@urmail", 1))
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("uid mismatch status=%d", w.Code)
-	}
+	g.sent[key] = true
+	return true
 }

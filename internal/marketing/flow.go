@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -17,7 +19,7 @@ import (
 
 // FlowContent resolves the immutable text a flow step sends. The wiring
 // supplies it, typically from the tenant template named by the step key.
-type FlowContent func(ctx context.Context, tenantID int64, step string) (subject string, body string, ok bool, err error)
+type FlowContent func(ctx context.Context, tenantID, flowID int64, step string) (subject string, body string, ok bool, err error)
 
 // FlowSender connects the marketingflow send step to the tenant's configured
 // dedicated gateway. It re-verifies entitlement, unsubscribe and suppression
@@ -37,7 +39,7 @@ func (s *FlowSender) Send(ctx context.Context, tenantID, flowID int64, email, st
 	if s == nil || s.Pool == nil || s.Secrets == nil || s.Tokens == nil || s.Content == nil {
 		return ErrChannelUnavailable
 	}
-	subject, body, ok, err := s.Content(ctx, tenantID, step)
+	subject, body, ok, err := s.Content(ctx, tenantID, flowID, step)
 	if err != nil {
 		return err
 	}
@@ -60,7 +62,27 @@ func (s *FlowSender) Send(ctx context.Context, tenantID, flowID int64, email, st
 	if json.Unmarshal([]byte(plain), &cfg) != nil || cfg.Validate(channel.Kind) != nil {
 		return ErrChannelUnavailable
 	}
+	versioned, err := q.PlatformMarketingFlowIsVersioned(ctx, store.PlatformMarketingFlowIsVersionedParams{TenantID: tenantID, RuntimeFlowID: flowID})
+	if err != nil {
+		return err
+	}
+	lease := leaseFromContext(ctx)
+	if versioned && lease == nil {
+		return marketingflow.ErrNotAllowed
+	}
 	authorize := func() (bool, error) {
+		if lease != nil {
+			owned, checkErr := q.PlatformCheckMarketingFlowLease(ctx, store.PlatformCheckMarketingFlowLeaseParams{TenantID: tenantID, FlowID: flowID, Email: email, LeaseOwner: pgtype.Text{String: lease.owner, Valid: true}, LeaseFence: lease.fence})
+			if checkErr != nil || !owned {
+				return false, checkErr
+			}
+		}
+		if versioned {
+			eligible, checkErr := q.PlatformVersionedMarketingFlowMayAdvance(ctx, store.PlatformVersionedMarketingFlowMayAdvanceParams{TenantID: tenantID, RuntimeFlowID: flowID, Email: email})
+			if checkErr != nil || !eligible {
+				return false, checkErr
+			}
+		}
 		return q.PlatformAuthorizeMarketingFlowSend(ctx, store.PlatformAuthorizeMarketingFlowSendParams{TenantID: tenantID, FlowID: flowID, Email: email, ChannelID: channel.ID})
 	}
 	allowed, err := authorize()
@@ -72,6 +94,7 @@ func (s *FlowSender) Send(ctx context.Context, tenantID, flowID int64, email, st
 	}
 	messageID := fmt.Sprintf("flow-%d-%s@%s", flowID, uuid.NewString(), s.Hostname)
 	delivery := Delivery{TenantID: tenantID, CampaignID: flowID, Email: email, Subject: subject, Body: body, MessageID: messageID, EnvelopeFrom: cfg.BounceAddress, UnsubscribeURL: s.unsubscribeURL(tenantID, email)}
+	begun := false
 	delivery.BeforeData = func(context.Context) error {
 		stillAllowed, checkErr := authorize()
 		if checkErr != nil {
@@ -80,11 +103,32 @@ func (s *FlowSender) Send(ctx context.Context, tenantID, flowID int64, email, st
 		if !stillAllowed {
 			return s.revoked(ctx, tenantID, flowID, email)
 		}
+		if versioned {
+			result, beginErr := q.PlatformBeginMarketingFlowSend(ctx, store.PlatformBeginMarketingFlowSendParams{PTenant: tenantID, PFlow: flowID, PEmail: email, POwner: lease.owner, PFence: lease.fence, PChannel: channel.ID})
+			if beginErr != nil {
+				return beginErr
+			}
+			if result != "authorized" {
+				return &flowGateError{code: result}
+			}
+			begun = true
+		}
 		return nil
 	}
 	sendErr := SendSMTP(ctx, cfg, delivery)
 	if sendErr != nil && domainMail.IsDeliveryUncertain(sendErr) {
 		return fmt.Errorf("%w: %w", marketingflow.ErrUncertain, sendErr)
+	}
+	if versioned && begun && sendErr != nil {
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+		defer cancel()
+		released, releaseErr := q.PlatformReleaseMarketingFlowReservation(finishCtx, store.PlatformReleaseMarketingFlowReservationParams{PTenant: tenantID, PFlow: flowID, PEmail: email, POwner: lease.owner, PFence: lease.fence})
+		if releaseErr != nil || !released {
+			return marketingflow.ErrUncertain
+		}
+	}
+	if sendErr == nil && lease != nil {
+		lease.confirmed = true
 	}
 	return sendErr
 }

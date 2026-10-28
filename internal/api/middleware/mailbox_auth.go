@@ -2,11 +2,13 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -48,6 +50,12 @@ func RequireMailboxAuth(lookup MailboxSessionLookup, vaults ...webmail.Credentia
 		token := strings.TrimSpace(parts[1])
 		hash := mailboxprincipal.HashToken(token)
 		session, err := lookup.GetMailboxSession(c.Request.Context(), hash)
+		// An aborted HTTP request or temporary database failure does not revoke
+		// a still-valid credential. Fail closed without erasing the shared vault.
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR", "message": "error.DB_ERROR"}})
+			return
+		}
 		if err != nil || session.Address == "" || session.ExpiresAt.Before(time.Now()) {
 			for _, vault := range vaults {
 				if vault != nil {
@@ -58,6 +66,20 @@ func RequireMailboxAuth(lookup MailboxSessionLookup, vaults ...webmail.Credentia
 				"error": gin.H{"code": "MAILBOX_AUTHORIZATION_DENIED", "message": "error.MAILBOX_AUTHORIZATION_DENIED"},
 			})
 			return
+		}
+		brand, branded := c.Get(ContextBrandID)
+		if !sessionOriginAllowed(c, session.OriginHost) {
+			c.AbortWithStatusJSON(401, gin.H{"error": gin.H{"code": "SESSION_ORIGIN_MISMATCH", "message": "error.SESSION_ORIGIN_MISMATCH"}})
+			return
+		}
+		if branded {
+			bound, ok := lookup.(interface {
+				BrandTenantMatches(context.Context, int64, int64) bool
+			})
+			if !ok || !bound.BrandTenantMatches(c, session.TenantID, brand.(int64)) {
+				c.AbortWithStatus(403)
+				return
+			}
 		}
 		c.Set(ContextMailboxSession, session)
 		c.Set(ContextMailboxAddress, session.Address)

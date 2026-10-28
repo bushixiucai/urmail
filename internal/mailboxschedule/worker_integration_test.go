@@ -1,6 +1,7 @@
 package mailboxschedule
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -249,5 +250,58 @@ func TestScheduleDatabaseHeldDraftCannotBeRescheduled(t *testing.T) {
 	args.IdempotencyKey = "explicitly-new-draft"
 	if _, err := q.PlatformCreateMailboxScheduledSend(ctx, args); err != nil {
 		t.Fatalf("a distinct user-selected draft was blocked: %v", err)
+	}
+}
+
+func TestScheduleAcceptedCopyDurabilityAndOwnerFence(t *testing.T) {
+	p, q, tenant, mailbox := scheduleDatabase(t)
+	ctx := t.Context()
+	original := createDueSchedule(t, q, tenant, mailbox, 87)
+	claim, err := q.PlatformClaimMailboxScheduledSend(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = q.PlatformBeginMailboxScheduledSendSubmission(ctx, store.PlatformBeginMailboxScheduledSendSubmissionParams{ID: claim.ID, ClaimToken: claim.ClaimToken}); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("Message-ID: <durable-copy@fixture>\r\nFrom: team@example.test\r\n\r\naccepted payload\r\n")
+	accepted, err := q.PlatformAcceptMailboxScheduledSend(ctx, store.PlatformAcceptMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID, ClaimToken: claim.ClaimToken, SentRaw: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Status != "sent" || accepted.SentCopyState != "pending" || !bytes.Equal(accepted.SentRaw, raw) || !accepted.SentAt.Valid || accepted.SmtpSecret == "" {
+		t.Fatal("acceptance and repair payload not atomic")
+	}
+	if _, err = q.PlatformClaimOwnedScheduledSentCopy(ctx, store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: tenant + 100, MailboxID: mailbox, ID: original.ID}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("cross-tenant repair claimed", err)
+	}
+	if _, err = p.Exec(ctx, `UPDATE mailbox_scheduled_sends SET lease_until=now()-interval '1 second' WHERE id=$1`, original.ID); err != nil {
+		t.Fatal(err)
+	}
+	repair, err := q.PlatformClaimScheduledSentCopy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repair.ClaimToken <= claim.ClaimToken {
+		t.Fatal("repair failed to fence previous owner")
+	}
+	if _, err = q.PlatformCompleteScheduledSentCopy(ctx, store.PlatformCompleteScheduledSentCopyParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID, ClaimToken: claim.ClaimToken}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("old owner completed", err)
+	}
+	imap := &fakeIMAP{validity: 9, copyStored: true}
+	if err = RepairSentCopy(ctx, q, repair, imap); err != nil {
+		t.Fatal(err)
+	}
+	done, err := q.PlatformGetMailboxScheduledSend(ctx, store.PlatformGetMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "sent" || done.SentCopyState != "complete" || len(done.SentRaw) != 0 || done.SmtpSecret != "" || done.SentAt != accepted.SentAt || imap.appendCalls != 0 {
+		t.Fatal("repair lost acceptance time, duplicated APPEND, or retained sensitive payload")
+	}
+	var denied bool
+	err = p.QueryRow(ctx, `SELECT NOT has_table_privilege('urmail_app','mailbox_scheduled_sends','SELECT')`).Scan(&denied)
+	if err != nil || !denied {
+		t.Fatal("app role can read temporary raw", err)
 	}
 }

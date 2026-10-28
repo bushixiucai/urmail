@@ -17,6 +17,7 @@ var vaultCapacityRejections = promauto.NewCounter(prometheus.CounterOpts{
 
 // Session is a mailbox principal, independent of panel administrative roles.
 type Session struct {
+	OriginHost      string
 	TokenHash       string
 	TenantID        int64
 	MailboxID       int64

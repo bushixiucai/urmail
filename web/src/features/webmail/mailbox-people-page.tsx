@@ -1,114 +1,80 @@
-import { FormEvent, useState } from "react";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarDays, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  createContact,
-  createEvent,
-  listContacts,
-  listEvents,
-} from "./mailbox-api";
-import { InvitationStatus, SendInvitationsButton } from "./mailbox-invitation";
+import { PeopleContactsPanel } from "./people-contacts-panel";
+import { PeopleCalendarPanel } from "./people-calendar-panel";
+import { PeopleImportPanel } from "./people-import-panel";
 
 export function MailboxPeoplePage() {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [summary, setSummary] = useState("");
-  const contacts = useQuery({
-    queryKey: ["mailbox-contacts"],
-    queryFn: listContacts,
-  });
-  const start = new Date();
-  const end = new Date(start.getTime() + 31 * 24 * 60 * 60 * 1000);
-  const events = useQuery({
-    queryKey: ["mailbox-events", start.toISOString().slice(0, 10)],
-    queryFn: () => listEvents(start.toISOString(), end.toISOString()),
-  });
-  const addContact = useMutation({
-    mutationFn: () => createContact(name, email),
-    onSuccess: async () => {
-      setName("");
-      setEmail("");
-      await queryClient.invalidateQueries({ queryKey: ["mailbox-contacts"] });
-    },
-  });
-  const addEvent = useMutation({
-    mutationFn: () => {
-      const begins = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      const finishes = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-      return createEvent(summary, begins, finishes);
-    },
-    onSuccess: async () => {
-      setSummary("");
-      await queryClient.invalidateQueries({ queryKey: ["mailbox-events"] });
-    },
-  });
-
-  function onContact(event: FormEvent) {
-    event.preventDefault();
-    addContact.mutate();
-  }
-  function onEvent(event: FormEvent) {
-    event.preventDefault();
-    addEvent.mutate();
-  }
-
+  const [tab, setTab] = useState<"contacts" | "calendar">(() =>
+    new URLSearchParams(window.location.search).get("tab") === "calendar"
+      ? "calendar"
+      : "contacts",
+  );
   return (
-    <div className="mx-auto grid max-w-3xl gap-8 p-4">
-      <section className="space-y-3">
-        <h1 className="text-xl font-semibold">
-          {t("page.webmail.contacts_title")}
-        </h1>
-        <form className="flex flex-wrap gap-2" onSubmit={onContact}>
-          <Input
-            aria-label={t("page.webmail.contact_name")}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <Input
-            aria-label={t("page.webmail.contact_email")}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <Button type="submit">{t("page.webmail.contact_add")}</Button>
-        </form>
-        <ul className="space-y-1">
-          {(contacts.data?.contacts ?? []).map((contact) => (
-            <li key={contact.id}>{contact.display_name}</li>
-          ))}
-        </ul>
-      </section>
-      <section className="space-y-3">
-        <h2 className="text-xl font-semibold">
-          {t("page.webmail.calendar_title")}
-        </h2>
-        <form className="flex flex-wrap gap-2" onSubmit={onEvent}>
-          <Input
-            aria-label={t("page.webmail.event_summary")}
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            required
-          />
-          <Button type="submit">{t("page.webmail.event_add")}</Button>
-        </form>
-        <ul className="space-y-2">
-          {(events.data?.events ?? []).map((item) => (
-            <li key={item.id} className="space-y-1">
-              <div>{item.summary}</div>
-              <InvitationStatus attendees={item.attendees} />
-              {(item.attendees?.length ?? 0) > 0 && (
-                <SendInvitationsButton eventId={item.id} />
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
+    <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">{t("people.title")}</h1>
+        <Button variant="outline" asChild>
+          <Link to="/webmail/inbox">{t("people.back_to_mail")}</Link>
+        </Button>
+      </header>
+      <div
+        role="tablist"
+        aria-label={t("people.title")}
+        className="flex gap-1 border-b pb-2"
+      >
+        {(["contacts", "calendar"] as const).map((value) => (
+          <Button
+            role="tab"
+            id={"people-tab-" + value}
+            aria-controls={"people-panel-" + value}
+            aria-selected={tab === value}
+            tabIndex={tab === value ? 0 : -1}
+            onKeyDown={(event) => {
+              if (
+                !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+              )
+                return;
+              event.preventDefault();
+              const next =
+                event.key === "Home"
+                  ? "contacts"
+                  : event.key === "End"
+                    ? "calendar"
+                    : value === "contacts"
+                      ? "calendar"
+                      : "contacts";
+              setTab(next);
+              document.getElementById("people-tab-" + next)?.focus();
+            }}
+            variant={tab === value ? "secondary" : "ghost"}
+            key={value}
+            onClick={() => setTab(value)}
+          >
+            {value === "contacts" ? (
+              <Users className="mr-2 size-4" aria-hidden />
+            ) : (
+              <CalendarDays className="mr-2 size-4" aria-hidden />
+            )}
+            {t(
+              "page.webmail." +
+                (value === "contacts" ? "contacts_title" : "calendar_title"),
+            )}
+          </Button>
+        ))}
+      </div>
+      <div
+        role="tabpanel"
+        id={"people-panel-" + tab}
+        aria-labelledby={"people-tab-" + tab}
+      >
+        {tab === "contacts" ? <PeopleContactsPanel /> : <PeopleCalendarPanel />}
+      </div>
+      <PeopleImportPanel />
+    </main>
   );
 }

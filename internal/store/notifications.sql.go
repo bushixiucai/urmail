@@ -14,6 +14,7 @@ import (
 const listTenantNotifications = `-- name: ListTenantNotifications :many
 SELECT id,kind,message_key,params,channel,state,created_at,read_at FROM notification_outbox
 WHERE tenant_id=$1 AND (user_id IS NULL OR user_id=nullif(current_setting('urmail.user_id',true),'')::bigint)
+AND urmail_archive_notification_visible(tenant_id,nullif(current_setting('urmail.user_id',true),'')::bigint,kind,params)
 AND ($2::bigint=0 OR id<$2) ORDER BY id DESC LIMIT 50
 `
 

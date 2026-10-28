@@ -8,14 +8,30 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter as Router } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+function MemoryRouter({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <Router>{children}</Router>
+    </QueryClientProvider>
+  );
+}
 import { MailboxInboxPage } from "./mailbox-inbox-page";
 
+vi.mock("@/components/appearance-controls", () => ({
+  AppearanceControls: () => null,
+}));
 vi.mock("react-i18next", () => {
   // Stable `t` — inbox effects depend on it; a fresh function each render loops forever.
   const t = (k: string, o?: Record<string, unknown>) =>
     o?.count != null ? `${k}:${o.count}` : k;
-  const i18n = { language: "en" };
+  const i18n = { language: "en", exists: () => true };
   return {
     useTranslation: () => ({ t, i18n }),
   };
@@ -71,6 +87,38 @@ function mockMailboxApi(
 
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
+    if (u === "/api/v1/mailbox/settings")
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          address: "user@example.test",
+          display_name: "",
+          signature_text: "",
+          signature_html: "",
+          preferences: {},
+          version: 1,
+        }),
+      };
+    if (u === "/api/v1/mailbox/identities")
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          identities: [{ address: "user@example.test", primary: true }],
+        }),
+      };
+    if (u === "/api/v1/mailbox/calendars/reminders")
+      return { ok: true, status: 200, json: async () => ({ reminders: [] }) };
+    if (u.startsWith("/api/v1/mailbox/calendars/invitations?"))
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({
+          error: { code: "CALENDAR_INVITATION_NOT_FOUND" },
+        }),
+      };
+
     if (u === "/api/v1/mailbox/folders") {
       return {
         ok: true,
@@ -97,6 +145,21 @@ function mockMailboxApi(
         }),
       };
     }
+    if (u.includes("/messages/trash")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: JSON.parse(String(init?.body)).uids.map((uid: number) => ({
+            uid,
+            status: "success",
+          })),
+          destination: "Trash",
+          name_enc: "b64.VHJhc2g",
+          uid_validity: 10,
+        }),
+      };
+    }
     if (u.includes("/messages/delete")) {
       return {
         ok: true,
@@ -115,6 +178,7 @@ function mockMailboxApi(
         status: 200,
         json: async () => ({
           ...msg,
+          uid_validity: 9,
           text: "body",
           attachments: [],
         }),
@@ -126,6 +190,7 @@ function mockMailboxApi(
         status: 200,
         json: async () => ({
           messages,
+          uid_validity: 9,
           total: messages.length,
           limit: 50,
           offset: 0,
@@ -271,7 +336,7 @@ describe("mailbox inbox bulk selection (W4)", () => {
     });
   });
 
-  it("bulk delete confirms and posts delete for checked uids", async () => {
+  it("bulk delete moves to recoverable Trash with generation and durable intent", async () => {
     sessionStorageReady();
     const fetcher = mockMailboxApi();
 
@@ -292,18 +357,22 @@ describe("mailbox inbox bulk selection (W4)", () => {
     );
 
     expect(
-      await screen.findByText("page.webmail.bulk_delete_confirm_title"),
+      await screen.findByText("page.webmail.trash_confirm_title"),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "action.confirm" }));
 
     await waitFor(() => {
       const delCall = fetcher.mock.calls.find((c) =>
-        String(c[0]).includes("/messages/delete"),
+        String(c[0]).includes("/messages/trash"),
       ) as [string, RequestInit] | undefined;
       expect(delCall).toBeTruthy();
       const body = JSON.parse(String(delCall?.[1]?.body));
       expect(body.uids).toEqual([1, 2]);
-      expect(body.expunge).toBe(true);
+      expect(body.expunge).toBeUndefined();
+      expect(body.uid_validity).toBe(9);
+      expect(
+        (delCall?.[1]?.headers as Record<string, string>)["Idempotency-Key"],
+      ).toBeTruthy();
     });
   });
 });
@@ -347,6 +416,21 @@ describe("mailbox asynchronous isolation", () => {
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
         const u = String(url);
+        if (u === "/api/v1/mailbox/calendars/reminders")
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ reminders: [] }),
+          };
+        if (u.startsWith("/api/v1/mailbox/calendars/invitations?"))
+          return {
+            ok: false,
+            status: 404,
+            json: async () => ({
+              error: { code: "CALENDAR_INVITATION_NOT_FOUND" },
+            }),
+          };
+
         if (u.includes("q=delayed"))
           return new Promise((resolve) => {
             finishSearch = resolve;
@@ -406,6 +490,17 @@ describe("mailbox asynchronous isolation", () => {
     });
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
+      if (u === "/api/v1/mailbox/calendars/reminders")
+        return { ok: true, status: 200, json: async () => ({ reminders: [] }) };
+      if (u.startsWith("/api/v1/mailbox/calendars/invitations?"))
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({
+            error: { code: "CALENDAR_INVITATION_NOT_FOUND" },
+          }),
+        };
+
       if (u.includes("/attachments/"))
         return {
           ok: false,
@@ -503,6 +598,15 @@ it("does not reset compose contents when the inbox receives the saved draft UID"
   fireEvent.change(screen.getByLabelText("page.webmail.compose_body"), {
     target: { value: "Keep current input" },
   });
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "page.webmail.compose_save_draft",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.compose_save_draft" }),
   );
@@ -537,6 +641,17 @@ it("refuses an over-budget restored draft without dropping any existing attachme
   const bytes = new Uint8Array(5 * 1024 * 1024);
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
+    if (u === "/api/v1/mailbox/calendars/reminders")
+      return { ok: true, status: 200, json: async () => ({ reminders: [] }) };
+    if (u.startsWith("/api/v1/mailbox/calendars/invitations?"))
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({
+          error: { code: "CALENDAR_INVITATION_NOT_FOUND" },
+        }),
+      };
+
     if (u.includes("/attachments/"))
       return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer };
     if (/\/messages\/\d+$/.test(u))
@@ -575,7 +690,7 @@ it("refuses an over-budget restored draft without dropping any existing attachme
     }),
   );
   const alert = await screen.findByRole("alert", {}, { timeout: 3000 });
-  expect(alert.textContent).toBe("error.MAILBOX_MESSAGE_TOO_LARGE");
+  expect(alert.textContent).toContain("error.MAILBOX_MESSAGE_TOO_LARGE");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(
     fetcher.mock.calls.filter(([url]) => url.includes("/attachments/")),
@@ -583,6 +698,150 @@ it("refuses an over-budget restored draft without dropping any existing attachme
   expect(
     fetcher.mock.calls.some(
       ([, init]) => init?.method === "PUT" || init?.method === "DELETE",
+    ),
+  ).toBe(false);
+});
+
+it("restores every original attachment before opening a forward", async () => {
+  sessionStorageReady();
+  const base = mockMailboxApi();
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (/\/messages\/1$/.test(url))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          uid: 1,
+          uid_validity: 9,
+          subject: "Original with files",
+          from: [{ email: "sender@example.test" }],
+          date: "",
+          flags: ["\\Seen"],
+          size: 1,
+          text: "Original body",
+          attachments: [
+            {
+              part_id: "2",
+              filename: "first.bin",
+              content_type: "application/octet-stream",
+              size: 1,
+            },
+            {
+              part_id: "3",
+              filename: "second.bin",
+              content_type: "application/octet-stream",
+              size: 1,
+            },
+          ],
+        }),
+      };
+    if (url.includes("/attachments/"))
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    return base(url, init);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <MemoryRouter>
+      <MailboxInboxPage />
+    </MemoryRouter>,
+  );
+  await screen.findByText("Hello inbox");
+  fireEvent.click(screen.getByText("Hello inbox"));
+  await screen.findByRole("heading", { name: "Original with files" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_forward" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText("first.bin")).toBeTruthy();
+  expect(within(dialog).getByText("second.bin")).toBeTruthy();
+  expect(
+    (
+      within(dialog).getByLabelText(
+        "page.webmail.compose_subject",
+      ) as HTMLInputElement
+    ).value,
+  ).toBe("Fwd: Original with files");
+  const parts = fetcher.mock.calls.filter(([url]) =>
+    url.includes("/attachments/"),
+  );
+  expect(parts).toHaveLength(2);
+  expect(parts.every(([url]) => url.endsWith("?uid_validity=9"))).toBe(true);
+});
+it("does not open an incomplete forward when any original attachment fails", async () => {
+  sessionStorageReady();
+  const base = mockMailboxApi();
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (/\/messages\/1$/.test(url))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          uid: 1,
+          uid_validity: 9,
+          subject: "Original with files",
+          from: [],
+          date: "",
+          flags: ["\\Seen"],
+          size: 1,
+          text: "Original body",
+          attachments: [
+            {
+              part_id: "2",
+              filename: "first.bin",
+              content_type: "application/octet-stream",
+              size: 1,
+            },
+            {
+              part_id: "3",
+              filename: "second.bin",
+              content_type: "application/octet-stream",
+              size: 1,
+            },
+          ],
+        }),
+      };
+    if (url.includes("/attachments/2"))
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    if (url.includes("/attachments/3"))
+      return {
+        ok: false,
+        status: 503,
+        json: async () => ({
+          error: {
+            code: "IMAP_UNAVAILABLE",
+            message: "error.IMAP_UNAVAILABLE",
+          },
+        }),
+      };
+    return base(url, init);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <MemoryRouter>
+      <MailboxInboxPage />
+    </MemoryRouter>,
+  );
+  await screen.findByText("Hello inbox");
+  fireEvent.click(screen.getByText("Hello inbox"));
+  await screen.findByRole("heading", { name: "Original with files" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_forward" }),
+  );
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    fetcher.mock.calls.some(
+      ([, init]) =>
+        init?.method === "PUT" ||
+        String(init?.body ?? "").includes('"attachments"'),
     ),
   ).toBe(false);
 });

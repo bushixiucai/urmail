@@ -183,7 +183,7 @@ func TestMailboxCalendarRequireSessionAndStayInMailbox(t *testing.T) {
 	if len(store.events) != 1 || store.events[0].MailboxID != 9 || store.events[0].TenantID != 7 {
 		t.Fatalf("stored=%+v", store.events)
 	}
-	listReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/calendars/events", nil)
+	listReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/mailbox/calendars/events?start=2026-03-01T00:00:00Z&end=2026-03-04T00:00:00Z", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
 	listed := httptest.NewRecorder()
 	r.ServeHTTP(listed, listReq)

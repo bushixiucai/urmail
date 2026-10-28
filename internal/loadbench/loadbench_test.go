@@ -8,13 +8,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
 func openFixture(t *testing.T) (*Harness, *Fixture) {
 	t.Helper()
 	platform, _ := testdb.OpenMigrated(t)
-	h := &Harness{Pool: platform}
+	background, err := db.OpenBackgroundPlatform(t.Context(), platform.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(background.Close)
+	h := &Harness{Pool: platform, BackgroundPool: background}
 	scale := DefaultScale()
 	if testing.Short() {
 		scale = SmokeScale()
@@ -144,11 +150,12 @@ func TestHarnessDeterminism(t *testing.T) {
 	}
 }
 
-// TestIsolationMarketingBurst is the resource-isolation proof: a marketing
-// claim burst runs concurrently while mailbox list/read latency is sampled.
+// TestIsolationMarketingBurst checks foreground PostgreSQL metadata isolation.
+// It does not measure SMTP, IMAP or native Webmail message reads. A marketing
+// claim burst runs concurrently while mailbox metadata latency is sampled.
 // The mailbox p95 must stay within the frozen isolation budget, proving the
-// marketing path (SKIP LOCKED leases, per-tenant advisory locks, quota
-// windows) does not starve normal mail reads. No message leaves the machine.
+// independently bounded marketing pool does not starve foreground metadata
+// reads. Actual mail protocol budgets use the isolated runtime journey.
 func TestIsolationMarketingBurst(t *testing.T) {
 	if testing.Short() {
 		t.Skip("isolation proof uses the full profile")

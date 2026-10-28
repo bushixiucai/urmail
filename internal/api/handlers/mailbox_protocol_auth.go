@@ -81,6 +81,10 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 			defer cancel()
 			_ = h.Sessions.Revoke(ctx, tokenHash)
 		}()
+		if session.OriginHost != "" && session.OriginHost != middleware.OriginHost(c.Request.Host) {
+			protocolUnauthorized(c)
+			return
+		}
 		if bounded, ok := h.Vault.(webmail.SessionVault); ok {
 			if bounded.PutSession(session, password) != nil {
 				c.AbortWithStatus(http.StatusTooManyRequests)
@@ -99,6 +103,18 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 }
 
 type protocolSessionLookup struct{ handler *MailboxNativeHandler }
+
+// BrandTenantMatches carries the native brand boundary through the protocol
+// adapter; standard Basic clients must not bypass or lose tenant brand checks.
+func (s protocolSessionLookup) BrandTenantMatches(ctx context.Context, tenant, brand int64) bool {
+	if s.handler == nil {
+		return false
+	}
+	checker, ok := s.handler.Auth.(interface {
+		BrandTenantMatches(context.Context, int64, int64) bool
+	})
+	return ok && checker.BrandTenantMatches(ctx, tenant, brand)
+}
 
 func (s protocolSessionLookup) GetMailboxSession(ctx context.Context, hash string) (webmail.Session, error) {
 	if s.handler == nil || s.handler.Sessions == nil {

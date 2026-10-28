@@ -139,14 +139,20 @@ func NewProductionRegistry(manager *ApplyManager) *Registry {
 	registry.quarantined = func() bool {
 		return config.RestoreQuarantined() || (manager != nil && manager.cfg != nil && manager.cfg.Quarantined)
 	}
+	RegisterDNSAuthorityOperations(registry, manager)
+	if manager != nil && manager.cfg != nil && manager.cfg.DNSSecondaryOnly {
+		return registry
+	}
 	registry.Register(OpHostObserve, manager.ObserveHost)
 	registry.Register(OpMailLogRead, ReadMailLog)
 	registry.Register(OpPostfixQueue, ReadPostfixQueue)
 	registry.Register(OpMailboxExpunge, manager.ExpungeRecall)
+	registry.Register(OpMailboxRecallPreview, manager.PreviewRecall)
 	registry.Register(OpSieveActivate, manager.ActivateSieve)
 	registry.Register(OpConfigApply, manager.Apply)
 	registry.Register(OpConfigStatus, manager.Status)
 	registry.Register(OpCertificateStatus, manager.CertificateStatus)
+	registry.Register(OpBrandHostActivate, manager.ActivateBrandHost)
 	registry.Register(OpCertificateIssue, manager.IssueCertificate)
 	registry.Register(OpCertificateRenew, manager.RenewCertificates)
 	registry.Register(OpBackupLocalCreate, BackupLocalCreate)
@@ -155,7 +161,7 @@ func NewProductionRegistry(manager *ApplyManager) *Registry {
 
 func quarantineReadOnly(op string) bool {
 	switch op {
-	case OpConfigStatus, OpMailLogRead, OpPostfixQueue, OpHostObserve, OpCertificateStatus:
+	case OpDNSAuthorityStatus, OpConfigStatus, OpMailLogRead, OpPostfixQueue, OpHostObserve, OpCertificateStatus:
 		return true
 	default:
 		return false

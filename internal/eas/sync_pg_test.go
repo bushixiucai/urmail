@@ -420,13 +420,13 @@ func TestSyncCalendarEXDATE(t *testing.T) {
 	if got := recNode.ChildText(tokCalRecType); got != "0" {
 		t.Fatalf("rec type %q", got)
 	}
-	exs := recNode.Child(tokCalExceptions)
+	exs := app.Child(tokCalExceptions)
 	if exs == nil {
 		t.Fatal("exceptions missing")
 	}
 	ex := exs.Child(tokCalException)
 	if ex == nil || ex.ChildText(tokCalExcDeleted) != "1" ||
-		ex.ChildText(tokCalExcStartTime) != exdate.UTC().Format(easTime) {
+		ex.ChildText(tokCalExcStartTime) != exdate.UTC().Format(calendarTime) {
 		t.Fatalf("exception %+v", ex)
 	}
 }

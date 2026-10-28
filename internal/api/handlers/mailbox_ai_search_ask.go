@@ -24,7 +24,8 @@ import (
 // mailbox session authentication of the AI draft routes; tenant admin and
 // platform roles gain no implicit mailbox content access.
 type AISearchAsk struct {
-	Pool *db.Pool
+	Pool   *db.Pool
+	Policy func(*gin.Context, webmail.Session, string, bool) bool
 	// Store overrides the PostgreSQL chunk store in offline tests.
 	Store    airetrieval.ChunkStore
 	Dialer   webmail.Dialer
@@ -47,9 +48,17 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Question string `json:"question"`
+		Question            string `json:"question"`
+		ConfigurationDigest string `json:"configuration_digest"`
+		Confirmed           bool   `json:"confirmed"`
+		Folder              string `json:"folder_enc"`
+		After               string `json:"after"`
+		Before              string `json:"before"`
 	}
 	if !bindMailboxMessage(c, &req) {
+		return
+	}
+	if h.Policy != nil && !h.Policy(c, session, req.ConfigurationDigest, req.Confirmed) {
 		return
 	}
 	question, err := aianswer.Question(req.Question)
@@ -57,6 +66,39 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
+	var scoped askScopeSource
+	if req.Folder != "" || req.After != "" || req.Before != "" {
+
+		if req.Folder != "" {
+			var err error
+			scoped.folder, err = webmail.DecodeFolderName(req.Folder)
+			if err != nil {
+				authError(c, 400, "INVALID_PARAMS")
+				return
+			}
+		}
+		if req.After != "" {
+			value, err := time.Parse("2006-01-02", req.After)
+			if err != nil {
+				authError(c, 400, "INVALID_PARAMS")
+				return
+			}
+			scoped.after = value
+		}
+		if req.Before != "" {
+			value, err := time.Parse("2006-01-02", req.Before)
+			if err != nil {
+				authError(c, 400, "INVALID_PARAMS")
+				return
+			}
+			scoped.before = value
+		}
+		if !scoped.after.IsZero() && !scoped.before.IsZero() && !scoped.after.Before(scoped.before) {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+	}
+
 	// Budget enforcement happens BEFORE any provider call; an exhausted
 	// budget is a distinct, actionable error for the client.
 	reservation, err := h.Accounting.Reserve(c.Request.Context(), session.TenantID, session.MailboxID, question)
@@ -72,8 +114,19 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 			return
 		}
 	}
+	settled := false
+	modelCalled := false
+	defer func() {
+		if !settled {
+			if modelCalled {
+				reservation.Settle(context.Canceled, false, 0, 0, func(_, _ int64) (int64, error) { return 0, nil })
+			} else {
+				reservation.releaseUnused()
+			}
+		}
+	}()
 	model, err := h.ModelFor(c.Request.Context(), session.TenantID)
-	if err != nil {
+	if err != nil || model == nil {
 		authError(c, http.StatusServiceUnavailable, "AI_UNAVAILABLE")
 		return
 	}
@@ -82,6 +135,15 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		return
 	}
 	defer closeSource()
+	canonicalSource := source
+	if req.Folder != "" || req.After != "" || req.Before != "" {
+		scoped.base = source
+		if native, ok := source.(airetrieval.WebmailSource); ok {
+			scoped.client = native.Client
+		}
+		source = scoped
+	}
+
 	principal := airetrieval.Principal{TenantID: session.TenantID, MailboxID: session.MailboxID}
 	chunkStore := h.chunkStore()
 	// Incremental refresh first so deleted or expunged messages can never be
@@ -90,7 +152,7 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 	// small capped backoff. Generation calls below are NEVER retried: the
 	// user retries those.
 	reindex := func() error {
-		_, err := (airetrieval.Indexer{Store: chunkStore, Source: source}).Reindex(c.Request.Context(), principal)
+		_, err := (airetrieval.Indexer{Store: chunkStore, Source: canonicalSource}).Reindex(c.Request.Context(), principal)
 		return err
 	}
 	if err := ai.RetryIdempotent(c.Request.Context(), ai.RetryConfig{Attempts: 3, Base: 100 * time.Millisecond, Max: 500 * time.Millisecond, RetryIf: func(err error) bool {
@@ -99,11 +161,25 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
 	}
-	answer, askErr := (airetrieval.Pipeline{Store: chunkStore, Source: source, Model: model}).Ask(c.Request.Context(), principal, question)
+	if req.Folder != "" || req.After != "" || req.Before != "" {
+		chunkStore = askScopeStore{ChunkStore: chunkStore, source: scoped}
+	}
+	countedModel := func(ctx context.Context, question string, sources []aianswer.Source) (string, []string, error) {
+		modelCalled = true
+		return model(ctx, question, sources)
+	}
+	var observed ai.CompletionResponse
+	askCtx := airetrieval.WithUsageRecorder(c.Request.Context(), func(usage ai.CompletionResponse) { observed = usage })
+	answer, askErr := (airetrieval.Pipeline{Store: chunkStore, Source: source, Model: countedModel}).Ask(askCtx, principal, question)
 	// Usage recording is best-effort: it must never fail the delivered
 	// answer. With no usage reported by the pipeline the reservation stays
 	// charged at its worst-case estimate, matching platform accounting.
-	reservation.Settle(askErr, false, 0, 0, func(_, _ int64) (int64, error) { return 0, nil })
+	settled = true
+	if modelCalled {
+		reservation.Settle(askErr, observed.UsageKnown, int64(observed.PromptTokens), int64(observed.OutputTokens), reservation.observedCost)
+	} else {
+		reservation.releaseUnused()
+	}
 	if askErr != nil {
 		switch ai.ClassifyFailure(askErr) {
 		case ai.ClassRateLimited:
@@ -113,6 +189,9 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		default:
 			authError(c, http.StatusBadGateway, "AI_SEARCH_ASK_UNAVAILABLE")
 		}
+		return
+	}
+	if h.Policy != nil && !h.Policy(c, session, req.ConfigurationDigest, req.Confirmed) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"text": answer.Text, "citations": answer.Citations, "grounded": answer.Grounded})

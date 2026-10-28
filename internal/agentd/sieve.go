@@ -41,7 +41,14 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	if err != nil || target.SieveMode != "managed" || !target.SieveScript.Valid || !safeKickAddress(target.Address) || sieve.Digest(target.SieveScript.String) != params.Digest {
 		return "", "", ErrRejected
 	}
-	if _, err = sieve.Decode(target.SieveScript.String); err != nil {
+	rules, err := sieve.Decode(target.SieveScript.String)
+	if err != nil {
+		return "", "", ErrRejected
+	}
+	// Recompile the typed policy so the accepted historical missing-copy
+	// declaration is repaired without changing its intended behavior.
+	canonical, err := sieve.Compile(rules)
+	if err != nil {
 		return "", "", ErrRejected
 	}
 	stage, err := os.MkdirTemp(m.root, "sieve-*")
@@ -50,7 +57,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 	}
 	defer func() { _ = os.RemoveAll(stage) }()
 	source := filepath.Join(stage, "script.sieve")
-	if err = os.WriteFile(source, []byte(target.SieveScript.String), 0600); err != nil {
+	if err = os.WriteFile(source, []byte(canonical), 0600); err != nil {
 		return "", "", ErrFailed
 	}
 	if m.run(ctx, "/usr/bin/sievec", source, filepath.Join(stage, "script.svbin")) != nil {
@@ -72,7 +79,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 		}
 		uid = 0
 	}
-	if _, err = writeFileAtomicOwned(destination, []byte(target.SieveScript.String), 0640, []string{root}, uid, gid); err != nil {
+	if _, err = writeFileAtomicOwned(destination, []byte(canonical), 0640, []string{root}, uid, gid); err != nil {
 		return "", "", ErrFailed
 	}
 	// This transaction only locks the authoritative source. Activation is the

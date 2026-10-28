@@ -30,6 +30,10 @@ type ApplicationCredentialStore interface {
 // approveFreshMFA deliberately requires a new factor even if the panel session
 // was created with MFA. A stolen bearer token cannot mint persistent credentials.
 func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUserByIDRow, bool) {
+	if !middleware.CanonicalHostAllowed(c) {
+		authError(c, http.StatusForbidden, "FORBIDDEN")
+		return store.GetUserByIDRow{}, false
+	}
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
 		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
@@ -113,7 +117,7 @@ func (h *AuthHandler) CreateLegacySession(c *gin.Context) {
 		}
 	}
 	expires := time.Now().Add(legacyMFALifetime)
-	session, err := h.Store.CreateSession(c, store.CreateSessionParams{ID: middleware.HashSessionToken(token), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
+	session, err := h.Store.CreateSession(c, store.CreateSessionParams{ID: middleware.HashSessionToken(token), OriginHost: middleware.OriginHost(c.Request.Host), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "SESSION_CREATE_FAILED")
 		return

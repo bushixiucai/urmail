@@ -81,11 +81,18 @@ func (p Pipeline) postFilterCitations(ctx context.Context, principal Principal, 
 		if !found || current.Digest != chunk.Digest || current.ContentVersion != chunk.ContentVersion {
 			continue
 		}
-		live, err := liveUIDs(ctx, p.Source, liveFolders, chunk.Folder)
+		live, err := liveUIDs(ctx, p.Source, liveFolders, chunk.Folder, chunk.UIDValidity)
 		if err != nil {
 			return aianswer.Answer{}, err
 		}
 		if !live[chunk.UID] {
+			continue
+		}
+		text, err := p.Source.MessageText(ctx, chunk.Folder, chunk.UID)
+		if err != nil {
+			return aianswer.Answer{}, err
+		}
+		if ContentDigest(text) != current.Digest {
 			continue
 		}
 		kept = append(kept, citation)
@@ -114,12 +121,17 @@ func CitationModel(provider ai.Provider, model string) aianswer.Model {
 			"Respond ONLY with one JSON object with keys text (string) and citations (array of string), " +
 			"where citations list the excerpt ids supporting the answer."
 		user := "Excerpts:\n" + listing.String() + "\nQuestion: " + question
+		maxTokens := 2048
 		request := ai.CompletionRequest{
-			Model:    model,
-			Messages: []ai.Message{{Role: "system", Content: system}, {Role: "user", Content: user}},
-			JSONMode: true,
+			MaxTokens: &maxTokens,
+			Model:     model,
+			Messages:  []ai.Message{{Role: "system", Content: system}, {Role: "user", Content: user}},
+			JSONMode:  true,
 		}
 		response, err := provider.Complete(ctx, request)
+		if record, ok := ctx.Value(usageRecorderKey{}).(func(ai.CompletionResponse)); ok {
+			record(response)
+		}
 		if err != nil {
 			return "", nil, err
 		}
@@ -153,4 +165,13 @@ func extractJSONObject(raw string) string {
 		return raw
 	}
 	return raw[start : end+1]
+}
+
+// UsageRecorder observes provider-reported billing metadata without exposing
+// provider credentials, reasoning content or model output to the caller.
+type usageRecorderKey struct{}
+
+// WithUsageRecorder binds one request-local observer to the citation pipeline.
+func WithUsageRecorder(ctx context.Context, record func(ai.CompletionResponse)) context.Context {
+	return context.WithValue(ctx, usageRecorderKey{}, record)
 }

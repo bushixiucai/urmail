@@ -3,8 +3,10 @@ package marketing
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/marketingflow"
@@ -34,7 +36,7 @@ func (s *FlowStore) MayAdvance(ctx context.Context, tenant, flow int64, email st
 	if err != nil {
 		return false, err
 	}
-	return q.PlatformMarketingFlowMayAdvance(ctx, store.PlatformMarketingFlowMayAdvanceParams{PTenant: tenant, PFlow: flow, PEmail: email})
+	return q.PlatformVersionedMarketingFlowMayAdvance(ctx, store.PlatformVersionedMarketingFlowMayAdvanceParams{TenantID: tenant, RuntimeFlowID: flow, Email: email})
 }
 
 // Position loads the stored flow position for one recipient.
@@ -67,13 +69,29 @@ func (s *FlowStore) Save(ctx context.Context, tenant, flow int64, email string, 
 		// Advance records a terminal unsubscribe through the same commit path.
 		event = "unsubscribed"
 	}
-	result, err := q.PlatformCommitMarketingFlowWait(ctx, store.PlatformCommitMarketingFlowWaitParams{PTenant: tenant, PFlow: flow, PEmail: email, Event: event, NextKey: p.Step})
+	var result string
+	if lease := leaseFromContext(ctx); lease != nil {
+		result, err = q.PlatformCommitMarketingFlowFenced(ctx, store.PlatformCommitMarketingFlowFencedParams{PTenant: tenant, PFlow: flow, PEmail: email, POwner: lease.owner, PFence: lease.fence, PNext: p.Step, PUnsubscribed: p.Unsubscribed, PConfirmed: lease.confirmed})
+	} else {
+		versioned, checkErr := q.PlatformMarketingFlowIsVersioned(ctx, store.PlatformMarketingFlowIsVersionedParams{TenantID: tenant, RuntimeFlowID: flow})
+		if checkErr != nil {
+			return checkErr
+		}
+		if versioned {
+			return marketingflow.ErrNotAllowed
+		}
+		result, err = q.PlatformCommitMarketingFlowWait(ctx, store.PlatformCommitMarketingFlowWaitParams{PTenant: tenant, PFlow: flow, PEmail: email, Event: event, NextKey: p.Step})
+	}
 	if err != nil {
 		return err
 	}
-	if result == "missing" {
+	switch result {
+	case "uncertain":
+		return marketingflow.ErrUncertain
+	case "missing", "blocked", "stale_lease":
 		return marketingflow.ErrNotAllowed
 	}
+
 	return nil
 }
 
@@ -83,6 +101,18 @@ func (s *FlowStore) MarkUncertain(ctx context.Context, tenant, flow int64, email
 	q, err := s.q(ctx)
 	if err != nil {
 		return err
+	}
+	if lease := leaseFromContext(ctx); lease != nil {
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+		defer cancel()
+		changed, markErr := q.PlatformMarkMarketingFlowUncertainFenced(finishCtx, store.PlatformMarkMarketingFlowUncertainFencedParams{TenantID: tenant, FlowID: flow, Email: email, LeaseOwner: pgtype.Text{String: lease.owner, Valid: true}, LeaseFence: lease.fence})
+		if markErr != nil {
+			return markErr
+		}
+		if changed == 0 {
+			return marketingflow.ErrNotAllowed
+		}
+		return nil
 	}
 	_, err = q.PlatformMarkMarketingFlowUncertain(ctx, store.PlatformMarkMarketingFlowUncertainParams{PTenant: tenant, PFlow: flow, PEmail: email})
 	return err
@@ -101,9 +131,21 @@ func (s *FlowStore) StillAllowed(ctx context.Context, tenant, flow int64, email 
 // TemplateFlowContent resolves step content from the tenant template named by
 // the step key, the wiring the flow worker supplies in production.
 func TemplateFlowContent(pool *db.Pool) FlowContent {
-	return func(ctx context.Context, tenantID int64, step string) (string, string, bool, error) {
+	return func(ctx context.Context, tenantID, flowID int64, step string) (string, string, bool, error) {
 		if pool == nil {
 			return "", "", false, ErrChannelUnavailable
+		}
+		q := store.New(pool.Pool)
+		versioned, err := q.PlatformMarketingFlowIsVersioned(ctx, store.PlatformMarketingFlowIsVersionedParams{TenantID: tenantID, RuntimeFlowID: flowID})
+		if err != nil {
+			return "", "", false, err
+		}
+		if versioned {
+			content, contentErr := q.PlatformGetMarketingFlowSnapshotContent(ctx, store.PlatformGetMarketingFlowSnapshotContentParams{TenantID: tenantID, RuntimeFlowID: flowID, StepKey: step})
+			if contentErr != nil {
+				return "", "", false, contentErr
+			}
+			return content.Subject, content.TextBody, true, nil
 		}
 		row, err := store.New(pool.Pool).PlatformGetMarketingFlowTemplate(ctx, store.PlatformGetMarketingFlowTemplateParams{TenantID: tenantID, Name: step})
 		if errors.Is(err, pgx.ErrNoRows) {

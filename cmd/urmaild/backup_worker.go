@@ -18,7 +18,7 @@ import (
 // The privileged local backup runs through the agent op; encryption and
 // upload happen in-process with Go libraries (age, net/http, sftp).
 func newBackupWorker(cfg *config.Config, pool *db.Pool, recipient, offsiteURI string) (*backupauto.Worker, error) {
-	if cfg.DevMode || cfg.Quarantined {
+	if !cfg.BackgroundWorkersAllowed() {
 		return nil, fmt.Errorf("disabled in dev/quarantine mode")
 	}
 	creds := backupauto.Credentials{

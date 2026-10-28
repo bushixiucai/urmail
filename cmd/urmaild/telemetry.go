@@ -14,7 +14,7 @@ import (
 // startMailTelemetry reads only through the typed root-agent capability. The
 // management daemon never receives broad adm-group access to system logs.
 func startMailTelemetry(ctx context.Context, cfg *config.Config, pool *db.Pool, logger *zap.Logger) {
-	if cfg.DevMode || cfg.Quarantined {
+	if !cfg.BackgroundWorkersAllowed() {
 		return
 	}
 	stream := cfg.MyHostname
@@ -36,7 +36,7 @@ func mailCertificateProbeAddress(cfg *config.Config) string {
 
 // startMailObservability remains read-only toward host services.
 func startMailObservability(ctx context.Context, cfg *config.Config, pool *db.Pool, logger *zap.Logger) {
-	if cfg.DevMode || cfg.Quarantined {
+	if !cfg.BackgroundWorkersAllowed() {
 		return
 	}
 	stream := cfg.MyHostname

@@ -3,7 +3,7 @@
 -- mailbox bearer session; cross-mailbox rows are unreachable by construction.
 
 -- name: PlatformGetMailboxSettings :one
-SELECT display_name,signature_text,signature_html,preferences,version,updated_at
+SELECT display_name,signature_text,signature_html,preferences,identity_profiles,version,updated_at
 FROM mailbox_settings WHERE tenant_id=sqlc.arg(tenant_id)::bigint AND mailbox_id=sqlc.arg(mailbox_id)::bigint;
 
 -- name: PlatformUpdateMailboxSettings :execrows
@@ -12,14 +12,15 @@ SET display_name=sqlc.arg(display_name)::text,
     signature_text=sqlc.arg(signature_text)::text,
     signature_html=sqlc.arg(signature_html)::text,
     preferences=sqlc.arg(preferences)::jsonb,
+    identity_profiles=COALESCE(sqlc.narg(identity_profiles)::jsonb,identity_profiles),
     version=version+1,
     updated_at=now()
 WHERE tenant_id=sqlc.arg(tenant_id)::bigint AND mailbox_id=sqlc.arg(mailbox_id)::bigint
   AND version=sqlc.arg(expected_version)::integer;
 
 -- name: PlatformInsertMailboxSettings :execrows
-INSERT INTO mailbox_settings(tenant_id,mailbox_id,display_name,signature_text,signature_html,preferences)
-VALUES(sqlc.arg(tenant_id)::bigint,sqlc.arg(mailbox_id)::bigint,sqlc.arg(display_name)::text,sqlc.arg(signature_text)::text,sqlc.arg(signature_html)::text,sqlc.arg(preferences)::jsonb)
+INSERT INTO mailbox_settings(tenant_id,mailbox_id,display_name,signature_text,signature_html,preferences,identity_profiles)
+VALUES(sqlc.arg(tenant_id)::bigint,sqlc.arg(mailbox_id)::bigint,sqlc.arg(display_name)::text,sqlc.arg(signature_text)::text,sqlc.arg(signature_html)::text,sqlc.arg(preferences)::jsonb,COALESCE(sqlc.narg(identity_profiles)::jsonb,'{}'::jsonb))
 ON CONFLICT(mailbox_id) DO NOTHING;
 
 -- name: PlatformGetMailboxQuota :one

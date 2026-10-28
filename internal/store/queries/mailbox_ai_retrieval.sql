@@ -40,3 +40,12 @@ SELECT id, folder, folder_uidvalidity, message_uid, chunk_index,
        content_version, content, content_digest
 FROM mailbox_ai_chunks
 WHERE id = $3 AND tenant_id = $1 AND mailbox_id = $2;
+
+-- name: SearchMailboxAIChunksInScope :many
+SELECT c.id,c.folder,c.folder_uidvalidity,c.message_uid,c.chunk_index,c.content_version,c.content,c.content_digest
+FROM mailbox_ai_chunks c
+WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id)
+AND c.content ILIKE '%' || sqlc.arg(query)::text || '%'
+AND EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(scope)::jsonb) AS s(folder text,validity bigint,uids bigint[])
+ WHERE s.folder=c.folder AND s.validity=c.folder_uidvalidity AND c.message_uid=ANY(s.uids))
+ORDER BY c.id LIMIT sqlc.arg(result_limit)::int;

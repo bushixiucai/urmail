@@ -43,6 +43,7 @@ func newSanitizeTestHandler(t *testing.T, msg *webmail.Message) (*MailboxNativeH
 func TestGetMessageSanitizesHTMLRenderTime(t *testing.T) {
 	msg := &webmail.Message{
 		MessageSummary: webmail.MessageSummary{UID: 7, Subject: "Hi"},
+		UIDValidity:    42,
 		HTML: "<p>hi</p><script>alert(1)</script><img src=" + "\"" +
 			"https://track.example/pixel.gif" + "\"" + "><img src=" + "\"" +
 			"cid:logo@x" + "\"" + "><a href=" + "\"" +
@@ -74,7 +75,7 @@ func TestGetMessageSanitizesHTMLRenderTime(t *testing.T) {
 		}
 	}
 	// cid image rewritten to the same-origin attachment endpoint.
-	if !strings.Contains(got.HTML, "/api/v1/mailbox/folders/INBOX/messages/7/attachments/3") {
+	if !strings.Contains(got.HTML, "/api/v1/mailbox/folders/"+folder+"/messages/7/attachments/3?uid_validity=42") {
 		t.Fatalf("cid not rewritten: %s", got.HTML)
 	}
 	blocked := false
@@ -134,9 +135,9 @@ func TestCIDAttachmentURLMapping(t *testing.T) {
 		{PartID: "1.2", ContentID: "logo@x"},
 		{PartID: "2"},
 	}
-	fn := cidAttachmentURL("INBOX", 9, atts)
+	fn := cidAttachmentURL("收件/工作", 9, atts, 42)
 	url, ok := fn("logo@x")
-	if !ok || url != "/api/v1/mailbox/folders/INBOX/messages/9/attachments/1.2" {
+	if !ok || url != "/api/v1/mailbox/folders/"+webmail.EncodeFolderName("收件/工作")+"/messages/9/attachments/1.2?uid_validity=42" {
 		t.Fatalf("map: %q %v", url, ok)
 	}
 	if _, ok := fn("missing@x"); ok {

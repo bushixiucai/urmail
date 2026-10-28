@@ -49,7 +49,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=yes
 SystemCallArchitectures=native
 
-ReadWritePaths=/var/spool/postfix /var/lib/postfix /etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /etc/opendkim /etc/opendkim/keys /var/lib/urmail-agent /var/lib/urmail-acme /run/urmail /var/mail /etc/letsencrypt /var/log/letsencrypt
+ReadWritePaths=/var/lib/nsd/urmail-secondary /etc/systemd/system/nsd.service.d /var/spool/postfix /var/lib/postfix /etc/urmail /etc/postfix /etc/dovecot /etc/nginx /etc/nsd /etc/nsd/zones /etc/opendkim /etc/opendkim/keys /var/lib/urmail-agent /var/lib/urmail-acme /run/urmail /var/mail /etc/letsencrypt /var/log/letsencrypt
 
 [Install]
 WantedBy=multi-user.target

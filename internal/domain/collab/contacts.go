@@ -36,6 +36,10 @@ type Contact struct {
 
 // NormalizeContact trims fields, lower-cases addresses and rejects unsafe input.
 func NormalizeContact(in Contact) (Contact, error) {
+	if utf8.RuneCountInString(in.DisplayName) > 200 || utf8.RuneCountInString(in.GivenName) > 100 || utf8.RuneCountInString(in.FamilyName) > 100 {
+		return Contact{}, ErrInvalidContact
+	}
+
 	out := Contact{
 		DisplayName: cleanLine(in.DisplayName, 200),
 		GivenName:   cleanLine(in.GivenName, 100),
@@ -47,6 +51,9 @@ func NormalizeContact(in Contact) (Contact, error) {
 	}
 	seen := map[string]struct{}{}
 	for _, email := range in.Emails {
+		if utf8.RuneCountInString(email.Label) > 40 {
+			return Contact{}, ErrInvalidContact
+		}
 		addr := strings.ToLower(strings.TrimSpace(email.Address))
 		if !validEmail(addr) {
 			return Contact{}, ErrInvalidContact
@@ -58,6 +65,9 @@ func NormalizeContact(in Contact) (Contact, error) {
 		out.Emails = append(out.Emails, Email{Address: addr, Label: cleanLine(email.Label, 40)})
 	}
 	for _, phone := range in.Phones {
+		if utf8.RuneCountInString(phone.Label) > 40 || utf8.RuneCountInString(phone.Number) > 40 {
+			return Contact{}, ErrInvalidContact
+		}
 		number := cleanLine(phone.Number, 40)
 		if number == "" {
 			return Contact{}, ErrInvalidContact

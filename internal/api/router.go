@@ -17,6 +17,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/autoconfig"
+	"github.com/bushixiucai/urmail/internal/billingrenew"
 	"github.com/bushixiucai/urmail/internal/caldav"
 	"github.com/bushixiucai/urmail/internal/carddav"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
@@ -34,10 +35,18 @@ import (
 
 // Options carries the dependencies of the HTTP server.
 type Options struct {
-	DevMode     bool
-	Quarantined bool
-	DNSPlans    *onboarding.Service
-	Logger      *zap.Logger
+	DNSAuthorityAgent  handlers.DNSAuthorityAgent
+	BrandHostTXTLookup func(context.Context, string) ([]string, error)
+	// ArchiveRoot overrides the trusted archive storage root for isolated hosts.
+	ArchiveRoot      string
+	DevMode          bool
+	Quarantined      bool
+	MarketingEnabled bool
+	WorkersHeld      bool
+	Recurring        *billingrenew.Dispatcher
+	SieveGateReady   func() bool
+	DNSPlans         *onboarding.Service
+	Logger           *zap.Logger
 	// AppPool is the tenant-scoped pool.
 	AppPool *db.Pool
 	// PlatformPool is the platform-scoped pool.
@@ -110,7 +119,12 @@ func New(opts Options) *gin.Engine {
 	}
 	gin.SetMode(gin.ReleaseMode)
 
+	if opts.Recurring == nil && opts.PlatformPool != nil {
+		registry := &payment.Registry{Store: store.New(opts.PlatformPool), Secrets: opts.Secrets, BaseURL: opts.BaseURL}
+		opts.Recurring = &billingrenew.Dispatcher{Pool: opts.PlatformPool, Registry: registry, Secrets: opts.Secrets, Adapters: billingrenew.NewProductionAdapters(registry)}
+	}
 	engine := gin.New()
+	engine.Use(middleware.BrandHostBoundary(opts.PlatformPool, opts.MyHostname))
 	engine.Use(collaborationProtocolGate(opts))
 	clientConfig := autoconfig.Config{PrimaryMailHost: opts.MyHostname, POP3Enabled: true, CardDAVPath: "/api/v1/carddav/", CalDAVPath: "/caldav/", EASPath: "/Microsoft-Server-ActiveSync"}
 	if !protocolEnabled(opts.CardDAVEnabled) {
@@ -192,11 +206,14 @@ func New(opts Options) *gin.Engine {
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
 	archiveEvidence := handlers.ArchiveEvidence{Q: platformQueries}
-	archiveContent := &handlers.ArchiveContentHandler{Store: appQueries}
+	archiveContent := &handlers.ArchiveContentHandler{Store: appQueries, Root: opts.ArchiveRoot}
 	refundAdmin := &handlers.RefundAdminHandler{Store: platformQueries}
 	invoiceProfile := &handlers.InvoiceProfileHandler{Store: appQueries, Platform: platformQueries}
-	supportHandler := &handlers.SupportHandler{Store: appQueries, Platform: platformQueries, PlatformPool: opts.PlatformPool}
-	recallHandler := &handlers.RecallHandler{Store: appQueries, Platform: platformQueries, Expunger: opts.Recall}
+	transportHandler := handlers.NewTransportSecurityHandler(opts.PlatformPool, opts.AppPool, opts.MyHostname, opts.Reconcile)
+	engine.GET("/.well-known/mta-sts.txt", transportHandler.Policy)
+	engine.POST("/api/v1/tls-reports/:fqdn", middleware.RateLimitWindow(30, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP() + "/" + c.Param("fqdn"), true }), transportHandler.Intake)
+	supportHandler := &handlers.SupportHandler{Store: appQueries, Platform: platformQueries, PlatformPool: opts.PlatformPool, DiagnosticKey: []byte(opts.QuoteHMACKey)}
+	recallHandler := &handlers.RecallHandler{AppPool: opts.AppPool, Store: appQueries, Platform: platformQueries, Expunger: opts.Recall}
 	auditHandler := handlers.NewAuditHandler(appQueries)
 	complianceGrantHandler := &handlers.ComplianceGrantHandler{Store: appQueries}
 	billingHandler := handlers.NewBillingHandler(appQueries)
@@ -205,6 +222,8 @@ func New(opts Options) *gin.Engine {
 	billingHandler.BaseURL = opts.BaseURL
 	billingHandler.QuoteHMACKey = []byte(opts.QuoteHMACKey)
 	brandingHandler := handlers.NewBrandingHandler(platformQueries)
+	brandingHandler.PrimaryHost = opts.MyHostname
+	brandingHandler.Reconcile = opts.Reconcile
 	platformHandler := handlers.NewPlatformHandler(platformQueries)
 	platformHandler.Pool = opts.PlatformPool
 	platformHandler.Reconcile = opts.Reconcile
@@ -245,6 +264,7 @@ func New(opts Options) *gin.Engine {
 	aiSearchAsk.Accounting = handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
 	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
 	mailboxNative := &handlers.MailboxNativeHandler{
+		MailHost:  opts.MyHostname,
 		Enabled:   opts.WebmailNative && platformQueries != nil,
 		Auth:      nativeStore,
 		Sessions:  nativeStore,
@@ -260,6 +280,9 @@ func New(opts Options) *gin.Engine {
 		Rules:        handlers.StoreMailboxRules{Pool: opts.PlatformPool},
 		Sieve:        opts.SieveActivator,
 	}
+	if opts.WebmailSubmitter != nil {
+		mailboxNative.Submitter = opts.WebmailSubmitter
+	}
 	if protocolEnabled(opts.EASEnabled) && platformQueries != nil {
 		easServer := eas.NewServer(opts.PlatformPool)
 		easServer.Vault = webmailVault
@@ -272,7 +295,7 @@ func New(opts Options) *gin.Engine {
 		mailboxNative.EAS = easServer
 	}
 	contactsHandler := handlers.MailboxContactsHandler{Service: appcollab.Service{Q: platformQueries}, GroupStore: platformQueries, Groups: platformQueries}
-	calendarHandler := handlers.MailboxCalendarHandler{Service: appcollab.Service{Q: platformQueries}, Submitter: opts.WebmailSubmitter, Vault: opts.WebmailVault}
+	calendarHandler := handlers.MailboxCalendarHandler{Native: mailboxNative, Pool: opts.PlatformPool, Service: appcollab.Service{Q: platformQueries}, Submitter: mailboxNative.Submitter, Vault: webmailVault, MaySend: mailboxNative.MaySend}
 	deliveryHandler := &handlers.DeliveryHandler{Store: appQueries, Platform: platformQueries, Queue: opts.Queue, Stream: opts.TelemetryStream}
 	marketingHandler := &handlers.MarketingHandler{Store: appQueries, Platform: platformQueries, Secrets: opts.Secrets}
 	marketingSuppressionHandler := &handlers.MarketingSuppressionHandler{Store: appQueries, Tokens: opts.MarketingTokens, AppPool: opts.AppPool, Messages: opts.Messages}
@@ -345,6 +368,12 @@ func New(opts Options) *gin.Engine {
 		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore, webmailVault))
 		{
 			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
+			mailboxAuthed.POST("/folders", mailboxNative.CreateFolder)
+			mailboxAuthed.PATCH("/folders/:name", mailboxNative.RenameFolder)
+			mailboxAuthed.DELETE("/folders/:name", mailboxNative.DeleteFolder)
+			mailboxAuthed.POST("/folders/:name/messages/copy", mailboxNative.CopyMessages)
+			mailboxAuthed.POST("/folders/:name/messages/trash", mailboxNative.TrashMessages)
+			mailboxAuthed.POST("/folders/:name/messages/restore", mailboxNative.RestoreMessages)
 			// WEBMAIL-004 cross-folder search (bounded fan-out + date merge).
 			mailboxAuthed.GET("/search", mailboxNative.CrossFolderSearch)
 			mailboxAuthed.GET("/folders/:name/messages", mailboxNative.ListMessages)
@@ -354,6 +383,7 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.GET("/folders/:name/messages/:uid", mailboxNative.GetMessage)
 			mailboxAuthed.GET("/folders/:name/messages/:uid/attachments/:part_id", mailboxNative.GetAttachment)
 			mailboxAuthed.GET("/folders/:name/messages/:uid/raw", mailboxNative.GetRawMessage)
+			handlers.RegisterMailboxImportRoutes(mailboxAuthed, mailboxNative)
 			mailboxAuthed.POST("/folders/:name/import", mailboxNative.ImportMessage)
 			mailboxAuthed.POST("/send", mailboxNative.SendMessage)
 			mailboxAuthed.PUT("/drafts", mailboxNative.SaveDraft)
@@ -362,6 +392,7 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/scheduled-sends", mailboxNative.CreateScheduledSend)
 			mailboxAuthed.GET("/scheduled-sends", mailboxNative.ListScheduledSends)
 			mailboxAuthed.DELETE("/scheduled-sends/:id", mailboxNative.CancelScheduledSend)
+			mailboxAuthed.POST("/scheduled-sends/:id/repair-sent-copy", mailboxNative.RepairScheduledSentCopy)
 			mailboxAuthed.POST("/password", mailboxNative.ChangePassword)
 			// WEBMAIL-005 signature, display name, preferences, identities.
 			mailboxAuthed.GET("/settings", mailboxNative.GetSettings)
@@ -376,6 +407,9 @@ func New(opts Options) *gin.Engine {
 			// delivery policies; private rules never classify another recipient.
 			mailboxAuthed.POST("/spam/feedback", (&handlers.MailboxSpamFeedback{Pool: opts.AppPool, Reconcile: opts.Reconcile}).Feedback)
 			mailboxAuthed.GET("/contacts", contactsHandler.ListContacts)
+			mailboxDataImport := handlers.MailboxDataImport{Pool: opts.PlatformPool}
+			mailboxAuthed.POST("/data/import/:action", mailboxDataImport.Handle)
+			mailboxAuthed.GET("/data/imports", mailboxDataImport.History)
 			mailboxAuthed.POST("/contacts", contactsHandler.CreateContact)
 			mailboxAuthed.PUT("/contacts/:id", contactsHandler.UpdateContact)
 			mailboxAuthed.DELETE("/contacts/:id", contactsHandler.DeleteContact)
@@ -387,6 +421,8 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/contacts/groups", contactsHandler.CreateGroup)
 			mailboxAuthed.DELETE("/contacts/groups/:id", contactsHandler.DeleteGroup)
 			mailboxAuthed.POST("/contacts/groups/members", contactsHandler.AddGroupMember)
+			mailboxAuthed.GET("/contacts/groups/:id/members", contactsHandler.ListGroupMembers)
+			mailboxAuthed.DELETE("/contacts/groups/:id/members/:contact", contactsHandler.RemoveGroupMember)
 			mailboxAuthed.GET("/carddav/addressbook", contactsHandler.CardDAVReport)
 			mailboxAuthed.Handle("PROPFIND", "/carddav/addressbook", contactsHandler.CardDAVPropfind)
 			mailboxAuthed.PUT("/carddav/addressbook", contactsHandler.CardDAVWrite)
@@ -401,8 +437,11 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.GET("/ai/drafts/:id", aiDrafts.Get)
 			mailboxAuthed.PUT("/ai/drafts/:id", aiDrafts.Update)
 			mailboxAuthed.POST("/ai/search-ask", aiSearchAsk.Handle)
+			handlers.RegisterNativeMailboxAI(mailboxAuthed, mailboxNative, mailboxAI, aiSearchAsk)
 			// AI-005 server-authoritative tenant budget visibility.
 			mailboxAuthed.GET("/ai/budget", aiBudgetStatus.BudgetStatus)
+			handlers.RegisterCalendarReminderRoutes(mailboxAuthed, calendarHandler)
+			handlers.RegisterCalendarIncomingRoutes(mailboxAuthed, calendarHandler)
 			mailboxAuthed.GET("/calendars/events", calendarHandler.ListEvents)
 			mailboxAuthed.POST("/calendars/events", calendarHandler.CreateEvent)
 			mailboxAuthed.POST("/calendars/events/:id/invitations", calendarHandler.SendInvitations)
@@ -480,6 +519,7 @@ func New(opts Options) *gin.Engine {
 			platform.Use(middleware.RequireAuth(authQueries))
 			platform.Use(middleware.RequirePlatformAdmin(authQueries))
 			platform.Use(middleware.RequireCSRF())
+			handlers.RegisterRecurringAdminRoutes(platform, opts.Recurring)
 			{
 				platform.GET("/overview", platformHandler.Overview)
 				platform.GET("/settings", platformHandler.Settings)
@@ -498,6 +538,8 @@ func New(opts Options) *gin.Engine {
 				platform.POST("/brands", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.Save)
 				platform.GET("/plans", platformHandler.Plans)
 				platform.GET("/brand-hosts", brandingHandler.Hosts)
+				platform.GET("/brand-hosts/:hostname/lifecycle", (&handlers.BrandHostLifecycleHandler{Pool: opts.PlatformPool, Agent: opts.DNSAuthorityAgent}).Status)
+				platform.POST("/brand-hosts/:hostname/lifecycle", (&handlers.BrandHostLifecycleHandler{Pool: opts.PlatformPool, Agent: opts.DNSAuthorityAgent, Reconcile: opts.Reconcile, LookupTXT: opts.BrandHostTXTLookup}).Action)
 				platform.POST("/brand-hosts", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.BindHost)
 				platform.DELETE("/brand-hosts/:hostname", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.UnbindHost)
 				platform.PATCH("/brands/:id/status", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.SetStatus)
@@ -606,6 +648,11 @@ func New(opts Options) *gin.Engine {
 		protected.Use(middleware.RequireAuth(authQueries))
 		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
+		handlers.RegisterArchiveCaseRoutes(protected, opts.AppPool, opts.PlatformPool, opts.ArchiveRoot)
+		renewalEnrollment := billingrenew.EnrollmentService{Dispatcher: opts.Recurring, QuoteKey: []byte(opts.QuoteHMACKey)}
+		handlers.RegisterRenewalRoutes(protected, renewalEnrollment)
+		handlers.RegisterHostedRenewalRoutes(protected, renewalEnrollment)
+		handlers.RegisterMarketingFlowRoutes(protected, appQueries, opts.MarketingEnabled && !opts.DevMode && !opts.Quarantined)
 		{
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
@@ -719,11 +766,19 @@ func New(opts Options) *gin.Engine {
 			protected.PATCH("/support/tickets/:ticket_id/status", supportHandler.Status)
 			protected.GET("/support/attachments/:attachment_id", supportHandler.Attachment)
 			protected.GET("/support/announcements", supportHandler.Announcements)
+			handlers.RegisterDNSAuthorityRoutes(protected, &handlers.DNSAuthorityHandler{App: opts.AppPool, Agent: opts.DNSAuthorityAgent, Reconcile: opts.Reconcile})
 			protected.GET("/support/help", supportHandler.Help)
+			protected.GET("/domains/:id/transport-security", middleware.RequireRole("owner", "admin"), transportHandler.Get)
+			protected.PUT("/domains/:id/transport-security", middleware.RequireRole("owner", "admin"), transportHandler.Publish)
+			protected.DELETE("/domains/:id/transport-security", middleware.RequireRole("owner", "admin"), transportHandler.Disable)
+			protected.POST("/domains/:id/transport-security/observe", middleware.RequireRole("owner", "admin"), transportHandler.Observe)
+			protected.GET("/domains/:id/transport-security/reports", middleware.RequireRole("owner", "admin"), transportHandler.Reports)
+			protected.POST("/support/diagnostics", middleware.RequireRole("owner", "admin"), supportHandler.Diagnostics)
 
 			protected.POST("/compliance/recalls", middleware.RequireRole("owner", "admin"), recallHandler.Create)
 			protected.GET("/compliance/recalls", middleware.RequireRole("owner", "admin"), recallHandler.List)
 			protected.GET("/compliance/recalls/:id", middleware.RequireRole("owner", "admin"), recallHandler.Get)
+			handlers.RegisterRecallProductRoutes(protected, recallHandler)
 			protected.POST("/archive/:id/hold", middleware.RequireRole("owner", "admin"), archiveHandler.SetHold)
 			protected.POST("/archive/:id/release", middleware.RequireRole("owner", "admin"), archiveHandler.ClearHold)
 			protected.DELETE("/archive/:id", middleware.RequireRole("owner", "admin"), archiveHandler.Delete)
@@ -789,7 +844,7 @@ func healthz(opts Options) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
 
-		status := gin.H{"status": "ok", "version": opts.Version, "mode": "production", "quarantined": opts.Quarantined}
+		status := gin.H{"status": "ok", "version": opts.Version, "mode": "production", "quarantined": opts.Quarantined, "workers_held": opts.WorkersHeld}
 		if opts.DevMode {
 			status["mode"] = "development"
 		}
@@ -800,6 +855,14 @@ func healthz(opts Options) gin.HandlerFunc {
 			return
 		}
 		status["db"] = "ok"
+		if opts.SieveGateReady != nil {
+			status["sieve_outbound_gate_ready"] = opts.SieveGateReady()
+			if status["sieve_outbound_gate_ready"] == false {
+				status["status"] = "degraded"
+				c.JSON(http.StatusServiceUnavailable, status)
+				return
+			}
+		}
 		c.JSON(http.StatusOK, status)
 	}
 }

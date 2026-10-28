@@ -1,3 +1,5 @@
+import { RecallWorkspace } from "./recall-workspace";
+import { ArchiveInvestigations } from "./investigations";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -228,6 +230,8 @@ function ArchiveWorkspace() {
           {notice}
         </p>
       )}
+      <ArchiveInvestigations archiveRevision={refresh} />
+      {mayManage && <RecallWorkspace entries={entries} />}
       <section className="space-y-4" aria-label={t("archive.title")}>
         <form onSubmit={applySearch} className="flex flex-wrap gap-2">
           <label htmlFor="archive-search" className="sr-only">

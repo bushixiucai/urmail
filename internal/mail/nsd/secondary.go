@@ -2,8 +2,11 @@ package nsd
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 )
 
 // BT is a backtick literal, so markdown fences can be embedded in
@@ -18,19 +21,19 @@ const BT = "`"
 // secret never passes through the database or the config render pipeline.
 type SecondaryConfig struct {
 	// Hostname of the secondary node (RFC 1123).
-	Hostname string
+	Hostname string `json:"hostname"`
 	// Address of the secondary as seen from the primary (notify target).
-	Address string
+	Address string `json:"address"`
 	// PrimaryAddress is the hidden primary's IP as seen from the secondary.
-	PrimaryAddress string
+	PrimaryAddress string `json:"primary_address"`
 	// TSIGKeyName identifies the shared AXFR credential (e.g. "axfr-urmail").
 	// Only the NAME is rendered; the secret stays in the operator-managed
 	// TSIG key file.
-	TSIGKeyName string
+	TSIGKeyName string `json:"tsig_key_name"`
 	// TSIGAlgorithm defaults to hmac-sha256 when empty.
-	TSIGAlgorithm string
+	TSIGAlgorithm string `json:"tsig_algorithm,omitempty"`
 	// Zones to replicate (zone names). Empty means all rendered zones.
-	Zones []string
+	Zones []string `json:"zones,omitempty"`
 }
 
 // Rendered fragment file names installed by the apply layer under
@@ -115,6 +118,10 @@ func RenderAXFRCredRunbook(sec SecondaryConfig) string {
 }
 
 func validateSecondary(sec SecondaryConfig) error {
+	if !validation.IsValidHostname(sec.Hostname) || net.ParseIP(sec.Address) == nil || net.ParseIP(sec.PrimaryAddress) == nil || len(sec.TSIGKeyName) > 128 || len(sec.TSIGKeyName) < 1 || sec.algorithm() != "hmac-sha256" {
+		return fmt.Errorf("%w: secondary requires concrete IPs, hostname and hmac-sha256 key", ErrInvalidConfig)
+	}
+
 	if strings.TrimSpace(sec.Hostname) == "" {
 		return fmt.Errorf("%w: secondary hostname is required", ErrInvalidConfig)
 	}

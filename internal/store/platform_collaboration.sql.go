@@ -14,7 +14,7 @@ import (
 const platformClaimMailboxJob = `-- name: PlatformClaimMailboxJob :one
 WITH candidate AS (
  SELECT id FROM mailbox_jobs
- WHERE status='pending' AND (lease_until IS NULL OR lease_until <= now())
+ WHERE status='pending' AND kind<>'calendar_reminder' AND (lease_until IS NULL OR lease_until <= now())
  ORDER BY id
  FOR UPDATE SKIP LOCKED
  LIMIT 1
@@ -137,12 +137,12 @@ WITH next AS (
  UPDATE mailbox_events AS e
  SET deleted_at=now(), status='cancelled', version=e.version+1, sequence=e.sequence+1, updated_at=now()
  WHERE e.tenant_id=$1 AND e.mailbox_id=$2 AND e.id=$3 AND e.version=$4 AND e.deleted_at IS NULL
- RETURNING id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees
+ RETURNING id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
  SELECT next.tenant_id, next.mailbox_id, 'event', next.id, next.version, true FROM next
 )
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM next
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM next
 `
 
 type PlatformDeleteEventParams struct {
@@ -153,26 +153,34 @@ type PlatformDeleteEventParams struct {
 }
 
 type PlatformDeleteEventRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	MailboxID   int64              `json:"mailbox_id"`
-	CalendarID  int64              `json:"calendar_id"`
-	Uid         string             `json:"uid"`
-	Version     int64              `json:"version"`
-	Sequence    int32              `json:"sequence"`
-	Summary     string             `json:"summary"`
-	Description string             `json:"description"`
-	Location    string             `json:"location"`
-	StartsAt    pgtype.Timestamptz `json:"starts_at"`
-	EndsAt      pgtype.Timestamptz `json:"ends_at"`
-	AllDay      bool               `json:"all_day"`
-	Timezone    string             `json:"timezone"`
-	Rrule       string             `json:"rrule"`
-	Status      string             `json:"status"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
-	Attendees   []byte             `json:"attendees"`
+	ID                  int64              `json:"id"`
+	TenantID            int64              `json:"tenant_id"`
+	MailboxID           int64              `json:"mailbox_id"`
+	CalendarID          int64              `json:"calendar_id"`
+	Uid                 string             `json:"uid"`
+	Version             int64              `json:"version"`
+	Sequence            int32              `json:"sequence"`
+	Summary             string             `json:"summary"`
+	Description         string             `json:"description"`
+	Location            string             `json:"location"`
+	StartsAt            pgtype.Timestamptz `json:"starts_at"`
+	EndsAt              pgtype.Timestamptz `json:"ends_at"`
+	AllDay              bool               `json:"all_day"`
+	Timezone            string             `json:"timezone"`
+	Rrule               string             `json:"rrule"`
+	Status              string             `json:"status"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
+	Attendees           []byte             `json:"attendees"`
+	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
+	Organizer           string             `json:"organizer"`
+	InvitationSequence  int32              `json:"invitation_sequence"`
+	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
+	InvitationDigest    string             `json:"invitation_digest"`
+	InvitationResponse  string             `json:"invitation_response"`
+	Reminders           []byte             `json:"reminders"`
+	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformDeleteEvent(ctx context.Context, arg PlatformDeleteEventParams) (PlatformDeleteEventRow, error) {
@@ -204,6 +212,14 @@ func (q *Queries) PlatformDeleteEvent(ctx context.Context, arg PlatformDeleteEve
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Attendees,
+		&i.RecurrenceOverrides,
+		&i.Organizer,
+		&i.InvitationSequence,
+		&i.InvitationStamp,
+		&i.InvitationDigest,
+		&i.InvitationResponse,
+		&i.Reminders,
+		&i.ReminderScannedAt,
 	)
 	return i, err
 }
@@ -367,7 +383,7 @@ func (q *Queries) PlatformGetContact(ctx context.Context, arg PlatformGetContact
 }
 
 const platformGetEvent = `-- name: PlatformGetEvent :one
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM mailbox_events
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM mailbox_events
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND deleted_at IS NULL
 `
 
@@ -401,12 +417,20 @@ func (q *Queries) PlatformGetEvent(ctx context.Context, arg PlatformGetEventPara
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Attendees,
+		&i.RecurrenceOverrides,
+		&i.Organizer,
+		&i.InvitationSequence,
+		&i.InvitationStamp,
+		&i.InvitationDigest,
+		&i.InvitationResponse,
+		&i.Reminders,
+		&i.ReminderScannedAt,
 	)
 	return i, err
 }
 
 const platformGetEventAny = `-- name: PlatformGetEventAny :one
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM mailbox_events
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM mailbox_events
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3
 `
 
@@ -440,12 +464,20 @@ func (q *Queries) PlatformGetEventAny(ctx context.Context, arg PlatformGetEventA
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Attendees,
+		&i.RecurrenceOverrides,
+		&i.Organizer,
+		&i.InvitationSequence,
+		&i.InvitationStamp,
+		&i.InvitationDigest,
+		&i.InvitationResponse,
+		&i.Reminders,
+		&i.ReminderScannedAt,
 	)
 	return i, err
 }
 
 const platformGetEventByUID = `-- name: PlatformGetEventByUID :one
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM mailbox_events
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM mailbox_events
 WHERE tenant_id=$1 AND mailbox_id=$2 AND uid=$3 AND deleted_at IS NULL
 `
 
@@ -479,6 +511,14 @@ func (q *Queries) PlatformGetEventByUID(ctx context.Context, arg PlatformGetEven
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Attendees,
+		&i.RecurrenceOverrides,
+		&i.Organizer,
+		&i.InvitationSequence,
+		&i.InvitationStamp,
+		&i.InvitationDigest,
+		&i.InvitationResponse,
+		&i.Reminders,
+		&i.ReminderScannedAt,
 	)
 	return i, err
 }
@@ -629,58 +669,68 @@ const platformInsertEvent = `-- name: PlatformInsertEvent :one
 WITH next AS (
  INSERT INTO mailbox_events(
   tenant_id, mailbox_id, calendar_id, uid, summary, description, location,
-  starts_at, ends_at, all_day, timezone, rrule, status, attendees
+  starts_at, ends_at, all_day, timezone, rrule, status, attendees, recurrence_overrides,reminders
  ) VALUES(
   $1, $2, $3, $4,
   $5, $6, $7,
   $8, $9, $10, $11,
-  $12, $13, $14
- ) RETURNING id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees
+  $12, $13, $14, COALESCE($15::jsonb,'[]'::jsonb),COALESCE($16::jsonb,'[]'::jsonb)
+ ) RETURNING id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
  SELECT next.tenant_id, next.mailbox_id, 'event', next.id, next.version, false FROM next
 )
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM next
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM next
 `
 
 type PlatformInsertEventParams struct {
-	TenantID    int64              `json:"tenant_id"`
-	MailboxID   int64              `json:"mailbox_id"`
-	CalendarID  int64              `json:"calendar_id"`
-	Uid         string             `json:"uid"`
-	Summary     string             `json:"summary"`
-	Description string             `json:"description"`
-	Location    string             `json:"location"`
-	StartsAt    pgtype.Timestamptz `json:"starts_at"`
-	EndsAt      pgtype.Timestamptz `json:"ends_at"`
-	AllDay      bool               `json:"all_day"`
-	Timezone    string             `json:"timezone"`
-	Rrule       string             `json:"rrule"`
-	Status      string             `json:"status"`
-	Attendees   []byte             `json:"attendees"`
+	TenantID            int64              `json:"tenant_id"`
+	MailboxID           int64              `json:"mailbox_id"`
+	CalendarID          int64              `json:"calendar_id"`
+	Uid                 string             `json:"uid"`
+	Summary             string             `json:"summary"`
+	Description         string             `json:"description"`
+	Location            string             `json:"location"`
+	StartsAt            pgtype.Timestamptz `json:"starts_at"`
+	EndsAt              pgtype.Timestamptz `json:"ends_at"`
+	AllDay              bool               `json:"all_day"`
+	Timezone            string             `json:"timezone"`
+	Rrule               string             `json:"rrule"`
+	Status              string             `json:"status"`
+	Attendees           []byte             `json:"attendees"`
+	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
+	Reminders           []byte             `json:"reminders"`
 }
 
 type PlatformInsertEventRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	MailboxID   int64              `json:"mailbox_id"`
-	CalendarID  int64              `json:"calendar_id"`
-	Uid         string             `json:"uid"`
-	Version     int64              `json:"version"`
-	Sequence    int32              `json:"sequence"`
-	Summary     string             `json:"summary"`
-	Description string             `json:"description"`
-	Location    string             `json:"location"`
-	StartsAt    pgtype.Timestamptz `json:"starts_at"`
-	EndsAt      pgtype.Timestamptz `json:"ends_at"`
-	AllDay      bool               `json:"all_day"`
-	Timezone    string             `json:"timezone"`
-	Rrule       string             `json:"rrule"`
-	Status      string             `json:"status"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
-	Attendees   []byte             `json:"attendees"`
+	ID                  int64              `json:"id"`
+	TenantID            int64              `json:"tenant_id"`
+	MailboxID           int64              `json:"mailbox_id"`
+	CalendarID          int64              `json:"calendar_id"`
+	Uid                 string             `json:"uid"`
+	Version             int64              `json:"version"`
+	Sequence            int32              `json:"sequence"`
+	Summary             string             `json:"summary"`
+	Description         string             `json:"description"`
+	Location            string             `json:"location"`
+	StartsAt            pgtype.Timestamptz `json:"starts_at"`
+	EndsAt              pgtype.Timestamptz `json:"ends_at"`
+	AllDay              bool               `json:"all_day"`
+	Timezone            string             `json:"timezone"`
+	Rrule               string             `json:"rrule"`
+	Status              string             `json:"status"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
+	Attendees           []byte             `json:"attendees"`
+	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
+	Organizer           string             `json:"organizer"`
+	InvitationSequence  int32              `json:"invitation_sequence"`
+	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
+	InvitationDigest    string             `json:"invitation_digest"`
+	InvitationResponse  string             `json:"invitation_response"`
+	Reminders           []byte             `json:"reminders"`
+	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformInsertEvent(ctx context.Context, arg PlatformInsertEventParams) (PlatformInsertEventRow, error) {
@@ -699,6 +749,8 @@ func (q *Queries) PlatformInsertEvent(ctx context.Context, arg PlatformInsertEve
 		arg.Rrule,
 		arg.Status,
 		arg.Attendees,
+		arg.RecurrenceOverrides,
+		arg.Reminders,
 	)
 	var i PlatformInsertEventRow
 	err := row.Scan(
@@ -722,8 +774,83 @@ func (q *Queries) PlatformInsertEvent(ctx context.Context, arg PlatformInsertEve
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Attendees,
+		&i.RecurrenceOverrides,
+		&i.Organizer,
+		&i.InvitationSequence,
+		&i.InvitationStamp,
+		&i.InvitationDigest,
+		&i.InvitationResponse,
+		&i.Reminders,
+		&i.ReminderScannedAt,
 	)
 	return i, err
+}
+
+const platformListCalendarSyncEvents = `-- name: PlatformListCalendarSyncEvents :many
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM mailbox_events
+WHERE tenant_id=$1 AND mailbox_id=$2 AND calendar_id=$3 AND deleted_at IS NULL
+ORDER BY id LIMIT $4
+`
+
+type PlatformListCalendarSyncEventsParams struct {
+	TenantID   int64 `json:"tenant_id"`
+	MailboxID  int64 `json:"mailbox_id"`
+	CalendarID int64 `json:"calendar_id"`
+	PageLimit  int32 `json:"page_limit"`
+}
+
+func (q *Queries) PlatformListCalendarSyncEvents(ctx context.Context, arg PlatformListCalendarSyncEventsParams) ([]MailboxEvents, error) {
+	rows, err := q.db.Query(ctx, platformListCalendarSyncEvents,
+		arg.TenantID,
+		arg.MailboxID,
+		arg.CalendarID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MailboxEvents{}
+	for rows.Next() {
+		var i MailboxEvents
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.MailboxID,
+			&i.CalendarID,
+			&i.Uid,
+			&i.Version,
+			&i.Sequence,
+			&i.Summary,
+			&i.Description,
+			&i.Location,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.AllDay,
+			&i.Timezone,
+			&i.Rrule,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Attendees,
+			&i.RecurrenceOverrides,
+			&i.Organizer,
+			&i.InvitationSequence,
+			&i.InvitationStamp,
+			&i.InvitationDigest,
+			&i.InvitationResponse,
+			&i.Reminders,
+			&i.ReminderScannedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const platformListChanges = `-- name: PlatformListChanges :many
@@ -862,9 +989,9 @@ func (q *Queries) PlatformListContacts(ctx context.Context, arg PlatformListCont
 }
 
 const platformListEvents = `-- name: PlatformListEvents :many
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM mailbox_events
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM mailbox_events
 WHERE tenant_id=$1 AND mailbox_id=$2 AND deleted_at IS NULL
- AND ((rrule<>'' AND starts_at < $3) OR (starts_at < $3 AND ends_at > $4))
+ AND (rrule<>'' OR (starts_at<$3 AND ends_at>$4))
 ORDER BY starts_at, id
 LIMIT $5
 `
@@ -913,6 +1040,14 @@ func (q *Queries) PlatformListEvents(ctx context.Context, arg PlatformListEvents
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Attendees,
+			&i.RecurrenceOverrides,
+			&i.Organizer,
+			&i.InvitationSequence,
+			&i.InvitationStamp,
+			&i.InvitationDigest,
+			&i.InvitationResponse,
+			&i.Reminders,
+			&i.ReminderScannedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1062,55 +1197,67 @@ WITH next AS (
  SET summary=$1, description=$2, location=$3,
   starts_at=$4, ends_at=$5, all_day=$6,
   timezone=$7, rrule=$8, status=$9, attendees=$10,
+  recurrence_overrides=COALESCE($11::jsonb,e.recurrence_overrides),
+ reminders=COALESCE($12::jsonb,e.reminders),
   sequence=e.sequence+1, version=e.version+1, updated_at=now()
- WHERE e.tenant_id=$11 AND e.mailbox_id=$12 AND e.id=$13
-  AND e.version=$14 AND e.deleted_at IS NULL
- RETURNING id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees
+ WHERE e.tenant_id=$13 AND e.mailbox_id=$14 AND e.id=$15
+  AND e.version=$16 AND e.deleted_at IS NULL
+ RETURNING id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
  SELECT next.tenant_id, next.mailbox_id, 'event', next.id, next.version, false FROM next
 )
-SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees FROM next
+SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, description, location, starts_at, ends_at, all_day, timezone, rrule, status, created_at, updated_at, deleted_at, attendees, recurrence_overrides, organizer, invitation_sequence, invitation_stamp, invitation_digest, invitation_response, reminders, reminder_scanned_at FROM next
 `
 
 type PlatformUpdateEventParams struct {
-	Summary         string             `json:"summary"`
-	Description     string             `json:"description"`
-	Location        string             `json:"location"`
-	StartsAt        pgtype.Timestamptz `json:"starts_at"`
-	EndsAt          pgtype.Timestamptz `json:"ends_at"`
-	AllDay          bool               `json:"all_day"`
-	Timezone        string             `json:"timezone"`
-	Rrule           string             `json:"rrule"`
-	Status          string             `json:"status"`
-	Attendees       []byte             `json:"attendees"`
-	TenantID        int64              `json:"tenant_id"`
-	MailboxID       int64              `json:"mailbox_id"`
-	ID              int64              `json:"id"`
-	ExpectedVersion int64              `json:"expected_version"`
+	Summary             string             `json:"summary"`
+	Description         string             `json:"description"`
+	Location            string             `json:"location"`
+	StartsAt            pgtype.Timestamptz `json:"starts_at"`
+	EndsAt              pgtype.Timestamptz `json:"ends_at"`
+	AllDay              bool               `json:"all_day"`
+	Timezone            string             `json:"timezone"`
+	Rrule               string             `json:"rrule"`
+	Status              string             `json:"status"`
+	Attendees           []byte             `json:"attendees"`
+	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
+	Reminders           []byte             `json:"reminders"`
+	TenantID            int64              `json:"tenant_id"`
+	MailboxID           int64              `json:"mailbox_id"`
+	ID                  int64              `json:"id"`
+	ExpectedVersion     int64              `json:"expected_version"`
 }
 
 type PlatformUpdateEventRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	MailboxID   int64              `json:"mailbox_id"`
-	CalendarID  int64              `json:"calendar_id"`
-	Uid         string             `json:"uid"`
-	Version     int64              `json:"version"`
-	Sequence    int32              `json:"sequence"`
-	Summary     string             `json:"summary"`
-	Description string             `json:"description"`
-	Location    string             `json:"location"`
-	StartsAt    pgtype.Timestamptz `json:"starts_at"`
-	EndsAt      pgtype.Timestamptz `json:"ends_at"`
-	AllDay      bool               `json:"all_day"`
-	Timezone    string             `json:"timezone"`
-	Rrule       string             `json:"rrule"`
-	Status      string             `json:"status"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
-	Attendees   []byte             `json:"attendees"`
+	ID                  int64              `json:"id"`
+	TenantID            int64              `json:"tenant_id"`
+	MailboxID           int64              `json:"mailbox_id"`
+	CalendarID          int64              `json:"calendar_id"`
+	Uid                 string             `json:"uid"`
+	Version             int64              `json:"version"`
+	Sequence            int32              `json:"sequence"`
+	Summary             string             `json:"summary"`
+	Description         string             `json:"description"`
+	Location            string             `json:"location"`
+	StartsAt            pgtype.Timestamptz `json:"starts_at"`
+	EndsAt              pgtype.Timestamptz `json:"ends_at"`
+	AllDay              bool               `json:"all_day"`
+	Timezone            string             `json:"timezone"`
+	Rrule               string             `json:"rrule"`
+	Status              string             `json:"status"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
+	Attendees           []byte             `json:"attendees"`
+	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
+	Organizer           string             `json:"organizer"`
+	InvitationSequence  int32              `json:"invitation_sequence"`
+	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
+	InvitationDigest    string             `json:"invitation_digest"`
+	InvitationResponse  string             `json:"invitation_response"`
+	Reminders           []byte             `json:"reminders"`
+	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformUpdateEvent(ctx context.Context, arg PlatformUpdateEventParams) (PlatformUpdateEventRow, error) {
@@ -1125,6 +1272,8 @@ func (q *Queries) PlatformUpdateEvent(ctx context.Context, arg PlatformUpdateEve
 		arg.Rrule,
 		arg.Status,
 		arg.Attendees,
+		arg.RecurrenceOverrides,
+		arg.Reminders,
 		arg.TenantID,
 		arg.MailboxID,
 		arg.ID,
@@ -1152,6 +1301,14 @@ func (q *Queries) PlatformUpdateEvent(ctx context.Context, arg PlatformUpdateEve
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Attendees,
+		&i.RecurrenceOverrides,
+		&i.Organizer,
+		&i.InvitationSequence,
+		&i.InvitationStamp,
+		&i.InvitationDigest,
+		&i.InvitationResponse,
+		&i.Reminders,
+		&i.ReminderScannedAt,
 	)
 	return i, err
 }

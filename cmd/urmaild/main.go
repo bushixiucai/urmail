@@ -23,6 +23,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	archiveStore "github.com/bushixiucai/urmail/internal/archive"
 	"github.com/bushixiucai/urmail/internal/billingrenew"
+	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
@@ -74,6 +75,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if cfg.DNSSecondaryOnly {
+		return fmt.Errorf("DNS-only secondary configuration is only accepted by urmaild-agent")
+	}
 
 	logger, err := logging.New(cfg.LogLevel)
 	if err != nil {
@@ -107,6 +111,12 @@ func run() error {
 		return fmt.Errorf("open platform database pool: %w", err)
 	}
 	defer platformPool.Close()
+
+	marketingPool, err := db.OpenBackgroundPlatform(ctx, cfg.DatabaseURLPlatform)
+	if err != nil {
+		return fmt.Errorf("open marketing database pool: %w", err)
+	}
+	defer marketingPool.Close()
 
 	messages, err := i18n.NewStore()
 	if err != nil {
@@ -143,33 +153,30 @@ func run() error {
 	// sessions (0008), so the platform pool performs the delete.
 	go purgeExpiredSessions(ctx, platformPool, logger)
 	go handlers.RunMFAReaper(ctx)
-	if !cfg.Quarantined {
-		go payment.RunWebhookMaintenance(ctx, platformPool, logger)
-	}
-	go notify.Run(ctx, platformPool, logger)
+	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { payment.RunWebhookMaintenance(ctx, platformPool, logger) })
+	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notify.Run(ctx, platformPool, logger) })
 	notificationWorker := &notify.Worker{Pool: platformPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
-	go notificationWorker.Run(ctx, logger)
-	renewals := billingrenew.Worker{Store: store.New(platformPool.Pool), Settlements: billingrenew.PoolSettlementStore{Pool: platformPool}}
-	go func() {
-		ticker := time.NewTicker(time.Hour)
-		defer ticker.Stop()
-		for {
-			if err := renewals.RunOnce(ctx); err != nil && ctx.Err() == nil {
-				logger.Warn("renewal attempt failed", zap.Error(err))
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
+	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notificationWorker.Run(ctx, logger) })
+	renewalRegistry := &payment.Registry{Store: store.New(platformPool), Secrets: secretBox, BaseURL: baseURL}
+	renewalDispatcher := &billingrenew.Dispatcher{Pool: platformPool, Registry: renewalRegistry, Secrets: secretBox, Adapters: billingrenew.NewProductionAdapters(renewalRegistry)}
+	renewals := billingrenew.Worker{Store: store.New(platformPool.Pool), Chargers: renewalDispatcher, Coordinator: billingrenew.PoolCoordinator{Pool: platformPool}, Settlements: billingrenew.PoolSettlementStore{Pool: platformPool}}
+	startRenewalWorker(ctx, cfg, renewals.RunOnce, logger)
+	reminderWorker := appcollab.ReminderWorker{Pool: platformPool, Logger: logger}
+	startPeriodicWorker(ctx, cfg, time.Minute, "calendar reminder pass failed", reminderWorker.RunOnce, logger)
+
+	var sieveGateReady func() bool
+	if !cfg.DevMode && !cfg.Quarantined {
+		sieveGateReady, err = startSieveGate(ctx, platformPool, logger)
+		if err != nil {
+			return fmt.Errorf("start personal Sieve entitlement gate: %w", err)
 		}
-	}()
+	}
 
 	// OPS-001: automated encrypted offsite backups. Disabled unless the
 	// operator configures both the age recipient and an offsite destination;
 	// the privileged local backup runs through the agent's fixed
 	// backup.local.create operation (no caller-controlled parameters).
-	if backupRecipient := os.Getenv("URMAIL_BACKUP_AGE_RECIPIENT"); backupRecipient != "" {
+	if backupRecipient := os.Getenv("URMAIL_BACKUP_AGE_RECIPIENT"); backupRecipient != "" && cfg.BackgroundWorkersAllowed() {
 		if backupURI := os.Getenv("URMAIL_BACKUP_OFFSITE_URI"); backupURI != "" {
 			backupWorker, err := newBackupWorker(cfg, platformPool, backupRecipient, backupURI)
 			if err != nil {
@@ -263,9 +270,10 @@ func run() error {
 		// Render once on startup so a fresh install does not keep the stock
 		// distribution configuration until the first tenant write.
 		reconcilePipeline.Trigger()
+		startDNSReconcileRefresh(ctx, cfg, reconcilePipeline)
 	}
 
-	if !cfg.DevMode && !cfg.Quarantined {
+	if cfg.BackgroundWorkersAllowed() {
 		archiveWorker := &archiveStore.Worker{Pool: platformPool}
 		go archiveWorker.Start(ctx, logger)
 	}
@@ -274,28 +282,28 @@ func run() error {
 	startMailObservability(ctx, cfg, platformPool, logger)
 	startPaymentRecovery(ctx, cfg, platformPool, secretBox, baseURL, stripe, logger)
 	refunds := &refundService.Service{Pool: platformPool, Registry: &payment.Registry{Store: store.New(platformPool), Secrets: secretBox, BaseURL: baseURL}, LegacyStripe: stripe, Enabled: cfg.RefundsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
-	go refunds.Run(ctx, logger)
+	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { refunds.Run(ctx, logger) })
 	tokenVerifier := marketingTokenManager(cfg)
 	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
-	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: platformPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
+	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: marketingPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
 		Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Logger: logger})
 	if workerErr != nil {
 		return fmt.Errorf("configure marketing worker: %w", workerErr)
 	}
-	go marketingWorker.Run(ctx)
+	startBackgroundWorker(ctx, cfg, marketingWorker.Run)
 	flowWorker, flowWorkerErr := marketing.NewFlowWorker(marketing.FlowOptions{
-		Pool:    platformPool,
-		Sender:  (&marketing.FlowSender{Pool: platformPool, Secrets: secretBox, Tokens: tokenManager, Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Content: marketing.TemplateFlowContent(platformPool)}).Send,
-		Enabled: cfg.MarketingEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined, Logger: logger,
+		Pool:    marketingPool,
+		Sender:  (&marketing.FlowSender{Pool: marketingPool, Secrets: secretBox, Tokens: tokenManager, Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Content: marketing.TemplateFlowContent(marketingPool)}).Send,
+		Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined, Logger: logger,
 	})
 	if flowWorkerErr != nil {
 		return fmt.Errorf("configure marketing flow worker: %w", flowWorkerErr)
 	}
-	go flowWorker.Run(ctx)
+	startBackgroundWorker(ctx, cfg, flowWorker.Run)
 	webmailVault := webmail.NewMemoryVault()
 	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: store.New(platformPool.Pool)}.Get)
 	smtpAddr := "127.0.0.1:587"
-	if cfg.WebmailNative && !cfg.Quarantined && secretBox != nil {
+	if cfg.WebmailNative && cfg.BackgroundWorkersAllowed() && secretBox != nil {
 		schedWorker := mailboxschedule.NewWorker(mailboxschedule.Options{
 			Pool:      platformPool,
 			Secrets:   secretBox,
@@ -340,6 +348,10 @@ func run() error {
 		AILocalEndpoints:    cfg.AILocalEndpoints,
 		RegistrationEnabled: cfg.RegistrationEnabled,
 		Quarantined:         cfg.Quarantined,
+		WorkersHeld:         cfg.WorkersHeld,
+		SieveGateReady:      sieveGateReady,
+		Recurring:           renewalDispatcher,
+		DNSAuthorityAgent:   agent.NewClient(cfg.AgentSocket),
 		Recall:              recallClient,
 		Queue:               queueReader,
 		TelemetryStream:     telemetryStream,
@@ -360,6 +372,7 @@ func run() error {
 		QuoteHMACKey:        cfg.QuoteHMACKey,
 		BaseURL:             baseURL,
 		MarketingTokens:     tokenVerifier,
+		MarketingEnabled:    cfg.MarketingEnabled && !cfg.WorkersHeld,
 		RoundcubeBridgeKey:  cfg.RoundcubeBridgeKey,
 	})
 

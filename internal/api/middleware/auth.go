@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/bushixiucai/urmail/internal/store"
+	storepkg "github.com/bushixiucai/urmail/internal/store"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 
 // SessionStore provides session lookup by token ID.
 type SessionStore interface {
-	GetSessionByID(ctx context.Context, id string) (store.Sessions, error)
+	GetSessionByID(ctx context.Context, id string) (storepkg.Sessions, error)
 }
 
 // HashSessionToken derives the database identifier for a bearer token.
@@ -69,6 +69,25 @@ func RequireAuth(store SessionStore) gin.HandlerFunc {
 			return
 		}
 
+		// Bound browser credentials cannot be replayed through another host.
+		brandID, branded := c.Get(ContextBrandID)
+		if !sessionOriginAllowed(c, session.OriginHost) {
+			c.AbortWithStatusJSON(401, gin.H{"error": gin.H{"code": "SESSION_ORIGIN_MISMATCH", "message": "error.SESSION_ORIGIN_MISMATCH"}})
+			return
+		}
+		if branded {
+			checker, ok := store.(interface {
+				PlatformTenantBrandMatches(context.Context, storepkg.PlatformTenantBrandMatchesParams) (bool, error)
+			})
+			allowed := false
+			if ok && session.TenantID.Valid {
+				allowed, err = checker.PlatformTenantBrandMatches(c, storepkg.PlatformTenantBrandMatchesParams{ID: session.TenantID.Int64, BrandID: brandID.(int64)})
+			}
+			if err != nil || !allowed {
+				c.AbortWithStatus(403)
+				return
+			}
+		}
 		// Inject user and tenant context
 		c.Set(ContextSession, session)
 		c.Set(ContextUserID, session.UserID)

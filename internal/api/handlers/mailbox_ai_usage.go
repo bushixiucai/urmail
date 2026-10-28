@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -56,11 +58,13 @@ func (b AIBudget) Exceeded(used, reserved AIBudget) bool {
 
 // Reservation identifies one written reservation row.
 type Reservation struct {
-	id      int64
-	tenant  int64
-	kind    string
-	created bool
-	pool    *db.Pool
+	id                    int64
+	tenant                int64
+	kind                  string
+	mode                  string
+	created               bool
+	pool                  *db.Pool
+	inputRate, outputRate int64
 }
 
 // AISearchAskAccounting records search-ask usage through the existing
@@ -92,6 +96,9 @@ func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID 
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := store.New(tx)
+	if err = q.PlatformLockBillingTenant(ctx, tenantID); err != nil {
+		return nil, err
+	}
 	if err = q.PlatformExpireAIReservations(ctx, tenantID); err != nil {
 		return nil, err
 	}
@@ -105,10 +112,12 @@ func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID 
 	if !cfg.Enabled {
 		return nil, ErrNotAccounted
 	}
-	reservedTokens := int64(len(question)) + 4096 // UTF-8 bound plus answer headroom.
+	// Twenty excerpts of at most 500 bytes, 20 digit citation identifiers,
+	// prompt framing and a 2048-token output all fit inside this bound.
+	reservedTokens := int64(len(question)) + 16384
 	reservedCost := int64(0)
 	if cfg.Mode == "platform" {
-		if reservedCost, err = aiCost(reservedTokens, 1024, cfg.InputMicrosPerMillion, cfg.OutputMicrosPerMillion); err != nil {
+		if reservedCost, err = aiCost(reservedTokens, 2048, cfg.InputMicrosPerMillion, cfg.OutputMicrosPerMillion); err != nil {
 			return nil, err
 		}
 	}
@@ -135,19 +144,48 @@ func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID 
 	if _, err = rand.Read(key); err != nil {
 		return nil, err
 	}
-	row, err := q.PlatformReserveMailboxAIRequest(ctx, store.PlatformReserveMailboxAIRequestParams{
-		TenantID: tenantID, MailboxID: mailboxID, RequestKey: "ask-" + hex.EncodeToString(key), InputDigest: hex.EncodeToString(digest[:]),
-		PeriodStart: pgtype.Timestamptz{Time: dayStart, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: dayStart.AddDate(0, 0, 1), Valid: true}, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model,
-		CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion,
-		ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost,
+	plan, err := q.GetEffectivePlan(ctx, tenantID)
+	if err != nil {
+		return nil, ErrAIBudgetExceeded
+	}
+	var limits aiPlanLimits
+	if json.Unmarshal(plan.Features, &limits) != nil || limits.AI.Calls <= 0 || limits.AI.Concurrency <= 0 {
+		return nil, ErrAIBudgetExceeded
+	}
+	if limits.AI.MailboxCalls <= 0 {
+		limits.AI.MailboxCalls = limits.AI.Calls
+	}
+	sub, err := q.GetActiveSubscriptionByTenant(ctx, tenantID)
+	if err != nil || !sub.PeriodStart.Valid || !sub.PeriodEnd.Valid || !sub.PeriodEnd.Time.After(now) {
+		return nil, ErrAIBudgetExceeded
+	}
+	start, end := sub.PeriodStart, sub.PeriodEnd
+	if term, e := q.GetCurrentSubscriptionTerm(ctx, tenantID); e == nil {
+		start, end = term.BillingPeriodStart, term.PeriodEnd
+	} else if !errors.Is(e, pgx.ErrNoRows) {
+		return nil, e
+	}
+	tokenLimit, costLimit := limits.AI.Tokens, limits.AI.Cost
+	if cfg.Mode == "platform" {
+		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != cfg.CostCurrency {
+			return nil, ErrAIBudgetExceeded
+		}
+	} else {
+		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
+	}
+	row, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{
+		TenantID: tenantID, MailboxID: mailboxID, RequestKey: "ask-" + hex.EncodeToString(key), InputDigest: hex.EncodeToString(digest[:]), PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrAIBudgetExceeded
+	}
 	if err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return &Reservation{id: row.ID, tenant: tenantID, kind: "search_ask", created: true, pool: h.Pool}, nil
+	return &Reservation{id: row.ID, tenant: tenantID, kind: "search_ask", mode: cfg.Mode, created: true, pool: h.Pool, inputRate: cfg.InputMicrosPerMillion, outputRate: cfg.OutputMicrosPerMillion}, nil
 }
 
 // Settle records observed usage best-effort in a detached context: a
@@ -171,8 +209,9 @@ func (r *Reservation) Settle(providerErr error, usageKnown bool, promptTokens, o
 				status = "completed"
 				record = true
 			}
-		} else if providerErr == nil {
-			// Unknown usage stays charged at its reservation.
+		} else if providerErr == nil && !usageKnown && r.mode != "platform" {
+			// BYOK completion does not settle platform-provider spend. Unknown
+			// platform usage must remain reviewable and charged at its reservation.
 			status = "completed"
 		}
 		var tokensField, costField pgtype.Int8
@@ -281,4 +320,28 @@ func zeroUnlimited(limit int64) int64 {
 		return -1 // -1 means unlimited in the API, avoiding a null/0 ambiguity.
 	}
 	return limit
+}
+
+// releaseUnused is called only when the request proves no provider generation
+// was invoked. It cannot release uncertain outbound work or invent exact usage.
+func (r *Reservation) releaseUnused() {
+	if r == nil || !r.created || r.pool == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		rows, err := store.New(r.pool).PlatformFinishAIRequest(ctx, store.PlatformFinishAIRequestParams{TenantID: r.tenant, ID: r.id, Status: "released", ActualTokens: pgtype.Int8{Int64: 0, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: 0, Valid: true}})
+		if err != nil || rows != 1 {
+			log.Printf("urmail: unused ai reservation release failed tenant=%d request=%d err=%v rows=%d", r.tenant, r.id, err, rows)
+			ai.RecordOutcome(r.kind, "record_failed")
+		}
+	}()
+}
+
+func (r *Reservation) observedCost(prompt, output int64) (int64, error) {
+	if r == nil || r.mode != "platform" {
+		return 0, nil
+	}
+	return aiCost(prompt, output, r.inputRate, r.outputRate)
 }

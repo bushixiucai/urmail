@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,7 +54,13 @@ func TestRealPostfixMilterInterop(t *testing.T) {
 		t.Run(cleanup, func(t *testing.T) {
 			runCtx, stop := context.WithTimeout(t.Context(), 90*time.Second)
 			defer stop()
-			command := exec.CommandContext(runCtx, "docker", "run", "--rm", "--name", "urmail-mailfix-postfix-"+cleanup, "-v", dir+":/test:ro", "-e", "MILTER_PORT="+strconv.Itoa(port), "-e", "HEADER_CLEANUP="+cleanup, image, "python3", "/test/verify.py")
+			arguments := []string{"run", "--rm", "--name", "urmail-mailfix-postfix-" + cleanup, "-v", dir + ":/test:ro", "-e", "MILTER_PORT=" + strconv.Itoa(port), "-e", "HEADER_CLEANUP=" + cleanup}
+			// Classic Linux Docker has no built-in host.docker.internal DNS.
+			if runtime.GOOS == "linux" {
+				arguments = append(arguments, "--add-host", "host.docker.internal:host-gateway")
+			}
+			arguments = append(arguments, image, "python3", "/test/verify.py")
+			command := exec.CommandContext(runCtx, "docker", arguments...)
 			output, err := command.CombinedOutput()
 			if err != nil {
 				t.Fatalf("real Postfix rejected config/protocol: %v\n%s", err, output)

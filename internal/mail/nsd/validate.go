@@ -180,6 +180,17 @@ func Validate(node NodeConfig, snap Snapshot) error {
 
 	seenZones := make(map[string]bool, len(snap.Zones))
 	for _, z := range snap.Zones {
+		if z.SigningVersion != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(z.SigningVersion) {
+			return fmt.Errorf("%w: invalid signing generation", ErrInvalidZone)
+		}
+		if (z.Sign || z.Secondary != nil) && z.Mode != "managed" {
+			return fmt.Errorf("%w: DNS security requires a managed authoritative zone", ErrInvalidZone)
+		}
+		if z.Secondary != nil {
+			if err := validateSecondary(*z.Secondary); err != nil {
+				return err
+			}
+		}
 		domain := strings.ToLower(strings.TrimSuffix(z.Domain, "."))
 		if !validation.IsValidHostname(domain) {
 			return fmt.Errorf("%w: invalid domain %q", ErrInvalidZone, z.Domain)

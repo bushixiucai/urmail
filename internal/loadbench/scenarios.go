@@ -83,7 +83,11 @@ func (h *Harness) Scenario(_ context.Context, name string, f *Fixture) (Op, erro
 			return nil
 		}, nil
 	case ScenarioMarketingStep:
-		return h.marketingStep(q, f), nil
+		background := h
+		if h.BackgroundPool != nil {
+			background = &Harness{Pool: h.BackgroundPool}
+		}
+		return background.marketingStep(queries(background.Pool), f), nil
 	case ScenarioNotifyDrain:
 		return h.notifyDrain(q, f), nil
 	default:

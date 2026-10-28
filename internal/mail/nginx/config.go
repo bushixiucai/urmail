@@ -12,6 +12,8 @@ type NodeConfig struct {
 
 // DomainConfig specifies TLS and proxy settings for an active web domain.
 type DomainConfig struct {
+	ACMEOnly          bool   // Verified brand waiting for a trusted certificate; expose no HTTPS product routes.
+	TransportOnly     bool   // Expose only the MTA-STS policy, never panel or mailbox routes.
 	FQDN              string // e.g. mail.example.com
 	TLSCertFile       string // path to TLS cert
 	TLSKeyFile        string // path to TLS key

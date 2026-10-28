@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * The brand layer. shadcn/ui exposes its theme as CSS variables; a brand
  * overrides them by injecting a <style> element with the values returned by

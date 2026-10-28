@@ -23,8 +23,10 @@ const OpMailboxExpunge = "mailbox.expunge"
 // RecallParams identifies an existing request; message and mailbox identities
 // are resolved again by the privileged process from the authoritative database.
 type RecallParams struct {
-	TenantID int64 `json:"tenant_id"`
-	RecallID int64 `json:"recall_id"`
+	TenantID     int64  `json:"tenant_id"`
+	RecallID     int64  `json:"recall_id"`
+	AttemptEpoch int64  `json:"attempt_epoch,omitempty"`
+	PreviewToken string `json:"preview_token,omitempty"`
 }
 
 // ExpungeRecall serializes with legal-hold changes and records the durable
@@ -52,8 +54,27 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 	if err != nil {
 		return "", "", ErrRejected
 	}
+	if strings.Contains(target.Reason.String, "RESTORE_RECONCILIATION_REQUIRED") {
+		return "", "", ErrRejected
+	}
+	if target.PreviewToken.Valid && (params.PreviewToken != target.PreviewToken.String || params.AttemptEpoch != target.AttemptEpoch) {
+		return "", "", ErrRejected
+	}
 	if target.Status != "pending" {
 		return target.Status, "", nil
+	}
+	if target.PreviewToken.Valid {
+		status, reason, result, runErr := m.executeReviewedRecall(ctx, q, target)
+		if runErr != nil {
+			return "", "", runErr
+		}
+		if _, runErr = q.PlatformFinishReviewedRecall(ctx, store.PlatformFinishReviewedRecallParams{TenantID: params.TenantID, RecallID: params.RecallID, Epoch: target.AttemptEpoch, Status: status, Reason: reason, Result: result}); runErr != nil {
+			return "", "", ErrFailed
+		}
+		if runErr = tx.Commit(ctx); runErr != nil {
+			return "", "", ErrFailed
+		}
+		return status, "", nil
 	}
 	status, reason := "failed", "local_target_unavailable"
 	switch {
@@ -78,16 +99,7 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 			reason = "legal_hold_conflict"
 			break
 		}
-		found, expungeErr := m.expungeExact(ctx, target.Address.String, target.MessageID)
-		switch {
-		case expungeErr != nil:
-			reason = "local_cleanup_failed"
-		case !found:
-			reason = "local_message_not_found"
-		default:
-			status = "local_recalled"
-			reason = "local_mailbox_only"
-		}
+		reason = "reviewed_preview_required"
 	}
 	if _, err = q.PlatformCompleteRecall(ctx, store.PlatformCompleteRecallParams{TenantID: params.TenantID, ID: params.RecallID, Status: status, Reason: pgtype.Text{String: reason, Valid: true}}); err != nil {
 		return "", "", ErrFailed

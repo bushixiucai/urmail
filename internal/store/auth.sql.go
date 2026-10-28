@@ -52,11 +52,11 @@ func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCo
 
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (
-    id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, credential_version
-) SELECT $1,u.id,$2,$3,$4,$5,$6,u.credential_version
-FROM users u WHERE u.id=$7 AND u.status='active' AND u.password_hash=$8 AND u.credential_version=$9
+    id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, credential_version, origin_host
+) SELECT $1,u.id,$2,$3,$4,$5,$6,u.credential_version,$7::text
+FROM users u WHERE u.id=$8 AND u.status='active' AND u.password_hash=$9 AND u.credential_version=$10
 FOR UPDATE OF u
-RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind, credential_version
+RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind, credential_version, origin_host
 `
 
 type CreateSessionParams struct {
@@ -66,6 +66,7 @@ type CreateSessionParams struct {
 	UserAgent       pgtype.Text        `json:"user_agent"`
 	Ip              *netip.Addr        `json:"ip"`
 	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	OriginHost      string             `json:"origin_host"`
 	UserID          int64              `json:"user_id"`
 	ExpectedHash    string             `json:"expected_hash"`
 	ExpectedVersion int64              `json:"expected_version"`
@@ -79,6 +80,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.UserAgent,
 		arg.Ip,
 		arg.ExpiresAt,
+		arg.OriginHost,
 		arg.UserID,
 		arg.ExpectedHash,
 		arg.ExpectedVersion,
@@ -96,6 +98,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.MfaVerifiedAt,
 		&i.Kind,
 		&i.CredentialVersion,
+		&i.OriginHost,
 	)
 	return i, err
 }
@@ -179,7 +182,7 @@ func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) er
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind, s.credential_version
+SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind, s.credential_version, s.origin_host
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 LEFT JOIN tenants t ON t.id = s.tenant_id
@@ -207,6 +210,7 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Sessions, erro
 		&i.MfaVerifiedAt,
 		&i.Kind,
 		&i.CredentialVersion,
+		&i.OriginHost,
 	)
 	return i, err
 }

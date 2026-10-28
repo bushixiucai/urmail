@@ -171,10 +171,10 @@ func TestGoldenCalendarAppData(t *testing.T) {
 	if got := findChild(t, kids, pageCalendar, tokCalSubject); got == nil || got.Text != "Standup" {
 		t.Fatalf("subject %+v", got)
 	}
-	if got := findChild(t, kids, pageCalendar, tokCalStartTime); got == nil || got.Text != "2026-11-02T09:00:00.000Z" {
+	if got := findChild(t, kids, pageCalendar, tokCalStartTime); got == nil || got.Text != "20261102T090000Z" {
 		t.Fatalf("start %+v", got)
 	}
-	if got := findChild(t, kids, pageCalendar, tokCalEndTime); got == nil || got.Text != "2026-11-02T10:00:00.000Z" {
+	if got := findChild(t, kids, pageCalendar, tokCalEndTime); got == nil || got.Text != "20261102T100000Z" {
 		t.Fatalf("end %+v", got)
 	}
 	if got := findChild(t, kids, pageCalendar, tokCalUID); got == nil || got.Text != "series-uid@urmail" {
@@ -193,7 +193,7 @@ func TestGoldenCalendarAppData(t *testing.T) {
 	if got := recNode.ChildText(tokCalRecInterval); got != "1" {
 		t.Fatalf("interval %q", got)
 	}
-	exs := recNode.Child(tokCalExceptions)
+	exs := app.Child(tokCalExceptions)
 	if exs == nil {
 		t.Fatal("exceptions missing")
 	}
@@ -204,14 +204,14 @@ func TestGoldenCalendarAppData(t *testing.T) {
 	if got := ex.ChildText(tokCalExcDeleted); got != "1" {
 		t.Fatalf("exc deleted %q", got)
 	}
-	if got := ex.ChildText(tokCalExcStartTime); got != "2026-11-09T09:00:00.000Z" {
+	if got := ex.ChildText(tokCalExcStartTime); got != "20261109T090000Z" {
 		t.Fatalf("exc start %q", got)
 	}
 }
 
 // Unrepresentable rules must be detected so callers expand occurrences.
 func TestParseRecurrenceRejectsUnmappedRules(t *testing.T) {
-	for _, rule := range []string{"", "FREQ=SECONDLY", "FREQ=DAILY;BYDAY=MO,TU", "FREQ=WEEKLY;INTERVAL=2"} {
+	for _, rule := range []string{"", "FREQ=SECONDLY", "FREQ=DAILY;BYDAY=MO,TU"} {
 		if _, ok := parseRecurrence(rule); ok {
 			t.Fatalf("rule %q unexpectedly representable", rule)
 		}

@@ -3,11 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMailboxNative } from "./use-mailbox-native";
 
-const MAIL_HOST = "box.urmail.cn";
-
 export function WebmailHelpPage() {
   const { t } = useTranslation();
-  const { native, loaded } = useMailboxNative();
+  const { native, loaded, mailHost } = useMailboxNative();
 
   return (
     <Card>
@@ -23,7 +21,7 @@ export function WebmailHelpPage() {
             </dt>
             <dd>
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                {MAIL_HOST}
+                {mailHost || t("page.webmail.help_host_unavailable")}
               </code>
             </dd>
           </div>

@@ -75,6 +75,7 @@ func renderDovecotConf(node NodeConfig) string {
 	// Both managed and legacy mailboxes inherit this entry point; imported
 	// global/user scripts remain subsequent hooks.
 	b.WriteString("  sieve_before = /etc/dovecot/urmail-spam/spam-before.sieve\n")
+	b.WriteString("  sieve_plugins = sieve_extprograms\n  sieve_extensions = -vnd.dovecot.execute\n  sieve_global_extensions = +vnd.dovecot.execute\n  sieve_execute_bin_dir = /etc/dovecot/urmail-spam/execute\n  sieve_execute_exec_timeout = 2s\n")
 	b.WriteString("}\n\n")
 	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-mailboxes.conf.ext\n")
 	b.WriteString("!include /etc/dovecot/conf.d/urmail/dovecot-quota.conf.ext\n")

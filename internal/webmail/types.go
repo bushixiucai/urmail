@@ -81,8 +81,9 @@ type MessageSummary struct {
 
 // ListResult is a page of message summaries plus the folder UID total.
 type ListResult struct {
-	Messages []MessageSummary `json:"messages"`
-	Total    int              `json:"total"`
+	UIDValidity uint32           `json:"uid_validity"`
+	Messages    []MessageSummary `json:"messages"`
+	Total       int              `json:"total"`
 	// NextCursor is the UID the client sends back as cursor for the next
 	// page (0 when the sequence is exhausted).
 	NextCursor uint32 `json:"next_cursor,omitempty"`

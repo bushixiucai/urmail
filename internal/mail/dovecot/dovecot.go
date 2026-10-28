@@ -1,5 +1,7 @@
 package dovecot
 
+import "github.com/bushixiucai/urmail/internal/mail/sievegate"
+
 // Dovecot configuration file names relative to /etc/dovecot.
 const (
 	FileGlobalACL        = "conf.d/urmail-global-acls"
@@ -12,7 +14,8 @@ const (
 	// FileSpamSieve is the global before-script referenced by the
 	// sieve_before line rendered into dovecot.conf (MAIL-002). It lives
 	// under /etc/dovecot/conf.d, which is already an agent write root.
-	FileSpamSieve = "urmail-spam/spam-before.sieve"
+	FileSpamSieve       = "urmail-spam/spam-before.sieve"
+	FileSieveGateHelper = "urmail-spam/execute/outbound-check"
 )
 
 // Generate is a pure function that renders Dovecot configuration files.
@@ -32,6 +35,7 @@ func Generate(node NodeConfig) (map[string]string, error) {
 	result[FileDovecotMailboxes] = renderDovecotMailboxes()
 	result[FileDovecotQuota] = renderDovecotQuota()
 	result[FileSpamSieve] = renderSpamSieve(node.SpamPolicies)
+	result[FileSieveGateHelper] = sievegate.HelperScript
 
 	return result, nil
 }

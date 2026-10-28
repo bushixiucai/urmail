@@ -17,12 +17,12 @@ func SaveEvent(_ context.Context, event Event, send InviteSender) (Event, bool, 
 // confirmation, without a sender, without recipients, or with an event that
 // contradicts the requested method, nothing is sent and the invitation is
 // refused: mail only ever goes out on purpose.
-func SendInvitations(_ context.Context, inv Invitation, confirmed bool, send InviteSender) error {
+func SendInvitations(ctx context.Context, inv Invitation, confirmed bool, send InviteSender) error {
 	if !confirmed || send == nil {
 		return ErrInvalidEvent
 	}
 	if _, err := InvitationICS(inv); err != nil {
 		return err
 	}
-	return send(context.Background(), inv)
+	return send(ctx, inv)
 }

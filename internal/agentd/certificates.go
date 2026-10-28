@@ -91,7 +91,12 @@ func (m *ApplyManager) ensureBootstrap(p ApplyParams) error {
 		return fmt.Errorf("too many domains")
 	}
 	deadline := time.Now().Add(30 * time.Second)
-	domains := []string{m.hostname()}
+	transportHosts, err := m.transportHosts(p.Postfix.Domains)
+	if err != nil {
+		return err
+	}
+	m.transportDomains = transportHosts
+	domains := append([]string{m.hostname()}, transportHosts...)
 	for _, d := range p.Postfix.Domains {
 		if m.customWebEnabled(d.FQDN) {
 			domains = append(domains, d.FQDN)
@@ -154,6 +159,7 @@ func (m *ApplyManager) IssueCertificate(raw json.RawMessage) (string, string, er
 	m.mu.Lock()
 	allowed := m.certificateAllowed(p.Domain)
 	m.mu.Unlock()
+	allowed = allowed || m.brandHostCertEligible(p.Domain)
 	if !allowed || !validation.IsValidHostname(p.Domain) || !m.certificateProvisioningAllowed(p.Domain) {
 		return "", "", fmt.Errorf("%w: certificate domain is not registered", ErrRejected)
 	}
@@ -267,6 +273,11 @@ func (m *ApplyManager) RenewCertificates(raw json.RawMessage) (string, string, e
 	m.mu.Lock()
 	domains := append([]string{hostname}, m.domains...)
 	m.mu.Unlock()
+	if hosts, e := m.brandNginxDomains(); e == nil {
+		for _, host := range hosts {
+			domains = append(domains, host.FQDN)
+		}
+	}
 	var hostnameFailed bool
 	deadline := time.Now().Add(3 * time.Minute)
 	for _, domain := range domains {
@@ -378,7 +389,7 @@ func (m *ApplyManager) issueCertificateContext(ctx context.Context, domain strin
 	// consumer switch is serialized with config.apply.
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.certificateAllowed(domain) {
+	if !m.certificateAllowed(domain) && !m.brandHostCertEligible(domain) {
 		return fmt.Errorf("certificate domain was removed during issuance")
 	}
 	currentKey, err := os.ReadFile(keyPath) // #nosec G304 -- recheck the canonical root-owned key after issuance.
@@ -513,6 +524,12 @@ func (m *ApplyManager) customWebEnabled(domain string) bool {
 	return err == nil && enabled
 }
 func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
+	if m.brandHostCertEligible(domain) {
+		return true
+	}
+	if strings.HasPrefix(domain, "mta-sts.") && m.transportCertificateAllowed(domain) {
+		return true
+	}
 	if domain == m.hostname() || m.pool == nil {
 		return true
 	}

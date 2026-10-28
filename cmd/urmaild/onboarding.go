@@ -25,7 +25,7 @@ func startDomainOnboarding(ctx context.Context, cfg *config.Config, pool *db.Poo
 		hostname = "box." + cfg.PrimaryDomain
 	}
 	service := &onboarding.Service{Pool: pool, Secrets: secrets, Hostname: hostname, AfterChange: pipeline.Trigger}
-	if cfg.DevMode || cfg.Quarantined {
+	if !cfg.BackgroundWorkersAllowed() {
 		return service
 	}
 	var random [16]byte

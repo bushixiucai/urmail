@@ -104,9 +104,15 @@ func TestOutlookAutodiscoverXMLGolden(t *testing.T) {
 	got := OutlookAutodiscoverXML(testConfig(), "user@example.com")
 	mustParseXML(t, got)
 	golden(t, "outlook-autodiscover.xml", got)
-	if !strings.Contains(got, "https://mail.example.com"+DefaultEASPath) {
-		t.Fatalf("EAS URL missing:\n%s", got)
+	for _, required := range []string{outlookResponseSchema, "<Type>IMAP</Type>", "<Port>993</Port>", "<Type>SMTP</Type>", "<Port>587</Port>", "<Encryption>TLS</Encryption>"} {
+		if !strings.Contains(got, required) {
+			t.Fatalf("supported transport missing %s: %s", required, got)
+		}
 	}
+	if strings.Contains(got, "<Type>Exchange</Type>") || strings.Contains(got, "<Type>MobileSync</Type>") {
+		t.Fatal("Outlook discovery advertised unsupported Exchange or wrong schema")
+	}
+
 }
 
 func TestOutlookAutodiscoverXMLEscaping(t *testing.T) {

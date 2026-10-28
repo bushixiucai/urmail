@@ -78,6 +78,11 @@ func (*fakeStore) CreateAuditLog(context.Context, store.CreateAuditLogParams) (s
 }
 
 type fakeIMAP struct {
+	copyStored, appendStored bool
+	appendCalls              int
+	appendErr, findErr       error
+
+	from        []webmail.Address
 	validity    uint32
 	beforeFetch func(context.Context)
 	onDelete    func()
@@ -98,7 +103,7 @@ func (f *fakeIMAP) GetMessage(ctx context.Context, _ string, uid uint32) (*webma
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: "scheduled"}, To: []webmail.Address{{Email: "recipient@example.test"}}, Text: "body"}, nil
+	return &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: "scheduled", From: f.from}, To: []webmail.Address{{Email: "recipient@example.test"}}, Text: "body"}, nil
 }
 func (*fakeIMAP) GetAttachment(context.Context, string, uint32, string) (string, string, []byte, error) {
 	return "", "", nil, errors.New("no attachment")
@@ -118,8 +123,12 @@ func (*fakeIMAP) EnsureDraftsFolder(context.Context) (string, error) { return "D
 func (*fakeIMAP) SaveDraft(context.Context, string, webmail.Outgoing, uint32, uint32) (webmail.DraftSaveResult, error) {
 	return webmail.DraftSaveResult{}, nil
 }
-func (*fakeIMAP) SaveSentCopy(context.Context, []byte) (webmail.DraftSaveResult, error) {
-	return webmail.DraftSaveResult{}, nil
+func (f *fakeIMAP) SaveSentCopy(context.Context, []byte) (webmail.DraftSaveResult, error) {
+	f.appendCalls++
+	if f.appendErr == nil || f.appendStored {
+		f.copyStored = true
+	}
+	return webmail.DraftSaveResult{}, f.appendErr
 }
 func (*fakeIMAP) MoveToTrash(context.Context, string, []uint32) (string, error) {
 	return "Trash", nil
@@ -296,5 +305,31 @@ func TestSuspendedScheduleDoesNotSubmit(t *testing.T) {
 	}
 	if st.row.Status != "failed" || submit.calls != 0 {
 		t.Fatalf("%+v calls=%d", st.row, submit.calls)
+	}
+}
+
+type aliasGrantStore struct {
+	*fakeStore
+	allowed int64
+}
+
+func (s aliasGrantStore) PlatformMailboxSenderIdentityAllowed(context.Context, store.PlatformMailboxSenderIdentityAllowedParams) (int64, error) {
+	return s.allowed, nil
+}
+func TestWorkerRechecksSavedAliasGrantBeforeSubmission(t *testing.T) {
+	for _, allowed := range []int64{0, 1} {
+		worker, st, imap, submit := workerFixture()
+		imap.from = []webmail.Address{{Name: "Team Desk", Email: "team@example.test"}}
+		worker.opts.Store = aliasGrantStore{fakeStore: st, allowed: allowed}
+		if _, err := worker.Step(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if allowed == 0 {
+			if submit.calls != 0 || st.row.Status != "failed" || (!st.row.LastError.Valid || st.row.LastError.String != "MAILBOX_FROM_NOT_AUTHORIZED") {
+				t.Fatal("revoked draft alias submitted")
+			}
+		} else if submit.calls != 1 || st.row.Status != "sent" {
+			t.Fatal("authorized alias was not sent")
+		}
 	}
 }

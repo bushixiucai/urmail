@@ -52,3 +52,29 @@ func TestVacationFiniteDatesAndLoopSuppression(t *testing.T) {
 		t.Fatal("duplicate reply suppression disabled")
 	}
 }
+
+func TestForwardCopyRequiresExtensionAndAcceptsOnlyExactLegacyForm(t *testing.T) {
+	rules := Rules{Forwarding: &Forwarding{Enabled: true, Target: "copy@example.test", KeepCopy: true}}
+	script, err := Compile(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, "require \"copy\";\n") {
+		t.Fatal("redirect :copy lacks its required capability")
+	}
+	legacy := strings.Replace(script, "require \"copy\";\n", "", 1)
+	if _, err = Decode(legacy); err != nil {
+		t.Fatalf("historical policy cannot be recovered: %v", err)
+	}
+	if _, err = Decode(legacy + "redirect \"attacker@example.test\";\n"); err == nil {
+		t.Fatal("legacy compatibility accepted an injected action")
+	}
+	decoded, err := Decode(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixed, err := Compile(decoded)
+	if err != nil || fixed != script {
+		t.Fatal("legacy policy did not normalize to the exact intended program")
+	}
+}

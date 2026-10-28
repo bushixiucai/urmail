@@ -55,3 +55,19 @@ URMAIL_EAS_ENABLED=true
 完整恢复顺序：停写/停外部 worker → 独立目标安装匹配版本 → 验证清单、密钥与备份链 → 解密/恢复 → 校验RLS/角色/数据 → 重新建立同步epoch和待审外部工作 → 人工核对 → 解除围栏并分批启动。不能清空幂等键后盲目重放旧扣款、营销或邀请。
 
 自动卸载不删除邮件数据。旧 MIAB/SQLite 安装禁止原地覆盖，按标准导入导出和受控迁移指南保全原数据。
+
+## Explicit recurring billing
+
+Stripe card payments have a separate `stripe_off_session_v1` recurring adapter. Configure the merchant account and its merchant-specific webhook URL, then explicitly verify the account capability from the platform merchant page. Checkout credentials alone never enroll a tenant. The existing worker periodically revalidates already approved, unchanged accounts; it cannot approve new accounts or undo a revocation.
+
+A tenant owner, administrator or billing member starts the official Stripe-hosted setup, returns to verify the saved authorization, then separately confirms the current frozen renewal quote. Canceling an enrollment prevents unstarted charges; an operation already in flight remains visible for reconciliation. Uncertain charges are queried with GET only, including after provider idempotency retention expires. Missing, truncated or ambiguous observations stay uncertain. Other checkout providers remain available for active payments without claiming recurring support.
+
+## Reviewed mail migration
+
+The native mailbox supports EML and mboxrd preview, per-message validation, duplicate handling and explicit confirmation. The source limit is 20 MiB, each message is at most 8 MiB, and one preview contains at most 100 items. Text line endings are canonicalized for IMAP; MIME bodies and decoded attachments are verified in the supported round-trip tests. Binary MIME that cannot be represented losslessly in mboxrd is refused explicitly; use EML for that content.
+
+Import acceptance and local receipts are durable. After a lost APPEND acknowledgment, use the read-only reconciliation action before any reviewed retry. An incomplete scan never establishes absence. Canceling, losing a lease or restoring a backup cannot turn an unknown operation into permission to append again. Restored previews and provider setup proofs require new review.
+
+## Cloud AI configuration and consent
+
+`URMAIL_AI_CLOUD_ENDPOINTS` is an exact operator allowlist, not permission to send mailbox content. Save provider credentials through the authenticated configuration API so they remain encrypted. Cloud processing requires an explicit current configuration digest and content-scope consent from an active tenant owner or administrator. Revocation, a provider/model/scope change or removal of the granting role invalidates that consent. Native AI requests remain scoped to the authenticated mailbox; configuring a provider does not authorize a background export of customer mail.

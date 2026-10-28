@@ -76,7 +76,7 @@ Section: mail
 Priority: optional
 Architecture: $ARCH
 Maintainer: urMail.cn <support@urmail.cn>
-Depends: rsyslog, nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, opendkim, postgresql, ca-certificates, certbot, age, openssh-client, python3
+Depends: rsyslog, nginx, postfix, dovecot-core, dovecot-imapd, dovecot-pop3d, dovecot-lmtpd, dovecot-sieve, dovecot-managesieved, dovecot-pgsql, nsd, bind9-utils, bind9-dnsutils, opendkim, postgresql, ca-certificates, certbot, age, openssh-client, python3
 Description: urMail.cn multi-tenant email SaaS platform
  A self-hosted platform for selling domain mailboxes: multi-tenancy, quotas,
  billing, payment, DNS onboarding, certificates, observability and compliance.
@@ -121,7 +121,7 @@ install -d -o root -g opendkim -m 0750 /etc/opendkim /etc/opendkim/keys
 if [ ! -e /etc/opendkim/opendkim.conf ] && [ -f /etc/opendkim.conf ]; then
   install -o root -g opendkim -m 0644 /etc/opendkim.conf /etc/opendkim/opendkim.conf
 fi
-install -d -o root -g root -m 0755 /etc/nsd/zones /var/lib/urmail-acme
+install -d -o root -g root -m 0755 /etc/nsd/zones /var/lib/urmail-acme /var/lib/nsd/urmail-secondary /etc/systemd/system/nsd.service.d
 install -d -o root -g root -m 0700 /var/lib/urmail-agent /etc/letsencrypt /var/log/letsencrypt
 chown root:mailinabox /etc/postfix/urmail
 chmod 0755 /etc/postfix/urmail

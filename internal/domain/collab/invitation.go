@@ -2,7 +2,6 @@ package collab
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -72,49 +71,38 @@ func InvitationICS(inv Invitation) (string, error) {
 	if stamp.IsZero() {
 		stamp = time.Now().UTC()
 	}
-	status := "CONFIRMED"
-	switch event.Status {
-	case statusCancelled:
-		status = "CANCELLED" //nolint:misspell // RFC 5545 spelling
-	case "tentative":
-		status = "TENTATIVE"
-	}
-	var b strings.Builder
-	b.WriteString("BEGIN:VCALENDAR\r\n")
-	b.WriteString("VERSION:2.0\r\n")
-	b.WriteString("PRODID:-//urMail//Calendar//EN\r\n")
-	b.WriteString("METHOD:" + inv.Method + "\r\n")
-	b.WriteString("BEGIN:VEVENT\r\n")
-	b.WriteString("UID:" + escapeVCard(inv.UID) + "\r\n")
-	b.WriteString("SEQUENCE:" + fmt.Sprint(inv.Sequence) + "\r\n")
-	b.WriteString("DTSTAMP:" + stamp.UTC().Format("20060102T150405Z") + "\r\n")
-	b.WriteString("DTSTART:" + event.StartsAt.UTC().Format("20060102T150405Z") + "\r\n")
-	b.WriteString("DTEND:" + event.EndsAt.UTC().Format("20060102T150405Z") + "\r\n")
-	b.WriteString("SUMMARY:" + escapeVCard(event.Summary) + "\r\n")
-	if event.Location != "" {
-		b.WriteString("LOCATION:" + escapeVCard(event.Location) + "\r\n")
-	}
-	if event.Description != "" {
-		b.WriteString("DESCRIPTION:" + escapeVCard(event.Description) + "\r\n")
-	}
-	b.WriteString("STATUS:" + status + "\r\n")
+	event.UID = inv.UID
+	event.Organizer = inv.Organizer
+	event.Sequence = inv.Sequence
 	if inv.Method == MethodCancel {
-		for _, attendee := range event.Attendees {
-			b.WriteString("ATTENDEE;PARTSTAT=" + strings.ToUpper(PartStatNeedsAction) + ":mailto:" + attendee + "\r\n")
-		}
-	} else {
-		for _, attendee := range event.Attendees {
-			partstat := strings.ToUpper(PartStatNeedsAction)
-			if state, ok := event.AttendeeStatus[attendee]; ok && ValidPartStat(state) {
-				partstat = strings.ToUpper(state)
-			}
-			b.WriteString("ATTENDEE;PARTSTAT=" + partstat + ";RSVP=TRUE:mailto:" + attendee + "\r\n")
+		event.AttendeeStatus = nil
+		for i := range event.Overrides {
+			event.Overrides[i].Status = statusCancelled
 		}
 	}
-	b.WriteString("ORGANIZER:mailto:" + inv.Organizer + "\r\n")
-	b.WriteString("END:VEVENT\r\n")
-	b.WriteString("END:VCALENDAR\r\n")
-	return b.String(), nil
+	body, err := ICalendar(event)
+	if err != nil {
+		return "", err
+	}
+	body = strings.Replace(body, "PRODID:-//urMail//Calendar//EN\r\n", "PRODID:-//urMail//Calendar//EN\r\nMETHOD:"+inv.Method+"\r\n", 1)
+
+	// Re-fold after adding transport properties; no client-supplied raw headers.
+	unfolded := strings.ReplaceAll(strings.ReplaceAll(body, "\r\n ", ""), "\r\n\t", "")
+	var result strings.Builder
+	for _, line := range strings.Split(unfolded, "\r\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "DTSTAMP:") {
+			line = "DTSTAMP:" + stamp.UTC().Format("20060102T150405Z")
+		}
+		if inv.Method == MethodRequest && strings.HasPrefix(line, "ATTENDEE;") {
+			line = strings.Replace(line, ":mailto:", ";RSVP=TRUE:mailto:", 1)
+		}
+		result.WriteString(foldICal(line))
+		result.WriteString("\r\n")
+	}
+	return result.String(), nil
 }
 
 // Reply is one attendee's answer to an invitation (METHOD:REPLY).
@@ -130,6 +118,7 @@ type Reply struct {
 // status. The UID must be present so the caller can bind the reply to a
 // single stored event.
 func ParseReply(raw string) (Reply, error) {
+	raw = strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n ", ""), "\r\n\t", "")
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	var reply Reply
 	method := ""
@@ -168,17 +157,18 @@ func ParseReply(raw string) (Reply, error) {
 
 // parseAttendeeLine splits "ATTENDEE;PARAM=VALUE:mailto:addr".
 func parseAttendeeLine(line string) (email, partstat string, ok bool) {
-	rest := line[len("ATTENDEE"):]
-	idx := strings.Index(rest, ":")
-	if idx < 0 {
+	params, value, found := cutICalProperty(line)
+	if !found {
 		return "", "", false
 	}
-	params, value := rest[:idx], rest[idx+1:]
-	if _, val, found := strings.Cut(strings.ToUpper(params), "PARTSTAT="); found {
-		if end := strings.IndexByte(val, ';'); end >= 0 {
-			val = val[:end]
+	for _, param := range splitICalParams(params)[1:] {
+		key, value, ok := strings.Cut(param, "=")
+		if ok && strings.EqualFold(key, "PARTSTAT") {
+			if partstat != "" {
+				return "", "", false
+			}
+			partstat = strings.ToLower(strings.Trim(value, "\""))
 		}
-		partstat = strings.ToLower(strings.Trim(val, "\""))
 	}
 	if !strings.HasPrefix(strings.ToUpper(value), "MAILTO:") {
 		return "", "", false

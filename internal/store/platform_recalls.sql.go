@@ -13,12 +13,12 @@ import (
 
 const platformCompleteRecall = `-- name: PlatformCompleteRecall :one
 WITH completed AS (
- UPDATE recall_requests r SET status=$3,reason=$4,completed_at=now() WHERE r.tenant_id=$1 AND r.id=$2 AND r.status='pending' RETURNING r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at
+ UPDATE recall_requests r SET status=$3,reason=$4,completed_at=now() WHERE r.tenant_id=$1 AND r.id=$2 AND r.status='pending' RETURNING r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at, r.preview_actor_id, r.preview_token, r.preview_digest, r.preview_snapshot, r.preview_expires_at, r.confirmed_at, r.selected_copy_keys, r.attempt_epoch, r.local_result, r.result_history
 ), audited AS (
  INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
  SELECT c.tenant_id,c.requested_by,'compliance.recall.complete','recall',c.id::text,jsonb_build_object('status',c.status,'scope','local_mailbox') FROM completed c RETURNING id
 )
-SELECT completed.id, completed.tenant_id, completed.message_id, completed.requested_by, completed.status, completed.reason, completed.created_at, completed.archive_entry_id, completed.mailbox_id, completed.completed_at FROM completed CROSS JOIN audited
+SELECT completed.id, completed.tenant_id, completed.message_id, completed.requested_by, completed.status, completed.reason, completed.created_at, completed.archive_entry_id, completed.mailbox_id, completed.completed_at, completed.preview_actor_id, completed.preview_token, completed.preview_digest, completed.preview_snapshot, completed.preview_expires_at, completed.confirmed_at, completed.selected_copy_keys, completed.attempt_epoch, completed.local_result, completed.result_history FROM completed CROSS JOIN audited
 `
 
 type PlatformCompleteRecallParams struct {
@@ -29,16 +29,26 @@ type PlatformCompleteRecallParams struct {
 }
 
 type PlatformCompleteRecallRow struct {
-	ID             int64              `json:"id"`
-	TenantID       int64              `json:"tenant_id"`
-	MessageID      string             `json:"message_id"`
-	RequestedBy    int64              `json:"requested_by"`
-	Status         string             `json:"status"`
-	Reason         pgtype.Text        `json:"reason"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID      pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	ID               int64              `json:"id"`
+	TenantID         int64              `json:"tenant_id"`
+	MessageID        string             `json:"message_id"`
+	RequestedBy      int64              `json:"requested_by"`
+	Status           string             `json:"status"`
+	Reason           pgtype.Text        `json:"reason"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8        `json:"mailbox_id"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text        `json:"preview_token"`
+	PreviewDigest    pgtype.Text        `json:"preview_digest"`
+	PreviewSnapshot  []byte             `json:"preview_snapshot"`
+	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
+	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
+	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
+	AttemptEpoch     int64              `json:"attempt_epoch"`
+	LocalResult      []byte             `json:"local_result"`
+	ResultHistory    []byte             `json:"result_history"`
 }
 
 func (q *Queries) PlatformCompleteRecall(ctx context.Context, arg PlatformCompleteRecallParams) (PlatformCompleteRecallRow, error) {
@@ -60,12 +70,22 @@ func (q *Queries) PlatformCompleteRecall(ctx context.Context, arg PlatformComple
 		&i.ArchiveEntryID,
 		&i.MailboxID,
 		&i.CompletedAt,
+		&i.PreviewActorID,
+		&i.PreviewToken,
+		&i.PreviewDigest,
+		&i.PreviewSnapshot,
+		&i.PreviewExpiresAt,
+		&i.ConfirmedAt,
+		&i.SelectedCopyKeys,
+		&i.AttemptEpoch,
+		&i.LocalResult,
+		&i.ResultHistory,
 	)
 	return i, err
 }
 
 const platformLockRecallForExpunge = `-- name: PlatformLockRecallForExpunge :one
-SELECT r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at,a.id AS archive_entry_id,a.legal_hold,a.deleted_at AS archive_deleted_at,a.message_id AS archive_message_id,a.mailbox_id AS archive_mailbox_id,m.address,m.status AS mailbox_status,t.status AS tenant_status,d.status AS domain_status
+SELECT r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at, r.preview_actor_id, r.preview_token, r.preview_digest, r.preview_snapshot, r.preview_expires_at, r.confirmed_at, r.selected_copy_keys, r.attempt_epoch, r.local_result, r.result_history,a.id AS archive_entry_id,a.legal_hold,a.deleted_at AS archive_deleted_at,a.message_id AS archive_message_id,a.mailbox_id AS archive_mailbox_id,m.address,m.status AS mailbox_status,t.status AS tenant_status,d.status AS domain_status
 FROM recall_requests r
 JOIN archive_entries a ON a.id=r.archive_entry_id AND a.tenant_id=r.tenant_id
 LEFT JOIN mailboxes m ON m.id=r.mailbox_id AND m.tenant_id=r.tenant_id
@@ -90,6 +110,16 @@ type PlatformLockRecallForExpungeRow struct {
 	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
 	MailboxID        pgtype.Int8        `json:"mailbox_id"`
 	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text        `json:"preview_token"`
+	PreviewDigest    pgtype.Text        `json:"preview_digest"`
+	PreviewSnapshot  []byte             `json:"preview_snapshot"`
+	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
+	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
+	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
+	AttemptEpoch     int64              `json:"attempt_epoch"`
+	LocalResult      []byte             `json:"local_result"`
+	ResultHistory    []byte             `json:"result_history"`
 	ArchiveEntryID_2 int64              `json:"archive_entry_id_2"`
 	LegalHold        bool               `json:"legal_hold"`
 	ArchiveDeletedAt pgtype.Timestamptz `json:"archive_deleted_at"`
@@ -115,6 +145,16 @@ func (q *Queries) PlatformLockRecallForExpunge(ctx context.Context, arg Platform
 		&i.ArchiveEntryID,
 		&i.MailboxID,
 		&i.CompletedAt,
+		&i.PreviewActorID,
+		&i.PreviewToken,
+		&i.PreviewDigest,
+		&i.PreviewSnapshot,
+		&i.PreviewExpiresAt,
+		&i.ConfirmedAt,
+		&i.SelectedCopyKeys,
+		&i.AttemptEpoch,
+		&i.LocalResult,
+		&i.ResultHistory,
 		&i.ArchiveEntryID_2,
 		&i.LegalHold,
 		&i.ArchiveDeletedAt,

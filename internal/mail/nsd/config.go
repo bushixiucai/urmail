@@ -30,6 +30,10 @@ type Zone struct {
 	// DNSSEC optionally marks the zone as signed with the key snapshot.
 	// nil keeps the zone unsigned (no signconf/key metadata rendered).
 	DNSSEC *DNSSECConfig
+	// Sign enables agent-managed offline signing; NSD serves the verified .signed file.
+	Sign           bool
+	SigningVersion string
+	Secondary      *SecondaryConfig
 }
 
 // Snapshot contains all active DNS zones to be rendered.

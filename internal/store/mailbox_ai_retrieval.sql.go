@@ -246,3 +246,67 @@ func (q *Queries) SearchMailboxAIChunks(ctx context.Context, arg SearchMailboxAI
 	}
 	return items, nil
 }
+
+const searchMailboxAIChunksInScope = `-- name: SearchMailboxAIChunksInScope :many
+SELECT c.id,c.folder,c.folder_uidvalidity,c.message_uid,c.chunk_index,c.content_version,c.content,c.content_digest
+FROM mailbox_ai_chunks c
+WHERE c.tenant_id=$1 AND c.mailbox_id=$2
+AND c.content ILIKE '%' || $3::text || '%'
+AND EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS s(folder text,validity bigint,uids bigint[])
+ WHERE s.folder=c.folder AND s.validity=c.folder_uidvalidity AND c.message_uid=ANY(s.uids))
+ORDER BY c.id LIMIT $5::int
+`
+
+type SearchMailboxAIChunksInScopeParams struct {
+	TenantID    int64  `json:"tenant_id"`
+	MailboxID   int64  `json:"mailbox_id"`
+	Query       string `json:"query"`
+	Scope       []byte `json:"scope"`
+	ResultLimit int32  `json:"result_limit"`
+}
+
+type SearchMailboxAIChunksInScopeRow struct {
+	ID                int64  `json:"id"`
+	Folder            string `json:"folder"`
+	FolderUidvalidity int64  `json:"folder_uidvalidity"`
+	MessageUid        int64  `json:"message_uid"`
+	ChunkIndex        int32  `json:"chunk_index"`
+	ContentVersion    int32  `json:"content_version"`
+	Content           string `json:"content"`
+	ContentDigest     string `json:"content_digest"`
+}
+
+func (q *Queries) SearchMailboxAIChunksInScope(ctx context.Context, arg SearchMailboxAIChunksInScopeParams) ([]SearchMailboxAIChunksInScopeRow, error) {
+	rows, err := q.db.Query(ctx, searchMailboxAIChunksInScope,
+		arg.TenantID,
+		arg.MailboxID,
+		arg.Query,
+		arg.Scope,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchMailboxAIChunksInScopeRow{}
+	for rows.Next() {
+		var i SearchMailboxAIChunksInScopeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Folder,
+			&i.FolderUidvalidity,
+			&i.MessageUid,
+			&i.ChunkIndex,
+			&i.ContentVersion,
+			&i.Content,
+			&i.ContentDigest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

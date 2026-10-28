@@ -2,6 +2,7 @@ package airetrieval
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -185,4 +186,34 @@ func chunkFromRow(id int64, folder string, uidValidity, uid int64, chunkIndex, c
 		ChunkIndex:  int(chunkIndex), ContentVersion: int(contentVersion),
 		Content: content, Digest: digest,
 	}
+}
+
+// SearchScope narrows candidates before LIMIT without changing the canonical index.
+type SearchScope struct {
+	Folder   string   `json:"folder"`
+	Validity uint32   `json:"validity"`
+	UIDs     []uint32 `json:"uids"`
+}
+
+// SearchChunksInScope filters folder/validity/UID membership before LIMIT.
+func (s PGChunkStore) SearchChunksInScope(ctx context.Context, p Principal, query string, limit int, scope []SearchScope) ([]Chunk, error) {
+	raw, err := json.Marshal(scope)
+	if err != nil {
+		return nil, err
+	}
+	var out []Chunk
+	err = s.inTx(ctx, p, func(ctx context.Context, q *store.Queries) error {
+		if limit < 0 || limit > math.MaxInt32 {
+			return errors.New("airetrieval: limit out of range")
+		}
+		rows, err := q.SearchMailboxAIChunksInScope(ctx, store.SearchMailboxAIChunksInScopeParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Query: query, Scope: raw, ResultLimit: int32(limit)})
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			out = append(out, chunkFromRow(row.ID, row.Folder, row.FolderUidvalidity, row.MessageUid, row.ChunkIndex, row.ContentVersion, row.Content, row.ContentDigest))
+		}
+		return nil
+	})
+	return out, err
 }

@@ -23,6 +23,7 @@ const EnvFile = "/etc/urmail/urmaild.env"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
+	DNSSecondaryOnly     bool
 	DNSListenAddresses   []string
 	DevMode              bool
 	MarketingEnabled     bool
@@ -30,6 +31,7 @@ type Config struct {
 	NotificationsEnabled bool
 	RefundsEnabled       bool
 	Quarantined          bool
+	WorkersHeld          bool
 	ACMEServer           string
 	ACMERootCA           string
 	// ListenAddr is the address the HTTP server binds to. It must stay on
@@ -188,6 +190,20 @@ func Load() (*Config, error) {
 		}
 	}
 
+	dnsSecondaryOnly := false
+	if raw := values["URMAIL_DNS_SECONDARY_ONLY"]; raw != "" {
+		dnsSecondaryOnly, err = strconv.ParseBool(raw)
+		if err != nil {
+			return nil, errors.New("URMAIL_DNS_SECONDARY_ONLY must be a boolean")
+		}
+	}
+	workersHeld := false
+	if raw := values["URMAIL_WORKERS_HELD"]; raw != "" {
+		workersHeld, err = strconv.ParseBool(raw)
+		if err != nil {
+			return nil, errors.New("URMAIL_WORKERS_HELD must be a boolean")
+		}
+	}
 	var preserveV80 bool
 	if raw := values["URMAIL_POSTFIX_V80_PRESERVE"]; raw != "" {
 		preserveV80, err = strconv.ParseBool(raw)
@@ -243,6 +259,8 @@ func Load() (*Config, error) {
 	}
 	cfg := &Config{
 		DevMode:                     parseBool(values["URMAIL_DEV_MODE"]),
+		WorkersHeld:                 workersHeld,
+		DNSSecondaryOnly:            dnsSecondaryOnly,
 		MarketingEnabled:            parseBool(values["URMAIL_MARKETING_ENABLED"]),
 		RegistrationEnabled:         parseBool(values["URMAIL_REGISTRATION_ENABLED"]),
 		NotificationsEnabled:        parseBool(values["URMAIL_NOTIFICATIONS_ENABLED"]),
@@ -354,6 +372,22 @@ func (c *Config) applyDefaults() {
 // falling back to a local socket would hide a misconfigured install behind a
 // confusing runtime error.
 func (c *Config) validate() error {
+	if c.DNSSecondaryOnly {
+		if c.MyHostname == "" || len(c.DNSListenAddresses) == 0 {
+			return errors.New("DNS-only secondary requires an explicit hostname and listen addresses")
+		}
+		for _, address := range c.DNSListenAddresses {
+			ip := net.ParseIP(address)
+			if ip == nil || ip.IsUnspecified() {
+				return errors.New("DNS-only secondary requires concrete listen IPs")
+			}
+		}
+		if c.PreserveExternalNSD {
+			return errors.New("DNS-only secondary cannot manage preserved external NSD")
+		}
+		return nil
+	}
+
 	if c.PostfixV80Preserve && !c.PolicyEnabled {
 		return errors.New("v80 SMTP preservation requires URMAIL_POLICY_ENABLED")
 	}
@@ -503,4 +537,10 @@ func resolveDNSListenAddresses(override string) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// BackgroundWorkersAllowed excludes maintenance/restore/development modes
+// without disabling mail protocols, policy enforcement or config convergence.
+func (c *Config) BackgroundWorkersAllowed() bool {
+	return c != nil && !c.DevMode && !c.Quarantined && !c.WorkersHeld
 }

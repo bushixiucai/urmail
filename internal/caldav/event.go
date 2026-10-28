@@ -29,26 +29,6 @@ var quote = string([]byte{34})
 // backslash is the escape character of iCalendar text values.
 var backslash = string([]byte{92})
 
-// icalEscape applies RFC 5545 text escaping to one value.
-func icalEscape(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case 92, 59, 44:
-			b.WriteString(backslash)
-			b.WriteRune(r)
-		case 10:
-			b.WriteString(backslash)
-			b.WriteString("n")
-		case 13:
-			// carriage returns are dropped
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 // icalUnescape reverses icalEscape on one value.
 func icalUnescape(s string) string {
 	var b strings.Builder
@@ -154,16 +134,7 @@ func eventBody(row store.MailboxEvents) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var inject strings.Builder
-	inject.WriteString("UID:" + row.Uid + crlf)
-	inject.WriteString("STATUS:" + statusOf(row) + crlf)
-	if row.Description != "" {
-		inject.WriteString("DESCRIPTION:" + icalEscape(row.Description) + crlf)
-	}
-	if row.Location != "" {
-		inject.WriteString("LOCATION:" + icalEscape(row.Location) + crlf)
-	}
-	return strings.Replace(base, "BEGIN:VEVENT"+crlf, "BEGIN:VEVENT"+crlf+inject.String(), 1), nil
+	return base, nil
 }
 
 // rowEvent collects the columns the domain renderer needs.
@@ -174,7 +145,12 @@ func rowEvent(row store.MailboxEvents) (collab.Event, error) {
 			attendees = []string{}
 		}
 	}
+	overrides, err := collab.DecodeOccurrenceOverrides(row.RecurrenceOverrides)
+	if err != nil {
+		return collab.Event{}, err
+	}
 	ev := collab.Event{
+		UID: row.Uid, Overrides: overrides,
 		Summary: row.Summary, Description: row.Description, Location: row.Location,
 		StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, AllDay: row.AllDay,
 		Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status, Attendees: attendees,
@@ -182,13 +158,6 @@ func rowEvent(row store.MailboxEvents) (collab.Event, error) {
 	// Normalize validates the stored row the same way a fresh write is
 	// validated; stored rows always pass.
 	return collab.NormalizeEvent(ev)
-}
-
-func statusOf(row store.MailboxEvents) string {
-	if row.Status == "" {
-		return "confirmed"
-	}
-	return row.Status
 }
 
 // trimETag strips optional quoting from an ETag header value.

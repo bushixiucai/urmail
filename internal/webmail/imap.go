@@ -286,6 +286,10 @@ func parseLIST(line string) (Folder, bool) {
 	if !ok || name == "" {
 		return Folder{}, false
 	}
+	name = decodeMailboxWire(name)
+	if name == "" {
+		return Folder{}, false
+	}
 	return Folder{Name: name, Delimiter: delimiter, Flags: flags}, true
 }
 

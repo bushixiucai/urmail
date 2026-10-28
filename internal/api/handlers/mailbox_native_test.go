@@ -395,20 +395,46 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	if !strings.Contains(w.Header().Get("Content-Disposition"), "a.txt") {
 		t.Fatalf("disposition=%q", w.Header().Get("Content-Disposition"))
 	}
+	for _, sample := range []struct {
+		value  string
+		status int
+	}{{"0", 400}, {"bad", 400}, {"8", 409}, {"9", 200}} {
+		checked := auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7/attachments/3?uid_validity="+sample.value, nil)
+		if checked.Code != sample.status {
+			t.Fatalf("attachment generation %s: %d %s", sample.value, checked.Code, checked.Body.String())
+		}
+		if sample.status != 200 && bytes.Contains(checked.Body.Bytes(), []byte("attachment-bytes")) {
+			t.Fatal("stale generation leaked attachment bytes")
+		}
+	}
+	for _, action := range []string{"flags", "move", "delete"} {
+		for _, validity := range []uint32{0, 8} {
+			rejected := auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/"+action, map[string]any{
+				"uids": []int{7}, "add": []string{`\Seen`}, "to": "Archive", "expunge": true, "uid_validity": validity,
+			})
+			want := http.StatusBadRequest
+			if validity != 0 {
+				want = http.StatusConflict
+			}
+			if rejected.Code != want {
+				t.Fatalf("%s validity %d: %d %s", action, validity, rejected.Code, rejected.Body.String())
+			}
+		}
+	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/flags", map[string]any{
-		"uids": []int{7}, "add": []string{`\Seen`},
+		"uid_validity": 9, "uids": []int{7}, "add": []string{`\Seen`},
 	})
 	if w.Code != http.StatusOK || len(imap.flagged) != 1 {
 		t.Fatalf("flags %d %#v", w.Code, imap.flagged)
 	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/move", map[string]any{
-		"uids": []int{7}, "to": webmail.EncodeFolderName("Archive"),
+		"uid_validity": 9, "uids": []int{7}, "to": webmail.EncodeFolderName("Archive"),
 	})
 	if w.Code != http.StatusOK || imap.moveTo != "Archive" {
 		t.Fatalf("move %d to=%q", w.Code, imap.moveTo)
 	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/delete", map[string]any{
-		"uids": []int{7}, "expunge": true,
+		"uid_validity": 9, "uids": []int{7}, "expunge": true,
 	})
 	if w.Code != http.StatusOK || !imap.expunged {
 		t.Fatalf("delete %d expunge=%v", w.Code, imap.expunged)
@@ -737,6 +763,21 @@ func TestGetRawMessageStreamsExactPayload(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "message/rfc822" {
 		t.Fatalf("content type %q", ct)
 	}
+	for _, sample := range []struct {
+		value  string
+		status int
+	}{{"0", 400}, {"8", 409}, {"9", 200}} {
+		read := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/mailbox/folders/INBOX/messages/5/raw?uid_validity="+sample.value, nil)
+		read.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		r.ServeHTTP(response, read)
+		if response.Code != sample.status {
+			t.Fatalf("raw generation %s: %d", sample.value, response.Code)
+		}
+		if sample.status != 200 && strings.Contains(response.Body.String(), "hello") {
+			t.Fatal("stale generation leaked raw message")
+		}
+	}
 }
 
 func TestGetRawMessageNotFound(t *testing.T) {
@@ -759,7 +800,7 @@ func TestGetRawMessageNotFound(t *testing.T) {
 	}
 }
 
-func TestImportMessageStoresRawPayload(t *testing.T) {
+func TestImportMessageRequiresReviewedReceipt(t *testing.T) {
 	client := &rawCapableClient{}
 	sessions := &fakeMailboxSessions{}
 	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
@@ -775,12 +816,12 @@ func TestImportMessageStoresRawPayload(t *testing.T) {
 	req.Header.Set("Content-Type", "message/rfc822")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusCreated || len(client.imported) != 1 {
+	if w.Code != http.StatusConflict || len(client.imported) != 0 || !strings.Contains(w.Body.String(), "MAIL_IMPORT_PREVIEW_REQUIRED") {
 		t.Fatalf("%d %s imported=%d", w.Code, w.Body.String(), len(client.imported))
 	}
 }
 
-func TestImportMessageRejectsWrongContentType(t *testing.T) {
+func TestLegacyImportCannotBypassReviewWithDifferentMediaType(t *testing.T) {
 	client := &rawCapableClient{}
 	sessions := &fakeMailboxSessions{}
 	authHash, hashErr := domainMail.HashPassword("correct-horse-battery")
@@ -796,7 +837,7 @@ func TestImportMessageRejectsWrongContentType(t *testing.T) {
 	req.Header.Set("Content-Type", "text/plain")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnsupportedMediaType || len(client.imported) != 0 {
+	if w.Code != http.StatusConflict || len(client.imported) != 0 || !strings.Contains(w.Body.String(), "MAIL_IMPORT_PREVIEW_REQUIRED") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 }

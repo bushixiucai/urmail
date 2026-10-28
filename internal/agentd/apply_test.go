@@ -352,7 +352,8 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 }
 
 func testCommand(m *ApplyManager, path string, args ...string) error {
-	if path == "/usr/bin/sievec" && len(args) == 2 {
+	if path == "/usr/bin/sievec" && len(args) == 6 && args[0] == "-P" && args[1] == "sieve_extprograms" && args[2] == "-x" && args[3] == "+vnd.dovecot.execute" {
+		args = args[4:]
 		source, err := os.ReadFile(m.target(args[0]))
 		if err != nil {
 			return err
@@ -451,5 +452,28 @@ func TestConfigApplyRepairsMissingCompiledSieveWithoutSourceChange(t *testing.T)
 	}
 	if after != before || !m.status.Ready || !m.spamBinaryCurrent() {
 		t.Fatal("same-generation apply failed to repair its compiled Sieve artifact")
+	}
+}
+
+func TestWorkerHoldKeepsConfigurationReadyWithoutAutomaticACME(t *testing.T) {
+	m := testManager(t)
+	m.cfg.WorkersHeld = true
+	m.automaticCertificates = true
+	m.run = func(_ context.Context, path string, args ...string) error {
+		if path == "/usr/bin/certbot" {
+			t.Error("maintenance configuration started ACME")
+			return errors.New("unexpected ACME")
+		}
+		return testCommand(m, path, args...)
+	}
+	generation, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation == "" || !m.status.Ready || m.certificatePending.Load() {
+		t.Fatalf("config unavailable or external certificate worker started: %+v", m.status)
+	}
+	if _, err := os.Stat(m.target("/etc/postfix/main.cf")); err != nil {
+		t.Fatal("maintenance removed mail configuration", err)
 	}
 }

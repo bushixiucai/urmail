@@ -38,7 +38,12 @@ func TestNetSubmitterSend(t *testing.T) {
 			return
 		}
 		write("235 OK")
-		_, _ = r.ReadString('\n') // MAIL
+		line, _ = r.ReadString('\n') // MAIL
+		if !strings.Contains(line, "MAIL FROM:<team@example.test>") {
+			write("550 invalid envelope sender")
+			got <- "wrong envelope"
+			return
+		}
 		write("250 OK")
 		_, _ = r.ReadString('\n') // RCPT
 		write("250 OK")
@@ -63,6 +68,7 @@ func TestNetSubmitterSend(t *testing.T) {
 
 	sub := NetSubmitter{Addr: ln.Addr().String(), Timeout: 2 * time.Second}
 	_, err = sub.Send(context.Background(), "alice@example.test", "secret", Outgoing{
+		From:    `"Team Desk" <team@example.test>`,
 		To:      []string{"bob@example.test"},
 		Subject: "Hi",
 		Text:    "Hello bob",
@@ -72,7 +78,7 @@ func TestNetSubmitterSend(t *testing.T) {
 	}
 	select {
 	case payload := <-got:
-		if !strings.Contains(payload, "Subject: Hi") || !strings.Contains(payload, "Hello bob") {
+		if !strings.Contains(payload, `From: "Team Desk" <team@example.test>`) || !strings.Contains(payload, "Subject: Hi") || !strings.Contains(payload, "Hello bob") {
 			t.Fatalf("payload=%q", payload)
 		}
 	case <-time.After(2 * time.Second):

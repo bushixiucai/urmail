@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"mime"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -28,7 +28,12 @@ const defaultCalendarName = "Calendar"
 // only leaves when a submission path and organizer confirmation are all
 // present; otherwise the invitations endpoint refuses.
 type MailboxCalendarHandler struct {
-	Service appcollab.Service
+	Native            *MailboxNativeHandler
+	SchedulingTXT     appcollab.TXTLookup
+	invitationJournal func(context.Context, appcollab.Principal, store.MailboxEvents, string, bool) (func(context.Context) error, error)
+	Pool              *db.Pool
+	Service           appcollab.Service
+	MaySend           func(context.Context, int64, int64) (bool, error)
 	// InviteSender delivers one invitation; nil keeps invitations refused.
 	InviteSender collab.InviteSender
 	// Submitter and Vault send real invitation mail on confirmed sends when
@@ -62,20 +67,22 @@ func (h MailboxCalendarHandler) invitationSender(c *gin.Context) (collab.InviteS
 }
 
 type eventRequest struct {
-	Version        int64             `json:"version"`
-	UID            string            `json:"uid"`
-	Summary        string            `json:"summary"`
-	Description    string            `json:"description"`
-	Location       string            `json:"location"`
-	StartsAt       string            `json:"starts_at"`
-	EndsAt         string            `json:"ends_at"`
-	AllDay         bool              `json:"all_day"`
-	Timezone       string            `json:"timezone"`
-	RRule          string            `json:"rrule"`
-	Status         string            `json:"status"`
-	RecurrenceID   string            `json:"recurrence_id"`
-	Attendees      []string          `json:"attendees"`
-	AttendeeStatus map[string]string `json:"attendee_status"`
+	Reminders      []int                       `json:"reminders"`
+	Overrides      []collab.OccurrenceOverride `json:"recurrence_overrides"`
+	Version        int64                       `json:"version"`
+	UID            string                      `json:"uid"`
+	Summary        string                      `json:"summary"`
+	Description    string                      `json:"description"`
+	Location       string                      `json:"location"`
+	StartsAt       string                      `json:"starts_at"`
+	EndsAt         string                      `json:"ends_at"`
+	AllDay         bool                        `json:"all_day"`
+	Timezone       string                      `json:"timezone"`
+	RRule          string                      `json:"rrule"`
+	Status         string                      `json:"status"`
+	RecurrenceID   string                      `json:"recurrence_id"`
+	Attendees      []string                    `json:"attendees"`
+	AttendeeStatus map[string]string           `json:"attendee_status"`
 }
 
 func (h MailboxCalendarHandler) principal(c *gin.Context) (appcollab.Principal, bool) {
@@ -98,23 +105,38 @@ func (h MailboxCalendarHandler) ListEvents(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := h.Service.Q.PlatformListEvents(c.Request.Context(), store.PlatformListEventsParams{
-		TenantID: p.TenantID, MailboxID: p.MailboxID,
-		RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 200,
-	})
+	var rows []store.MailboxEvents
+	var err error
+	next := int64(0)
+	if q, ok := h.Service.Q.(*store.Queries); ok {
+		cursor, e := strconv.ParseInt(c.DefaultQuery("cursor", "0"), 10, 64)
+		if e != nil || cursor < 0 {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		rows, err = q.PlatformListCalendarEventsPage(c, store.PlatformListCalendarEventsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 201})
+		if len(rows) > 200 {
+			rows = rows[:200]
+			next = rows[len(rows)-1].ID
+		}
+	} else {
+		rows, err = h.Service.Q.PlatformListEvents(c, store.PlatformListEventsParams{TenantID: p.TenantID, MailboxID: p.MailboxID, RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 200})
+	}
 	if err != nil {
 		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
 		return
 	}
 	type listedEvent struct {
+		Reminders []int `json:"reminders"`
 		store.MailboxEvents
-		Occurrences []time.Time            `json:"occurrences"`
-		Attendees   []collab.AttendeeState `json:"attendees"`
+		Instances           []collab.OccurrenceOverride `json:"instances"`
+		Occurrences         []time.Time                 `json:"occurrences"`
+		RecurrenceOverrides []collab.OccurrenceOverride `json:"recurrence_overrides"`
+		Attendees           []collab.AttendeeState      `json:"attendees"`
 	}
 	out := make([]listedEvent, 0, len(rows))
 	for _, row := range rows {
-		emails, status := appcollab.DecodeAttendees(row.Attendees)
-		event, normErr := collab.NormalizeEvent(collab.Event{Summary: row.Summary, StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status, Attendees: emails, AttendeeStatus: status})
+		event, _, normErr := appcollab.EventFromRow(row)
 		if normErr != nil {
 			authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
 			return
@@ -124,9 +146,30 @@ func (h MailboxCalendarHandler) ListEvents(c *gin.Context) {
 			authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
 			return
 		}
-		out = append(out, listedEvent{MailboxEvents: row, Occurrences: times, Attendees: collab.AttendeeStates(event)})
+		if len(times) == 0 && (!event.StartsAt.Before(end) || !event.EndsAt.After(start)) {
+			visibleException := false
+			for _, exception := range event.Overrides {
+				if exception.StartsAt.Before(end) && exception.EndsAt.After(start) {
+					visibleException = true
+					break
+				}
+			}
+			if !visibleException {
+				continue
+			}
+		}
+		instances := make([]collab.OccurrenceOverride, 0, len(times))
+		for _, start := range times {
+			one := collab.InstanceAt(event, start)
+			original := start
+			if one.RecurrenceID != "" {
+				original, _ = time.Parse(time.RFC3339, one.RecurrenceID)
+			}
+			instances = append(instances, collab.OccurrenceOverride{RecurrenceID: original, Summary: one.Summary, Description: one.Description, Location: one.Location, StartsAt: one.StartsAt, EndsAt: one.EndsAt, AllDay: one.AllDay, Status: one.Status})
+		}
+		out = append(out, listedEvent{Reminders: event.ReminderMinutes, Instances: instances, MailboxEvents: row, Occurrences: times, Attendees: collab.AttendeeStates(event), RecurrenceOverrides: event.Overrides})
 	}
-	c.JSON(http.StatusOK, gin.H{"events": out})
+	c.JSON(http.StatusOK, gin.H{"events": out, "next_cursor": next})
 }
 
 // CreateEvent stores one normalized event on the default calendar.
@@ -190,6 +233,13 @@ func (h MailboxCalendarHandler) UpdateEvent(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if req.RecurrenceID != "" {
+		var good bool
+		event, good = h.occurrenceEdit(c, p, id, req.Version, req.RecurrenceID, event)
+		if !good {
+			return
+		}
+	}
 	row, err := h.Service.UpdateEvent(c.Request.Context(), p, id, req.Version, event)
 	if errors.Is(err, collab.ErrInvalidEvent) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
@@ -218,11 +268,14 @@ func (h MailboxCalendarHandler) DeleteEvent(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
+	if c.Query("recurrence_id") != "" {
+		h.deleteOccurrence(c, p, id, version)
+		return
+	}
 	session, _ := middleware.GetMailboxSession(c)
 	if c.Query("notify") == "attendees" {
-		if !h.cancelWithNotice(c, session, p, id, version) {
-			return
-		}
+		h.cancelWithNotice(c, session, p, id, version)
+		return
 	}
 	if _, err = h.Service.Q.PlatformDeleteEvent(c.Request.Context(), store.PlatformDeleteEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id, Version: version}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -233,18 +286,6 @@ func (h MailboxCalendarHandler) DeleteEvent(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
-}
-
-// attendeesOf decodes the stored attendee JSON array; corrupt payloads become
-// an empty list so an export never fails on legacy rows.
-func attendeesOf(raw []byte) []string {
-	var attendees []string
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &attendees); err != nil || attendees == nil {
-			return []string{}
-		}
-	}
-	return attendees
 }
 
 // ExportCalendarICS streams every event in the mailbox default calendar as a
@@ -277,19 +318,24 @@ func (h MailboxCalendarHandler) ExportCalendarICS(c *gin.Context) {
 	}
 	rows, err := h.Service.Q.PlatformListEvents(c.Request.Context(), store.PlatformListEventsParams{
 		TenantID: p.TenantID, MailboxID: p.MailboxID,
-		RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 1000,
+		RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 1001,
 	})
 	if err != nil {
 		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
 		return
 	}
+	if len(rows) > 1000 {
+		authError(c, 413, "DATA_EXPORT_TOO_LARGE")
+		return
+	}
 	events := make([]collab.Event, 0, len(rows))
 	for _, row := range rows {
-		events = append(events, collab.Event{
-			Summary: row.Summary, Description: row.Description, Location: row.Location,
-			StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time,
-			Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status, Attendees: attendeesOf(row.Attendees),
-		})
+		event, _, err := appcollab.EventFromRow(row)
+		if err != nil {
+			authError(c, 503, "CALENDAR_UNAVAILABLE")
+			return
+		}
+		events = append(events, event)
 	}
 	body, err := collab.Calendar(events)
 	if err != nil {
@@ -320,13 +366,12 @@ func (h MailboxCalendarHandler) ExportEvent(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
 		return
 	}
-	var attendees []string
-	if len(row.Attendees) > 0 {
-		if jsonErr := json.Unmarshal(row.Attendees, &attendees); jsonErr != nil || attendees == nil {
-			attendees = []string{}
-		}
+	event, _, err := appcollab.EventFromRow(row)
+	if err != nil {
+		authError(c, 503, "CALENDAR_UNAVAILABLE")
+		return
 	}
-	body, err := collab.ICalendar(collab.Event{Summary: row.Summary, Description: row.Description, Location: row.Location, StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status, Attendees: attendees})
+	body, err := collab.ICalendar(event)
 	if err != nil {
 		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
 		return
@@ -378,7 +423,7 @@ func eventFrom(c *gin.Context, req eventRequest) (collab.Event, bool) {
 	event, err := collab.NormalizeEvent(collab.Event{
 		Summary: req.Summary, Description: req.Description, Location: req.Location,
 		StartsAt: start, EndsAt: end, AllDay: req.AllDay, Timezone: req.Timezone,
-		RRule: req.RRule, Status: req.Status, RecurrenceID: req.RecurrenceID,
+		ReminderMinutes: req.Reminders, RRule: req.RRule, Status: req.Status, RecurrenceID: req.RecurrenceID, Overrides: req.Overrides,
 		Attendees: req.Attendees, AttendeeStatus: req.AttendeeStatus,
 	})
 	if err != nil {
@@ -462,6 +507,9 @@ type inviteRequest struct {
 // the request body) and rate limited to one burst per event version.
 // POST /mailbox/calendars/events/:id/invitations
 func (h MailboxCalendarHandler) SendInvitations(c *gin.Context) {
+	if !h.allowInvitation(c) {
+		return
+	}
 	p, ok := h.principal(c)
 	if !ok {
 		return
@@ -487,50 +535,58 @@ func (h MailboxCalendarHandler) SendInvitations(c *gin.Context) {
 			return
 		}
 	}
-	row, err := h.Service.Q.PlatformGetEvent(c.Request.Context(), store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
-	if errors.Is(err, pgx.ErrNoRows) {
-		authError(c, http.StatusNotFound, "EVENT_NOT_FOUND")
-		return
-	}
-	if err != nil {
-		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
-		return
-	}
-	emails, status := appcollab.DecodeAttendees(row.Attendees)
-	event, normErr := collab.NormalizeEvent(collab.Event{
-		Summary: row.Summary, Description: row.Description, Location: row.Location,
-		StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, AllDay: row.AllDay,
-		Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status,
-		Attendees: emails, AttendeeStatus: status,
-	})
-	if normErr != nil {
-		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
+	if !req.Confirm {
+		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
 	session, ok := middleware.GetMailboxSession(c)
 	if !ok || session.Address == "" {
-		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
-		return
-	}
-	sequence := int(row.Sequence)
-	if sequence <= 0 {
-		sequence = int(row.Version) - 1
-	}
-	invitation := collab.Invitation{
-		UID: row.Uid, Sequence: sequence, Method: method, Organizer: session.Address, Event: event,
-	}
-	if !defaultInvitationGate.allow(row.Uid, int64(sequence), method) {
-		authError(c, http.StatusConflict, "INVITATION_ALREADY_SENT")
+		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
 	sender, senderOK := h.invitationSender(c)
 	if !senderOK {
-		authError(c, http.StatusServiceUnavailable, "WEBMAIL_DISABLED")
+		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
-	if err := collab.SendInvitations(c.Request.Context(), invitation, req.Confirm, sender); err != nil {
-		defaultInvitationGate.release(row.Uid, int64(sequence), method)
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+	row, err := h.Service.Q.PlatformGetEvent(c, store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		authError(c, 404, "EVENT_NOT_FOUND")
+		return
+	}
+	if err != nil {
+		authError(c, 503, "CALENDAR_UNAVAILABLE")
+		return
+	}
+	if row.Organizer != "" && !strings.EqualFold(row.Organizer, session.Address) {
+		authError(c, 403, "INVITATION_ORGANIZER_REQUIRED")
+		return
+	}
+	event, _, err := appcollab.EventFromRow(row)
+	if err != nil {
+		authError(c, 503, "CALENDAR_UNAVAILABLE")
+		return
+	}
+	sequence := int(row.Sequence)
+	if sequence < 0 {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	inv := collab.Invitation{UID: row.Uid, Sequence: sequence, Method: method, Organizer: session.Address, Event: event}
+	if _, err = collab.InvitationICS(inv); err != nil {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	finish, err := h.claimCalendarInvitation(c, p, row, method, false)
+	if !invitationClaimError(c, err) {
+		return
+	}
+	if err = collab.SendInvitations(c, inv, true, sender); err != nil {
+		authError(c, 409, "MAILBOX_SEND_UNCERTAIN")
+		return
+	}
+	if err = finishCalendarInvitation(finish); err != nil {
+		authError(c, 409, "MAILBOX_SEND_UNCERTAIN")
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"queued": len(event.Attendees), "sequence": sequence, "method": method})

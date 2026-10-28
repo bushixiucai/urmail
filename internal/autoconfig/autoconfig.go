@@ -19,7 +19,7 @@ import (
 )
 
 // DefaultEASPath is the ActiveSync endpoint exposed by internal/eas.
-const DefaultEASPath = "/api/v1/mailbox/eas"
+const DefaultEASPath = "/Microsoft-Server-ActiveSync"
 
 // Config drives XML generation. Host maps are keyed by the lowercased
 // email domain; a missing entry falls back to PrimaryMailHost.
@@ -160,31 +160,26 @@ func MozillaAutoconfigXML(cfg Config, email string) string {
 	return b.String()
 }
 
-// OutlookAutodiscoverXML renders a minimal valid Outlook Autodiscover
-// response advertising the EAS endpoint and the account email address.
+// OutlookAutodiscoverXML advertises the supported IMAP/POP3/SMTP transports.
+// Exchange/MAPI is not advertised: ActiveSync has a distinct response schema.
 func OutlookAutodiscoverXML(cfg Config, email string) string {
 	cfg = cfg.WithDefaults()
 	domain, _ := ParseEmailDomain(email)
 	host := cfg.HostForDomain(domain)
-
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
 	b.WriteString("<Autodiscover xmlns=\"http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006\">\n")
-	b.WriteString("  <Response>\n")
-	b.WriteString("    <Account>\n")
-	b.WriteString("      <AccountType>email</AccountType>\n")
-	b.WriteString("      <Action>settings</Action>\n")
-	if !disablePath(cfg.EASPath) {
-		b.WriteString("      <Protocol>\n")
-		b.WriteString("        <Type>Exchange</Type>\n")
-		b.WriteString("        <Server>" + xmlEscape("https://"+host+cfg.EASPath) + "</Server>\n")
-		b.WriteString("        <LoginName>" + xmlEscape(email) + "</LoginName>\n")
-		b.WriteString("        <AuthRequired>on</AuthRequired>\n")
-		b.WriteString("      </Protocol>\n")
+	b.WriteString("  <Response xmlns=\"" + outlookResponseSchema + "\">\n    <User><DisplayName>" + xmlEscape(email) + "</DisplayName><AutoDiscoverSMTPAddress>" + xmlEscape(email) + "</AutoDiscoverSMTPAddress></User>\n")
+	b.WriteString("    <Account>\n      <AccountType>email</AccountType>\n      <Action>settings</Action>\n")
+	protocol := func(kind, port, encryption string) {
+		b.WriteString("      <Protocol>\n        <Type>" + kind + "</Type>\n        <Server>" + xmlEscape(host) + "</Server>\n        <Port>" + port + "</Port>\n        <LoginName>" + xmlEscape(email) + "</LoginName>\n        <SPA>off</SPA>\n        <SSL>on</SSL>\n        <Encryption>" + encryption + "</Encryption>\n        <AuthRequired>on</AuthRequired>\n      </Protocol>\n")
 	}
-	b.WriteString("    </Account>\n")
-	b.WriteString("  </Response>\n")
-	b.WriteString("</Autodiscover>\n")
+	protocol("IMAP", "993", "SSL")
+	if cfg.POP3Enabled {
+		protocol("POP3", "995", "SSL")
+	}
+	protocol("SMTP", "587", "TLS")
+	b.WriteString("    </Account>\n  </Response>\n</Autodiscover>\n")
 	return b.String()
 }
 
@@ -217,18 +212,5 @@ func Mount(engine gin.IRouter, cfg Config) {
 		ctx.Redirect(http.StatusMovedPermanently, "/mail/config-v1.1.xml?"+ctx.Request.URL.RawQuery)
 	})
 
-	engine.POST("/autodiscover/autodiscover.xml", limit, func(ctx *gin.Context) {
-		// Outlook wraps the request in a SOAP envelope; for a minimal
-		// reply we accept a JSON or form field and tolerate a parse miss.
-		var req struct {
-			EMailAddress string `json:"EmailAddress" xml:"EMailAddress"`
-		}
-		_ = ctx.ShouldBind(&req)
-		email := req.EMailAddress
-		if email == "" {
-			email = ctx.PostForm("emailaddress")
-		}
-		ctx.Data(http.StatusOK, "text/xml; charset=utf-8",
-			[]byte(OutlookAutodiscoverXML(c, email)))
-	})
+	engine.POST("/autodiscover/autodiscover.xml", limit, discoverHandler(c))
 }

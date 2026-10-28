@@ -2,6 +2,7 @@ package marketing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	graph "github.com/bushixiucai/urmail/internal/domain/marketingflow"
 	"github.com/bushixiucai/urmail/internal/marketingflow"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -121,69 +123,99 @@ func (w *FlowWorker) Tick(ctx context.Context) (int, error) {
 // guarded by owner and fence so a recovered position is never released by a
 // stale worker.
 func (w *FlowWorker) handle(ctx context.Context, q *store.Queries, p store.PlatformClaimMarketingFlowPositionsRow) {
-	release := func() {
-		if _, err := q.PlatformReleaseMarketingFlowLease(ctx, store.PlatformReleaseMarketingFlowLeaseParams{
-			TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, LeaseFence: p.LeaseFence,
-		}); err != nil {
-			w.opts.Logger.Warn("marketing flow claim release failed", zap.Error(err))
-		}
+	lease := &flowLease{owner: w.id, fence: p.LeaseFence}
+	ctx = context.WithValue(ctx, flowLeaseKey{}, lease)
+	if p.LeaseUntil.Valid {
+		bounded, cancel := context.WithDeadline(ctx, p.LeaseUntil.Time.Add(-5*time.Second))
+		defer cancel()
+		ctx = bounded
 	}
+	status, code, retry := "blocked", "", int32(0)
+	defer func() {
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+		defer cancel()
+		if _, err := q.PlatformRecordMarketingFlowExecution(finishCtx, store.PlatformRecordMarketingFlowExecutionParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, NodeKey: p.StepKey, Status: status, ErrorCode: code, RetrySeconds: retry}); err != nil {
+			w.opts.Logger.Warn("marketing flow execution record failed")
+		}
+		if _, err := q.PlatformReleaseMarketingFlowLease(finishCtx, store.PlatformReleaseMarketingFlowLeaseParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, LeaseFence: p.LeaseFence}); err != nil {
+			w.opts.Logger.Warn("marketing flow claim release failed")
+		}
+	}()
 	steps, err := w.stepMap(ctx, q, p.TenantID, p.FlowID)
 	if err != nil {
-		flowAttempts.WithLabelValues("error").Inc()
-		release()
+		status, code, retry = "failed", "configuration_unavailable", 60
+		return
+	}
+	allowed, gateErr := w.store.MayAdvance(ctx, p.TenantID, p.FlowID, p.Email)
+	if gateErr != nil || !allowed {
+		status, code, retry = "blocked", "not_allowed", 60
 		return
 	}
 	switch p.StepKind {
 	case "send":
-		// Open/unsubscribed branch keys are event-driven: they fire only when
-		// an open or unsubscribe event is ingested for the position, never on
-		// the tick worker. No open-event ingestion exists yet, so opened_key
-		// stays dormant by design; unsubscribe is terminal in Advance.
 		err = marketingflow.Advance(ctx, w.store, w.opts.Sender, p.TenantID, p.FlowID, p.Email, "send", p.StepNext)
+		var gate *flowGateError
 		switch {
-		case err == nil:
+		case lease.confirmed || err == nil:
+			status = "submitted"
 			flowAttempts.WithLabelValues("sent").Inc()
 		case errors.Is(err, marketingflow.ErrUncertain):
-			// The position is kept and frozen by migration 0101 semantics; the
-			// recovery pass resumes it after the quiet period.
+			status, code = "uncertain", "delivery_uncertain"
 			flowAttempts.WithLabelValues("uncertain").Inc()
+		case errors.As(err, &gate):
+			status, code, retry = "blocked", gate.code, 60
+			flowAttempts.WithLabelValues("blocked").Inc()
 		case errors.Is(err, marketingflow.ErrNotAllowed):
+			status, code, retry = "blocked", "not_allowed", 60
 			flowAttempts.WithLabelValues("blocked").Inc()
 		default:
+			status, code, retry = "failed", "send_failed", 60
 			flowAttempts.WithLabelValues("error").Inc()
 		}
 		if err == nil {
-			// Arm while the lease still holds: PlatformArmMarketingFlowWait is
-			// fenced on owner+fence, so this must precede release.
 			w.armWait(ctx, q, p, steps)
 		}
-		release()
 	case "wait":
-		// Wait expiry advances without sending: the commit path re-checks
-		// unsubscribe, uncertainty and the gate under FOR UPDATE, so no
-		// message is composed and no sender is invoked.
-		result, err := q.PlatformCommitMarketingFlowWait(ctx, store.PlatformCommitMarketingFlowWaitParams{
-			PTenant: p.TenantID, PFlow: p.FlowID, PEmail: p.Email, Event: "", NextKey: p.StepNext,
-		})
-		if err != nil {
-			flowAttempts.WithLabelValues("error").Inc()
-			release()
+		// The entry node may itself be a wait; arm it before trying to advance.
+		if _, err = q.PlatformArmMarketingFlowWait(ctx, store.PlatformArmMarketingFlowWaitParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, LeaseFence: p.LeaseFence}); err != nil {
+			status, code, retry = "failed", "wait_failed", 60
 			return
 		}
-		if result == p.StepNext || result == "stop" {
-			flowAttempts.WithLabelValues("advanced").Inc()
-		} else {
-			flowAttempts.WithLabelValues("blocked").Inc()
-		}
-		if result != "blocked" && result != "uncertain" && result != "missing" {
+		err = w.store.Save(ctx, p.TenantID, p.FlowID, p.Email, marketingflow.Position{Step: p.StepNext})
+		switch {
+		case err == nil:
+			status = "advanced"
 			w.armWait(ctx, q, p, steps)
+		case errors.Is(err, marketingflow.ErrNotAllowed):
+			status = "waiting"
+		default:
+			status, code, retry = "failed", "wait_failed", 60
 		}
-		release()
+	case "condition":
+		allowed, checkErr := w.store.MayAdvance(ctx, p.TenantID, p.FlowID, p.Email)
+		if checkErr != nil || !allowed {
+			status, code, retry = "blocked", "not_allowed", 60
+			return
+		}
+		facts := map[string]string{}
+		if json.Unmarshal(p.EventFacts, &facts) != nil {
+			status, code, retry = "failed", "invalid_event", 3600
+			return
+		}
+		next := p.StepNext
+		if !graph.Condition(graph.Node{Field: p.ConditionField, Operator: p.ConditionOperator, Value: p.ConditionValue}, facts) {
+			next = p.StepOtherwise
+		}
+		err = w.store.Save(ctx, p.TenantID, p.FlowID, p.Email, marketingflow.Position{Step: next})
+		if err != nil {
+			status, code, retry = "blocked", "not_allowed", 60
+			return
+		}
+		status = "advanced"
+		p.StepNext = next
+		w.armWait(ctx, q, p, steps)
 	default:
-		// 'stop' or a kind the engine does not drive: leave the position.
-		flowAttempts.WithLabelValues("skipped").Inc()
-		release()
+		status = "blocked"
 	}
 }
 

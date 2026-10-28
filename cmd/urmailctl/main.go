@@ -13,11 +13,15 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/mail/sievegate"
 )
 
 const usage = `urmailctl — urMail.cn administrative tool
 
 Usage:
+  urmailctl dns status|prepare|enable|disable-check|disable|rotate|retire|rollback|secondary-configure|secondary-prepare|secondary-export|secondary-install|backup-manifest DOMAIN [--confirm]
+  urmailctl sieve outbound-check   check only the trusted Pigeonhole USER identity
+  urmailctl evidence verify --manifest-sha256 SHA FILE.zip
   urmailctl bootstrap [--database-url URL]  create cluster roles (as superuser)
   urmailctl migrate up             apply pending schema migrations
   urmailctl migrate down           roll back the most recent schema migration
@@ -63,6 +67,13 @@ func run(args []string) error {
 	defer stop()
 
 	switch args[0] {
+	case "dns":
+		return runDNSAuthority(ctx, args[1:])
+	case "sieve":
+		if len(args) < 2 || args[1] != "outbound-check" {
+			return fmt.Errorf("usage: urmailctl sieve outbound-check")
+		}
+		return sievegate.RunHelper(args[2:], os.Getenv)
 	case "bootstrap":
 		return runBootstrap(ctx, args[1:])
 	case "migrate":
@@ -71,6 +82,8 @@ func run(args []string) error {
 		return runSetup(ctx, args[1:])
 	case "status":
 		return runStatus(ctx)
+	case "evidence":
+		return runEvidence(args[1:])
 	case "config":
 		return runConfig(ctx, args[1:])
 	case "alias-senders":

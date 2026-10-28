@@ -12,7 +12,7 @@ import (
 )
 
 // AICloudScopeHash pins the exact content and suggestion-only operation contract.
-const AICloudScopeHash = "43a8dfa67f89e1fa6861bf0f3c283bce46f112511c472b36e3174e30d1b037fe"
+const AICloudScopeHash = "e2c6e77cf242166013d200a355f30a3c18f2798ae245d891d58c50ad8a57ab82"
 
 var errAIConsent = errors.New("tenant cloud export consent required")
 var errAITargetChanged = errors.New("AI target configuration changed")

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/billingrenew"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -372,6 +373,10 @@ func (h *PaymentGatewayHandler) Webhook(c *gin.Context) {
 	}
 	if existing.PayloadHash != hash {
 		authError(c, 409, "PAYMENT_EVENT_CONFLICT")
+		return
+	}
+	if m.Provider == payment.ProviderStripe && event.EventType == "payment_intent.succeeded" && billingrenew.RenewalDedupeKeyFromPayload(payload) != "" {
+		h.recurringWebhook(c, m, p, event, payload, existing)
 		return
 	}
 	if existing.State == "completed" {

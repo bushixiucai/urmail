@@ -38,9 +38,9 @@ func assessMTASTS(s DomainState) Check {
 	found := txtValues(s, "_mta-sts", "TXT")
 	check := Check{
 		ID:          "mta_sts",
-		Requirement: "MTA-STS TXT record at _mta-sts (" + mtastsPrefix + " id=<policy id>)",
+		Requirement: "MTA-STS TXT record at _mta-sts (" + mtastsPrefix + "; id=<policy id>)",
 		Found:       found,
-		Expected:    []string{mtastsPrefix + " id=<yyyyymmddhhmmss>"},
+		Expected:    []string{mtastsPrefix + "; id=<yyyyymmddhhmmss>"},
 	}
 	if len(found) == 0 {
 		check.Status = StatusMissing
@@ -48,12 +48,12 @@ func assessMTASTS(s DomainState) Check {
 		return check
 	}
 	value := strings.TrimSpace(found[0])
-	id := stsTag(value, "id")
+	id, valid := MTASTSRecordID(value)
 	switch {
 	case !strings.HasPrefix(strings.ToLower(value), strings.ToLower(mtastsPrefix)):
 		check.Status = StatusPresentWrong
 		check.Detail = "MTA-STS record does not start with " + mtastsPrefix + "."
-	case id == "":
+	case id == "" || !valid:
 		check.Status = StatusPresentWrong
 		check.Detail = "MTA-STS record has an empty id=; without a policy id the record is invalid per RFC 8460."
 	default:
@@ -86,9 +86,9 @@ func assessTLSRPT(s DomainState) Check {
 	case rua == "":
 		check.Status = StatusPresentWrong
 		check.Detail = "TLS-RPT record has no rua= report destination."
-	case !validMailbox(strings.TrimPrefix(rua, "mailto:")):
+	case !ValidTLSReportURI(rua):
 		check.Status = StatusPresentWrong
-		check.Detail = "TLS-RPT rua=" + rua + " is not a valid mailto: report address."
+		check.Detail = "TLS-RPT rua=" + rua + " is not a valid mailto: or HTTPS report destination."
 	default:
 		check.Status = StatusOK
 		check.Detail = "TLS-RPT record present with report destination " + rua + "."
@@ -113,7 +113,7 @@ func assessMTASTSWellKnown(s DomainState) Check {
 	}
 	if !*s.MTASTSWellKnownLive {
 		check.Status = StatusMissing
-		check.Detail = "The _mta-sts TXT record advertises a policy but the HTTPS well-known body is missing or stale; per RFC 8460 senders must fail closed, so publish the policy file."
+		check.Detail = "The advertised HTTPS policy is missing or stale. Previously cached enforcing policies may remain active; restore the valid policy endpoint."
 		return check
 	}
 	check.Status = StatusOK

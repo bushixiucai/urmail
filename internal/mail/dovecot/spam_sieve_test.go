@@ -66,11 +66,38 @@ func TestSpamSieveWithLinuxSieveCompiler(t *testing.T) {
 	if err = os.WriteFile(script, []byte(files[dovecot.FileSpamSieve]), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(filepath.Join(dir, "dovecot.conf"), []byte("mail_uid = 65534\nmail_gid = 65534\nmail_home = /tmp\nmail_location = maildir:/tmp/test-mail\nfirst_valid_uid = 1\nlog_path = /dev/stderr\n"), 0644); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "dovecot.conf"), []byte("mail_uid = 65534\nmail_gid = 65534\nmail_home = /tmp\nmail_location = maildir:/tmp/test-mail\nfirst_valid_uid = 1\nlog_path = /dev/stderr\nplugin {\n sieve_plugins = sieve_extprograms\n sieve_extensions = +vnd.dovecot.execute\n}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.CommandContext(t.Context(), "docker", "run", "--rm", "--network", "none", "--entrypoint", "/usr/bin/sievec", "-v", dir+":/test:ro", image, "/test/spam-before.sieve", "/tmp/spam-before.svbin")
+	command := exec.CommandContext(t.Context(), "docker", "run", "--rm", "--network", "none", "--entrypoint", "/usr/bin/sievec", "-v", dir+":/test:ro", image, "-c", "/test/dovecot.conf", "/test/spam-before.sieve", "/tmp/spam-before.svbin")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("sievec rejected the global spam before-script: %v\n%s", err, output)
+	}
+}
+
+func TestSieveGateStopsPersonalMultiScriptChainWithoutDroppingInbound(t *testing.T) {
+	files, err := dovecot.Generate(defaultNodeConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := files[dovecot.FileSpamSieve]
+	gate := strings.Index(script, `if not execute "outbound-check"`)
+	junk := strings.Index(script, `fileinto :create "Junk"`)
+	if gate < 0 || junk < 0 || junk >= gate {
+		t.Fatal("spam handling must precede the outbound gate")
+	}
+	if !strings.Contains(script[gate:], `fileinto "INBOX"; stop;`) {
+		t.Fatal("explicit Inbox fileinto must cancel implicit keep before subsequent personal scripts")
+	}
+	if strings.Contains(script[gate:], "keep;") {
+		t.Fatal("keep would allow the personal Sieve chain to continue")
+	}
+	conf := files[dovecot.FileDovecotConf]
+	if !strings.Contains(conf, "sieve_extensions = -vnd.dovecot.execute") || !strings.Contains(conf, "sieve_global_extensions = +vnd.dovecot.execute") {
+		t.Fatal("external execute must remain global-only")
+	}
+	helper := files[dovecot.FileSieveGateHelper]
+	if !strings.HasPrefix(helper, "#!/usr/bin/python3 -I\n") || strings.Contains(helper, "DatabaseURL") || strings.Contains(helper, "sys.argv[") {
+		t.Fatal("helper must be isolated, secret-free, and reject principal arguments")
 	}
 }

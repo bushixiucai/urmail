@@ -57,7 +57,8 @@ func (r Result) Check(b Budget) []string {
 // Harness runs concurrent virtual users against scenario operations.
 // It is deterministic in shape: fixed VUs, fixed window, fixed seed data.
 type Harness struct {
-	Pool *db.Pool
+	Pool           *db.Pool
+	BackgroundPool *db.Pool
 }
 
 // Op is one iteration of a scenario. A returned error counts as a request error.

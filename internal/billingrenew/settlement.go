@@ -34,6 +34,7 @@ type RenewalSettlementParams struct {
 	TenantID      int64
 	AttemptID     int64
 	Provider      string
+	AccountScope  string
 	ProviderTxnID string
 	AmountCents   int64
 	Currency      string
@@ -90,6 +91,9 @@ func PlatformSettleRenewalAttempt(ctx context.Context, pool *db.Pool, params Ren
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := store.New(tx)
+	if err = q.PlatformLockBillingTenant(ctx, params.TenantID); err != nil {
+		return result, err
+	}
 
 	attempt, err := q.PlatformLockRenewalAttempt(ctx, store.PlatformLockRenewalAttemptParams{ID: params.AttemptID, TenantID: params.TenantID})
 	if err != nil {
@@ -98,8 +102,29 @@ func PlatformSettleRenewalAttempt(ctx context.Context, pool *db.Pool, params Ren
 		}
 		return result, err
 	}
+	if attempt.AmountCents.Valid && (attempt.AmountCents.Int64 != params.AmountCents || attempt.Currency.String != params.Currency || attempt.MerchantScope != params.AccountScope || (attempt.DedupeKey != "" && attempt.DedupeKey != params.DedupeKey)) {
+		return result, ErrRenewalSettlementConflict
+	}
+	scope := attempt.MerchantScope
+	if scope == "" {
+		scope = RenewalAccountScope
+	}
+	if attempt.MerchantScope != "" && !strings.HasPrefix(scope, params.Provider+":") {
+		return result, ErrRenewalSettlementConflict
+	}
 	result.AttemptID = attempt.ID
 	if attempt.State == "succeeded" {
+		existing, lookupErr := q.PlatformGetRenewalPayment(ctx, store.PlatformGetRenewalPaymentParams{Provider: params.Provider, AccountScope: scope, ProviderTxnID: pgtype.Text{String: params.ProviderTxnID, Valid: true}})
+		if lookupErr != nil {
+			return result, ErrRenewalSettlementConflict
+		}
+		var receipt struct {
+			AttemptID int64 `json:"renewal_attempt_id"`
+		}
+		if json.Unmarshal(existing.Raw, &receipt) != nil || receipt.AttemptID != attempt.ID || existing.TenantID != params.TenantID || existing.AmountCents != params.AmountCents || existing.Currency != params.Currency {
+			return result, ErrRenewalSettlementConflict
+		}
+
 		// Duplicate settlement call: return the existing settlement without a
 		// second payment and without extending the period again.
 		if err = tx.Commit(ctx); err != nil {
@@ -122,7 +147,7 @@ func PlatformSettleRenewalAttempt(ctx context.Context, pool *db.Pool, params Ren
 	payment, err := q.PlatformInsertRenewalPayment(ctx, store.PlatformInsertRenewalPaymentParams{
 		TenantID:      params.TenantID,
 		Provider:      params.Provider,
-		AccountScope:  RenewalAccountScope,
+		AccountScope:  scope,
 		ProviderTxnID: pgtype.Text{String: params.ProviderTxnID, Valid: true},
 		AmountCents:   params.AmountCents,
 		Currency:      params.Currency,
@@ -133,12 +158,16 @@ func PlatformSettleRenewalAttempt(ctx context.Context, pool *db.Pool, params Ren
 		// only when the existing receipt belongs to this same tenant. Never
 		// extend the period again on a duplicate confirmation.
 		existing, lookupErr := q.PlatformGetRenewalPayment(ctx, store.PlatformGetRenewalPaymentParams{
-			Provider: params.Provider, AccountScope: RenewalAccountScope, ProviderTxnID: pgtype.Text{String: params.ProviderTxnID, Valid: true},
+			Provider: params.Provider, AccountScope: scope, ProviderTxnID: pgtype.Text{String: params.ProviderTxnID, Valid: true},
 		})
 		if lookupErr != nil {
 			return result, lookupErr
 		}
-		if existing.TenantID != params.TenantID {
+		var receipt struct {
+			AttemptID int64 `json:"renewal_attempt_id"`
+		}
+		_ = json.Unmarshal(existing.Raw, &receipt)
+		if receipt.AttemptID != attempt.ID || existing.TenantID != params.TenantID || existing.AmountCents != params.AmountCents || existing.Currency != params.Currency {
 			return result, ErrRenewalSettlementConflict
 		}
 		if params.DedupeKey != "" && attempt.DedupeKey == "" {
@@ -162,7 +191,7 @@ func PlatformSettleRenewalAttempt(ctx context.Context, pool *db.Pool, params Ren
 	result.PaymentID = payment.ID
 
 	extended, err := q.PlatformExtendSubscriptionForRenewal(ctx, store.PlatformExtendSubscriptionForRenewalParams{
-		ID: attempt.SubscriptionID, TenantID: params.TenantID,
+		ID: attempt.SubscriptionID, TenantID: params.TenantID, ExpectedPeriodEnd: attempt.PeriodEnd, RenewalPeriodEnd: attempt.RenewalPeriodEnd,
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return result, fmt.Errorf("extend subscription for renewal: %w", err)
@@ -170,6 +199,53 @@ func PlatformSettleRenewalAttempt(ctx context.Context, pool *db.Pool, params Ren
 	if err == nil {
 		result.PeriodEnd = extended.PeriodEnd.Time
 		result.Status = extended.Status
+		if attempt.EnrollmentID.Valid {
+			next, periodErr := renewalEnd(extended.PeriodEnd.Time, attempt.BillingCycle.String, attempt.CalendarSnapshot)
+			if periodErr != nil {
+				return result, periodErr
+			}
+			if err = q.PlatformAdvanceRenewalEnrollment(ctx, store.PlatformAdvanceRenewalEnrollmentParams{ID: attempt.EnrollmentID.Int64, TenantID: params.TenantID, ExpectedPeriodEnd: extended.PeriodEnd, RenewalPeriodEnd: pgtype.Timestamptz{Time: next, Valid: true}}); err != nil {
+				return result, err
+			}
+		}
+	}
+	if attempt.AmountCents.Valid {
+		var frozen struct {
+			Code string `json:"code"`
+		}
+		if e := json.Unmarshal(attempt.PlanSnapshot, &frozen); e != nil || frozen.Code == "" {
+			return result, errors.New("renewal plan snapshot is invalid")
+		}
+		order, e := q.PlatformCreateRenewalOrder(ctx, store.PlatformCreateRenewalOrderParams{TenantID: params.TenantID, OrderNo: fmt.Sprintf("RN-%d", attempt.ID), AmountCents: params.AmountCents, Currency: params.Currency, PlanCode: pgtype.Text{String: frozen.Code, Valid: true}, IdempotencyKey: pgtype.Text{String: "renewal:" + fmt.Sprint(attempt.ID), Valid: true}, BillingCycle: attempt.BillingCycle.String})
+		if e != nil {
+			return result, e
+		}
+		if e = q.PlatformBindRenewalPaymentOrder(ctx, store.PlatformBindRenewalPaymentOrderParams{ID: payment.ID, TenantID: params.TenantID, OrderID: pgtype.Int8{Int64: order.ID, Valid: true}}); e != nil {
+			return result, e
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			if e = q.PlatformRecordPaymentManualReview(ctx, store.PlatformRecordPaymentManualReviewParams{TenantID: params.TenantID, OrderID: order.ID, PaymentID: payment.ID, Reason: "RENEWAL_CYCLE_ALREADY_FUNDED"}); e != nil {
+				return result, e
+			}
+		} else {
+			if e = q.PlatformRecordSubscriptionTerm(ctx, store.PlatformRecordSubscriptionTermParams{OrderID: order.ID, TenantID: params.TenantID, PeriodStart: attempt.PeriodEnd, PeriodEnd: extended.PeriodEnd, BillingPeriodStart: attempt.PeriodEnd, PlanSnapshot: attempt.PlanSnapshot, BaseAmountCents: params.AmountCents, Currency: params.Currency, BillingCycle: attempt.BillingCycle.String, CalendarSnapshot: attempt.CalendarSnapshot}); e != nil {
+				return result, e
+			}
+			invoice, e := q.PlatformCreateSettlementInvoice(ctx, store.PlatformCreateSettlementInvoiceParams{TenantID: params.TenantID, OrderID: pgtype.Int8{Int64: order.ID, Valid: true}, Number: fmt.Sprintf("RN-%d", attempt.ID), PeriodStart: attempt.PeriodEnd, PeriodEnd: extended.PeriodEnd, AmountCents: params.AmountCents, Currency: params.Currency})
+			if e != nil {
+				return result, e
+			}
+			document, e := CaptureInvoiceDocumentSnapshot(ctx, q, params.TenantID, params.AmountCents, params.Currency, "observed_at_settlement")
+			if e != nil {
+				return result, e
+			}
+			if _, e = q.PlatformFreezeInvoiceDocumentSnapshot(ctx, store.PlatformFreezeInvoiceDocumentSnapshotParams{TenantID: params.TenantID, ID: invoice.ID, DocumentSnapshot: document}); e != nil {
+				return result, e
+			}
+			if e = q.PlatformBindInvoicePayment(ctx, store.PlatformBindInvoicePaymentParams{TenantID: params.TenantID, OrderID: pgtype.Int8{Int64: order.ID, Valid: true}, SourcePaymentID: pgtype.Int8{Int64: payment.ID, Valid: true}}); e != nil {
+				return result, e
+			}
+		}
 	}
 	// A missing or non-restorable subscription (for example canceled) keeps
 	// the confirmed money recorded but does not resurrect entitlements.
@@ -210,7 +286,7 @@ func RouteConfirmedWebhook(ctx context.Context, pool *db.Pool, event ConfirmedRe
 		if scope == "" {
 			continue
 		}
-		_, err := q.PlatformFindRenewalAttemptForPayment(ctx, store.PlatformFindRenewalAttemptForPaymentParams{
+		existingAttempt, err := q.PlatformFindRenewalAttemptForPayment(ctx, store.PlatformFindRenewalAttemptForPaymentParams{
 			Provider: event.Provider, AccountScope: scope, ProviderTxnID: pgtype.Text{String: event.ProviderTxnID, Valid: true},
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -219,8 +295,9 @@ func RouteConfirmedWebhook(ctx context.Context, pool *db.Pool, event ConfirmedRe
 		if err != nil {
 			return false, err
 		}
-		// Already settled: duplicate or out-of-order delivery is a no-op.
-		return true, nil
+		// A duplicate must retain its original account, amount and currency.
+		_, err = PlatformSettleRenewalAttempt(ctx, pool, RenewalSettlementParams{TenantID: existingAttempt.TenantID, AttemptID: existingAttempt.ID, Provider: event.Provider, AccountScope: event.AccountScope, ProviderTxnID: event.ProviderTxnID, AmountCents: event.AmountCents, Currency: event.Currency, DedupeKey: existingAttempt.DedupeKey})
+		return err == nil, err
 	}
 	key := RenewalDedupeKeyFromPayload(event.Raw)
 	if key == "" {
@@ -236,7 +313,7 @@ func RouteConfirmedWebhook(ctx context.Context, pool *db.Pool, event ConfirmedRe
 	currency := strings.ToUpper(strings.TrimSpace(event.Currency))
 	_, err = PlatformSettleRenewalAttempt(ctx, pool, RenewalSettlementParams{
 		TenantID: attempt.TenantID, AttemptID: attempt.ID,
-		Provider: event.Provider, ProviderTxnID: event.ProviderTxnID,
+		Provider: event.Provider, AccountScope: event.AccountScope, ProviderTxnID: event.ProviderTxnID,
 		AmountCents: event.AmountCents, Currency: currency, DedupeKey: key,
 	})
 	if errors.Is(err, ErrRenewalAttemptCanceled) {

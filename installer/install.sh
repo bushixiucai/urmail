@@ -61,12 +61,13 @@ log "installing system dependencies"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
 	rsyslog nginx postfix dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd \
-	dovecot-sieve dovecot-managesieved dovecot-pgsql nsd opendkim postgresql \
+	dovecot-sieve dovecot-managesieved dovecot-pgsql nsd bind9-utils bind9-dnsutils opendkim postgresql \
 	ca-certificates curl gnupg openssl certbot rsync duplicity python3-venv age openssh-client
 
 # ---------------------------------------------------------------------------
 # Package
 # ---------------------------------------------------------------------------
+install -d -o root -g root -m 0755 /var/lib/nsd/urmail-secondary /etc/systemd/system/nsd.service.d
 
 PKG_URL=""
 TMP_DEB=""

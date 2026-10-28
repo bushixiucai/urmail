@@ -106,7 +106,7 @@ describe("sanitizeHtmlMail", () => {
     expect(out).toContain("ok");
   });
 
-  it("keeps cid: and data: images while removing remote ones", () => {
+  it("drops sender data images, unresolved CID and remote images", () => {
     const out = sanitizeHtmlMail(
       [
         '<img src="cid:part1">',
@@ -117,16 +117,14 @@ describe("sanitizeHtmlMail", () => {
     );
     const doc = new DOMParser().parseFromString(out, "text/html");
     const imgs = [...doc.querySelectorAll("img")];
-    expect(imgs).toHaveLength(2);
-    expect(imgs[0].getAttribute("src")).toBe("cid:part1");
-    expect(imgs[1].getAttribute("src")).toMatch(/^data:image\//);
+    expect(imgs).toHaveLength(0);
   });
 
-  it("preserves head styles for full HTML documents", () => {
+  it("removes untrusted stylesheets while preserving message text", () => {
     const out = sanitizeHtmlMail(
       '<html><head><style>.x{color:red}</style></head><body><p class="x">hi</p></body></html>',
     );
-    expect(out).toMatch(/\.x\{color:red\}/);
+    expect(out).not.toContain("<style");
     expect(out).toContain("hi");
   });
 
@@ -148,10 +146,24 @@ describe("HTML mail network policy", () => {
     expect(policy?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
     const csp = policy?.getAttribute("content") ?? "";
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("img-src data:");
+    expect(csp).toContain("img-src 'none'");
     expect(csp).toContain("style-src 'unsafe-inline'");
     expect(csp).toContain("font-src 'none'");
     expect(csp).toContain("connect-src 'none'");
     expect(doc.body.textContent).toContain("readable");
   });
+});
+
+it("renders only verified CID mappings and drops protected URLs without bearer access", () => {
+  const html =
+    '<img src="cid:logo"><img src="/api/v1/mailbox/folders/x/messages/1/attachments/2"><img src="cid:missing">';
+  const result = sanitizeHtmlMail(html, {
+    inlineImages: {
+      "cid:logo": "data:image/png;base64,aGVsbG8=",
+    },
+  });
+  expect(result).toContain('src="data:image/png;base64,aGVsbG8="');
+  expect(result).not.toContain('src="cid:');
+  expect(result).not.toContain('src="/api/v1/mailbox/');
+  expect(result).toContain("connect-src 'none'");
 });

@@ -120,6 +120,9 @@ func safeKickAddress(address string) bool {
 // StartMailAccessWatcher observes the same platform database used by the
 // generated SQL userdb; no secondary entitlement store is introduced.
 func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.Logger) func() {
+	if m.cfg != nil && m.cfg.DNSSecondaryOnly {
+		return func() {}
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	q := store.New(m.pool.Pool)

@@ -35,7 +35,7 @@ type Budget struct {
 
 // Scenario names.
 const (
-	ScenarioMailboxListRead = "mailbox_list_read"
+	ScenarioMailboxListRead = "mailbox_metadata_read"
 	ScenarioContactCRUD     = "contact_crud_search"
 	ScenarioCalendarExpand  = "calendar_expansion"
 	ScenarioMarketingStep   = "marketing_claim_step"

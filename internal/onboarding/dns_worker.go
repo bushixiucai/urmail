@@ -75,7 +75,7 @@ func (s *Service) applyDNS(ctx context.Context, p store.DnsChangePlans) error {
 	if err != nil {
 		return err
 	}
-	digest, desired, err := DomainDigest(d, s.Hostname)
+	digest, desired, err := s.domainDigest(ctx, d)
 	if err != nil || digest != p.DomainDigest {
 		return errors.New("DNS_DOMAIN_CHANGED")
 	}

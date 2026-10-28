@@ -12,6 +12,8 @@ import (
 
 // OperationInput contains only the message data explicitly selected by its owner.
 type OperationInput struct {
+	Draft          string `json:"draft,omitempty"`
+	Instruction    string `json:"instruction,omitempty"`
 	Operation      string `json:"operation"`
 	Subject        string `json:"subject,omitempty"`
 	Body           string `json:"body"`
@@ -21,7 +23,7 @@ type OperationInput struct {
 
 // BuildOperation creates one bounded suggestion-only model request.
 func BuildOperation(input OperationInput) (CompletionRequest, error) {
-	if len(input.Body) == 0 || len(input.Body) > 65536 || len(input.Subject) > 1000 || len(input.From) > 1000 || len(input.TargetLanguage) > 64 {
+	if len(input.Draft) > 65536 || len(input.Instruction) > 4000 || len(input.Body) == 0 || len(input.Body) > 65536 || len(input.Subject) > 1000 || len(input.From) > 1000 || len(input.TargetLanguage) > 64 {
 		return CompletionRequest{}, ErrInvalidRequest
 	}
 	var schema string
@@ -37,6 +39,8 @@ func BuildOperation(input OperationInput) (CompletionRequest, error) {
 		schema = `{"translation":"translated text"}`
 	case "phishing":
 		schema = `{"score":0.0,"reasons":["reason"]}`
+	case "draft_new", "draft_reply":
+		schema = `{"subject":"suggested subject","body":"suggested body; never send it"}`
 	case "polish":
 		schema = `{"draft":"suggested draft; never send it"}`
 	default:
@@ -73,6 +77,11 @@ func ValidateOperation(operation, raw string) (json.RawMessage, error) {
 		value = &struct {
 			Score   *float64 `json:"score"`
 			Reasons []string `json:"reasons"`
+		}{}
+	case "draft_new", "draft_reply":
+		value = &struct {
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
 		}{}
 	case "polish":
 		value = &struct {
@@ -129,6 +138,14 @@ func ValidateOperation(operation, raw string) (json.RawMessage, error) {
 				return nil, ErrInvalidResponse
 			}
 		}
+	case *struct {
+		Subject string `json:"subject"`
+		Body    string `json:"body"`
+	}:
+		if strings.TrimSpace(v.Subject) == "" || len(v.Subject) > 200 || strings.ContainsAny(v.Subject, "\r\n") || strings.TrimSpace(v.Body) == "" || len(v.Body) > 20000 {
+			return nil, ErrInvalidResponse
+		}
+
 	default:
 		return nil, fmt.Errorf("%w: schema mismatch", ErrInvalidResponse)
 	}

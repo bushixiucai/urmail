@@ -56,10 +56,10 @@ type BounceCode struct {
 
 // MailboxFlags counts mailboxes by status; no identifiers are included.
 type MailboxFlags struct {
-	Total     int
-	Active    int
-	Suspended int
-	OverQuota int
+	Total     int64
+	Active    int64
+	Suspended int64
+	OverQuota int64
 }
 
 // ConfigStatus compares desired and applied configuration generations.

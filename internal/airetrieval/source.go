@@ -24,7 +24,7 @@ type MailSource interface {
 // WebmailSource adapts a live webmail IMAP client to MailSource.
 type WebmailSource struct{ Client webmail.Client }
 
-// Folders lists non-undeletable folders from the IMAP session.
+// Folders lists selectable folders. Namespace parents are not mailboxes.
 func (s WebmailSource) Folders(ctx context.Context) ([]string, error) {
 	folders, err := s.Client.ListFolders(ctx)
 	if err != nil {
@@ -32,7 +32,14 @@ func (s WebmailSource) Folders(ctx context.Context) ([]string, error) {
 	}
 	names := make([]string, 0, len(folders))
 	for _, f := range folders {
-		if f.Name != "" {
+		selectable := f.Name != ""
+		for _, flag := range f.Flags {
+			if strings.EqualFold(flag, `\Noselect`) || strings.EqualFold(flag, `\NonExistent`) {
+				selectable = false
+				break
+			}
+		}
+		if selectable {
 			names = append(names, f.Name)
 		}
 	}
@@ -45,15 +52,25 @@ func (s WebmailSource) MessageUIDs(ctx context.Context, folder string) (uint32, 
 	if err != nil {
 		return 0, nil, err
 	}
-	result, err := s.Client.ListMessages(ctx, folder, webmail.ListOpts{Limit: webmail.MaxPageSize, Offset: 0})
-	if err != nil {
-		return 0, nil, err
+	var uids []uint32
+	var cursor uint32
+	for pages := 0; pages < 1000; pages++ {
+		result, err := s.Client.ListMessages(ctx, folder, webmail.ListOpts{Limit: webmail.MaxPageSize, CursorUID: cursor})
+		if err != nil {
+			return 0, nil, err
+		}
+		for _, m := range result.Messages {
+			uids = append(uids, m.UID)
+		}
+		if result.NextCursor == 0 {
+			return validity, uids, nil
+		}
+		if result.NextCursor == cursor {
+			return 0, nil, fmt.Errorf("AI source pagination did not advance")
+		}
+		cursor = result.NextCursor
 	}
-	uids := make([]uint32, 0, len(result.Messages))
-	for _, m := range result.Messages {
-		uids = append(uids, m.UID)
-	}
-	return validity, uids, nil
+	return 0, nil, fmt.Errorf("AI source message budget exceeded")
 }
 
 // MessageText fetches one message body's plain text.

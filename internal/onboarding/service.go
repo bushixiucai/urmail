@@ -101,7 +101,7 @@ func (s *Service) Prepare(ctx context.Context, tenant, domain int64, kind string
 	if err != nil {
 		return out, errors.New("DNS_OWNERSHIP_REQUIRED")
 	}
-	out.DomainDigest, out.Desired, err = DomainDigest(d, s.Hostname)
+	out.DomainDigest, out.Desired, err = s.domainDigest(ctx, d)
 	if err != nil {
 		return out, err
 	}

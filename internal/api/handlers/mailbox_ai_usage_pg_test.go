@@ -102,20 +102,23 @@ func TestAISearchAskWritesReservationRowPerAskPG(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
-	rows, err := store.New(p).PlatformAIUsage(context.Background(), principal.TenantID)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("reservation rows=%d err=%v", len(rows), err)
+	row := waitAskUsageStatus(t, p, principal.TenantID, "uncertain")
+	if !strings.HasPrefix(row.RequestKey, "ask-") || row.MailboxID != principal.MailboxID || row.Mode != "platform" || row.ReservedTokens != 16391 || row.ReservedCostMicros != 18439 || row.ActualTokens.Valid || row.ActualCostMicros.Valid {
+		t.Fatalf("unknown platform usage lost its reserved accounting: %+v", row)
 	}
-	if !strings.HasPrefix(rows[0].RequestKey, "ask-") || rows[0].Status != "reserved" {
-		t.Fatalf("unexpected reservation row %+v", rows[0])
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	usage, err := budgetUsage(t.Context(), store.New(p), principal.TenantID, start, now)
+	if err != nil || usage.DailyTokens != row.ReservedTokens || usage.DailyCostMicros != row.ReservedCostMicros {
+		t.Fatalf("unknown usage budget no longer charged: %+v %v", usage, err)
 	}
 }
 
 func TestAISearchAskBudgetEnforcedAcrossTwoRequestsPG(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
 	// A daily token budget that only the first worst-case reservation fits:
-	// len(question)+4096 tokens are reserved per ask.
-	if _, err := p.Exec(context.Background(), "UPDATE ai_provider_configs SET daily_token_limit=$1 WHERE tenant_id=$2", 4200, principal.TenantID); err != nil {
+	// question + bounded excerpt context and output tokens are reserved per ask.
+	if _, err := p.Exec(context.Background(), "UPDATE ai_provider_configs SET daily_token_limit=$1 WHERE tenant_id=$2", 16500, principal.TenantID); err != nil {
 		t.Fatal(err)
 	}
 	first := askPG(t, p, principal)
@@ -130,6 +133,7 @@ func TestAISearchAskBudgetEnforcedAcrossTwoRequestsPG(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("over-budget ask must not write a reservation: rows=%d err=%v", len(rows), err)
 	}
+	_ = waitAskUsageStatus(t, p, principal.TenantID, "uncertain")
 }
 
 func TestAISearchAskAnswerSurvivesAccountingPG(t *testing.T) {
@@ -138,6 +142,7 @@ func TestAISearchAskAnswerSurvivesAccountingPG(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "\"grounded\":true") {
 		t.Fatalf("answer failed: %d %s", rec.Code, rec.Body.String())
 	}
+	_ = waitAskUsageStatus(t, p, principal.TenantID, "uncertain")
 }
 
 func TestAISearchAskAccountingReserveAndSettlePG(t *testing.T) {
@@ -150,9 +155,52 @@ func TestAISearchAskAccountingReserveAndSettlePG(t *testing.T) {
 	// Settle is asynchronous and best-effort by contract: a provider failure
 	// settles to uncertain without failing anything.
 	reservation.Settle(errors.New("provider down"), false, 0, 0, func(_, _ int64) (int64, error) { return 0, nil })
-	time.Sleep(300 * time.Millisecond)
-	rows, err := store.New(p).PlatformAIUsage(context.Background(), principal.TenantID)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("rows=%d err=%v", len(rows), err)
+	row := waitAskUsageStatus(t, p, principal.TenantID, "uncertain")
+	if row.ActualTokens.Valid || row.ActualCostMicros.Valid || row.ReservedTokens != 16391 || row.ReservedCostMicros != 18439 {
+		t.Fatalf("provider failure fabricated/released usage: %+v", row)
+	}
+}
+
+func waitAskUsageStatus(t *testing.T, pool *db.Pool, tenant int64, want string) store.PlatformAIUsageRow {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 7*time.Second)
+	defer cancel()
+	for {
+		rows, err := store.New(pool).PlatformAIUsage(ctx, tenant)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("usage rows=%d err=%v", len(rows), err)
+		}
+		row := rows[0]
+		if row.Status == want {
+			return row
+		}
+		if row.Status != "reserved" {
+			t.Fatalf("terminal usage status=%s want=%s", row.Status, want)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("accounting did not settle to %s", want)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestAISearchAskBYOKUnknownUsageCompletesWithoutPlatformSpend(t *testing.T) {
+	p, principal := mailboxAIFixture(t, 10)
+	if _, err := p.Exec(t.Context(), "UPDATE ai_provider_configs SET mode='byo' WHERE tenant_id=$1", principal.TenantID); err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := (AISearchAskAccounting{Pool: p}).Reserve(t.Context(), principal.TenantID, principal.MailboxID, "invoice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.New(p).PlatformAIUsage(t.Context(), principal.TenantID)
+	if err != nil || len(rows) != 1 || rows[0].Status != "reserved" {
+		t.Fatal("reservation missing before settlement")
+	}
+	reservation.Settle(nil, false, 0, 0, func(_, _ int64) (int64, error) { return 0, nil })
+	row := waitAskUsageStatus(t, p, principal.TenantID, "completed")
+	if row.Mode != "byo" || row.ReservedCostMicros != 0 || row.ReservedTokens != 16391 || row.ActualTokens.Valid || row.ActualCostMicros.Valid {
+		t.Fatalf("BYOK unknown accounting %+v", row)
 	}
 }

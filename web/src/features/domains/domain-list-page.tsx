@@ -10,6 +10,8 @@ import {
   Power,
 } from "lucide-react";
 import { useAuth } from "@/app/auth-context";
+import { DomainAuthorityPanel } from "./domain-authority-panel";
+import { DomainTransportPanel } from "./domain-transport-panel";
 import { DomainDNSPanel } from "./domain-dns-panel";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
@@ -414,10 +416,14 @@ export function DomainListPage() {
         domains
           .filter((d) => d.id === selectedDNS)
           .map((d) => (
-            <DomainDNSPanel
+            <div
               key={`${currentTenant?.id}:${d.id}:${d.mode}`}
-              domain={d}
-            />
+              className="space-y-4"
+            >
+              <DomainDNSPanel domain={d} />
+              <DomainAuthorityPanel domain={d} />
+              <DomainTransportPanel domain={d} />
+            </div>
           ))}
 
       <ConfirmDialog

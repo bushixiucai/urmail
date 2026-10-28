@@ -9,7 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "@/lib/api/client";
 import {
   composeFromSavedDraft,
+  draftFromMessage,
   MailboxComposeDialog,
+  chooseMailboxIdentity,
 } from "./mailbox-compose-dialog";
 import * as mailboxApi from "./mailbox-api";
 
@@ -20,6 +22,9 @@ vi.mock("react-i18next", () => {
 vi.mock("./mailbox-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./mailbox-api")>()),
   saveDraft: vi.fn(),
+  getMailboxSettings: vi.fn(),
+  listMailboxIdentities: vi.fn(),
+  getMailboxAddress: vi.fn(() => "alice@example.test"),
   scheduleSend: vi.fn(),
   sendMessage: vi.fn(),
   deleteDraft: vi.fn(),
@@ -27,6 +32,21 @@ vi.mock("./mailbox-api", async (importOriginal) => ({
 }));
 
 beforeEach(() => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "Alice",
+    signature_text: "",
+    signature_html: "",
+    preferences: {},
+    version: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+  vi.mocked(mailboxApi.listMailboxIdentities).mockResolvedValue({
+    identities: [
+      { address: "alice@example.test", primary: true },
+      { address: "team@example.test", primary: false },
+    ],
+  });
   vi.mocked(mailboxApi.saveDraft).mockResolvedValue({
     saved: true,
     uid: 77,
@@ -41,7 +61,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-function compose(
+async function compose(
   draft: Parameters<typeof MailboxComposeDialog>[0]["draft"] = { mode: "new" },
 ) {
   const onOpenChange = vi.fn();
@@ -54,6 +74,12 @@ function compose(
       onSent={vi.fn()}
       onDraftSaved={onDraftSaved}
     />,
+  );
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText("page.webmail.compose_from") as HTMLSelectElement)
+        .disabled,
+    ).toBe(false),
   );
   return { onOpenChange, onDraftSaved };
 }
@@ -71,7 +97,7 @@ function fillMessage() {
 
 describe("mailbox compose persistence", () => {
   it("keeps current edits after saving and uses the replacement UID validity", async () => {
-    compose();
+    await compose();
     fillMessage();
     fireEvent.click(
       screen.getByRole("button", { name: "page.webmail.compose_save_draft" }),
@@ -105,7 +131,7 @@ describe("mailbox compose persistence", () => {
       content_type: "text/plain",
       content_base64: "YQ==",
     };
-    compose(
+    await compose(
       composeFromSavedDraft(
         {
           uid: 8,
@@ -152,7 +178,7 @@ describe("mailbox compose persistence", () => {
     vi.mocked(mailboxApi.scheduleSend)
       .mockRejectedValueOnce(new Error("response lost"))
       .mockResolvedValueOnce({ id: 1 } as mailboxApi.ScheduledSendItem);
-    const { onOpenChange } = compose();
+    const { onOpenChange } = await compose();
     fillMessage();
     fireEvent.change(screen.getByLabelText("page.webmail.compose_send_later"), {
       target: { value: "2099-01-01T12:00" },
@@ -184,7 +210,7 @@ describe("mailbox compose persistence", () => {
       sent: true,
       sent_copy: "pending",
     });
-    const { onOpenChange } = compose();
+    const { onOpenChange } = await compose();
     fillMessage();
     fireEvent.click(
       screen.getByRole("button", { name: "page.webmail.compose_send" }),
@@ -202,7 +228,7 @@ describe("mailbox compose persistence", () => {
         },
       }),
     );
-    compose();
+    await compose();
     fillMessage();
     fireEvent.click(
       screen.getByRole("button", { name: "page.webmail.compose_send" }),
@@ -225,7 +251,7 @@ describe("mailbox compose persistence", () => {
       folder: "Drafts",
       name_enc: "drafts",
     });
-    compose();
+    await compose();
     fillMessage();
     fireEvent.click(
       screen.getByRole("button", { name: "page.webmail.compose_save_draft" }),
@@ -235,7 +261,7 @@ describe("mailbox compose persistence", () => {
 });
 
 it("enforces the aggregate attachment budget while preserving selected files", async () => {
-  compose();
+  await compose();
   const size = mailboxApi.MAX_SEND_ATTACHMENT_BYTES;
   const padding = (3 - (size % 3)) % 3;
   const encoded =
@@ -270,4 +296,301 @@ it("enforces the aggregate attachment budget while preserving selected files", a
   });
   await screen.findByText("c.bin");
   expect(screen.getByText("b.bin")).toBeTruthy();
+});
+
+it("chooses a granted recipient identity for replies and keeps revoked drafts visible", () => {
+  const settings = {
+    address: "alice@example.test",
+    display_name: "",
+    signature_text: "",
+    signature_html: "",
+    preferences: {
+      default_from: "alice@example.test",
+      reply_identity: "recipient",
+    },
+    version: 1,
+    updated_at: "",
+  };
+  const identities = [
+    { address: "alice@example.test", primary: true },
+    { address: "team@example.test", primary: false },
+  ];
+  expect(
+    chooseMailboxIdentity(settings, identities, {
+      mode: "reply",
+      replyRecipients: ["team@example.test"],
+    }),
+  ).toBe("team@example.test");
+  expect(
+    chooseMailboxIdentity(settings, identities, {
+      mode: "reply",
+      replyRecipients: ["outsider@example.test"],
+    }),
+  ).toBe("alice@example.test");
+  expect(
+    chooseMailboxIdentity(settings, identities, {
+      mode: "draft",
+      from: "revoked@example.test",
+    }),
+  ).toBe("revoked@example.test");
+});
+it("changes signatures without replacing manually authored text or recipients", async () => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "Alice",
+    signature_text: "Personal signature",
+    signature_html: "",
+    identity_profiles: {
+      "team@example.test": {
+        display_name: "Team",
+        signature_text: "Team signature",
+        signature_html: "<b>Team signature</b>",
+      },
+    },
+    preferences: {},
+    version: 1,
+    updated_at: "",
+  });
+  await compose({ mode: "new", to: "bob@example.test", text: "My words" });
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          "page.webmail.compose_body",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toContain("Personal signature"),
+  );
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_from"), {
+    target: { value: "team@example.test" },
+  });
+  const body = (
+    screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement
+  ).value;
+  expect(body).toContain("My words");
+  expect(body).toContain("Team signature");
+  expect(body).not.toContain("Personal signature");
+  expect(
+    (screen.getByLabelText("page.webmail.compose_to") as HTMLInputElement)
+      .value,
+  ).toBe("bob@example.test");
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_save_draft" }),
+  );
+  await waitFor(() =>
+    expect(mailboxApi.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "team@example.test",
+        text: expect.stringContaining("My words"),
+        html: expect.stringContaining("My words"),
+      }),
+    ),
+  );
+});
+
+it("keeps all valid Reply-To addresses and excludes every granted self alias", async () => {
+  const source = {
+    uid: 5,
+    uid_validity: 9,
+    date: "2026-10-27T10:00:00Z",
+    flags: [],
+    size: 100,
+    subject: "Question",
+    from: [{ email: "author@example.test" }],
+    to: [{ email: "team@example.test" }],
+    reply_to: [
+      { email: "one@example.test" },
+      { email: "two@example.test" },
+      { email: "team@example.test" },
+    ],
+    text: "Original source",
+    attachments: [],
+  };
+  const draft = draftFromMessage("reply", source);
+  await compose(draft);
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText("page.webmail.compose_from") as HTMLSelectElement)
+        .value,
+    ).toBe("team@example.test"),
+  );
+  expect(
+    (screen.getByLabelText("page.webmail.compose_to") as HTMLInputElement)
+      .value,
+  ).toBe("one@example.test, two@example.test");
+  expect(
+    (screen.getByLabelText("page.webmail.compose_bcc") as HTMLInputElement)
+      .value,
+  ).toBe("");
+});
+it("loads the quote preference, toggles only the original quote, and preserves manual text", async () => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "",
+    signature_text: "",
+    signature_html: "",
+    preferences: { quote_original: false },
+    version: 1,
+    updated_at: "",
+  });
+  const draft = draftFromMessage("reply", {
+    uid: 5,
+    date: "2026-10-27T10:00:00Z",
+    flags: [],
+    size: 100,
+    subject: "Hello",
+    from: [{ email: "bob@example.test" }],
+    text: "Original content",
+    attachments: [],
+  });
+  await compose(draft);
+  const body = screen.getByLabelText(
+    "page.webmail.compose_body",
+  ) as HTMLTextAreaElement;
+  await waitFor(() => expect(body.value).toBe(""));
+  const checkbox = screen.getByLabelText(
+    "page.webmail.compose_quote_original",
+  ) as HTMLInputElement;
+  expect(checkbox.checked).toBe(false);
+  fireEvent.click(checkbox);
+  expect(body.value).toContain("Original content");
+  fireEvent.change(body, { target: { value: "My reply" + body.value } });
+  fireEvent.click(checkbox);
+  expect(body.value).toBe("My reply");
+});
+it("does not rewrite a saved draft when the default quote preference is disabled", async () => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "",
+    signature_text: "",
+    signature_html: "",
+    preferences: { quote_original: false },
+    version: 1,
+    updated_at: "",
+  });
+  await compose({
+    mode: "draft",
+    uid: 5,
+    uidValidity: 9,
+    text: "My saved words\n\nOriginal quotation",
+  });
+  await waitFor(() => expect(mailboxApi.getMailboxSettings).toHaveBeenCalled());
+  expect(
+    (screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement)
+      .value,
+  ).toBe("My saved words\n\nOriginal quotation");
+  expect(
+    screen.queryByLabelText("page.webmail.compose_quote_original"),
+  ).toBeNull();
+});
+
+it("freezes the selected sender and reply source into a scheduled draft", async () => {
+  vi.mocked(mailboxApi.scheduleSend).mockResolvedValue({
+    id: 1,
+  } as mailboxApi.ScheduledSendItem);
+  const source = { folder_enc: "b64.SU5CT1g", uid: 9, uid_validity: 42 };
+  await compose({
+    mode: "reply",
+    from: "team@example.test",
+    to: "bob@example.test",
+    subject: "Re: thread",
+    text: "Reply body",
+    inReplyTo: "<original@example.test>",
+    aiSource: source,
+  });
+  await waitFor(() =>
+    expect(screen.getByLabelText("page.webmail.compose_from")).toHaveProperty(
+      "value",
+      "team@example.test",
+    ),
+  );
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_send_later"), {
+    target: { value: "2099-01-01T12:00" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_schedule" }),
+  );
+  await waitFor(() => expect(mailboxApi.scheduleSend).toHaveBeenCalledTimes(1));
+  expect(mailboxApi.saveDraft).toHaveBeenCalledWith(
+    expect.objectContaining({
+      from: "team@example.test",
+      in_reply_to: "<original@example.test>",
+      reply_source: source,
+      text: "Reply body",
+    }),
+  );
+});
+
+it("waits for identity and quote settings before allowing any outbound mutation", async () => {
+  let release!: (value: mailboxApi.MailboxSettingsView) => void;
+  vi.mocked(mailboxApi.getMailboxSettings).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  render(
+    <MailboxComposeDialog
+      open
+      draft={{ mode: "new" }}
+      onOpenChange={vi.fn()}
+      onSent={vi.fn()}
+    />,
+  );
+  fillMessage();
+  for (const key of [
+    "page.webmail.compose_save_draft",
+    "page.webmail.compose_send",
+    "page.webmail.compose_schedule",
+  ]) {
+    const button = screen.getByRole("button", { name: key });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+  }
+  expect(mailboxApi.sendMessage).not.toHaveBeenCalled();
+  expect(mailboxApi.saveDraft).not.toHaveBeenCalled();
+  expect(mailboxApi.scheduleSend).not.toHaveBeenCalled();
+  release({
+    address: "alice@example.test",
+    display_name: "Alice",
+    signature_text: "",
+    signature_html: "",
+    preferences: { quote_original: false },
+    version: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "page.webmail.compose_send",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_send" }),
+  );
+  await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalledTimes(1));
+});
+it("keeps outbound actions disabled when identity settings fail", async () => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockRejectedValueOnce(
+    new Error("settings unavailable"),
+  );
+  render(
+    <MailboxComposeDialog
+      open
+      draft={{ mode: "new" }}
+      onOpenChange={vi.fn()}
+      onSent={vi.fn()}
+    />,
+  );
+  await screen.findByText("page.webmail.settings_load_failed");
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "page.webmail.compose_send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
 });

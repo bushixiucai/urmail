@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -22,6 +24,7 @@ type RecallExpunger interface {
 
 // RecallHandler exposes local mailbox recalls without promising remote recall.
 type RecallHandler struct {
+	AppPool  *db.Pool
 	Store    *store.Queries
 	Platform *store.Queries
 	Expunger RecallExpunger
@@ -29,80 +32,31 @@ type RecallHandler struct {
 
 // RecallResponse describes the outcome for one local mailbox copy only.
 type RecallResponse struct {
-	ID             int64              `json:"id"`
-	ArchiveEntryID pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID      pgtype.Int8        `json:"mailbox_id"`
-	Status         string             `json:"status"`
-	Reason         pgtype.Text        `json:"reason"`
-	Scope          string             `json:"scope"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	ID               int64              `json:"id"`
+	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8        `json:"mailbox_id"`
+	Status           string             `json:"status"`
+	Reason           pgtype.Text        `json:"reason"`
+	Scope            string             `json:"scope"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	PreviewToken     pgtype.Text        `json:"preview_token"`
+	PreviewDigest    pgtype.Text        `json:"preview_digest"`
+	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
+	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
+	AttemptEpoch     int64              `json:"attempt_epoch"`
+	SelectedCopyKeys json.RawMessage    `json:"selected_copy_keys"`
+	LocalResult      json.RawMessage    `json:"local_result"`
+	ResultHistory    json.RawMessage    `json:"result_history"`
 }
 
 func recallResponse(r store.RecallRequests) RecallResponse {
 	return RecallResponse{ID: r.ID, ArchiveEntryID: r.ArchiveEntryID, MailboxID: r.MailboxID,
-		Status: r.Status, Reason: r.Reason, Scope: "local_mailbox", CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt}
+		Status: r.Status, Reason: r.Reason, Scope: "local_mailbox", CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt, PreviewToken: r.PreviewToken, PreviewDigest: r.PreviewDigest, PreviewExpiresAt: r.PreviewExpiresAt, PreviewActorID: r.PreviewActorID, AttemptEpoch: r.AttemptEpoch, SelectedCopyKeys: json.RawMessage(r.SelectedCopyKeys), LocalResult: json.RawMessage(r.LocalResult), ResultHistory: json.RawMessage(r.ResultHistory)}
 }
 
 // Create persists a request before the agent can act; duplicates reuse the row.
-func (h *RecallHandler) Create(c *gin.Context) {
-	tenantID, ok := middleware.GetTenantID(c)
-	userID, userOK := middleware.GetUserID(c)
-	if !ok || !userOK {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
-		return
-	}
-	var input struct {
-		ArchiveEntryID int64 `json:"archive_entry_id" binding:"required,gt=0"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
-		return
-	}
-	q := requestStore(c, h.Store)
-	target, err := q.GetRecallTarget(c.Request.Context(), store.GetRecallTargetParams{TenantID: tenantID, ID: input.ArchiveEntryID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	if target.LegalHold {
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "LEGAL_HOLD"}})
-		return
-	}
-	row, err := q.CreateRecall(c.Request.Context(), store.CreateRecallParams{TenantID: tenantID,
-		ArchiveEntryID: pgtype.Int8{Int64: input.ArchiveEntryID, Valid: true}, MailboxID: target.MailboxID,
-		MessageID: target.MessageID, RequestedBy: userID})
-	if err != nil {
-		if respondConstraintError(c, err) {
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return
-	}
-	// No response is written until the transaction commits: a commit failure
-	// must never publish an accepted recall or invoke a destructive operation.
-	middleware.AfterCommit(c, func() {
-		if row.Status == "pending" && h.Expunger != nil {
-			// An ambiguous transport failure leaves a durable pending request.
-			// A duplicate POST retries the same idempotent agent operation.
-			_ = h.Expunger.ExpungeRecall(c.Request.Context(), tenantID, row.ID)
-		}
-		current, err := h.Platform.GetRecallByID(c.Request.Context(), store.GetRecallByIDParams{TenantID: tenantID, ID: row.ID})
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR"}, "recall_id": row.ID})
-			return
-		}
-		status := http.StatusOK
-		if current.Status == "pending" {
-			status = http.StatusAccepted
-		}
-		c.JSON(status, gin.H{"recall": recallResponse(current)})
-	})
-}
+func (h *RecallHandler) Create(c *gin.Context) { h.confirmReviewed(c) }
 
 // List returns at most the latest hundred tenant recalls.
 func (h *RecallHandler) List(c *gin.Context) {

@@ -46,6 +46,7 @@ func (m *ApplyManager) CertificateStatus(raw json.RawMessage) (string, string, e
 	m.mu.Lock()
 	allowed := m.certificateAllowed(p.Domain)
 	m.mu.Unlock()
+	allowed = allowed || m.brandHostCertEligible(p.Domain)
 	if !allowed {
 		return "", "", fmt.Errorf("%w: certificate identity is not registered", ErrRejected)
 	}

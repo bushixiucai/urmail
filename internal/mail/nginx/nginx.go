@@ -42,6 +42,10 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		b.WriteString("    }\n")
 		b.WriteString("}\n\n")
 
+		if d.ACMEOnly {
+			continue
+		}
+
 		// Port 443 server block: TLS termination + proxy
 		b.WriteString("server {\n")
 		// "listen ... http2" works on nginx 1.18 (Ubuntu 22.04) and remains
@@ -63,6 +67,12 @@ func renderLocalConf(node NodeConfig, snap Snapshot) string {
 		b.WriteString("    add_header X-Frame-Options SAMEORIGIN always;\n\n")
 		fmt.Fprintf(&b, "    client_max_body_size %s;\n\n", bodySize)
 
+		if d.TransportOnly {
+			b.WriteString("    location = /.well-known/mta-sts.txt {\n")
+			fmt.Fprintf(&b, "        proxy_pass %s;\n", node.BackendHTTP)
+			b.WriteString("        proxy_set_header Host $host;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n    location / { return 404; }\n}\n\n")
+			continue
+		}
 		if d.EnableWebmail && node.WebmailBackend != "" {
 			b.WriteString("    location = /mail { return 308 /mail/; }\n")
 			b.WriteString("    location ^~ /mail/ {\n")

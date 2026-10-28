@@ -6,9 +6,25 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter as Router } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+function MemoryRouter({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <Router>{children}</Router>
+    </QueryClientProvider>
+  );
+}
 import { MailboxInboxPage } from "./mailbox-inbox-page";
 
+vi.mock("@/components/appearance-controls", () => ({
+  AppearanceControls: () => null,
+}));
 vi.mock("react-i18next", () => {
   const t = (k: string, o?: Record<string, unknown>) =>
     o?.count != null ? k + ":" + o.count : k;
@@ -67,6 +83,17 @@ function mockMailboxApi(opts: { messages?: Row[] } = {}) {
   ];
   const fetcher = vi.fn(async (url: string) => {
     const u = String(url);
+    if (u === "/api/v1/mailbox/calendars/reminders")
+      return { ok: true, status: 200, json: async () => ({ reminders: [] }) };
+    if (u.startsWith("/api/v1/mailbox/calendars/invitations?"))
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({
+          error: { code: "CALENDAR_INVITATION_NOT_FOUND" },
+        }),
+      };
+
     if (u === "/api/v1/mailbox/folders") {
       return { ok: true, status: 200, json: async () => ({ folders }) };
     }

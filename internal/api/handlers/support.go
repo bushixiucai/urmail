@@ -23,6 +23,7 @@ import (
 type SupportHandler struct {
 	Store, Platform *store.Queries
 	PlatformPool    *db.Pool
+	DiagnosticKey   []byte
 }
 
 func supportError(c *gin.Context, err error) bool {
@@ -86,7 +87,10 @@ func (h *SupportHandler) Create(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var in struct{ Subject, Body, Priority string }
+	var in struct {
+		Subject, Body, Priority string
+		DiagnosticReceipt       string `json:"diagnostic_receipt"`
+	}
 	if c.ShouldBindJSON(&in) != nil || !marketingNameValid(in.Subject) || !supportBody(in.Body) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
@@ -98,14 +102,29 @@ func (h *SupportHandler) Create(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
+	var diagnostic []byte
+	if in.DiagnosticReceipt != "" {
+		var err error
+		diagnostic, err = h.readDiagnosticReceipt(in.DiagnosticReceipt, t, u)
+		if err != nil {
+			authError(c, 400, "SUPPORT_DIAGNOSTIC_EXPIRED")
+			return
+		}
+	}
 	q := requestStore(c, h.Store)
 	row, err := q.CreateSupportTicket(c, store.CreateSupportTicketParams{TenantID: t, OpenedBy: u, Subject: in.Subject, Priority: in.Priority})
 	if supportError(c, err) {
 		return
 	}
-	_, err = q.AddSupportMessage(c, store.AddSupportMessageParams{TenantID: t, TicketID: row.ID, AuthorID: u, Body: in.Body})
+	message, err := q.AddSupportMessage(c, store.AddSupportMessageParams{TenantID: t, TicketID: row.ID, AuthorID: u, Body: in.Body})
 	if supportError(c, err) {
 		return
+	}
+	if len(diagnostic) > 0 {
+		_, err = q.AddSupportAttachment(c.Request.Context(), store.AddSupportAttachmentParams{TenantID: t, MessageID: message.ID, Filename: "urmail-diagnostics.json", ContentType: "text/plain", Content: diagnostic})
+		if supportError(c, err) {
+			return
+		}
 	}
 	c.JSON(201, gin.H{"ticket": row})
 }
@@ -272,7 +291,7 @@ func (h *SupportHandler) Announcements(c *gin.Context) {
 
 // Help refers to the unique bilingual catalog, rather than maintaining a second copy.
 func (h *SupportHandler) Help(c *gin.Context) {
-	topics := []string{"dns", "renewal", "trial_refund", "ai", "archive_recall", "unsubscribe"}
+	topics := []string{"sync", "dns", "renewal", "trial_refund", "ai", "archive_recall", "unsubscribe"}
 	rows := make([]gin.H, 0, len(topics))
 	for _, topic := range topics {
 		rows = append(rows, gin.H{"id": topic, "title_key": "support.help." + topic + ".title", "body_key": "support.help." + topic + ".body"})

@@ -1,3 +1,6 @@
+vi.mock("@/components/appearance-controls", () => ({
+  AppearanceControls: () => null,
+}));
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -16,6 +19,7 @@ const listMailboxIdentities = vi.fn();
 const getMailboxQuota = vi.fn();
 const getMailboxRules = vi.fn<() => Promise<MailboxRulesView>>();
 const saveMailboxSettings = vi.fn();
+const saveMailboxRules = vi.fn();
 
 vi.mock("./mailbox-api", () => ({
   ApiRequestError: class extends Error {},
@@ -26,7 +30,7 @@ vi.mock("./mailbox-api", () => ({
   getMailboxRules: (...a: unknown[]) => getMailboxRules(...(a as [])),
   saveMailboxSettings: (...a: unknown[]) =>
     saveMailboxSettings(...(a as [never])),
-  saveMailboxRules: vi.fn(),
+  saveMailboxRules: (...a: unknown[]) => saveMailboxRules(...a),
 }));
 
 afterEach(() => {
@@ -68,7 +72,7 @@ it("renders settings sections with identity, quota and rules", async () => {
   expect(view.getByText("page.webmail.settings_title")).toBeTruthy();
   expect(view.getByText("page.webmail.settings_identity")).toBeTruthy();
   await waitFor(() => {
-    expect(view.getByText("team@example.test")).toBeTruthy();
+    expect(view.getAllByText("team@example.test").length).toBeGreaterThan(0);
   });
   expect(view.getByText("page.webmail.settings_primary")).toBeTruthy();
   await waitFor(() => {
@@ -134,4 +138,67 @@ it("inserts a signature and saves with the optimistic version", async () => {
     }),
   );
   expect(view.getByText("page.webmail.settings_saved")).toBeTruthy();
+});
+
+it("keeps an untouched later DST occurrence when saving other rule edits", async () => {
+  getMailboxSettings.mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "Alice",
+    signature_text: "",
+    signature_html: "",
+    preferences: { timezone: "America/New_York" },
+    version: 1,
+    updated_at: "",
+  });
+  listMailboxIdentities.mockResolvedValue({
+    identities: [{ address: "alice@example.test", primary: true }],
+  });
+  getMailboxQuota.mockResolvedValue({ used_bytes: 0, quota_bytes: 1024 });
+  getMailboxRules.mockResolvedValue({
+    state: "active",
+    version: "a".repeat(64),
+    rules: {
+      rules: [],
+      vacation: {
+        enabled: true,
+        subject: "Away",
+        message: "Actual body",
+        days: 1,
+        from: "2026-11-01T06:30:00Z",
+        until: "2026-11-01T07:30:00Z",
+      },
+    },
+  });
+  saveMailboxRules.mockResolvedValue({
+    saved: true,
+    state: "active",
+    version: "b".repeat(64),
+  });
+  const view = render(
+    <MemoryRouter>
+      <MailboxSettingsPage />
+    </MemoryRouter>,
+  );
+  await waitFor(() =>
+    expect(
+      (view.container.querySelector("#vacation-from") as HTMLInputElement)
+        ?.value,
+    ).toBe("2026-11-01T01:30"),
+  );
+  fireEvent.click(view.getByLabelText("page.webmail.settings_rules_confirm"));
+  fireEvent.click(view.getAllByText("page.webmail.settings_save")[1]);
+  await waitFor(() =>
+    expect(saveMailboxRules).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmed: true,
+        rules: expect.objectContaining({
+          vacation: expect.objectContaining({
+            from: "2026-11-01T06:30:00Z",
+            until: "2026-11-01T07:30:00Z",
+            message: "Actual body",
+          }),
+        }),
+      }),
+    ),
+  );
 });

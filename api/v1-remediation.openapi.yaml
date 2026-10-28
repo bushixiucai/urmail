@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: urMail M1-M7 remediation API contract
-  version: 0.4.2-m1-m7-v2
-  description: Endpoints added or changed in the M1-M7 remediation rounds. This is not a complete v1 specification
+  title: urMail selected v1 API contracts
+  version: 0.5.0
+  description: Selected endpoints added or changed in remediation and upstream alignment. This is not a complete v1 specification
     or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
     Bearer and X-CSRF-Token; present Origin/Referer must match the host.
     Security remediation requires that newly chosen account passwords require at least 12 Unicode code points
@@ -949,68 +949,183 @@ paths:
           $ref: '#/components/responses/Error'
   /compliance/recalls:
     post:
-      summary: Request recall of one local mailbox copy as tenant owner or admin.
-      description: The archive entry determines the mailbox and message. Legal hold returns 409. A unique tenant/archive target makes duplicates idempotent. The request commits before the root agent resolves and expunges an exact local message. The compliance archive is preserved. Remote delivery cannot be recalled. Transport failure leaves pending for the same POST to retry.
-      security:
-      - Bearer: []
-        CSRF: []
+      operationId: confirmLocalRecall
+      summary: Confirm explicitly selected copies from a current reviewed snapshot
+      description: Requires owner/admin authority and CSRF. Legacy archive_entry_id-only requests are rejected. Every
+        target proof must belong to the current actor and tenant; selected keys must be unique members of that exact
+        preview. Confirmation and its audit commit before the agent can mutate anything. The agent locks current role/tenant/hold
+        facts and revalidates snapshot and mailbox generation, then expunges using mailbox GUID AND UID AND immutable
+        message GUID. New same-Message-ID arrivals cannot broaden an old selector. Repeating the identical confirmed
+        proof reconciles that same intent; completed results never perform another destructive command. A different
+        selection or an expired/stale/restored proof requires a fresh preview. Partial/unknown outcomes retain per-copy
+        facts. For a new attempt, preview again and explicitly choose only outstanding copies; successful items are
+        not automatically selected. Restored intents are held and old tokens cannot mutate until a fresh authorized
+        review is confirmed.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [archive_entry_id]
+              additionalProperties: false
+              required:
+              - confirmed
+              - targets
               properties:
-                archive_entry_id:
-                  type: integer
-                  format: int64
-                  minimum: 1
+                confirmed:
+                  type: boolean
+                  enum:
+                  - true
+                targets:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  description: At most 100 selected copies across all targets
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - id
+                    - preview_token
+                    - digest
+                    - copy_keys
+                    properties:
+                      id:
+                        type: integer
+                        format: int64
+                        minimum: 1
+                      preview_token:
+                        type: string
+                        format: uuid
+                      digest:
+                        type: string
+                        pattern: ^[a-f0-9]{64}$
+                      copy_keys:
+                        type: array
+                        minItems: 1
+                        maxItems: 100
+                        uniqueItems: true
+                        items:
+                          type: string
       responses:
         '200':
-          description: Existing or newly completed local outcome; inspect status and reason.
+          description: Recorded results, including partial failure, expired or unknown status. A 200 envelope does
+            not imply local deletion success and never implies external recipient recall. Inspect each recall and
+            local_result item.
           content:
             application/json:
               schema:
                 type: object
-                required: [recall]
-                properties:
-                  recall:
-                    $ref: '#/components/schemas/Recall'
-        '202':
-          description: Durably pending; retry the same target or GET its status.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [recall]
-                properties:
-                  recall:
-                    $ref: '#/components/schemas/Recall'
-        default:
-          $ref: '#/components/responses/Error'
-    get:
-      summary: List the latest hundred tenant recalls as owner or admin.
-      responses:
-        '200':
-          description: Local mailbox scope only.
-          content:
-            application/json:
-              schema:
-                type: object
+                required:
+                - recalls
+                - scope
+                - remote_recall_guaranteed
                 properties:
                   scope:
                     type: string
-                    enum: [local_mailbox]
+                    enum:
+                    - local_mailbox
+                  remote_recall_guaranteed:
+                    type: boolean
+                    enum:
+                    - false
                   recalls:
                     type: array
+                    maxItems: 20
                     items:
-                      $ref: '#/components/schemas/Recall'
-        default:
-          $ref: '#/components/responses/Error'
+                      type: object
+                      required:
+                      - id
+                      - status
+                      - scope
+                      - attempt_epoch
+                      - selected_copy_keys
+                      - local_result
+                      properties:
+                        id:
+                          type: integer
+                          format: int64
+                        status:
+                          type: string
+                          enum:
+                          - preview
+                          - pending
+                          - delivered
+                          - failed
+                          - expired
+                          - local_recalled
+                          - uncertain
+                        reason:
+                          type: string
+                          nullable: true
+                        scope:
+                          type: string
+                          enum:
+                          - local_mailbox
+                        attempt_epoch:
+                          type: integer
+                          format: int64
+                        selected_copy_keys:
+                          type: array
+                          items:
+                            type: string
+                        local_result:
+                          type: object
+                          properties:
+                            items:
+                              type: array
+                              items:
+                                type: object
+                                required:
+                                - key
+                                - status
+                                properties:
+                                  key:
+                                    type: string
+                                  status:
+                                    type: string
+                                    enum:
+                                    - confirmed_absent
+                                    - failed
+                                    - unknown
+                                  reason:
+                                    type: string
+        '202':
+          description: Committed exact intent remains pending; reconcile the same proof without changing its selection
+        '400':
+          description: Explicit reviewed confirmation missing
+          malformed selection: null
+          duplicate target or legacy immediate request: null
+        '401':
+          description: Authentication required
+        '403':
+          description: Current actor role or CSRF authority refused
+        '409':
+          description: Stale
+          expired: null
+          changed or mismatched review; obtain a new preview: null
+        '422':
+          description: Selected copy count exceeds the safety bound
+        '503':
+          description: Inventory/database unavailable; inspect persisted state before any new attempt
+    get:
+      operationId: listLocalRecalls
+      summary: List the latest hundred tenant-scoped recall facts
+      description: Owner/admin only. Includes status, exact selected keys, per-copy local results and attempt history.
+        This route never executes mail operations.
+      responses:
+        '200':
+          description: Object containing recalls array and scope=local_mailbox
+        '401':
+          description: Authentication required
+        '403':
+          description: Current role refused
   /compliance/recalls/{id}:
     get:
-      summary: Read a tenant recall as owner or admin.
+      operationId: getLocalRecall
+      summary: Read one persisted local recall and its immutable result facts
+      description: Owner/admin only. Opening an old link rechecks the current tenant and role. No mutation or privilege
+        is granted by possession of a recall ID.
       parameters:
       - in: path
         name: id
@@ -1021,16 +1136,15 @@ paths:
           minimum: 1
       responses:
         '200':
-          description: Current local mailbox outcome.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  recall:
-                    $ref: '#/components/schemas/Recall'
-        default:
-          $ref: '#/components/responses/Error'
+          description: Object containing the same recall DTO used by preview and confirmation
+        '400':
+          description: Invalid ID
+        '401':
+          description: Authentication required
+        '403':
+          description: Current role refused
+        '404':
+          description: Recall absent or outside the current tenant
   /audit:
     get:
       summary: Read tenant audit history with stable composite pagination.
@@ -2657,10 +2771,9 @@ paths:
       tags:
       - M5-M7 managed operations
       summary: List author-owned tickets
-      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
-        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
-        mutation and audit share tenant transaction. Access: ticket author in authenticated
-        tenant.'
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged. Attachments bounded
+        to 2 MiB and allowed MIME, forced download/nosniff. Ticket mutation and audit share tenant transaction. Access:
+        ticket author in authenticated tenant.'
       security:
       - Bearer: []
       responses:
@@ -2676,22 +2789,19 @@ paths:
       tags:
       - M5-M7 managed operations
       summary: Create a support ticket
-      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged.
-        Attachments bounded to 2 MiB and allowed MIME, forced download/nosniff. Ticket
-        mutation and audit share tenant transaction. Access: ticket author in authenticated
-        tenant.'
+      description: 'Tenant+author predicates and RLS. Staff identity cannot be client-forged. Attachments bounded
+        to 2 MiB and allowed MIME, forced download/nosniff. Ticket mutation and audit share tenant transaction. Access:
+        ticket author in authenticated tenant. Optional diagnostic_receipt attaches only the exact explicitly reviewed
+        aggregate bundle, bound to this tenant and author and valid for 15 minutes. The ticket, message, audit and
+        attachment commit together.'
       security:
       - Bearer: []
         CSRF: []
       responses:
-        '200':
-          description: Successful result.
-          content:
-            application/json:
-              schema:
-                type: object
         default:
           $ref: '#/components/responses/Error'
+        '201':
+          description: Created support ticket.
       requestBody:
         required: true
         content:
@@ -2705,6 +2815,10 @@ paths:
                   type: string
                 priority:
                   type: string
+                diagnostic_receipt:
+                  type: string
+                  maxLength: 32768
+                  description: Optional server-issued receipt after explicit consent and preview review.
               required:
               - subject
               - body
@@ -3503,7 +3617,6 @@ paths:
         '409': {description: Calendar already exists or no legacy paid history requires review.}
         '500': {description: Mandatory audit or transaction failed; no calendar committed.}
         default: {$ref: '#/components/responses/Error'}
-
   /roundcube/bridge:
     post:
       tags: [M8 mailbox continuity]
@@ -3575,7 +3688,8 @@ paths:
         '503': {description: Bridge, database or mandatory audit unavailable; mutation not acknowledged, $ref: '#/components/responses/Error'}
   /mailbox/status:
     get:
-      tags: [Native mailbox]
+      tags:
+      - Native mailbox
       summary: Report whether native webmail is enabled
       security: []
       responses:
@@ -3585,9 +3699,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [native]
+                required:
+                - native
                 properties:
-                  native: {type: boolean}
+                  native:
+                    type: boolean
+                  mail_host:
+                    type: string
+                    description: Operator-configured mail hostname for native client setup.
   /mailbox/session:
     post:
       tags: [Native mailbox]
@@ -3822,6 +3941,4852 @@ paths:
         '404': {description: Unknown task or another mailbox/tenant., $ref: '#/components/responses/Error'}
         '409': {description: SCHEDULE_CANNOT_CANCEL. Submission started or task is terminal/on hold., $ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
+  /mailbox/calendars/invitations:
+    get:
+      tags:
+      - Native mailbox calendar
+      summary: Preview an invitation from an actual mailbox message
+      description: Uses the authenticated mailbox's original MIME message, pinned to folder, UID and nonzero UIDVALIDITY.
+        No client-uploaded ICS or Authentication-Results header is trusted as organizer proof. Verified actions require
+        matching organizer and recipient identities and a valid full-body DKIM signature (or the server's own bound
+        invitation journal). Unverified REQUEST mail may only offer explicit copy_personal, which creates a distinct
+        personal event without organizer authority. Stale updates and mismatched attendees cannot modify the existing
+        event. A persisted uncertain response disables further sending; refreshing or restarting does not retry SMTP.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: folder_enc
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+        description: URL-safe encoded source folder returned by the mailbox API.
+      - name: uid
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+      - name: uid_validity
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967295
+      responses:
+        '200':
+          description: Actual source preview and the actions currently permitted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - source_digest
+                - verification
+                - notification_status
+                - method
+                - uid
+                - sequence
+                - organizer
+                - recipient
+                - actions
+                properties:
+                  source_digest:
+                    type: string
+                    pattern: ^[0-9a-f]{64}$
+                  verification:
+                    type: string
+                    enum:
+                    - verified
+                    - unverified
+                  verification_reason:
+                    type: string
+                    description: Bounded reason code; does not contain mail content or DNS responses.
+                  notification_status:
+                    type: string
+                    enum:
+                    - none
+                    - sent
+                    - uncertain
+                  method:
+                    type: string
+                    enum:
+                    - REQUEST
+                    - REPLY
+                    - CANCEL
+                  uid:
+                    type: string
+                    description: iCalendar UID
+                    distinct from the source IMAP UID.: null
+                  sequence:
+                    type: integer
+                    minimum: 0
+                  organizer:
+                    type: string
+                    format: email
+                  from:
+                    type: string
+                    format: email
+                  recipient:
+                    type: string
+                    format: email
+                  recurrence_id:
+                    type: string
+                  event:
+                    type: object
+                    nullable: true
+                    description: Parsed bounded event preview; does not confer mutation authority.
+                  linked_event:
+                    type: object
+                    nullable: true
+                    properties:
+                      id:
+                        type: integer
+                        format: int64
+                        minimum: 1
+                      version:
+                        type: integer
+                        format: int64
+                        minimum: 1
+                      response:
+                        type: string
+                      sequence:
+                        type: integer
+                        minimum: 0
+                  actions:
+                    type: array
+                    maxItems: 7
+                    items:
+                      type: string
+                      enum:
+                      - accept
+                      - decline
+                      - tentative
+                      - apply_update
+                      - apply_cancel
+                      - apply_reply
+                      - copy_personal
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          description: Source mail or calendar invitation not found.
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Source UIDVALIDITY or linked event changed.
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - Native mailbox calendar
+      summary: Explicitly apply a source-bound invitation action
+      description: Re-reads the actual authenticated source and revalidates its digest, recipient, organizer proof,
+        sequence and current event version. Panel bearer credentials do not grant mailbox access. accept, decline
+        and tentative require outbound entitlement and persist an uncertain SMTP intent before submission. Ambiguous
+        delivery is never automatically resent, even after refresh or process restart. apply_update, apply_cancel
+        and apply_reply only modify the event bound to this organizer/UID; a single-instance cancellation preserves
+        its recurring series.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - source
+              - source_digest
+              - action
+              - confirmed
+              properties:
+                source:
+                  type: object
+                  required:
+                  - folder_enc
+                  - uid
+                  - uid_validity
+                  properties:
+                    folder_enc:
+                      type: string
+                      minLength: 1
+                    uid:
+                      type: integer
+                      format: int64
+                      minimum: 1
+                      maximum: 4294967295
+                    uid_validity:
+                      type: integer
+                      format: int64
+                      minimum: 1
+                      maximum: 4294967295
+                source_digest:
+                  type: string
+                  pattern: ^[0-9a-f]{64}$
+                action:
+                  type: string
+                  enum:
+                  - accept
+                  - decline
+                  - tentative
+                  - apply_update
+                  - apply_cancel
+                  - apply_reply
+                  - copy_personal
+                expected_version:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  description: Current linked event version from preview; zero only when creating a new event.
+                confirmed:
+                  type: boolean
+                  enum:
+                  - true
+                  description: Explicit action-specific confirmation.
+      responses:
+        '200':
+          description: Applied once, or replay of the same durable completed action.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - applied
+                - event_id
+                - notification_status
+                properties:
+                  applied:
+                    type: boolean
+                  event_id:
+                    type: integer
+                    format: int64
+                    minimum: 1
+                  notification_status:
+                    type: string
+                    enum:
+                    - sent
+                    - not_requested
+                  sent_copy:
+                    type: boolean
+                    description: Whether the submitted reply was also saved to Sent.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Changed source/event
+          unverified action: null
+          or uncertain SMTP intent that must not be resubmitted.: null
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/reminders:
+    get:
+      tags:
+      - Native mailbox calendar
+      summary: List the current mailbox's persisted DISPLAY reminders
+      description: Returns only this mailbox's due, unacknowledged reminders. Event reminder offsets are configured
+        on the event as reminders (up to five integers, each 0..40320). Single-instance overrides inherit the series
+        offsets and use the actual overridden occurrence time. DISPLAY reminders never send email, open URLs, play
+        audio or request notification permission. Durable event/instance/offset/version deduplication prevents replay
+        after restart; restored historical reminders are not re-created as new alerts.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Latest bounded pending reminders.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - reminders
+                properties:
+                  reminders:
+                    type: array
+                    maxItems: 50
+                    items:
+                      type: object
+                      required:
+                      - id
+                      - payload
+                      - created_at
+                      properties:
+                        id:
+                          type: integer
+                          format: int64
+                          minimum: 1
+                        created_at:
+                          type: string
+                          format: date-time
+                        payload:
+                          type: object
+                          properties:
+                            event_id:
+                              type: integer
+                              format: int64
+                            version:
+                              type: integer
+                              format: int64
+                            uid:
+                              type: string
+                            summary:
+                              type: string
+                            starts_at:
+                              type: string
+                              format: date-time
+                            ends_at:
+                              type: string
+                              format: date-time
+                            timezone:
+                              type: string
+                            recurrence_id:
+                              type: string
+                            minutes_before:
+                              type: integer
+                              minimum: 0
+                              maximum: 40320
+                            fire_at:
+                              type: string
+                              format: date-time
+                            acknowledged:
+                              type: boolean
+                              enum:
+                              - false
+        '401':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/reminders/{reminder_id}/ack:
+    post:
+      tags:
+      - Native mailbox calendar
+      summary: Acknowledge one owned reminder
+      description: Acknowledgment persists across reload and login. The pending item is removed by the client only
+        after success. Another mailbox's or tenant's ID is never accepted; acknowledgment does not modify the underlying
+        event.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: reminder_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Owned reminder acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - acknowledged
+                properties:
+                  acknowledged:
+                    type: boolean
+                    enum:
+                    - true
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/events/{id}/reply:
+    post:
+      tags:
+      - Native mailbox calendar
+      summary: Refuse unsigned client-supplied attendee replies
+      description: Retired raw-ICS entry point. Read the actual mailbox message through /mailbox/calendars/invitations
+        instead; a claimed attendee string is not sender authentication.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '400':
+          description: INVITATION_SOURCE_REQUIRED.
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /domains/{id}/authority:
+    parameters:
+    - in: path
+      name: id
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    get:
+      operationId: getDomainDNSAuthority
+      summary: Inspect live authoritative DNS signing and delegation evidence
+      description: Requires the current tenant owner or admin and an active verified managed domain. Delegated domains
+        are rejected. Reports local signature, parent DS and validation-chain evidence without returning private keys
+        or TSIG secrets.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Live bounded agent observation; ready is true only after current parent DS and a cryptographic
+            validation chain succeed.
+        '403':
+          description: Current role does not permit authoritative DNS administration.
+        '404':
+          description: Domain does not belong to the current tenant.
+        '409':
+          description: Managed verified authority is required or the operation needs review.
+        '503':
+          description: Root agent or authoritative DNS capability is unavailable.
+    post:
+      operationId: manageDomainDNSAuthority
+      summary: Confirm one bounded DNSSEC or secondary configuration operation
+      description: Requires owner/admin authorization and the active session CSRF token. The request is bound to the
+        current tenant, domain ID, domain name and actor before the root agent rechecks ownership and current role.
+        Parent DS changes are never automatic. Retirement requires successor delegation, removal of old DS and cache
+        expiry. Signing disablement requires validated parent DS removal and a bounded cache wait. Private secondary
+        bundles can only be exported by the root CLI, never through this API.
+      security:
+      - Bearer: []
+      parameters:
+      - in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - action
+              - confirm
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - prepare
+                  - enable
+                  - rotate
+                  - retire
+                  - rollback
+                  - disable-check
+                  - disable
+                  - secondary-configure
+                  - secondary-prepare
+                  - backup-manifest
+                confirm:
+                  type: boolean
+                  enum:
+                  - true
+                secondary:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - hostname
+                  - address
+                  - primary_address
+                  - tsig_key_name
+                  properties:
+                    hostname:
+                      type: string
+                      maxLength: 253
+                    address:
+                      type: string
+                      description: Concrete secondary IP address.
+                    primary_address:
+                      type: string
+                      description: Concrete primary IP address.
+                    tsig_key_name:
+                      type: string
+                      maxLength: 128
+                      pattern: ^[A-Za-z0-9_.-]+$
+      responses:
+        '200':
+          description: Named operation accepted; configuration convergence and live readiness are separate facts.
+        '400':
+          description: Unsupported action
+          missing confirmation or unknown fields.: null
+        '403':
+          description: Missing CSRF or current owner/admin role.
+        '404':
+          description: Foreign or nonexistent domain.
+        '409':
+          description: Role/ownership changed
+          ? delegation/cache preconditions failed or agent result requires review. Refresh live state before retrying;
+            do not blindly repeat a mutation.
+          : null
+        '503':
+          description: Root agent unavailable or invalid response.
+  /compliance/recalls/preview:
+    post:
+      operationId: previewLocalRecall
+      summary: Inventory and persist an actor-bound review of local mailbox copies
+      description: Requires the current tenant owner or administrator and the session CSRF token. No message is deleted.
+        The bounded agent resolves mailbox identities from the archive entry and verifies current role, holds and
+        original digest. Include-related inventories at most 20 archived targets and 100 local copies. Each selectable
+        target gets an expiring token and canonical digest bound to tenant, actor, archive source, hold facts, mailbox
+        GUID, UIDVALIDITY, UID and immutable message GUID. Internal message GUIDs are not caller inputs. Remote or
+        held targets are returned with a refusal reason and no selectable recall. A new preview never executes a prior
+        confirmation automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - archive_entry_id
+              properties:
+                archive_entry_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                include_related:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Inventory only; explicit selection and confirmation are still required
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - targets
+                - scope
+                - remote_recall_guaranteed
+                properties:
+                  scope:
+                    type: string
+                    enum:
+                    - local_mailbox
+                  remote_recall_guaranteed:
+                    type: boolean
+                    enum:
+                    - false
+                  targets:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      required:
+                      - entry_id
+                      - address
+                      - reason
+                      - copies
+                      - recall
+                      properties:
+                        entry_id:
+                          type: integer
+                          format: int64
+                        address:
+                          type: string
+                          nullable: true
+                        reason:
+                          type: string
+                          description: Empty for a selectable preview; otherwise a typed refusal or existing-intent
+                            state
+                        copies:
+                          type: array
+                          maxItems: 100
+                          items:
+                            type: object
+                            required:
+                            - key
+                            - folder
+                            - uid
+                            - uid_validity
+                            properties:
+                              key:
+                                type: string
+                                description: Opaque exact-copy selection handle within this preview
+                              folder:
+                                type: string
+                              uid:
+                                type: integer
+                                minimum: 1
+                                maximum: 4294967295
+                              uid_validity:
+                                type: integer
+                                minimum: 1
+                                maximum: 4294967295
+                        recall:
+                          type: object
+                          nullable: true
+                          description: Same recall DTO returned by GET. Non-null previews include id, status, preview_token,
+                            preview_digest, preview_expires_at, preview_actor_id, attempt_epoch, selected_copy_keys,
+                            local_result.items and result_history. Tokens/digests alone never authorize a different
+                            actor or source.
+        '400':
+          description: Invalid bounded request or unknown fields
+        '401':
+          description: Authentication required
+        '403':
+          description: Current role or CSRF authority refused
+        '404':
+          description: Source not visible in the current tenant
+        '409':
+          description: Review changed or could not be safely persisted; preview again
+        '422':
+          description: Bounded target or copy limit exceeded; narrow the scope
+        '503':
+          description: Local inventory or database unavailable; nothing was deleted
+  /mailbox/scheduled-sends/{id}/repair-sent-copy:
+    post:
+      operationId: repairScheduledSentCopy
+      tags:
+      - Mailbox
+      summary: Repair an already accepted scheduled message's Sent copy
+      description: Uses the current mailbox bearer session and its fresh IMAP credential. This operation never submits
+        SMTP. The task must belong to this exact tenant and mailbox. Pending, unknown and restored held copies are
+        claimed with a bounded lease and claim-token fencing. A prior APPEND is reconciled by Message-ID plus exact
+        raw SHA256 before another APPEND is considered. Search failure or an incomplete candidate set keeps the copy
+        pending. A completed copy is idempotent. The accepted SMTP timestamp is preserved; temporary service-only
+        raw and sealed credentials are removed on success. Restored held tasks require this explicit owner action
+        after quarantine release.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Copy verified or saved; item.sent_copy_state is complete
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - item
+                properties:
+                  item:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        format: int64
+                      status:
+                        type: string
+                        enum:
+                        - sent
+                      sent_copy_state:
+                        type: string
+                        enum:
+                        - complete
+                      sent_at:
+                        type: string
+                        format: date-time
+        '401':
+          description: Invalid or revoked mailbox session
+        '404':
+          description: No task belongs to this tenant and mailbox
+        '409':
+          description: SENT_COPY_PENDING; copy lease busy
+          reconciliation incomplete: null
+          restore quarantine active or IMAP APPEND unconfirmed. Never resend SMTP.: null
+        '502':
+          description: IMAP connection or authentication unavailable
+        '503':
+          description: Webmail or database unavailable
+  /domains/{id}/transport-security:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    get:
+      summary: Read a domain transport publication
+      description: Tenant owner/admin only. Returns enabled/version/mode/publication ID, exact MX, max_age, HTTPS
+        policy body, TLS report URI, required DNS records, cache_safe_after and four public-observation booleans.
+        New domains return enabled=false/version=0/testing. DANE remains explicitly disabled.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Publish an explicitly confirmed transport policy
+      description: Tenant owner/admin and CSRF required. First publication must be testing. Enforce requires one prior
+        max_age observation period and matching successful DNS ID, receiving MX, HTTPS certificate/body and SMTP STARTTLS
+        evidence less than one hour old. Source/target hosts come only from the verified domain and operator configuration.
+        Version CAS rejects stale forms. Overlapping longer cache deadlines are retained; mode=none must drain them
+        before receiving-host changes or disable. Recognized dedicated transport records can be updated; unrelated/duplicate
+        DNS records remain conflicts. External provider writes still require a separate reviewed DNS plan.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum:
+                  - testing
+                  - enforce
+                  - none
+                max_age:
+                  type: integer
+                  minimum: 300
+                  maximum: 604800
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                confirm:
+                  type: boolean
+                  enum:
+                  - true
+              required:
+              - mode
+              - max_age
+              - version
+              - confirm
+    delete:
+      summary: Disable publication after cache drain
+      description: Requires current version and explicit confirmation. Only mode=none after cache_safe_after can be
+        disabled. A shorter new max_age does not erase an older cache deadline. Returns 409 while unsafe.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '204':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                confirm:
+                  type: boolean
+                  enum:
+                  - true
+              required:
+              - version
+              - confirm
+  /domains/{id}/transport-security/observe:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    post:
+      summary: Probe public DNS and TLS without holding the tenant transaction
+      description: No caller-supplied URL or host is used. DNS, strict HTTPS policy and SMTP STARTTLS probes use fixed
+        derived destinations, reject mixed/private/special-use DNS answers and redirects, and never send mail. Result
+        persistence uses a fresh tenant/user transaction and version CAS. status is verified or failed; HTTP 200 alone
+        is not verification.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+  /domains/{id}/transport-security/reports:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    get:
+      summary: Read up to 100 redacted TLS report summaries
+      description: Tenant owner/admin only, with tenant predicates and FORCE RLS. Contains period_start/end, successful/failed
+        counts, bounded failure-type totals, received time and source_verified=false. Raw source IPs, free text, organization/contact
+        strings and report IDs are never retained or returned. HTTPS submissions do not prove reporter identity and
+        cannot authorize enforcement.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+  /tls-reports/{fqdn}:
+    parameters:
+    - name: fqdn
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      summary: Receive bounded RFC 8460 HTTPS reports
+      description: Anonymous intake only for an enabled verified domain resolved by the server. Supports JSON and
+        gzip JSON with 1 MiB wire/4 MiB expansion, bounded JSON depth/tokens, at most 100 policies and 200 failure
+        details per policy, counts <= 1e9 and at most 2000 retained summaries per domain per day. Source organization/report
+        identity is hashed; exact replay returns 202, conflicting reuse returns 409. Input never creates authenticated
+        provider evidence. Separate IP/domain rate limits and a four-request concurrency cap protect the mail runtime.
+      security: []
+      responses:
+        '202':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/tlsrpt+json:
+            schema:
+              type: object
+          application/tlsrpt+gzip:
+            schema:
+              type: string
+              format: binary
+  /.well-known/mta-sts.txt:
+    servers:
+    - url: /
+    get:
+      summary: Serve the exact host-bound MTA-STS policy
+      description: Public text/plain endpoint only on mta-sts.<verified enabled domain>. Request Host is authoritative;
+        Forwarded/X-Forwarded-Host cannot select another policy. Wrong/disabled hosts return 404. Only public policy
+        values are returned. Dedicated nginx transport vhosts expose this path and ACME, not panel or mailbox routes.
+      security: []
+      responses:
+        '200':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+  /support/diagnostics:
+    post:
+      summary: Consent to and preview a redacted support bundle
+      description: Tenant owner/admin and CSRF required. Reads only tenant delivery/mailbox counters under UserTx/RLS;
+        configuration/backup/queue probes are explicitly not_collected. Does not read mail bodies, addresses, credentials,
+        raw logs or configuration secrets. Returns exact preview plus a 15-minute HMAC receipt bound to tenant and
+        author. Preview does not create a ticket.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful result.
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consent:
+                  type: boolean
+                  enum:
+                  - true
+              required:
+              - consent
+  /mailbox/folders:
+    get:
+      summary: List native mailbox folders
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Returns name_enc and UIDVALIDITY;
+        preserve the returned opaque folder handle. System folders carry role flags.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Create a managed folder
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Unicode names are accepted
+        through bounded managed-folder validation. Reserved/system names are protected.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+              - name
+      responses:
+        '201':
+          description: Created folder name, name_enc and uid_validity.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/folders/{name}:
+    patch:
+      summary: Rename a managed folder
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. The path is the returned
+        encoded folder handle. uid_validity must match the current folder; stale generations conflict. System folders
+        cannot be renamed/deleted. Deletion rejects nonempty folders or child folders. An empty eligible folder is
+        renamed into a recoverable Trash namespace so a concurrent late APPEND is preserved; the route does not issue
+        permanent IMAP DELETE.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+              required:
+              - uid_validity
+              - name
+      responses:
+        '200':
+          description: Folder operation completed; refresh the list and current generation.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    delete:
+      summary: Safely remove a managed folder
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. The path is the returned
+        encoded folder handle. uid_validity must match the current folder; stale generations conflict. System folders
+        cannot be renamed/deleted. Deletion rejects nonempty folders or child folders. An empty eligible folder is
+        renamed into a recoverable Trash namespace so a concurrent late APPEND is preserved; the route does not issue
+        permanent IMAP DELETE.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+              required:
+              - uid_validity
+      responses:
+        '200':
+          description: Folder operation completed; refresh the list and current generation.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/folders/{name}/messages/copy:
+    post:
+      summary: Explicitly copy selected original UIDs
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Requires Idempotency-Key
+        (8-200 characters), reused only for the same operation, source folder, UIDVALIDITY, UIDs and destination.
+        No blind replay after uncertain IMAP acknowledgement. Results are per UID, atomic=false; inspect source/destination
+        and the durable receipt before a new intent. Trash resolves the server Trash folder; restore accepts only
+        the current Trash source. No request grants deletion of future UID generations.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uids:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 1
+                    maximum: 4294967295
+                  minItems: 1
+                  uniqueItems: true
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+                to:
+                  type: string
+              required:
+              - uids
+              - uid_validity
+              - to
+      responses:
+        '200':
+          description: Per-UID destination mapping and current destination uid_validity; not a blanket success.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '202':
+          description: Uncertain outcome; results and uncertain=true retained. Do not generate a fresh key and repeat
+            the mutation automatically.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/folders/{name}/messages/trash:
+    post:
+      summary: Explicitly trash selected original UIDs
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Requires Idempotency-Key
+        (8-200 characters), reused only for the same operation, source folder, UIDVALIDITY, UIDs and destination.
+        No blind replay after uncertain IMAP acknowledgement. Results are per UID, atomic=false; inspect source/destination
+        and the durable receipt before a new intent. Trash resolves the server Trash folder; restore accepts only
+        the current Trash source. No request grants deletion of future UID generations.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uids:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 1
+                    maximum: 4294967295
+                  minItems: 1
+                  uniqueItems: true
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+                to:
+                  type: string
+              required:
+              - uids
+              - uid_validity
+      responses:
+        '200':
+          description: Per-UID destination mapping and current destination uid_validity; not a blanket success.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '202':
+          description: Uncertain outcome; results and uncertain=true retained. Do not generate a fresh key and repeat
+            the mutation automatically.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/folders/{name}/messages/restore:
+    post:
+      summary: Explicitly restore selected original UIDs
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Requires Idempotency-Key
+        (8-200 characters), reused only for the same operation, source folder, UIDVALIDITY, UIDs and destination.
+        No blind replay after uncertain IMAP acknowledgement. Results are per UID, atomic=false; inspect source/destination
+        and the durable receipt before a new intent. Trash resolves the server Trash folder; restore accepts only
+        the current Trash source. No request grants deletion of future UID generations.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uids:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 1
+                    maximum: 4294967295
+                  minItems: 1
+                  uniqueItems: true
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+                to:
+                  type: string
+              required:
+              - uids
+              - uid_validity
+      responses:
+        '200':
+          description: Per-UID destination mapping and current destination uid_validity; not a blanket success.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '202':
+          description: Uncertain outcome; results and uncertain=true retained. Do not generate a fresh key and repeat
+            the mutation automatically.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/search:
+    get:
+      summary: Search bounded folders by IMAP criteria
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Best-effort bounded fan-out;
+        returned hits carry their source folder handle. Missing/failing folders are not proof of absence.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: folders
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/settings:
+    get:
+      summary: Read mailbox identity profiles and preferences
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Returns version, per-identity
+        signatures and persisted preferences.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Save mailbox settings with optimistic version
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Only currently authorized
+        identities may be configured; settings never grant alias send authority. Refresh on version conflict.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                signature_text:
+                  type: string
+                signature_html:
+                  type: string
+                identity_profiles:
+                  type: object
+                preferences:
+                  type: object
+                expected_version:
+                  type: integer
+                  minimum: 0
+              required:
+              - expected_version
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/identities:
+    get:
+      summary: Read currently authorized sending identities
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. The server derives primary/alias
+        identities and rechecks them at send time. A cached address or profile is not authorization.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/quota:
+    get:
+      summary: Read authoritative mailbox quota and measured usage
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/rules:
+    get:
+      summary: Read structured managed Sieve rules
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Returns state, rules and
+        digest version. legacy_managesieve remains outside this structured writer; do not overwrite an undecodable
+        legacy script.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Confirm and apply versioned structured Sieve rules
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. expected_version is the exact
+        script digest from GET. Saves use compare-and-swap; validation, activation and persisted desired state must
+        be inspected separately. Conflict requires refresh, not overwriting another session. Rules are typed DSL,
+        never arbitrary shell or mode changes.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rules:
+                  type: object
+                confirmed:
+                  type: boolean
+                expected_version:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+              required:
+              - rules
+              - confirmed
+              - expected_version
+      responses:
+        '200':
+          description: Managed rules state/version after application; infrastructure failure is not successful activation.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/target:
+    get:
+      summary: Read the current AI destination and consent digest
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Returns allowed/enabled status,
+        provider/model/data-scope information and configuration_digest without credentials. Display this destination
+        before the user confirms content disclosure.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/context:
+    get:
+      summary: Read a live bounded AI source preview
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. No model call. A UID is valid
+        only within the supplied folder and UIDVALIDITY. Source deletion or generation changes reject access.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: folder_enc
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: uid
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 4294967295
+      - name: uid_validity
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 4294967295
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/assist:
+    post:
+      summary: Generate a bounded suggestion after explicit content consent
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. configuration_digest must
+        still match the displayed destination. Reuse the same request_key only for the same intent; duplicate/conflicting
+        or uncertain ledger intent is not permission to call the model again. Session, configuration and original
+        source content are rechecked after generation. selection must be an exact nonempty substring of the live source;
+        draft_reply requires a live source. Suggestions never send email, choose recipients, create rules or grant
+        authority.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum:
+                  - classify
+                  - summarize
+                  - translate
+                  - phishing
+                  - draft_new
+                  - draft_reply
+                  - polish
+                configuration_digest:
+                  type: string
+                confirmed:
+                  type: boolean
+                request_key:
+                  type: string
+                  minLength: 16
+                  maxLength: 200
+                folder_enc:
+                  type: string
+                uid:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+                selection:
+                  type: string
+                body:
+                  type: string
+                subject:
+                  type: string
+                instruction:
+                  type: string
+                target_language:
+                  type: string
+              required:
+              - operation
+              - configuration_digest
+              - confirmed
+              - request_key
+      responses:
+        '200':
+          description: Validated operation-specific result; AI_REQUEST_EXISTS/AI_SOURCE_CHANGED/AI_CLOUD_CONSENT_STALE
+            are explicit conflicts.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/search-ask:
+    post:
+      summary: Answer from currently authorized mailbox sources
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Explicit destination/content
+        consent is required for each request. Retrieval and citations remain tenant/mailbox scoped and recheck live
+        message generations and deletion. An unanswerable question is not permission to invent sources. Provider reservations/unknown
+        usage are retained; client cancellation does not prove the provider did no work.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question:
+                  type: string
+                configuration_digest:
+                  type: string
+                confirmed:
+                  type: boolean
+                folder_enc:
+                  type: string
+                after:
+                  type: string
+                before:
+                  type: string
+              required:
+              - question
+              - configuration_digest
+              - confirmed
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/citations/{id}:
+    get:
+      summary: Resolve an authorized live citation
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Rechecks the current mailbox,
+        original UID generation and content digest; stale/deleted/revoked sources return refusal rather than cached
+        content.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/budget:
+    get:
+      summary: Read server-authoritative AI budget state
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Used and reserved/unknown
+        amounts remain distinct. A UI estimate is never spending authority.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/drafts:
+    post:
+      summary: Persist an editable AI suggestion
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Persists only a mailbox-scoped
+        draft, with no model call or email submission.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                body:
+                  type: string
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+              required:
+              - subject
+              - body
+      responses:
+        '201':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/ai/drafts/{id}:
+    get:
+      summary: Read one mailbox-scoped AI draft
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Update an AI draft at its current version
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Stale version returns AI_DRAFT_CONFLICT;
+        do not replace newer edits.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                body:
+                  type: string
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+              required:
+              - subject
+              - body
+              - version
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /marketing/flows:
+    get:
+      summary: List tenant-authored flow definitions
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Returns worker_enabled
+        separately from stored definitions; a disabled worker is not successful execution.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Create a bounded draft flow
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Drafts cannot
+        send. Definitions are a reachable typed DAG of at most 20 nodes, with no executable scripts or arbitrary provider
+        URLs.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                draft:
+                  type: object
+                  properties:
+                    schema_version:
+                      type: integer
+                      enum:
+                      - 1
+                    event_source:
+                      type: string
+                      enum:
+                      - contact_enrolled
+                    entry:
+                      type: string
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                            - send
+                            - wait
+                            - condition
+                            - stop
+                          template_id:
+                            type: integer
+                            format: int64
+                            minimum: 1
+                          wait_seconds:
+                            type: integer
+                            minimum: 0
+                          field:
+                            type: string
+                          operator:
+                            type: string
+                          value:
+                            type: string
+                          next:
+                            type: string
+                          otherwise:
+                            type: string
+                        required:
+                        - id
+                        - kind
+                      minItems: 1
+                      maxItems: 20
+                  required:
+                  - schema_version
+                  - event_source
+                  - entry
+                  - nodes
+                expected_revision:
+                  type: integer
+                  minimum: 0
+              required:
+              - name
+              - draft
+      responses:
+        '201':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}:
+    get:
+      summary: Read the current flow definition and revision
+      description: 'Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. '
+      security:
+      - Bearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Save a flow at the expected draft revision
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. A stale revision
+        returns FLOW_REVISION_CONFLICT; do not overwrite a newer draft.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                draft:
+                  type: object
+                  properties:
+                    schema_version:
+                      type: integer
+                      enum:
+                      - 1
+                    event_source:
+                      type: string
+                      enum:
+                      - contact_enrolled
+                    entry:
+                      type: string
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                            - send
+                            - wait
+                            - condition
+                            - stop
+                          template_id:
+                            type: integer
+                            format: int64
+                            minimum: 1
+                          wait_seconds:
+                            type: integer
+                            minimum: 0
+                          field:
+                            type: string
+                          operator:
+                            type: string
+                          value:
+                            type: string
+                          next:
+                            type: string
+                          otherwise:
+                            type: string
+                        required:
+                        - id
+                        - kind
+                      minItems: 1
+                      maxItems: 20
+                  required:
+                  - schema_version
+                  - event_source
+                  - entry
+                  - nodes
+                expected_revision:
+                  type: integer
+                  minimum: 0
+              required:
+              - name
+              - draft
+              - expected_revision
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/preview:
+    post:
+      summary: Preview a flow without side effects
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Returns deterministic
+        path/facts with side_effects=false. Template references and list ownership are validated; node errors use
+        422 and node/field/code.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                draft:
+                  type: object
+                  properties:
+                    schema_version:
+                      type: integer
+                      enum:
+                      - 1
+                    event_source:
+                      type: string
+                      enum:
+                      - contact_enrolled
+                    entry:
+                      type: string
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                            - send
+                            - wait
+                            - condition
+                            - stop
+                          template_id:
+                            type: integer
+                            format: int64
+                            minimum: 1
+                          wait_seconds:
+                            type: integer
+                            minimum: 0
+                          field:
+                            type: string
+                          operator:
+                            type: string
+                          value:
+                            type: string
+                          next:
+                            type: string
+                          otherwise:
+                            type: string
+                        required:
+                        - id
+                        - kind
+                      minItems: 1
+                      maxItems: 20
+                  required:
+                  - schema_version
+                  - event_source
+                  - entry
+                  - nodes
+                sample_email:
+                  type: string
+                list_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                at:
+                  type: string
+                  format: date-time
+              required:
+              - draft
+              - sample_email
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/publish:
+    post:
+      summary: Publish an immutable executable version
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Binds expected_revision
+        and freezes definition plus send template subject/body. Repeated publication of the same active revision returns
+        duplicate=true and the same version; editing a later draft never changes existing instances. Requires an enabled
+        dedicated gateway; runtime execution also reports worker availability.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expected_revision:
+                  type: integer
+                  format: int64
+                  minimum: 1
+              required:
+              - expected_revision
+      responses:
+        '201':
+          description: New immutable version; 200 duplicate=true returns the existing version.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '200':
+          description: Existing immutable active version for this exact draft revision; duplicate=true.
+  /marketing/flows/{id}/deactivate:
+    post:
+      summary: Pause a flow and all existing versions
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Instances
+        pause at their current node. Already submitted messages cannot be recalled. Editing or publishing another
+        version does not silently resume paused instances.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/versions:
+    get:
+      summary: List immutable published versions
+      description: 'Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. '
+      security:
+      - Bearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/versions/{version}:
+    get:
+      summary: Read one immutable published version
+      description: 'Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. '
+      security:
+      - Bearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/events:
+    post:
+      summary: Enroll one stable contact-enrolled event
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. source must
+        remain contact_enrolled. Preserve event_key for the same source/list event; duplicate keys with a different
+        list conflict. Enrollment freezes the published version and consenting recipients. Re-entry is once per recipient
+        per version. No enrolled instance means worker-disabled or failure was not a send success.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source:
+                  type: string
+                  enum:
+                  - contact_enrolled
+                event_key:
+                  type: string
+                  pattern: ^[A-Za-z0-9_.:-]{8,128}$
+                list_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+              required:
+              - source
+              - event_key
+              - list_id
+      responses:
+        '201':
+          description: Durable event entry and enrolled_count; duplicate replay returns 200 without re-enrollment.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '200':
+          description: Same event/list replay, duplicate=true; no new recipients.
+  /marketing/flows/{id}/instances:
+    get:
+      summary: Read versioned per-recipient execution states
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. States distinguish
+        pending/waiting/sending/uncertain/completed/paused/failed/unsubscribed/stopped. A timeout or uncertain delivery
+        must not be called delivered or automatically resent.
+      security:
+      - Bearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      - name: email
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/instances/{instance_id}/executions:
+    get:
+      summary: Read the scoped node execution history
+      description: 'Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. '
+      security:
+      - Bearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: instance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/instances/{instance_id}/retry:
+    post:
+      summary: Request an audited review-based instance retry
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Unknown gateway
+        acceptance is fenced. An operator must establish non-acceptance before confirmed_not_accepted=true; an ordinary
+        click cannot prove it. Live leases, completed/stopped/unsubscribed or other non-retryable states return FLOW_RETRY_NOT_ALLOWED.
+        Never mutate the frozen content/version to retry.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: instance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 2000
+                confirmed_not_accepted:
+                  type: boolean
+              required:
+              - reason
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /marketing/flows/{id}/instances/{instance_id}/stop:
+    post:
+      summary: Stop future steps for one instance
+      description: Requires an active panel Bearer session and current tenant owner/admin role. Writes also require
+        X-CSRF-Token and matching Origin/Referer when present. Cross-tenant identifiers are not visible. Retains historical
+        execution; already submitted messages cannot be recalled.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: instance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts:
+    get:
+      summary: List mailbox-owned contacts
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Returns bounded native contact
+        data; ownership derives from the mailbox session.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Create a mailbox-owned contact
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addressbook_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                display_name:
+                  type: string
+                given_name:
+                  type: string
+                family_name:
+                  type: string
+                emails:
+                  type: array
+                  items:
+                    type: object
+                phones:
+                  type: array
+                  items:
+                    type: object
+                note:
+                  type: string
+      responses:
+        '201':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/{id}:
+    put:
+      summary: Update a contact with its current version
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Changed/deleted versions
+        conflict; resource IDs never grant access across mailboxes.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addressbook_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                display_name:
+                  type: string
+                given_name:
+                  type: string
+                family_name:
+                  type: string
+                emails:
+                  type: array
+                  items:
+                    type: object
+                phones:
+                  type: array
+                  items:
+                    type: object
+                note:
+                  type: string
+              required:
+              - version
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    delete:
+      summary: Tombstone a contact at its current version
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Keeps synchronization deletion
+        facts; stale versions conflict.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: version
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/{id}/vcard:
+    get:
+      summary: Export one owned contact as vCard
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Owned vCard data; text/vcard, not an authorization bypass.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/export.vcf:
+    get:
+      summary: Export owned contacts as vCard
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Owned vCard data; text/vcard, not an authorization bypass.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/import:
+    post:
+      summary: Import vCard contacts
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Parses bounded uploaded data;
+        validation failures are not silently accepted contacts.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          text/vcard:
+            schema:
+              type: string
+      responses:
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '201':
+          description: Successful scoped result.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/import.csv:
+    post:
+      summary: Import CSV contacts
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Parses bounded uploaded data;
+        validation failures are not silently accepted contacts.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+      responses:
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '201':
+          description: Successful scoped result.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/groups:
+    get:
+      summary: List mailbox-owned contact groups
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Create a mailbox-owned contact group
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addressbook_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                name:
+                  type: string
+              required:
+              - name
+      responses:
+        '201':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/groups/{id}:
+    delete:
+      summary: Delete a mailbox-owned group without deleting contacts
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '204':
+          description: Successful scoped result.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/groups/members:
+    post:
+      summary: Add a contact to an owned group
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Both resource scopes must
+        belong to the current mailbox; group membership is not a content grant.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                group_addressbook_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                contact_addressbook_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                group_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                contact_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+              required:
+              - group_addressbook_id
+              - contact_addressbook_id
+              - group_id
+              - contact_id
+      responses:
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '201':
+          description: Successful scoped result.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/groups/{id}/members:
+    get:
+      summary: List scoped group membership
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/contacts/groups/{id}/members/{contact}:
+    delete:
+      summary: Remove a scoped group membership
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: contact
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '204':
+          description: Successful scoped result.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/events:
+    get:
+      summary: List bounded mailbox calendar events
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Recurrence, exceptions, timezone
+        and all-day dates remain structured; a returned occurrence is not a newly independent event.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: end
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Create a mailbox-owned event
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Saving an event alone does
+        not claim successful attendee notification.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uid:
+                  type: string
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                summary:
+                  type: string
+                description:
+                  type: string
+                location:
+                  type: string
+                starts_at:
+                  type: string
+                ends_at:
+                  type: string
+                all_day:
+                  type: boolean
+                timezone:
+                  type: string
+                rrule:
+                  type: string
+                status:
+                  type: string
+                recurrence_id:
+                  type: string
+                attendees:
+                  type: array
+                  items:
+                    type: string
+                reminders:
+                  type: array
+                  items:
+                    type: integer
+                recurrence_overrides:
+                  type: array
+                  items:
+                    type: object
+                attendee_status:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '201':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/events/{id}:
+    put:
+      summary: Update an event or explicit recurrence exception
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Requires the current version.
+        Preserve series UID and recurrence identity, timezone and all-day date semantics; stale edits conflict.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uid:
+                  type: string
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                summary:
+                  type: string
+                description:
+                  type: string
+                location:
+                  type: string
+                starts_at:
+                  type: string
+                ends_at:
+                  type: string
+                all_day:
+                  type: boolean
+                timezone:
+                  type: string
+                rrule:
+                  type: string
+                status:
+                  type: string
+                recurrence_id:
+                  type: string
+                attendees:
+                  type: array
+                  items:
+                    type: string
+                reminders:
+                  type: array
+                  items:
+                    type: integer
+                recurrence_overrides:
+                  type: array
+                  items:
+                    type: object
+                attendee_status:
+                  type: object
+                  additionalProperties:
+                    type: string
+              required:
+              - version
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+    delete:
+      summary: Delete or cancel a versioned owned event
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. When notify=attendees is
+        requested, notification receipts distinguish acknowledgement from uncertainty; a missing acknowledgement must
+        not be blindly resent.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: version
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: recurrence_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: notify
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/events/{id}/ics:
+    get:
+      summary: Export one owned event as ICS
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: text/calendar with stable UID, timezone, recurrence and exceptions.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/export.ics:
+    get:
+      summary: Export the mailbox calendar as ICS
+      description: 'Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. '
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: text/calendar with stable UID, timezone, recurrence and exceptions.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/import:
+    post:
+      summary: Import a bounded ICS event
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Preserves standard calendar
+        identities and timezone semantics; malformed input is rejected.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          text/calendar:
+            schema:
+              type: string
+      responses:
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '201':
+          description: Successful scoped result.
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/calendars/events/{id}/invitations:
+    post:
+      summary: Explicitly confirm REQUEST or CANCEL notifications
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Uses immutable scheduling
+        identity and durable submission receipts. SMTP acknowledgement loss produces uncertain state, never automatic
+        duplicate invitation. Sender and organizer authority are server-derived.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: boolean
+                method:
+                  type: string
+                  enum:
+                  - request
+                  - cancel
+              required:
+              - confirm
+      responses:
+        '200':
+          description: Per-recipient delivery facts; inspect unknown outcomes separately from successful acceptance.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /billing/auto-renewal:
+    get:
+      summary: Read recurring capability, verified bindings and frozen quote
+      description: Requires current tenant owner/admin/billing panel role; writes require X-CSRF-Token. Capability,
+        authorization and explicit enrollment consent are separate facts. Capabilities include environment, provider
+        evidence, adapter registration and merchant approval. Preview includes exact decimal-string cents, currency,
+        cycle, period dates and quote_digest. enrollment consent and in-flight financial attempts remain separate;
+        unsupported/sandbox channels are not proof of production charging.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /billing/auto-renewal/enroll:
+    post:
+      summary: Consent to a server-verified recurring binding and exact quote
+      description: Requires current tenant owner/admin/billing panel role; writes require X-CSRF-Token. Capability,
+        authorization and explicit enrollment consent are separate facts. Binding must belong to the current tenant/subscription
+        and have provider-verified evidence. confirmed=true, current consent_version and quote_digest bind amount/currency/period/plan/merchant.
+        Stale configuration or quote conflicts require fresh review. There is no client-supplied provider token or
+        force-approve flag.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                binding_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                consent_version:
+                  type: string
+                quote_digest:
+                  type: string
+                confirmed:
+                  type: boolean
+              required:
+              - binding_id
+              - consent_version
+              - quote_digest
+              - confirmed
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /billing/auto-renewal/cancel:
+    post:
+      summary: Revoke future recurring consent
+      description: Requires current tenant owner/admin/billing panel role; writes require X-CSRF-Token. Capability,
+        authorization and explicit enrollment consent are separate facts. Returns enrollment and in_flight. Revocation
+        does not fabricate cancellation of a provider operation already in flight, refund settled payments, or delete
+        financial attempts. Unknown charging outcomes stay reconciliable and must not be recharged with a fresh intent.
+      security:
+      - Bearer: []
+        CSRF: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /platform/payment-merchants/{merchant_id}/recurring/verify:
+    post:
+      summary: Verify recurring merchant capability using provider evidence
+      description: Requires a platform-administrator panel session and CSRF. The registered adapter must actually
+        verify provider capability. It cannot manufacture approval from a UI checkbox; unavailable or unsupported
+        adapters return conflict.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: merchant_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adapter_key:
+                  type: string
+              required:
+              - adapter_key
+      responses:
+        '200':
+          description: verified=true only after provider capability evidence.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /platform/tenants/{id}/recurring-authorizations/verify:
+    post:
+      summary: Verify a recurring authorization for one tenant subscription
+      description: Requires a platform-administrator panel session and CSRF. Provider reference is validated through
+        the registered adapter and bound to tenant/subscription/merchant/currency. This creates a verified binding
+        ID, not tenant consent to future charges.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subscription_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                merchant_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                provider_reference:
+                  type: string
+              required:
+              - subscription_id
+              - merchant_id
+              - provider_reference
+      responses:
+        '200':
+          description: Server-issued binding_id; explicit tenant enrollment is still required.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/data/import/preview:
+    post:
+      summary: Preview bounded metadata import
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Keep kind, format, mode and
+        exact content identical between preview and commit. digest is computed over all four source values; changed
+        parameters require a fresh preview. Commit uses the same Idempotency-Key for the same digest, conflicts on
+        key reuse with different data, and writes valid records plus receipt in one transaction. Per-record errors,
+        added/skipped and committed are explicit; preview never mutates. Contacts accept csv/vcf and calendar accepts
+        csv/ics.
+      security:
+      - MailboxBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - contacts
+                  - calendar
+                format:
+                  type: string
+                  enum:
+                  - csv
+                  - vcf
+                  - ics
+                content:
+                  type: string
+                  maxLength: 1048576
+                mode:
+                  type: string
+                  enum:
+                  - skip
+                  - keep_both
+                digest:
+                  type: string
+              required:
+              - kind
+              - format
+              - content
+              - mode
+      responses:
+        '200':
+          description: Reviewed digest and per-record import outcomes; commit replay returns the same durable receipt.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/data/import/commit:
+    post:
+      summary: Commit bounded metadata import
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Keep kind, format, mode and
+        exact content identical between preview and commit. digest is computed over all four source values; changed
+        parameters require a fresh preview. Commit uses the same Idempotency-Key for the same digest, conflicts on
+        key reuse with different data, and writes valid records plus receipt in one transaction. Per-record errors,
+        added/skipped and committed are explicit; preview never mutates. Contacts accept csv/vcf and calendar accepts
+        csv/ics.
+      security:
+      - MailboxBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - contacts
+                  - calendar
+                format:
+                  type: string
+                  enum:
+                  - csv
+                  - vcf
+                  - ics
+                content:
+                  type: string
+                  maxLength: 1048576
+                mode:
+                  type: string
+                  enum:
+                  - skip
+                  - keep_both
+                digest:
+                  type: string
+              required:
+              - kind
+              - format
+              - content
+              - mode
+              - digest
+      responses:
+        '200':
+          description: Reviewed digest and per-record import outcomes; commit replay returns the same durable receipt.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /mailbox/data/imports:
+    get:
+      summary: Read mailbox-owned import receipts
+      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+        access; tenant/mailbox identities come from the live session, never request IDs. Retains source digest, idempotency
+        key and actual added/skipped/errors without treating preview as committed.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Successful scoped result.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+  /platform/brand-hosts/{hostname}/lifecycle:
+    parameters:
+    - name: hostname
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 253
+    get:
+      operationId: getBrandHostLifecycle
+      summary: Inspect a platform-owned brand host and its current certificate verdict
+      description: Platform administrators on the canonical platform host only. Certificate null means not observed
+        and never means ready. No private key or DNS challenge token is returned.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Persisted lifecycle and current public certificate facts
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - host
+                - certificate
+                properties:
+                  host:
+                    type: object
+                    additionalProperties: true
+                  certificate:
+                    nullable: true
+                    type: object
+                    properties:
+                      trusted:
+                        type: boolean
+                      reason:
+                        type: string
+                      expires_at:
+                        type: string
+                        format: date-time
+        '401':
+          description: Missing
+          expired: null
+          or origin-mismatched session: null
+        '403':
+          description: Platform administration unavailable on brand hosts or caller unauthorized
+        '404':
+          description: Host binding does not exist
+    post:
+      operationId: advanceBrandHostLifecycle
+      summary: Create DNS proof, verify actual TXT, or issue and activate a verified brand host
+      description: Canonical-host platform administrator and current CSRF token required. Explicit confirm is mandatory.
+        challenge returns the raw disposable token once; only its digest is stored. verify accepts no token and observes
+        DNS itself, then atomically fences the binding, digest and expiry. activate fences brand ID and verification
+        generation, issues a trusted certificate through the privileged agent and applies configuration before marking
+        active. On timeout inspect GET before retrying; an issued certificate can be retained while routing remains
+        pending. Existing bindings cannot be overwritten; revocation immediately rejects stale routing and old proof
+        cannot be reused.
+      security:
+      - Bearer: []
+        CSRF: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - action
+              - confirm
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - challenge
+                  - verify
+                  - activate
+                confirm:
+                  type: boolean
+                  enum:
+                  - true
+      responses:
+        '200':
+          description: DNS proof preview, verified state, or applied active state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  value:
+                    type: string
+                    description: Disposable DNS TXT proof; reveal once and never log
+                  expires_at:
+                    type: string
+                    format: date-time
+                  status:
+                    type: string
+                    enum:
+                    - verified
+                    - active
+                  configuration_pending:
+                    type: boolean
+        '400':
+          description: Invalid hostname
+          body: null
+          confirmation: null
+          or unknown action: null
+        '401':
+          description: Missing
+          expired: null
+          or origin-mismatched session: null
+        '403':
+          description: Platform permission
+          brand-host boundary: null
+          or CSRF rejected: null
+        '404':
+          description: Host binding does not exist
+        '409':
+          description: Binding/proof changed
+          proof absent/expired/consumed: null
+          or actual TXT does not match; refresh and verify again: null
+        '503':
+          description: Database
+          issuer: null
+          agent: null
+          or configuration apply unavailable; inspect current state before retrying: null
+  /billing/auto-renewal/authorizations:
+    get:
+      summary: List hosted authorization receipts
+      description: Authenticated tenant owner/admin/billing session plus CSRF on mutations; current role, active actor
+        and tenant are rechecked in the service. Setup belongs to the original actor and tenant. No caller-supplied
+        provider reference or return URL is accepted. Optional request_key recovers a lost client response by the
+        same source key. Returns latest 20 original-actor receipts. No provider request.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Owner-scoped authorization receipt; no secrets.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: request_key
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+    post:
+      summary: Start non-charging hosted card authorization
+      description: Authenticated tenant owner/admin/billing session plus CSRF on mutations; current role, active actor
+        and tenant are rechecked in the service. Setup belongs to the original actor and tenant. No caller-supplied
+        provider reference or return URL is accepted. Idempotency-Key fixes merchant and current frozen paid quote.
+        Confirmed=true explicitly saves an instrument; it does not enroll or charge. A server UUID, actor, subscription,
+        quote, merchant config and creation intent commit before provider POST. Same key never starts a second session;
+        ambiguous provider acceptance remains uncertain.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Owner-scoped authorization receipt; no secrets.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - merchant_id
+              - quote_digest
+              - confirmed
+              properties:
+                merchant_id:
+                  type: integer
+                  minimum: 1
+                quote_digest:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+                confirmed:
+                  type: boolean
+                  enum:
+                  - true
+  /billing/auto-renewal/authorizations/{id}:
+    get:
+      summary: Read one hosted authorization receipt
+      description: Authenticated tenant owner/admin/billing session plus CSRF on mutations; current role, active actor
+        and tenant are rechecked in the service. Setup belongs to the original actor and tenant. No caller-supplied
+        provider reference or return URL is accepted. State creating/ready/uncertain/verified/canceled/expired/held,
+        version, URL only while ready and unexpired, currency, quote_digest, expiry, binding_id and stable last_error.
+        Provider references and credentials are omitted.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Owner-scoped authorization receipt; no secrets.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /billing/auto-renewal/authorizations/{id}/complete:
+    post:
+      summary: Verify the persisted hosted setup
+      description: Authenticated tenant owner/admin/billing session plus CSRF on mutations; current role, active actor
+        and tenant are rechecked in the service. Setup belongs to the original actor and tenant. No caller-supplied
+        provider reference or return URL is accepted. Only GET-verifies the persisted CS session and provider instrument
+        facts. Requires exact tenant/subscription/actor/server request metadata, card/customer identity and currency,
+        followed by fresh role/quote/merchant config/subscription revalidation and atomic binding+consumed proof.
+        Returns verified binding; existing enrollment endpoint still requires explicit consent to the current quote.
+        Replaying completed proof never creates a new binding.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Owner-scoped authorization receipt; no secrets.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              properties:
+                version:
+                  type: integer
+                  minimum: 1
+  /billing/auto-renewal/authorizations/{id}/reconcile:
+    post:
+      summary: Recover an uncertain setup with provider GET only
+      description: Authenticated tenant owner/admin/billing session plus CSRF on mutations; current role, active actor
+        and tenant are rechecked in the service. Setup belongs to the original actor and tenant. No caller-supplied
+        provider reference or return URL is accepted. A bounded lookup requires exact server request and ownership
+        metadata. Empty, truncated, ambiguous or unavailable observations remain uncertain; no second POST creates
+        another session. Old cancellation/restore/version fences prevent reactivation.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Owner-scoped authorization receipt; no secrets.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              properties:
+                version:
+                  type: integer
+                  minimum: 1
+  /billing/auto-renewal/authorizations/{id}/cancel:
+    post:
+      summary: Cancel an unconsumed hosted proof
+      description: Authenticated tenant owner/admin/billing session plus CSRF on mutations; current role, active actor
+        and tenant are rechecked in the service. Setup belongs to the original actor and tenant. No caller-supplied
+        provider reference or return URL is accepted. Version checked. Stops local completion without charging. A
+        late actual provider-created identity is retained for audit, but its URL and usability remain canceled. Verified
+        bindings are not silently revoked by canceling a setup receipt.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Owner-scoped authorization receipt; no secrets.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              properties:
+                version:
+                  type: integer
+                  minimum: 1
+  /mailbox/imports:
+    get:
+      summary: List retained import receipts
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Returns the latest 20 owner-scoped
+        jobs, item statuses and immutable source/target proof. Raw MIME remains encrypted and is omitted. Unknown
+        never means not sent.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /mailbox/imports/{id}:
+    get:
+      summary: Read an import receipt
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. One-based item indices; job states
+        preview/confirmed/running/uncertain/partial/completed/canceled/held. Item states ready/duplicate/invalid/pending/importing/imported/unknown/failed/skipped/canceled.
+        Expired importing leases become unknown. GET never APPENDs.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /mailbox/imports/preview:
+    post:
+      summary: Preview bounded EML or standard mboxrd
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Idempotency-Key freezes normalized
+        filename, format, original source SHA, target folder, UIDVALIDITY and duplicate policy. Same key/parameters
+        recovers the receipt; conflicts return 409. At most 20 MiB source, 8 MiB/message, 100 messages. Per-item malformed/encoding/MIME
+        errors are preserved. skip disables exact raw-SHA duplicates; keep_both requires explicit later selection.
+        No APPEND. Complete bounded inventory must retain stable UIDVALIDITY and UIDNEXT; incomplete SEARCH/budget
+        exhaustion never establishes absence.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - format
+              - filename
+              - content_base64
+              - folder_enc
+              - uid_validity
+              - duplicate_policy
+              properties:
+                format:
+                  type: string
+                  enum:
+                  - eml
+                  - mbox
+                filename:
+                  type: string
+                  maxLength: 255
+                content_base64:
+                  type: string
+                  format: byte
+                folder_enc:
+                  type: string
+                uid_validity:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                duplicate_policy:
+                  type: string
+                  enum:
+                  - skip
+                  - keep_both
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 200
+  /mailbox/imports/{id}/confirm:
+    post:
+      summary: Confirm explicit frozen message selection
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Fresh current mailbox password is
+        required. Checks live owner, version, 15-minute preview expiry, digest, quota and selectable indices; durably
+        commits selection and importing intent before each external APPEND. At most five items/request. Replay only
+        accepts the identical persisted selection and never repeats completed/unknown items. Transport ACK loss becomes
+        unknown, never automatic retry.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              - current_password
+              - preview_digest
+              - selected_indices
+              - confirmed
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                current_password:
+                  type: string
+                  format: password
+                  maxLength: 4096
+                preview_digest:
+                  type: string
+                selected_indices:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  uniqueItems: true
+                  items:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
+                confirmed:
+                  type: boolean
+                  enum:
+                  - true
+  /mailbox/imports/{id}/resume:
+    post:
+      summary: Resume already confirmed pending items
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Fresh password and current version
+        are required; no new selection. Processes at most five pending items, stops at unknown. No automatic background
+        APPEND after restart or restore. Held, canceled and unconfirmed jobs cannot resume.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              - current_password
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                current_password:
+                  type: string
+                  format: password
+                  maxLength: 4096
+  /mailbox/imports/{id}/reconcile:
+    post:
+      summary: Read-only exact acceptance reconciliation
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Fresh password required. Unknown/failed
+        receipts are compared using full MIME SHA, pinned folder UIDVALIDITY and candidate UID set excluding the pre-APPEND
+        baseline. Complete stable UIDNEXT inventory is mandatory; errors, bounds and incomplete SEARCH do not prove
+        absence. Never APPEND. Canceled jobs retain their status while actual accepted facts may become imported.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              - current_password
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                current_password:
+                  type: string
+                  format: password
+                  maxLength: 4096
+  /mailbox/imports/{id}/retry:
+    post:
+      summary: Explicitly review selected uncertain messages for retry
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Requires current version, fresh owner
+        password, selected previously confirmed items, complete reconcile_absent proof younger than five minutes,
+        no active lease, confirmed_not_appended=true and 10-2000-character reason. Unknown is never silently retried;
+        a late exact copy is checked again before APPEND. Old leases cannot overwrite new receipts. Restore invalidates
+        old absence proofs.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              - current_password
+              - indices
+              - confirmed_not_appended
+              - reason
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                current_password:
+                  type: string
+                  format: password
+                  maxLength: 4096
+                indices:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  uniqueItems: true
+                  items:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
+                confirmed_not_appended:
+                  type: boolean
+                  enum:
+                  - true
+                reason:
+                  type: string
+                  minLength: 10
+                  maxLength: 2000
+  /mailbox/imports/{id}/cancel:
+    post:
+      summary: Cancel future import claims
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Current version required. Revokes
+        lease and cancels unstarted items; in-flight APPEND becomes unknown with source/baseline retained. Cancellation
+        cannot retract already accepted mail. Old worker results cannot overwrite canceled/new receipts.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Current receipt; no sealed source or password.
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - version
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+  /mailbox/folders/{name}/export.mbox:
+    get:
+      summary: Export selected original messages as mboxrd
+      description: Requires the independent live mailbox Bearer token; panel or tenant administrator credentials do
+        not grant content access. Tenant and mailbox are taken from the session. Opaque folder handle, explicit distinct
+        UID list (at most 100) and UIDVALIDITY are required. Verifies generation before/after reads, 8 MiB/message
+        and 20 MiB total including framing. Original MIME octets round-trip; unsafe binary/nonterminated framing returns
+        422 instead of altering content. Existing EML export remains available.
+      security:
+      - MailboxBearer: []
+      responses:
+        '200':
+          description: Lossless standard mboxrd attachment.
+          content:
+            application/mbox:
+              schema:
+                type: string
+                format: binary
+        '201':
+          description: Persisted preview; no APPEND.
+        '202':
+          description: Confirmed pending items remain; explicitly resume the same job.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: uid_validity
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: uids
+        in: query
+        required: true
+        schema:
+          type: string
+          example: 1,2,3
 components:
   securitySchemes:
     MailboxBearer:

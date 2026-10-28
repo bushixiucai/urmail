@@ -3,6 +3,7 @@ package webmail
 import (
 	"context"
 	"fmt"
+	"net/mail"
 	"strings"
 )
 
@@ -24,6 +25,11 @@ func OutgoingFromDraft(ctx context.Context, client Client, folder string, uid ui
 		Text:    msg.Text,
 		HTML:    msg.HTML,
 	}
+	if len(msg.From) > 0 {
+		out.From = (&mail.Address{Name: msg.From[0].Name, Address: msg.From[0].Email}).String()
+	}
+	out.InReplyTo = msg.InReplyTo
+	out.References = msg.InReplyTo
 	for _, meta := range msg.Attachments {
 		filename, ct, data, aerr := client.GetAttachment(ctx, folder, uid, meta.PartID)
 		if aerr != nil {

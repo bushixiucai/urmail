@@ -37,6 +37,7 @@ export interface MessageSummary {
 export type MailboxSortKey = "date" | "subject" | "from" | "size" | "";
 
 export interface MailboxListResponse {
+  uid_validity?: number;
   messages: MessageSummary[];
   total: number;
   limit: number;
@@ -106,7 +107,7 @@ export function hasMailboxSession(): boolean {
 }
 
 interface MailboxRequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   /** When false, do not send the mailbox bearer (login / status). */
@@ -154,10 +155,13 @@ export async function mailboxRequest<T>(
 }
 
 export function fetchMailboxStatus(signal?: AbortSignal) {
-  return mailboxRequest<{ native: boolean }>("/api/v1/mailbox/status", {
-    auth: false,
-    signal,
-  });
+  return mailboxRequest<{ native: boolean; mail_host?: string }>(
+    "/api/v1/mailbox/status",
+    {
+      auth: false,
+      signal,
+    },
+  );
 }
 
 export function createMailboxSession(email: string, password: string) {
@@ -232,12 +236,13 @@ export function crossFolderSearch(
 export function getMessage(
   nameEnc: string,
   uid: number,
-  opts?: { loadImages?: boolean; signal?: AbortSignal },
+  opts?: { loadImages?: boolean; signal?: AbortSignal; uidValidity?: number },
 ) {
   const params = new URLSearchParams();
   // Per-message "load images" privacy opt-in (WEBMAIL-007): default request
   // keeps remote images blocked server-side.
   if (opts?.loadImages) params.set("load_images", "1");
+  if (opts?.uidValidity) params.set("uid_validity", String(opts.uidValidity));
   const qs = params.toString();
   return mailboxRequest<MessageDetail>(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}` +
@@ -248,7 +253,12 @@ export function getMessage(
 
 export function flagMessages(
   nameEnc: string,
-  body: { uids: number[]; add?: string[]; remove?: string[] },
+  body: {
+    uids: number[];
+    add?: string[];
+    remove?: string[];
+    uid_validity?: number;
+  },
 ) {
   return mailboxRequest<{ updated: number }>(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/flags`,
@@ -258,7 +268,7 @@ export function flagMessages(
 
 export function moveMessages(
   nameEnc: string,
-  body: { uids: number[]; to: string },
+  body: { uids: number[]; to: string; uid_validity?: number },
 ) {
   return mailboxRequest<{ moved: number; to: string }>(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/move`,
@@ -268,7 +278,7 @@ export function moveMessages(
 
 export function deleteMessages(
   nameEnc: string,
-  body: { uids: number[]; expunge?: boolean },
+  body: { uids: number[]; expunge?: boolean; uid_validity?: number },
 ) {
   return mailboxRequest<{ deleted: number; expunged: boolean }>(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/delete`,
@@ -317,6 +327,8 @@ export function assertAttachmentTotal(
 export const MAX_SEND_ATTACHMENTS = 10;
 
 export async function sendMessage(body: {
+  from?: string;
+  in_reply_to?: string;
   to: string[];
   cc?: string[];
   bcc?: string[];
@@ -337,6 +349,9 @@ export async function sendMessage(body: {
 
 /** Save (or replace) a draft via IMAP APPEND into SPECIAL-USE \Drafts. */
 export async function saveDraft(body: {
+  from?: string;
+  in_reply_to?: string;
+  reply_source?: MailboxAISource;
   uid?: number;
   uid_validity?: number;
   to?: string[];
@@ -387,6 +402,7 @@ export function deleteDraft(uid: number, uidValidity: number) {
 }
 
 export interface ScheduledSendItem {
+  sent_copy_state?: "none" | "pending" | "unknown" | "complete" | "held";
   id: number;
   draft_folder: string;
   draft_uid: number;
@@ -402,6 +418,7 @@ export interface ScheduledSendItem {
 
 /** Retries must reuse the same key and exact draft reference. */
 export interface ScheduleSendRequest {
+  from?: string;
   draft_uid: number;
   draft_uidvalidity: number;
   send_at: string;
@@ -455,13 +472,15 @@ export async function fetchAttachmentAsOutgoing(
   partId: string,
   filename: string,
   contentType: string,
+  uidValidity?: number,
+  signal?: AbortSignal,
 ): Promise<OutgoingAttachment> {
   const token = getMailboxToken();
   const headers: Record<string, string> = { Accept: "*/*" };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(
-    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/attachments/${encodeURIComponent(partId)}`,
-    { method: "GET", headers, credentials: "same-origin" },
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/attachments/${encodeURIComponent(partId)}${uidValidity ? `?uid_validity=${uidValidity}` : ""}`,
+    { method: "GET", headers, credentials: "same-origin", signal },
   );
   if (!response.ok) {
     let parsed;
@@ -496,12 +515,13 @@ export async function downloadAttachment(
   uid: number,
   partId: string,
   filename: string,
+  uidValidity?: number,
 ): Promise<void> {
   const token = getMailboxToken();
   const headers: Record<string, string> = { Accept: "*/*" };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(
-    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/attachments/${encodeURIComponent(partId)}`,
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/attachments/${encodeURIComponent(partId)}${uidValidity ? `?uid_validity=${uidValidity}` : ""}`,
     { method: "GET", headers, credentials: "same-origin" },
   );
   if (!response.ok) {
@@ -651,7 +671,14 @@ export async function sendEventInvitations(
 
 // WEBMAIL-005/006: mailbox-user self-service settings.
 
+export interface MailboxIdentityProfile {
+  display_name: string;
+  signature_text: string;
+  signature_html: string;
+}
+
 export interface MailboxSettingsView {
+  identity_profiles?: Record<string, MailboxIdentityProfile>;
   display_name: string;
   signature_text: string;
   signature_html: string;
@@ -666,6 +693,7 @@ export function getMailboxSettings() {
 }
 
 export function saveMailboxSettings(body: {
+  identity_profiles?: Record<string, MailboxIdentityProfile>;
   display_name: string;
   signature_text: string;
   signature_html: string;
@@ -696,6 +724,7 @@ export function getMailboxQuota() {
 }
 
 export interface MailboxSieveRule {
+  disabled?: boolean;
   header: "subject" | "from" | "to" | "cc";
   match: "contains" | "is";
   value: string;
@@ -710,6 +739,8 @@ export interface MailboxForwarding {
 }
 
 export interface MailboxVacation {
+  from?: string;
+  until?: string;
   enabled: boolean;
   subject: string;
   message: string;
@@ -738,5 +769,252 @@ export function saveMailboxRules(body: {
   return mailboxRequest<{ saved: boolean; state: string; version: string }>(
     "/api/v1/mailbox/rules",
     { method: "PUT", body },
+  );
+}
+
+export interface MailboxAITarget {
+  enabled: boolean;
+  allowed: boolean;
+  provider?: string;
+  model?: string;
+  endpoint?: string;
+  configuration_digest?: string;
+  scope_hash?: string;
+  requires_confirmation?: boolean;
+}
+export interface MailboxAISource {
+  folder_enc: string;
+  uid: number;
+  uid_validity: number;
+}
+export type MailboxAIOperation =
+  | "classify"
+  | "summarize"
+  | "translate"
+  | "phishing"
+  | "polish"
+  | "draft_new"
+  | "draft_reply";
+export interface MailboxAIResult {
+  category?: string;
+  score?: number;
+  summary?: string;
+  translation?: string;
+  draft?: string;
+  subject?: string;
+  body?: string;
+  reasons?: string[];
+}
+export interface MailboxAICitation extends MailboxAISource {
+  id: string;
+  quote: string;
+}
+export const fetchMailboxAITarget = (signal?: AbortSignal) =>
+  mailboxRequest<MailboxAITarget>("/api/v1/mailbox/ai/target", { signal });
+export function fetchMailboxAIContext(
+  source: MailboxAISource,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({
+    folder_enc: source.folder_enc,
+    uid: String(source.uid),
+    uid_validity: String(source.uid_validity),
+  });
+  return mailboxRequest<{ subject: string; body: string; truncated: boolean }>(
+    `/api/v1/mailbox/ai/context?${params}`,
+    { signal },
+  );
+}
+export function runMailboxAI(
+  body: {
+    operation: MailboxAIOperation;
+    configuration_digest: string;
+    confirmed: boolean;
+    request_key: string;
+    body?: string;
+    subject?: string;
+    instruction?: string;
+    selection?: string;
+    target_language?: string;
+  } & Partial<MailboxAISource>,
+  signal?: AbortSignal,
+) {
+  return mailboxRequest<{ result: MailboxAIResult }>(
+    "/api/v1/mailbox/ai/assist",
+    { method: "POST", body, signal },
+  );
+}
+export function askMailboxAI(
+  body: {
+    question: string;
+    configuration_digest: string;
+    confirmed: boolean;
+    folder_enc?: string;
+    after?: string;
+    before?: string;
+  },
+  signal?: AbortSignal,
+) {
+  return mailboxRequest<{
+    text: string;
+    grounded: boolean;
+    citations: string[];
+  }>("/api/v1/mailbox/ai/search-ask", { method: "POST", body, signal });
+}
+export const fetchMailboxAICitation = (id: string, signal?: AbortSignal) =>
+  mailboxRequest<MailboxAICitation>(
+    `/api/v1/mailbox/ai/citations/${encodeURIComponent(id)}`,
+    { signal },
+  );
+export const fetchMailboxAIBudget = (signal?: AbortSignal) =>
+  mailboxRequest<{
+    enabled: boolean;
+    cost_currency: string;
+    daily: {
+      tokens_used: number;
+      tokens_limit: number | null;
+      cost_micros_used: number;
+      cost_micros_limit: number | null;
+    };
+  }>("/api/v1/mailbox/ai/budget", { signal });
+
+export interface MailboxMutationResult {
+  results: Array<{
+    uid: number;
+    status: "success" | "failed" | "unknown";
+    code?: string;
+    destination_uid?: number;
+  }>;
+  destination?: string;
+  name_enc?: string;
+  uid_validity?: number;
+  atomic?: boolean;
+}
+export function createMailboxFolder(name: string) {
+  return mailboxRequest<{ folder?: MailboxFolder; name_enc?: string }>(
+    "/api/v1/mailbox/folders",
+    { method: "POST", body: { name } },
+  );
+}
+export function renameMailboxFolder(
+  nameEnc: string,
+  name: string,
+  uidValidity: number,
+) {
+  return mailboxRequest<{ folder?: MailboxFolder; name_enc?: string }>(
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}`,
+    { method: "PATCH", body: { name, uid_validity: uidValidity } },
+  );
+}
+export function deleteMailboxFolder(nameEnc: string, uidValidity: number) {
+  return mailboxRequest<{
+    deleted: boolean;
+    destination?: string;
+    name_enc?: string;
+  }>(
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}?uid_validity=${uidValidity}`,
+    { method: "DELETE" },
+  );
+}
+export async function mailboxTransfer(
+  nameEnc: string,
+  action: "copy" | "trash" | "restore",
+  body: { uids: number[]; to?: string; uid_validity: number },
+) {
+  // Keep the exact intent key through transport errors and page reloads. A
+  // confirmed completed action releases it, allowing a deliberate second copy.
+  const slot =
+    "urmail.mail-transfer." +
+    JSON.stringify([
+      getMailboxAddress(),
+      nameEnc,
+      action,
+      { ...body, uids: [...body.uids].sort((a, b) => a - b) },
+    ]);
+  const existing = sessionStorage.getItem(slot);
+  const key = existing ?? crypto.randomUUID();
+  if (!existing) sessionStorage.setItem(slot, key);
+  const result = await mailboxRequest<MailboxMutationResult>(
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${action}`,
+    { method: "POST", body, idempotencyKey: key },
+  );
+  if (result.results.every((item) => item.status !== "unknown"))
+    sessionStorage.removeItem(slot);
+  return result;
+}
+export function isTrashFolder(
+  folder: MailboxFolder | null | undefined,
+): boolean {
+  return (
+    !!folder &&
+    (folder.name.toLowerCase() === "trash" ||
+      (folder.flags ?? []).some((flag) => flag.toLowerCase() === "\\trash"))
+  );
+}
+
+/** Return exact original MIME as one bounded message/rfc822 attachment. */
+export async function fetchMessageAsOutgoing(
+  nameEnc: string,
+  uid: number,
+  uidValidity: number,
+  signal?: AbortSignal,
+): Promise<OutgoingAttachment> {
+  const token = getMailboxToken();
+  const response = await fetch(
+    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/raw?uid_validity=${uidValidity}`,
+    {
+      headers: { Authorization: `Bearer ${token ?? ""}` },
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+    },
+  );
+  if (!response.ok) {
+    let parsed;
+    try {
+      parsed = apiErrorSchema.parse(await response.json());
+    } catch {
+      throw new ApiRequestError(response.status, {
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      });
+    }
+    throw new ApiRequestError(response.status, parsed);
+  }
+  if (!response.body) throw Error("ORIGINAL_MESSAGE_UNAVAILABLE");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_SEND_ATTACHMENT_BYTES)
+        throw Error("ATTACHMENT_TOO_LARGE");
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const pieces: string[] = [];
+  for (let index = 0; index < bytes.length; index += 0x8000)
+    pieces.push(String.fromCharCode(...bytes.subarray(index, index + 0x8000)));
+  return {
+    filename: `message-${uid}.eml`,
+    content_type: "message/rfc822",
+    content_base64: btoa(pieces.join("")),
+  };
+}
+
+export function repairScheduledSentCopy(id: number) {
+  return mailboxRequest<{ item: ScheduledSendItem }>(
+    `/api/v1/mailbox/scheduled-sends/${id}/repair-sent-copy`,
+    { method: "POST" },
   );
 }

@@ -45,7 +45,7 @@ func noControl(s string) bool {
 // means "show the address alone".
 func DisplayName(raw string) (string, error) {
 	name := strings.TrimSpace(raw)
-	if !utf8.ValidString(name) || utf8.RuneCountInString(name) > MaxDisplayName || !noControl(name) {
+	if !utf8.ValidString(name) || utf8.RuneCountInString(name) > MaxDisplayName || !noControl(name) || strings.ContainsAny(name, "\r\n") {
 		return "", ErrDisplayName
 	}
 	return name, nil

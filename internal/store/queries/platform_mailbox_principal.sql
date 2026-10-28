@@ -10,7 +10,7 @@ WHERE m.address=sqlc.arg(address) AND m.status='active' AND t.status='active' AN
 RETURNING token_hash,tenant_id,mailbox_id,password_version,expires_at,revoked_at,created_at;
 
 -- name: PlatformGetMailboxSession :one
-SELECT s.token_hash,s.tenant_id,s.mailbox_id,s.expires_at,m.address,s.password_version FROM mailbox_sessions s
+SELECT s.token_hash,s.tenant_id,s.mailbox_id,s.expires_at,m.address,s.password_version,s.origin_host FROM mailbox_sessions s
 JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE s.token_hash=sqlc.arg(token_hash) AND s.revoked_at IS NULL AND s.expires_at>now()
@@ -71,10 +71,10 @@ UPDATE mailbox_operation_tickets SET consumed_at=now() WHERE token_hash=$1 AND k
 SELECT token_hash,tenant_id,mailbox_id FROM mailbox_sessions WHERE token_hash=$1;
 
 -- name: PlatformCreateVerifiedMailboxSession :one
-INSERT INTO mailbox_sessions(token_hash,tenant_id,mailbox_id,password_version,expires_at)
-SELECT sqlc.arg(token_hash),m.tenant_id,m.id,md5(m.password_hash),now()+interval '30 minutes'
+INSERT INTO mailbox_sessions(token_hash,tenant_id,mailbox_id,password_version,expires_at,origin_host)
+SELECT sqlc.arg(token_hash),m.tenant_id,m.id,md5(m.password_hash),now()+interval '30 minutes',sqlc.arg(origin_host)::text
 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.address=sqlc.arg(address) AND m.password_hash=sqlc.arg(expected_hash)
 AND m.status='active' AND t.status='active' AND d.status='active'
 FOR UPDATE OF m
-RETURNING token_hash,tenant_id,mailbox_id,password_version,expires_at,revoked_at,created_at;
+RETURNING token_hash,tenant_id,mailbox_id,password_version,expires_at,revoked_at,created_at,origin_host;

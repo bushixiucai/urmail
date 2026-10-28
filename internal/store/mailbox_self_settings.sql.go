@@ -35,7 +35,7 @@ func (q *Queries) PlatformGetMailboxQuota(ctx context.Context, arg PlatformGetMa
 
 const platformGetMailboxSettings = `-- name: PlatformGetMailboxSettings :one
 
-SELECT display_name,signature_text,signature_html,preferences,version,updated_at
+SELECT display_name,signature_text,signature_html,preferences,identity_profiles,version,updated_at
 FROM mailbox_settings WHERE tenant_id=$1::bigint AND mailbox_id=$2::bigint
 `
 
@@ -45,12 +45,13 @@ type PlatformGetMailboxSettingsParams struct {
 }
 
 type PlatformGetMailboxSettingsRow struct {
-	DisplayName   string             `json:"display_name"`
-	SignatureText string             `json:"signature_text"`
-	SignatureHtml string             `json:"signature_html"`
-	Preferences   []byte             `json:"preferences"`
-	Version       int32              `json:"version"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	DisplayName      string             `json:"display_name"`
+	SignatureText    string             `json:"signature_text"`
+	SignatureHtml    string             `json:"signature_html"`
+	Preferences      []byte             `json:"preferences"`
+	IdentityProfiles []byte             `json:"identity_profiles"`
+	Version          int32              `json:"version"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 // Mailbox-user self-service settings, identities and quota (WEBMAIL-005/006).
@@ -64,6 +65,7 @@ func (q *Queries) PlatformGetMailboxSettings(ctx context.Context, arg PlatformGe
 		&i.SignatureText,
 		&i.SignatureHtml,
 		&i.Preferences,
+		&i.IdentityProfiles,
 		&i.Version,
 		&i.UpdatedAt,
 	)
@@ -71,18 +73,19 @@ func (q *Queries) PlatformGetMailboxSettings(ctx context.Context, arg PlatformGe
 }
 
 const platformInsertMailboxSettings = `-- name: PlatformInsertMailboxSettings :execrows
-INSERT INTO mailbox_settings(tenant_id,mailbox_id,display_name,signature_text,signature_html,preferences)
-VALUES($1::bigint,$2::bigint,$3::text,$4::text,$5::text,$6::jsonb)
+INSERT INTO mailbox_settings(tenant_id,mailbox_id,display_name,signature_text,signature_html,preferences,identity_profiles)
+VALUES($1::bigint,$2::bigint,$3::text,$4::text,$5::text,$6::jsonb,COALESCE($7::jsonb,'{}'::jsonb))
 ON CONFLICT(mailbox_id) DO NOTHING
 `
 
 type PlatformInsertMailboxSettingsParams struct {
-	TenantID      int64  `json:"tenant_id"`
-	MailboxID     int64  `json:"mailbox_id"`
-	DisplayName   string `json:"display_name"`
-	SignatureText string `json:"signature_text"`
-	SignatureHtml string `json:"signature_html"`
-	Preferences   []byte `json:"preferences"`
+	TenantID         int64  `json:"tenant_id"`
+	MailboxID        int64  `json:"mailbox_id"`
+	DisplayName      string `json:"display_name"`
+	SignatureText    string `json:"signature_text"`
+	SignatureHtml    string `json:"signature_html"`
+	Preferences      []byte `json:"preferences"`
+	IdentityProfiles []byte `json:"identity_profiles"`
 }
 
 func (q *Queries) PlatformInsertMailboxSettings(ctx context.Context, arg PlatformInsertMailboxSettingsParams) (int64, error) {
@@ -93,6 +96,7 @@ func (q *Queries) PlatformInsertMailboxSettings(ctx context.Context, arg Platfor
 		arg.SignatureText,
 		arg.SignatureHtml,
 		arg.Preferences,
+		arg.IdentityProfiles,
 	)
 	if err != nil {
 		return 0, err
@@ -169,20 +173,22 @@ SET display_name=$1::text,
     signature_text=$2::text,
     signature_html=$3::text,
     preferences=$4::jsonb,
+    identity_profiles=COALESCE($5::jsonb,identity_profiles),
     version=version+1,
     updated_at=now()
-WHERE tenant_id=$5::bigint AND mailbox_id=$6::bigint
-  AND version=$7::integer
+WHERE tenant_id=$6::bigint AND mailbox_id=$7::bigint
+  AND version=$8::integer
 `
 
 type PlatformUpdateMailboxSettingsParams struct {
-	DisplayName     string `json:"display_name"`
-	SignatureText   string `json:"signature_text"`
-	SignatureHtml   string `json:"signature_html"`
-	Preferences     []byte `json:"preferences"`
-	TenantID        int64  `json:"tenant_id"`
-	MailboxID       int64  `json:"mailbox_id"`
-	ExpectedVersion int32  `json:"expected_version"`
+	DisplayName      string `json:"display_name"`
+	SignatureText    string `json:"signature_text"`
+	SignatureHtml    string `json:"signature_html"`
+	Preferences      []byte `json:"preferences"`
+	IdentityProfiles []byte `json:"identity_profiles"`
+	TenantID         int64  `json:"tenant_id"`
+	MailboxID        int64  `json:"mailbox_id"`
+	ExpectedVersion  int32  `json:"expected_version"`
 }
 
 func (q *Queries) PlatformUpdateMailboxSettings(ctx context.Context, arg PlatformUpdateMailboxSettingsParams) (int64, error) {
@@ -191,6 +197,7 @@ func (q *Queries) PlatformUpdateMailboxSettings(ctx context.Context, arg Platfor
 		arg.SignatureText,
 		arg.SignatureHtml,
 		arg.Preferences,
+		arg.IdentityProfiles,
 		arg.TenantID,
 		arg.MailboxID,
 		arg.ExpectedVersion,

@@ -31,6 +31,37 @@ WHERE hostname = $1;
 
 -- name: PlatformBrandHostCertEligible :one
 SELECT EXISTS(
-  SELECT 1 FROM brand_hosts
-  WHERE hostname = $1 AND status IN ('verified','cert-issued','active')
+  SELECT 1 FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
+  WHERE h.hostname = $1 AND h.status IN ('verified','cert-issued','active')
 ) AS eligible;
+
+-- name: PlatformLockBrandHost :one
+SELECT h.* FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
+WHERE h.hostname=$1 FOR UPDATE OF h;
+
+-- name: PlatformVerifyBrandHostProof :execrows
+WITH consumed AS (
+ UPDATE brand_host_challenges c SET consumed_at=now()
+ WHERE c.hostname=sqlc.arg(hostname) AND c.token_digest=sqlc.arg(token_digest)
+ AND c.consumed_at IS NULL AND c.expires_at>now()
+ RETURNING c.hostname
+)
+UPDATE brand_hosts h SET status='verified',verified_at=now(),cert_issued_at=NULL,
+ activated_at=NULL,failure_reason=NULL,updated_at=now()
+FROM consumed WHERE h.hostname=consumed.hostname AND h.brand_id=sqlc.arg(brand_id)
+AND h.updated_at=sqlc.arg(expected_updated_at);
+
+-- name: PlatformBrandHostCertificateTransition :execrows
+UPDATE brand_hosts h SET status=sqlc.arg(next_status),failure_reason=sqlc.narg(failure_reason),
+ cert_issued_at=CASE WHEN sqlc.arg(next_status)::text IN ('cert-issued','active') THEN now() ELSE h.cert_issued_at END,
+ activated_at=CASE WHEN sqlc.arg(next_status)::text='active' THEN now() ELSE NULL END,updated_at=now()
+WHERE h.hostname=sqlc.arg(hostname) AND h.brand_id=sqlc.arg(brand_id)
+AND h.verified_at=sqlc.arg(verified_at) AND h.status=sqlc.arg(expected_status)
+AND EXISTS(SELECT 1 FROM brands b WHERE b.id=h.brand_id AND b.status='active')
+AND EXISTS(SELECT 1 FROM platform_admins a JOIN users u ON u.id=a.user_id AND u.status='active' WHERE a.user_id=sqlc.arg(actor_id));
+
+-- name: PlatformTenantBrandMatches :one
+SELECT EXISTS(SELECT 1 FROM tenants WHERE id=$1 AND brand_id=$2 AND status IN ('active','pending'));
+
+-- name: PlatformBrandHostReserved :one
+SELECT EXISTS(SELECT 1 FROM domains WHERE fqdn=$1);

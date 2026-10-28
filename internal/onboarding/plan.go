@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
+	"github.com/bushixiucai/urmail/internal/maildnsreport"
 )
 
 // Action is an immutable, explicit change. No plan deletes tenant records.
@@ -125,6 +126,14 @@ func BuildChanges(domain string, existing []dnsprovider.RemoteRecord, desired []
 		}
 		if len(candidates) == 0 {
 			out.Actions = append(out.Actions, Action{Kind: "create", After: wanted})
+			continue
+		}
+		relative := strings.TrimSuffix(wanted.Name, "."+domain)
+		if len(candidates) == 1 && !candidates[0].Proxied && !candidates[0].Disabled &&
+			maildnsreport.ManagedTransportRecord(relative, string(wanted.Type), wanted.Value) &&
+			maildnsreport.ManagedTransportRecord(relative, string(candidates[0].Type), candidates[0].Value) {
+			old := candidates[0]
+			out.Actions = append(out.Actions, Action{Kind: "update", Before: &old, After: wanted})
 			continue
 		}
 		if wanted.Type == dnsprovider.RecordTypeTXT && strings.HasPrefix(strings.ToLower(wanted.Value), "v=spf1") && len(candidates) == 1 && candidates[0].Type == dnsprovider.RecordTypeTXT {

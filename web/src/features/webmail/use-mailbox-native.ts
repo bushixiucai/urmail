@@ -4,6 +4,7 @@ import { fetchMailboxStatus } from "./mailbox-api";
 /** Whether URMAIL_WEBMAIL_NATIVE is on (GET /api/v1/mailbox/status). */
 export function useMailboxNative() {
   const [native, setNative] = useState(false);
+  const [mailHost, setMailHost] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -12,6 +13,7 @@ export function useMailboxNative() {
       .then((res) => {
         if (!controller.signal.aborted) {
           setNative(res.native === true);
+          setMailHost(res.mail_host ?? "");
           setLoaded(true);
         }
       })
@@ -24,5 +26,5 @@ export function useMailboxNative() {
     return () => controller.abort();
   }, []);
 
-  return { native, loaded };
+  return { native, loaded, mailHost };
 }

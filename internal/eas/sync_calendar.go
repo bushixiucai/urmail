@@ -17,7 +17,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // storedEvent is one mailbox_events row projected for sync.
@@ -36,21 +38,15 @@ func loadEvent(ctx context.Context, b *SyncBackend, req *SyncRequest, id int64) 
 		return storedEvent{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var row storedEvent
-	err = tx.QueryRow(ctx,
-		`SELECT id, calendar_id, version, uid, summary, description, location,
-		        starts_at, ends_at, all_day, timezone, rrule, status
-			  FROM mailbox_events
-			 WHERE tenant_id = $1 AND mailbox_id = $2 AND id = $3 AND deleted_at IS NULL`,
-		req.Session.TenantID, req.Session.MailboxID, id).Scan(
-		&row.ID, &row.CalendarID, &row.Version, &row.UID, &row.Event.Summary,
-		&row.Event.Description, &row.Event.Location, &row.Event.StartsAt,
-		&row.Event.EndsAt, &row.Event.AllDay, &row.Event.Timezone,
-		&row.Event.RRule, &row.Event.Status)
+	row, err := store.New(tx).PlatformGetEvent(ctx, store.PlatformGetEventParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, ID: id})
 	if err != nil {
 		return storedEvent{}, err
 	}
-	return row, nil
+	event, _, err := appcollab.EventFromRow(row)
+	if err != nil {
+		return storedEvent{}, err
+	}
+	return storedEvent{ID: row.ID, CalendarID: row.CalendarID, Version: row.Version, UID: row.Uid, Event: event}, nil
 }
 
 // listCalendarEvents reads live events of one calendar, bounded.
@@ -60,33 +56,40 @@ func listCalendarEvents(ctx context.Context, b *SyncBackend, req *SyncRequest, c
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	rows, err := tx.Query(ctx,
-		`SELECT id, calendar_id, version, uid, summary, description, location,
-		        starts_at, ends_at, all_day, timezone, rrule, status
-			  FROM mailbox_events
-			 WHERE tenant_id = $1 AND mailbox_id = $2 AND calendar_id = $3 AND deleted_at IS NULL
-			 ORDER BY id LIMIT $4`,
-		req.Session.TenantID, req.Session.MailboxID, calendarID, MaxItemsPerRequest)
+	rows, err := store.New(tx).PlatformListCalendarSyncEvents(ctx, store.PlatformListCalendarSyncEventsParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, CalendarID: calendarID, PageLimit: MaxItemsPerRequest + 1})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []storedEvent
-	for rows.Next() {
-		var row storedEvent
-		if err := rows.Scan(&row.ID, &row.CalendarID, &row.Version, &row.UID,
-			&row.Event.Summary, &row.Event.Description, &row.Event.Location,
-			&row.Event.StartsAt, &row.Event.EndsAt, &row.Event.AllDay,
-			&row.Event.Timezone, &row.Event.RRule, &row.Event.Status); err != nil {
+	out := make([]storedEvent, 0, len(rows))
+	for _, row := range rows {
+		event, _, err := appcollab.EventFromRow(row)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, row)
+		out = append(out, storedEvent{ID: row.ID, CalendarID: row.CalendarID, Version: row.Version, UID: row.Uid, Event: event})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // syncCalendarCollection runs one Sync round for a "cal:<calendarID>" collection.
 func (b *SyncBackend) syncCalendarCollection(ctx context.Context, req *SyncRequest, p parsedCollection, budget *syncBudget) collectionResult {
+	globalBudget := budget
+	window := b.MaxItems
+	if window <= 0 {
+		window = DefaultMaxItems
+	}
+	if p.windowSize > 0 && p.windowSize < window {
+		window = p.windowSize
+	}
+	if window > budget.itemsLeft {
+		window = budget.itemsLeft
+	}
+	localBudget := syncBudget{itemsLeft: window, bytesLeft: budget.bytesLeft}
+	budget = &localBudget
+	defer func() {
+		globalBudget.itemsLeft -= window - localBudget.itemsLeft
+		globalBudget.bytesLeft = localBudget.bytesLeft
+	}()
 	calendarID, err := strconv.ParseInt(strings.TrimPrefix(p.collectionID, "cal:"), 10, 64)
 	if err != nil || calendarID <= 0 {
 		return collectionResult{status: syncStatusObjectDeleted}
@@ -108,15 +111,15 @@ func (b *SyncBackend) syncCalendarCollection(ctx context.Context, req *SyncReque
 	}
 
 	result := collectionResult{status: syncStatusSuccess}
-	// Client-side calendar writes are outside this task's subset; each client
-	// command answers the per-item protocol error (server wins).
 	for _, cmd := range p.commands {
-		result.responses = append(result.responses, responseEntry(cmd.Token,
-			cmd.ChildText(tokServerID), cmd.ChildText(tokClientID), syncStatusProtocolError))
+		serverID, status := b.applyCalendarCommand(ctx, req, p.collectionID, calendarID, cmd, items)
+		result.responses = append(result.responses, responseEntry(cmd.Token, serverID, cmd.ChildText(tokClientID), status))
 	}
 
 	if fullSync {
-		return b.fullSyncCalendar(ctx, req, p, state, calendarID, budget)
+		full := b.fullSyncCalendar(ctx, req, p, state, calendarID, budget)
+		full.responses = result.responses
+		return full
 	}
 
 	changes, err := listChangesFor(ctx, b.Pool, req.Session, state.ChangeSeq, "event", changeLogBatch)
@@ -247,6 +250,10 @@ func (b *SyncBackend) fullSyncCalendar(ctx context.Context, req *SyncRequest, p 
 		return collectionResult{status: syncStatusServerError}
 	}
 	result := collectionResult{status: syncStatusSuccess}
+	if len(rows) > MaxItemsPerRequest {
+		rows = rows[:MaxItemsPerRequest]
+		result.moreAvailable = true
+	}
 	items := map[string]itemRow{}
 	for _, row := range rows {
 		fp := "v" + strconv.FormatInt(row.Version, 10)

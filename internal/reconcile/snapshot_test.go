@@ -16,6 +16,15 @@ import (
 type mockQuerier struct {
 	domains      []store.PlatformListDomainsRow
 	spamPolicies []store.PlatformListSpamDeliveryPoliciesRow
+	transport    []store.PlatformListTransportSecurityRow
+}
+
+func (m *mockQuerier) PlatformListTransportSecurity(context.Context) ([]store.PlatformListTransportSecurityRow, error) {
+	return m.transport, nil
+}
+
+func (m *mockQuerier) PlatformListDNSSecurity(context.Context) ([]store.PlatformListDNSSecurityRow, error) {
+	return nil, nil
 }
 
 func (m *mockQuerier) PlatformListSpamDeliveryPolicies(context.Context) ([]store.PlatformListSpamDeliveryPoliciesRow, error) {

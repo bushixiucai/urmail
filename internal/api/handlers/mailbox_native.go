@@ -31,6 +31,8 @@ func timestamptzTime(v pgtype.Timestamptz) time.Time {
 // MailboxNativeHandler serves the native webmail API (IMAP proxy).
 // It never consumes a panel session and does not require Roundcube HMAC.
 type MailboxNativeHandler struct {
+	// MailHost is operator-configured, never inferred from the request Host header.
+	MailHost  string
 	Enabled   bool
 	Auth      MailboxNativeAuth
 	Sessions  MailboxNativeSessions
@@ -91,12 +93,14 @@ func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expe
 	row, err := s.Q.PlatformCreateVerifiedMailboxSession(ctx, store.PlatformCreateVerifiedMailboxSessionParams{
 		TokenHash:    tokenHash,
 		ExpectedHash: expectedHash,
+		OriginHost:   webmail.OriginHost(ctx),
 		Address:      address,
 	})
 	if err != nil {
 		return webmail.Session{}, err
 	}
 	return webmail.Session{
+		OriginHost:      row.OriginHost,
 		TokenHash:       row.TokenHash,
 		TenantID:        row.TenantID,
 		MailboxID:       row.MailboxID,
@@ -116,6 +120,7 @@ func (s StoreMailboxNative) Get(ctx context.Context, tokenHash string) (webmail.
 		return webmail.Session{}, err
 	}
 	return webmail.Session{
+		OriginHost:      row.OriginHost,
 		TokenHash:       row.TokenHash,
 		TenantID:        row.TenantID,
 		MailboxID:       row.MailboxID,
@@ -146,7 +151,11 @@ type mailboxNativeLoginRequest struct {
 // Status reports whether the native webmail API is enabled.
 func (h *MailboxNativeHandler) Status(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusOK, gin.H{"native": h != nil && h.Enabled})
+	host := ""
+	if h != nil {
+		host = h.MailHost
+	}
+	c.JSON(http.StatusOK, gin.H{"native": h != nil && h.Enabled, "mail_host": host})
 }
 
 func (h *MailboxNativeHandler) requireEnabled(c *gin.Context) bool {
@@ -193,6 +202,15 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 		loginAttempts.fail(ipKey)
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
 		return
+	}
+	if brand, ok := c.Get(middleware.ContextBrandID); ok {
+		bound, ok := h.Sessions.(interface {
+			BrandTenantMatches(context.Context, int64, int64) bool
+		})
+		if !ok || !bound.BrandTenantMatches(c, tenantID, brand.(int64)) {
+			authError(c, 403, "BRAND_HOST_TENANT_MISMATCH")
+			return
+		}
 	}
 	matches, verifyErr := domainMail.VerifyPasswordContext(c.Request.Context(), password, hash)
 	if verifyErr != nil {
@@ -342,4 +360,13 @@ func (h *MailboxNativeHandler) DeleteSession(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"revoked": true})
+}
+
+// BrandTenantMatches preserves the current brand boundary for native sessions.
+func (s StoreMailboxNative) BrandTenantMatches(ctx context.Context, tenant, brand int64) bool {
+	if s.Q == nil {
+		return false
+	}
+	ok, err := s.Q.PlatformTenantBrandMatches(ctx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
+	return err == nil && ok
 }

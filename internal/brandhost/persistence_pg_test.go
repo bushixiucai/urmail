@@ -2,8 +2,11 @@ package brandhost
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -118,6 +121,14 @@ func TestBrandHostLifecyclePersistence(t *testing.T) {
 		t.Fatalf("verified host not eligible: %v %v", eligible, err)
 	}
 	step(EventCertIssued, "")
+	// A live binding cannot be overwritten to restart proof. Explicit revoke
+	// invalidates the old challenge before a fresh binding may be created.
+	if _, e := queries.PlatformBindBrandHost(ctx, store.PlatformBindBrandHostParams{Hostname: "brand.example.test", ID: brand}); !errors.Is(e, pgx.ErrNoRows) {
+		t.Fatal("live binding overwrite accepted", e)
+	}
+	if _, e := queries.PlatformUnbindBrandHost(ctx, "brand.example.test"); e != nil {
+		t.Fatal(e)
+	}
 	if _, err := queries.PlatformBindBrandHost(ctx, store.PlatformBindBrandHostParams{Hostname: "brand.example.test", ID: brand}); err != nil {
 		t.Fatal(err)
 	}

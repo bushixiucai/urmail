@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SupportDiagnostics } from "./support-diagnostics";
 import { useAuth } from "@/app/auth-context";
 import { useI18nLocale } from "@/app/providers";
 import { ApiRequestError, getSessionToken, request } from "@/lib/api/client";
@@ -47,8 +48,12 @@ export function PlatformSupportPage() {
 export function SupportPage({ platform = false }: { platform?: boolean }) {
   const { t } = useTranslation();
   const { locale } = useI18nLocale();
-  const { isAdmin } = useAuth();
+  const { isAdmin, currentTenant } = useAuth();
+  const [diagnosticReceipt, setDiagnosticReceipt] = useState("");
+  const [diagnosticRevision, setDiagnosticRevision] = useState(0);
   const errorMessage = useApiErrorMessage();
+  const syncHelp =
+    new URLSearchParams(window.location.search).get("topic") === "sync";
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -164,6 +169,17 @@ export function SupportPage({ platform = false }: { platform?: boolean }) {
           {t("nav.platform_support")}
         </a>
       )}
+      {!platform && syncHelp && (
+        <section
+          className="rounded-md border p-4 space-y-2"
+          aria-label={t("support.help.sync.title")}
+        >
+          <h2 className="font-medium">{t("support.help.sync.title")}</h2>
+          <p className="text-sm whitespace-pre-wrap">
+            {t("support.help.sync.body")}
+          </p>
+        </section>
+      )}
       {!platform && (
         <Card>
           <CardHeader>
@@ -179,16 +195,29 @@ export function SupportPage({ platform = false }: { platform?: boolean }) {
                 void action(async () => {
                   const row = await request<{ ticket: Ticket }>(
                     `${base}/tickets`,
-                    { method: "POST", body: fields },
+                    {
+                      method: "POST",
+                      body: {
+                        ...fields,
+                        diagnostic_receipt: diagnosticReceipt,
+                      },
+                    },
                   );
                   form.reset();
+                  setDiagnosticReceipt("");
+                  setDiagnosticRevision((v) => v + 1);
                   await open(row.ticket);
                 });
               }}
             >
               <label className="grid gap-1 text-sm">
                 {t("support.subject")}
-                <Input required name="Subject" maxLength={200} />
+                <Input
+                  required
+                  name="Subject"
+                  maxLength={200}
+                  defaultValue={syncHelp ? t("support.sync_subject") : ""}
+                />
               </label>
               <label className="grid gap-1 text-sm">
                 {t("support.body")}
@@ -213,6 +242,13 @@ export function SupportPage({ platform = false }: { platform?: boolean }) {
                   ))}
                 </select>
               </label>
+              {["owner", "admin"].includes(currentTenant?.role ?? "") && (
+                <SupportDiagnostics
+                  key={diagnosticRevision}
+                  disabled={busy}
+                  onReceipt={setDiagnosticReceipt}
+                />
+              )}
               <Button disabled={busy}>{t("support.submit")}</Button>
             </form>
           </CardContent>

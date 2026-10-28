@@ -52,6 +52,23 @@ func loadContact(ctx context.Context, b *SyncBackend, req *SyncRequest, id int64
 
 // syncContactsCollection runs one Sync round for an "ab:<bookID>" collection.
 func (b *SyncBackend) syncContactsCollection(ctx context.Context, req *SyncRequest, p parsedCollection, budget *syncBudget) collectionResult {
+	globalBudget := budget
+	window := b.MaxItems
+	if window <= 0 {
+		window = DefaultMaxItems
+	}
+	if p.windowSize > 0 && p.windowSize < window {
+		window = p.windowSize
+	}
+	if window > budget.itemsLeft {
+		window = budget.itemsLeft
+	}
+	localBudget := syncBudget{itemsLeft: window, bytesLeft: budget.bytesLeft}
+	budget = &localBudget
+	defer func() {
+		globalBudget.itemsLeft -= window - localBudget.itemsLeft
+		globalBudget.bytesLeft = localBudget.bytesLeft
+	}()
 	bookID, err := strconv.ParseInt(strings.TrimPrefix(p.collectionID, "ab:"), 10, 64)
 	if err != nil || bookID <= 0 {
 		return collectionResult{status: syncStatusObjectDeleted}
@@ -74,15 +91,15 @@ func (b *SyncBackend) syncContactsCollection(ctx context.Context, req *SyncReque
 	}
 
 	result := collectionResult{status: syncStatusSuccess}
-	// Client-side contact writes are outside this task's subset; each client
-	// command answers the per-item protocol error (server wins).
 	for _, cmd := range p.commands {
-		result.responses = append(result.responses, responseEntry(cmd.Token,
-			cmd.ChildText(tokServerID), cmd.ChildText(tokClientID), syncStatusProtocolError))
+		serverID, status := b.applyContactCommand(ctx, req, p.collectionID, bookID, cmd, items)
+		result.responses = append(result.responses, responseEntry(cmd.Token, serverID, cmd.ChildText(tokClientID), status))
 	}
 
 	if fullSync {
-		return b.fullSyncContacts(ctx, req, p, state, bookID, budget)
+		full := b.fullSyncContacts(ctx, req, p, state, bookID, budget)
+		full.responses = result.responses
+		return full
 	}
 
 	changes, err := listChangesFor(ctx, b.Pool, req.Session, state.ChangeSeq, "contact", changeLogBatch)

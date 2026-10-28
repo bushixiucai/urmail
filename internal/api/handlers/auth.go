@@ -209,7 +209,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if user.MfaEnabled {
 		// The limiter is only reset once BOTH factors pass (MFAVerify);
 		// second-leg failures keep counting on the same key.
-		mfaToken, err := pendingMFATokens.issue(user.ID, limiterKey, user.CredentialVersion)
+		mfaToken, err := pendingMFATokens.issueForRequest(c, user.ID, limiterKey, user.CredentialVersion)
 		if err != nil {
 			authError(c, 429, "AUTH_RATE_LIMITED")
 			return
@@ -246,6 +246,20 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 
 	tenants, _ := h.Store.GetUserTenants(c, userID)
 	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
+	if brand, ok := c.Get(middleware.ContextBrandID); ok {
+		filtered := make([]store.GetUserTenantsRow, 0, len(tenants))
+		for _, tenant := range tenants {
+			if tenant.BrandID == brand.(int64) {
+				filtered = append(filtered, tenant)
+			}
+		}
+		tenants = filtered
+		isAdmin = false
+		if len(tenants) == 0 {
+			authError(c, 403, "BRAND_HOST_TENANT_MISMATCH")
+			return
+		}
+	}
 
 	var defaultTenantID pgtype.Int8
 	if len(tenants) > 0 {
@@ -254,6 +268,7 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 
 	session, err := h.Store.CreateSession(c, store.CreateSessionParams{
 		ID:           middleware.HashSessionToken(token),
+		OriginHost:   middleware.OriginHost(c.Request.Host),
 		UserID:       userID,
 		ExpectedHash: expectedHash, ExpectedVersion: expectedVersion,
 		TenantID:  defaultTenantID,
@@ -329,6 +344,16 @@ func (h *AuthHandler) Me(c *gin.Context) {
 
 	tenants, _ := h.Store.GetUserTenants(c, userID)
 	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
+	if brand, branded := c.Get(middleware.ContextBrandID); branded {
+		visible := make([]store.GetUserTenantsRow, 0, len(tenants))
+		for _, tenant := range tenants {
+			if tenant.BrandID == brand.(int64) {
+				visible = append(visible, tenant)
+			}
+		}
+		tenants = visible
+		isAdmin = false
+	}
 
 	var currentTenantID *int64
 	if val, exists := c.Get(middleware.ContextSession); exists {
@@ -387,6 +412,9 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 	member := false
 	for _, t := range tenants {
 		if t.ID == req.TenantID {
+			if brand, ok := c.Get(middleware.ContextBrandID); ok && t.BrandID != brand.(int64) {
+				continue
+			}
 			member = true
 			break
 		}

@@ -47,7 +47,7 @@ func NewStripe(secretKey, webhookSecret string) *Stripe {
 	return &Stripe{
 		SecretKey: secretKey, WebhookSecret: webhookSecret,
 		Base:   "https://api.stripe.com",
-		Client: &http.Client{Timeout: 20 * time.Second},
+		Client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 
@@ -174,8 +174,9 @@ type Event struct {
 			Currency          string `json:"currency"`
 			ClientReferenceID string `json:"client_reference_id"`
 			Metadata          struct {
-				OrderID  string `json:"order_id"`
-				TenantID string `json:"tenant_id"`
+				OrderID        string `json:"order_id"`
+				TenantID       string `json:"tenant_id"`
+				IdempotencyKey string `json:"idempotency_key"`
 			} `json:"metadata"`
 		} `json:"object"`
 	} `json:"data"`
@@ -243,7 +244,7 @@ func (s *Stripe) ParseAndVerifyWebhook(_ context.Context, header http.Header, bo
 	// (e.g. after async payment); the order is resolved via the session
 	// metadata mirrored onto the payment intent.
 	case "payment_intent.succeeded":
-		if obj.Metadata.OrderID == "" && obj.ClientReferenceID == "" {
+		if obj.Metadata.OrderID == "" && obj.ClientReferenceID == "" && (obj.Metadata.IdempotencyKey == "" || len(obj.Metadata.IdempotencyKey) > 250) {
 			return WebhookEvent{}, fmt.Errorf("%w: payment_intent.succeeded without order metadata", ErrInvalidPayload)
 		}
 		amount := obj.AmountTotal

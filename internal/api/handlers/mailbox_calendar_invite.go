@@ -4,58 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"strconv"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/bushixiucai/urmail/internal/api/middleware"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
-
-// defaultInvitationGate rate limits invitation bursts for every calendar
-// handler in this process: one burst per event UID, SEQUENCE and method, so
-// re-POSTing the same event version cannot storm the mail system. Sending
-// again becomes possible after the next SEQUENCE bump (an event update).
-var defaultInvitationGate = newInvitationGate()
-
-type invitationGate struct {
-	mu   sync.Mutex
-	sent map[string]bool
-}
-
-func newInvitationGate() *invitationGate {
-	return &invitationGate{sent: map[string]bool{}}
-}
-
-func (g *invitationGate) key(uid string, sequence int64, method string) string {
-	return fmt.Sprintf("%s|%d|%s", uid, sequence, method)
-}
-
-// allow claims the one-shot slot; it returns false when this exact
-// invitation already went out.
-func (g *invitationGate) allow(uid string, sequence int64, method string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	key := g.key(uid, sequence, method)
-	if g.sent[key] {
-		return false
-	}
-	g.sent[key] = true
-	return true
-}
-
-// release returns the slot after a failed send so a retry is possible.
-func (g *invitationGate) release(uid string, sequence int64, method string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	delete(g.sent, g.key(uid, sequence, method))
-}
 
 // invitationMessage builds the RFC 5546-ish invitation mail: a text body for
 // clients without calendar support plus a text/calendar attachment carrying
@@ -121,6 +81,8 @@ func SendInvitationsAsWithPassword(submitter webmail.Submitter, password func(ct
 		password = func(context.Context, string) (string, error) { return "", nil }
 	}
 	return func(ctx context.Context, inv collab.Invitation) error {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 		recipients := inv.Event.Attendees
 		sent := 0
 		for _, attendee := range recipients {
@@ -150,81 +112,84 @@ func SendInvitationsAsWithPassword(submitter webmail.Submitter, password func(ct
 // cancelWithNotice marks a delete-with-notify: before the tombstone write it
 // delivers a METHOD:CANCEL invitation for the stored event. Refusing when
 // the notice cannot be delivered keeps storage and attendee calendars honest.
-func (h MailboxCalendarHandler) cancelWithNotice(c *gin.Context, session webmail.Session, p appcollab.Principal, id, _ int64) bool {
-	row, err := h.Service.Q.PlatformGetEvent(c.Request.Context(), store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+func (h MailboxCalendarHandler) cancelWithNotice(c *gin.Context, session webmail.Session, p appcollab.Principal, id, version int64) {
+	if !h.allowInvitation(c) {
+		return
+	}
+	sender, ok := h.invitationSender(c)
+	if !ok {
+		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	row, err := h.Service.Q.PlatformGetEvent(c, store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
-		authError(c, http.StatusNotFound, "EVENT_NOT_FOUND")
-		return false
+		authError(c, 404, "EVENT_NOT_FOUND")
+		return
 	}
 	if err != nil {
-		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
-		return false
+		authError(c, 503, "CALENDAR_UNAVAILABLE")
+		return
 	}
-	emails, status := appcollab.DecodeAttendees(row.Attendees)
-	event, normErr := collab.NormalizeEvent(collab.Event{
-		Summary: row.Summary, Description: row.Description, Location: row.Location,
-		StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, AllDay: row.AllDay,
-		// The double-L spelling is the RFC 5545 STATUS wire token.
-		Timezone: row.Timezone, RRule: row.Rrule, Status: "cancelled", //nolint:misspell // RFC 5545 STATUS value
-		Attendees: emails, AttendeeStatus: status,
-	})
-	if normErr != nil {
-		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
-		return false
+	if row.Organizer != "" && !strings.EqualFold(row.Organizer, session.Address) {
+		authError(c, 403, "INVITATION_ORGANIZER_REQUIRED")
+		return
 	}
-	sequence := int(row.Sequence)
-	if sequence <= 0 {
-		sequence = int(row.Version)
+	if row.Version != version {
+		authError(c, 409, "EVENT_CONFLICT")
+		return
 	}
-	invitation := collab.Invitation{UID: row.Uid, Sequence: sequence, Method: collab.MethodCancel, Organizer: session.Address, Event: event}
-	if !defaultInvitationGate.allow(row.Uid, int64(sequence), collab.MethodCancel) {
-		// A cancel notice already went out for this version; delete proceeds.
+	event, _, err := appcollab.EventFromRow(row)
+	if err != nil {
+		authError(c, 503, "CALENDAR_UNAVAILABLE")
+		return
+	}
+	event.Status = "cancelled" //nolint:misspell // RFC 5545 value
+	inv := collab.Invitation{UID: row.Uid, Sequence: int(row.Sequence + 1), Method: collab.MethodCancel, Organizer: session.Address, Event: event}
+	if _, err = collab.InvitationICS(inv); err != nil {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	finish, err := h.claimCalendarInvitation(c, p, row, collab.MethodCancel, true)
+	if !invitationClaimError(c, err) {
+		return
+	}
+	if err = collab.SendInvitations(c, inv, true, sender); err != nil {
+		authError(c, 409, "MAILBOX_SEND_UNCERTAIN")
+		return
+	}
+	if err = finishCalendarInvitation(finish); err != nil {
+		authError(c, 409, "MAILBOX_SEND_UNCERTAIN")
+		return
+	}
+	c.JSON(200, gin.H{"deleted": true, "notification_status": "sent"})
+}
+
+// IngestReply refuses the retired raw-ICS endpoint. A claimed attendee field
+// cannot establish who sent a response; use the original mailbox message.
+func (h MailboxCalendarHandler) IngestReply(c *gin.Context) {
+	if _, ok := h.principal(c); !ok {
+		return
+	}
+	authError(c, 400, "INVITATION_SOURCE_REQUIRED")
+}
+
+func (h MailboxCalendarHandler) allowInvitation(c *gin.Context) bool {
+	if h.MaySend == nil {
 		return true
 	}
-	if err := collab.SendInvitations(c.Request.Context(), invitation, true, h.InviteSender); err != nil {
-		defaultInvitationGate.release(row.Uid, int64(sequence), collab.MethodCancel)
-		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok {
+		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
+		return false
+	}
+	allowed, err := h.MaySend(c, session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, 503, "MAIL_SERVICE_UNAVAILABLE")
+		return false
+	}
+	if !allowed {
+		authError(c, 403, "MAIL_SERVICE_RESTRICTED")
 		return false
 	}
 	return true
-}
-
-// IngestReply applies one attendee's METHOD:REPLY answer to the stored event
-// so the organizer's attendee list shows the response. The reply UID must
-// name the event, the replier must be a stored attendee, and only that
-// attendee's status changes.
-func (h MailboxCalendarHandler) IngestReply(c *gin.Context) {
-	p, ok := h.principal(c)
-	if !ok {
-		return
-	}
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-		return
-	}
-	raw, err := c.GetRawData()
-	if err != nil || len(raw) == 0 || len(raw) > 200000 {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-		return
-	}
-	reply, parseErr := collab.ParseReply(string(raw))
-	if parseErr != nil {
-		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
-		return
-	}
-	row, err := h.Service.ApplyReply(c.Request.Context(), p, id, reply)
-	if errors.Is(err, appcollab.ErrConflict) || errors.Is(err, pgx.ErrNoRows) {
-		authError(c, http.StatusConflict, "EVENT_CONFLICT")
-		return
-	}
-	if errors.Is(err, collab.ErrInvalidEvent) {
-		authError(c, http.StatusForbidden, "INVITATION_REPLY_REFUSED")
-		return
-	}
-	if err != nil {
-		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
-		return
-	}
-	c.JSON(http.StatusOK, row)
 }

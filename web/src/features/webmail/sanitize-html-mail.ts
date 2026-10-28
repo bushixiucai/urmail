@@ -17,6 +17,12 @@ const STRIP_TAGS = new Set([
   "base",
   "link",
   "form",
+  "style",
+  "svg",
+  "source",
+  "input",
+  "audio",
+  "video",
 ]);
 
 const URL_ATTRS = new Set([
@@ -153,6 +159,79 @@ function isMetaRefresh(el: Element): boolean {
   return equiv != null && equiv.trim().toLowerCase() === "refresh";
 }
 
+// Only CSS properties that cannot fetch or decode image resources are kept.
+// CSSStyleDeclaration resolves property escapes before this allowlist is read.
+const SAFE_STYLES = new Set([
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "font-variant",
+  "line-height",
+  "letter-spacing",
+  "word-spacing",
+  "text-align",
+  "text-decoration",
+  "text-transform",
+  "text-indent",
+  "white-space",
+  "word-break",
+  "overflow-wrap",
+  "vertical-align",
+  "display",
+  "width",
+  "height",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "padding",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "border",
+  "border-width",
+  "border-style",
+  "border-color",
+  "border-collapse",
+  "border-spacing",
+  "border-top",
+  "border-right",
+  "border-bottom",
+  "border-left",
+  "border-radius",
+  "table-layout",
+  "direction",
+  "unicode-bidi",
+]);
+function sanitizeStyles(el: Element): void {
+  const declaration = (el as HTMLElement).style;
+  if (!declaration) {
+    el.removeAttribute("style");
+    return;
+  }
+  const names = Array.from(declaration);
+  for (const property of names) {
+    const value = declaration.getPropertyValue(property);
+    if (
+      !SAFE_STYLES.has(property.toLowerCase()) ||
+      /(?:url|var)\s*\(|\\/i.test(value)
+    )
+      declaration.removeProperty(property);
+  }
+  if (!declaration.length) el.removeAttribute("style");
+  el.removeAttribute("background");
+  el.removeAttribute("poster");
+  el.removeAttribute("srcset");
+}
+
 function sanitizeElement(el: Element, allowRemote = false): void {
   const tag = el.tagName.toLowerCase();
 
@@ -166,6 +245,7 @@ function sanitizeElement(el: Element, allowRemote = false): void {
     return;
   }
 
+  sanitizeStyles(el);
   removeEventHandlers(el);
   neutralizeUrlAttrs(el, allowRemote);
   hardenAnchor(el);
@@ -179,15 +259,33 @@ function sanitizeElement(el: Element, allowRemote = false): void {
 
 /**
  * Sanitize HTML email for safe display in a sandboxed iframe via srcDoc.
- * Preserves document structure (styles in &lt;head&gt;, etc.).
+ * Preserve safe inline typography; discard stylesheets and image-bearing CSS.
  */
 export function sanitizeHtmlMail(
   html: string,
-  opts?: { allowRemoteImages?: boolean },
+  opts?: { allowRemoteImages?: boolean; inlineImages?: Record<string, string> },
 ): string {
   if (!html) return "";
   const allowRemote = opts?.allowRemoteImages === true;
   const doc = new DOMParser().parseFromString(html, "text/html");
+  const trustedImages = new Set<string>();
+  for (const image of doc.querySelectorAll("img")) {
+    const src = image.getAttribute("src") ?? "";
+    const inline = opts?.inlineImages?.[src];
+    if (
+      inline &&
+      /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(inline)
+    ) {
+      trustedImages.add(inline);
+      image.setAttribute("src", inline);
+      image.removeAttribute("srcset");
+    } else if (
+      /^(?:cid|data|blob):/i.test(src.trim()) ||
+      src.startsWith("/api/v1/mailbox/")
+    ) {
+      image.remove();
+    }
+  }
   if (doc.documentElement) {
     sanitizeElement(doc.documentElement, allowRemote);
   }
@@ -198,7 +296,8 @@ export function sanitizeHtmlMail(
   policy.content =
     "default-src 'none'; img-src " +
     (allowRemote ? "https: http: " : "") +
-    "data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
+    (trustedImages.size ? "data:" : allowRemote ? "" : "'none'") +
+    "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
   doc.head.prepend(policy);
   return "<!doctype html>" + (doc.documentElement?.outerHTML ?? "");
 }

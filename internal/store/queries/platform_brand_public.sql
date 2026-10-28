@@ -16,10 +16,13 @@ SELECT $1,b.id FROM brands b WHERE b.id=$2 AND b.status='active'
 ON CONFLICT(hostname) DO UPDATE SET brand_id=EXCLUDED.brand_id,
 status='pending-verify',failure_reason=NULL,verified_at=NULL,
 cert_issued_at=NULL,activated_at=NULL,updated_at=now()
+WHERE brand_hosts.status='failed' AND brand_hosts.failure_reason='revoked'
 RETURNING hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at;
 
 -- name: PlatformUnbindBrandHost :execrows
-DELETE FROM brand_hosts WHERE hostname=$1;
+WITH deleted_proof AS (DELETE FROM brand_host_challenges WHERE hostname=sqlc.arg(hostname)::text)
+UPDATE brand_hosts h SET status='failed',failure_reason='revoked',verified_at=NULL,
+cert_issued_at=NULL,activated_at=NULL,updated_at=now() WHERE h.hostname=sqlc.arg(hostname)::text;
 
 -- name: PlatformSetBrandStatus :execrows
 UPDATE brands SET status=$2 WHERE id=$1 AND slug<>'default';

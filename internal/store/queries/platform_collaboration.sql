@@ -89,7 +89,7 @@ WHERE tenant_id=$1 AND mailbox_id=$2 AND name=$3 AND deleted_at IS NULL;
 -- name: PlatformListEvents :many
 SELECT * FROM mailbox_events
 WHERE tenant_id=$1 AND mailbox_id=$2 AND deleted_at IS NULL
- AND ((rrule<>'' AND starts_at < sqlc.arg(range_end)) OR (starts_at < sqlc.arg(range_end) AND ends_at > sqlc.arg(range_start)))
+ AND (rrule<>'' OR (starts_at<sqlc.arg(range_end) AND ends_at>sqlc.arg(range_start)))
 ORDER BY starts_at, id
 LIMIT sqlc.arg(page_limit);
 
@@ -101,12 +101,12 @@ WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND deleted_at IS NULL;
 WITH next AS (
  INSERT INTO mailbox_events(
   tenant_id, mailbox_id, calendar_id, uid, summary, description, location,
-  starts_at, ends_at, all_day, timezone, rrule, status, attendees
+  starts_at, ends_at, all_day, timezone, rrule, status, attendees, recurrence_overrides,reminders
  ) VALUES(
   sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(calendar_id), sqlc.arg(uid),
   sqlc.arg(summary), sqlc.arg(description), sqlc.arg(location),
   sqlc.arg(starts_at), sqlc.arg(ends_at), sqlc.arg(all_day), sqlc.arg(timezone),
-  sqlc.arg(rrule), sqlc.arg(status), sqlc.arg(attendees)
+  sqlc.arg(rrule), sqlc.arg(status), sqlc.arg(attendees), COALESCE(sqlc.narg(recurrence_overrides)::jsonb,'[]'::jsonb),COALESCE(sqlc.narg(reminders)::jsonb,'[]'::jsonb)
  ) RETURNING *
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
@@ -120,6 +120,8 @@ WITH next AS (
  SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.arg(location),
   starts_at=sqlc.arg(starts_at), ends_at=sqlc.arg(ends_at), all_day=sqlc.arg(all_day),
   timezone=sqlc.arg(timezone), rrule=sqlc.arg(rrule), status=sqlc.arg(status), attendees=sqlc.arg(attendees),
+  recurrence_overrides=COALESCE(sqlc.narg(recurrence_overrides)::jsonb,e.recurrence_overrides),
+ reminders=COALESCE(sqlc.narg(reminders)::jsonb,e.reminders),
   sequence=e.sequence+1, version=e.version+1, updated_at=now()
  WHERE e.tenant_id=sqlc.arg(tenant_id) AND e.mailbox_id=sqlc.arg(mailbox_id) AND e.id=sqlc.arg(id)
   AND e.version=sqlc.arg(expected_version) AND e.deleted_at IS NULL
@@ -151,7 +153,7 @@ LIMIT sqlc.arg(page_limit);
 -- name: PlatformClaimMailboxJob :one
 WITH candidate AS (
  SELECT id FROM mailbox_jobs
- WHERE status='pending' AND (lease_until IS NULL OR lease_until <= now())
+ WHERE status='pending' AND kind<>'calendar_reminder' AND (lease_until IS NULL OR lease_until <= now())
  ORDER BY id
  FOR UPDATE SKIP LOCKED
  LIMIT 1
@@ -196,3 +198,8 @@ WHERE tenant_id=$1 AND mailbox_id=$2 AND uid=$3 AND deleted_at IS NULL;
 -- name: PlatformGetEventAny :one
 SELECT * FROM mailbox_events
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3;
+
+-- name: PlatformListCalendarSyncEvents :many
+SELECT * FROM mailbox_events
+WHERE tenant_id=$1 AND mailbox_id=$2 AND calendar_id=$3 AND deleted_at IS NULL
+ORDER BY id LIMIT sqlc.arg(page_limit);

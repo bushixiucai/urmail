@@ -1,0 +1,23 @@
+DROP POLICY tenant_isolation ON archive_approval_requests;
+DROP POLICY tenant_isolation ON archive_investigation_sources;
+DROP POLICY tenant_isolation ON archive_investigation_members;
+DROP POLICY tenant_isolation ON archive_investigations;
+DO $$DECLARE t text;BEGIN FOREACH t IN ARRAY ARRAY['archive_approval_requests','archive_investigation_sources','archive_investigation_members','archive_investigations'] LOOP
+ EXECUTE format('CREATE POLICY tenant_isolation ON %I USING(tenant_id=nullif(current_setting(''urmail.tenant_id'',true),'''')::bigint) WITH CHECK(tenant_id=nullif(current_setting(''urmail.tenant_id'',true),'''')::bigint)',t);
+END LOOP;END $$;
+DROP TABLE archive_evidence_exports;
+DROP FUNCTION urmail_archive_export_visible(bigint,bigint,bigint);
+DROP TRIGGER archive_product_approval_insert ON archive_approval_requests;
+DROP TRIGGER archive_product_approval_update ON archive_approval_requests;
+DROP FUNCTION urmail_archive_approval_bound();
+DROP TRIGGER archive_case_sources_changed ON archive_investigation_sources;
+DROP TRIGGER archive_case_members_changed ON archive_investigation_members;
+DROP TRIGGER archive_case_version ON archive_investigations;
+DROP FUNCTION urmail_archive_case_changed();
+DROP FUNCTION urmail_create_archive_case(bigint,bigint,text,text,timestamptz,text);
+DROP FUNCTION urmail_archive_case_snapshot(bigint,bigint,bigint);
+DROP FUNCTION urmail_archive_case_manager(bigint,bigint,bigint);
+DROP FUNCTION urmail_archive_case_member(bigint,bigint,bigint);
+DROP FUNCTION urmail_archive_case_grant(bigint,bigint,text);
+ALTER TABLE archive_approval_requests DROP COLUMN case_version,DROP COLUMN source_snapshot,DROP COLUMN decision_reason;
+ALTER TABLE archive_investigations DROP COLUMN version,DROP COLUMN updated_at,DROP COLUMN request_key;

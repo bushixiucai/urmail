@@ -37,7 +37,7 @@ def main():
         archive.mkdir(parents=True)
         for path in previous:
             shutil.copy2(path, archive / path.name)
-        for filename in ("dovecot.log", "postfix.log"):
+        for filename in ("dovecot.log", "postfix.log", "opendkim.log"):
             if (evidence / filename).exists():
                 shutil.copy2(evidence / filename, archive / filename)
     image = json.loads(run(["docker", "image", "inspect", args.image]).stdout)[0]
@@ -191,24 +191,53 @@ scache unix - - n - 1 scache
 postlog unix-dgram n - n - 1 postlogd
 CONF
 dovecot -c "$root/dovecot.conf"
+openssl pkey -in "$root/key.pem" -pubout -out "$root/dkim-public.pem" >/dev/null 2>&1
+mkdir -p /etc/urmail-runtime-dkim
+chmod 0700 /etc/urmail-runtime-dkim
+cp "$root/key.pem" /etc/urmail-runtime-dkim/private.key
+chmod 0600 /etc/urmail-runtime-dkim/private.key
+cat > /etc/urmail-runtime-dkim/opendkim.conf <<'CONF'
+Mode s
+UserID root
+Domain example.test
+Selector runtime
+KeyFile /etc/urmail-runtime-dkim/private.key
+Socket inet:11341@127.0.0.1
+Canonicalization relaxed/relaxed
+InternalHosts 127.0.0.1
+SignHeaders From,To,Subject,Date,Message-ID,MIME-Version,Content-Type,Content-Transfer-Encoding
+OversignHeaders From,To,Message-ID,Content-Type
+CONF
+opendkim -f -x /etc/urmail-runtime-dkim/opendkim.conf > "$root/opendkim.log" 2>&1 &
+postconf -e 'smtpd_milters=inet:127.0.0.1:11341' 'non_smtpd_milters=inet:127.0.0.1:11341' 'milter_default_action=tempfail' 'milter_protocol=6'
 postfix start
 mkdir -p "$root/pg" "$root/pgsocket"
 chown postgres:postgres "$root/pg" "$root/pgsocket"
-runuser -u postgres -- /usr/lib/postgresql/14/bin/initdb -D "$root/pg" -A trust --no-locale --encoding=UTF8 > "$root/pg-init.log"
-runuser -u postgres -- /usr/lib/postgresql/14/bin/pg_ctl -D "$root/pg" -l "$root/pg/postgresql.log" -o "-h 127.0.0.1 -p 5432 -k $root/pgsocket" start
+# The controlled Ubuntu 22/24 images carry different PostgreSQL majors. Require
+# exactly one installed server rather than accidentally invoking another one.
+pg_bin=
+for candidate in /usr/lib/postgresql/*/bin; do
+ if [ -x "$candidate/initdb" ] && [ -x "$candidate/pg_ctl" ]; then
+  [ -z "$pg_bin" ] || { echo 'ambiguous PostgreSQL server fixture' >&2; exit 1; }
+  pg_bin="$candidate"
+ fi
+done
+[ -n "$pg_bin" ] || { echo 'PostgreSQL server fixture missing' >&2; exit 1; }
+runuser -u postgres -- "$pg_bin/initdb" -D "$root/pg" -A trust --no-locale --encoding=UTF8 > "$root/pg-init.log"
+runuser -u postgres -- "$pg_bin/pg_ctl" -D "$root/pg" -l "$root/pg/postgresql.log" -o "-h 127.0.0.1 -p 5432 -k $root/pgsocket" start
 runuser -u postgres -- createdb -h 127.0.0.1 urmail_runtime
 '''
         setup_result = subprocess.run(["docker", "exec", "-i", name, "sh", "-s"], input=setup, text=True, capture_output=True)
         (evidence / "runtime-setup.log").write_text(setup_result.stdout + setup_result.stderr)
         setup_result.check_returncode()
         for _ in range(50):
-            probe = subprocess.run(["docker", "exec", name, "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',993),1).close(); socket.create_connection(('127.0.0.1',587),1).close()"], text=True, capture_output=True)
+            probe = subprocess.run(["docker", "exec", name, "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',993),1).close(); socket.create_connection(('127.0.0.1',587),1).close(); socket.create_connection(('127.0.0.1',11341),1).close()"], text=True, capture_output=True)
             if probe.returncode == 0:
                 break
             time.sleep(0.1)
         else:
             raise RuntimeError("fixture protocol listeners did not become available")
-        versions = run(["docker", "exec", name, "sh", "-c", "dovecot --version; postconf mail_version; openssl version; /usr/lib/postgresql/14/bin/postgres --version"])
+        versions = run(["docker", "exec", name, "sh", "-c", "dovecot --version; postconf mail_version; openssl version; /usr/lib/postgresql/*/bin/postgres --version"])
         (evidence / "runtime-versions.log").write_text(versions.stdout + versions.stderr)
         result["versions"] = versions.stdout.splitlines()
         tests = subprocess.run(["docker", "exec", "-e", "URMAIL_WEBMAIL_RUNTIME=1", name, "/tmp/webmail-runtime.test", "-test.run", "^TestNativeWebmailRuntime$", "-test.v", "-test.count=1", "-test.timeout=60s"], text=True, capture_output=True)
@@ -218,12 +247,12 @@ runuser -u postgres -- createdb -h 127.0.0.1 urmail_runtime
         result["exit_code"] = tests.returncode
         if tests.returncode:
             raise RuntimeError("native protocol acceptance failed")
-        api_tests = subprocess.run(["docker", "exec", "-e", "URMAIL_WEBMAIL_RUNTIME=1", "-e", "URMAIL_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/urmail_runtime?sslmode=disable", name, "/tmp/webmail-api-runtime.test", "-test.run", "^TestMailboxNativeRuntime$", "-test.v", "-test.count=1", "-test.timeout=2m"], text=True, capture_output=True)
+        api_tests = subprocess.run(["docker", "exec", "-e", "URMAIL_WEBMAIL_RUNTIME=1", "-e", "URMAIL_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/urmail_runtime?sslmode=disable", name, "/tmp/webmail-api-runtime.test", "-test.run", "^(TestMailboxNativeRuntime|TestCalendarInvitationRuntime)$", "-test.v", "-test.count=1", "-test.timeout=2m"], text=True, capture_output=True)
         (evidence / "runtime-api.log").write_text(api_tests.stdout + api_tests.stderr)
         print(api_tests.stdout, end="")
         print(api_tests.stderr, end="")
         result["api_exit_code"] = api_tests.returncode
-        if api_tests.returncode or "--- PASS: TestMailboxNativeRuntime" not in api_tests.stdout:
+        if api_tests.returncode or any("--- PASS: " + name not in api_tests.stdout for name in ("TestMailboxNativeRuntime", "TestCalendarInvitationRuntime")):
             raise RuntimeError("native API/runtime acceptance failed or was skipped")
         for binary_path, switch, test_name, filename, timeout in (
                 ("/tmp/archive-runtime.test", "URMAIL_ARCHIVE_RUNTIME", "TestArchivePostfixSizeRuntime", "runtime-archive.log", "3m"),
@@ -240,7 +269,7 @@ runuser -u postgres -- createdb -h 127.0.0.1 urmail_runtime
         result["status"] = "PASS"
     finally:
         if created:
-            for filename in ("dovecot.log", "postfix.log"):
+            for filename in ("dovecot.log", "postfix.log", "opendkim.log"):
                 log = subprocess.run(["docker", "exec", name, "cat", ("/var/log/native-webmail.log" if filename == "postfix.log" else "/tmp/native-mail-runtime/" + filename)], text=True, capture_output=True)
                 (evidence / filename).write_text(log.stdout + log.stderr)
             removed = subprocess.run(["docker", "rm", "--force", name], text=True, capture_output=True)

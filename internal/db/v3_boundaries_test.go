@@ -317,10 +317,16 @@ func TestV3RecallLocalCompletionRequiresPlatform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	_, err = tx.Exec(ctx, "UPDATE recall_requests SET status='local_recalled',completed_at=now() WHERE tenant_id=$1 AND id=$2", tid, rid)
 	var pg *pgconn.PgError
-	if !errors.As(err, &pg) || pg.Code != "42501" {
+	if !errors.As(err, &pg) || pg.Code != "23514" || pg.Message != "RECALL_STATE_TRANSITION_REJECTED" {
 		t.Fatalf("app forged local completion: %v", err)
 	}
 	_ = tx.Rollback(ctx)
+	// Platform authority alone cannot replace a reviewed confirmation either.
+	_, err = p.Exec(ctx, "UPDATE recall_requests SET status='local_recalled',completed_at=now() WHERE tenant_id=$1 AND id=$2", tid, rid)
+	if !errors.As(err, &pg) || pg.Code != "23514" || pg.Message != "RECALL_VERIFIED_LOCAL_PROOF_REQUIRED" {
+		t.Fatalf("platform completed an unreviewed recall: %v", err)
+	}
 }

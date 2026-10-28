@@ -389,12 +389,12 @@ func TestEnqueueDueRenewalsHonorsOptOutAndFreePlan(t *testing.T) {
 	if n := pendingAttempts(); n != 0 {
 		t.Fatalf("free plan scheduled %d renewal attempts, want 0", n)
 	}
-	// Paid and enrolled: exactly one due cycle is scheduled.
+	// A paid subscription flag is not provider authorization or explicit consent.
 	setPlan("renew-pro")
 	setFlag(false)
 	enqueue()
-	if n := pendingAttempts(); n != 1 {
-		t.Fatalf("enrolled paid plan scheduled %d renewal attempts, want 1", n)
+	if n := pendingAttempts(); n != 0 {
+		t.Fatalf("unconsented paid plan scheduled %d renewal attempts, want 0", n)
 	}
 	// Opted out before the task fires: no new charge task may be scheduled.
 	cancelFixtureAttempts()
@@ -426,7 +426,7 @@ func TestSettleRenewalAttemptUncertainMarkerAndRetry(t *testing.T) {
 		fx.attemptID).Scan(&state, &lastError, &attempts); err != nil {
 		t.Fatal(err)
 	}
-	if state != "pending" || lastError != "PROVIDER_UNCERTAIN" {
+	if state != "uncertain" || lastError != "PROVIDER_UNCERTAIN" {
 		t.Fatalf("uncertain attempt: state=%q last_error=%q", state, lastError)
 	}
 	if attempts != 1 {

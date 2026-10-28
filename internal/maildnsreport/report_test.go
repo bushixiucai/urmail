@@ -20,7 +20,7 @@ func baseState() maildnsreport.DomainState {
 			{Name: "@", Type: "TXT", Value: "v=spf1 mx -all"},
 			{Name: "_dmarc", Type: "TXT", Value: "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@urmail.cn"},
 			{Name: "mail._domainkey", Type: "TXT", Value: "v=DKIM1; k=rsa; p=MIGfMA0GCS"},
-			{Name: "_mta-sts", Type: "TXT", Value: "v=STSv1 id=20261027000000"},
+			{Name: "_mta-sts", Type: "TXT", Value: "v=STSv1; id=20261027000000"},
 			{Name: "_smtp._tls", Type: "TXT", Value: "v=TLSRPTv1; rua=mailto:tls-reports@urmail.cn"},
 		},
 		RequiredDKIMSelectors: []maildnsreport.DKIMSelector{{Name: "mail"}},
@@ -185,7 +185,7 @@ func TestAssessTable(t *testing.T) {
 			mutate: func(s *maildnsreport.DomainState) {
 				for i := range s.Records {
 					if s.Records[i].Name == "_mta-sts" {
-						s.Records[i].Value = "v=STSv1 id="
+						s.Records[i].Value = "v=STSv1; id="
 					}
 				}
 			},
@@ -201,7 +201,7 @@ func TestAssessTable(t *testing.T) {
 		{
 			name:    "well_known_not_live",
 			mutate:  func(s *maildnsreport.DomainState) { s.MTASTSWellKnownLive = boolPtr(false) },
-			checkID: "mta_sts_well_known", wantStatus: maildnsreport.StatusMissing, wantInText: "well-known body is missing",
+			checkID: "mta_sts_well_known", wantStatus: maildnsreport.StatusMissing, wantInText: "HTTPS policy is missing",
 		},
 		{
 			name:    "well_known_unprobed",
@@ -283,20 +283,20 @@ func TestRenderWellKnownValid(t *testing.T) {
 func TestRenderWellKnownRejectsInvalid(t *testing.T) {
 	cases := make([]maildnsreport.MTASTSPolicy, 0, 8)
 	cases = append(cases,
-		maildnsreport.MTASTSPolicy{ID: "", Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx"}},
-		maildnsreport.MTASTSPolicy{ID: strings.Repeat("x", 33), Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx"}},
-		maildnsreport.MTASTSPolicy{ID: "x", Mode: "bogus", MX: []string{"mx"}},
+		maildnsreport.MTASTSPolicy{ID: "", Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx.example"}},
+		maildnsreport.MTASTSPolicy{ID: strings.Repeat("x", 33), Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx.example"}},
+		maildnsreport.MTASTSPolicy{ID: "x", Mode: "bogus", MX: []string{"mx.example"}},
 		maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: nil},
 		maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: []string{"two hosts"}},
 		maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: []string{"bad..host"}},
-		maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx"}, MaxAgeSeconds: 0},
+		maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx.example"}, MaxAgeSeconds: 0},
 	)
 	// max_age 0 selects the default and must render.
 	if _, err := maildnsreport.RenderWellKnown(cases[len(cases)-1]); err != nil {
 		t.Errorf("default max_age must render, got %v", err)
 	}
 	cases[len(cases)-1].MaxAgeSeconds = 31557601
-	cases = append(cases, maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx"}, MaxAgeSeconds: -1})
+	cases = append(cases, maildnsreport.MTASTSPolicy{ID: "x", Mode: maildnsreport.MTASTSEnforce, MX: []string{"mx.example"}, MaxAgeSeconds: -1})
 	for _, p := range cases {
 		if _, err := maildnsreport.RenderWellKnown(p); !errors.Is(err, maildnsreport.ErrInvalidMTASTS) {
 			t.Errorf("policy %+v must be rejected, got %v", p, err)
@@ -313,7 +313,7 @@ func TestRequiredRecords(t *testing.T) {
 	if len(recs) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(recs))
 	}
-	if recs[0].Name != "_mta-sts" || recs[0].Value != "v=STSv1 id=20261027000000" {
+	if recs[0].Name != "_mta-sts" || recs[0].Value != "v=STSv1; id=20261027000000" {
 		t.Errorf("mta-sts record wrong: %+v", recs[0])
 	}
 	if recs[1].Name != "_smtp._tls" || recs[1].Value != "v=TLSRPTv1; rua=mailto:tls-reports@urmail.cn" {

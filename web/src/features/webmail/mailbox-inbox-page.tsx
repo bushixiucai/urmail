@@ -20,8 +20,11 @@ import {
   KeyRound,
   Filter,
   Clock,
+  Upload,
+  Download,
 } from "lucide-react";
 import { ApiRequestError } from "@/lib/api/client";
+import { AppearanceControls } from "@/components/appearance-controls";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/notice-dialog";
 import {
@@ -37,12 +40,18 @@ import {
   crossFolderSearch,
   deleteMailboxSession,
   deleteMessages,
+  mailboxTransfer,
+  isTrashFolder,
   downloadAttachment,
   fetchAttachmentAsOutgoing,
+  fetchMessageAsOutgoing,
   flagMessages,
   formatFrom,
   getMailboxAddress,
+  getMailboxSettings,
+  listMailboxIdentities,
   getMessage,
+  saveDraft,
   hasFlag,
   hasMailboxSession,
   isDraftsFolder,
@@ -59,15 +68,29 @@ import {
 import { decorateThreads } from "./mailbox-threading";
 import {
   ComposeDraft,
+  chooseMailboxIdentity,
   composeFromSavedDraft,
   draftFromMessage,
   MailboxComposeDialog,
 } from "./mailbox-compose-dialog";
 import { MailboxPasswordDialog } from "./mailbox-password-dialog";
+import { MailboxFolderDialog } from "./mailbox-folder-dialog";
 import { MailboxScheduledDialog } from "./mailbox-scheduled-dialog";
+import { MailboxImportDialog } from "./mailbox-import-dialog";
+import { downloadMailboxMbox } from "./mailbox-import-api";
+import { usableMessageDate } from "./message-date";
 import { MailboxSearchBox } from "./mailbox-search-box";
 import { attachmentDisplayName } from "./attachment-name";
-import { MessageHTMLFrame } from "./mailbox-message-view";
+import { MailboxAIPanel } from "./mailbox-ai-panel";
+import { MailboxAIAsk } from "./mailbox-ai-ask";
+import { MailboxMessageTools } from "./mailbox-message-tools";
+import {
+  AttachmentPreview,
+  MessageHTMLWithAttachments,
+} from "./mailbox-attachment-view";
+import { MailboxKeyboardShortcuts } from "./mailbox-keyboard-shortcuts";
+import { MailboxReminders } from "./mailbox-reminders";
+import { MailboxInvitationPanel } from "./mailbox-invitation-panel";
 import { useMailboxNative } from "./use-mailbox-native";
 import { WebmailHelpPage } from "./webmail-help-page";
 
@@ -97,10 +120,43 @@ export function MailboxInboxPage() {
   const [folderEnc, setFolderEnc] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageSummary[]>([]);
   const [total, setTotal] = useState(0);
+  const [datePreferences, setDatePreferences] = useState<
+    Record<string, unknown>
+  >({});
+  useEffect(() => {
+    let active = true;
+    getMailboxSettings()
+      .then((settings) => {
+        if (active) setDatePreferences(settings.preferences ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+  const [folderValidity, setFolderValidity] = useState<number | undefined>();
+  const [folderManagerOpen, setFolderManagerOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [deleteSource, setDeleteSource] = useState<{
+    enc: string;
+    validity: number;
+    trash: boolean;
+  } | null>(null);
+  const [mutationBusy, setMutationBusy] = useState(false);
+  const [mutationNotice, setMutationNotice] = useState("");
+  const [mutationUncertain, setMutationUncertain] = useState(false);
   const [offset, setOffset] = useState(0);
+  const citationValidityRef = useRef<number | undefined>(undefined);
+  const [citationNavigation, setCitationNavigation] = useState(0);
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
   const [checkedUids, setCheckedUids] = useState<number[]>([]);
   const [detail, setDetail] = useState<MessageDetail | null>(null);
+  const liveDetail = useRef(detail);
+  liveDetail.current = detail;
+  const forwardRequest = useRef<AbortController | null>(null);
+  const [forwardBusy, setForwardBusy] = useState(false);
+  useEffect(() => () => forwardRequest.current?.abort(), []);
   // Per-message "load images" privacy opt-in (WEBMAIL-007); reset when
   // another message is opened.
   const [loadImages, setLoadImages] = useState(false);
@@ -242,6 +298,7 @@ export function MailboxInboxPage() {
         )
           return;
         setMessages(res.messages ?? []);
+        setFolderValidity(res.uid_validity);
         setTotal(res.total);
         setOffset(res.offset);
         setNextCursor(res.next_cursor ?? 0);
@@ -358,6 +415,7 @@ export function MailboxInboxPage() {
     getMessage(detailEnc, selectedUid, {
       loadImages,
       signal: controller.signal,
+      uidValidity: citationValidityRef.current,
     })
       .then(async (msg) => {
         if (controller.signal.aborted) return;
@@ -366,6 +424,7 @@ export function MailboxInboxPage() {
           try {
             await flagMessages(detailEnc, {
               uids: [selectedUid],
+              uid_validity: msg.uid_validity,
               add: ["\\Seen"],
             });
             if (controller.signal.aborted) return;
@@ -387,7 +446,14 @@ export function MailboxInboxPage() {
         setError(errorMessage(err, t, "page.webmail.load_failed"));
       });
     return () => controller.abort();
-  }, [folderEnc, selectedUid, loadImages, handleAuthError, t]);
+  }, [
+    folderEnc,
+    selectedUid,
+    loadImages,
+    handleAuthError,
+    t,
+    citationNavigation,
+  ]);
 
   if (!nativeLoaded) {
     return (
@@ -410,10 +476,91 @@ export function MailboxInboxPage() {
   }
 
   const openCompose = (draft: ComposeDraft) => {
+    if (
+      (draft.mode === "reply" || draft.mode === "reply-all") &&
+      detail?.uid_validity &&
+      (selectedEncRef.current ?? folderEnc)
+    ) {
+      draft = {
+        ...draft,
+        aiSource: {
+          folder_enc: (selectedEncRef.current ?? folderEnc)!,
+          uid: detail.uid,
+          uid_validity: detail.uid_validity,
+        },
+      };
+    }
     setComposeDraft(draft);
     setComposeOpen(true);
   };
 
+  const openForward = async (mode: "body" | "eml" = "body") => {
+    const message = detail;
+    const source = selectedEncRef.current ?? folderEnc;
+    if (!message || !source || !message.uid_validity || forwardBusy) return;
+    forwardRequest.current?.abort();
+    const controller = new AbortController();
+    forwardRequest.current = controller;
+    setForwardBusy(true);
+    setError(null);
+    try {
+      if (
+        mode === "body" &&
+        (message.attachments_capped ||
+          (message.attachments?.length ?? 0) > MAX_SEND_ATTACHMENTS)
+      )
+        throw Error("INCOMPLETE_FORWARD_ATTACHMENTS");
+      const attachments: OutgoingAttachment[] = [];
+      if (mode === "eml")
+        attachments.push(
+          await fetchMessageAsOutgoing(
+            source,
+            message.uid,
+            message.uid_validity,
+            controller.signal,
+          ),
+        );
+      for (const attachment of mode === "body"
+        ? (message.attachments ?? [])
+        : []) {
+        attachments.push(
+          await fetchAttachmentAsOutgoing(
+            source,
+            message.uid,
+            attachment.part_id,
+            attachment.filename || `attachment-${attachment.part_id}`,
+            attachment.content_type || "application/octet-stream",
+            message.uid_validity,
+            controller.signal,
+          ),
+        );
+        assertAttachmentTotal(attachments);
+      }
+      if (
+        controller.signal.aborted ||
+        liveDetail.current?.uid !== message.uid ||
+        liveDetail.current?.uid_validity !== message.uid_validity ||
+        (selectedEncRef.current ?? currentFolderRef.current) !== source
+      )
+        return;
+      assertAttachmentTotal(attachments);
+      openCompose({
+        ...draftFromMessage("forward", message),
+        ...(mode === "eml" ? { text: "", quoteText: undefined } : {}),
+        attachments,
+      });
+    } catch (err) {
+      if (!controller.signal.aborted && !handleAuthError(err))
+        setError(
+          errorMessage(err, t, "page.webmail.forward_attachments_failed"),
+        );
+    } finally {
+      if (forwardRequest.current === controller) {
+        forwardRequest.current = null;
+        setForwardBusy(false);
+      }
+    }
+  };
   const openSavedDraft = async () => {
     if (!folderEnc || !detail || !isDraftsFolder(currentFolder)) return;
     setBusy(true);
@@ -432,6 +579,7 @@ export function MailboxInboxPage() {
             a.part_id,
             a.filename || `attachment-${a.part_id}`,
             a.content_type || "application/octet-stream",
+            message.uid_validity,
           ),
         );
         assertAttachmentTotal(atts);
@@ -447,6 +595,8 @@ export function MailboxInboxPage() {
   };
 
   const openMessage = (uid: number) => {
+    forwardRequest.current?.abort();
+    citationValidityRef.current = undefined;
     selectedEncRef.current = folderEnc;
     setSelectedUid(uid);
     setMobilePane("detail");
@@ -454,6 +604,8 @@ export function MailboxInboxPage() {
 
   /** Open a cross-folder search hit in its own mailbox. */
   const openCrossMessage = (m: MessageSummary) => {
+    forwardRequest.current?.abort();
+    citationValidityRef.current = undefined;
     selectedEncRef.current = m.folder_enc ?? folderEnc;
     setSelectedUid(m.uid);
     setMobilePane("detail");
@@ -464,6 +616,15 @@ export function MailboxInboxPage() {
   };
 
   const selectFolder = (enc: string) => {
+    forwardRequest.current?.abort();
+    setMoveTo("");
+    setBulkMoveTo("");
+    setSelectedUid(null);
+    setDetail(null);
+    clearChecked();
+    setFolderValidity(undefined);
+    setMutationUncertain(false);
+    setMutationNotice("");
     currentFolderRef.current = enc;
     listRequest.current.generation += 1;
     listRequest.current.controller?.abort();
@@ -515,7 +676,13 @@ export function MailboxInboxPage() {
   const bulkFlag = async (add: string[], remove: string[]) => {
     if (!folderEnc || checkedUids.length === 0) return;
     try {
-      await flagMessages(folderEnc, { uids: checkedUids, add, remove });
+      if (!folderValidity) return;
+      await flagMessages(folderEnc, {
+        uids: checkedUids,
+        add,
+        remove,
+        uid_validity: folderValidity,
+      });
       applyLocalFlags(checkedUids, add, remove);
       clearChecked();
     } catch (err) {
@@ -528,7 +695,8 @@ export function MailboxInboxPage() {
     if (!folderEnc || selectedUid == null || !detail) return;
     const flagged = hasFlag(detail.flags, "\\Flagged");
     try {
-      await flagMessages(folderEnc, {
+      await flagMessages(selectedEncRef.current ?? folderEnc, {
+        uid_validity: detail.uid_validity,
         uids: [selectedUid],
         add: flagged ? [] : ["\\Flagged"],
         remove: flagged ? ["\\Flagged"] : [],
@@ -548,39 +716,154 @@ export function MailboxInboxPage() {
     }
   };
 
-  const openDeleteConfirm = (uids: number[]) => {
-    if (uids.length === 0) return;
+  const reportMutation = (
+    results: Array<{ uid: number; status: string; code?: string }>,
+  ) => {
+    const uncertain = results.some((item) => item.status === "unknown");
+    setMutationUncertain(uncertain);
+    setMutationNotice(
+      results
+        .map(
+          (item) =>
+            `${item.uid}: ${t(`page.webmail.transfer_${item.status}`, { defaultValue: item.status })}${item.code ? ` (${item.code})` : ""}`,
+        )
+        .join(" · "),
+    );
+    if (uncertain) setError(t("page.webmail.transfer_uncertain"));
+  };
+  const transfer = async (
+    action: "copy" | "restore",
+    uids: number[],
+    to: string,
+    source = folderEnc,
+    validity = folderValidity,
+  ) => {
+    if (
+      !source ||
+      !validity ||
+      !uids.length ||
+      mutationBusy ||
+      mutationUncertain
+    )
+      return;
+    setMutationBusy(true);
+    setError(null);
+    try {
+      const result = await mailboxTransfer(source, action, {
+        uids,
+        to,
+        uid_validity: validity,
+      });
+      reportMutation(result.results);
+      const successful = new Set(
+        result.results
+          .filter((item) => item.status === "success")
+          .map((item) => item.uid),
+      );
+      setCheckedUids((previous) =>
+        previous.filter((uid) => !successful.has(uid)),
+      );
+      if (action === "restore" && selectedUid && successful.has(selectedUid)) {
+        setDetail(null);
+        setSelectedUid(null);
+        setMobilePane("list");
+      }
+      await loadFolders();
+      if (folderEnc)
+        await loadMessages(folderEnc, offset, undefined, searchQ, listOpts());
+    } catch (err) {
+      if (!handleAuthError(err)) {
+        if (err instanceof ApiRequestError && err.status < 500)
+          setError(errorMessage(err, t, "page.webmail.action_failed"));
+        else {
+          setMutationUncertain(true);
+          setError(t("page.webmail.transfer_uncertain"));
+        }
+      }
+    } finally {
+      setMutationBusy(false);
+    }
+  };
+  const openDeleteConfirm = (
+    uids: number[],
+    source = folderEnc,
+    validity = folderValidity,
+  ) => {
+    if (
+      uids.length === 0 ||
+      !source ||
+      !validity ||
+      mutationBusy ||
+      mutationUncertain
+    )
+      return;
+    setDeleteSource({
+      enc: source,
+      validity,
+      trash: isTrashFolder(
+        folders.find((folder) => folder.name_enc === source),
+      ),
+    });
     setDeleteUids(uids);
     setDeleteOpen(true);
   };
 
   const confirmDelete = async () => {
-    if (!folderEnc || deleteUids.length === 0) return;
+    if (!folderEnc || !deleteSource || deleteUids.length === 0 || mutationBusy)
+      return;
+    setMutationBusy(true);
     try {
-      await deleteMessages(folderEnc, {
-        uids: deleteUids,
-        expunge: true,
-      });
-      if (selectedUid != null && deleteUids.includes(selectedUid)) {
+      let successful = new Set(deleteUids);
+      if (deleteSource.trash)
+        await deleteMessages(deleteSource.enc, {
+          uids: deleteUids,
+          expunge: true,
+          uid_validity: deleteSource.validity,
+        });
+      else {
+        const result = await mailboxTransfer(deleteSource.enc, "trash", {
+          uids: deleteUids,
+          uid_validity: deleteSource.validity,
+        });
+        reportMutation(result.results);
+        successful = new Set(
+          result.results
+            .filter((item) => item.status === "success")
+            .map((item) => item.uid),
+        );
+      }
+      await loadFolders();
+      if (selectedUid != null && successful.has(selectedUid)) {
         setSelectedUid(null);
         setDetail(null);
         setMobilePane("list");
       }
-      clearChecked();
+      setCheckedUids((previous) =>
+        previous.filter((uid) => !successful.has(uid)),
+      );
       await loadMessages(folderEnc, offset, undefined, searchQ, listOpts());
     } catch (err) {
       if (handleAuthError(err)) return;
-      setError(errorMessage(err, t, "page.webmail.action_failed"));
+      if (!(err instanceof ApiRequestError) || err.status >= 500) {
+        setMutationUncertain(true);
+        setError(t("page.webmail.transfer_uncertain"));
+      } else setError(errorMessage(err, t, "page.webmail.action_failed"));
     } finally {
       setDeleteOpen(false);
       setDeleteUids([]);
+      setMutationBusy(false);
     }
   };
 
-  const doMove = async (uids: number[], to: string) => {
-    if (!folderEnc || uids.length === 0 || !to) return;
+  const doMove = async (
+    uids: number[],
+    to: string,
+    source = folderEnc,
+    validity = folderValidity,
+  ) => {
+    if (!folderEnc || !source || !validity || uids.length === 0 || !to) return;
     try {
-      await moveMessages(folderEnc, { uids, to });
+      await moveMessages(source, { uids, to, uid_validity: validity });
       if (selectedUid != null && uids.includes(selectedUid)) {
         setSelectedUid(null);
         setDetail(null);
@@ -606,8 +889,26 @@ export function MailboxInboxPage() {
   };
 
   const dateFmt = (iso: string) => {
+    const date = usableMessageDate(iso);
+    if (!date) return "—";
     try {
-      return new Date(iso).toLocaleString(i18n.language);
+      const preference = datePreferences.date_format;
+      const locale =
+        preference === "iso"
+          ? "sv-SE"
+          : preference === "day_first"
+            ? "en-GB"
+            : preference === "month_first"
+              ? "en-US"
+              : i18n.language;
+      return new Intl.DateTimeFormat(locale, {
+        dateStyle: "short",
+        timeStyle: "medium",
+        ...(typeof datePreferences.timezone === "string" &&
+        datePreferences.timezone
+          ? { timeZone: datePreferences.timezone }
+          : {}),
+      }).format(date);
     } catch {
       return iso;
     }
@@ -753,6 +1054,55 @@ export function MailboxInboxPage() {
           <span className="text-sm font-medium truncate">{address}</span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <AppearanceControls />
+          <MailboxKeyboardShortcuts
+            disabled={
+              busy ||
+              mutationBusy ||
+              forwardBusy ||
+              composeOpen ||
+              passwordOpen ||
+              deleteOpen ||
+              folderManagerOpen ||
+              scheduledOpen ||
+              importOpen
+            }
+            onAction={(action) => {
+              if (action === "compose") openCompose({ mode: "new" });
+              else if (action === "search")
+                document
+                  .querySelector<HTMLInputElement>('form[role="search"] input')
+                  ?.focus();
+              else if (action === "close") {
+                setSelectedUid(null);
+                setDetail(null);
+                setMobilePane("list");
+              } else if (action === "next" || action === "previous") {
+                if (crossResults) return;
+                const index = messages.findIndex(
+                  (message) => message.uid === selectedUid,
+                );
+                const next =
+                  index < 0 ? 0 : index + (action === "next" ? 1 : -1);
+                if (messages[next]) openMessage(messages[next].uid);
+              } else if (detail && detail.uid === selectedUid) {
+                if (action === "reply" || action === "replyAll")
+                  openCompose(
+                    draftFromMessage(
+                      action === "reply" ? "reply" : "reply-all",
+                      detail,
+                    ),
+                  );
+                else if (action === "forward") void openForward();
+                else if (action === "trash")
+                  openDeleteConfirm(
+                    [detail.uid],
+                    selectedEncRef.current ?? folderEnc,
+                    detail.uid_validity,
+                  );
+              }
+            }}
+          />
           <Button
             size="sm"
             variant="default"
@@ -766,10 +1116,39 @@ export function MailboxInboxPage() {
             size="sm"
             variant="outline"
             className="min-h-11 md:min-h-8"
-            onClick={() => void refresh()}
+            onClick={() => {
+              setMutationUncertain(false);
+              setMutationNotice("");
+              clearChecked();
+              void refresh();
+            }}
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1" />
             {t("page.webmail.refresh")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-8"
+            onClick={() => setFolderManagerOpen(true)}
+          >
+            {t("page.webmail.folder_manage")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-8"
+            disabled={
+              busy ||
+              mutationBusy ||
+              !folderEnc ||
+              !folderValidity ||
+              !!crossResults
+            }
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload className="h-3.5 w-3.5 mr-1" />
+            {t("page.webmail.import.title")}
           </Button>
           <Button
             size="sm"
@@ -816,6 +1195,14 @@ export function MailboxInboxPage() {
             className="min-h-11 md:min-h-8"
             asChild
           >
+            <Link to="/webmail/people">{t("people.title")}</Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="min-h-11 md:min-h-8"
+            asChild
+          >
             <Link to="/webmail/help">{t("page.webmail.help_title")}</Link>
           </Button>
           <Button
@@ -829,10 +1216,35 @@ export function MailboxInboxPage() {
           </Button>
         </div>
       </header>
+      <div className="px-3 sm:px-4">
+        <MailboxReminders />
+      </div>
+      <MailboxAIAsk
+        folders={folders}
+        onCitation={(source) => {
+          selectFolder(source.folder_enc);
+          selectedEncRef.current = source.folder_enc;
+          citationValidityRef.current = source.uid_validity;
+          setSelectedUid(source.uid);
+          setCitationNavigation((value) => value + 1);
+          setMobilePane("detail");
+        }}
+      />
 
+      {mutationNotice && (
+        <p role="status" className="px-4 py-2 text-sm border-b break-words">
+          {mutationNotice}
+        </p>
+      )}
       {error && (
         <p role="alert" className="px-4 py-2 text-sm text-destructive border-b">
-          {error}
+          {error}{" "}
+          <Link
+            className="underline underline-offset-4"
+            to="/support?topic=sync"
+          >
+            {t("support.sync_help_action")}
+          </Link>
         </p>
       )}
 
@@ -996,10 +1408,50 @@ export function MailboxInboxPage() {
                   size="sm"
                   variant="outline"
                   className="min-h-11 md:min-h-8 text-destructive"
+                  disabled={
+                    mutationBusy || mutationUncertain || !folderValidity
+                  }
                   onClick={() => openDeleteConfirm(checkedUids)}
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-1" />
                   {t("page.webmail.delete")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11 md:min-h-8"
+                  disabled={
+                    exportBusy ||
+                    mutationBusy ||
+                    mutationUncertain ||
+                    !folderValidity ||
+                    !folderEnc ||
+                    !!crossResults
+                  }
+                  onClick={() => {
+                    if (!folderEnc || !folderValidity) return;
+                    setExportBusy(true);
+                    setError(null);
+                    void downloadMailboxMbox(
+                      folderEnc,
+                      folderValidity,
+                      checkedUids,
+                    )
+                      .catch((cause) => {
+                        if (handleAuthError(cause)) return;
+                        setError(
+                          errorMessage(
+                            cause,
+                            t,
+                            "page.webmail.import.export_failed",
+                          ),
+                        );
+                      })
+                      .finally(() => setExportBusy(false));
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                  {t("page.webmail.import.export_mbox")}
                 </Button>
                 <div className="flex items-center gap-1 min-w-0">
                   <select
@@ -1024,6 +1476,39 @@ export function MailboxInboxPage() {
                   >
                     {t("page.webmail.move")}
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      !bulkMoveTo ||
+                      !folderValidity ||
+                      mutationBusy ||
+                      mutationUncertain
+                    }
+                    onClick={() =>
+                      void transfer("copy", checkedUids, bulkMoveTo)
+                    }
+                  >
+                    {t("page.webmail.copy")}
+                  </Button>
+                  {isTrashFolder(currentFolder) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        !folderValidity || mutationBusy || mutationUncertain
+                      }
+                      onClick={() =>
+                        void transfer(
+                          "restore",
+                          checkedUids,
+                          bulkMoveTo || "INBOX",
+                        )
+                      }
+                    >
+                      {t("page.webmail.restore")}
+                    </Button>
+                  )}
                 </div>
                 <Button
                   size="sm"
@@ -1251,12 +1736,20 @@ export function MailboxInboxPage() {
                         size="sm"
                         variant="outline"
                         className="min-h-11 md:min-h-8"
-                        onClick={() =>
-                          openCompose(draftFromMessage("forward", detail))
-                        }
+                        disabled={forwardBusy}
+                        onClick={() => void openForward()}
                       >
                         <Forward className="h-3.5 w-3.5 mr-1" />
                         {t("page.webmail.compose_forward")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="min-h-11 md:min-h-8"
+                        disabled={forwardBusy}
+                        onClick={() => void openForward("eml")}
+                      >
+                        {t("page.webmail.compose_forward_eml")}
                       </Button>
                     </>
                   )}
@@ -1275,9 +1768,14 @@ export function MailboxInboxPage() {
                     size="sm"
                     variant="outline"
                     className="min-h-11 md:min-h-8 text-destructive"
+                    disabled={
+                      mutationBusy || mutationUncertain || !detail.uid_validity
+                    }
                     onClick={() =>
                       openDeleteConfirm(
                         selectedUid != null ? [selectedUid] : [],
+                        selectedEncRef.current ?? folderEnc,
+                        detail.uid_validity,
                       )
                     }
                   >
@@ -1305,19 +1803,141 @@ export function MailboxInboxPage() {
                       disabled={!moveTo || selectedUid == null}
                       onClick={() =>
                         selectedUid != null &&
-                        void doMove([selectedUid], moveTo)
+                        void doMove(
+                          [selectedUid],
+                          moveTo,
+                          selectedEncRef.current ?? folderEnc,
+                          detail.uid_validity,
+                        )
                       }
                     >
                       {t("page.webmail.move")}
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        !moveTo ||
+                        !detail.uid_validity ||
+                        mutationBusy ||
+                        mutationUncertain
+                      }
+                      onClick={() =>
+                        selectedUid != null &&
+                        void transfer(
+                          "copy",
+                          [selectedUid],
+                          moveTo,
+                          selectedEncRef.current ?? folderEnc,
+                          detail.uid_validity,
+                        )
+                      }
+                    >
+                      {t("page.webmail.copy")}
+                    </Button>
+                    {isTrashFolder(
+                      folders.find(
+                        (folder) =>
+                          folder.name_enc ===
+                          (selectedEncRef.current ?? folderEnc),
+                      ),
+                    ) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !detail.uid_validity ||
+                          mutationBusy ||
+                          mutationUncertain
+                        }
+                        onClick={() =>
+                          selectedUid != null &&
+                          void transfer(
+                            "restore",
+                            [selectedUid],
+                            moveTo || "INBOX",
+                            selectedEncRef.current ?? folderEnc,
+                            detail.uid_validity,
+                          )
+                        }
+                      >
+                        {t("page.webmail.restore")}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+                <MailboxMessageTools
+                  key={`tools:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                  folder={(selectedEncRef.current ?? folderEnc)!}
+                  message={detail}
+                />
+                {detail.uid_validity &&
+                  (selectedEncRef.current ?? folderEnc) && (
+                    <MailboxAIPanel
+                      key={`ai:${selectedEncRef.current ?? folderEnc}:${detail.uid}`}
+                      mode="read"
+                      source={{
+                        folder_enc: (selectedEncRef.current ?? folderEnc)!,
+                        uid: detail.uid,
+                        uid_validity: detail.uid_validity,
+                      }}
+                      subject={detail.subject}
+                      body={detail.text ?? ""}
+                      onApply={async (proposal) => {
+                        const reply = draftFromMessage("reply", detail);
+                        const [settings, identityList] = await Promise.all([
+                          getMailboxSettings(),
+                          listMailboxIdentities(),
+                        ]);
+                        const from = chooseMailboxIdentity(
+                          settings,
+                          identityList.identities,
+                          reply,
+                        );
+                        const result = await saveDraft({
+                          from,
+                          to: (reply.to ?? "").split(/[,;\s]+/).filter(Boolean),
+                          cc: (reply.cc ?? "").split(/[,;\s]+/).filter(Boolean),
+                          subject: reply.subject ?? proposal.subject,
+                          in_reply_to: detail.message_id,
+                          reply_source: {
+                            folder_enc: (selectedEncRef.current ?? folderEnc)!,
+                            uid: detail.uid,
+                            uid_validity: detail.uid_validity!,
+                          },
+                          text: proposal.body,
+                        });
+                        openCompose({
+                          ...reply,
+                          from,
+                          mode: "draft",
+                          uid: result.uid,
+                          uidValidity: result.uid_validity,
+                          subject: reply.subject ?? proposal.subject,
+                          text: proposal.body,
+                        });
+                      }}
+                    />
+                  )}
+                {detail.uid_validity && folderEnc && (
+                  <MailboxInvitationPanel
+                    key={`invitation:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                    folderEnc={selectedEncRef.current ?? folderEnc}
+                    uid={detail.uid}
+                    uidValidity={detail.uid_validity}
+                  />
+                )}
                 {detail.html ? (
-                  <MessageHTMLFrame
-                    html={detail.html}
-                    notes={detail.notes ?? []}
+                  <MessageHTMLWithAttachments
+                    key={`html:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                    message={detail}
+                    source={{
+                      folderEnc: (selectedEncRef.current ?? folderEnc)!,
+                      uid: detail.uid,
+                      uidValidity: detail.uid_validity ?? 0,
+                    }}
                     loadImages={loadImages}
                     onLoadImages={() => setLoadImages(true)}
                   />
@@ -1344,6 +1964,17 @@ export function MailboxInboxPage() {
                             </span>
                           </span>
                           {folderEnc && selectedUid != null && (
+                            <AttachmentPreview
+                              key={`${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}:${a.part_id}`}
+                              source={{
+                                folderEnc: selectedEncRef.current ?? folderEnc,
+                                uid: detail.uid,
+                                uidValidity: detail.uid_validity ?? 0,
+                              }}
+                              attachment={a}
+                            />
+                          )}
+                          {folderEnc && selectedUid != null && (
                             <Button
                               type="button"
                               size="sm"
@@ -1351,10 +1982,11 @@ export function MailboxInboxPage() {
                               className="shrink-0 min-h-11 md:min-h-8"
                               onClick={() => {
                                 void downloadAttachment(
-                                  folderEnc,
+                                  selectedEncRef.current ?? folderEnc,
                                   selectedUid,
                                   a.part_id,
                                   a.filename || `attachment-${a.part_id}`,
+                                  detail.uid_validity,
                                 ).catch((err: unknown) => {
                                   setError(
                                     errorMessage(
@@ -1407,6 +2039,27 @@ export function MailboxInboxPage() {
           }
         }}
       />
+      <MailboxFolderDialog
+        open={folderManagerOpen}
+        onOpenChange={setFolderManagerOpen}
+        folder={currentFolder}
+        uidValidity={folderValidity}
+        onChanged={async (enc) => {
+          await loadFolders();
+          if (enc) setFolderEnc(enc);
+        }}
+      />
+      {folderEnc && folderValidity && (
+        <MailboxImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          folder={folderEnc}
+          validity={folderValidity}
+          onImported={() => {
+            void refresh();
+          }}
+        />
+      )}
       <MailboxScheduledDialog
         open={scheduledOpen}
         onOpenChange={setScheduledOpen}
@@ -1425,16 +2078,20 @@ export function MailboxInboxPage() {
           if (!open) setDeleteUids([]);
         }}
         title={
-          deleteUids.length > 1
-            ? t("page.webmail.bulk_delete_confirm_title")
-            : t("page.webmail.delete_confirm_title")
+          !deleteSource?.trash
+            ? t("page.webmail.trash_confirm_title")
+            : deleteUids.length > 1
+              ? t("page.webmail.bulk_delete_confirm_title")
+              : t("page.webmail.delete_confirm_title")
         }
         description={
-          deleteUids.length > 1
-            ? t("page.webmail.bulk_delete_confirm", {
-                count: deleteUids.length,
-              })
-            : t("page.webmail.delete_confirm")
+          !deleteSource?.trash
+            ? t("page.webmail.trash_confirm")
+            : deleteUids.length > 1
+              ? t("page.webmail.bulk_delete_confirm", {
+                  count: deleteUids.length,
+                })
+              : t("page.webmail.delete_confirm")
         }
         destructive
         onConfirm={confirmDelete}

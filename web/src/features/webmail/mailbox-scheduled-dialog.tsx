@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   cancelScheduledSend,
+  repairScheduledSentCopy,
   listScheduledSends,
   ScheduledSendItem,
 } from "./mailbox-api";
@@ -102,6 +103,19 @@ export function MailboxScheduledDialog({
     }
   };
 
+  const onRepair = async (id: number) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await repairScheduledSentCopy(id);
+      await reload();
+    } catch {
+      setError(t("page.webmail.compose_sent_copy_pending"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
@@ -164,17 +178,32 @@ export function MailboxScheduledDialog({
                     </p>
                   )}
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={
-                    busy || !["pending", "preparing"].includes(item.status)
-                  }
-                  onClick={() => void onCancel(item.id)}
-                >
-                  {t("page.webmail.scheduled_cancel")}
-                </Button>
+                {item.status === "sent" &&
+                ["pending", "unknown", "held"].includes(
+                  item.sent_copy_state ?? "",
+                ) ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => void onRepair(item.id)}
+                  >
+                    {t("page.webmail.repair_sent_copy")}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={
+                      busy || !["pending", "preparing"].includes(item.status)
+                    }
+                    onClick={() => void onCancel(item.id)}
+                  >
+                    {t("page.webmail.scheduled_cancel")}
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

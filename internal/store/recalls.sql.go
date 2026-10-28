@@ -13,9 +13,9 @@ import (
 
 const createRecall = `-- name: CreateRecall :one
 WITH inserted AS (
- INSERT INTO recall_requests(tenant_id,archive_entry_id,mailbox_id,message_id,requested_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,archive_entry_id) DO NOTHING RETURNING id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at
+ INSERT INTO recall_requests(tenant_id,archive_entry_id,mailbox_id,message_id,requested_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,archive_entry_id) DO NOTHING RETURNING id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history
 )
-SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at FROM inserted UNION ALL SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at FROM recall_requests r WHERE r.tenant_id=$1 AND r.archive_entry_id=$2 AND NOT EXISTS(SELECT 1 FROM inserted) LIMIT 1
+SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM inserted UNION ALL SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests r WHERE r.tenant_id=$1 AND r.archive_entry_id=$2 AND NOT EXISTS(SELECT 1 FROM inserted) LIMIT 1
 `
 
 type CreateRecallParams struct {
@@ -27,16 +27,26 @@ type CreateRecallParams struct {
 }
 
 type CreateRecallRow struct {
-	ID             int64              `json:"id"`
-	TenantID       int64              `json:"tenant_id"`
-	MessageID      string             `json:"message_id"`
-	RequestedBy    int64              `json:"requested_by"`
-	Status         string             `json:"status"`
-	Reason         pgtype.Text        `json:"reason"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID      pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	ID               int64              `json:"id"`
+	TenantID         int64              `json:"tenant_id"`
+	MessageID        string             `json:"message_id"`
+	RequestedBy      int64              `json:"requested_by"`
+	Status           string             `json:"status"`
+	Reason           pgtype.Text        `json:"reason"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8        `json:"mailbox_id"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text        `json:"preview_token"`
+	PreviewDigest    pgtype.Text        `json:"preview_digest"`
+	PreviewSnapshot  []byte             `json:"preview_snapshot"`
+	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
+	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
+	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
+	AttemptEpoch     int64              `json:"attempt_epoch"`
+	LocalResult      []byte             `json:"local_result"`
+	ResultHistory    []byte             `json:"result_history"`
 }
 
 func (q *Queries) CreateRecall(ctx context.Context, arg CreateRecallParams) (CreateRecallRow, error) {
@@ -59,12 +69,22 @@ func (q *Queries) CreateRecall(ctx context.Context, arg CreateRecallParams) (Cre
 		&i.ArchiveEntryID,
 		&i.MailboxID,
 		&i.CompletedAt,
+		&i.PreviewActorID,
+		&i.PreviewToken,
+		&i.PreviewDigest,
+		&i.PreviewSnapshot,
+		&i.PreviewExpiresAt,
+		&i.ConfirmedAt,
+		&i.SelectedCopyKeys,
+		&i.AttemptEpoch,
+		&i.LocalResult,
+		&i.ResultHistory,
 	)
 	return i, err
 }
 
 const getRecallByID = `-- name: GetRecallByID :one
-SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at FROM recall_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE
+SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE
 `
 
 type GetRecallByIDParams struct {
@@ -86,6 +106,16 @@ func (q *Queries) GetRecallByID(ctx context.Context, arg GetRecallByIDParams) (R
 		&i.ArchiveEntryID,
 		&i.MailboxID,
 		&i.CompletedAt,
+		&i.PreviewActorID,
+		&i.PreviewToken,
+		&i.PreviewDigest,
+		&i.PreviewSnapshot,
+		&i.PreviewExpiresAt,
+		&i.ConfirmedAt,
+		&i.SelectedCopyKeys,
+		&i.AttemptEpoch,
+		&i.LocalResult,
+		&i.ResultHistory,
 	)
 	return i, err
 }
@@ -127,7 +157,7 @@ func (q *Queries) GetRecallTarget(ctx context.Context, arg GetRecallTargetParams
 }
 
 const listRecalls = `-- name: ListRecalls :many
-SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at FROM recall_requests WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
+SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
 `
 
 func (q *Queries) ListRecalls(ctx context.Context, tenantID int64) ([]RecallRequests, error) {
@@ -150,6 +180,16 @@ func (q *Queries) ListRecalls(ctx context.Context, tenantID int64) ([]RecallRequ
 			&i.ArchiveEntryID,
 			&i.MailboxID,
 			&i.CompletedAt,
+			&i.PreviewActorID,
+			&i.PreviewToken,
+			&i.PreviewDigest,
+			&i.PreviewSnapshot,
+			&i.PreviewExpiresAt,
+			&i.ConfirmedAt,
+			&i.SelectedCopyKeys,
+			&i.AttemptEpoch,
+			&i.LocalResult,
+			&i.ResultHistory,
 		); err != nil {
 			return nil, err
 		}

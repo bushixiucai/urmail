@@ -136,3 +136,18 @@ func makeLong(n int) string {
 	}
 	return string(b)
 }
+
+func TestNaturalLanguageQuestionRetrievesAuthorizedEvidence(t *testing.T) {
+	p := Principal{TenantID: 7, MailboxID: 9}
+	source := &FakeSource{Mail: map[string]map[uint32]string{"INBOX": {1: "The invoice total is 42 euros.", 2: "发票总金额为42欧元。"}}, Validity: map[string]uint32{"INBOX": 4}}
+	chunks := NewFakeStore()
+	if _, err := (Indexer{Store: chunks, Source: source}).Reindex(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	for _, question := range []string{"What is the invoice total?", "发票总额是多少？"} {
+		hits, err := Search(t.Context(), chunks, source, p, question)
+		if err != nil || len(hits) == 0 {
+			t.Fatalf("natural question %q had no evidence: %v", question, err)
+		}
+	}
+}

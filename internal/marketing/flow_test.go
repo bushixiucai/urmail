@@ -35,7 +35,7 @@ func flowSender(t *testing.T, f campaignFixture) *FlowSender {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &FlowSender{Pool: f.platform, Secrets: f.box, Tokens: tokens, Hostname: "box.example.test", UnsubscribeURL: "https://panel.example.test/api/v1/marketing/unsubscribe", Content: func(context.Context, int64, string) (string, string, bool, error) {
+	return &FlowSender{Pool: f.platform, Secrets: f.box, Tokens: tokens, Hostname: "box.example.test", UnsubscribeURL: "https://panel.example.test/api/v1/marketing/unsubscribe", Content: func(context.Context, int64, int64, string) (string, string, bool, error) {
 		return "Welcome", "Consented flow message", true, nil
 	}}
 }
@@ -96,7 +96,7 @@ func TestFlowSenderRequiresStepContent(t *testing.T) {
 	f := marketingFixture(t, 5, 1)
 	flowID := flowFixture(t, f, "recipient-0@example.test")
 	sender := flowSender(t, f)
-	sender.Content = func(context.Context, int64, string) (string, string, bool, error) { return "", "", false, nil }
+	sender.Content = func(context.Context, int64, int64, string) (string, string, bool, error) { return "", "", false, nil }
 	err := sender.Send(context.Background(), f.tenant, flowID, "recipient-0@example.test", "welcome")
 	if err == nil || !strings.Contains(err.Error(), "no content") {
 		t.Fatalf("missing content accepted: %v", err)

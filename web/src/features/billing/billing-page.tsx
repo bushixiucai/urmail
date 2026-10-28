@@ -385,7 +385,7 @@ export function BillingPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="billing-purchase" tabIndex={-1}>
         <CardHeader>
           <CardTitle className="text-base">
             {t("page.billing.choose_plan")}

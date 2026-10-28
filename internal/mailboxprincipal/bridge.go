@@ -63,6 +63,8 @@ func HashToken(token string) string {
 // ValidReference rejects ambiguous folder/UID and scope combinations.
 func ValidReference(scope, folder string, uid, validity int64) bool {
 	switch scope {
+	case "ai_compose":
+		return folder == "" && uid == 0 && validity == 0
 	case "sieve":
 		return folder == "" && uid == 0 && validity == 0
 	case "ai_context":

@@ -44,6 +44,7 @@ const (
 	ops009RestoreID   = "ops009-recovery-drill-0001"
 	ops009TenantSlug  = "ops009-replay"
 	ops009Domain      = "ops009.example.test"
+	ops009BrandHost   = "panel.ops009.example.test"
 	ops009DecoyBrand  = "ops009-decoy"
 	ops009EvidenceHex = "ops009-evidence-body"
 )
@@ -232,8 +233,8 @@ func ops009Seed(t *testing.T, dsn, evidenceDigest string) {
 		"  (t,camp,'ops009-sent@example.test','sent',NULL,NULL,5,w,true);\n" +
 		// 0124 transport security + 0128 brand host lifecycle.
 		" INSERT INTO domain_transport_security(tenant_id,domain_id,mtasts_policy_id,mtasts_mode,tls_rpt_rua) VALUES(t,d,'ops009-2026a','enforce','mailto:tlsrpt@ops009.example.test');\n" +
-		" INSERT INTO brand_hosts(hostname,brand_id,status,verified_at) VALUES('" + ops009Domain + "',b,'verified',now());\n" +
-		" INSERT INTO brand_host_challenges(hostname,token_digest,expires_at,consumed_at) VALUES('" + ops009Domain + "','" + pendingDigest + "',now()+interval '1 day',now());\n" +
+		" INSERT INTO brand_hosts(hostname,brand_id,status,verified_at) VALUES('" + ops009BrandHost + "',b,'verified',now());\n" +
+		" INSERT INTO brand_host_challenges(hostname,token_digest,expires_at,consumed_at) VALUES('" + ops009BrandHost + "','" + pendingDigest + "',now()+interval '1 day',now());\n" +
 		// 0045 notifications: an email lease to be held and an in-app row untouched.
 		" INSERT INTO notification_outbox(tenant_id,kind,message_key,dedupe_key,channel,recipient,recipient_verified,lease_until) VALUES(t,'ops009','drill','ops009-email-1','email','verified@example.test',true,now()+interval '30 minutes');\n" +
 		" INSERT INTO notification_outbox(tenant_id,kind,message_key,dedupe_key,channel) VALUES(t,'ops009','drill','ops009-inapp-1','in_app');\n" +
@@ -454,11 +455,11 @@ func ops009AssertFacts(t *testing.T, dsn string, evidenceDigest, sourceDigest st
 		 SELECT 1 FROM domain_transport_security s JOIN tenants t ON t.id=s.tenant_id
 		 WHERE t.slug='` + ops009TenantSlug + `' AND s.mtasts_policy_id='ops009-2026a' AND s.mtasts_mode='enforce'
 		   AND s.tls_rpt_rua='mailto:tlsrpt@ops009.example.test')`},
-		{"0128 brand host verified state survived", `SELECT EXISTS(
+		{"0128 brand hostname retained but restored ownership must be reverified", `SELECT EXISTS(
 		 SELECT 1 FROM brand_hosts h JOIN brands b ON b.id=h.brand_id
-		 WHERE h.hostname='` + ops009Domain + `' AND b.slug='ops009-source' AND h.status='verified' AND h.verified_at IS NOT NULL)`},
-		{"0128 consumed challenge survived", `SELECT EXISTS(
-		 SELECT 1 FROM brand_host_challenges WHERE hostname='` + ops009Domain + `' AND consumed_at IS NOT NULL)`},
+		 WHERE h.hostname='` + ops009BrandHost + `' AND b.slug='ops009-source' AND h.status='pending-verify' AND h.verified_at IS NULL AND h.cert_issued_at IS NULL AND h.activated_at IS NULL AND h.failure_reason='RESTORE_RECONCILIATION_REQUIRED')`},
+		{"0128 old DNS ownership challenge invalidated", `SELECT NOT EXISTS(
+		 SELECT 1 FROM brand_host_challenges WHERE hostname='` + ops009BrandHost + `')`},
 		{"0130 independent compliance grant survived", `SELECT EXISTS(
 		 SELECT 1 FROM compliance_grants g
 		 JOIN tenants t ON t.id=g.tenant_id
@@ -694,7 +695,7 @@ func ops009MaintenanceTables() []string {
 		"mailbox_ai_drafts", "ai_provider_configs", "ai_usage_requests",
 		"marketing_flows", "marketing_flow_steps", "marketing_flow_positions",
 		"marketing_channels", "marketing_campaigns", "marketing_recipients", "marketing_quota_windows",
-		"domain_transport_security", "brand_hosts", "brand_host_challenges",
+		"recurring_setup_intents", "mailbox_import_jobs", "mailbox_import_items", "recall_requests", "domain_dns_security", "domain_tls_reports", "domain_transport_security", "brand_hosts", "brand_host_challenges",
 		"notification_outbox", "subscription_renewal_attempts", "compliance_grants",
 	}
 }
@@ -716,6 +717,10 @@ func TestOPS009RecoveryDrill(t *testing.T) {
 		t.Fatalf("source schema is dirty at version %d", sourceVersion)
 	}
 	ops009Seed(t, source, ops009EvidenceDigest)
+	ops009SeedCalendarRecurring(t, source)
+	ops009SeedRecurringSetups(t, source)
+	ops009SeedRecallTransport(t, source)
+	ops009SeedMailImports(t, source)
 
 	// 1. Real pg_dump of the fully seeded database (custom format).
 	spool := t.TempDir()
@@ -766,6 +771,10 @@ func TestOPS009RecoveryDrill(t *testing.T) {
 	if !ops009Release(t, target) {
 		t.Fatal("explicit release refused")
 	}
+	ops009AssertCalendarRecurring(t, target)
+	ops009AssertRecurringSetups(t, target)
+	ops009AssertRecallTransport(t, target)
+	ops009AssertMailImports(t, target)
 	if _, err := targetConn.Exec(ctx, "INSERT INTO brands(slug,name) VALUES('ops009-post-release','After release')"); err != nil {
 		t.Fatalf("release must restore normal writability: %v", err)
 	}

@@ -112,6 +112,10 @@ func (h *MailboxNativeHandler) GetRules(c *gin.Context) {
 // existing managed-sieve pipeline. Dangerous modes (legacy scripts, mode
 // flips) stay admin/agent-gated and are never reachable from this path.
 func (h *MailboxNativeHandler) PutRules(c *gin.Context) {
+	if h.Sieve == nil {
+		authError(c, 503, "SIEVE_DISABLED")
+		return
+	}
 	session, ok := h.rulesReady(c)
 	if !ok {
 		return

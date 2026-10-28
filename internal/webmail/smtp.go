@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"strings"
@@ -114,7 +115,11 @@ func (s NetSubmitter) Send(ctx context.Context, address, password string, msg Ou
 	if from == "" {
 		from = address
 	}
-	if err = client.Mail(from); err != nil {
+	envelope, parseErr := mail.ParseAddress(from)
+	if parseErr != nil || strings.ContainsAny(envelope.Address, "\r\n") {
+		return Submission{}, fmt.Errorf("%w: invalid sender", ErrSubmitFailed)
+	}
+	if err = client.Mail(envelope.Address); err != nil {
 		return Submission{}, fmt.Errorf("%w: %w", ErrSubmitFailed, err)
 	}
 	rcpts := uniqueAddrs(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
@@ -173,6 +178,9 @@ func BuildMIME(from string, msg Outgoing) string {
 
 // BuildDraftMIME is BuildMIME plus a Bcc header so drafts can resume recipients.
 func BuildDraftMIME(from string, msg Outgoing) string {
+	if msg.From != "" {
+		from = msg.From
+	}
 	return buildMIME(from, msg, true)
 }
 
@@ -235,7 +243,13 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 				name = "attachment"
 			}
 			b.WriteString("Content-Type: " + ct + "; name=\"" + sanitizeFilename(name) + "\"\r\n")
-			b.WriteString("Content-Transfer-Encoding: base64\r\n")
+			// RFC 2046 section 5.2.1 forbids base64 for message/rfc822.
+			eml := strings.EqualFold(strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]), "message/rfc822")
+			if eml {
+				b.WriteString("Content-Transfer-Encoding: 8bit\r\n")
+			} else {
+				b.WriteString("Content-Transfer-Encoding: base64\r\n")
+			}
 			disposition := "attachment"
 			if att.Inline {
 				disposition = "inline"
@@ -245,7 +259,11 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 				writeHeader("Content-ID", "<"+strings.Trim(att.ContentID, "<>")+">")
 			}
 			b.WriteString("\r\n")
-			b.WriteString(wrapBase64(base64.StdEncoding.EncodeToString(att.Content)))
+			if eml {
+				b.Write(att.Content)
+			} else {
+				b.WriteString(wrapBase64(base64.StdEncoding.EncodeToString(att.Content)))
+			}
 			b.WriteString("\r\n")
 		}
 		b.WriteString("--" + boundary + "--\r\n")

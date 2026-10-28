@@ -1,0 +1,265 @@
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	netmail "net/mail"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/bushixiucai/urmail/internal/ai"
+	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/domain/aianswer"
+	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/webmail"
+)
+
+type nativeAIFixtureMail struct {
+	webmail.Client
+	mu       sync.Mutex
+	messages map[string]map[uint32]*webmail.Message
+	next     uint32
+}
+
+func (f *nativeAIFixtureMail) ListFolders(context.Context) ([]webmail.Folder, error) {
+	return webmail.WithEncodedNames([]webmail.Folder{{Name: "INBOX", Delimiter: "/"}, {Name: "Drafts", Delimiter: "/", Flags: []string{`\Drafts`}}}), nil
+}
+func (f *nativeAIFixtureMail) FolderUIDValidity(context.Context, string) (uint32, error) {
+	return 9, nil
+}
+func (f *nativeAIFixtureMail) ListMessages(_ context.Context, folder string, opts webmail.ListOpts) (webmail.ListResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	result := webmail.ListResult{Messages: []webmail.MessageSummary{}, Total: len(f.messages[folder])}
+	for uid, msg := range f.messages[folder] {
+		if opts.CursorUID == 0 || uid < opts.CursorUID {
+			result.Messages = append(result.Messages, msg.MessageSummary)
+		}
+	}
+	sort.Slice(result.Messages, func(i, j int) bool { return result.Messages[i].UID > result.Messages[j].UID })
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if len(result.Messages) > limit {
+		result.Messages = result.Messages[:limit]
+		result.NextCursor = result.Messages[len(result.Messages)-1].UID
+	}
+	return result, nil
+}
+func (f *nativeAIFixtureMail) GetMessage(_ context.Context, folder string, uid uint32) (*webmail.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	msg, ok := f.messages[folder][uid]
+	if !ok {
+		return nil, webmail.ErrMessageNotFound
+	}
+	cloned := *msg
+	return &cloned, nil
+}
+func (f *nativeAIFixtureMail) SetFlags(context.Context, string, []uint32, []string, []string) error {
+	return nil
+}
+func (f *nativeAIFixtureMail) SaveDraft(_ context.Context, from string, msg webmail.Outgoing, replace, validity uint32) (webmail.DraftSaveResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if replace != 0 && (validity != 9 || f.messages["Drafts"][replace] == nil) {
+		return webmail.DraftSaveResult{}, webmail.ErrDraftChanged
+	}
+	if replace != 0 {
+		delete(f.messages["Drafts"], replace)
+	}
+	f.next++
+	uid := f.next
+	addrs := func(values []string) []webmail.Address {
+		out := make([]webmail.Address, 0, len(values))
+		for _, value := range values {
+			out = append(out, webmail.Address{Email: value})
+		}
+		return out
+	}
+	identity, err := netmail.ParseAddress(msg.From)
+	if err != nil {
+		identity = &netmail.Address{Address: from}
+	}
+	f.messages["Drafts"][uid] = &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: msg.Subject, InReplyTo: msg.InReplyTo, From: []webmail.Address{{Name: identity.Name, Email: identity.Address}}, Flags: []string{`\Draft`}, Date: time.Now()}, UIDValidity: 9, To: addrs(msg.To), Cc: addrs(msg.Cc), Bcc: addrs(msg.Bcc), Text: msg.Text, HTML: msg.HTML, Attachments: []webmail.AttachmentMeta{}}
+	return webmail.DraftSaveResult{Folder: "Drafts", NameEnc: webmail.EncodeFolderName("Drafts"), UID: uid, UIDValidity: 9}, nil
+}
+func (f *nativeAIFixtureMail) Close() error { return nil }
+
+type nativeAIFixtureDialer struct{ client *nativeAIFixtureMail }
+
+func (f nativeAIFixtureDialer) Dial(context.Context, string, string) (webmail.Client, error) {
+	return f.client, nil
+}
+
+type nativeAIFixtureModel struct {
+	calls atomic.Int64
+	hook  func()
+}
+
+func (*nativeAIFixtureModel) Name() string { return "deterministic-test-provider" }
+func (model *nativeAIFixtureModel) Complete(ctx context.Context, request ai.CompletionRequest) (ai.CompletionResponse, error) {
+	select {
+	case <-ctx.Done():
+		return ai.CompletionResponse{}, ctx.Err()
+	case <-time.After(100 * time.Millisecond):
+	}
+	model.calls.Add(1)
+	var input ai.OperationInput
+	_ = json.Unmarshal([]byte(request.Messages[len(request.Messages)-1].Content), &input)
+	var output any
+	switch input.Operation {
+	case "classify":
+		output = map[string]any{"category": "finance", "score": 0.95}
+	case "summarize":
+		output = map[string]any{"summary": "Invoice total: 42 euros. Payment is due on Friday."}
+	case "translate":
+		output = map[string]any{"translation": "发票总金额为42欧元，请于星期五之前付款。"}
+	case "phishing":
+		output = map[string]any{"score": 0.2, "reasons": []string{"Verify the sender and invoice details independently."}}
+	case "polish":
+		output = map[string]any{"draft": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday."}
+	case "draft_new", "draft_reply":
+		output = map[string]any{"subject": "Invoice follow-up", "body": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday.\n\nKind regards"}
+	default:
+		return ai.CompletionResponse{}, ai.ErrInvalidRequest
+	}
+	if model.hook != nil {
+		model.hook()
+	}
+	raw, _ := json.Marshal(output)
+	return ai.CompletionResponse{Content: string(raw), PromptTokens: 12, OutputTokens: 18, TotalTokens: 30, UsageKnown: true}, nil
+}
+
+func TestNativeAIBrowserFixture(t *testing.T) {
+	directory := os.Getenv("URMAIL_AI_BROWSER_FIXTURE_DIR")
+	if directory == "" || testing.Short() {
+		t.Skip("explicit browser fixture directory required")
+	}
+	f := newNativeAIHTTPFixture(t)
+	r, p, principal, password := f.router, f.pool, f.principal, f.password
+	_ = p
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.GET("/api/v1/i18n/:locale", func(c *gin.Context) {
+		locale := c.Param("locale")
+		if locale != "en" && locale != "zh-CN" {
+			c.Status(404)
+			return
+		}
+		c.File(filepath.Join(root, "internal/i18n/locales", locale+".json"))
+	})
+	r.GET("/api/v1/branding", func(c *gin.Context) { c.JSON(200, gin.H{"name": "urMail", "primary_color": "#2563eb"}) })
+	r.Static("/assets", filepath.Join(root, "web/dist/assets"))
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(404, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
+			return
+		}
+		c.File(filepath.Join(root, "web/dist/index.html"))
+	})
+	server := httptest.NewServer(r)
+	defer server.Close()
+	if err = os.MkdirAll(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture, _ := json.Marshal(map[string]any{"url": server.URL, "address": principal.Address, "password": password, "tenant_id": principal.TenantID})
+	if err = os.WriteFile(filepath.Join(directory, "fixture.json"), fixture, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("NATIVE_AI_BROWSER_READY " + server.URL)
+	deadline := time.NewTimer(25 * time.Minute)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			t.Fatal("browser fixture deadline elapsed")
+		case <-ticker.C:
+			if _, err = os.Stat(filepath.Join(directory, "stop")); err == nil {
+				return
+			}
+		}
+	}
+}
+
+type nativeAIHTTPFixture struct {
+	router    *gin.Engine
+	pool      *db.Pool
+	principal store.PlatformConsumeMailboxTicketRow
+	password  string
+	mail      *nativeAIFixtureMail
+	model     *nativeAIFixtureModel
+	native    *MailboxNativeHandler
+	aiService *MailboxAIService
+	search    *AISearchAsk
+}
+
+func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
+	p, principal := mailboxAIFixture(t, 1000)
+	password := "native-ai-fixture-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	hash, err := domainMail.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.Exec(t.Context(), "UPDATE mailboxes SET password_hash=$1 WHERE tenant_id=$2 AND id=$3", hash, principal.TenantID, principal.MailboxID); err != nil {
+		t.Fatal(err)
+	}
+	mail := &nativeAIFixtureMail{next: 1000, messages: map[string]map[uint32]*webmail.Message{"INBOX": {5: {MessageSummary: webmail.MessageSummary{UID: 5, MessageID: "<invoice@ai.example.test>", Subject: "Invoice for October — 42 euros", From: []webmail.Address{{Name: "Billing team", Email: "billing@example.test"}}, Flags: []string{`\Seen`}, Date: time.Now(), Size: 120}, UIDValidity: 9, To: []webmail.Address{{Email: principal.Address}}, Text: "The October invoice total is 42 euros. Payment is due on Friday. Please confirm the bank details independently.", Attachments: []webmail.AttachmentMeta{}}}, "Drafts": {}}}
+	q := store.New(p)
+	sessions := StoreMailboxNative{Q: q}
+	vault := webmail.NewMemoryVault()
+	native := &MailboxNativeHandler{Enabled: true, Pool: p, Auth: sessions, Sessions: sessions, Vault: vault, Dialer: nativeAIFixtureDialer{mail}, SelfSettings: StoreMailboxSelfSettings{Pool: p}, Rules: StoreMailboxRules{Pool: p}, Sieve: &fakeActivator{}}
+	model := &nativeAIFixtureModel{}
+	service := &MailboxAIService{Pool: p, Provider: func(store.AiProviderConfigs) (ai.Provider, error) { return model, nil }}
+	answer := &AISearchAsk{Pool: p, Dialer: native.Dialer, Vault: vault, Accounting: AISearchAskAccounting{Pool: p}, ModelFor: func(context.Context, int64) (aianswer.Model, error) {
+		return func(_ context.Context, _ string, sources []aianswer.Source) (string, []string, error) {
+			if len(sources) == 0 {
+				return "No supporting mail", nil, nil
+			}
+			return "The invoice total is 42 euros.", []string{sources[0].ID}, nil
+		}, nil
+	}}
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.GET("/api/v1/mailbox/status", native.Status)
+	r.POST("/api/v1/mailbox/session", native.CreateSession)
+	r.DELETE("/api/v1/mailbox/session", native.DeleteSession)
+	authed := r.Group("/api/v1/mailbox")
+	authed.Use(middleware.RequireMailboxAuth(sessions, vault))
+	authed.GET("/folders", native.ListFolders)
+	authed.GET("/folders/:name/messages", native.ListMessages)
+	authed.GET("/folders/:name/messages/:uid", native.GetMessage)
+	authed.POST("/folders/:name/messages/flags", native.FlagMessages)
+	authed.PUT("/drafts", native.SaveDraft)
+	authed.GET("/settings", native.GetSettings)
+	authed.PUT("/settings", native.PutSettings)
+	authed.GET("/identities", native.ListIdentities)
+	authed.GET("/quota", native.GetQuota)
+	authed.GET("/rules", native.GetRules)
+	authed.PUT("/rules", native.PutRules)
+	authed.POST("/send", native.SendMessage)
+
+	authed.GET("/drafts", native.ListDrafts)
+	RegisterNativeMailboxAI(authed, native, service, answer)
+	authed.POST("/ai/search-ask", answer.Handle)
+	authed.GET("/ai/budget", (&AISearchAskAccounting{Pool: p}).BudgetStatus)
+	return nativeAIHTTPFixture{router: r, pool: p, principal: principal, password: password, mail: mail, model: model, native: native, aiService: service, search: answer}
+}

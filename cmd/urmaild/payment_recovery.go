@@ -15,7 +15,7 @@ import (
 
 // startPaymentRecovery classifies expired side-effect leases as uncertain.
 func startPaymentRecovery(ctx context.Context, cfg *config.Config, pool *db.Pool, box handlers.SecretsBox, baseURL string, legacyStripe *payment.Stripe, logger *zap.Logger) {
-	if cfg.DevMode || cfg.Quarantined {
+	if !cfg.BackgroundWorkersAllowed() {
 		return
 	}
 	gateway := &handlers.PaymentGatewayHandler{LegacyStripe: legacyStripe, Pool: pool, Platform: store.New(pool), Secrets: box, Registry: &payment.Registry{Store: store.New(pool), Secrets: box, BaseURL: baseURL}}

@@ -17,8 +17,18 @@ UPDATE marketing_recipients SET status='queued',fence=fence+1,lease_owner=NULL,l
 WHERE status='leased' AND lease_until<=now();
 
 -- name: PlatformClaimMarketingRecipient :one
-WITH candidate AS (
+WITH tenant_candidate AS MATERIALIZED (
+ SELECT d.tenant_id FROM platform_marketing_dispatch d
+ WHERE EXISTS(SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
+  WHERE r.tenant_id=d.tenant_id AND r.status='queued' AND r.next_attempt_at<=now()
+  AND c.status IN('scheduled','running') AND c.scheduled_at<=now())
+ ORDER BY d.last_turn,d.tenant_id FOR UPDATE OF d SKIP LOCKED LIMIT 1
+), turn AS (
+ UPDATE platform_marketing_dispatch d SET last_turn=nextval('platform_marketing_dispatch_turn_seq')
+ FROM tenant_candidate t WHERE d.tenant_id=t.tenant_id RETURNING d.tenant_id
+), candidate AS (
  SELECT r.id FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
+ JOIN turn d ON d.tenant_id=r.tenant_id
  WHERE r.status='queued' AND r.next_attempt_at<=now() AND c.status IN('scheduled','running') AND c.scheduled_at<=now()
  ORDER BY r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1
 )

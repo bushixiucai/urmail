@@ -1,9 +1,11 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ApiRequestError } from "@/lib/api/client";
+import { AppearanceControls } from "@/components/appearance-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatZonedInput, zonedInputToISO } from "./people-time";
 
 import {
   getMailboxSettings,
@@ -14,7 +16,9 @@ import {
   saveMailboxRules,
   MailboxSettingsView,
   MailboxIdentity,
+  MailboxIdentityProfile,
   MailboxRulesView,
+  MailboxSieveRule,
 } from "./mailbox-api";
 
 function formatBytes(
@@ -41,6 +45,17 @@ export function MailboxSettingsPage() {
   const [displayName, setDisplayName] = useState("");
   const [signatureText, setSignatureText] = useState("");
   const [signatureHtml, setSignatureHtml] = useState("");
+  const [editorIdentity, setEditorIdentity] = useState("");
+  const [profiles, setProfiles] = useState<
+    Record<string, MailboxIdentityProfile>
+  >({});
+  const [defaultFrom, setDefaultFrom] = useState("");
+  const [quoteOriginal, setQuoteOriginal] = useState(true);
+  const [replyIdentity, setReplyIdentity] = useState("recipient");
+  const [timezone, setTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  const [dateFormat, setDateFormat] = useState("locale");
   const [identities, setIdentities] = useState<MailboxIdentity[]>([]);
   const [quota, setQuota] = useState<{
     used_bytes: number;
@@ -49,6 +64,22 @@ export function MailboxSettingsPage() {
   const [rules, setRules] = useState<MailboxRulesView | null>(null);
   const [vacationOn, setVacationOn] = useState(false);
   const [vacationSubject, setVacationSubject] = useState("");
+  const [vacationMessage, setVacationMessage] = useState("");
+  const [vacationFrom, setVacationFrom] = useState("");
+  const [vacationUntil, setVacationUntil] = useState("");
+  const [vacationDST, setVacationDST] = useState<"earlier" | "later">(
+    "earlier",
+  );
+  const originalVacation = useRef<{
+    zone: string;
+    from: string;
+    until: string;
+    fromInput: string;
+    untilInput: string;
+  } | null>(null);
+  const changedVacationDST = useRef(false);
+  const [headerRules, setHeaderRules] = useState<MailboxSieveRule[]>([]);
+  const [rulesConfirmed, setRulesConfirmed] = useState(false);
   const [vacationDays, setVacationDays] = useState(1);
   const [forwardOn, setForwardOn] = useState(false);
   const [forwardTarget, setForwardTarget] = useState("");
@@ -67,6 +98,27 @@ export function MailboxSettingsPage() {
           getMailboxRules(),
         ]);
         setSettings(s);
+        setQuoteOriginal(s.preferences.quote_original !== false);
+        setEditorIdentity(s.address);
+        setProfiles(s.identity_profiles ?? {});
+        setDefaultFrom(
+          typeof s.preferences.default_from === "string"
+            ? s.preferences.default_from
+            : s.address,
+        );
+        setReplyIdentity(
+          s.preferences.reply_identity === "default" ? "default" : "recipient",
+        );
+        setTimezone(
+          typeof s.preferences.timezone === "string"
+            ? s.preferences.timezone
+            : Intl.DateTimeFormat().resolvedOptions().timeZone,
+        );
+        setDateFormat(
+          typeof s.preferences.date_format === "string"
+            ? s.preferences.date_format
+            : "locale",
+        );
         setDisplayName(s.display_name);
         setSignatureText(s.signature_text);
         setSignatureHtml(s.signature_html);
@@ -75,6 +127,32 @@ export function MailboxSettingsPage() {
         setRules(r);
         setVacationOn(r.rules.vacation.enabled);
         setVacationSubject(r.rules.vacation.subject);
+        setVacationMessage(r.rules.vacation.message);
+        setHeaderRules(r.rules.rules ?? []);
+        const zone =
+          typeof s.preferences.timezone === "string"
+            ? s.preferences.timezone
+            : Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const initialFrom =
+          r.rules.vacation.from && !r.rules.vacation.from.startsWith("0001")
+            ? r.rules.vacation.from
+            : new Date().toISOString();
+        const initialUntil =
+          r.rules.vacation.until && !r.rules.vacation.until.startsWith("0001")
+            ? r.rules.vacation.until
+            : new Date(Date.now() + 7 * 86400000).toISOString();
+        const fromInput = formatZonedInput(initialFrom, zone),
+          untilInput = formatZonedInput(initialUntil, zone);
+        setVacationFrom(fromInput);
+        setVacationUntil(untilInput);
+        originalVacation.current = {
+          zone,
+          from: initialFrom,
+          until: initialUntil,
+          fromInput,
+          untilInput,
+        };
+        changedVacationDST.current = false;
         setVacationDays(r.rules.vacation.days || 1);
         setForwardOn(Boolean(r.rules.forwarding?.enabled));
         setForwardTarget(r.rules.forwarding?.target ?? "");
@@ -98,20 +176,44 @@ export function MailboxSettingsPage() {
     setError(null);
     setSaved(false);
     try {
+      const valid = new Set(identities.map((value) => value.address));
+      const nextProfiles = Object.fromEntries(
+        Object.entries({
+          ...profiles,
+          [editorIdentity]: {
+            display_name: displayName,
+            signature_text: signatureText,
+            signature_html: signatureHtml,
+          },
+        }).filter(([address]) => valid.has(address)),
+      );
+      const preferences = {
+        ...settings.preferences,
+        default_from: valid.has(defaultFrom) ? defaultFrom : settings.address,
+        reply_identity: replyIdentity,
+        quote_original: quoteOriginal,
+        timezone,
+        date_format: dateFormat,
+      };
+      const primary = editorIdentity === settings.address;
       const next = await saveMailboxSettings({
-        display_name: displayName,
-        signature_text: signatureText,
-        signature_html: signatureHtml,
-        preferences: settings.preferences,
+        identity_profiles: nextProfiles,
+        display_name: primary ? displayName : settings.display_name,
+        signature_text: primary ? signatureText : settings.signature_text,
+        signature_html: primary ? signatureHtml : settings.signature_html,
+        preferences,
         expected_version: settings.version,
       });
       setSettings({
         ...settings,
         version: next.version,
-        display_name: displayName,
-        signature_text: signatureText,
-        signature_html: signatureHtml,
+        identity_profiles: nextProfiles,
+        preferences,
+        display_name: primary ? displayName : settings.display_name,
+        signature_text: primary ? signatureText : settings.signature_text,
+        signature_html: primary ? signatureHtml : settings.signature_html,
       });
+      setProfiles(nextProfiles);
       setSaved(true);
     } catch (err) {
       setError(
@@ -126,20 +228,49 @@ export function MailboxSettingsPage() {
     }
   };
 
+  const editRule = (index: number, patch: Partial<MailboxSieveRule>) => {
+    setRulesConfirmed(false);
+    setHeaderRules((values) =>
+      values.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)),
+    );
+  };
+  const vacationISO = (which: "from" | "until") => {
+    const value = which === "from" ? vacationFrom : vacationUntil,
+      original = originalVacation.current;
+    if (
+      original &&
+      original.zone === timezone &&
+      !changedVacationDST.current &&
+      value === (which === "from" ? original.fromInput : original.untilInput)
+    )
+      return original[which];
+    return zonedInputToISO(value, timezone, vacationDST);
+  };
   const saveRules = async (e: FormEvent) => {
     e.preventDefault();
-    if (!rules) return;
+    if (!rules || !rulesConfirmed) return;
     setBusy(true);
     setError(null);
     setSaved(false);
     try {
+      if (vacationOn) {
+        const start = vacationISO("from"),
+          end = vacationISO("until");
+        if (
+          new Date(end) <= new Date(start) ||
+          new Date(end).getTime() - new Date(start).getTime() > 366 * 86400000
+        )
+          throw new Error("INVALID_LOCAL_TIME");
+      }
       const next = await saveMailboxRules({
         rules: {
-          rules: rules.rules.rules,
+          rules: headerRules,
           vacation: {
             enabled: vacationOn,
             subject: vacationSubject,
-            message: rules.rules.vacation.message || vacationSubject,
+            message: vacationMessage,
+            from: vacationOn ? vacationISO("from") : undefined,
+            until: vacationOn ? vacationISO("until") : undefined,
             days: vacationDays,
           },
           forwarding: forwardOn
@@ -149,15 +280,18 @@ export function MailboxSettingsPage() {
         confirmed: true,
         expected_version: rules.version,
       });
-      setRules({ ...rules, version: next.version });
+      setRules({ ...rules, version: next.version, state: next.state });
+      setRulesConfirmed(false);
       setSaved(true);
     } catch (err) {
       setError(
-        err instanceof ApiRequestError
-          ? t("error." + err.code, {
-              defaultValue: t("page.webmail.settings_save_failed"),
-            })
-          : t("page.webmail.settings_save_failed"),
+        err instanceof Error && err.message === "INVALID_LOCAL_TIME"
+          ? t("page.webmail.settings_invalid_local_time")
+          : err instanceof ApiRequestError
+            ? t("error." + err.code, {
+                defaultValue: t("page.webmail.settings_save_failed"),
+              })
+            : t("page.webmail.settings_save_failed"),
       );
     } finally {
       setBusy(false);
@@ -169,13 +303,14 @@ export function MailboxSettingsPage() {
       className="mx-auto max-w-2xl px-4 py-8 space-y-8"
       aria-label={t("page.webmail.settings_title")}
     >
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">
           {t("page.webmail.settings_title")}
         </h1>
         <Link to="/webmail/inbox" className="text-sm underline">
           {t("page.webmail.settings_back")}
         </Link>
+        <AppearanceControls className="w-full sm:w-auto" />
       </header>
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -193,6 +328,42 @@ export function MailboxSettingsPage() {
           {t("page.webmail.settings_identity")}
         </h2>
         <form onSubmit={(e) => void saveIdentity(e)} className="space-y-3">
+          <label className="block space-y-1 text-sm">
+            <span>{t("page.webmail.identity_profile")}</span>
+            <select
+              value={editorIdentity}
+              className="h-11 w-full rounded-md border bg-background px-3"
+              onChange={(e) => {
+                const selected = e.target.value;
+                const next = {
+                  ...profiles,
+                  [editorIdentity]: {
+                    display_name: displayName,
+                    signature_text: signatureText,
+                    signature_html: signatureHtml,
+                  },
+                };
+                setProfiles(next);
+                setEditorIdentity(selected);
+                const profile =
+                  next[selected] ??
+                  (selected === settings?.address ? settings : null);
+                setDisplayName(profile?.display_name ?? "");
+                setSignatureText(profile?.signature_text ?? "");
+                setSignatureHtml(profile?.signature_html ?? "");
+                setSaved(false);
+              }}
+            >
+              {identities.map((identity) => (
+                <option key={identity.address} value={identity.address}>
+                  {identity.address}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-muted-foreground">
+            {t("page.webmail.identity_signature_scope")}
+          </p>
           <div className="space-y-1">
             <label htmlFor="display-name" className="text-sm font-medium">
               {t("page.webmail.settings_display_name")}
@@ -226,6 +397,72 @@ export function MailboxSettingsPage() {
               onChange={(e) => setSignatureHtml(e.target.value)}
             />
           </div>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={quoteOriginal}
+              onChange={(e) => setQuoteOriginal(e.target.checked)}
+            />
+            {t("page.webmail.settings_quote_original")}
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1 text-sm">
+              <span>{t("page.webmail.identity_default_from")}</span>
+              <select
+                className="h-11 w-full rounded-md border bg-background px-3"
+                value={defaultFrom}
+                onChange={(e) => setDefaultFrom(e.target.value)}
+              >
+                {identities.map((value) => (
+                  <option key={value.address} value={value.address}>
+                    {value.address}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>{t("page.webmail.identity_reply_default")}</span>
+              <select
+                className="h-11 w-full rounded-md border bg-background px-3"
+                value={replyIdentity}
+                onChange={(e) => setReplyIdentity(e.target.value)}
+              >
+                <option value="recipient">
+                  {t("page.webmail.identity_reply_recipient")}
+                </option>
+                <option value="default">
+                  {t("page.webmail.identity_reply_preferred")}
+                </option>
+              </select>
+            </label>
+            <label
+              className="block space-y-1 text-sm"
+              htmlFor="mailbox-timezone"
+            >
+              <span>{t("page.webmail.settings_timezone")}</span>
+              <Input
+                id="mailbox-timezone"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                placeholder="Asia/Shanghai"
+                required
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>{t("page.webmail.settings_date_format")}</span>
+              <select
+                className="h-11 w-full rounded-md border bg-background px-3"
+                value={dateFormat}
+                onChange={(e) => setDateFormat(e.target.value)}
+              >
+                {["locale", "iso", "day_first", "month_first"].map((format) => (
+                  <option key={format} value={format}>
+                    {t("page.webmail.settings_date_" + format)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <Button type="submit" disabled={busy}>
             {t("page.webmail.settings_save")}
           </Button>
@@ -255,6 +492,175 @@ export function MailboxSettingsPage() {
           {t("page.webmail.settings_rules")}
         </h2>
         <form onSubmit={(e) => void saveRules(e)} className="space-y-3">
+          <fieldset className="space-y-3 rounded border p-3">
+            <legend className="px-1 text-sm">
+              {t("page.webmail.settings_header_rules")}
+            </legend>
+            <p className="text-xs text-muted-foreground">
+              {t("page.webmail.settings_rule_order")}
+            </p>
+            {headerRules.map((rule, index) => (
+              <div
+                key={index}
+                className="space-y-2 border-b pb-3 last:border-0"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={!rule.disabled}
+                      onChange={(e) =>
+                        editRule(index, { disabled: !e.target.checked })
+                      }
+                    />
+                    {t("page.webmail.settings_rule_enabled", {
+                      number: index + 1,
+                    })}
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={index === 0 || busy}
+                    onClick={() => {
+                      setRulesConfirmed(false);
+                      setHeaderRules((values) => {
+                        const copy = [...values];
+                        [copy[index - 1], copy[index]] = [
+                          copy[index],
+                          copy[index - 1],
+                        ];
+                        return copy;
+                      });
+                    }}
+                  >
+                    {t("page.webmail.settings_rule_up")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setRulesConfirmed(false);
+                      setHeaderRules((values) =>
+                        values.filter((_, i) => i !== index),
+                      );
+                    }}
+                  >
+                    {t("page.webmail.settings_rule_remove")}
+                  </Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="space-y-1 text-sm">
+                    <span>{t("page.webmail.settings_rule_header")}</span>
+                    <select
+                      aria-label={t(
+                        "page.webmail.settings_rule_header_number",
+                        { number: index + 1 },
+                      )}
+                      className="h-11 w-full rounded-md border bg-background px-2"
+                      value={rule.header}
+                      onChange={(e) =>
+                        editRule(index, {
+                          header: e.target.value as MailboxSieveRule["header"],
+                        })
+                      }
+                    >
+                      {["subject", "from", "to", "cc"].map((header) => (
+                        <option key={header} value={header}>
+                          {t("page.webmail.settings_header_" + header)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>{t("page.webmail.settings_rule_match")}</span>
+                    <select
+                      className="h-11 w-full rounded-md border bg-background px-2"
+                      value={rule.match}
+                      onChange={(e) =>
+                        editRule(index, {
+                          match: e.target.value as MailboxSieveRule["match"],
+                        })
+                      }
+                    >
+                      <option value="contains">
+                        {t("page.webmail.settings_match_contains")}
+                      </option>
+                      <option value="is">
+                        {t("page.webmail.settings_match_is")}
+                      </option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>{t("page.webmail.settings_rule_value")}</span>
+                    <Input
+                      aria-label={t("page.webmail.settings_rule_value_number", {
+                        number: index + 1,
+                      })}
+                      required
+                      maxLength={2000}
+                      value={rule.value}
+                      onChange={(e) =>
+                        editRule(index, { value: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>{t("page.webmail.settings_rule_action")}</span>
+                    <select
+                      className="h-11 w-full rounded-md border bg-background px-2"
+                      value={rule.action}
+                      onChange={(e) =>
+                        editRule(index, {
+                          action: e.target.value as MailboxSieveRule["action"],
+                        })
+                      }
+                    >
+                      {["keep", "fileinto", "discard"].map((action) => (
+                        <option key={action} value={action}>
+                          {t("page.webmail.settings_action_" + action)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {rule.action === "fileinto" && (
+                  <label className="block space-y-1 text-sm">
+                    <span>{t("page.webmail.settings_rule_folder")}</span>
+                    <Input
+                      required
+                      maxLength={128}
+                      value={rule.folder ?? ""}
+                      onChange={(e) =>
+                        editRule(index, { folder: e.target.value })
+                      }
+                    />
+                  </label>
+                )}
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || headerRules.length >= 50}
+              onClick={() => {
+                setRulesConfirmed(false);
+                setHeaderRules((values) => [
+                  ...values,
+                  {
+                    header: "subject",
+                    match: "contains",
+                    value: "",
+                    action: "keep",
+                  },
+                ]);
+              }}
+            >
+              {t("page.webmail.settings_rule_add")}
+            </Button>
+          </fieldset>
+
           <fieldset className="space-y-2 border rounded p-3">
             <legend className="text-sm px-1">
               {t("page.webmail.settings_vacation")}
@@ -263,7 +669,10 @@ export function MailboxSettingsPage() {
               <input
                 type="checkbox"
                 checked={vacationOn}
-                onChange={(e) => setVacationOn(e.target.checked)}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setVacationOn(e.target.checked);
+                }}
               />
               {t("page.webmail.settings_vacation_enable")}
             </label>
@@ -274,9 +683,84 @@ export function MailboxSettingsPage() {
               <Input
                 id="vacation-subject"
                 value={vacationSubject}
-                onChange={(e) => setVacationSubject(e.target.value)}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setVacationSubject(e.target.value);
+                }}
                 disabled={!vacationOn}
               />
+            </div>
+            <label
+              className="block space-y-1 text-sm"
+              htmlFor="vacation-message"
+            >
+              <span>{t("page.webmail.settings_vacation_message")}</span>
+              <textarea
+                id="vacation-message"
+                className="min-h-24 w-full rounded-md border bg-background p-2"
+                maxLength={8192}
+                value={vacationMessage}
+                disabled={!vacationOn}
+                required={vacationOn}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setVacationMessage(e.target.value);
+                }}
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>{t("page.webmail.settings_vacation_dst")}</span>
+              <select
+                className="h-11 w-full rounded-md border bg-background px-2"
+                value={vacationDST}
+                disabled={!vacationOn}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  changedVacationDST.current = true;
+                  setVacationDST(e.target.value as "earlier" | "later");
+                }}
+              >
+                <option value="earlier">
+                  {t("page.webmail.settings_dst_earlier")}
+                </option>
+                <option value="later">
+                  {t("page.webmail.settings_dst_later")}
+                </option>
+              </select>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t("page.webmail.settings_vacation_zone", { zone: timezone })}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[
+                [
+                  "vacation-from",
+                  vacationFrom,
+                  setVacationFrom,
+                  "page.webmail.settings_vacation_from",
+                ],
+                [
+                  "vacation-until",
+                  vacationUntil,
+                  setVacationUntil,
+                  "page.webmail.settings_vacation_until",
+                ],
+              ].map(([id, value, setter, label]) => (
+                <label key={id as string} className="space-y-1 text-sm">
+                  <span>{t(label as string)}</span>
+                  <Input
+                    id={id as string}
+                    type="datetime-local"
+                    disabled={!vacationOn}
+                    required={vacationOn}
+                    value={value as string}
+                    onChange={(e) => {
+                      setRulesConfirmed(false);
+                      (setter as (value: string) => void)(e.target.value);
+                    }}
+                  />
+                </label>
+              ))}
             </div>
             <div className="space-y-1">
               <label htmlFor="vacation-days" className="text-sm font-medium">
@@ -288,7 +772,10 @@ export function MailboxSettingsPage() {
                 min={1}
                 max={30}
                 value={vacationDays}
-                onChange={(e) => setVacationDays(Number(e.target.value) || 1)}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setVacationDays(Number(e.target.value) || 1);
+                }}
                 disabled={!vacationOn}
               />
             </div>
@@ -301,7 +788,10 @@ export function MailboxSettingsPage() {
               <input
                 type="checkbox"
                 checked={forwardOn}
-                onChange={(e) => setForwardOn(e.target.checked)}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setForwardOn(e.target.checked);
+                }}
               />
               {t("page.webmail.settings_forwarding_enable")}
             </label>
@@ -313,7 +803,10 @@ export function MailboxSettingsPage() {
                 id="forward-target"
                 type="email"
                 value={forwardTarget}
-                onChange={(e) => setForwardTarget(e.target.value)}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setForwardTarget(e.target.value);
+                }}
                 disabled={!forwardOn}
               />
             </div>
@@ -321,13 +814,33 @@ export function MailboxSettingsPage() {
               <input
                 type="checkbox"
                 checked={forwardCopy}
-                onChange={(e) => setForwardCopy(e.target.checked)}
+                onChange={(e) => {
+                  setRulesConfirmed(false);
+                  setForwardCopy(e.target.checked);
+                }}
                 disabled={!forwardOn}
               />
               {t("page.webmail.settings_forwarding_copy")}
             </label>
           </fieldset>
-          <Button type="submit" disabled={busy || !rules}>
+          <label className="flex min-h-11 items-start gap-2 py-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={rulesConfirmed}
+              onChange={(e) => setRulesConfirmed(e.target.checked)}
+            />
+            <span>{t("page.webmail.settings_rules_confirm")}</span>
+          </label>
+          <Button
+            type="submit"
+            disabled={
+              busy ||
+              !rules ||
+              !rulesConfirmed ||
+              rules.state === "legacy_managesieve"
+            }
+          >
             {t("page.webmail.settings_save")}
           </Button>
         </form>

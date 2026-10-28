@@ -19,21 +19,22 @@ const (
 )
 
 // ErrNoChargingChannel means the subscription has no charging-capable payment
-// channel enrolled. Channels cannot charge saved instruments yet, so this is
-// the current reality for every subscription.
+// channel enrolled. Checkout support does not imply recurring capability.
 var ErrNoChargingChannel = errors.New("no charging-capable payment channel is enrolled")
 
 // ChargeRequest is one bounded charge of a saved instrument for one renewal
-// period. IdempotencyKey (subscription_id:period_end:attempt_id) must be
-// passed to the provider so a retried or uncertain charge can never bill twice.
+// period. Each definitely declined charge has a distinct generation key.
+// Unknown outcomes retain their original key and permit Query only.
 type ChargeRequest struct {
-	TenantID       int64
-	SubscriptionID int64
-	AttemptID      int64
-	PeriodEnd      time.Time
-	AmountCents    int64
-	Currency       string
-	IdempotencyKey string
+	TenantID               int64
+	SubscriptionID         int64
+	AttemptID              int64
+	PeriodEnd              time.Time
+	AmountCents            int64
+	Currency               string
+	IdempotencyKey         string
+	MerchantScope          string
+	AuthorizationReference string
 }
 
 // ChargeOutcome carries the provider's answer. Uncertain means the provider
@@ -68,12 +69,19 @@ type Store interface {
 	PlatformGetRenewalChargeContext(context.Context, int64) (store.PlatformGetRenewalChargeContextRow, error)
 }
 
-// Worker records due renewals as explicit payment failures.
-// Without a ChargerResolver (or with no charging-capable channel enrolled) it
-// has no payment provider and must not mark an order paid. When a confirmed
-// charge succeeds, settlement goes through the idempotent
-// PlatformSettleRenewalAttempt path via Settlements.
+// ChargeCoordinator persists a fenced intent under the billing tenant lock.
+type ChargeCoordinator interface {
+	BeginCharge(context.Context, store.SubscriptionRenewalAttempts, string) (store.SubscriptionRenewalAttempts, error)
+}
+
+type claimStore interface {
+	PlatformRecoverRenewalLeases(context.Context) error
+	PlatformCompleteRenewalClaim(context.Context, store.PlatformCompleteRenewalClaimParams) (int64, error)
+}
+
+// Worker processes bounded charges and read-only reconciliation separately.
 type Worker struct {
+	Coordinator ChargeCoordinator
 	Store       Store
 	Chargers    ChargerResolver
 	Settlements SettlementStore
@@ -81,81 +89,90 @@ type Worker struct {
 
 // RunOnce enqueues due subscriptions and processes one claimed attempt.
 func (w Worker) RunOnce(ctx context.Context) error {
+	durable, ok := w.Store.(claimStore)
+	if !ok {
+		return errors.New("renewal durable claim store is required")
+	}
+	if d, ok := w.Chargers.(*Dispatcher); ok {
+		if err := d.RefreshRuntime(ctx); err != nil {
+			return err
+		}
+	}
+	if err := durable.PlatformRecoverRenewalLeases(ctx); err != nil {
+		return err
+	}
 	if err := w.Store.PlatformEnqueueDueRenewals(ctx); err != nil {
 		return err
 	}
 	row, err := w.Store.PlatformClaimRenewalAttempt(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
 		return err
 	}
-	if w.Chargers != nil {
-		charger, req, resolveErr := w.Chargers.ChargerFor(ctx, row)
-		if resolveErr != nil && !errors.Is(resolveErr, ErrNoChargingChannel) {
-			return resolveErr
-		}
-		if resolveErr == nil && charger != nil {
-			return w.charge(ctx, row, charger, req)
-		}
+	finish := func(state, reason string) error {
+		_, e := durable.PlatformCompleteRenewalClaim(ctx, store.PlatformCompleteRenewalClaimParams{ID: row.ID, TenantID: row.TenantID, ClaimToken: row.ClaimToken, Column4: state, LastError: reason})
+		return e
 	}
-	// No charging-capable channel: the explicit, retryable failure path.
-	return w.fail(ctx, row, "NO_SAVED_PAYMENT_METHOD")
-}
-
-// charge applies one provider answer. It never charges blindly again: an
-// uncertain outcome defers the attempt and relies on the provider idempotency
-// key when the retry eventually runs.
-func (w Worker) charge(ctx context.Context, row store.SubscriptionRenewalAttempts, charger Charger, req ChargeRequest) error {
-	if req.IdempotencyKey == "" {
-		req.IdempotencyKey = RenewalDedupeKey(row.SubscriptionID, row.PeriodEnd.Time, row.ID)
-	}
-	if err := w.Store.PlatformSetRenewalDedupeKey(ctx, store.PlatformSetRenewalDedupeKeyParams{
-		ID: row.ID, DedupeKey: req.IdempotencyKey, TenantID: row.TenantID,
-	}); err != nil {
-		return err
-	}
-	outcome, chargeErr := charger.Charge(ctx, req)
-	status := outcome.Status
-	if chargeErr != nil {
-		status = ChargeFailed
-	}
-	switch status {
-	case ChargeSucceeded:
-		if w.Settlements == nil {
-			// A confirmed charge without a settlement path must fail loudly
-			// rather than leave money taken without entitlements.
-			return errors.New("renewal charge succeeded but settlement store is not configured")
+	if w.Chargers == nil {
+		if row.SideEffectIntentAt.Valid {
+			return finish("uncertain", "ADAPTER_UNAVAILABLE")
 		}
-		if outcome.ProviderTxnID == "" || outcome.AmountCents <= 0 {
-			return w.fail(ctx, row, "PROVIDER_CHARGE_INCOMPLETE")
+		return finish("canceled", "ADAPTER_UNAVAILABLE")
+	}
+	charger, req, err := w.Chargers.ChargerFor(ctx, row)
+	if err != nil || charger == nil {
+		if row.SideEffectIntentAt.Valid {
+			return finish("uncertain", "AUTHORIZATION_RECONCILIATION_REQUIRED")
 		}
-		if _, err := w.Settlements.PlatformSettleRenewalAttempt(ctx, RenewalSettlementParams{
-			TenantID: row.TenantID, AttemptID: row.ID,
-			Provider: charger.Name(), ProviderTxnID: outcome.ProviderTxnID,
-			AmountCents: outcome.AmountCents, Currency: outcome.Currency, DedupeKey: req.IdempotencyKey,
-		}); err != nil && !errors.Is(err, ErrRenewalAttemptCanceled) {
+		return finish("canceled", "AUTHORIZATION_REQUIRED")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	var outcome ChargeOutcome
+	if row.SideEffectIntentAt.Valid {
+		query, ok := charger.(interface {
+			Query(context.Context, ChargeRequest) (ChargeOutcome, error)
+		})
+		if !ok {
+			return finish("uncertain", "RECONCILIATION_UNAVAILABLE")
+		}
+		outcome, err = query.Query(callCtx, req)
+	} else {
+		if w.Coordinator == nil {
+			return finish("canceled", "DURABLE_INTENT_UNAVAILABLE")
+		}
+		if req.IdempotencyKey == "" {
+			req.IdempotencyKey = RenewalDedupeKey(row.SubscriptionID, row.PeriodEnd.Time, row.ID) + fmt.Sprintf(":charge-%d", row.ChargeCount+1)
+		}
+		if _, err = w.Coordinator.BeginCharge(ctx, row, req.IdempotencyKey); errors.Is(err, pgx.ErrNoRows) {
+			return finish("canceled", "ENROLLMENT_CHANGED")
+		} else if err != nil {
 			return err
 		}
-		return nil
-	case ChargeUncertain:
-		return w.Store.PlatformMarkRenewalAttemptUncertain(ctx, store.PlatformMarkRenewalAttemptUncertainParams{
-			ID: row.ID, TenantID: row.TenantID,
-		})
-	default:
-		return w.fail(ctx, row, "PROVIDER_CHARGE_DECLINED")
+		outcome, err = charger.Charge(callCtx, req)
 	}
-}
-
-// fail records the explicit retryable failure and notifies the tenant once
-// per attempt (the notification dedupe key includes the attempt counter).
-func (w Worker) fail(ctx context.Context, row store.SubscriptionRenewalAttempts, reason string) error {
-	if err := w.Store.PlatformFailRenewalAttempt(ctx, store.PlatformFailRenewalAttemptParams{ID: row.ID, LastError: reason}); err != nil {
+	// Every transport error is ambiguous. Never call Charge for this intent
+	// again, even after the provider's idempotency retention window expires.
+	if err != nil || outcome.Status == ChargeUncertain || outcome.Status == "" {
+		return finish("uncertain", "PROVIDER_UNCERTAIN")
+	}
+	if outcome.Status == ChargeSucceeded {
+		if w.Settlements == nil {
+			return finish("uncertain", "SETTLEMENT_UNAVAILABLE")
+		}
+		if outcome.ProviderTxnID == "" || outcome.AmountCents != req.AmountCents || outcome.Currency != req.Currency {
+			return finish("uncertain", "PROVIDER_CHARGE_MISMATCH")
+		}
+		_, err = w.Settlements.PlatformSettleRenewalAttempt(ctx, RenewalSettlementParams{TenantID: row.TenantID, AttemptID: row.ID, Provider: charger.Name(), AccountScope: req.MerchantScope, ProviderTxnID: outcome.ProviderTxnID, AmountCents: outcome.AmountCents, Currency: outcome.Currency, DedupeKey: req.IdempotencyKey})
 		return err
 	}
-	if err := w.Store.PlatformEnqueueRenewalFailure(ctx, row.ID); err != nil {
-		return fmt.Errorf("notify renewal failure: %w", err)
+	if outcome.Status != ChargeFailed {
+		return finish("uncertain", "PROVIDER_UNCERTAIN")
 	}
-	return nil
+	if err = finish("failed", "PROVIDER_CHARGE_DECLINED"); err != nil {
+		return err
+	}
+	return w.Store.PlatformEnqueueRenewalFailure(ctx, row.ID)
 }

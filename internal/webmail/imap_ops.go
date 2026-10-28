@@ -31,7 +31,7 @@ import (
 // loaded set only).
 func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpts) (ListResult, error) {
 	opts = ClampListOpts(opts)
-	criteria, err := BuildSearchCriteria(opts.Query)
+	criteria, hasAttachment, err := buildSearchPlan(opts.Query)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -45,6 +45,12 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	var allSummaries []MessageSummary
 	if opts.SortBy != "" {
 		if uids, sortErr := c.uidSort(ctx, criteria, imapSortKey(opts.SortBy, opts.SortDesc)); sortErr == nil {
+			if hasAttachment {
+				uids, err = c.filterAttachmentUIDs(ctx, uids)
+				if err != nil {
+					return ListResult{}, err
+				}
+			}
 			ordered, serverSorted = uids, true
 		}
 	}
@@ -52,6 +58,12 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		uids, err := c.uidSearch(ctx, criteria)
 		if err != nil {
 			return ListResult{}, err
+		}
+		if hasAttachment {
+			uids, err = c.filterAttachmentUIDs(ctx, uids)
+			if err != nil {
+				return ListResult{}, err
+			}
 		}
 		// Newest first for arrival order; SortSummaries reorders as needed.
 		for i, j := 0, len(uids)-1; i < j; i, j = i+1, j-1 {
@@ -93,7 +105,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		}
 	}
 	if len(page) == 0 {
-		return ListResult{Messages: []MessageSummary{}, Total: total, Sort: opts.SortBy, ServerSorted: serverSorted}, nil
+		return ListResult{UIDValidity: c.selectedUIDValidity, Messages: []MessageSummary{}, Total: total, Sort: opts.SortBy, ServerSorted: serverSorted}, nil
 	}
 	summaries, err := c.uidFetchSummaries(ctx, page)
 	if err != nil {
@@ -121,6 +133,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		}
 	}
 	return ListResult{
+		UIDValidity:  c.selectedUIDValidity,
 		Messages:     summaries,
 		Total:        total,
 		NextCursor:   next,
@@ -248,6 +261,9 @@ func (c *imapConn) uidFetchBody(ctx context.Context, uid uint32) ([]byte, error)
 		if !hasLit {
 			continue
 		}
+		if budget, ok := ctx.Value(importBudgetKey{}).(*importReadBudget); ok && int64(litSize) > budget.remaining {
+			return nil, fmt.Errorf("import literal exceeds remaining byte budget")
+		}
 		buf := make([]byte, litSize)
 		if _, err = io.ReadFull(c.r, buf); err != nil {
 			return nil, err
@@ -303,7 +319,7 @@ func (c *imapConn) MoveMessages(ctx context.Context, folder string, uids []uint3
 	if err := c.selectFolder(ctx, folder); err != nil {
 		return err
 	}
-	return c.command(ctx, "UID MOVE", formatUIDSet(uids), quoteIMAP(dest))
+	return c.command(ctx, "UID MOVE", formatUIDSet(uids), quoteIMAP(encodeMailboxWire(dest)))
 }
 
 // DeleteMessages marks the given UIDs \Deleted and, when expunge is set,
@@ -353,7 +369,7 @@ func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bo
 	finish := c.guardIO(ctx)
 	defer finish()
 	tag := c.nextTag()
-	if _, err := io.WriteString(c.conn, tag+" SELECT "+quoteIMAP(folder)+"\r\n"); err != nil {
+	if _, err := io.WriteString(c.conn, tag+" SELECT "+quoteIMAP(encodeMailboxWire(folder))+"\r\n"); err != nil {
 		return 0, err
 	}
 	var validity uint32

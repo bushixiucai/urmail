@@ -53,7 +53,7 @@ FROM marketing_flow_steps s
 WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
  AND s.kind='wait' AND s.wait_seconds>0
  AND p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3
- AND p.wait_until IS NULL AND p.lease_owner=$4 AND p.lease_fence=$5
+ AND p.wait_until IS NULL AND p.lease_owner=$4 AND p.lease_fence=$5 AND p.lease_until>now()
 `
 
 type PlatformArmMarketingFlowWaitParams struct {
@@ -127,26 +127,42 @@ func (q *Queries) PlatformCheckMarketingEmailSuppressed(ctx context.Context, arg
 }
 
 const platformClaimMarketingFlowPositions = `-- name: PlatformClaimMarketingFlowPositions :many
-WITH candidate AS (
- SELECT p.id, s.kind AS step_kind, s.next_key AS step_next, s.wait_seconds AS step_wait_seconds
+WITH due_tenants AS MATERIALIZED (
+ SELECT d.tenant_id,d.last_turn FROM platform_marketing_dispatch d
+ WHERE EXISTS(SELECT 1 FROM marketing_flow_positions p
+ JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
+ JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
+ WHERE p.tenant_id=d.tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain AND p.stopped_at IS NULL AND p.next_attempt_at<=now()
+ AND (p.lease_until IS NULL OR p.lease_until<=now()) AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=now()) AND (s.kind='wait' OR s.next_key<>''))
+ ORDER BY d.last_turn,d.tenant_id LIMIT $3::int FOR UPDATE OF d SKIP LOCKED
+), heads AS MATERIALIZED (
+ SELECT p.id, p.tenant_id, p.step_kind, p.step_next, p.step_wait_seconds, p.step_otherwise, p.condition_field, p.condition_operator, p.condition_value,d.last_turn,row_number() OVER(PARTITION BY p.tenant_id ORDER BY p.id) AS tenant_order
+ FROM due_tenants d CROSS JOIN LATERAL (
+ SELECT p.id,p.tenant_id,s.kind AS step_kind,s.next_key AS step_next,s.wait_seconds AS step_wait_seconds,
+ s.opened_key AS step_otherwise,s.condition_field,s.condition_operator,s.condition_value
  FROM marketing_flow_positions p
  JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
  JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
- WHERE f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain
-   AND (p.lease_until IS NULL OR p.lease_until<=now())
-   AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=now())
-   AND (s.kind='wait' OR s.next_key<>'') -- a send step with nowhere to go is terminal; never re-claim it
+ WHERE p.tenant_id=d.tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain AND p.stopped_at IS NULL AND p.next_attempt_at<=now()
+ AND (p.lease_until IS NULL OR p.lease_until<=now()) AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=now()) AND (s.kind='wait' OR s.next_key<>'')
  ORDER BY p.id LIMIT $3::int
- FOR UPDATE OF p SKIP LOCKED
+ ) p
+), candidate AS MATERIALIZED (
+ SELECT p.id,h.tenant_id,h.step_kind,h.step_next,h.step_wait_seconds,h.step_otherwise,h.condition_field,h.condition_operator,h.condition_value
+ FROM marketing_flow_positions p JOIN heads h ON h.id=p.id AND h.tenant_id=p.tenant_id
+ ORDER BY h.tenant_order,h.last_turn,h.tenant_id,p.id LIMIT $3::int FOR UPDATE OF p SKIP LOCKED
+), turn AS (
+ UPDATE platform_marketing_dispatch d SET last_turn=nextval('platform_marketing_dispatch_turn_seq')
+ WHERE d.tenant_id IN(SELECT tenant_id FROM candidate) RETURNING d.tenant_id
 )
 UPDATE marketing_flow_positions p
 SET lease_owner=$1::text,
  lease_until=now()+make_interval(secs=>$2::int),
  lease_fence=p.lease_fence+1
-FROM candidate
+FROM candidate JOIN turn ON turn.tenant_id=candidate.tenant_id
 WHERE p.id=candidate.id
-RETURNING p.tenant_id, p.flow_id, p.email, p.step_key, p.lease_fence,
- candidate.step_kind, candidate.step_next, candidate.step_wait_seconds
+RETURNING p.tenant_id, p.flow_id, p.email, p.step_key, p.lease_fence,p.lease_until,p.event_facts,
+ candidate.step_kind, candidate.step_next, candidate.step_wait_seconds,candidate.step_otherwise,candidate.condition_field,candidate.condition_operator,candidate.condition_value
 `
 
 type PlatformClaimMarketingFlowPositionsParams struct {
@@ -156,14 +172,20 @@ type PlatformClaimMarketingFlowPositionsParams struct {
 }
 
 type PlatformClaimMarketingFlowPositionsRow struct {
-	TenantID        int64  `json:"tenant_id"`
-	FlowID          int64  `json:"flow_id"`
-	Email           string `json:"email"`
-	StepKey         string `json:"step_key"`
-	LeaseFence      int64  `json:"lease_fence"`
-	StepKind        string `json:"step_kind"`
-	StepNext        string `json:"step_next"`
-	StepWaitSeconds int32  `json:"step_wait_seconds"`
+	TenantID          int64              `json:"tenant_id"`
+	FlowID            int64              `json:"flow_id"`
+	Email             string             `json:"email"`
+	StepKey           string             `json:"step_key"`
+	LeaseFence        int64              `json:"lease_fence"`
+	LeaseUntil        pgtype.Timestamptz `json:"lease_until"`
+	EventFacts        []byte             `json:"event_facts"`
+	StepKind          string             `json:"step_kind"`
+	StepNext          string             `json:"step_next"`
+	StepWaitSeconds   int32              `json:"step_wait_seconds"`
+	StepOtherwise     string             `json:"step_otherwise"`
+	ConditionField    string             `json:"condition_field"`
+	ConditionOperator string             `json:"condition_operator"`
+	ConditionValue    string             `json:"condition_value"`
 }
 
 // Claim a bounded batch of due positions with SKIP LOCKED. A position is due
@@ -185,9 +207,15 @@ func (q *Queries) PlatformClaimMarketingFlowPositions(ctx context.Context, arg P
 			&i.Email,
 			&i.StepKey,
 			&i.LeaseFence,
+			&i.LeaseUntil,
+			&i.EventFacts,
 			&i.StepKind,
 			&i.StepNext,
 			&i.StepWaitSeconds,
+			&i.StepOtherwise,
+			&i.ConditionField,
+			&i.ConditionOperator,
+			&i.ConditionValue,
 		); err != nil {
 			return nil, err
 		}
@@ -463,6 +491,7 @@ func (q *Queries) PlatformRecoverMarketingFlowLeases(ctx context.Context) (int64
 const platformRecoverMarketingFlowUncertain = `-- name: PlatformRecoverMarketingFlowUncertain :execrows
 UPDATE marketing_flow_positions SET delivery_uncertain=false
 WHERE delivery_uncertain AND updated_at<=now()-interval '10 minutes'
+AND NOT EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=marketing_flow_positions.tenant_id AND v.runtime_flow_id=marketing_flow_positions.flow_id)
 `
 
 func (q *Queries) PlatformRecoverMarketingFlowUncertain(ctx context.Context) (int64, error) {

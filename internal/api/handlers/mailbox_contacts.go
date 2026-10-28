@@ -57,12 +57,32 @@ func (h MailboxContactsHandler) ListContacts(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if q, ok := h.Service.Q.(*store.Queries); ok {
+		cursor, err := strconv.ParseInt(c.DefaultQuery("cursor", "0"), 10, 64)
+		limit, e := strconv.ParseInt(c.DefaultQuery("limit", "100"), 10, 32)
+		if err != nil || e != nil || cursor < 0 || limit < 1 || limit > 200 {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		rows, err := q.PlatformListContactsPage(c, store.PlatformListContactsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, Limit: int32(limit + 1)})
+		if err != nil {
+			authError(c, 503, "CONTACTS_UNAVAILABLE")
+			return
+		}
+		next := int64(0)
+		if int64(len(rows)) > limit {
+			rows = rows[:limit]
+			next = rows[len(rows)-1].ID
+		}
+		c.JSON(200, gin.H{"contacts": contactViews(rows), "next_cursor": next})
+		return
+	}
 	rows, err := h.Service.Q.PlatformListContacts(c.Request.Context(), store.PlatformListContactsParams{TenantID: p.TenantID, MailboxID: p.MailboxID, PageLimit: 100})
 	if err != nil {
 		authError(c, http.StatusBadGateway, "CONTACTS_UNAVAILABLE")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"contacts": rows})
+	c.JSON(http.StatusOK, gin.H{"contacts": contactViews(rows)})
 }
 
 // CreateContact stores one normalized contact.
@@ -89,7 +109,7 @@ func (h MailboxContactsHandler) CreateContact(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "CONTACTS_UNAVAILABLE")
 		return
 	}
-	c.JSON(http.StatusCreated, row)
+	c.JSON(http.StatusCreated, contactView(store.MailboxContacts(row)))
 }
 
 // UpdateContact requires the version the user last read.
@@ -123,7 +143,7 @@ func (h MailboxContactsHandler) UpdateContact(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "CONTACTS_UNAVAILABLE")
 		return
 	}
-	c.JSON(http.StatusOK, row)
+	c.JSON(http.StatusOK, contactView(store.MailboxContacts(row)))
 }
 
 // DeleteContact tombstones one contact at the expected version.
@@ -188,9 +208,13 @@ func (h MailboxContactsHandler) ExportContactsVCF(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := h.Service.Q.PlatformListContacts(c.Request.Context(), store.PlatformListContactsParams{TenantID: p.TenantID, MailboxID: p.MailboxID, PageLimit: 1000})
+	rows, err := h.Service.Q.PlatformListContacts(c.Request.Context(), store.PlatformListContactsParams{TenantID: p.TenantID, MailboxID: p.MailboxID, PageLimit: 1001})
 	if err != nil {
 		authError(c, http.StatusBadGateway, "CONTACTS_UNAVAILABLE")
+		return
+	}
+	if len(rows) > 1000 {
+		authError(c, 413, "DATA_EXPORT_TOO_LARGE")
 		return
 	}
 	var b strings.Builder
@@ -341,9 +365,17 @@ func (h MailboxContactsHandler) CreateGroup(c *gin.Context) {
 		return
 	}
 	name := strings.TrimSpace(req.Name)
-	if h.Groups == nil || req.AddressbookID <= 0 || name == "" || len(name) > 100 {
+	if h.Groups == nil || req.AddressbookID < 0 || name == "" || len(name) > 100 {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
+	}
+	if req.AddressbookID == 0 {
+		book, err := h.Service.EnsureAddressbook(c, p, "Contacts")
+		if err != nil {
+			authError(c, 503, "CONTACTS_UNAVAILABLE")
+			return
+		}
+		req.AddressbookID = book.ID
 	}
 	row, err := h.Groups.PlatformInsertContactGroup(c.Request.Context(), store.PlatformInsertContactGroupParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: req.AddressbookID, Name: name})
 	if errors.Is(err, pgx.ErrNoRows) {

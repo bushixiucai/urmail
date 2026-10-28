@@ -18,6 +18,7 @@ vi.mock("react-i18next", () => {
 vi.mock("./mailbox-api", () => ({
   listScheduledSends: vi.fn(),
   cancelScheduledSend: vi.fn(),
+  repairScheduledSentCopy: vi.fn(),
 }));
 afterEach(() => {
   cleanup();
@@ -118,4 +119,37 @@ describe("scheduled mail results", () => {
     await screen.findByText("page.webmail.scheduled_retry_at");
     expect(screen.getByText("error.SCHEDULE_RETRY")).toBeTruthy();
   });
+});
+
+it("repairs an accepted copy without exposing a resend action", async () => {
+  const pending = {
+    ...item("sent", 41),
+    sent_copy_state: "held" as const,
+    last_error: "RESTORE_RECONCILIATION_REQUIRED",
+  };
+  vi.mocked(api.listScheduledSends)
+    .mockResolvedValueOnce({ items: [pending] })
+    .mockResolvedValue({
+      items: [
+        { ...pending, sent_copy_state: "complete", last_error: undefined },
+      ],
+    });
+  vi.mocked(api.repairScheduledSentCopy).mockResolvedValue({
+    item: { ...pending, sent_copy_state: "complete" },
+  });
+  render(<MailboxScheduledDialog open onOpenChange={vi.fn()} />);
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "page.webmail.repair_sent_copy",
+    }),
+  );
+  await waitFor(() =>
+    expect(api.repairScheduledSentCopy).toHaveBeenCalledWith(41),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "page.webmail.repair_sent_copy" }),
+    ).toBeNull(),
+  );
+  expect(api.cancelScheduledSend).not.toHaveBeenCalled();
 });

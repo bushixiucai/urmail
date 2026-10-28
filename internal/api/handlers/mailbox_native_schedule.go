@@ -122,8 +122,12 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 		authError(c, http.StatusConflict, "DRAFT_CHANGED")
 		return
 	}
-	if _, err = webmail.OutgoingFromDraft(c.Request.Context(), client, folder, req.DraftUID); err != nil {
+	outgoing, draftErr := webmail.OutgoingFromDraft(c.Request.Context(), client, folder, req.DraftUID)
+	if draftErr != nil {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
+	if _, _, ok := h.authorizedIdentity(c, session, outgoing.From); !ok {
 		return
 	}
 	sealed, err := h.Secrets.EncryptString(password)
@@ -256,7 +260,7 @@ func (h *MailboxNativeHandler) CancelScheduledSend(c *gin.Context) {
 }
 
 func scheduledSendJSON(v store.MailboxScheduledSends) gin.H {
-	out := gin.H{"id": v.ID, "draft_folder": v.DraftFolder, "draft_uid": v.DraftUid, "draft_uidvalidity": v.DraftUidvalidity, "send_at": timestamptzTime(v.SendAt).UTC().Format(time.RFC3339Nano), "status": v.Status, "attempts": v.Attempts, "created_at": timestamptzTime(v.CreatedAt).UTC().Format(time.RFC3339Nano), "updated_at": timestamptzTime(v.UpdatedAt).UTC().Format(time.RFC3339Nano)}
+	out := gin.H{"sent_copy_state": v.SentCopyState, "id": v.ID, "draft_folder": v.DraftFolder, "draft_uid": v.DraftUid, "draft_uidvalidity": v.DraftUidvalidity, "send_at": timestamptzTime(v.SendAt).UTC().Format(time.RFC3339Nano), "status": v.Status, "attempts": v.Attempts, "created_at": timestamptzTime(v.CreatedAt).UTC().Format(time.RFC3339Nano), "updated_at": timestamptzTime(v.UpdatedAt).UTC().Format(time.RFC3339Nano)}
 	if v.Status == "pending" || v.Status == "preparing" {
 		out["next_attempt_at"] = timestamptzTime(v.NextAttemptAt).UTC().Format(time.RFC3339Nano)
 	}
