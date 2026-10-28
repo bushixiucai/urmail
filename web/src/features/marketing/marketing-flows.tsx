@@ -1,3 +1,4 @@
+import { MarketingReportDialog } from "./marketing-report";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
@@ -102,6 +103,7 @@ export function MarketingFlows({
   const { t, i18n } = useTranslation();
   const apiError = useApiErrorMessage();
   const [flows, setFlows] = useState<Flow[]>([]);
+  const [reportFlow, setReportFlow] = useState<Flow | null>(null);
   const [workerEnabled, setWorkerEnabled] = useState(false);
   const [selected, setSelected] = useState<Flow | null>(null);
   const [graph, setGraph] = useState<Definition>(freshDefinition());
@@ -413,6 +415,13 @@ export function MarketingFlows({
                         })}
                       </p>
                     </div>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setReportFlow(flow)}
+                    >
+                      {t("marketing.outcomes.title")}
+                    </Button>
                     <Button
                       variant={
                         selected?.id === flow.id ? "secondary" : "outline"
@@ -1438,6 +1447,16 @@ export function MarketingFlows({
           </form>
         </DialogContent>
       </Dialog>
+      {reportFlow && (
+        <MarketingReportDialog
+          kind="flows"
+          id={reportFlow.id}
+          open={active}
+          onOpenChange={(open) => {
+            if (!open) setReportFlow(null);
+          }}
+        />
+      )}
     </section>
   );
 }

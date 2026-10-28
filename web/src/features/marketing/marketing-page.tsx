@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/app/auth-context";
 import { MarketingChannelAdmin } from "./channel-admin";
 import { MarketingFlows } from "./marketing-flows";
+import { MarketingReportDialog } from "./marketing-report";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
@@ -18,12 +19,6 @@ import {
 type Named = { id: number; name: string };
 type Channel = Named & { enabled: boolean; kind: string };
 type Campaign = Named & { status: string };
-type Recipient = {
-  id: number;
-  email: string;
-  status: string;
-  result_code: string | null;
-};
 type Preview = {
   subject: string;
   text_body: string;
@@ -46,7 +41,7 @@ export function MarketingPage() {
     campaign: Campaign;
     detail: Preview;
   } | null>(null);
-  const [recipients, setRecipients] = useState<Recipient[] | null>(null);
+  const [reportCampaign, setReportCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -63,6 +58,7 @@ export function MarketingPage() {
       setLists([]);
       setCampaigns([]);
       setView("campaigns");
+      setReportCampaign(null);
     }
     void Promise.all([
       request<{ channels: Channel[] }>("/api/v1/marketing/channels", {
@@ -388,14 +384,7 @@ export function MarketingPage() {
                     <Button
                       variant="outline"
                       disabled={busy}
-                      onClick={() =>
-                        void action(async () => {
-                          const d = await request<{ recipients: Recipient[] }>(
-                            `/api/v1/marketing/campaigns/${c.id}/recipients`,
-                          );
-                          setRecipients(d.recipients ?? []);
-                        })
-                      }
+                      onClick={() => setReportCampaign(c)}
                     >
                       {t("marketing.results")}
                     </Button>
@@ -526,28 +515,17 @@ export function MarketingPage() {
             )}
           </DialogContent>
         </Dialog>
-        <Dialog
-          open={recipients !== null}
-          onOpenChange={(open) => {
-            if (!open) setRecipients(null);
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t("marketing.results")}</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              {t("marketing.results_limit")}
-            </p>
-            <ul className="max-h-96 overflow-auto divide-y">
-              {recipients?.map((r) => (
-                <li className="py-2 text-sm break-all" key={r.id}>
-                  {r.email} · {t(`marketing.recipient.${r.status}`)}
-                </li>
-              ))}
-            </ul>
-          </DialogContent>
-        </Dialog>
+        {reportCampaign && (
+          <MarketingReportDialog
+            key={currentTenant?.id}
+            kind="campaigns"
+            id={reportCampaign.id}
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setReportCampaign(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );
