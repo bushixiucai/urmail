@@ -12,7 +12,7 @@ type s3ListXML struct {
 	XMLName          xml.Name
 	Name             string           `xml:"Name"`
 	Prefix           string           `xml:"Prefix"`
-	IsTruncated      bool             `xml:"IsTruncated"`
+	IsTruncated      *bool            `xml:"IsTruncated"`
 	NextContinuation string           `xml:"NextContinuationToken"`
 	Contents         []s3ListContents `xml:"Contents"`
 }
@@ -23,12 +23,8 @@ type s3ListContents struct {
 	LastModified time.Time `xml:"LastModified"`
 }
 
-// parseS3ListXML decodes one listing page and strips the destination prefix.
-// Continuation pages are handled by the caller re-issuing the request with
-// continuation-token; the local stores here keep the flat prefix listing
-// because retention generations stay well below one page (1000 keys) for a
-// 7/4/12 policy. The parser is lenient about prefixes so plain-bucket
-// destinations (no prefix) also work.
+// parseS3ListXML accepts only a complete, bounded single-page inventory.
+// Truncation is refused instead of using partial evidence to delete backups.
 func parseS3ListXML(body, prefix string) ([]RemoteObject, error) {
 	var parsed s3ListXML
 	if err := xml.Unmarshal([]byte(body), &parsed); err != nil {
@@ -37,8 +33,18 @@ func parseS3ListXML(body, prefix string) ([]RemoteObject, error) {
 	if parsed.Name == "" {
 		return nil, fmt.Errorf("decode s3 listing: response lacks bucket name")
 	}
+	if parsed.IsTruncated == nil || *parsed.IsTruncated || parsed.NextContinuation != "" {
+		return nil, fmt.Errorf("s3 listing is truncated; refusing incomplete retention inventory")
+	}
+	if len(parsed.Contents) > retentionMaxObjects {
+		return nil, fmt.Errorf("s3 listing object budget exceeded")
+	}
 	objects := make([]RemoteObject, 0, len(parsed.Contents))
 	for _, c := range parsed.Contents {
+		if prefix != "" && !strings.HasPrefix(c.Key, strings.Trim(prefix, "/")+"/") {
+			return nil, fmt.Errorf("s3 listing escaped configured prefix")
+		}
+
 		name := strings.TrimPrefix(c.Key, prefix)
 		name = strings.TrimPrefix(name, "/")
 		if name == "" {

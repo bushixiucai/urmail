@@ -74,6 +74,15 @@ func PlanRetention(candidates []RetentionCandidate, policy RetentionPolicy, now 
 		return plan
 	}
 
+	for _, candidate := range sorted {
+		if candidate.CreatedAt.IsZero() || candidate.CreatedAt.After(now) {
+			plan.Refusals = append(plan.Refusals, "backup time is invalid or in the future; deletion disabled")
+			for _, item := range sorted {
+				plan.Keep = append(plan.Keep, item.ID)
+			}
+			return plan
+		}
+	}
 	keep := map[string]bool{}
 	// 1: newest candidate is untouchable.
 	keep[sorted[0].ID] = true

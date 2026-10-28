@@ -78,6 +78,12 @@ func (s *StateRecorder) FinishRun(ctx context.Context, runUID string, success bo
 			errorText = errorText[:2000]
 		}
 	}
+	if success && backupErr != nil {
+		errorText = backupErr.Error()
+		if len(errorText) > 2000 {
+			errorText = errorText[:2000]
+		}
+	}
 	if retentionDeleted < 0 {
 		retentionDeleted = 0
 	}

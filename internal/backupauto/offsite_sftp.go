@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -56,6 +57,12 @@ func (s *sftpStore) connect(ctx context.Context) (*sftp.Client, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("sftp dial %s: %w", s.hostPort, err)
 	}
+	stopContext := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	if err = conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		stopContext()
+		_ = conn.Close()
+		return nil, nil, err
+	}
 	config := &ssh.ClientConfig{
 		User:            s.user,
 		Auth:            s.authMethods(),
@@ -64,22 +71,27 @@ func (s *sftpStore) connect(ctx context.Context) (*sftp.Client, func(), error) {
 	}
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, s.hostPort, config)
 	if err != nil {
+		stopContext()
 		_ = conn.Close()
 		return nil, nil, fmt.Errorf("sftp handshake %s: %w", s.hostPort, err)
 	}
 	client, err := sftp.NewClient(ssh.NewClient(sshConn, chans, reqs))
 	if err != nil {
+		stopContext()
+		_ = conn.Close()
 		_ = sshConn.Close()
 		return nil, nil, fmt.Errorf("sftp subsystem: %w", err)
 	}
-	done := false
-	cleanup := func() {
-		if done {
-			return
-		}
-		done = true
+	deadline, _ := ctx.Deadline()
+	if err = conn.SetDeadline(deadline); err != nil {
+		stopContext()
 		_ = client.Close()
+		_ = sshConn.Close()
+		_ = conn.Close()
+		return nil, nil, err
 	}
+	var once sync.Once
+	cleanup := func() { once.Do(func() { stopContext(); _ = client.Close(); _ = sshConn.Close(); _ = conn.Close() }) }
 	return client, cleanup, nil
 }
 

@@ -105,9 +105,12 @@ func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArt
 
 	pr, pw := io.Pipe()
 	digest := sha256.New()
+	cipherCounter := &countingWriter{inner: digest}
 	encryptErr := make(chan error, 1)
+	plainDigest := sha256.New()
+	plainCounter := &countingWriter{inner: plainDigest}
 	go func() { // plaintext file -> age -> pipe; exactly one pipe consumer below
-		err := EncryptTo(pw, f, parsed)
+		err := EncryptTo(pw, io.TeeReader(f, plainCounter), parsed)
 		_ = pw.CloseWithError(err)
 		encryptErr <- err
 	}()
@@ -115,7 +118,8 @@ func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArt
 	// The upload consumes the ciphertext once; TeeReader mirrors every byte
 	// into the digest so the manifest records the hash of the exact bytes
 	// that reached the destination.
-	uploadErr := store.Upload(ctx, EncryptedName(artifact.Name), io.TeeReader(pr, digest), -1)
+	uploadErr := store.Upload(ctx, EncryptedName(artifact.Name), io.TeeReader(pr, cipherCounter), -1)
+	_ = pr.CloseWithError(uploadErr)
 	encErr := <-encryptErr
 	if uploadErr != nil {
 		return Artifact{}, fmt.Errorf("upload %s: %w", artifact.Name, uploadErr)
@@ -123,7 +127,10 @@ func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArt
 	if encErr != nil {
 		return Artifact{}, fmt.Errorf("encrypt %s: %w", artifact.Name, encErr)
 	}
-	size := int64(digest.Size())
+	if plainCounter.n != artifact.Size || hex.EncodeToString(plainDigest.Sum(nil)) != artifact.SHA256 {
+		return Artifact{}, fmt.Errorf("plaintext artifact changed during encryption: %s", artifact.Name)
+	}
+	size := cipherCounter.n
 	if size < 0 {
 		size = 0
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,14 +22,18 @@ import (
 type fakeRunner struct{ Dir string }
 
 func (r fakeRunner) RunBackup(_ context.Context, stamp string) ([]LocalArtifact, string, bool, error) {
-	file := filepath.Join(r.Dir, "urmail-"+stamp+".dump")
-	data := []byte("fake pg dump bytes")
-	if err := os.WriteFile(file, data, 0o600); err != nil {
-		return nil, "", false, err
+	entries, _ := PlanBackupSet(PlannerConfig{OutDir: r.Dir, Stamp: stamp, IncludeMail: true})
+	artifacts := make([]LocalArtifact, 0, len(entries))
+	for _, entry := range entries {
+		file := filepath.Join(r.Dir, entry.Name)
+		data := []byte("explicit synthetic " + entry.Kind + " fixture bytes")
+		if err := os.WriteFile(file, data, 0o600); err != nil {
+			return nil, "", false, err
+		}
+		sum := sha256.Sum256(data)
+		artifacts = append(artifacts, LocalArtifact{Name: entry.Name, Path: file, Kind: entry.Kind, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])})
 	}
-	sum := sha256.Sum256(data)
-	return []LocalArtifact{{Name: "urmail-" + stamp + ".dump", Path: file, Kind: KindPgDump, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}},
-		ScopeComplete, true, nil
+	return artifacts, ScopeComplete, true, nil
 }
 
 func TestBackupRunsStateTransitions(t *testing.T) {
@@ -199,3 +204,31 @@ var errFailingRunner = errTestFailure{}
 type errTestFailure struct{}
 
 func (errTestFailure) Error() string { return "runner failed on purpose" }
+
+func TestRetentionRefusalPreservesVerifiedBackupAndRecordsPartialDelete(t *testing.T) {
+	platform, _ := testdb.OpenMigrated(t)
+	worker, store, identity, previousAnchor, previousManifest := retentionWorkerFixture(t)
+	delete(store.objects, previousAnchor)
+	for _, artifact := range previousManifest.Artifacts {
+		delete(store.objects, artifact.EncryptedName)
+	}
+	_, old, _ := retentionGenerationFixture(t, store, identity.Recipient().String(), worker.now().Add(-72*time.Hour))
+	store.failDelete = old.Artifacts[1].EncryptedName
+	worker.Pool = platform
+	worker.Runner = fakeRunner{Dir: t.TempDir()}
+	worker.OffsiteURI = "s3://explicit-isolated-fixture/owned"
+	if e := worker.RunOnce(t.Context()); e != nil {
+		t.Fatal("verified backup failed because pruning was refused", e)
+	}
+	var status, note string
+	var deleted int
+	if e := platform.QueryRow(t.Context(), "SELECT state,error,retention_deleted FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&status, &note, &deleted); e != nil {
+		t.Fatal(e)
+	}
+	if status != StateSuccess || !strings.Contains(note, "retention skipped") || deleted != 1 {
+		t.Fatal("partial retention result not observable", status, note, deleted)
+	}
+	if _, ok := store.objects[ManifestName(StampFor(worker.now()))]; !ok {
+		t.Fatal("new complete backup lost")
+	}
+}

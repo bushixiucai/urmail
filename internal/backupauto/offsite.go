@@ -206,25 +206,23 @@ func (s *s3Store) Upload(ctx context.Context, name string, r io.Reader, size int
 func (s *s3Store) List(ctx context.Context) ([]RemoteObject, error) {
 	query := "list-type=2"
 	if s.prefix != "" {
-		query = "list-type=2&prefix=" + url.QueryEscape(s.prefix)
+		query = "list-type=2&prefix=" + url.QueryEscape(s.prefix+"/")
 	}
 	resp, err := s.do(ctx, http.MethodGet, "", nil, -1, query)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > 2<<20 {
+		return nil, fmt.Errorf("s3 listing exceeds retention inventory budget")
 	}
 	objects, err := parseS3ListXML(string(body), s.prefix)
 	if err != nil {
 		return nil, err
-	}
-	// A truncated listing must never look like an empty destination, or a
-	// later retention pass could believe older generations no longer exist.
-	if strings.Contains(string(body), "<IsTruncated>true</IsTruncated>") {
-		return nil, fmt.Errorf("s3 listing is truncated; refusing to plan retention from an incomplete view")
 	}
 	return objects, nil
 }

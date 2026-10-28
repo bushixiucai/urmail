@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path"
-	"sort"
 	"strings"
 	"time"
 
@@ -51,6 +49,11 @@ type Worker struct {
 	Interval time.Duration
 	// Retention policy applied to remote generations after a verified run.
 	Retention RetentionPolicy
+	// RetentionMaxVerifyBytes bounds streaming verification across all generations.
+	// Zero defaults to 1 TiB; refusal never authorizes partial pruning.
+	RetentionMaxVerifyBytes int64
+	// RetentionVerifyTimeout bounds offsite retention I/O; zero defaults to 1h.
+	RetentionVerifyTimeout time.Duration
 
 	// Now allows tests to pin the clock.
 	Now func() time.Time
@@ -80,6 +83,8 @@ func (w *Worker) Run(ctx context.Context, logger *zap.Logger) {
 	defer ticker.Stop()
 	if err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
 		logger.Warn("backup attempt failed", zap.Error(err))
+	} else if w.retentionNote != "" {
+		logger.Warn("backup retention refused", zap.String("reason", w.retentionNote))
 	}
 	for {
 		select {
@@ -88,6 +93,8 @@ func (w *Worker) Run(ctx context.Context, logger *zap.Logger) {
 		case <-ticker.C:
 			if err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
 				logger.Warn("backup attempt failed", zap.Error(err))
+			} else if w.retentionNote != "" {
+				logger.Warn("backup retention refused", zap.String("reason", w.retentionNote))
 			}
 		}
 	}
@@ -144,6 +151,11 @@ func (w *Worker) due(ctx context.Context, recorder *StateRecorder) (bool, error)
 // as success and BEFORE any retention decision, so a failed upload can
 // never authorize deletion of older generations.
 func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (returnErr error) {
+	w.totalBytes = 0
+	w.manifestName = ""
+	w.manifestRaw = ""
+	w.retentionDeleted = 0
+	w.retentionNote = ""
 	start := w.now()
 	runUID, err := recorder.StartRun(ctx, ScopeComplete)
 	if err != nil {
@@ -151,7 +163,11 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	}
 	defer func() {
 		success := returnErr == nil
-		finishErr := recorder.FinishRun(ctx, runUID, success, returnErr, w.totalBytes, w.now().Sub(start), w.manifestName, w.OffsiteURI, w.retentionDeleted)
+		finishReason := returnErr
+		if success && w.retentionNote != "" {
+			finishReason = errors.New(w.retentionNote)
+		}
+		finishErr := recorder.FinishRun(ctx, runUID, success, finishReason, w.totalBytes, w.now().Sub(start), w.manifestName, w.OffsiteURI, w.retentionDeleted)
 		if returnErr == nil && finishErr != nil {
 			returnErr = finishErr
 		}
@@ -169,6 +185,9 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		return fmt.Errorf("local backup scope %q consistent=%t is not a complete maintenance backup", scope, consistent)
 	}
 
+	if err = completeLocalArtifacts(stamp, artifacts); err != nil {
+		return err
+	}
 	entries := make([]Artifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact.SHA256 == "" || artifact.Size < 0 {
@@ -195,6 +214,9 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	if err != nil {
 		return err
 	}
+	if _, err = retentionManifest(raw, stamp, w.now()); err != nil {
+		return fmt.Errorf("new backup manifest is incomplete: %w", err)
+	}
 	w.manifestName = ManifestName(stamp)
 	w.manifestRaw = string(raw) + "\n"
 	if err := w.Store.Upload(ctx, w.manifestName, strings.NewReader(w.manifestRaw), int64(len(w.manifestRaw))); err != nil {
@@ -213,6 +235,7 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 
 	// Retention runs last and refuses whenever the planner is not certain.
 	deleted, plan, err := w.applyRetention(ctx)
+	w.retentionDeleted = deleted
 	switch {
 	case err != nil:
 		// Retention failure must not fail the backup: the new generation is
@@ -246,53 +269,6 @@ func (w *Worker) verifyCurrentRun(ctx context.Context, manifest *Manifest) error
 		return fmt.Errorf("verify manifest: checksum mismatch for %s", w.manifestName)
 	}
 	return nil
-}
-
-// applyRetention lists remote generations and deletes only what the pure
-// planner authorizes.
-func (w *Worker) applyRetention(ctx context.Context) (int, RetentionPlan, error) {
-	objects, err := w.Store.List(ctx)
-	if err != nil {
-		return 0, RetentionPlan{}, fmt.Errorf("list offsite: %w", err)
-	}
-	manifests := map[string]bool{}
-	objectsByName := map[string]RemoteObject{}
-	for _, o := range objects {
-		objectsByName[o.Name] = o
-		if strings.HasSuffix(o.Name, ".manifest.json") {
-			manifests[o.Name] = true
-		}
-	}
-	var candidates []RetentionCandidate
-	generationObjects := map[string][]string{}
-	for name := range manifests {
-		base := strings.TrimSuffix(path.Base(name), ".manifest.json")
-		stamp := strings.TrimPrefix(base, "urmail-")
-		created, err := time.Parse("20060102T150405Z", stamp)
-		if err != nil {
-			continue
-		}
-		candidates = append(candidates, RetentionCandidate{ID: base, CreatedAt: created, Verified: true})
-		generationObjects[base] = append(generationObjects[base], name)
-	}
-	if len(candidates) == 0 {
-		return 0, RetentionPlan{}, nil
-	}
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].CreatedAt.Before(candidates[j].CreatedAt) })
-	plan := PlanRetention(candidates, w.Retention, w.now())
-	if len(plan.Refusals) > 0 || len(plan.Delete) == 0 {
-		return 0, plan, nil
-	}
-	deleted := 0
-	for _, generation := range plan.Delete {
-		for _, object := range generationObjects[generation] {
-			if err := w.Store.Delete(ctx, object); err != nil {
-				return deleted, plan, fmt.Errorf("delete %s: %w", object, err)
-			}
-			deleted++
-		}
-	}
-	return deleted, plan, nil
 }
 
 // notifyFailure inserts one platform-scoped outbox row so failed runs are

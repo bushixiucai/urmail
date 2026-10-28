@@ -119,7 +119,7 @@ func TestEncryptUploadVerifyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt+upload: %v", err)
 	}
-	if entry.EncryptedSHA256 == "" || entry.EncryptedSize == 0 {
+	if entry.EncryptedSHA256 == "" || entry.EncryptedSize <= 32 || entry.EncryptedSize != int64(len(store.objects[entry.EncryptedName])) {
 		t.Fatalf("ciphertext metadata missing: %+v", entry)
 	}
 
