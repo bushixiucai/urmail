@@ -33,6 +33,7 @@ type SettleOptions struct {
 	AuditAction    string
 	ManualReviewID int64
 	ReviewReason   string
+	PreviewDigest  string
 	ReceiptOnly    bool
 	AccountScope   string
 	Provider       string
@@ -140,6 +141,9 @@ func SettleOrderWithDetails(ctx context.Context, pool *db.Pool, id int64, opts S
 		review, reviewErr := queries.PlatformGetPaymentReviewForUpdate(ctx, store.PlatformGetPaymentReviewForUpdateParams{TenantID: tenantID, ID: opts.ManualReviewID})
 		if reviewErr != nil || review.OrderID != id {
 			return ErrPaymentVerificationFailed
+		}
+		if err = validateFinancialReviewPreview(ctx, queries, tenantID, id, opts.ManualReviewID, opts.ActorUserID, "fulfill_after_prepaid", opts.ReviewReason, opts.PreviewDigest); err != nil {
+			return err
 		}
 		if review.Status == "fulfilled" {
 			if err = queries.PlatformClearCheckoutRestoreHold(ctx, store.PlatformClearCheckoutRestoreHoldParams{TenantID: tenantID, OrderID: id}); err != nil {

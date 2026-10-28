@@ -25,40 +25,55 @@ afterEach(() => {
 });
 function fixture() {
   state.request.mockImplementation(async (path: string) =>
-    path.endsWith("payment-reviews")
+    path.endsWith("/preview")
       ? {
-          reviews: [
-            {
-              id: 3,
-              tenant_id: 1,
-              order_id: 2,
-              provider: "stripe",
-              received_amount_cents: 100,
-              currency: "USD",
-              received_currency: "USD",
-              expected_amount_cents: 100,
-              expected_currency: "USD",
-              reason: "late receipt",
-            },
-          ],
+          digest: "a".repeat(64),
+          expires_at: new Date(Date.now() + 600000).toISOString(),
+          facts: {
+            id: 2,
+            order_no: "ORD2",
+            status: "pending",
+            amount_cents_exact: "100",
+            currency: "USD",
+            payments: [],
+            refunds: [],
+            terms: [],
+          },
         }
-      : path.endsWith("/refunds")
+      : path.endsWith("payment-reviews")
         ? {
-            refunds: [
+            reviews: [
               {
-                id: 4,
+                id: 3,
                 tenant_id: 1,
                 order_id: 2,
-                refund_no: "REF1",
-                requested_amount_cents: 50,
+                provider: "stripe",
+                received_amount_cents: 100,
                 currency: "USD",
-                status: "pending",
-                reason: "partial",
-                entitlement_action: "none",
+                received_currency: "USD",
+                expected_amount_cents: 100,
+                expected_currency: "USD",
+                reason: "late receipt",
               },
             ],
           }
-        : {},
+        : path.endsWith("/refunds")
+          ? {
+              refunds: [
+                {
+                  id: 4,
+                  tenant_id: 1,
+                  order_id: 2,
+                  refund_no: "REF1",
+                  requested_amount_cents: 50,
+                  currency: "USD",
+                  status: "pending",
+                  reason: "partial",
+                  entitlement_action: "none",
+                },
+              ],
+            }
+          : {},
   );
 }
 it("loads read-only and submits only an explicit receipt decision with a reason", async () => {
@@ -74,9 +89,20 @@ it("loads read-only and submits only an explicit receipt decision with a reason"
   fireEvent.submit(reason.closest("form")!);
   await settle();
   const call = state.request.mock.calls.find(([, o]) => o?.method === "POST");
-  expect(call?.[0]).toBe("/api/v1/platform/payment-reviews/3/resolve");
+  expect(call?.[0]).toBe("/api/v1/platform/payment-reviews/3/preview");
   expect(call?.[1].body).toMatchObject({ action: "request_refund" });
-  expect(call?.[0]).not.toContain("approve");
+  expect(
+    state.request.mock.calls.some(([p]) => String(p).endsWith("/resolve")),
+  ).toBe(false);
+  fireEvent.submit(reason.closest("form")!);
+  await settle();
+  const confirmed = state.request.mock.calls.find(([p]) =>
+    String(p).endsWith("/resolve"),
+  );
+  expect(confirmed?.[1].body).toMatchObject({
+    action: "request_refund",
+    preview_digest: "a".repeat(64),
+  });
 });
 it("keeps entitlement changes off for an explicitly approved partial refund", async () => {
   fixture();

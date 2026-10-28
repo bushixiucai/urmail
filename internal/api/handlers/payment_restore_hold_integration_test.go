@@ -154,6 +154,7 @@ func TestRestorePaymentHoldSurvivesReleaseUntilExplicitDecision(t *testing.T) {
 	opts.ReviewReason = "Operator verified original cash and explicitly restores the paid term"
 	opts.AuditAction = "FULFILL receipt.restore_review"
 	opts.EventID = ""
+	opts.PreviewDigest = financialPreviewForTest(t, p, owner, review, "fulfill_after_prepaid", opts.ReviewReason)
 	exec("CREATE FUNCTION reject_restore_review_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='FULFILL receipt.restore_review' THEN RAISE EXCEPTION 'injected restore review audit failure'; END IF; RETURN NEW; END $$")
 	exec("CREATE TRIGGER reject_restore_review_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_restore_review_audit()")
 	if err := SettleOrderWithDetails(ctx, p, order, opts); err == nil {

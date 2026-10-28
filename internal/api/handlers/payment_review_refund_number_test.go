@@ -61,6 +61,9 @@ func TestReviewRefundRefusesForeignRefundNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := platform.Exec(ctx, "INSERT INTO platform_admins(user_id) VALUES($1)", operator); err != nil {
+		t.Fatal(err)
+	}
 	h := &PaymentReviewHandler{Pool: platform}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -76,7 +79,7 @@ func TestReviewRefundRefusesForeignRefundNumber(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequestWithContext(ctx, http.MethodPost,
 			"/api/v1/platform/payment-reviews/"+strconv.FormatInt(reviewB, 10)+"/resolve",
-			strings.NewReader("{\"action\":\"request_refund\",\"reason\":\"audited operator refund decision\"}"))
+			strings.NewReader(`{"action":"request_refund","reason":"audited operator refund decision","preview_digest":"`+financialPreviewForTest(t, platform, operator, reviewB, "request_refund", "audited operator refund decision")+`"}`))
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 		return w
@@ -133,6 +136,9 @@ func TestReviewRefundCreatedForOwningTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := platform.Exec(ctx, "INSERT INTO platform_admins(user_id) VALUES($1)", operator); err != nil {
+		t.Fatal(err)
+	}
 	h := &PaymentReviewHandler{Pool: platform}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -146,7 +152,7 @@ func TestReviewRefundCreatedForOwningTenant(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(ctx, http.MethodPost,
 		"/api/v1/platform/payment-reviews/"+strconv.FormatInt(reviewB, 10)+"/resolve",
-		strings.NewReader("{\"action\":\"request_refund\",\"reason\":\"audited operator refund decision\"}"))
+		strings.NewReader(`{"action":"request_refund","reason":"audited operator refund decision","preview_digest":"`+financialPreviewForTest(t, platform, operator, reviewB, "request_refund", "audited operator refund decision")+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusAccepted {
@@ -162,7 +168,7 @@ func TestReviewRefundCreatedForOwningTenant(t *testing.T) {
 	w = httptest.NewRecorder()
 	req = httptest.NewRequestWithContext(ctx, http.MethodPost,
 		"/api/v1/platform/payment-reviews/"+strconv.FormatInt(reviewB, 10)+"/resolve",
-		strings.NewReader("{\"action\":\"request_refund\",\"reason\":\"audited operator refund decision\"}"))
+		strings.NewReader(`{"action":"request_refund","reason":"audited operator refund decision","preview_digest":"`+financialPreviewForTest(t, platform, operator, reviewB, "request_refund", "audited operator refund decision")+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
 	if err := platform.QueryRow(ctx, "SELECT count(*) FROM refunds WHERE refund_no=$1 AND tenant_id=$2",

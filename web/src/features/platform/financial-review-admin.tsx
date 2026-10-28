@@ -1,3 +1,7 @@
+import {
+  FinancialReconciliation,
+  FinancialReviewDecision,
+} from "@/features/billing/financial-reconciliation";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -76,6 +80,7 @@ export function FinancialReviewAdmin() {
         <CardTitle>{t("finance.review.title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
+        <FinancialReconciliation platform />
         <p className="text-sm text-muted-foreground">
           {t("finance.review.help")}
         </p>
@@ -162,7 +167,19 @@ export function FinancialReviewAdmin() {
             </li>
           ))}
         </ul>
-        {selected && (
+        {selected && mode === "review" && (
+          <FinancialReviewDecision
+            key={selected.id}
+            id={selected.id}
+            onDone={() => {
+              setSelected(null);
+              setRevision((v) => v + 1);
+              setNotice(t("finance.review_saved"));
+            }}
+            onCancel={() => setSelected(null)}
+          />
+        )}
+        {selected && mode !== "review" && (
           <form
             key={`${mode}-${selected.id}`}
             className="grid gap-3 rounded-lg border p-4"
@@ -177,10 +194,7 @@ export function FinancialReviewAdmin() {
               }
               let path = "";
               const body: Record<string, unknown> = { reason };
-              if (mode === "review") {
-                path = `/api/v1/platform/payment-reviews/${selected.id}/resolve`;
-                body.action = data.get("action");
-              } else if (mode === "query") {
+              if (mode === "query") {
                 path = `/api/v1/platform/refunds/${selected.id}/query`;
                 body.confirm_observed = data.get("confirm_observed") === "on";
               } else {
@@ -226,32 +240,9 @@ export function FinancialReviewAdmin() {
             }}
           >
             <h3 className="font-medium">
-              {t(
-                mode === "review"
-                  ? "finance.review.handle"
-                  : mode === "query"
-                    ? "finance.query"
-                    : "finance.approval",
-              )}{" "}
-              #{selected.id}
+              {t(mode === "query" ? "finance.query" : "finance.approval")} #
+              {selected.id}
             </h3>
-            {mode === "review" && (
-              <label className="grid gap-1 text-sm">
-                {t("finance.action")}
-                <select
-                  name="action"
-                  className="h-10 rounded-md border bg-background px-3"
-                  defaultValue="request_refund"
-                >
-                  <option value="request_refund">
-                    {t("finance.request_refund")}
-                  </option>
-                  <option value="fulfill_after_prepaid">
-                    {t("finance.fulfill")}
-                  </option>
-                </select>
-              </label>
-            )}
             {mode === "approve" && (
               <>
                 <label className="grid gap-1 text-sm">

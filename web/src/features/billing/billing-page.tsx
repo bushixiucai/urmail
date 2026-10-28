@@ -1,3 +1,4 @@
+import { FinancialReconciliation } from "./financial-reconciliation";
 import { formatQuoteDate } from "./quote-date";
 import { BillingLifecycle } from "./lifecycle";
 import { DocumentProfile } from "./document-profile";
@@ -282,6 +283,7 @@ export function BillingPage() {
       </div>
 
       {canManageBilling && <DocumentProfile />}
+      {canManageBilling && <FinancialReconciliation />}
       {canManageBilling && <BillingLifecycle key={refreshRevision} />}
 
       {returnNotice && (

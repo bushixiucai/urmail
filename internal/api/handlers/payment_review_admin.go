@@ -50,10 +50,11 @@ func (h *PaymentReviewHandler) Resolve(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Action string `json:"action"`
-		Reason string `json:"reason"`
+		Action        string `json:"action"`
+		PreviewDigest string `json:"preview_digest"`
+		Reason        string `json:"reason"`
 	}
-	if c.ShouldBindJSON(&req) != nil || len(strings.TrimSpace(req.Reason)) < 10 || len(req.Reason) > 1000 || (req.Action != "fulfill_after_prepaid" && req.Action != "request_refund") {
+	if c.ShouldBindJSON(&req) != nil || len(strings.TrimSpace(req.Reason)) < 10 || len(req.Reason) > 1000 || len(req.PreviewDigest) != 64 || (req.Action != "fulfill_after_prepaid" && req.Action != "request_refund") {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
@@ -62,6 +63,10 @@ func (h *PaymentReviewHandler) Resolve(c *gin.Context) {
 		return
 	}
 	q := store.New(h.Pool)
+	if _, err = q.PlatformLockRecurringAdminActor(c, uid); err != nil {
+		authError(c, 403, "FORBIDDEN")
+		return
+	}
 	review, err := q.PlatformGetPaymentReview(c, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "PAYMENT_REVIEW_NOT_FOUND")
@@ -77,7 +82,11 @@ func (h *PaymentReviewHandler) Resolve(c *gin.Context) {
 		return
 	}
 	if req.Action == "fulfill_after_prepaid" {
-		err = SettleOrderWithDetails(c.Request.Context(), h.Pool, review.OrderID, SettleOptions{Provider: receipt.Provider, AccountScope: receipt.AccountScope, ProviderTxnID: receipt.ProviderTxnID.String, AmountCents: receipt.AmountCents, Currency: receipt.Currency, ActorUserID: uid, AuditAction: "FULFILL receipt.manual_review", ManualReviewID: id, ReviewReason: req.Reason})
+		err = SettleOrderWithDetails(c.Request.Context(), h.Pool, review.OrderID, SettleOptions{Provider: receipt.Provider, AccountScope: receipt.AccountScope, ProviderTxnID: receipt.ProviderTxnID.String, AmountCents: receipt.AmountCents, Currency: receipt.Currency, ActorUserID: uid, AuditAction: "FULFILL receipt.manual_review", ManualReviewID: id, ReviewReason: req.Reason, PreviewDigest: req.PreviewDigest})
+		if errors.Is(err, ErrFinancialPreviewStale) {
+			authError(c, 409, "FINANCIAL_PREVIEW_STALE")
+			return
+		}
 		if errors.Is(err, ErrPaymentVerificationFailed) {
 			authError(c, 409, "PAYMENT_REVIEW_FULFILLMENT_CONFLICT")
 			return
@@ -114,14 +123,26 @@ func (h *PaymentReviewHandler) Resolve(c *gin.Context) {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
+	if err = validateFinancialReviewPreview(c, tq, review.TenantID, review.OrderID, id, uid, req.Action, req.Reason, req.PreviewDigest); err != nil {
+		authError(c, 409, "FINANCIAL_PREVIEW_STALE")
+		return
+	}
 	if current.Status != "open" {
 		authError(c, 409, "PAYMENT_REVIEW_STATE_CONFLICT")
 		return
 	}
-	requested, err := tq.PlatformCreateReviewRefund(c, store.PlatformCreateReviewRefundParams{TenantID: review.TenantID, ID: id, RefundNo: "REVIEW-" + strconv.FormatInt(id, 10), Reason: req.Reason})
+	refundNo := "REVIEW-" + strconv.FormatInt(id, 10)
+	requested, err := tq.PlatformGetRefundByNo(c, refundNo)
+	if errors.Is(err, pgx.ErrNoRows) {
+		requested, err = tq.PlatformCreateFinancialReviewRefund(c, store.PlatformCreateFinancialReviewRefundParams{TenantID: review.TenantID, ReviewID: id, RefundNo: refundNo, Reason: req.Reason})
+	} else if err == nil && (requested.TenantID != review.TenantID || requested.OrderID != review.OrderID || !requested.PaymentID.Valid || requested.PaymentID.Int64 != review.PaymentID) {
+		authError(c, 409, "PAYMENT_REVIEW_REFUND_NUMBER_TAKEN")
+		return
+	}
+
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.Is(err, pgx.ErrNoRows) || errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			// PD-01: the deterministic review refund number was taken. Reuse it
 			// only when the existing row belongs to this very review; anything
 			// else (a tenant pre-occupying the number) is a loud conflict, never
