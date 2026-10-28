@@ -13,6 +13,9 @@ import (
 // BYPASSRLS is not inherited through membership, so migration credentials alone
 // cannot dump FORCE-RLS tables. Root uses fixed local peer authentication.
 func backupPeerDatabaseURL(connection string) (string, error) {
+	if container := os.Getenv("URMAIL_BACKUP_POSTGRES_CONTAINER"); container != "" {
+		return containerBackupSourceURL(connection, container)
+	}
 	u, err := url.Parse(connection)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil || u.User.Username() != "urmail_migrate" || u.Fragment != "" {
 		return "", fmt.Errorf("backup requires the managed migration database URL")
@@ -49,16 +52,16 @@ func backupPeerDatabaseURL(connection string) (string, error) {
 }
 
 func backupDatabaseCommand(ctx context.Context, peerURL string) (*exec.Cmd, error) {
+	if strings.HasPrefix(peerURL, "urmail-container-postgresql://") {
+		return containerBackupDatabaseCommand(ctx, peerURL)
+	}
 	command, err := postgresCommand(ctx, "pg_dump", peerURL, "--no-owner", "--format=custom")
 	if err != nil {
 		return nil, err
 	}
 	args := append([]string{"-u", "postgres", "--", command.Path}, command.Args[1:]...)
 	command = exec.CommandContext(ctx, "/usr/sbin/runuser", args...) // #nosec G204 G702 -- fixed root-only account/tool; managed peer URI and separate output path.
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "PG") {
-			command.Env = append(command.Env, entry)
-		}
-	}
+	// The postgres OS account must not inherit root-only offsite credentials.
+	command.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8"}
 	return command, nil
 }

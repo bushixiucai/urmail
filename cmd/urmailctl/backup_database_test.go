@@ -7,6 +7,7 @@ import (
 )
 
 func TestBackupPeerRestrictsTargetAndSecrets(t *testing.T) {
+	t.Setenv("URMAIL_BACKUP_S3_SECRET_KEY", "root-only-offsite-secret")
 	peer, err := backupPeerDatabaseURL("postgres://urmail_migrate:private-fixture@127.0.0.1:5432/urmail?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
@@ -19,7 +20,7 @@ func TestBackupPeerRestrictsTargetAndSecrets(t *testing.T) {
 		t.Fatal("unsafe backup command")
 	}
 	for _, entry := range command.Env {
-		if strings.HasPrefix(entry, "PG") {
+		if strings.HasPrefix(entry, "PG") || strings.Contains(entry, "root-only-offsite-secret") {
 			t.Fatal("ambient PostgreSQL override inherited")
 		}
 	}
