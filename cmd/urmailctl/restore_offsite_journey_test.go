@@ -179,7 +179,7 @@ func (s dirOffsite) Delete(_ context.Context, name string) error {
 	return os.Remove(filepath.Join(s.dir, name))
 }
 
-// journeyRunner hands the real pg_dump artifact to the backupauto pipeline.
+// journeyRunner hashes the database component used by completeScopeRunner.
 type journeyRunner struct {
 	dumpPath string
 }
@@ -471,6 +471,14 @@ func TestOffsiteEncryptedRestoreJourney(t *testing.T) {
 		t.Fatalf("pg_dump: %v", err)
 	}
 
+	// Include actual configuration and Maildir tar archives in the complete set.
+	configPath := filepath.Join(spool, "journey-config.tar.gz")
+	mailPath := filepath.Join(spool, "journey-mail.tar.gz")
+	configFacts := map[string]string{"etc/urmail/urmail.env": "URMAIL_NODE_FQDN=mail.journey.test\n", "etc/opendkim/keys/journey.test/mail.private": "synthetic-recovery-key\n"}
+	mailFacts := map[string]string{"var/mail/mail/mailboxes/journey.example.test/alice/new/recovered": "From: fixture@example.test\r\nSubject: original journey\r\n\r\nOriginal message bytes\r\n"}
+	buildTarGz(t, configPath, configFacts)
+	buildTarGz(t, mailPath, mailFacts)
+
 	// 2. Real backupauto pipeline: encrypt to age, upload, verify, record run.
 	platformPool, err := db.OpenPlatform(ctx, source)
 	if err != nil {
@@ -479,7 +487,7 @@ func TestOffsiteEncryptedRestoreJourney(t *testing.T) {
 	defer platformPool.Close()
 	worker := &backupauto.Worker{
 		Pool:       platformPool,
-		Runner:     journeyRunner{dumpPath: dumpPath},
+		Runner:     completeScopeRunner{dump: dumpPath, config: configPath, mail: mailPath},
 		Store:      dirOffsite{dir: offsite},
 		Recipient:  recipient,
 		OffsiteURI: "dir://" + offsite,
@@ -505,7 +513,7 @@ func TestOffsiteEncryptedRestoreJourney(t *testing.T) {
 			cipherCount++
 		}
 	}
-	if manifestObject == "" || cipherCount != 1 {
+	if manifestObject == "" || cipherCount != 3 {
 		t.Fatalf("offsite set incomplete: manifest=%q ciphertexts=%d", manifestObject, cipherCount)
 	}
 
@@ -580,9 +588,35 @@ func TestOffsiteEncryptedRestoreJourney(t *testing.T) {
 	if sum != manifest.Artifacts[0].SHA256 || size != manifest.Artifacts[0].Size {
 		t.Fatal("decrypted artifact does not match the manifest plaintext record")
 	}
-	// The v2 manifest gap: restore-side verification must accept version 2.
-	if err = verifyBackupManifest(manifestPath, []string{restoredDump}, false); err != nil {
-		t.Fatalf("restore verification rejected a decrypted v2 backup set: %v", err)
+	// Decrypt and verify every member, then restore the two actual tar archives.
+	decrypted := []string{restoredDump}
+	restoredFiles := t.TempDir()
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Kind == backupauto.KindPgDump {
+			continue
+		}
+		destination := filepath.Join(staging, artifact.Name)
+		if err = decryptBackupArtifact(manifestPath, artifact.Name, destination, identityPath); err != nil {
+			t.Fatal(err)
+		}
+		decrypted = append(decrypted, destination)
+		if err = validateRestoreArchive(destination); err != nil {
+			t.Fatal(err)
+		}
+		if output, extractErr := exec.CommandContext(ctx, "tar", "-xzf", destination, "-C", restoredFiles).CombinedOutput(); extractErr != nil {
+			t.Fatalf("restore complete archive: %v %s", extractErr, output)
+		}
+	}
+	if err = verifyBackupManifest(manifestPath, decrypted, true); err != nil {
+		t.Fatalf("restore verification rejected a complete v2 backup set: %v", err)
+	}
+	for _, facts := range []map[string]string{configFacts, mailFacts} {
+		for name, expected := range facts {
+			actual, readErr := os.ReadFile(filepath.Join(restoredFiles, name))
+			if readErr != nil || string(actual) != expected {
+				t.Fatalf("restored archive bytes %s: %v", name, readErr)
+			}
+		}
 	}
 
 	// 6. SECOND fresh database as the restore target.

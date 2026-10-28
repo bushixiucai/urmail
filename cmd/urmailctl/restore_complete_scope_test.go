@@ -22,17 +22,20 @@ func (r completeScopeRunner) RunBackup(ctx context.Context, stamp string) ([]bac
 	if err != nil {
 		return nil, "", false, err
 	}
-	for _, item := range []struct{ file, kind string }{{r.config, backupauto.KindConfigTar}, {r.mail, backupauto.KindMailTar}} {
+	for _, item := range []struct{ file, kind, name string }{
+		{r.config, backupauto.KindConfigTar, "urmail-config-" + stamp + ".tar.gz"},
+		{r.mail, backupauto.KindMailTar, "urmail-mail-" + stamp + ".tar.gz"},
+	} {
 		hash, size, e := plainFileHash(item.file)
 		if e != nil {
 			return nil, "", false, e
 		}
-		entries = append(entries, backupauto.LocalArtifact{Path: item.file, Name: filepath.Base(item.file), Kind: item.kind, Size: size, SHA256: hash})
+		entries = append(entries, backupauto.LocalArtifact{Path: item.file, Name: item.name, Kind: item.kind, Size: size, SHA256: hash})
 	}
 	return entries, scope, consistent, nil
 }
 
-// This supplements the older dump-only journey with all three actual age
+// This verifies a complete generation with all three actual age
 // envelopes and byte-faithful Maildir/config/key extraction. Transport is a
 // directory; application of files to a booted machine is a separate drill.
 func TestEncryptedCompleteScopeDatabaseMailConfigAndKeys(t *testing.T) {
