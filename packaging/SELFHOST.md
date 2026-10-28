@@ -71,3 +71,22 @@ Import acceptance and local receipts are durable. After a lost APPEND acknowledg
 ## Cloud AI configuration and consent
 
 `URMAIL_AI_CLOUD_ENDPOINTS` is an exact operator allowlist, not permission to send mailbox content. Save provider credentials through the authenticated configuration API so they remain encrypted. Cloud processing requires an explicit current configuration digest and content-scope consent from an active tenant owner or administrator. Revocation, a provider/model/scope change or removal of the granting role invalidates that consent. Native AI requests remain scoped to the authenticated mailbox; configuring a provider does not authorize a background export of customer mail.
+
+
+## Root-managed automatic backups
+
+The fixed `urmail-backup-auto.timer` runs an independent root oneshot. Complete
+maintenance backups stop and restore their original writer services using a
+private durable receipt; the job never runs inside the daemon or agent cgroup.
+Store the age public recipient, offsite destination and credentials in the
+root-only `/etc/urmail/agent.env`. An unconfigured job performs no maintenance.
+Use `systemctl start urmail-backup-auto.service` for the configured root job;
+review the journal and `backup_runs` outcome, not just timer activation.
+
+A deployment using an existing loopback-published PostgreSQL container can set
+`URMAIL_BACKUP_POSTGRES_CONTAINER` in that root-only file. The backup binds the
+migration URL's loopback host port to container port 5432 and pins its immutable
+container ID before fixed `pg_dump` execution. It does not create another
+database or expose a caller-controlled shell command. Standalone manual backup
+commands may pass that same nonsecret container selector in their environment.
+Default native installations continue using the managed local peer connection.
