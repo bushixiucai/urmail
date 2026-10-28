@@ -302,6 +302,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 const getUserRoleForTenant = `-- name: GetUserRoleForTenant :one
 SELECT r.role
 FROM user_tenant_roles r
+JOIN users u ON u.id=r.user_id AND u.status='active'
 WHERE r.user_id = $1 AND r.tenant_id = $2
 `
 

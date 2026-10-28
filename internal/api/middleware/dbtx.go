@@ -78,6 +78,14 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			}
 		}()
 
+		// A writer can wait behind another tenant operation. Resolve current
+		// membership only after that wait, so revocation is never cached across it.
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			if _, err := tx.Exec(c.Request.Context(), "SELECT pg_advisory_xact_lock($1)", tenantID); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
+				return
+			}
+		}
 		queries := store.New(tx)
 		role, err := queries.GetUserRoleForTenant(c.Request.Context(), store.GetUserRoleForTenantParams{
 			UserID:   userID,
@@ -101,13 +109,6 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 		c.Writer = buffered
 		defer func() { c.Writer = originalWriter }()
 		c.Set(contextTransaction, tx)
-		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
-			if _, err := tx.Exec(c.Request.Context(), "SELECT pg_advisory_xact_lock($1)", tenantID); err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-				buffered.publish()
-				return
-			}
-		}
 		c.Next()
 		if failed, _ := c.Get("urmail.transaction_failed"); failed == true || buffered.overflow {
 			c.Writer = originalWriter
