@@ -41,19 +41,33 @@ type AIBudget struct {
 // usage crosses either budget. Pure boundary logic: exactly reaching the
 // limit is allowed, strictly crossing it is refused.
 func (b AIBudget) Exceeded(used, reserved AIBudget) bool {
-	if b.DailyTokens > 0 && used.DailyTokens+reserved.DailyTokens > b.DailyTokens {
-		return true
+	exceeds := func(limit, consumed, additional int64) bool {
+		return limit > 0 && (consumed > limit || additional > limit-consumed)
 	}
-	if b.DailyCostMicros > 0 && used.DailyCostMicros+reserved.DailyCostMicros > b.DailyCostMicros {
-		return true
+	return exceeds(b.DailyTokens, used.DailyTokens, reserved.DailyTokens) || exceeds(b.DailyCostMicros, used.DailyCostMicros, reserved.DailyCostMicros) || exceeds(b.MonthlyTokens, used.MonthlyTokens, reserved.MonthlyTokens) || exceeds(b.MonthlyCostMicros, used.MonthlyCostMicros, reserved.MonthlyCostMicros)
+}
+
+// checkAIProviderBudget must run under the caller's tenant billing lock and
+// before its durable reservation. Both native operations and grounded answers
+// consume the same ledger; unknown outcomes retain their reserved usage.
+func checkAIProviderBudget(ctx context.Context, q *store.Queries, cfg store.AiProviderConfigs, tenantID, reservedTokens, reservedCost int64, now time.Time) error {
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	dayUsed, err := budgetUsage(ctx, q, tenantID, dayStart, now)
+	if err != nil {
+		return err
 	}
-	if b.MonthlyTokens > 0 && used.MonthlyTokens+reserved.MonthlyTokens > b.MonthlyTokens {
-		return true
+	monthUsed, err := budgetUsage(ctx, q, tenantID, monthStart, now)
+	if err != nil {
+		return err
 	}
-	if b.MonthlyCostMicros > 0 && used.MonthlyCostMicros+reserved.MonthlyCostMicros > b.MonthlyCostMicros {
-		return true
+	budget := AIBudget{DailyTokens: cfg.DailyTokenLimit, DailyCostMicros: cfg.DailyCostMicros, MonthlyTokens: cfg.MonthlyTokenLimit, MonthlyCostMicros: cfg.MonthlyCostMicros}
+	reserved := AIBudget{DailyTokens: reservedTokens, DailyCostMicros: reservedCost, MonthlyTokens: reservedTokens, MonthlyCostMicros: reservedCost}
+	if budget.Exceeded(dayUsed, AIBudget{DailyTokens: reserved.DailyTokens, DailyCostMicros: reserved.DailyCostMicros}) || budget.Exceeded(monthUsed, AIBudget{MonthlyTokens: reserved.MonthlyTokens, MonthlyCostMicros: reserved.MonthlyCostMicros}) {
+		ai.BudgetExceededTotal.Inc()
+		return ErrAIBudgetExceeded
 	}
-	return false
+	return nil
 }
 
 // Reservation identifies one written reservation row.
@@ -121,24 +135,11 @@ func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID 
 			return nil, err
 		}
 	}
-	now := time.Now()
-	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	dayUsed, err := budgetUsage(ctx, q, tenantID, dayStart, now)
-	if err != nil {
+	now := time.Now().Truncate(time.Microsecond)
+	if err = checkAIProviderBudget(ctx, q, cfg, tenantID, reservedTokens, reservedCost, now); err != nil {
 		return nil, err
 	}
-	monthUsed, err := budgetUsage(ctx, q, tenantID, monthStart, now)
-	if err != nil {
-		return nil, err
-	}
-	budget := AIBudget{DailyTokens: cfg.DailyTokenLimit, DailyCostMicros: cfg.DailyCostMicros, MonthlyTokens: cfg.MonthlyTokenLimit, MonthlyCostMicros: cfg.MonthlyCostMicros}
-	reserved := AIBudget{DailyTokens: reservedTokens, DailyCostMicros: reservedCost, MonthlyTokens: reservedTokens, MonthlyCostMicros: reservedCost}
-	if budget.Exceeded(dayUsed, AIBudget{DailyTokens: reserved.DailyTokens, DailyCostMicros: reserved.DailyCostMicros}) ||
-		budget.Exceeded(monthUsed, AIBudget{MonthlyTokens: reserved.MonthlyTokens, MonthlyCostMicros: reserved.MonthlyCostMicros}) {
-		ai.BudgetExceededTotal.Inc()
-		return nil, ErrAIBudgetExceeded
-	}
+
 	digest := sha256.Sum256([]byte(question))
 	key := make([]byte, 16)
 	if _, err = rand.Read(key); err != nil {
@@ -174,7 +175,7 @@ func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID 
 		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
 	}
 	row, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{
-		TenantID: tenantID, MailboxID: mailboxID, RequestKey: "ask-" + hex.EncodeToString(key), InputDigest: hex.EncodeToString(digest[:]), PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit,
+		TenantID: tenantID, MailboxID: mailboxID, RequestKey: "ask-" + hex.EncodeToString(key), InputDigest: hex.EncodeToString(digest[:]), AccountedAt: pgtype.Timestamptz{Time: now, Valid: true}, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAIBudgetExceeded
@@ -308,8 +309,46 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	if err = store.New(h.Pool).PlatformSetAIBudget(c.Request.Context(), store.PlatformSetAIBudgetParams{TenantID: tid, DailyTokenLimit: input.DailyTokens, DailyCostMicros: input.DailyCost, MonthlyTokenLimit: input.MonthlyTokens, MonthlyCostMicros: input.MonthlyCost}); err != nil {
-		authError(c, http.StatusBadGateway, "DB_ERROR")
+	actor, ok := middleware.GetUserID(c)
+	if !ok || actor <= 0 {
+		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
+		return
+	}
+	tx, err := h.Pool.PlatformTx(c.Request.Context())
+	if err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	q := store.New(tx)
+	if err = q.PlatformLockBillingTenant(c, tid); err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	// Authority is checked after waiting for the target tenant's admission lock.
+	// The active user/admin rows remain locked through the successful audit.
+	if _, err = q.PlatformLockRecurringAdminActor(c, actor); err != nil {
+		authError(c, 403, "FORBIDDEN")
+		return
+	}
+	if _, err = q.PlatformGetAIProvider(c, tid); errors.Is(err, pgx.ErrNoRows) {
+		authError(c, 404, "NOT_FOUND")
+		return
+	} else if err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	if err = q.PlatformSetAIBudget(c, store.PlatformSetAIBudgetParams{TenantID: tid, DailyTokenLimit: input.DailyTokens, DailyCostMicros: input.DailyCost, MonthlyTokenLimit: input.MonthlyTokens, MonthlyCostMicros: input.MonthlyCost}); err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	detail, _ := json.Marshal(input)
+	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor, Valid: true}, Action: "UPDATE ai.budget", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tid, 10), Valid: true}, Detail: detail}); err != nil {
+		authError(c, 503, "AUDIT_UNAVAILABLE")
+		return
+	}
+	if err = tx.Commit(c); err != nil {
+		authError(c, 503, "DB_ERROR")
 		return
 	}
 	c.Status(http.StatusNoContent)

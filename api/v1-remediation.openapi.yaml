@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: urMail selected v1 API contracts
-  version: 0.5.2
+  version: 0.5.3
   description: Selected endpoints added or changed in remediation and upstream alignment. This is not a complete v1 specification
     or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
     Bearer and X-CSRF-Token; present Origin/Referer must match the host.

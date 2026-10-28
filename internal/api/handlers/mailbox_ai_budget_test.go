@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestAIBudgetExceededBoundaries(t *testing.T) {
 	limit := AIBudget{DailyTokens: 1000, DailyCostMicros: 5000, MonthlyCostMicros: 5000}
@@ -46,5 +49,13 @@ func TestAICostComputationRoundsUpMicros(t *testing.T) {
 	}
 	if _, err = aiCost(-1, 0, 1, 1); err == nil {
 		t.Fatal("negative input must be refused")
+	}
+}
+
+func TestAIBudgetAdditionCannotOverflowAndBypassLimit(t *testing.T) {
+	for _, limit := range []AIBudget{{DailyTokens: math.MaxInt64}, {DailyCostMicros: math.MaxInt64}, {MonthlyTokens: math.MaxInt64}, {MonthlyCostMicros: math.MaxInt64}} {
+		if !limit.Exceeded(AIBudget{DailyTokens: math.MaxInt64, DailyCostMicros: math.MaxInt64, MonthlyTokens: math.MaxInt64, MonthlyCostMicros: math.MaxInt64}, AIBudget{DailyTokens: 1, DailyCostMicros: 1, MonthlyTokens: 1, MonthlyCostMicros: 1}) {
+			t.Fatal("overflow bypassed finite budget", limit)
+		}
 	}
 }

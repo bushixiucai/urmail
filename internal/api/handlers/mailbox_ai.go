@@ -176,6 +176,13 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	} else {
 		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
 	}
+	budgetNow := time.Now().Truncate(time.Microsecond)
+	if err = checkAIProviderBudget(ctx, q, cfg, principal.TenantID, reservedTokens, reservedCost, budgetNow); err != nil {
+		if errors.Is(err, ErrAIBudgetExceeded) {
+			return nil, errAIBudget
+		}
+		return nil, err
+	}
 	var provider ai.Provider
 	if s.Provider != nil {
 		provider, err = s.Provider(cfg)
@@ -195,7 +202,7 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	if err != nil {
 		return nil, err
 	}
-	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
+	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: pgtype.Timestamptz{Time: budgetNow, Valid: true}, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errAIBudget
 	}

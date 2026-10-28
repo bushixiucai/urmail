@@ -381,14 +381,14 @@ func (q *Queries) PlatformPendingAIUsage(ctx context.Context, tenantID int64) ([
 }
 
 const platformReserveAIRequest = `-- name: PlatformReserveAIRequest :one
-INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,reserved_tokens,reserved_cost_micros,provider,model,cost_currency,input_rate,output_rate)
-SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,reserved_tokens,reserved_cost_micros,provider,model,cost_currency,input_rate,output_rate,created_at,updated_at)
+SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::timestamptz,$15::timestamptz
 WHERE NOT EXISTS(SELECT 1 FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND mode='platform' AND $7='platform' AND cost_currency<>$12)
-AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')<$15::bigint
-AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND mailbox_id=$2 AND period_start=$5 AND status<>'released')<$16::bigint
-AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND status='reserved')<$17::bigint
-AND (SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')+$8::bigint<=$18::bigint
-AND (SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')+$9::bigint<=$19::bigint
+AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')<$16::bigint
+AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND mailbox_id=$2 AND period_start=$5 AND status<>'released')<$17::bigint
+AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND status='reserved')<$18::bigint
+AND (SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')+$8::bigint<=$19::bigint
+AND (SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')+$9::bigint<=$20::bigint
 RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, period_end, mode, provider, model, cost_currency, input_rate, output_rate, status, reserved_tokens, reserved_cost_micros, actual_tokens, actual_cost_micros, result, review_reason, reviewed_by, reviewed_at, created_at, updated_at
 `
 
@@ -407,6 +407,7 @@ type PlatformReserveAIRequestParams struct {
 	CostCurrency       string             `json:"cost_currency"`
 	InputRate          int64              `json:"input_rate"`
 	OutputRate         int64              `json:"output_rate"`
+	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
 	CallLimit          int64              `json:"call_limit"`
 	MailboxCallLimit   int64              `json:"mailbox_call_limit"`
 	ConcurrencyLimit   int64              `json:"concurrency_limit"`
@@ -430,6 +431,7 @@ func (q *Queries) PlatformReserveAIRequest(ctx context.Context, arg PlatformRese
 		arg.CostCurrency,
 		arg.InputRate,
 		arg.OutputRate,
+		arg.AccountedAt,
 		arg.CallLimit,
 		arg.MailboxCallLimit,
 		arg.ConcurrencyLimit,
@@ -467,8 +469,8 @@ func (q *Queries) PlatformReserveAIRequest(ctx context.Context, arg PlatformRese
 }
 
 const platformReserveMailboxAIRequest = `-- name: PlatformReserveMailboxAIRequest :one
-INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,provider,model,cost_currency,input_rate,output_rate,reserved_tokens,reserved_cost_micros)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,provider,model,cost_currency,input_rate,output_rate,reserved_tokens,reserved_cost_micros,created_at,updated_at)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::timestamptz,$15::timestamptz)
 RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, period_end, mode, provider, model, cost_currency, input_rate, output_rate, status, reserved_tokens, reserved_cost_micros, actual_tokens, actual_cost_micros, result, review_reason, reviewed_by, reviewed_at, created_at, updated_at
 `
 
@@ -487,6 +489,7 @@ type PlatformReserveMailboxAIRequestParams struct {
 	OutputRate         int64              `json:"output_rate"`
 	ReservedTokens     int64              `json:"reserved_tokens"`
 	ReservedCostMicros int64              `json:"reserved_cost_micros"`
+	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
 }
 
 func (q *Queries) PlatformReserveMailboxAIRequest(ctx context.Context, arg PlatformReserveMailboxAIRequestParams) (AiUsageRequests, error) {
@@ -505,6 +508,7 @@ func (q *Queries) PlatformReserveMailboxAIRequest(ctx context.Context, arg Platf
 		arg.OutputRate,
 		arg.ReservedTokens,
 		arg.ReservedCostMicros,
+		arg.AccountedAt,
 	)
 	var i AiUsageRequests
 	err := row.Scan(
