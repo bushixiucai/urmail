@@ -146,7 +146,13 @@ func TestTransportPolicyPublicationHostBindingAndCachePG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.platform.Exec(ctx, "UPDATE domain_transport_security SET testing_since=now()-interval '1 day',observation_status='verified',observed_at=now(),observation_digest=$3 WHERE tenant_id=$1 AND domain_id=$2", f.tenant, f.domain, mailtransport.Publication(row).Digest()); err != nil {
+	// Keep the production future-observation refusal explicit. Fixture facts
+	// use the admission clock, not a second host's wall clock at PG now().
+	if _, err = f.platform.Exec(ctx, "UPDATE domain_transport_security SET testing_since=now()-interval '1 day',observation_status='verified',observed_at=$4,observation_digest=$3 WHERE tenant_id=$1 AND domain_id=$2", f.tenant, f.domain, mailtransport.Publication(row).Digest(), time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	decodeTransport(t, f.call(t, "PUT", f.path(), body, "", true), 409)
+	if _, err = f.platform.Exec(ctx, "UPDATE domain_transport_security SET observed_at=$3 WHERE tenant_id=$1 AND domain_id=$2", f.tenant, f.domain, time.Now().UTC().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	enforced := decodeTransport(t, f.call(t, "PUT", f.path(), body, "", true), 200)
