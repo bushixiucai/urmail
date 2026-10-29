@@ -3499,7 +3499,13 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '409':
-          $ref: '#/components/responses/Error'
+          description: 'AI_DISABLED: no provider configuration exists for this tenant.
+            The model configuration entry remains available; quota edits must wait until
+            configuration can be read.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -3601,7 +3607,13 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '409':
-          $ref: '#/components/responses/Error'
+          description: 'AI_DISABLED: no provider configuration exists for this tenant.
+            The model configuration entry remains available; quota edits must wait until
+            configuration can be read.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /ai/configuration:
@@ -5903,7 +5915,13 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '409':
-          $ref: '#/components/responses/Error'
+          description: 'AI_DISABLED: no provider configuration exists for this tenant.
+            The model configuration entry remains available; quota edits must wait until
+            configuration can be read.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/Error'
   /mailbox/ai/drafts:

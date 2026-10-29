@@ -198,7 +198,7 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 	}
 	cfg, err := q.PlatformGetAIProvider(c, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
-		c.JSON(200, gin.H{"enabled": false, "entitlement": gin.H{"source": "unconfigured", "available": false, "call_limit": 0, "mailbox_call_limit": 0, "concurrency_limit": 0}})
+		authError(c, 409, "AI_DISABLED")
 		return
 	} else if err != nil {
 		authError(c, 503, "DB_ERROR")
