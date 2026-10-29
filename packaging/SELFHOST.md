@@ -6,7 +6,17 @@
 
 安装器安装 PostgreSQL、Postfix、Dovecot（IMAP/POP3/LMTP/Sieve/PG）、nginx、OpenDKIM、可选权威 DNS 的 nsd，以及 age、OpenSSH/SFTP 客户端、Python3、证书与系统工具。前端已嵌入二进制，目标机器不需要 Node/Go。系统服务和证书操作由 root agent 执行，业务 daemon 为 mailinabox 用户。
 
-公网端口：25、465、587、993、995/TCP；80/TCP 用于 HTTP/ACME，443/TCP 用于面板、Webmail 和三类同步。只有启用权威 DNS 时才需要开放 53/TCP+UDP。8080、PG、策略 socket 和所有 milter 仅限回环/Unix socket，不能公开暴露。具体机器可监听地址以受控配置为准，不要为“群件”另开放任意端口。
+Primary public services use 25, 465, 587, 993 and 995/TCP; 80/TCP serves HTTP/ACME and 443/TCP serves the panel, Webmail and collaboration protocols. Authoritative DNS requires 53/TCP+UDP only when enabled. The generated Dovecot configuration also enables the following listeners; their external reachability depends on the node's bind addresses and firewall:
+
+| Optional listener | Transport and authentication | Firewall guidance |
+| --- | --- | --- |
+| 110/TCP — POP3 | STLS must establish TLS before authentication | Allow only for clients that explicitly require this endpoint. |
+| 143/TCP — IMAP | STARTTLS must establish TLS before authentication | Prefer implicit TLS on 993; allow 143 only when required. |
+| 4190/TCP — ManageSieve | STARTTLS must establish TLS before authentication | Allow only for explicitly supported external rule-management clients. |
+
+Dovecot enforces `ssl=required`, `disable_plaintext_auth=yes` and a minimum of TLSv1.2. An initial plaintext greeting or STARTTLS negotiation is not permission to authenticate without TLS. This is a listener inventory, not an instruction to open every port: keep optional listeners blocked unless needed, and review both IPv4 and IPv6 policy. The installer does not open or close firewall ports. Inspect `ss -lntp` and `doveconf` on the actual node before publishing client settings; inherited host configuration can differ from a new installation. The fresh-install configuration was observed listening on 110, 143 and 4190/TCP in isolated Ubuntu 22/24 ARM environments. The existing legacy production host instead retains `imap` and `pop3` listener ports set to `0`: 110/143 remain disabled while 4190 is listening and explicitly allowed by its IPv4/IPv6 firewall. A fail2ban rule listing a port does not itself allow that port. Neither observation changes the other environment's configuration.
+
+Port 8080, PostgreSQL, policy sockets and mail milters remain loopback/Unix-only and must not be exposed. Do not add arbitrary ports for collaboration.
 
 域名需归属验证，MX/SPF/DKIM/DMARC 与实际主机一致，PTR 由 IP 提供商配置；公开客户端使用证书前验证名称、信任链、有效期及续期路径。自签名证书仅引导，不能作为公网验收。
 

@@ -332,6 +332,7 @@ type Querier interface {
 	PauseMarketingRuntimeFlows(ctx context.Context, arg PauseMarketingRuntimeFlowsParams) error
 	PendingRefundForTerm(ctx context.Context, arg PendingRefundForTermParams) (bool, error)
 	PlanSnapshotFitsResources(ctx context.Context, arg PlanSnapshotFitsResourcesParams) (bool, error)
+	PlatformAIQuotaUsage(ctx context.Context, arg PlatformAIQuotaUsageParams) (PlatformAIQuotaUsageRow, error)
 	PlatformAIUsage(ctx context.Context, tenantID int64) ([]PlatformAIUsageRow, error)
 	PlatformAcceptMailboxScheduledSend(ctx context.Context, arg PlatformAcceptMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformAckMailboxPasswordRevocation(ctx context.Context, arg PlatformAckMailboxPasswordRevocationParams) (int64, error)
@@ -768,6 +769,7 @@ type Querier interface {
 	PlatformListTenantRenewalAttempts(ctx context.Context, tenantID int64) ([]SubscriptionRenewalAttempts, error)
 	PlatformListTenants(ctx context.Context) ([]PlatformListTenantsRow, error)
 	PlatformListTransportSecurity(ctx context.Context) ([]PlatformListTransportSecurityRow, error)
+	PlatformLockAIQuotaTenantReader(ctx context.Context, arg PlatformLockAIQuotaTenantReaderParams) (int64, error)
 	PlatformLockAliasSenderMailboxes(ctx context.Context, arg PlatformLockAliasSenderMailboxesParams) ([]string, error)
 	// Privileged, audited maintenance of explicit sender identities; no content access.
 	PlatformLockAliasSenderTarget(ctx context.Context, arg PlatformLockAliasSenderTargetParams) (PlatformLockAliasSenderTargetRow, error)
@@ -974,6 +976,7 @@ type Querier interface {
 	PlatformSetLegacyDKIM(ctx context.Context, arg PlatformSetLegacyDKIMParams) (int64, error)
 	PlatformSetMailboxSieve(ctx context.Context, arg PlatformSetMailboxSieveParams) (int64, error)
 	PlatformSetManagedFreeTerm(ctx context.Context, arg PlatformSetManagedFreeTermParams) error
+	PlatformSetNonplatformAIQuota(ctx context.Context, arg PlatformSetNonplatformAIQuotaParams) error
 	PlatformSetOperationalCondition(ctx context.Context, arg PlatformSetOperationalConditionParams) error
 	PlatformSetPlanPrice(ctx context.Context, arg PlatformSetPlanPriceParams) (PlatformSetPlanPriceRow, error)
 	PlatformSetRecurringRuntime(ctx context.Context, arg PlatformSetRecurringRuntimeParams) error

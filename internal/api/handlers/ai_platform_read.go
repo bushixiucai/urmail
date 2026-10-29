@@ -55,7 +55,11 @@ func (h *AIConfigurationHandler) PlatformGet(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	c.JSON(200, gin.H{"configured": true, "configuration": gin.H{"mode": cfg.Mode, "provider": cfg.Provider, "endpoint": cfg.Endpoint, "model": cfg.Model, "enabled": cfg.Enabled, "credential_configured": cfg.EncryptedKey != "", "input_micros_per_million": cfg.InputMicrosPerMillion, "output_micros_per_million": cfg.OutputMicrosPerMillion, "cost_currency": cfg.CostCurrency}, "tenant_consent": policy, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints)})
+	configuration := gin.H{"mode": cfg.Mode, "provider": cfg.Provider, "endpoint": cfg.Endpoint, "model": cfg.Model, "enabled": cfg.Enabled, "credential_configured": cfg.EncryptedKey != "", "input_micros_per_million": cfg.InputMicrosPerMillion, "output_micros_per_million": cfg.OutputMicrosPerMillion, "cost_currency": cfg.CostCurrency}
+	for key, value := range aiConfigurationQuotaFields(cfg) {
+		configuration[key] = value
+	}
+	c.JSON(200, gin.H{"configured": true, "configuration": configuration, "tenant_consent": policy, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints)})
 }
 
 // PlatformUsage prioritizes unfinished accounting metadata without model input/output.

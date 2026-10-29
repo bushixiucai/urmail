@@ -721,6 +721,7 @@ func TestOPS009RecoveryDrill(t *testing.T) {
 	ops009SeedRecurringSetups(t, source)
 	ops009SeedRecallTransport(t, source)
 	ops009SeedMailImports(t, source)
+	ops009SeedAIQuota(t, source)
 
 	// 1. Real pg_dump of the fully seeded database (custom format).
 	spool := t.TempDir()
@@ -765,7 +766,9 @@ func TestOPS009RecoveryDrill(t *testing.T) {
 	ops009AssertHolds(t, target)
 	ops009AssertIndependence(t, target, strings.Repeat("b", 64))
 	ops009AssertRLSFailClosed(t, target)
+	ops009AssertAIQuota(t, target, true)
 	ops009AssertConvergedMigrations(t, target, sourceVersion)
+	ops009AssertAIQuota(t, target, true)
 
 	// 6. Explicit release only after every step succeeded.
 	if !ops009Release(t, target) {

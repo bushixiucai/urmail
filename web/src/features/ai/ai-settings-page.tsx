@@ -1,4 +1,6 @@
 import { CloudConsent, type CloudPolicy } from "./cloud-consent";
+import { AIBudgetSummary } from "./ai-budget-summary";
+import type { AIBudgetStatus } from "./ai-budget";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
@@ -46,11 +48,14 @@ export function AISettingsPage() {
   const [local, setLocal] = useState<string[]>([]);
   const [key, setKey] = useState("");
   const [usage, setUsage] = useState<Usage[]>([]);
+  const [budget, setBudget] = useState<AIBudgetStatus | null>(null);
+  const [budgetUnavailable, setBudgetUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
+    setBudgetUnavailable(false);
     Promise.all([
       request<{
         configuration: Configuration;
@@ -58,11 +63,19 @@ export function AISettingsPage() {
         cloud_endpoints: string[];
         local_endpoints: string[];
       }>("/api/v1/ai/configuration", { signal: controller.signal }),
+      request<AIBudgetStatus>("/api/v1/ai/budget", {
+        signal: controller.signal,
+      }).catch(() => {
+        if (!controller.signal.aborted) setBudgetUnavailable(true);
+        return null;
+      }),
       request<{ requests: Usage[] }>("/api/v1/ai/usage", {
         signal: controller.signal,
       }),
     ])
-      .then(([settings, ledger]) => {
+      .then(([settings, quota, ledger]) => {
+        if (controller.signal.aborted) return;
+        setBudget(quota);
         setConfig(settings.configuration);
         setPolicy(settings.consent ?? null);
         setCloud(settings.cloud_endpoints);
@@ -81,7 +94,15 @@ export function AISettingsPage() {
     try {
       await request("/api/v1/ai/configuration", {
         method: "PUT",
-        body: { ...config, api_key: key },
+        body: {
+          mode: config.mode,
+          provider: config.provider,
+          endpoint: config.endpoint,
+          model: config.model,
+          enabled: config.enabled,
+          local_only: config.local_only,
+          api_key: key,
+        },
       });
       setKey("");
       setMessage(t("page.ai.saved"));
@@ -112,6 +133,19 @@ export function AISettingsPage() {
         <h1 className="text-2xl font-semibold">{t("page.ai.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("page.ai.identity")}</p>
       </header>
+      <AIBudgetSummary budget={budget} />
+      {budgetUnavailable && (
+        <div role="alert" className="space-y-2 text-sm">
+          <p>{t("ai.quota.load_failed")}</p>
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => setRefresh((value) => value + 1)}
+          >
+            {t("ai.quota.retry")}
+          </Button>
+        </div>
+      )}
       <CloudConsent
         policy={policy}
         reload={() => setRefresh((value) => value + 1)}

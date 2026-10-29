@@ -1,3 +1,4 @@
+import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 import { ApiRequestError, apiErrorSchema } from "@/lib/api/client";
 
 const MAILBOX_TOKEN_KEY = "urmail.mailbox-token";
@@ -867,16 +868,7 @@ export const fetchMailboxAICitation = (id: string, signal?: AbortSignal) =>
     { signal },
   );
 export const fetchMailboxAIBudget = (signal?: AbortSignal) =>
-  mailboxRequest<{
-    enabled: boolean;
-    cost_currency: string;
-    daily: {
-      tokens_used: number;
-      tokens_limit: number | null;
-      cost_micros_used: number;
-      cost_micros_limit: number | null;
-    };
-  }>("/api/v1/mailbox/ai/budget", { signal });
+  mailboxRequest<AIBudgetStatus>("/api/v1/mailbox/ai/budget", { signal });
 
 export interface MailboxMutationResult {
   results: Array<{

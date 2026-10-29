@@ -94,7 +94,7 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	if err = q.PlatformLockBillingTenant(ctx, principal.TenantID); err != nil {
 		return nil, err
 	}
-	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
+	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !session.ExpiresAt.Time.After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
 		return nil, ai.ErrUnauthorized
 	}
 	if err = q.PlatformExpireAIReservations(ctx, principal.TenantID); err != nil {
@@ -141,27 +141,13 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	if (cfg.Mode == "local") != (cfg.Provider == "ollama") {
 		return nil, ai.ErrProviderDisabled
 	}
-	plan, err := q.GetEffectivePlan(ctx, principal.TenantID)
+	budgetNow := time.Now().Truncate(time.Microsecond)
+	quota, err := resolveAIQuota(ctx, q, cfg, principal.TenantID, budgetNow)
 	if err != nil {
 		return nil, errAIBudget
 	}
-	var limits aiPlanLimits
-	if json.Unmarshal(plan.Features, &limits) != nil || limits.AI.Calls <= 0 || limits.AI.Concurrency <= 0 {
-		return nil, errAIBudget
-	}
-	if limits.AI.MailboxCalls <= 0 {
-		limits.AI.MailboxCalls = limits.AI.Calls
-	}
-	subscription, err := q.GetActiveSubscriptionByTenant(ctx, principal.TenantID)
-	if err != nil || !subscription.PeriodStart.Valid || !subscription.PeriodEnd.Valid || !subscription.PeriodEnd.Time.After(time.Now()) {
-		return nil, errAIBudget
-	}
-	start, end := subscription.PeriodStart, subscription.PeriodEnd
-	if term, termErr := q.GetCurrentSubscriptionTerm(ctx, principal.TenantID); termErr == nil {
-		start, end = term.BillingPeriodStart, term.PeriodEnd
-	} else if !errors.Is(termErr, pgx.ErrNoRows) {
-		return nil, termErr
-	}
+	limits := quota.Limits
+	start, end := quota.Start, quota.End
 	reservedTokens := int64(len(raw)) + 4096 // UTF-8 byte bound plus system prompt/output headroom.
 	tokenLimit, costLimit := limits.AI.Tokens, limits.AI.Cost
 	reservedCost := int64(0)
@@ -176,7 +162,6 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	} else {
 		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
 	}
-	budgetNow := time.Now().Truncate(time.Microsecond)
 	if err = checkAIProviderBudget(ctx, q, cfg, principal.TenantID, reservedTokens, reservedCost, budgetNow); err != nil {
 		if errors.Is(err, ErrAIBudgetExceeded) {
 			return nil, errAIBudget
@@ -202,7 +187,7 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	if err != nil {
 		return nil, err
 	}
-	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: pgtype.Timestamptz{Time: budgetNow, Valid: true}, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
+	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: pgtype.Timestamptz{Time: budgetNow, Valid: true}, IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errAIBudget
 	}
@@ -282,6 +267,9 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 		return
 	}
 	configuration := gin.H{"mode": cfg.Mode, "provider": cfg.Provider, "endpoint": cfg.Endpoint, "model": cfg.Model, "enabled": cfg.Enabled, "local_only": cfg.LocalOnly, "credential_configured": cfg.EncryptedKey != ""}
+	for key, value := range aiConfigurationQuotaFields(cfg) {
+		configuration[key] = value
+	}
 	policy, policyErr := aiTargetPolicy(c, store.New(h.Pool), cfg)
 	if policyErr != nil {
 		authError(c, 503, "DB_ERROR")

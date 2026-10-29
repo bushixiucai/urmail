@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { AIBudgetSummary } from "@/features/ai/ai-budget-summary";
+import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,7 +63,7 @@ export function MailboxAIPanel({
       setConfirmed(false);
     }
   }, [subject, body, mode]);
-  const [budget, setBudget] = useState<string | null>(null);
+  const [budget, setBudget] = useState<AIBudgetStatus | null>(null);
   const [applied, setApplied] = useState(false);
   const request = useRef({
     generation: 0,
@@ -115,15 +117,7 @@ export function MailboxAIPanel({
       });
     void fetchMailboxAIBudget(controller.signal)
       .then((value) => {
-        setBudget(
-          t("page.webmail.ai_budget", {
-            used: value.daily.tokens_used,
-            limit:
-              (value.daily.tokens_limit ?? 0) > 0
-                ? value.daily.tokens_limit
-                : t("page.webmail.ai_unlimited"),
-          }),
-        );
+        if (!controller.signal.aborted) setBudget(value);
       })
       .catch(() => setBudget(null));
     if (
@@ -396,7 +390,7 @@ export function MailboxAIPanel({
             />
             <span>{t("page.webmail.ai_confirm_content")}</span>
           </label>
-          {budget && <p className="text-xs text-muted-foreground">{budget}</p>}
+          <AIBudgetSummary budget={budget} />
           {error && (
             <p role="alert" className="text-destructive">
               {error}

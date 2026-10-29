@@ -173,3 +173,174 @@ it("keeps exact observed token strings instead of rounding unknown provider usag
   await settle();
   expect(view.getByText(/9007199254740993/)).toBeTruthy();
 });
+
+it("saves explicit independent caps without changing mailbox plans or invoking a provider", async () => {
+  const view = setup("local");
+  await settle();
+  for (const [field, value] of [
+    ["nonplatform_call_limit", "120"],
+    ["nonplatform_mailbox_call_limit", "30"],
+    ["nonplatform_concurrency_limit", "2"],
+  ]) {
+    fireEvent.change(view.getByLabelText(`ai.quota.field.${field}`), {
+      target: { value },
+    });
+  }
+  fireEvent.submit(view.getByTestId("ai-quota-governance"));
+  await settle();
+  const call = state.request.mock.calls.find(
+    ([path, options]) => path.endsWith("/budget") && options?.method === "POST",
+  );
+  expect(call?.[1].body).toMatchObject({
+    nonplatform_call_limit: 120,
+    nonplatform_mailbox_call_limit: 30,
+    nonplatform_concurrency_limit: 2,
+  });
+  expect(call?.[1].body).not.toHaveProperty("plan_id");
+  expect(call?.[1].body).not.toHaveProperty("api_key");
+});
+it("rejects unsafe integer, exponent, partial caps and excessive concurrency before HTTP", async () => {
+  const view = setup();
+  await settle();
+  const fields = [
+    "nonplatform_call_limit",
+    "nonplatform_mailbox_call_limit",
+    "nonplatform_concurrency_limit",
+  ];
+  for (const values of [
+    ["1e3", "2", "1"],
+    ["9007199254740992", "2", "1"],
+    ["1.5", "2", "1"],
+    ["10", "0", "1"],
+    ["10", "2", "65"],
+  ]) {
+    fields.forEach((field, index) =>
+      fireEvent.change(view.getByLabelText(`ai.quota.field.${field}`), {
+        target: { value: values[index] },
+      }),
+    );
+    fireEvent.submit(view.getByTestId("ai-quota-governance"));
+    await settle();
+  }
+  expect(
+    state.request.mock.calls.some(
+      ([path, options]) =>
+        path.endsWith("/budget") && options?.method === "POST",
+    ),
+  ).toBe(false);
+  expect(view.getByRole("status").textContent).toBe("ai.quota.invalid");
+});
+it("allows explicit all-zero independent caps as unconfigured", async () => {
+  const view = setup();
+  await settle();
+  fireEvent.submit(view.getByTestId("ai-quota-governance"));
+  await settle();
+  const call = state.request.mock.calls.find(
+    ([path, options]) => path.endsWith("/budget") && options?.method === "POST",
+  );
+  expect(call?.[1].body).toMatchObject({
+    nonplatform_call_limit: 0,
+    nonplatform_mailbox_call_limit: 0,
+    nonplatform_concurrency_limit: 0,
+  });
+});
+
+it("preserves raw provider ceilings when BYO effective cost is zero and accepts the maximum safe call cap", async () => {
+  state.request.mockImplementation(async (path: string) =>
+    path.endsWith("/configuration")
+      ? {
+          configured: true,
+          configuration: {
+            mode: "byo",
+            provider: "openai",
+            endpoint: "https://fixture.test/v1",
+            model: "fixture",
+            enabled: false,
+            credential_configured: false,
+            daily_cost_micros: 99,
+            monthly_cost_micros: 999,
+            nonplatform_call_limit: 0,
+            nonplatform_mailbox_call_limit: 0,
+            nonplatform_concurrency_limit: 0,
+            quota_timezone: "Asia/Shanghai",
+          },
+        }
+      : path.endsWith("/budget")
+        ? {
+            enabled: false,
+            cost_currency: "CNY",
+            daily: {
+              tokens_used: 0,
+              tokens_limit: -1,
+              cost_micros_used: 0,
+              cost_micros_limit: -1,
+            },
+            monthly: {
+              tokens_used: 0,
+              tokens_limit: -1,
+              cost_micros_used: 0,
+              cost_micros_limit: -1,
+            },
+            entitlement: { source: "unconfigured", available: false },
+          }
+        : { requests: [] },
+  );
+  const view = render(<PlatformAIAdmin tenants={[{ id: 7, name: "Seven" }]} />);
+  fireEvent.change(view.getByLabelText("ai.admin.tenant"), {
+    target: { value: "7" },
+  });
+  await settle();
+  expect(
+    (
+      view.getByLabelText(
+        "ai.quota.field.daily_cost_micros",
+      ) as HTMLInputElement
+    ).value,
+  ).toBe("99");
+  fireEvent.change(
+    view.getByLabelText("ai.quota.field.nonplatform_call_limit"),
+    { target: { value: "9007199254740991" } },
+  );
+  fireEvent.change(
+    view.getByLabelText("ai.quota.field.nonplatform_mailbox_call_limit"),
+    { target: { value: "1" } },
+  );
+  fireEvent.change(
+    view.getByLabelText("ai.quota.field.nonplatform_concurrency_limit"),
+    { target: { value: "1" } },
+  );
+  fireEvent.submit(view.getByTestId("ai-quota-governance"));
+  await settle();
+  const body = state.request.mock.calls.find(
+    ([path, options]) => path.endsWith("/budget") && options?.method === "POST",
+  )?.[1].body;
+  expect(body).toMatchObject({
+    nonplatform_call_limit: 9007199254740991,
+    daily_cost_micros: 99,
+    monthly_cost_micros: 999,
+  });
+});
+
+it("keeps provider setup available when an unconfigured budget cannot yet be read", async () => {
+  state.request.mockImplementation(async (path: string) => {
+    if (path.endsWith("/budget")) throw new Error("not configured");
+    if (path.endsWith("/configuration"))
+      return {
+        configured: false,
+        configuration: null,
+        tenant_consent: { allowed: false, tenant_local_only: true },
+      };
+    return { requests: [] };
+  });
+  const view = render(<PlatformAIAdmin tenants={[{ id: 7, name: "Seven" }]} />);
+  fireEvent.change(view.getByLabelText("ai.admin.tenant"), {
+    target: { value: "7" },
+  });
+  await settle();
+  expect(view.getByLabelText("ai.admin.model")).toBeTruthy();
+  expect(view.getByRole("button", { name: "ai.quota.save" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(view.getByRole("button", { name: "ai.quota.retry" })).toBeTruthy();
+});

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: urMail selected v1 API contracts
-  version: 0.5.3
+  version: 0.5.4
   description: Selected endpoints added or changed in remediation and upstream alignment. This is not a complete v1 specification
     or proof of runtime acceptance. Code-only legacy errors remain compatible. All mutating panel requests require
     Bearer and X-CSRF-Token; present Origin/Referer must match the host.
@@ -3470,39 +3470,247 @@ paths:
         '200': {description: 'Persisted rules, new version and activation state.'}
         '409': {description: Another editor changed the rules; reload and review.}
         default: {$ref: '#/components/responses/Error'}
-  /platform/tenants/{id}/ai/configuration:
+  /platform/tenants/{id}/ai/budget:
     parameters:
-    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
     get:
-      summary: Read safe provider metadata and the independent tenant consent policy.
-      description: Platform administrator only. Never returns encrypted or plaintext credentials. An unconfigured tenant still returns cloud_endpoints and local-only consent defaults.
-      security: [{Bearer: []}]
+      summary: Read effective AI admission and provider budget status
+      description: Active platform administrator only; target tenant comes from the
+        validated path. Mailbox-specific usage is null. Stable period boundaries and
+        daily/monthly windows use the server-frozen business timezone, not the caller
+        device timezone. BYO/local platform cost is zero; unknown token usage remains
+        conservatively reserved. A zero independent cap is unconfigured, never unlimited
+        concurrency.
+      security:
+      - Bearer: []
       responses:
-        '200': {description: 'configured, configuration, cloud_endpoints and tenant_consent.'}
-        default: {$ref: '#/components/responses/Error'}
+        '200':
+          description: Resolved source, finite caps, server period, remaining calls
+            and additional provider ceilings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIQuotaBudgetStatus'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
     post:
-      summary: Configure a platform provider without authorizing tenant cloud export.
-      description: Platform administrator and CSRF required. Changing provider, endpoint, model or content scope invalidates existing consent. Tenant local-only cannot be overridden. Monetary rates are micros per million tokens; integers cannot exceed 9007199254740991. Credential input is write-only. No billable model call is made.
-      security: [{Bearer: [], CSRF: []}]
+      summary: Set independent BYO/local admission caps and additional provider ceilings
+      description: Active platform administrator and CSRF required. Authority is rechecked
+        after the tenant admission lock and audit commits atomically with configuration.
+        Every field is optional and omission preserves the previous value. The independent
+        trio must appear together and be all zero or all positive. First positive budget/caps
+        configuration freezes quota_timezone from the tenant business timezone; later
+        writes cannot change it. This never changes mailbox subscriptions, paid terms,
+        or email entitlements, never grants cloud export consent, and does not call
+        a model.
+      security:
+      - Bearer: []
+        CSRF: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [provider, endpoint, model, cost_currency]
               properties:
-                provider: {type: string, enum: [openai, azure]}
-                endpoint: {type: string}
-                model: {type: string}
-                api_key: {type: string, writeOnly: true}
-                enabled: {type: boolean}
-                input_micros_per_million: {type: integer, minimum: 0, maximum: 9007199254740991}
-                output_micros_per_million: {type: integer, minimum: 0, maximum: 9007199254740991}
-                cost_currency: {type: string, enum: [CNY, USD]}
+                daily_token_limit:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                  description: Omitted fields retain their previous values. Zero adds
+                    no extra provider ceiling; admission still requires finite effective
+                    quota.
+                daily_cost_micros:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                  description: Omitted fields retain their previous values. Zero adds
+                    no extra provider ceiling; admission still requires finite effective
+                    quota.
+                monthly_token_limit:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                  description: Omitted fields retain their previous values. Zero adds
+                    no extra provider ceiling; admission still requires finite effective
+                    quota.
+                monthly_cost_micros:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                  description: Omitted fields retain their previous values. Zero adds
+                    no extra provider ceiling; admission still requires finite effective
+                    quota.
+                nonplatform_call_limit:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                  description: All three independent caps must be supplied together,
+                    either all positive or all zero. Zero is unconfigured, never unlimited.
+                nonplatform_mailbox_call_limit:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                  description: All three independent caps must be supplied together,
+                    either all positive or all zero. Zero is unconfigured, never unlimited.
+                nonplatform_concurrency_limit:
+                  type: integer
+                  minimum: 0
+                  maximum: 64
+                  description: All three independent caps must be supplied together,
+                    either all positive or all zero. Zero is unconfigured, never unlimited.
       responses:
-        '204': {description: Configuration saved; separate tenant authorization remains required.}
-        default: {$ref: '#/components/responses/Error'}
+        '204':
+          description: Budgets and any explicit caps saved with audit.
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /ai/budget:
+    get:
+      summary: Read effective AI admission and provider budget status
+      description: Authenticated tenant owner/admin only, with fresh active membership;
+        tenant is the server-selected tenant context. Mailbox-specific usage is null.
+        Stable period boundaries and daily/monthly windows use the server-frozen business
+        timezone, not the caller device timezone. BYO/local platform cost is zero; unknown
+        token usage remains conservatively reserved. A zero independent cap is unconfigured,
+        never unlimited concurrency.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Resolved source, finite caps, server period, remaining calls
+            and additional provider ceilings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIQuotaBudgetStatus'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /ai/configuration:
+    get:
+      summary: Read safe tenant AI configuration and quota metadata
+      description: Tenant owner/admin only. Redacted credentials, raw provider ceilings,
+        independent BYO/local caps and frozen quota_timezone. Configuration changes
+        cannot grant platform quota governance or cloud export consent.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: Safe configuration and independent consent metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configuration:
+                    $ref: '#/components/schemas/AIQuotaProviderConfiguration'
+        default:
+          $ref: '#/components/responses/Error'
+  /platform/tenants/{id}/ai/configuration:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    get:
+      summary: Read safe provider metadata and the independent tenant consent policy.
+      description: Platform administrator only. Never returns encrypted or plaintext
+        credentials. An unconfigured tenant still returns cloud_endpoints and local-only
+        consent defaults. Configuration includes the read-only raw provider ceilings,
+        independent BYO/local caps and frozen quota_timezone; no secret fields are returned.
+      security:
+      - Bearer: []
+      responses:
+        '200':
+          description: configured, configuration, cloud_endpoints and tenant_consent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  configuration:
+                    type: object
+                    allOf:
+                    - $ref: '#/components/schemas/AIQuotaProviderConfiguration'
+                    nullable: true
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Configure a platform provider without authorizing tenant cloud export.
+      description: Platform administrator and CSRF required. Changing provider, endpoint,
+        model or content scope invalidates existing consent. Tenant local-only cannot
+        be overridden. Monetary rates are micros per million tokens; integers cannot
+        exceed 9007199254740991. Credential input is write-only. No billable model call
+        is made.
+      security:
+      - Bearer: []
+        CSRF: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - provider
+              - endpoint
+              - model
+              - cost_currency
+              properties:
+                provider:
+                  type: string
+                  enum:
+                  - openai
+                  - azure
+                endpoint:
+                  type: string
+                model:
+                  type: string
+                api_key:
+                  type: string
+                  writeOnly: true
+                enabled:
+                  type: boolean
+                input_micros_per_million:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                output_micros_per_million:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                cost_currency:
+                  type: string
+                  enum:
+                  - CNY
+                  - USD
+      responses:
+        '204':
+          description: Configuration saved; separate tenant authorization remains required.
+        default:
+          $ref: '#/components/responses/Error'
   /platform/tenants/{id}/ai/usage:
     parameters:
     - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
@@ -5675,28 +5883,28 @@ paths:
           $ref: '#/components/responses/Error'
   /mailbox/ai/budget:
     get:
-      summary: Read server-authoritative AI budget state
-      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
-        access; tenant/mailbox identities come from the live session, never request IDs. Used and reserved/unknown
-        amounts remain distinct. A UI estimate is never spending authority.
+      summary: Read effective AI admission and provider budget status
+      description: Independent mailbox session required. Tenant and mailbox are taken
+        from the live session; per-mailbox usage refers only to that mailbox. Panel
+        roles do not grant mailbox-content access. Stable period boundaries and daily/monthly
+        windows use the server-frozen business timezone, not the caller device timezone.
+        BYO/local platform cost is zero; unknown token usage remains conservatively
+        reserved. A zero independent cap is unconfigured, never unlimited concurrency.
       security:
       - MailboxBearer: []
       responses:
         '200':
-          description: Successful scoped result.
-        '400':
-          $ref: '#/components/responses/Error'
-        '401':
-          $ref: '#/components/responses/Error'
+          description: Resolved source, finite caps, server period, remaining calls
+            and additional provider ceilings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIQuotaBudgetStatus'
         '403':
-          $ref: '#/components/responses/Error'
-        '404':
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
-        '502':
+        default:
           $ref: '#/components/responses/Error'
   /mailbox/ai/drafts:
     post:
@@ -9000,7 +9208,7 @@ paths:
         409. SMTP sent/submitted means acceptance, never delivery or opening. Unknown outcomes remain unknown. Snapshot
         SQL rechecks active actor and current role. No cache.
       security:
-      - bearerAuth: []
+      - Bearer: []
       parameters:
       - in: path
         name: id
@@ -9062,7 +9270,7 @@ paths:
         EXPORT marketing.report is committed before response publication, binding resource/window/digest/fact count/byte
         size. At most 10 export requests per tenant per minute.
       security:
-      - bearerAuth: []
+      - Bearer: []
       parameters:
       - in: path
         name: id
@@ -9130,7 +9338,7 @@ paths:
         409. SMTP sent/submitted means acceptance, never delivery or opening. Unknown outcomes remain unknown. Snapshot
         SQL rechecks active actor and current role. No cache.
       security:
-      - bearerAuth: []
+      - Bearer: []
       parameters:
       - in: path
         name: id
@@ -9192,7 +9400,7 @@ paths:
         EXPORT marketing.report is committed before response publication, binding resource/window/digest/fact count/byte
         size. At most 10 export requests per tenant per minute.
       security:
-      - bearerAuth: []
+      - Bearer: []
       parameters:
       - in: path
         name: id
@@ -9275,6 +9483,215 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    AIQuotaBudgetStatus:
+      type: object
+      required:
+      - enabled
+      - cost_currency
+      - daily
+      - monthly
+      - entitlement
+      properties:
+        enabled:
+          type: boolean
+        cost_currency:
+          type: string
+        daily:
+          type: object
+          required:
+          - tokens_used
+          - tokens_limit
+          - cost_micros_used
+          - cost_micros_limit
+          properties:
+            tokens_used:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            tokens_limit:
+              type: integer
+              minimum: -1
+              maximum: 9007199254740991
+            cost_micros_used:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            cost_micros_limit:
+              type: integer
+              minimum: -1
+              maximum: 9007199254740991
+        monthly:
+          type: object
+          required:
+          - tokens_used
+          - tokens_limit
+          - cost_micros_used
+          - cost_micros_limit
+          properties:
+            tokens_used:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            tokens_limit:
+              type: integer
+              minimum: -1
+              maximum: 9007199254740991
+            cost_micros_used:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            cost_micros_limit:
+              type: integer
+              minimum: -1
+              maximum: 9007199254740991
+        entitlement:
+          type: object
+          properties:
+            source:
+              type: string
+              enum:
+              - configured_nonplatform
+              - plan
+              - unconfigured
+            available:
+              type: boolean
+            call_limit:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            mailbox_call_limit:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            concurrency_limit:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            period_start:
+              type: string
+              format: date-time
+              nullable: true
+            period_end:
+              type: string
+              format: date-time
+              nullable: true
+            timezone:
+              type: string
+            calls_used:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            calls_remaining:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            mailbox_calls_used:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+              nullable: true
+            mailbox_calls_remaining:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+              nullable: true
+            concurrent_reserved:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+        mode:
+          type: string
+          enum:
+          - platform
+          - byo
+          - local
+        quota_timezone:
+          type: string
+          readOnly: true
+    AIQuotaProviderConfiguration:
+      type: object
+      description: Safe read-only metadata only; never includes provider credentials.
+        Caps do not modify mailbox plans.
+      properties:
+        daily_token_limit:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: Omitted fields retain their previous values. Zero adds no extra
+            provider ceiling; admission still requires finite effective quota.
+          readOnly: true
+        daily_cost_micros:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: Omitted fields retain their previous values. Zero adds no extra
+            provider ceiling; admission still requires finite effective quota.
+          readOnly: true
+        monthly_token_limit:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: Omitted fields retain their previous values. Zero adds no extra
+            provider ceiling; admission still requires finite effective quota.
+          readOnly: true
+        monthly_cost_micros:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: Omitted fields retain their previous values. Zero adds no extra
+            provider ceiling; admission still requires finite effective quota.
+          readOnly: true
+        nonplatform_call_limit:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: All three independent caps must be supplied together, either all
+            positive or all zero. Zero is unconfigured, never unlimited.
+          readOnly: true
+        nonplatform_mailbox_call_limit:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: All three independent caps must be supplied together, either all
+            positive or all zero. Zero is unconfigured, never unlimited.
+          readOnly: true
+        nonplatform_concurrency_limit:
+          type: integer
+          minimum: 0
+          maximum: 64
+          description: All three independent caps must be supplied together, either all
+            positive or all zero. Zero is unconfigured, never unlimited.
+          readOnly: true
+        quota_timezone:
+          type: string
+          readOnly: true
+          description: Frozen business timezone used by independent natural-month quota
+            and additional daily/monthly provider windows. The configuration API cannot
+            change it after initialization.
+        mode:
+          type: string
+          readOnly: true
+        provider:
+          type: string
+          readOnly: true
+        endpoint:
+          type: string
+          readOnly: true
+        model:
+          type: string
+          readOnly: true
+        cost_currency:
+          type: string
+          readOnly: true
+        enabled:
+          type: boolean
+          readOnly: true
+        local_only:
+          type: boolean
+          readOnly: true
+        credential_configured:
+          type: boolean
+          readOnly: true
     NativeMailboxCompose:
       type: object
       properties:

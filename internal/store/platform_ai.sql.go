@@ -152,7 +152,7 @@ func (q *Queries) PlatformFinishAIRequest(ctx context.Context, arg PlatformFinis
 }
 
 const platformGetAIProvider = `-- name: PlatformGetAIProvider :one
-SELECT tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros FROM ai_provider_configs WHERE tenant_id=$1
+SELECT tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone FROM ai_provider_configs WHERE tenant_id=$1
 `
 
 func (q *Queries) PlatformGetAIProvider(ctx context.Context, tenantID int64) (AiProviderConfigs, error) {
@@ -184,6 +184,10 @@ func (q *Queries) PlatformGetAIProvider(ctx context.Context, tenantID int64) (Ai
 		&i.DailyCostMicros,
 		&i.MonthlyTokenLimit,
 		&i.MonthlyCostMicros,
+		&i.NonplatformCallLimit,
+		&i.NonplatformMailboxCallLimit,
+		&i.NonplatformConcurrencyLimit,
+		&i.QuotaTimezone,
 	)
 	return i, err
 }
@@ -383,12 +387,13 @@ func (q *Queries) PlatformPendingAIUsage(ctx context.Context, tenantID int64) ([
 const platformReserveAIRequest = `-- name: PlatformReserveAIRequest :one
 INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,reserved_tokens,reserved_cost_micros,provider,model,cost_currency,input_rate,output_rate,created_at,updated_at)
 SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::timestamptz,$15::timestamptz
-WHERE NOT EXISTS(SELECT 1 FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND mode='platform' AND $7='platform' AND cost_currency<>$12)
-AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')<$16::bigint
-AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND mailbox_id=$2 AND period_start=$5 AND status<>'released')<$17::bigint
-AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND status='reserved')<$18::bigint
-AND (SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')+$8::bigint<=$19::bigint
-AND (SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND period_start=$5 AND status<>'released')+$9::bigint<=$20::bigint
+WHERE (NOT $16::boolean OR $7::text IN('byo','local'))
+AND NOT EXISTS(SELECT 1 FROM ai_usage_requests WHERE tenant_id=$1 AND ((NOT $16::boolean AND period_start=$5) OR ($16::boolean AND mode IN('byo','local') AND created_at>=$5 AND created_at<$6)) AND mode='platform' AND $7='platform' AND cost_currency<>$12)
+AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND ((NOT $16::boolean AND period_start=$5) OR ($16::boolean AND mode IN('byo','local') AND created_at>=$5 AND created_at<$6)) AND status<>'released')<$17::bigint
+AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND mailbox_id=$2 AND ((NOT $16::boolean AND period_start=$5) OR ($16::boolean AND mode IN('byo','local') AND created_at>=$5 AND created_at<$6)) AND status<>'released')<$18::bigint
+AND (SELECT count(*) FROM ai_usage_requests WHERE tenant_id=$1 AND status='reserved' AND (NOT $16::boolean OR mode IN('byo','local')))<$19::bigint
+AND (SELECT COALESCE(sum(COALESCE(actual_tokens,reserved_tokens)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND ((NOT $16::boolean AND period_start=$5) OR ($16::boolean AND mode IN('byo','local') AND created_at>=$5 AND created_at<$6)) AND status<>'released')+$8::bigint<=$20::bigint
+AND (SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) FROM ai_usage_requests WHERE tenant_id=$1 AND ((NOT $16::boolean AND period_start=$5) OR ($16::boolean AND mode IN('byo','local') AND created_at>=$5 AND created_at<$6)) AND status<>'released')+$9::bigint<=$21::bigint
 RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, period_end, mode, provider, model, cost_currency, input_rate, output_rate, status, reserved_tokens, reserved_cost_micros, actual_tokens, actual_cost_micros, result, review_reason, reviewed_by, reviewed_at, created_at, updated_at
 `
 
@@ -408,6 +413,7 @@ type PlatformReserveAIRequestParams struct {
 	InputRate          int64              `json:"input_rate"`
 	OutputRate         int64              `json:"output_rate"`
 	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
+	IndependentWindow  bool               `json:"independent_window"`
 	CallLimit          int64              `json:"call_limit"`
 	MailboxCallLimit   int64              `json:"mailbox_call_limit"`
 	ConcurrencyLimit   int64              `json:"concurrency_limit"`
@@ -432,6 +438,7 @@ func (q *Queries) PlatformReserveAIRequest(ctx context.Context, arg PlatformRese
 		arg.InputRate,
 		arg.OutputRate,
 		arg.AccountedAt,
+		arg.IndependentWindow,
 		arg.CallLimit,
 		arg.MailboxCallLimit,
 		arg.ConcurrencyLimit,
@@ -615,7 +622,7 @@ const platformSetAIProvider = `-- name: PlatformSetAIProvider :one
 INSERT INTO ai_provider_configs(tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,input_micros_per_million,output_micros_per_million,cost_currency)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE(NULLIF($11::text,''),'CNY'))
 ON CONFLICT(tenant_id) DO UPDATE SET mode=EXCLUDED.mode,provider=EXCLUDED.provider,endpoint=EXCLUDED.endpoint,model=EXCLUDED.model,encrypted_key=EXCLUDED.encrypted_key,enabled=EXCLUDED.enabled,local_only=EXCLUDED.local_only,input_micros_per_million=EXCLUDED.input_micros_per_million,output_micros_per_million=EXCLUDED.output_micros_per_million,cost_currency=EXCLUDED.cost_currency,updated_at=now()
-RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros
+RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone
 `
 
 type PlatformSetAIProviderParams struct {
@@ -673,6 +680,10 @@ func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIPr
 		&i.DailyCostMicros,
 		&i.MonthlyTokenLimit,
 		&i.MonthlyCostMicros,
+		&i.NonplatformCallLimit,
+		&i.NonplatformMailboxCallLimit,
+		&i.NonplatformConcurrencyLimit,
+		&i.QuotaTimezone,
 	)
 	return i, err
 }

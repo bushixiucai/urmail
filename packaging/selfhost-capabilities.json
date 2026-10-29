@@ -8,10 +8,15 @@
     "587/tcp": "SMTP submission with STARTTLS",
     "993/tcp": "IMAP over TLS",
     "995/tcp": "POP3 over TLS",
+    "110/tcp": "Optional POP3 STLS; TLS required before authentication",
+    "143/tcp": "Optional IMAP STARTTLS; TLS required before authentication",
+    "4190/tcp": "Optional ManageSieve STARTTLS; TLS required before authentication",
     "80/tcp": "HTTP redirect and ACME challenge",
     "443/tcp": "HTTPS panel, Webmail, CardDAV, CalDAV and ActiveSync",
     "53/tcp+udp": "Optional authoritative DNS only"
   },
+  "public_ports_note": "Potential externally bound listeners, not a requirement to allow every port. Keep 110/143/4190 blocked unless explicitly required; assess IPv4 and IPv6. The installer does not change firewall policy. Fresh configuration can listen on all three; inherited hosts may disable 110/143 with port=0 while keeping 4190. Verify actual bind addresses and firewall rules.",
+  "mail_authentication_policy": {"tls_required": true, "minimum_tls_version": "TLSv1.2", "plaintext_authentication": false, "starttls_ports": ["110/tcp", "143/tcp", "4190/tcp"]},
   "private_listeners": ["127.0.0.1:8080", "PostgreSQL loopback/socket", "agent Unix socket", "policy Unix socket", "loopback mail milters"],
   "deployment_flags": {
     "URMAIL_WEBMAIL_NATIVE": {"new_install": true, "upgrade": "preserve; legacy absent means false"},

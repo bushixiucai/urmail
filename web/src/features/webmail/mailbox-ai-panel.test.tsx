@@ -33,6 +33,12 @@ beforeEach(() => {
   vi.mocked(api.fetchMailboxAIBudget).mockResolvedValue({
     enabled: true,
     cost_currency: "CNY",
+    monthly: {
+      tokens_used: 10,
+      tokens_limit: 1000,
+      cost_micros_used: 10,
+      cost_micros_limit: 1000,
+    },
     daily: {
       tokens_used: 10,
       tokens_limit: 100,

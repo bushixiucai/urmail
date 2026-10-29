@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { AIBudgetSummary } from "@/features/ai/ai-budget-summary";
+import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 import { useTranslation } from "react-i18next";
 import { request } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
@@ -16,6 +18,14 @@ type Configuration = {
   input_micros_per_million: number;
   output_micros_per_million: number;
   cost_currency: string;
+  daily_token_limit?: number;
+  daily_cost_micros?: number;
+  monthly_token_limit?: number;
+  monthly_cost_micros?: number;
+  nonplatform_call_limit?: number;
+  nonplatform_mailbox_call_limit?: number;
+  nonplatform_concurrency_limit?: number;
+  quota_timezone?: string;
 };
 type Consent = {
   allowed: boolean;
@@ -61,6 +71,8 @@ export function PlatformAIAdmin({
     errorMessage = useApiErrorMessage();
   const [tenant, setTenant] = useState(""),
     [metadata, setMetadata] = useState<Metadata | null>(null),
+    [budget, setBudget] = useState<AIBudgetStatus | null>(null),
+    [budgetUnavailable, setBudgetUnavailable] = useState(false),
     [usage, setUsage] = useState<Usage[]>([]),
     [selected, setSelected] = useState<Usage | null>(null),
     [loading, setLoading] = useState(false),
@@ -73,17 +85,26 @@ export function PlatformAIAdmin({
     const controller = new AbortController();
     setLoading(true);
     setMetadata(null);
+    setBudget(null);
+    setBudgetUnavailable(false);
     setUsage([]);
     setSelected(null);
     void Promise.all([
       request<Metadata>(`${base}/configuration`, { signal: controller.signal }),
+      request<AIBudgetStatus>(`${base}/budget`, {
+        signal: controller.signal,
+      }).catch(() => {
+        if (!controller.signal.aborted) setBudgetUnavailable(true);
+        return null;
+      }),
       request<{ requests: Usage[] }>(`${base}/usage`, {
         signal: controller.signal,
       }),
     ])
-      .then(([a, b]) => {
+      .then(([a, quota, b]) => {
         if (!controller.signal.aborted) {
           setMetadata(a);
+          setBudget(quota);
           setUsage(b.requests ?? []);
           setLoading(false);
         }
@@ -124,6 +145,7 @@ export function PlatformAIAdmin({
           <select
             className={selectClass}
             value={tenant}
+            disabled={busy}
             onChange={(e) => {
               setNotice("");
               setTenant(e.target.value);
@@ -167,6 +189,137 @@ export function PlatformAIAdmin({
                 {consent?.configuration_digest}
               </p>
             </div>
+            <AIBudgetSummary budget={budget} />
+            {budgetUnavailable && (
+              <div role="alert" className="space-y-2 text-sm">
+                <p>{t("ai.quota.load_failed")}</p>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setRevision((value) => value + 1)}
+                >
+                  {t("ai.quota.retry")}
+                </Button>
+              </div>
+            )}
+            <form
+              key={`${tenant}-${revision}-budget`}
+              data-testid="ai-quota-governance"
+              className="grid min-w-0 gap-3 rounded-md border p-3 sm:grid-cols-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const data = new FormData(event.currentTarget);
+                const names = [
+                  "daily_token_limit",
+                  "daily_cost_micros",
+                  "monthly_token_limit",
+                  "monthly_cost_micros",
+                  "nonplatform_call_limit",
+                  "nonplatform_mailbox_call_limit",
+                  "nonplatform_concurrency_limit",
+                ] as const;
+                const values = names.map((name) =>
+                  explicitInteger(data.get(name)),
+                );
+                const [calls, mailboxCalls, concurrency] = values.slice(4);
+                if (
+                  values.some((value) => value === null) ||
+                  !(
+                    (calls === 0 && mailboxCalls === 0 && concurrency === 0) ||
+                    (calls != null &&
+                      calls > 0 &&
+                      mailboxCalls != null &&
+                      mailboxCalls > 0 &&
+                      concurrency != null &&
+                      concurrency > 0 &&
+                      concurrency <= 64)
+                  )
+                ) {
+                  setNotice(t("ai.quota.invalid"));
+                  return;
+                }
+                void act(
+                  `${base}/budget`,
+                  Object.fromEntries(
+                    names.map((name, index) => [name, values[index]]),
+                  ),
+                );
+              }}
+            >
+              <h3 className="font-medium sm:col-span-2">
+                {t("ai.quota.governance_title")}
+              </h3>
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                {t("ai.quota.governance_help")}
+              </p>
+              {(
+                [
+                  "nonplatform_call_limit",
+                  "nonplatform_mailbox_call_limit",
+                  "nonplatform_concurrency_limit",
+                ] as const
+              ).map((field) => (
+                <label key={field} className="grid min-w-0 gap-1 text-sm">
+                  {t(`ai.quota.field.${field}`)}
+                  <Input
+                    required
+                    name={field}
+                    inputMode="numeric"
+                    maxLength={16}
+                    defaultValue={cfg?.[field] ?? 0}
+                  />
+                </label>
+              ))}
+              <p className="break-words text-xs text-muted-foreground sm:col-span-2">
+                {t("ai.quota.frozen_timezone", {
+                  timezone:
+                    cfg?.quota_timezone || t("ai.quota.assigned_timezone"),
+                })}
+              </p>
+              <h4 className="border-t pt-3 font-medium sm:col-span-2">
+                {t("ai.quota.provider_ceilings")}
+              </h4>
+              {(
+                [
+                  "daily_token_limit",
+                  "daily_cost_micros",
+                  "monthly_token_limit",
+                  "monthly_cost_micros",
+                ] as const
+              ).map((field) => (
+                <label key={field} className="grid min-w-0 gap-1 text-sm">
+                  {t(`ai.quota.field.${field}`)}
+                  <Input
+                    required
+                    name={field}
+                    inputMode="numeric"
+                    maxLength={16}
+                    defaultValue={Math.max(
+                      0,
+                      cfg?.[field] ??
+                        (field === "daily_token_limit"
+                          ? budget?.daily?.tokens_limit
+                          : field === "daily_cost_micros"
+                            ? budget?.daily?.cost_micros_limit
+                            : field === "monthly_token_limit"
+                              ? budget?.monthly?.tokens_limit
+                              : budget?.monthly?.cost_micros_limit) ??
+                        0,
+                    )}
+                  />
+                </label>
+              ))}
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                {t("ai.quota.extra_help")}
+              </p>
+              <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                <input type="checkbox" required />
+                {t("ai.quota.confirm")}
+              </label>
+              <Button disabled={busy || budgetUnavailable}>
+                {t("ai.quota.save")}
+              </Button>
+            </form>
             <form
               key={`${tenant}-${revision}`}
               className="grid gap-3 sm:grid-cols-2"
