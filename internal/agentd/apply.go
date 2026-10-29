@@ -219,6 +219,11 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		m.publish()
 		return "", "", fmt.Errorf("%w: invalid domain snapshot: %w", ErrRejected, err)
 	}
+	if err := m.prepareMailStorage(); err != nil {
+		m.status.Step = "mail-storage"
+		m.status.Error = "mail storage preparation failed: " + err.Error()
+		return "", "", err
+	}
 	files = filterPreservedExternalFiles(m.cfg, files)
 	_, brandManaged := files[brandManagedNginxPath]
 	retainedPaths := []string{}
