@@ -1,7 +1,10 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter, Routes, Route, Navigate } from "react-router-dom";
-import { hasMailboxSession, setMailboxSession } from "@/features/webmail/mailbox-api";
+import {
+  hasMailboxSession,
+  setMailboxSession,
+} from "@/features/webmail/mailbox-api";
 
 // Test the routing logic as defined in App.tsx
 function MailAliasRoute() {
@@ -33,8 +36,14 @@ describe("App Route Shunting", () => {
       <MemoryRouter initialEntries={["/mail"]}>
         <Routes>
           <Route path="/mail" element={<MailAliasRoute />} />
-          <Route path="/webmail/login" element={<div>Webmail Login Destination</div>} />
-          <Route path="/webmail/inbox" element={<div>Webmail Inbox Destination</div>} />
+          <Route
+            path="/webmail/login"
+            element={<div>Webmail Login Destination</div>}
+          />
+          <Route
+            path="/webmail/inbox"
+            element={<div>Webmail Inbox Destination</div>}
+          />
         </Routes>
       </MemoryRouter>,
     );
@@ -55,8 +64,14 @@ describe("App Route Shunting", () => {
       <MemoryRouter initialEntries={["/mail"]}>
         <Routes>
           <Route path="/mail" element={<MailAliasRoute />} />
-          <Route path="/webmail/login" element={<div>Webmail Login Destination</div>} />
-          <Route path="/webmail/inbox" element={<div>Webmail Inbox Destination</div>} />
+          <Route
+            path="/webmail/login"
+            element={<div>Webmail Login Destination</div>}
+          />
+          <Route
+            path="/webmail/inbox"
+            element={<div>Webmail Inbox Destination</div>}
+          />
         </Routes>
       </MemoryRouter>,
     );
@@ -71,7 +86,10 @@ describe("App Route Shunting", () => {
       <MemoryRouter initialEntries={["/webmail"]}>
         <Routes>
           <Route path="/webmail" element={<WebmailRoute />} />
-          <Route path="/webmail/inbox" element={<div>Webmail Inbox Destination</div>} />
+          <Route
+            path="/webmail/inbox"
+            element={<div>Webmail Inbox Destination</div>}
+          />
         </Routes>
       </MemoryRouter>,
     );
@@ -90,7 +108,10 @@ describe("App Route Shunting", () => {
       <MemoryRouter initialEntries={["/webmail"]}>
         <Routes>
           <Route path="/webmail" element={<WebmailRoute />} />
-          <Route path="/webmail/inbox" element={<div>Webmail Inbox Destination</div>} />
+          <Route
+            path="/webmail/inbox"
+            element={<div>Webmail Inbox Destination</div>}
+          />
         </Routes>
       </MemoryRouter>,
     );

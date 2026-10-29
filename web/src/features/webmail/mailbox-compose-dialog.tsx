@@ -1,23 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Bold,
-  Code,
-  Italic,
-  Link as LinkIcon,
-  List,
-  ListOrdered,
-  Maximize2,
-  Minimize2,
-  Minus,
-  Palette,
-  Quote,
-  RemoveFormatting,
-  Strikethrough,
-  Underline,
-  X,
-} from "lucide-react";
+import { Maximize2, Minimize2, Minus, X } from "lucide-react";
 import { MailboxAIPanel } from "./mailbox-ai-panel";
+import { MailboxEditor } from "./mailbox-editor";
 import type { MailboxAISource } from "./mailbox-api";
 import { ApiRequestError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -286,7 +271,10 @@ function RecipientChipField({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+        <label
+          htmlFor={id}
+          className="text-xs font-medium text-muted-foreground"
+        >
           {label}
         </label>
         {rightAction}
@@ -354,7 +342,9 @@ export function MailboxComposeDialog({
   onDraftSaved,
 }: MailboxComposeDialogProps) {
   const { t } = useTranslation();
-  const [windowState, setWindowState] = useState<"normal" | "minimized" | "maximized">("normal");
+  const [windowState, setWindowState] = useState<
+    "normal" | "minimized" | "maximized"
+  >("normal");
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [showCc, setShowCc] = useState(Boolean(draft.cc));
   const [showBcc, setShowBcc] = useState(Boolean(draft.bcc));
@@ -574,9 +564,12 @@ export function MailboxComposeDialog({
     insertedSignature.current = { text: nextText, html: nextHtml };
     if (editorRef.current) {
       if (nextHtml) {
-        editorRef.current.innerHTML = (html ? (old.html ? html.replace(old.html, "") : html) : "") + nextHtml;
+        editorRef.current.innerHTML =
+          (html ? (old.html ? html.replace(old.html, "") : html) : "") +
+          nextHtml;
       } else if (nextText) {
-        editorRef.current.innerText = (old.text ? text.replace(old.text, "") : text) + nextText;
+        editorRef.current.innerText =
+          (old.text ? text.replace(old.text, "") : text) + nextText;
       }
     }
   };
@@ -669,46 +662,13 @@ export function MailboxComposeDialog({
     );
   };
 
-  const syncContent = () => {
-    if (!editorRef.current || isSourceMode) return;
-    const newHtml = editorRef.current.innerHTML;
-    const newText = editorRef.current.innerText || editorRef.current.textContent || "";
-    setHtml(newHtml);
-    setText(newText);
-    bodyRevision.current++;
-  };
-
-  const applyFormat = (command: string, value: string = "") => {
-    if (isSourceMode || editingLocked) return;
-    if (editorRef.current) {
-      editorRef.current.focus();
-      if (typeof document !== "undefined" && typeof document.execCommand === "function") {
-        try {
-          document.execCommand(command, false, value);
-        } catch {
-          /* fallback */
-        }
-      }
-      syncContent();
-    }
-  };
-
-  const handleInsertLink = () => {
-    if (isSourceMode || editingLocked) return;
-    const url = window.prompt(
-      t("page.webmail.compose_link_prompt", { defaultValue: "请输入超链接 URL：" }),
-      "https://",
-    );
-    if (url && url.trim()) {
-      applyFormat("createLink", url.trim());
-    }
-  };
-
   const toggleSourceMode = () => {
     if (isSourceMode) {
       if (editorRef.current) {
         editorRef.current.innerHTML = html;
-        setText(editorRef.current.innerText || editorRef.current.textContent || "");
+        setText(
+          editorRef.current.innerText || editorRef.current.textContent || "",
+        );
       }
       setIsSourceMode(false);
     } else {
@@ -958,7 +918,11 @@ export function MailboxComposeDialog({
               ? "fixed inset-2 sm:inset-6 z-50 bg-card border border-border shadow-2xl rounded-xl flex flex-col overflow-hidden transition-all duration-200"
               : "fixed right-2 sm:right-6 bottom-0 z-50 w-full sm:w-[680px] max-w-[calc(100vw-16px)] h-[620px] max-h-[85vh] bg-card border border-border shadow-2xl rounded-t-xl flex flex-col overflow-hidden transition-all duration-200"
         }
-        onClick={windowState === "minimized" ? () => setWindowState("normal") : undefined}
+        onClick={
+          windowState === "minimized"
+            ? () => setWindowState("normal")
+            : undefined
+        }
       >
         {/* Title Bar */}
         <div className="px-3.5 py-2 bg-muted/40 border-b flex items-center justify-between shrink-0 select-none">
@@ -1056,12 +1020,18 @@ export function MailboxComposeDialog({
               </p>
             )}
             {scheduleUncertain && (
-              <p role="status" className="text-xs sm:text-sm text-muted-foreground">
+              <p
+                role="status"
+                className="text-xs sm:text-sm text-muted-foreground"
+              >
                 {t("page.webmail.compose_schedule_uncertain")}
               </p>
             )}
             {cleanupPending && (
-              <p role="status" className="text-xs sm:text-sm text-muted-foreground">
+              <p
+                role="status"
+                className="text-xs sm:text-sm text-muted-foreground"
+              >
                 {t("page.webmail.compose_cleanup_pending")}
               </p>
             )}
@@ -1071,12 +1041,18 @@ export function MailboxComposeDialog({
               </p>
             )}
             {savedHint && !error && (
-              <p className="text-xs sm:text-sm text-muted-foreground" role="status">
+              <p
+                className="text-xs sm:text-sm text-muted-foreground"
+                role="status"
+              >
                 {t("page.webmail.compose_draft_saved")}
               </p>
             )}
             {scheduledHint && !error && (
-              <p className="text-xs sm:text-sm text-muted-foreground" role="status">
+              <p
+                className="text-xs sm:text-sm text-muted-foreground"
+                role="status"
+              >
                 {t("page.webmail.compose_scheduled")}
               </p>
             )}
@@ -1125,7 +1101,10 @@ export function MailboxComposeDialog({
 
             {/* From */}
             <div className="space-y-1">
-              <label htmlFor="compose-from" className="text-xs font-medium text-muted-foreground">
+              <label
+                htmlFor="compose-from"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 {t("page.webmail.compose_from")}
               </label>
               <select
@@ -1243,7 +1222,10 @@ export function MailboxComposeDialog({
 
             {/* Subject */}
             <div className="space-y-1">
-              <label htmlFor="compose-subject" className="text-xs font-medium text-muted-foreground">
+              <label
+                htmlFor="compose-subject"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 {t("page.webmail.compose_subject")}
               </label>
               <Input
@@ -1255,239 +1237,50 @@ export function MailboxComposeDialog({
               />
             </div>
 
-            {/* Rich Text Editor with Formatting Toolbar */}
+            {/* Rich Text Editor via Tiptap */}
             <div className="space-y-1.5">
-              <div className="border border-input rounded-md overflow-hidden bg-background shadow-2xs">
-                {/* Formatting Toolbar */}
-                <div className="flex flex-wrap items-center gap-1 p-1.5 bg-muted/30 border-b border-input text-xs select-none">
-                  <select
-                    disabled={isSourceMode || editingLocked}
-                    className="h-7 text-xs bg-background border border-input rounded px-1.5 focus:outline-none cursor-pointer"
-                    title={t("page.webmail.compose_heading")}
-                    defaultValue="<p>"
-                    onChange={(e) => applyFormat("formatBlock", e.target.value)}
-                  >
-                    <option value="<p>">{t("page.webmail.compose_heading_normal")}</option>
-                    <option value="<h1>">{t("page.webmail.compose_heading_1")}</option>
-                    <option value="<h2>">{t("page.webmail.compose_heading_2")}</option>
-                    <option value="<h3>">{t("page.webmail.compose_heading_3")}</option>
-                  </select>
+              <MailboxEditor
+                initialContent={html || text}
+                disabled={editingLocked}
+                isSourceMode={isSourceMode}
+                onToggleSourceMode={toggleSourceMode}
+                onChange={({ html: newHtml, text: newText }) => {
+                  bodyRevision.current++;
+                  setHtml(newHtml);
+                  setText(newText);
+                  if (draft.quoteText) {
+                    setQuoteOriginal(newText.includes(draft.quoteText));
+                  }
+                }}
+              />
 
-                  <div className="h-4 w-px bg-border mx-0.5" />
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_bold")}
-                    onClick={() => applyFormat("bold")}
-                  >
-                    <Bold className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_italic")}
-                    onClick={() => applyFormat("italic")}
-                  >
-                    <Italic className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_underline")}
-                    onClick={() => applyFormat("underline")}
-                  >
-                    <Underline className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_strikethrough")}
-                    onClick={() => applyFormat("strikeThrough")}
-                  >
-                    <Strikethrough className="h-3.5 w-3.5" />
-                  </Button>
-
-                  {/* Font Color */}
-                  <div className="relative inline-flex items-center">
-                    <input
-                      type="color"
-                      id="compose-color-picker"
-                      disabled={isSourceMode || editingLocked}
-                      className="sr-only"
-                      onChange={(e) => applyFormat("foreColor", e.target.value)}
-                    />
-                    <label
-                      htmlFor="compose-color-picker"
-                      className="h-7 w-7 inline-flex items-center justify-center rounded cursor-pointer hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
-                      title={t("page.webmail.compose_color")}
-                    >
-                      <Palette className="h-3.5 w-3.5" />
-                    </label>
-                  </div>
-
-                  <div className="h-4 w-px bg-border mx-0.5" />
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_bullet_list")}
-                    onClick={() => applyFormat("insertUnorderedList")}
-                  >
-                    <List className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_ordered_list")}
-                    onClick={() => applyFormat("insertOrderedList")}
-                  >
-                    <ListOrdered className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_quote")}
-                    onClick={() => applyFormat("formatBlock", "<blockquote>")}
-                  >
-                    <Quote className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_link")}
-                    onClick={handleInsertLink}
-                  >
-                    <LinkIcon className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 cursor-pointer"
-                    disabled={isSourceMode || editingLocked}
-                    title={t("page.webmail.compose_clear_format")}
-                    onClick={() => applyFormat("removeFormat")}
-                  >
-                    <RemoveFormatting className="h-3.5 w-3.5" />
-                  </Button>
-
-                  <div className="flex-1" />
-
-                  {/* Source / Rich Text switch */}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={isSourceMode ? "secondary" : "ghost"}
-                    className="h-7 px-2 text-xs gap-1 font-mono cursor-pointer"
-                    disabled={editingLocked}
-                    title={
-                      isSourceMode
-                        ? t("page.webmail.compose_rich_text")
-                        : t("page.webmail.compose_source_code")
-                    }
-                    onClick={toggleSourceMode}
-                  >
-                    <Code className="h-3.5 w-3.5" />
-                    <span>
-                      {isSourceMode
-                        ? t("page.webmail.compose_rich_text")
-                        : t("page.webmail.compose_source_code")}
-                    </span>
-                  </Button>
-                </div>
-
-                {/* Editor Content Area */}
-                <div className="p-3 min-h-[220px]">
-                  {isSourceMode ? (
-                    <div className="space-y-1">
-                      <label htmlFor="compose-html" className="sr-only">
-                        {t("page.webmail.compose_html")}
-                      </label>
-                      <textarea
-                        id="compose-html"
-                        rows={10}
-                        value={html}
-                        disabled={editingLocked}
-                        onChange={(e) => {
-                          bodyRevision.current++;
-                          setHtml(e.target.value);
-                        }}
-                        className="w-full h-full min-h-[200px] rounded border border-input bg-muted/20 p-2 font-mono text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <div
-                        ref={editorRef}
-                        contentEditable={!editingLocked}
-                        role="textbox"
-                        aria-multiline="true"
-                        className="min-h-[200px] outline-none text-xs sm:text-sm text-foreground prose prose-sm max-w-none dark:prose-invert"
-                        onInput={syncContent}
-                        onBlur={syncContent}
-                      />
-                      {/* Preserved accessible compose-html for tests & assistive tech */}
-                      <label htmlFor="compose-html" className="sr-only">
-                        {t("page.webmail.compose_html")}
-                      </label>
-                      <textarea
-                        id="compose-html"
-                        value={html}
-                        onChange={(e) => {
-                          bodyRevision.current++;
-                          setHtml(e.target.value);
-                        }}
-                        disabled={editingLocked}
-                        className="sr-only"
-                        tabIndex={-1}
-                        aria-hidden="true"
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
+              {/* Accessible compose-html for tests & assistive tech */}
+              <label htmlFor="compose-html" className="sr-only">
+                {t("page.webmail.compose_html")}
+              </label>
+              <textarea
+                id="compose-html"
+                value={html}
+                onChange={(e) => {
+                  bodyRevision.current++;
+                  setHtml(e.target.value);
+                }}
+                disabled={editingLocked}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
 
               {/* Accessible compose-body textarea for backwards compatibility with tests and a11y */}
               <div className="sr-only">
                 <label htmlFor="compose-body">
-                  {t(
-                    html
-                      ? "page.webmail.compose_plain_body"
-                      : "page.webmail.compose_body",
-                  )}
+                  {t("page.webmail.compose_body")}
                 </label>
+                {html && (
+                  <label htmlFor="compose-body">
+                    {t("page.webmail.compose_plain_body")}
+                  </label>
+                )}
                 <textarea
                   id="compose-body"
                   rows={12}
@@ -1496,11 +1289,10 @@ export function MailboxComposeDialog({
                   onChange={(e) => {
                     bodyRevision.current++;
                     if (draft.quoteText)
-                      setQuoteOriginal(e.target.value.includes(draft.quoteText));
+                      setQuoteOriginal(
+                        e.target.value.includes(draft.quoteText),
+                      );
                     setText(e.target.value);
-                    if (editorRef.current && !isSourceMode) {
-                      editorRef.current.innerText = e.target.value;
-                    }
                   }}
                   tabIndex={-1}
                   aria-hidden="true"
@@ -1510,7 +1302,10 @@ export function MailboxComposeDialog({
 
             {/* Attachments */}
             <div className="space-y-1.5">
-              <label htmlFor="compose-attach" className="text-xs font-medium text-muted-foreground">
+              <label
+                htmlFor="compose-attach"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 {t("page.webmail.compose_attach")}
               </label>
               <input
@@ -1563,7 +1358,10 @@ export function MailboxComposeDialog({
 
             {/* Send Later */}
             <div className="space-y-1">
-              <label htmlFor="compose-send-later" className="text-xs font-medium text-muted-foreground">
+              <label
+                htmlFor="compose-send-later"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 {t("page.webmail.compose_send_later")}
               </label>
               <Input
@@ -1596,7 +1394,9 @@ export function MailboxComposeDialog({
                 onClick={() => void onSaveDraft()}
                 disabled={editingLocked || !identitiesLoaded}
               >
-                {busy ? t("state.loading") : t("page.webmail.compose_save_draft")}
+                {busy
+                  ? t("state.loading")
+                  : t("page.webmail.compose_save_draft")}
               </Button>
               <Button
                 type="button"

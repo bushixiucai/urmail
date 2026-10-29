@@ -317,7 +317,9 @@ export function TenantLayout({ children }: TenantLayoutProps) {
                 navigate("/platform?tab=tenants");
               }}
             >
-              {t("page.platform.exit_assume", { defaultValue: "退出视察返回平台" })}
+              {t("page.platform.exit_assume", {
+                defaultValue: "退出视察返回平台",
+              })}
             </Button>
           </div>
         )}

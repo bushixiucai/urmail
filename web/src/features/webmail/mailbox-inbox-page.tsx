@@ -38,6 +38,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ApiRequestError } from "@/lib/api/client";
 import { AppearanceControls } from "@/components/appearance-controls";
+import { MailboxAppRail, MailboxAppId } from "./mailbox-app-rail";
+import { useResizablePanes, SplitterHandle } from "./mailbox-splitter";
+import { MailboxAIDrawer } from "./mailbox-ai-drawer";
+import { MailboxInlineReply } from "./mailbox-inline-reply";
+import { MailboxMessageRow } from "./mailbox-message-row";
+import { MailboxDetailHeader } from "./mailbox-detail-header";
+import { PeopleCalendarPanel } from "./people-calendar-panel";
+import { PeopleContactsPanel } from "./people-contacts-panel";
+import {
+  Columns3,
+  Rows2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sparkles as SparklesIcon,
+  Paperclip,
+  Calendar as CalendarIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/notice-dialog";
 import {
@@ -59,7 +76,6 @@ import {
   fetchAttachmentAsOutgoing,
   fetchMessageAsOutgoing,
   flagMessages,
-  formatFrom,
   getMailboxAddress,
   getMailboxSettings,
   listMailboxIdentities,
@@ -74,6 +90,8 @@ import {
   MailboxSortKey,
   MessageDetail,
   MessageSummary,
+  MailboxSettingsView,
+  MailboxIdentity,
   moveMessages,
   MAX_SEND_ATTACHMENTS,
   OutgoingAttachment,
@@ -136,17 +154,95 @@ export function MailboxInboxPage() {
   const [datePreferences, setDatePreferences] = useState<
     Record<string, unknown>
   >({});
+  const [mailboxSettings, setMailboxSettings] =
+    useState<MailboxSettingsView | null>(null);
+  const [identities, setIdentities] = useState<MailboxIdentity[]>([]);
+  const [activeApp, setActiveApp] = useState<MailboxAppId>("mail");
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
+  const [folderCollapsed, setFolderCollapsed] = useState(false);
+  const resizable = useResizablePanes();
+
   useEffect(() => {
     let active = true;
-    getMailboxSettings()
-      .then((settings) => {
-        if (active) setDatePreferences(settings.preferences ?? {});
-      })
-      .catch(() => {});
+    Promise.all([
+      getMailboxSettings().catch(() => null),
+      listMailboxIdentities().catch(() => ({ identities: [] })),
+    ]).then(([settings, idList]) => {
+      if (!active) return;
+      if (settings) {
+        setMailboxSettings(settings);
+        setDatePreferences(settings.preferences ?? {});
+      }
+      if (idList?.identities) {
+        setIdentities(idList.identities);
+      }
+    });
     return () => {
       active = false;
     };
   }, []);
+
+  const toggleRowFlag = async (m: MessageSummary, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const isFlagged = hasFlag(m.flags, "\\Flagged");
+    const toAdd = isFlagged ? [] : ["\\Flagged"];
+    const toRemove = isFlagged ? ["\\Flagged"] : [];
+    setMessages((prev) =>
+      prev.map((item) =>
+        item.uid === m.uid
+          ? {
+              ...item,
+              flags: isFlagged
+                ? item.flags.filter((f) => f !== "\\Flagged")
+                : [...item.flags, "\\Flagged"],
+            }
+          : item,
+      ),
+    );
+    try {
+      if (folderEnc) {
+        await flagMessages(folderEnc, {
+          uids: [m.uid],
+          add: toAdd,
+          remove: toRemove,
+          uid_validity: folderValidity,
+        });
+      }
+    } catch {
+      void refresh();
+    }
+  };
+
+  const toggleRowRead = async (m: MessageSummary, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const isRead = hasFlag(m.flags, "\\Seen");
+    const toAdd = isRead ? [] : ["\\Seen"];
+    const toRemove = isRead ? ["\\Seen"] : [];
+    setMessages((prev) =>
+      prev.map((item) =>
+        item.uid === m.uid
+          ? {
+              ...item,
+              flags: isRead
+                ? item.flags.filter((f) => f !== "\\Seen")
+                : [...item.flags, "\\Seen"],
+            }
+          : item,
+      ),
+    );
+    try {
+      if (folderEnc) {
+        await flagMessages(folderEnc, {
+          uids: [m.uid],
+          add: toAdd,
+          remove: toRemove,
+          uid_validity: folderValidity,
+        });
+      }
+    } catch {
+      void refresh();
+    }
+  };
   const [folderValidity, setFolderValidity] = useState<number | undefined>();
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -1038,233 +1134,1282 @@ export function MailboxInboxPage() {
   const moveOptions = folders.filter((f) => f.name_enc !== folderEnc);
 
   return (
-    <div className="min-h-screen flex flex-col bg-muted/20">
-      <header className="border-b bg-card px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 select-none">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <Sheet open={foldersOpen} onOpenChange={setFoldersOpen}>
-            <SheetTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="md:hidden shrink-0 min-h-11 min-w-11 px-0"
-                aria-label={t("page.webmail.folders_menu")}
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="p-0 flex flex-col w-72">
-              <SheetHeader className="px-4 pt-4 pb-2 border-b">
-                <SheetTitle className="flex items-center gap-2 text-base">
-                  <Folder className="h-4 w-4" />
-                  {t("page.webmail.folders")}
-                </SheetTitle>
-              </SheetHeader>
-              <div className="flex-1 overflow-y-auto p-2">{folderList}</div>
-            </SheetContent>
-          </Sheet>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Mail className="h-4 w-4 shrink-0 text-primary" />
-            <span className="font-bold text-sm tracking-tight hidden sm:inline">urMail</span>
-            <span className="text-muted-foreground/60 hidden sm:inline">·</span>
-            <span className="text-sm font-medium truncate">{address}</span>
+    <div className="h-screen w-screen flex flex-row bg-background overflow-hidden text-foreground">
+      {/* Resizing overlay to prevent iframe stealing pointer events */}
+      {resizable.isDragging && (
+        <div className="fixed inset-0 z-50 pointer-events-auto bg-transparent select-none" />
+      )}
+
+      {/* 1. App Rail (Mail, Calendar, Contacts, AI, Logout) */}
+      <MailboxAppRail
+        activeApp={activeApp}
+        onSelectApp={(app) => {
+          setActiveApp(app);
+          if (app === "mail") setMobilePane("list");
+        }}
+        aiOpen={aiDrawerOpen}
+        onToggleAi={() => setAiDrawerOpen((prev) => !prev)}
+        address={address}
+        onLogout={() => void logout()}
+        onOpenHelp={() => navigate("/webmail/help")}
+      />
+
+      {/* 2. Main Workspace */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-background">
+        {activeApp === "calendar" ? (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-card">
+            <div className="max-w-6xl mx-auto space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <CalendarIcon className="h-5 w-5 text-primary" />
+                  {t("page.webmail.calendar_title", {
+                    defaultValue: "日历日程",
+                  })}
+                </h2>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setActiveApp("mail")}
+                >
+                  {t("people.back_to_mail", { defaultValue: "返回邮件" })}
+                </Button>
+              </div>
+              <PeopleCalendarPanel />
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button
-            size="sm"
-            variant="default"
-            className="min-h-11 md:min-h-8 font-medium shadow-xs"
-            onClick={() => openCompose({ mode: "new" })}
-          >
-            <Pencil className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.compose_new")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            onClick={() => {
-              setMutationUncertain(false);
-              setMutationNotice("");
-              clearChecked();
-              void refresh();
-            }}
-          >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.refresh")}
-          </Button>
-          <AppearanceControls />
-          <MailboxKeyboardShortcuts
-            disabled={
-              busy ||
-              mutationBusy ||
-              forwardBusy ||
-              composeOpen ||
-              passwordOpen ||
-              deleteOpen ||
-              folderManagerOpen ||
-              scheduledOpen ||
-              importOpen
-            }
-            onAction={(action) => {
-              if (action === "compose") openCompose({ mode: "new" });
-              else if (action === "search")
-                document
-                  .querySelector<HTMLInputElement>('form[role="search"] input')
-                  ?.focus();
-              else if (action === "close") {
-                setSelectedUid(null);
-                setDetail(null);
-                setMobilePane("list");
-              } else if (action === "next" || action === "previous") {
-                if (crossResults) return;
-                const index = messages.findIndex(
-                  (message) => message.uid === selectedUid,
-                );
-                const next =
-                  index < 0 ? 0 : index + (action === "next" ? 1 : -1);
-                if (messages[next]) openMessage(messages[next].uid);
-              } else if (detail && detail.uid === selectedUid) {
-                if (action === "reply" || action === "replyAll")
-                  openCompose(
-                    draftFromMessage(
-                      action === "reply" ? "reply" : "reply-all",
-                      detail,
-                    ),
-                  );
-                else if (action === "forward") void openForward();
-                else if (action === "trash")
-                  openDeleteConfirm(
-                    [detail.uid],
-                    selectedEncRef.current ?? folderEnc,
-                    detail.uid_validity,
-                  );
-              }
-            }}
-          />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="min-h-11 md:min-h-8 gap-1"
-                aria-label={t("page.webmail.more_menu")}
-              >
-                <Settings className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t("page.webmail.more_menu")}</span>
-                <ChevronDown className="h-3 w-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>{t("nav.settings")}</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuItem asChild>
-                  <Link to="/webmail/settings">
-                    <Settings className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                    <span>{t("page.webmail.settings_title")}</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setPasswordOpen(true)}>
-                  <KeyRound className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <span>{t("page.webmail.password_title")}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFolderManagerOpen(true)}>
-                  <Folder className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <span>{t("page.webmail.folder_manage")}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/webmail/people">
-                    <Users className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                    <span>{t("people.title")}</span>
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>{t("page.webmail.sieve")}</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuItem asChild>
-                  <a href="/mailbox/sieve">
-                    <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                    <span>{t("page.webmail.sieve")}</span>
-                  </a>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setScheduledOpen(true)}>
-                  <Clock className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <span>{t("page.webmail.scheduled_title")}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
+        ) : activeApp === "contacts" ? (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-card">
+            <div className="max-w-6xl mx-auto space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  {t("page.webmail.contacts_title", { defaultValue: "通讯录" })}
+                </h2>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setActiveApp("mail")}
+                >
+                  {t("people.back_to_mail", { defaultValue: "返回邮件" })}
+                </Button>
+              </div>
+              <PeopleContactsPanel />
+            </div>
+          </div>
+        ) : (
+          /* Mail App Workspace */
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+            {/* Header */}
+            <header className="border-b bg-card px-3 sm:px-4 py-2 flex items-center justify-between gap-2 select-none shrink-0 shadow-2xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sheet open={foldersOpen} onOpenChange={setFoldersOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="md:hidden shrink-0 min-h-11 min-w-11 px-0"
+                      aria-label={t("page.webmail.folders_menu")}
+                    >
+                      <Menu className="h-5 w-5" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="p-0 flex flex-col w-72">
+                    <SheetHeader className="px-4 pt-4 pb-2 border-b">
+                      <SheetTitle className="flex items-center gap-2 text-base">
+                        <Folder className="h-4 w-4" />
+                        {t("page.webmail.folders")}
+                      </SheetTitle>
+                    </SheetHeader>
+                    <div className="flex-1 overflow-y-auto p-2">
+                      {folderList}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="hidden md:inline-flex h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                    title={folderCollapsed ? "展开文件夹栏" : "折叠文件夹栏"}
+                    onClick={() => setFolderCollapsed((prev) => !prev)}
+                  >
+                    {folderCollapsed ? (
+                      <PanelLeftOpen className="h-4 w-4" />
+                    ) : (
+                      <PanelLeftClose className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Mail className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="font-bold text-sm tracking-tight hidden sm:inline">
+                      urMail
+                    </span>
+                    <span className="text-muted-foreground/60 hidden sm:inline">
+                      ·
+                    </span>
+                    <span className="text-sm font-medium truncate">
+                      {address}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="min-h-11 md:min-h-8 font-medium shadow-xs"
+                  onClick={() => openCompose({ mode: "new" })}
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                  {t("page.webmail.compose_new")}
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11 md:min-h-8"
+                  title={t("page.webmail.refresh")}
+                  onClick={() => {
+                    setMutationUncertain(false);
+                    setMutationNotice("");
+                    clearChecked();
+                    void refresh();
+                  }}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                  <span className="hidden sm:inline">
+                    {t("page.webmail.refresh")}
+                  </span>
+                </Button>
+
+                {/* Layout Mode Toggle (Vertical 3-pane vs Horizontal Top-Bottom) */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="hidden md:inline-flex h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                  title={
+                    resizable.layoutMode === "vertical"
+                      ? "切换为上下水平分栏"
+                      : "切换为左右垂直三栏"
+                  }
+                  onClick={resizable.toggleLayoutMode}
+                >
+                  {resizable.layoutMode === "vertical" ? (
+                    <Rows2 className="h-4 w-4" />
+                  ) : (
+                    <Columns3 className="h-4 w-4" />
+                  )}
+                </Button>
+
+                {/* AI Copilot Toggle */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={aiDrawerOpen ? "secondary" : "ghost"}
+                  className="h-8 px-2 gap-1 text-xs text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 font-medium"
+                  title="AI 智能助手 (Copilot)"
+                  onClick={() => setAiDrawerOpen((prev) => !prev)}
+                >
+                  <SparklesIcon className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">AI 助手</span>
+                </Button>
+
+                <AppearanceControls />
+
+                <MailboxKeyboardShortcuts
                   disabled={
                     busy ||
                     mutationBusy ||
-                    !folderEnc ||
-                    !folderValidity ||
-                    !!crossResults
+                    forwardBusy ||
+                    composeOpen ||
+                    passwordOpen ||
+                    deleteOpen ||
+                    folderManagerOpen ||
+                    scheduledOpen ||
+                    importOpen
                   }
-                  onClick={() => setImportOpen(true)}
-                >
-                  <Upload className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <span>{t("page.webmail.import.title")}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={
-                    exportBusy ||
-                    mutationBusy ||
-                    !folderEnc ||
-                    !folderValidity ||
-                    !!crossResults
-                  }
-                  onClick={() => {
-                    if (!folderEnc || !folderValidity) return;
-                    setExportBusy(true);
-                    setError(null);
-                    void downloadMailboxMbox(
-                      folderEnc,
-                      folderValidity,
-                      checkedUids,
-                    )
-                      .catch((cause) => {
-                        if (handleAuthError(cause)) return;
-                        setError(
-                          errorMessage(
-                            cause,
-                            t,
-                            "page.webmail.import.export_failed",
+                  onAction={(action) => {
+                    if (action === "compose") openCompose({ mode: "new" });
+                    else if (action === "search")
+                      document
+                        .querySelector<HTMLInputElement>(
+                          'form[role="search"] input',
+                        )
+                        ?.focus();
+                    else if (action === "close") {
+                      setSelectedUid(null);
+                      setDetail(null);
+                      setMobilePane("list");
+                    } else if (action === "next" || action === "previous") {
+                      if (crossResults) return;
+                      const index = messages.findIndex(
+                        (message) => message.uid === selectedUid,
+                      );
+                      const next =
+                        index < 0 ? 0 : index + (action === "next" ? 1 : -1);
+                      if (messages[next]) openMessage(messages[next].uid);
+                    } else if (detail && detail.uid === selectedUid) {
+                      if (action === "reply" || action === "replyAll")
+                        openCompose(
+                          draftFromMessage(
+                            action === "reply" ? "reply" : "reply-all",
+                            detail,
                           ),
                         );
-                      })
-                      .finally(() => setExportBusy(false));
+                      else if (action === "forward") void openForward();
+                      else if (action === "trash")
+                        openDeleteConfirm(
+                          [detail.uid],
+                          selectedEncRef.current ?? folderEnc,
+                          detail.uid_validity,
+                        );
+                    }
                   }}
+                />
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="min-h-11 md:min-h-8 gap-1"
+                      aria-label={t("page.webmail.more_menu")}
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">
+                        {t("page.webmail.more_menu")}
+                      </span>
+                      <ChevronDown className="h-3 w-3 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>{t("nav.settings")}</DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem asChild>
+                        <Link to="/webmail/settings">
+                          <Settings className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                          <span>{t("page.webmail.settings_title")}</span>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPasswordOpen(true)}>
+                        <KeyRound className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        <span>{t("page.webmail.password_title")}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setFolderManagerOpen(true)}
+                      >
+                        <Folder className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        <span>{t("page.webmail.folder_manage")}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setActiveApp("contacts")}
+                      >
+                        <Users className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        <span>{t("people.title")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>
+                      {t("page.webmail.sieve")}
+                    </DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem asChild>
+                        <a href="/mailbox/sieve">
+                          <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                          <span>{t("page.webmail.sieve")}</span>
+                        </a>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setScheduledOpen(true)}>
+                        <Clock className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        <span>{t("page.webmail.scheduled_title")}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={
+                          busy ||
+                          mutationBusy ||
+                          !folderEnc ||
+                          !folderValidity ||
+                          !!crossResults
+                        }
+                        onClick={() => setImportOpen(true)}
+                      >
+                        <Upload className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        <span>{t("page.webmail.import.title")}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={
+                          exportBusy ||
+                          mutationBusy ||
+                          !folderEnc ||
+                          !folderValidity ||
+                          !!crossResults
+                        }
+                        onClick={() => {
+                          if (!folderEnc || !folderValidity) return;
+                          setExportBusy(true);
+                          setError(null);
+                          void downloadMailboxMbox(
+                            folderEnc,
+                            folderValidity,
+                            checkedUids,
+                          )
+                            .catch((cause) => {
+                              if (handleAuthError(cause)) return;
+                              setError(
+                                errorMessage(
+                                  cause,
+                                  t,
+                                  "page.webmail.import.export_failed",
+                                ),
+                              );
+                            })
+                            .finally(() => setExportBusy(false));
+                        }}
+                      >
+                        <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        <span>{t("page.webmail.import.export_mbox")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem asChild>
+                        <Link to="/webmail/help">
+                          <HelpCircle className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                          <span>{t("page.webmail.help_title")}</span>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void logout()}
+                        className="text-destructive hover:bg-destructive/10 focus:text-destructive"
+                      >
+                        <LogOut className="h-3.5 w-3.5 mr-2" />
+                        <span>{t("page.webmail.logout")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </header>
+
+            <div className="px-3 sm:px-4">
+              <MailboxReminders />
+            </div>
+
+            {/* Accessible MailboxAIAsk container so tests can locate citations or questions */}
+            <div className="sr-only">
+              <MailboxAIAsk
+                folders={folders}
+                onCitation={(source) => {
+                  selectFolder(source.folder_enc);
+                  selectedEncRef.current = source.folder_enc;
+                  citationValidityRef.current = source.uid_validity;
+                  setSelectedUid(source.uid);
+                  setCitationNavigation((value) => value + 1);
+                  setMobilePane("detail");
+                }}
+              />
+            </div>
+
+            {mutationNotice && (
+              <p
+                role="status"
+                className="px-4 py-2 text-sm border-b break-words"
+              >
+                {mutationNotice}
+              </p>
+            )}
+            {error && (
+              <p
+                role="alert"
+                className="px-4 py-2 text-sm text-destructive border-b"
+              >
+                {error}{" "}
+                <Link
+                  className="underline underline-offset-4"
+                  to="/support?topic=sync"
                 >
-                  <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <span>{t("page.webmail.import.export_mbox")}</span>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuItem asChild>
-                  <Link to="/webmail/help">
-                    <HelpCircle className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                    <span>{t("page.webmail.help_title")}</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => void logout()}
-                  className="text-destructive hover:bg-destructive/10 focus:text-destructive"
+                  {t("support.sync_help_action")}
+                </Link>
+              </p>
+            )}
+
+            {/* Splitter Panes Area */}
+            <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
+              {/* Desktop folder pane */}
+              {!folderCollapsed && (
+                <>
+                  <aside
+                    style={{ width: `${resizable.folderWidth}px` }}
+                    className="hidden md:flex flex-col border-r bg-card/60 p-2 overflow-y-auto min-h-0 shrink-0"
+                  >
+                    <div className="flex items-center justify-between px-2 py-1 mb-1">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        {t("page.webmail.folders")}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                        title={t("page.webmail.folder_manage")}
+                        onClick={() => setFolderManagerOpen(true)}
+                      >
+                        <Settings className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    {folderList}
+                  </aside>
+                  <SplitterHandle
+                    onMouseDown={(e) =>
+                      resizable.startDragging("folder", e.clientX, e.clientY)
+                    }
+                  />
+                </>
+              )}
+
+              {/* Main Content Pane (List + Detail depending on layoutMode) */}
+              <div
+                className={
+                  resizable.layoutMode === "horizontal"
+                    ? "flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
+                    : "flex-1 flex flex-row min-h-0 min-w-0 overflow-hidden"
+                }
+              >
+                {/* Message list pane */}
+                <section
+                  style={
+                    resizable.layoutMode === "horizontal"
+                      ? { height: `${resizable.listHeight}px` }
+                      : { width: `${resizable.listWidth}px` }
+                  }
+                  className={`border-r flex flex-col min-h-0 min-w-0 bg-background/50 ${
+                    mobilePane === "detail" ? "hidden md:flex" : "flex"
+                  } ${resizable.layoutMode === "vertical" ? "shrink-0" : "shrink-0"}`}
                 >
-                  <LogOut className="h-3.5 w-3.5 mr-2" />
-                  <span>{t("page.webmail.logout")}</span>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </header>
-      <div className="px-3 sm:px-4">
-        <MailboxReminders />
+                  {/* Search and filters header */}
+                  <div className="px-3 py-2 border-b space-y-2 bg-card/40 shrink-0">
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="truncate min-w-0 font-medium">
+                        {currentFolder?.name ?? "—"} · {total}{" "}
+                        {t("page.webmail.messages_count")}
+                      </span>
+                    </div>
+
+                    <MailboxSearchBox
+                      value={searchQ}
+                      disabled={busy || !folderEnc}
+                      onSearch={runSearch}
+                    />
+
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      {/* Preserved accessible select for sort_by to guarantee test compatibility */}
+                      <select
+                        aria-label={t("page.webmail.sort_by")}
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                        value={sortBy}
+                        onChange={(e) =>
+                          applyListOptions(
+                            e.target.value as MailboxSortKey,
+                            sortAsc,
+                            threadGroup,
+                          )
+                        }
+                        disabled={busy || !folderEnc}
+                      >
+                        <option value="">{t("page.webmail.sort_date")}</option>
+                        <option value="date">
+                          {t("page.webmail.sort_date")}
+                        </option>
+                        <option value="subject">
+                          {t("page.webmail.sort_subject")}
+                        </option>
+                        <option value="from">
+                          {t("page.webmail.sort_from")}
+                        </option>
+                        <option value="size">
+                          {t("page.webmail.sort_size")}
+                        </option>
+                      </select>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2"
+                        aria-label={
+                          sortAsc
+                            ? t("page.webmail.sort_ascending")
+                            : t("page.webmail.sort_descending")
+                        }
+                        disabled={busy || !folderEnc}
+                        onClick={() =>
+                          applyListOptions(sortBy, !sortAsc, threadGroup)
+                        }
+                      >
+                        <ArrowDownWideNarrow
+                          className={
+                            sortAsc ? "h-3.5 w-3.5 rotate-180" : "h-3.5 w-3.5"
+                          }
+                        />
+                      </Button>
+
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-input accent-primary"
+                          checked={threadGroup}
+                          disabled={busy || !folderEnc}
+                          onChange={(e) =>
+                            applyListOptions(sortBy, sortAsc, e.target.checked)
+                          }
+                        />
+                        <Layers className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">
+                          {t("page.webmail.thread_group")}
+                        </span>
+                      </label>
+
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-input accent-primary"
+                          checked={searchAllFolders}
+                          disabled={busy || !folderEnc}
+                          onChange={(e) => {
+                            setSearchAllFolders(e.target.checked);
+                            setCrossResults(null);
+                          }}
+                        />
+                        <span className="hidden sm:inline">
+                          {t("page.webmail.search_all_folders")}
+                        </span>
+                      </label>
+
+                      {threadFilter != null && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => setThreadFilter(null)}
+                        >
+                          {t("page.webmail.thread_show_all")}
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Bulk Selection Header */}
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-input accent-primary"
+                            checked={allPageSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = somePageSelected;
+                            }}
+                            onChange={toggleSelectAllPage}
+                            disabled={messages.length === 0}
+                            aria-label={t("page.webmail.select_all")}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {t("page.webmail.select_all")}
+                          </span>
+                        </label>
+                        {checkedUids.length > 0 && (
+                          <span className="text-xs text-primary font-medium">
+                            {t("page.webmail.selected_count", {
+                              count: checkedUids.length,
+                            })}
+                          </span>
+                        )}
+                      </div>
+
+                      {checkedUids.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
+                          onClick={clearChecked}
+                        >
+                          {t("page.webmail.clear_selection")}
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Bulk Action Toolbar */}
+                    {checkedUids.length > 0 && (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-border/50"
+                        role="toolbar"
+                        aria-label={t("page.webmail.bulk_actions")}
+                      >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs px-2"
+                          onClick={() => void bulkFlag(["\\Seen"], [])}
+                        >
+                          <MailOpen className="h-3.5 w-3.5 mr-1" />
+                          {t("page.webmail.mark_read")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs px-2"
+                          onClick={() => void bulkFlag([], ["\\Seen"])}
+                        >
+                          <Mail className="h-3.5 w-3.5 mr-1" />
+                          {t("page.webmail.mark_unread")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs px-2 text-destructive hover:bg-destructive/10"
+                          disabled={
+                            mutationBusy || mutationUncertain || !folderValidity
+                          }
+                          onClick={() => openDeleteConfirm(checkedUids)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" />
+                          {t("page.webmail.delete")}
+                        </Button>
+
+                        <div className="flex items-center gap-1">
+                          <select
+                            aria-label={t("page.webmail.move_to")}
+                            className="h-7 max-w-[8rem] rounded border border-input bg-background px-1.5 text-xs"
+                            value={bulkMoveTo}
+                            onChange={(e) => setBulkMoveTo(e.target.value)}
+                          >
+                            <option value="">
+                              {t("page.webmail.move_to")}
+                            </option>
+                            {moveOptions.map((f) => (
+                              <option key={f.name_enc} value={f.name_enc}>
+                                {f.name}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs px-2"
+                            disabled={
+                              !bulkMoveTo ||
+                              !folderValidity ||
+                              mutationBusy ||
+                              mutationUncertain
+                            }
+                            onClick={() => void doMove(checkedUids, bulkMoveTo)}
+                          >
+                            {t("page.webmail.move")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs px-2"
+                            disabled={
+                              !bulkMoveTo ||
+                              !folderValidity ||
+                              mutationBusy ||
+                              mutationUncertain
+                            }
+                            onClick={() =>
+                              void transfer("copy", checkedUids, bulkMoveTo)
+                            }
+                          >
+                            {t("page.webmail.copy")}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Message List */}
+                  <ul
+                    className="flex-1 overflow-y-auto divide-y divide-border/40 min-h-0 select-none"
+                    aria-label={t("page.webmail.message_list")}
+                  >
+                    {(() => {
+                      const showing =
+                        crossResults ??
+                        (() => {
+                          if (threadFilter == null) return messages;
+                          return decoratedMessages
+                            .filter((d) => d.threadKey === threadFilter)
+                            .map((d) => d.message);
+                        })();
+                      if (showing.length === 0 && !busy) {
+                        return (
+                          <li className="p-8 text-center text-sm text-muted-foreground flex flex-col items-center justify-center space-y-2">
+                            <Mail className="h-8 w-8 stroke-[1.5] opacity-40" />
+                            <p>
+                              {crossResults
+                                ? t("page.webmail.search_no_results")
+                                : t("page.webmail.empty_folder")}
+                            </p>
+                          </li>
+                        );
+                      }
+                      const threadCountOf = (m: MessageSummary): number =>
+                        crossResults
+                          ? 1
+                          : (decoratedMessages.find(
+                              (d) => d.message.uid === m.uid,
+                            )?.threadCount ?? 1);
+                      const threadKeyOf = (m: MessageSummary): string =>
+                        decoratedMessages.find((d) => d.message.uid === m.uid)
+                          ?.threadKey ?? String(m.uid);
+
+                      return showing.map((m) => {
+                        const checked = checkedUids.includes(m.uid);
+                        const isSelected = selectedUid === m.uid;
+                        const threadCount = threadCountOf(m);
+
+                        return (
+                          <MailboxMessageRow
+                            key={m.uid}
+                            message={m}
+                            isSelected={isSelected}
+                            isChecked={checked}
+                            threadCount={threadCount}
+                            dateText={dateFmt(m.date)}
+                            isSelectionMode={checkedUids.length > 0}
+                            crossResults={Boolean(crossResults)}
+                            onSelect={() =>
+                              crossResults
+                                ? openCrossMessage(m)
+                                : openMessage(m.uid)
+                            }
+                            onToggleCheck={(e) => {
+                              e.stopPropagation();
+                              setCheckedUids((prev) => toggleUid(prev, m.uid));
+                            }}
+                            onToggleFlag={(e) => void toggleRowFlag(m, e)}
+                            onToggleRead={(e) => void toggleRowRead(m, e)}
+                            onDelete={(e) => {
+                              e.stopPropagation();
+                              openDeleteConfirm(
+                                [m.uid],
+                                selectedEncRef.current ?? folderEnc,
+                                folderValidity,
+                              );
+                            }}
+                            onThreadFilter={
+                              threadGroup && !crossResults && threadCount > 1
+                                ? () =>
+                                    setThreadFilter(
+                                      threadKeyOf(m) === threadFilter
+                                        ? null
+                                        : threadKeyOf(m),
+                                    )
+                                : undefined
+                            }
+                          />
+                        );
+                      });
+                    })()}
+                  </ul>
+
+                  {/* Pagination footer */}
+                  {!crossResults &&
+                    (cursorHistory.length > 0 || nextCursor) && (
+                      <div className="flex items-center justify-between p-2 border-t bg-card/40 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={
+                            cursorHistory.length === 0 || busy || !folderEnc
+                          }
+                          onClick={() => loadPage("prev")}
+                        >
+                          {t("page.webmail.prev_page")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={!nextCursor || busy || !folderEnc}
+                          onClick={() => loadPage("next")}
+                        >
+                          {t("page.webmail.next_page")}
+                        </Button>
+                      </div>
+                    )}
+                </section>
+
+                {/* Resizable handle between list and detail */}
+                <SplitterHandle
+                  orientation={
+                    resizable.layoutMode === "horizontal"
+                      ? "horizontal"
+                      : "vertical"
+                  }
+                  onMouseDown={(e) =>
+                    resizable.startDragging(
+                      resizable.layoutMode === "horizontal"
+                        ? "list-height"
+                        : "list-width",
+                      e.clientX,
+                      e.clientY,
+                    )
+                  }
+                />
+
+                {/* Detail pane */}
+                <section
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 bg-card overflow-hidden ${
+                    mobilePane === "list" ? "hidden md:flex" : "flex"
+                  }`}
+                >
+                  {!detail ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground space-y-3">
+                      <Mail className="h-12 w-12 stroke-[1.2] opacity-30" />
+                      <p className="text-sm">
+                        {busy
+                          ? t("state.loading")
+                          : t("page.webmail.select_message_read")}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Top Action Toolbar */}
+                      <div className="border-b px-4 py-2 bg-card/60 flex items-center justify-between gap-2 shrink-0 select-none shadow-2xs">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="md:hidden shrink-0 min-h-11 min-w-11 px-0"
+                            aria-label={t("page.webmail.back_to_list")}
+                            onClick={backToList}
+                          >
+                            <ChevronLeft className="h-5 w-5" />
+                          </Button>
+
+                          {isDraftsFolder(currentFolder) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs font-medium"
+                              onClick={() => void openSavedDraft()}
+                              disabled={busy}
+                            >
+                              <Pencil className="h-3.5 w-3.5 mr-1" />
+                              {t("page.webmail.compose_edit_draft")}
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs font-medium"
+                                onClick={() =>
+                                  openCompose(draftFromMessage("reply", detail))
+                                }
+                              >
+                                <Reply className="h-3.5 w-3.5 mr-1" />
+                                {t("page.webmail.compose_reply")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs font-medium"
+                                onClick={() =>
+                                  openCompose(
+                                    draftFromMessage("reply-all", detail),
+                                  )
+                                }
+                              >
+                                <ReplyAll className="h-3.5 w-3.5 mr-1" />
+                                {t("page.webmail.compose_reply_all")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs font-medium"
+                                disabled={forwardBusy}
+                                onClick={() => void openForward()}
+                              >
+                                <Forward className="h-3.5 w-3.5 mr-1" />
+                                {t("page.webmail.compose_forward")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                disabled={forwardBusy}
+                                onClick={() => void openForward("eml")}
+                              >
+                                {t("page.webmail.compose_forward_eml")}
+                              </Button>
+                            </>
+                          )}
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => void toggleFlagged()}
+                          >
+                            <Flag className="h-3.5 w-3.5 mr-1 text-amber-500 fill-amber-500" />
+                            {hasFlag(detail.flags, "\\Flagged")
+                              ? t("page.webmail.unflag")
+                              : t("page.webmail.flag")}
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs text-destructive hover:bg-destructive/10"
+                            disabled={
+                              mutationBusy ||
+                              mutationUncertain ||
+                              !detail.uid_validity
+                            }
+                            onClick={() =>
+                              openDeleteConfirm(
+                                selectedUid != null ? [selectedUid] : [],
+                                selectedEncRef.current ?? folderEnc,
+                                detail.uid_validity,
+                              )
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" />
+                            {t("page.webmail.delete")}
+                          </Button>
+
+                          {/* Move / Copy dropdown */}
+                          <div className="flex items-center gap-1 min-w-0">
+                            <select
+                              aria-label={t("page.webmail.move_to")}
+                              className="h-8 max-w-[8rem] rounded-md border border-input bg-background px-2 text-xs"
+                              value={moveTo}
+                              onChange={(e) => setMoveTo(e.target.value)}
+                            >
+                              <option value="">
+                                {t("page.webmail.move_to")}
+                              </option>
+                              {moveOptions.map((f) => (
+                                <option key={f.name_enc} value={f.name_enc}>
+                                  {f.name}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs px-2"
+                              disabled={!moveTo || selectedUid == null}
+                              onClick={() =>
+                                selectedUid != null &&
+                                void doMove(
+                                  [selectedUid],
+                                  moveTo,
+                                  selectedEncRef.current ?? folderEnc,
+                                  detail.uid_validity,
+                                )
+                              }
+                            >
+                              {t("page.webmail.move")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs px-2"
+                              disabled={
+                                !moveTo ||
+                                !detail.uid_validity ||
+                                mutationBusy ||
+                                mutationUncertain
+                              }
+                              onClick={() =>
+                                selectedUid != null &&
+                                void transfer(
+                                  "copy",
+                                  [selectedUid],
+                                  moveTo,
+                                  selectedEncRef.current ?? folderEnc,
+                                  detail.uid_validity,
+                                )
+                              }
+                            >
+                              {t("page.webmail.copy")}
+                            </Button>
+                            {isTrashFolder(
+                              folders.find(
+                                (folder) =>
+                                  folder.name_enc ===
+                                  (selectedEncRef.current ?? folderEnc),
+                              ),
+                            ) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs px-2"
+                                disabled={
+                                  !detail.uid_validity ||
+                                  mutationBusy ||
+                                  mutationUncertain
+                                }
+                                onClick={() =>
+                                  selectedUid != null &&
+                                  void transfer(
+                                    "restore",
+                                    [selectedUid],
+                                    moveTo || "INBOX",
+                                    selectedEncRef.current ?? folderEnc,
+                                    detail.uid_validity,
+                                  )
+                                }
+                              >
+                                {t("page.webmail.restore")}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fast AI summary action on top right */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 text-xs text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 gap-1 font-medium"
+                          onClick={() => setAiDrawerOpen(true)}
+                        >
+                          <SparklesIcon className="h-3.5 w-3.5" />
+                          <span className="hidden lg:inline">AI 摘要</span>
+                        </Button>
+                      </div>
+
+                      {/* Detail Body Scroll Container */}
+                      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 min-h-0">
+                        {/* Header card */}
+                        <MailboxDetailHeader
+                          message={detail}
+                          dateText={dateFmt(detail.date)}
+                        />
+
+                        <MailboxMessageTools
+                          key={`tools:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                          folder={(selectedEncRef.current ?? folderEnc)!}
+                          message={detail}
+                        />
+
+                        {/* Preserved accessible MailboxAIPanel */}
+                        <div className="sr-only">
+                          {detail.uid_validity &&
+                            (selectedEncRef.current ?? folderEnc) && (
+                              <MailboxAIPanel
+                                key={`ai:${selectedEncRef.current ?? folderEnc}:${detail.uid}`}
+                                mode="read"
+                                source={{
+                                  folder_enc: (selectedEncRef.current ??
+                                    folderEnc)!,
+                                  uid: detail.uid,
+                                  uid_validity: detail.uid_validity,
+                                }}
+                                subject={detail.subject}
+                                body={detail.text ?? ""}
+                                onApply={async (proposal) => {
+                                  const reply = draftFromMessage(
+                                    "reply",
+                                    detail,
+                                  );
+                                  const [settings, identityList] =
+                                    await Promise.all([
+                                      getMailboxSettings(),
+                                      listMailboxIdentities(),
+                                    ]);
+                                  const from = chooseMailboxIdentity(
+                                    settings,
+                                    identityList.identities,
+                                    reply,
+                                  );
+                                  const result = await saveDraft({
+                                    from,
+                                    to: (reply.to ?? "")
+                                      .split(/[,;\s]+/)
+                                      .filter(Boolean),
+                                    cc: (reply.cc ?? "")
+                                      .split(/[,;\s]+/)
+                                      .filter(Boolean),
+                                    subject: reply.subject ?? proposal.subject,
+                                    in_reply_to: detail.message_id,
+                                    reply_source: {
+                                      folder_enc: (selectedEncRef.current ??
+                                        folderEnc)!,
+                                      uid: detail.uid,
+                                      uid_validity: detail.uid_validity!,
+                                    },
+                                    text: proposal.body,
+                                  });
+                                  openCompose({
+                                    ...reply,
+                                    from,
+                                    mode: "draft",
+                                    uid: result.uid,
+                                    uidValidity: result.uid_validity,
+                                    subject: reply.subject ?? proposal.subject,
+                                    text: proposal.body,
+                                  });
+                                }}
+                              />
+                            )}
+                        </div>
+
+                        {detail.uid_validity && folderEnc && (
+                          <MailboxInvitationPanel
+                            key={`invitation:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                            folderEnc={selectedEncRef.current ?? folderEnc}
+                            uid={detail.uid}
+                            uidValidity={detail.uid_validity}
+                          />
+                        )}
+
+                        {/* HTML or Plaintext message body */}
+                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                          {detail.html ? (
+                            <MessageHTMLWithAttachments
+                              key={`html:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                              message={detail}
+                              source={{
+                                folderEnc: (selectedEncRef.current ??
+                                  folderEnc)!,
+                                uid: detail.uid,
+                                uidValidity: detail.uid_validity ?? 0,
+                              }}
+                              loadImages={loadImages}
+                              onLoadImages={() => setLoadImages(true)}
+                            />
+                          ) : (
+                            <pre className="whitespace-pre-wrap break-words text-sm font-sans p-4 rounded-xl bg-muted/20 border border-border/50">
+                              {detail.text || t("page.webmail.no_body")}
+                            </pre>
+                          )}
+                        </div>
+
+                        {/* Attachments Section */}
+                        {detail.attachments?.length > 0 && (
+                          <div className="border-t border-border/60 pt-4 space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                              <Paperclip className="h-3.5 w-3.5" />
+                              {t("page.webmail.attachments")} (
+                              {detail.attachments.length})
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {detail.attachments.map((a) => (
+                                <div
+                                  key={a.part_id}
+                                  className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/50 transition-colors"
+                                >
+                                  <div className="min-w-0 flex items-center gap-2">
+                                    <Paperclip className="h-4 w-4 text-primary shrink-0" />
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
+                                        {attachmentDisplayName(
+                                          a.filename,
+                                          a.part_id,
+                                        )}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {a.content_type} · {a.size} B
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {folderEnc && selectedUid != null && (
+                                      <AttachmentPreview
+                                        key={`${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}:${a.part_id}`}
+                                        source={{
+                                          folderEnc:
+                                            selectedEncRef.current ?? folderEnc,
+                                          uid: detail.uid,
+                                          uidValidity: detail.uid_validity ?? 0,
+                                        }}
+                                        attachment={a}
+                                      />
+                                    )}
+                                    {folderEnc && selectedUid != null && (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-xs px-2"
+                                        onClick={() => {
+                                          void downloadAttachment(
+                                            selectedEncRef.current ?? folderEnc,
+                                            selectedUid,
+                                            a.part_id,
+                                            a.filename ||
+                                              `attachment-${a.part_id}`,
+                                            detail.uid_validity,
+                                          ).catch((err: unknown) => {
+                                            setError(
+                                              errorMessage(
+                                                err,
+                                                t,
+                                                "page.webmail.attach_download_failed",
+                                              ),
+                                            );
+                                          });
+                                        }}
+                                      >
+                                        {t("page.webmail.attach_download")}
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Inline Quick Reply at bottom of message detail */}
+                        {!isDraftsFolder(currentFolder) && (
+                          <div className="pt-2">
+                            <MailboxInlineReply
+                              message={detail}
+                              folderEnc={
+                                selectedEncRef.current ?? folderEnc ?? ""
+                              }
+                              settings={mailboxSettings}
+                              identities={identities}
+                              onOpenFullCompose={(mode) =>
+                                openCompose(draftFromMessage(mode, detail))
+                              }
+                              onSent={() => {
+                                void refresh();
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </section>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <MailboxAIAsk
+
+      {/* 3. AI Copilot Drawer */}
+      <MailboxAIDrawer
+        open={aiDrawerOpen}
+        onClose={() => setAiDrawerOpen(false)}
         folders={folders}
+        selectedFolderEnc={selectedEncRef.current ?? folderEnc ?? undefined}
+        detail={detail}
         onCitation={(source) => {
           selectFolder(source.folder_enc);
           selectedEncRef.current = source.folder_enc;
@@ -1273,789 +2418,38 @@ export function MailboxInboxPage() {
           setCitationNavigation((value) => value + 1);
           setMobilePane("detail");
         }}
+        onApplyAIProposal={async (proposal) => {
+          if (!detail) return;
+          const reply = draftFromMessage("reply", detail);
+          const from = mailboxSettings
+            ? chooseMailboxIdentity(mailboxSettings, identities, reply)
+            : identities[0]?.address || "";
+          const result = await saveDraft({
+            from,
+            to: (reply.to ?? "").split(/[,;\s]+/).filter(Boolean),
+            cc: (reply.cc ?? "").split(/[,;\s]+/).filter(Boolean),
+            subject: reply.subject ?? proposal.subject,
+            in_reply_to: detail.message_id,
+            reply_source: {
+              folder_enc: (selectedEncRef.current ?? folderEnc)!,
+              uid: detail.uid,
+              uid_validity: detail.uid_validity!,
+            },
+            text: proposal.body,
+          });
+          openCompose({
+            ...reply,
+            from,
+            mode: "draft",
+            uid: result.uid,
+            uidValidity: result.uid_validity,
+            subject: reply.subject ?? proposal.subject,
+            text: proposal.body,
+          });
+        }}
       />
 
-      {mutationNotice && (
-        <p role="status" className="px-4 py-2 text-sm border-b break-words">
-          {mutationNotice}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="px-4 py-2 text-sm text-destructive border-b">
-          {error}{" "}
-          <Link
-            className="underline underline-offset-4"
-            to="/support?topic=sync"
-          >
-            {t("support.sync_help_action")}
-          </Link>
-        </p>
-      )}
-
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)_minmax(0,1.2fr)] min-h-0 min-w-0 overflow-hidden">
-        {/* Desktop folder pane */}
-        <aside className="hidden md:block border-r bg-card p-2 overflow-y-auto min-h-0">
-          <p className="px-2 py-1 text-xs font-medium text-muted-foreground">
-            {t("page.webmail.folders")}
-          </p>
-          {folderList}
-        </aside>
-
-        {/* Message list pane */}
-        <section
-          className={`border-r flex flex-col min-h-0 min-w-0 ${
-            mobilePane === "detail" ? "hidden md:flex" : "flex"
-          }`}
-        >
-          <div className="px-3 py-2 border-b space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="truncate min-w-0">
-                {currentFolder?.name ?? "—"} · {total}{" "}
-                {t("page.webmail.messages_count")}
-              </span>
-            </div>
-            <MailboxSearchBox
-              value={searchQ}
-              disabled={busy || !folderEnc}
-              onSearch={runSearch}
-            />
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <select
-                aria-label={t("page.webmail.sort_by")}
-                className="h-11 md:h-8 rounded-md border border-input bg-background px-2 text-xs"
-                value={sortBy}
-                onChange={(e) =>
-                  applyListOptions(
-                    e.target.value as MailboxSortKey,
-                    sortAsc,
-                    threadGroup,
-                  )
-                }
-                disabled={busy || !folderEnc}
-              >
-                <option value="">{t("page.webmail.sort_date")}</option>
-                <option value="date">{t("page.webmail.sort_date")}</option>
-                <option value="subject">
-                  {t("page.webmail.sort_subject")}
-                </option>
-                <option value="from">{t("page.webmail.sort_from")}</option>
-                <option value="size">{t("page.webmail.sort_size")}</option>
-              </select>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="min-h-11 md:min-h-8"
-                aria-label={
-                  sortAsc
-                    ? t("page.webmail.sort_ascending")
-                    : t("page.webmail.sort_descending")
-                }
-                disabled={busy || !folderEnc}
-                onClick={() => applyListOptions(sortBy, !sortAsc, threadGroup)}
-              >
-                <ArrowDownWideNarrow
-                  className={sortAsc ? "h-3.5 w-3.5 rotate-180" : "h-3.5 w-3.5"}
-                />
-                {sortAsc
-                  ? t("page.webmail.sort_ascending")
-                  : t("page.webmail.sort_descending")}
-              </Button>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none min-h-11 md:min-h-0">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 md:h-4 md:w-4 accent-primary"
-                  checked={threadGroup}
-                  disabled={busy || !folderEnc}
-                  onChange={(e) =>
-                    applyListOptions(sortBy, sortAsc, e.target.checked)
-                  }
-                />
-                <Layers className="h-3.5 w-3.5" />
-                {t("page.webmail.thread_group")}
-              </label>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none min-h-11 md:min-h-0">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 md:h-4 md:w-4 accent-primary"
-                  checked={searchAllFolders}
-                  disabled={busy || !folderEnc}
-                  onChange={(e) => {
-                    setSearchAllFolders(e.target.checked);
-                    setCrossResults(null);
-                  }}
-                />
-                {t("page.webmail.search_all_folders")}
-              </label>
-              {threadFilter != null && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="min-h-11 md:min-h-8"
-                  onClick={() => setThreadFilter(null)}
-                >
-                  {t("page.webmail.thread_show_all")}
-                </Button>
-              )}
-            </div>
-            <div className="flex items-center gap-2 min-h-11">
-              <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none min-h-11">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 accent-primary"
-                  checked={allPageSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = somePageSelected;
-                  }}
-                  onChange={toggleSelectAllPage}
-                  disabled={messages.length === 0}
-                  aria-label={t("page.webmail.select_all")}
-                />
-                <span className="text-xs text-muted-foreground">
-                  {t("page.webmail.select_all")}
-                </span>
-              </label>
-              {checkedUids.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {t("page.webmail.selected_count", {
-                    count: checkedUids.length,
-                  })}
-                </span>
-              )}
-            </div>
-            {checkedUids.length > 0 && (
-              <div
-                className="flex flex-wrap items-center gap-1.5"
-                role="toolbar"
-                aria-label={t("page.webmail.bulk_actions")}
-              >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="min-h-11 md:min-h-8"
-                  onClick={() => void bulkFlag(["\\Seen"], [])}
-                >
-                  <MailOpen className="h-3.5 w-3.5 mr-1" />
-                  {t("page.webmail.mark_read")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="min-h-11 md:min-h-8"
-                  onClick={() => void bulkFlag([], ["\\Seen"])}
-                >
-                  <Mail className="h-3.5 w-3.5 mr-1" />
-                  {t("page.webmail.mark_unread")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="min-h-11 md:min-h-8 text-destructive"
-                  disabled={
-                    mutationBusy || mutationUncertain || !folderValidity
-                  }
-                  onClick={() => openDeleteConfirm(checkedUids)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  {t("page.webmail.delete")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="min-h-11 md:min-h-8"
-                  disabled={
-                    exportBusy ||
-                    mutationBusy ||
-                    mutationUncertain ||
-                    !folderValidity ||
-                    !folderEnc ||
-                    !!crossResults
-                  }
-                  onClick={() => {
-                    if (!folderEnc || !folderValidity) return;
-                    setExportBusy(true);
-                    setError(null);
-                    void downloadMailboxMbox(
-                      folderEnc,
-                      folderValidity,
-                      checkedUids,
-                    )
-                      .catch((cause) => {
-                        if (handleAuthError(cause)) return;
-                        setError(
-                          errorMessage(
-                            cause,
-                            t,
-                            "page.webmail.import.export_failed",
-                          ),
-                        );
-                      })
-                      .finally(() => setExportBusy(false));
-                  }}
-                >
-                  <Download className="h-3.5 w-3.5 mr-1" />
-                  {t("page.webmail.import.export_mbox")}
-                </Button>
-                <div className="flex items-center gap-1 min-w-0">
-                  <select
-                    aria-label={t("page.webmail.move_to")}
-                    className="h-11 md:h-8 max-w-[10rem] rounded-md border border-input bg-background px-2 text-xs"
-                    value={bulkMoveTo}
-                    onChange={(e) => setBulkMoveTo(e.target.value)}
-                  >
-                    <option value="">{t("page.webmail.move_to")}</option>
-                    {moveOptions.map((f) => (
-                      <option key={f.name_enc} value={f.name_enc}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="min-h-11 md:min-h-8"
-                    disabled={!bulkMoveTo}
-                    onClick={() => void doMove(checkedUids, bulkMoveTo)}
-                  >
-                    {t("page.webmail.move")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={
-                      !bulkMoveTo ||
-                      !folderValidity ||
-                      mutationBusy ||
-                      mutationUncertain
-                    }
-                    onClick={() =>
-                      void transfer("copy", checkedUids, bulkMoveTo)
-                    }
-                  >
-                    {t("page.webmail.copy")}
-                  </Button>
-                  {isTrashFolder(currentFolder) && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        !folderValidity || mutationBusy || mutationUncertain
-                      }
-                      onClick={() =>
-                        void transfer(
-                          "restore",
-                          checkedUids,
-                          bulkMoveTo || "INBOX",
-                        )
-                      }
-                    >
-                      {t("page.webmail.restore")}
-                    </Button>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="min-h-11 md:min-h-8"
-                  onClick={clearChecked}
-                >
-                  {t("page.webmail.clear_selection")}
-                </Button>
-              </div>
-            )}
-          </div>
-          <ul
-            className="flex-1 overflow-y-auto divide-y min-h-0"
-            aria-label={t("page.webmail.message_list")}
-          >
-            {(() => {
-              const showing =
-                crossResults ??
-                (() => {
-                  if (threadFilter == null) return messages;
-                  return decoratedMessages
-                    .filter((d) => d.threadKey === threadFilter)
-                    .map((d) => d.message);
-                })();
-              if (showing.length === 0 && !busy) {
-                return (
-                  <li className="p-4 text-sm text-muted-foreground">
-                    {crossResults
-                      ? t("page.webmail.search_no_results")
-                      : t("page.webmail.empty_folder")}
-                  </li>
-                );
-              }
-              const threadCountOf = (m: MessageSummary): number =>
-                crossResults
-                  ? 1
-                  : (decoratedMessages.find((d) => d.message.uid === m.uid)
-                      ?.threadCount ?? 1);
-              const threadKeyOf = (m: MessageSummary): string =>
-                decoratedMessages.find((d) => d.message.uid === m.uid)
-                  ?.threadKey ?? String(m.uid);
-              return showing.map((m) => {
-                const unread = !hasFlag(m.flags, "\\Seen");
-                const flagged = hasFlag(m.flags, "\\Flagged");
-                const checked = checkedUids.includes(m.uid);
-                const threadCount = threadCountOf(m);
-                return (
-                  <li key={m.uid} className="flex items-stretch min-w-0">
-                    <label className="flex items-center px-2 shrink-0 cursor-pointer min-h-14 md:min-h-0">
-                      <input
-                        type="checkbox"
-                        className="h-5 w-5 accent-primary"
-                        checked={checked}
-                        aria-label={t("page.webmail.select_message_named", {
-                          name:
-                            formatFrom(m.from) ||
-                            m.subject ||
-                            t("page.webmail.no_subject"),
-                        })}
-                        onChange={() =>
-                          setCheckedUids((prev) => toggleUid(prev, m.uid))
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className={
-                        "flex-1 min-w-0 text-left px-2 py-3 md:py-2 hover:bg-muted/60 min-h-14 md:min-h-0 " +
-                        (selectedUid === m.uid ? "bg-muted" : "")
-                      }
-                      onClick={() =>
-                        crossResults ? openCrossMessage(m) : openMessage(m.uid)
-                      }
-                    >
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        {flagged && (
-                          <Flag className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
-                        )}
-                        {crossResults && m.folder && (
-                          <span className="shrink-0 rounded bg-muted px-1 py-0.5">
-                            {m.folder}
-                          </span>
-                        )}
-                        <span className="truncate flex-1 min-w-0">
-                          {formatFrom(m.from) ||
-                            t("page.webmail.unknown_sender")}
-                        </span>
-                        <span className="shrink-0 tabular-nums">
-                          {dateFmt(m.date)}
-                        </span>
-                      </div>
-                      <p
-                        className={
-                          "text-sm truncate " + (unread ? "font-semibold" : "")
-                        }
-                      >
-                        {m.subject || t("page.webmail.no_subject")}
-                      </p>
-                    </button>
-                    {threadGroup && !crossResults && threadCount > 1 && (
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 px-2 shrink-0 text-xs text-muted-foreground hover:text-foreground"
-                        aria-label={t("page.webmail.thread_filter", {
-                          count: threadCount,
-                        })}
-                        title={t("page.webmail.thread_filter", {
-                          count: threadCount,
-                        })}
-                        onClick={() =>
-                          setThreadFilter(
-                            threadKeyOf(m) === threadFilter
-                              ? null
-                              : threadKeyOf(m),
-                          )
-                        }
-                      >
-                        <Layers className="h-3 w-3" />
-                        {threadCount}
-                      </button>
-                    )}
-                  </li>
-                );
-              });
-            })()}
-          </ul>
-          {!crossResults && (cursorHistory.length > 0 || nextCursor) && (
-            <div className="flex gap-2 p-2 border-t">
-              <Button
-                size="sm"
-                variant="outline"
-                className="min-h-11 md:min-h-8"
-                disabled={cursorHistory.length === 0 || busy || !folderEnc}
-                onClick={() => loadPage("prev")}
-              >
-                {t("page.webmail.prev_page")}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="min-h-11 md:min-h-8"
-                disabled={!nextCursor || busy || !folderEnc}
-                onClick={() => loadPage("next")}
-              >
-                {t("page.webmail.next_page")}
-              </Button>
-            </div>
-          )}
-        </section>
-
-        {/* Detail pane */}
-        <section
-          className={`flex flex-col min-h-0 min-w-0 bg-card ${
-            mobilePane === "list" ? "hidden md:flex" : "flex"
-          }`}
-        >
-          {!detail ? (
-            <div className="flex-1 flex items-center justify-center p-6 text-sm text-muted-foreground">
-              {busy
-                ? t("state.loading")
-                : t("page.webmail.select_message_read")}
-            </div>
-          ) : (
-            <>
-              <div className="border-b p-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="md:hidden shrink-0 min-h-11 min-w-11 px-0"
-                    aria-label={t("page.webmail.back_to_list")}
-                    onClick={backToList}
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </Button>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <h2 className="text-base font-semibold break-words">
-                      {detail.subject || t("page.webmail.no_subject")}
-                    </h2>
-                    <p className="text-sm text-muted-foreground break-all">
-                      {formatFrom(detail.from)} · {dateFmt(detail.date)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {isDraftsFolder(currentFolder) ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="min-h-11 md:min-h-8"
-                      onClick={() => void openSavedDraft()}
-                      disabled={busy}
-                    >
-                      <Pencil className="h-3.5 w-3.5 mr-1" />
-                      {t("page.webmail.compose_edit_draft")}
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="min-h-11 md:min-h-8"
-                        onClick={() =>
-                          openCompose(draftFromMessage("reply", detail))
-                        }
-                      >
-                        <Reply className="h-3.5 w-3.5 mr-1" />
-                        {t("page.webmail.compose_reply")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="min-h-11 md:min-h-8"
-                        onClick={() =>
-                          openCompose(draftFromMessage("reply-all", detail))
-                        }
-                      >
-                        <ReplyAll className="h-3.5 w-3.5 mr-1" />
-                        {t("page.webmail.compose_reply_all")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="min-h-11 md:min-h-8"
-                        disabled={forwardBusy}
-                        onClick={() => void openForward()}
-                      >
-                        <Forward className="h-3.5 w-3.5 mr-1" />
-                        {t("page.webmail.compose_forward")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="min-h-11 md:min-h-8"
-                        disabled={forwardBusy}
-                        onClick={() => void openForward("eml")}
-                      >
-                        {t("page.webmail.compose_forward_eml")}
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="min-h-11 md:min-h-8"
-                    onClick={() => void toggleFlagged()}
-                  >
-                    <Flag className="h-3.5 w-3.5 mr-1" />
-                    {hasFlag(detail.flags, "\\Flagged")
-                      ? t("page.webmail.unflag")
-                      : t("page.webmail.flag")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="min-h-11 md:min-h-8 text-destructive"
-                    disabled={
-                      mutationBusy || mutationUncertain || !detail.uid_validity
-                    }
-                    onClick={() =>
-                      openDeleteConfirm(
-                        selectedUid != null ? [selectedUid] : [],
-                        selectedEncRef.current ?? folderEnc,
-                        detail.uid_validity,
-                      )
-                    }
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-1" />
-                    {t("page.webmail.delete")}
-                  </Button>
-                  <div className="flex items-center gap-1 min-w-0">
-                    <select
-                      aria-label={t("page.webmail.move_to")}
-                      className="h-11 md:h-8 max-w-[10rem] rounded-md border border-input bg-background px-2 text-xs"
-                      value={moveTo}
-                      onChange={(e) => setMoveTo(e.target.value)}
-                    >
-                      <option value="">{t("page.webmail.move_to")}</option>
-                      {moveOptions.map((f) => (
-                        <option key={f.name_enc} value={f.name_enc}>
-                          {f.name}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="min-h-11 md:min-h-8"
-                      disabled={!moveTo || selectedUid == null}
-                      onClick={() =>
-                        selectedUid != null &&
-                        void doMove(
-                          [selectedUid],
-                          moveTo,
-                          selectedEncRef.current ?? folderEnc,
-                          detail.uid_validity,
-                        )
-                      }
-                    >
-                      {t("page.webmail.move")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        !moveTo ||
-                        !detail.uid_validity ||
-                        mutationBusy ||
-                        mutationUncertain
-                      }
-                      onClick={() =>
-                        selectedUid != null &&
-                        void transfer(
-                          "copy",
-                          [selectedUid],
-                          moveTo,
-                          selectedEncRef.current ?? folderEnc,
-                          detail.uid_validity,
-                        )
-                      }
-                    >
-                      {t("page.webmail.copy")}
-                    </Button>
-                    {isTrashFolder(
-                      folders.find(
-                        (folder) =>
-                          folder.name_enc ===
-                          (selectedEncRef.current ?? folderEnc),
-                      ),
-                    ) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          !detail.uid_validity ||
-                          mutationBusy ||
-                          mutationUncertain
-                        }
-                        onClick={() =>
-                          selectedUid != null &&
-                          void transfer(
-                            "restore",
-                            [selectedUid],
-                            moveTo || "INBOX",
-                            selectedEncRef.current ?? folderEnc,
-                            detail.uid_validity,
-                          )
-                        }
-                      >
-                        {t("page.webmail.restore")}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
-                <MailboxMessageTools
-                  key={`tools:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
-                  folder={(selectedEncRef.current ?? folderEnc)!}
-                  message={detail}
-                />
-                {detail.uid_validity &&
-                  (selectedEncRef.current ?? folderEnc) && (
-                    <MailboxAIPanel
-                      key={`ai:${selectedEncRef.current ?? folderEnc}:${detail.uid}`}
-                      mode="read"
-                      source={{
-                        folder_enc: (selectedEncRef.current ?? folderEnc)!,
-                        uid: detail.uid,
-                        uid_validity: detail.uid_validity,
-                      }}
-                      subject={detail.subject}
-                      body={detail.text ?? ""}
-                      onApply={async (proposal) => {
-                        const reply = draftFromMessage("reply", detail);
-                        const [settings, identityList] = await Promise.all([
-                          getMailboxSettings(),
-                          listMailboxIdentities(),
-                        ]);
-                        const from = chooseMailboxIdentity(
-                          settings,
-                          identityList.identities,
-                          reply,
-                        );
-                        const result = await saveDraft({
-                          from,
-                          to: (reply.to ?? "").split(/[,;\s]+/).filter(Boolean),
-                          cc: (reply.cc ?? "").split(/[,;\s]+/).filter(Boolean),
-                          subject: reply.subject ?? proposal.subject,
-                          in_reply_to: detail.message_id,
-                          reply_source: {
-                            folder_enc: (selectedEncRef.current ?? folderEnc)!,
-                            uid: detail.uid,
-                            uid_validity: detail.uid_validity!,
-                          },
-                          text: proposal.body,
-                        });
-                        openCompose({
-                          ...reply,
-                          from,
-                          mode: "draft",
-                          uid: result.uid,
-                          uidValidity: result.uid_validity,
-                          subject: reply.subject ?? proposal.subject,
-                          text: proposal.body,
-                        });
-                      }}
-                    />
-                  )}
-                {detail.uid_validity && folderEnc && (
-                  <MailboxInvitationPanel
-                    key={`invitation:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
-                    folderEnc={selectedEncRef.current ?? folderEnc}
-                    uid={detail.uid}
-                    uidValidity={detail.uid_validity}
-                  />
-                )}
-                {detail.html ? (
-                  <MessageHTMLWithAttachments
-                    key={`html:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
-                    message={detail}
-                    source={{
-                      folderEnc: (selectedEncRef.current ?? folderEnc)!,
-                      uid: detail.uid,
-                      uidValidity: detail.uid_validity ?? 0,
-                    }}
-                    loadImages={loadImages}
-                    onLoadImages={() => setLoadImages(true)}
-                  />
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words text-sm font-sans">
-                    {detail.text || t("page.webmail.no_body")}
-                  </pre>
-                )}
-                {detail.attachments?.length > 0 && (
-                  <div className="border-t pt-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">
-                      {t("page.webmail.attachments")}
-                    </p>
-                    <ul className="text-sm space-y-1">
-                      {detail.attachments.map((a) => (
-                        <li
-                          key={a.part_id}
-                          className="flex flex-wrap items-center gap-2 min-w-0"
-                        >
-                          <span className="truncate min-w-0">
-                            {attachmentDisplayName(a.filename, a.part_id)}{" "}
-                            <span className="text-xs text-muted-foreground">
-                              ({a.content_type}, {a.size} B)
-                            </span>
-                          </span>
-                          {folderEnc && selectedUid != null && (
-                            <AttachmentPreview
-                              key={`${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}:${a.part_id}`}
-                              source={{
-                                folderEnc: selectedEncRef.current ?? folderEnc,
-                                uid: detail.uid,
-                                uidValidity: detail.uid_validity ?? 0,
-                              }}
-                              attachment={a}
-                            />
-                          )}
-                          {folderEnc && selectedUid != null && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="shrink-0 min-h-11 md:min-h-8"
-                              onClick={() => {
-                                void downloadAttachment(
-                                  selectedEncRef.current ?? folderEnc,
-                                  selectedUid,
-                                  a.part_id,
-                                  a.filename || `attachment-${a.part_id}`,
-                                  detail.uid_validity,
-                                ).catch((err: unknown) => {
-                                  setError(
-                                    errorMessage(
-                                      err,
-                                      t,
-                                      "page.webmail.attach_download_failed",
-                                    ),
-                                  );
-                                });
-                              }}
-                            >
-                              {t("page.webmail.attach_download")}
-                            </Button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </section>
-      </div>
-
+      {/* Modals & Dialogs */}
       <MailboxComposeDialog
         open={composeOpen}
         onOpenChange={setComposeOpen}

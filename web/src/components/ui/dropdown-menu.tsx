@@ -6,12 +6,15 @@ interface DropdownMenuContextValue {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-const DropdownMenuContext = React.createContext<DropdownMenuContextValue | null>(null);
+const DropdownMenuContext =
+  React.createContext<DropdownMenuContextValue | null>(null);
 
 function useDropdownMenu() {
   const context = React.useContext(DropdownMenuContext);
   if (!context) {
-    throw new Error("DropdownMenu components must be used within a DropdownMenu");
+    throw new Error(
+      "DropdownMenu components must be used within a DropdownMenu",
+    );
   }
   return context;
 }
@@ -61,7 +64,9 @@ export function DropdownMenuTrigger({
   };
 
   if (asChild && React.isValidElement(children)) {
-    const child = children as React.ReactElement<React.HTMLAttributes<HTMLElement>>;
+    const child = children as React.ReactElement<
+      React.HTMLAttributes<HTMLElement>
+    >;
     return React.cloneElement(child, {
       "aria-haspopup": "menu",
       "aria-expanded": open,
@@ -93,7 +98,9 @@ export function DropdownMenuContent({
   className,
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { align?: "start" | "end" | "center" }) {
+}: React.HTMLAttributes<HTMLDivElement> & {
+  align?: "start" | "end" | "center";
+}) {
   const { open, setOpen } = useDropdownMenu();
   const ref = React.useRef<HTMLDivElement>(null);
 
@@ -126,7 +133,11 @@ export function DropdownMenuContent({
   if (!open) return null;
 
   const alignClass =
-    align === "end" ? "right-0" : align === "center" ? "left-1/2 -translate-x-1/2" : "left-0";
+    align === "end"
+      ? "right-0"
+      : align === "center"
+        ? "left-1/2 -translate-x-1/2"
+        : "left-0";
 
   return (
     <div
@@ -164,7 +175,9 @@ export function DropdownMenuItem({
   };
 
   if (asChild && React.isValidElement(children)) {
-    const child = children as React.ReactElement<React.HTMLAttributes<HTMLElement>>;
+    const child = children as React.ReactElement<
+      React.HTMLAttributes<HTMLElement>
+    >;
     return React.cloneElement(child, {
       role: "menuitem",
       onClick: (e: React.MouseEvent<HTMLElement>) => {

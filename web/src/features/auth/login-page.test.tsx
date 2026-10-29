@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { LoginPage } from "./login-page";
@@ -43,7 +49,9 @@ describe("LoginPage", () => {
     });
     expect(webmailLink.getAttribute("href")).toBe("/webmail/login");
 
-    const rememberCheck = screen.getByLabelText("login.remember_me") as HTMLInputElement;
+    const rememberCheck = screen.getByLabelText(
+      "login.remember_me",
+    ) as HTMLInputElement;
     expect(rememberCheck).not.toBeNull();
     expect(rememberCheck.checked).toBe(true);
   });
@@ -55,8 +63,21 @@ describe("LoginPage", () => {
       json: async () => ({
         token: "admin-jwt-token",
         csrf_token: "admin-csrf-token",
-        user: { id: 1, email: "admin@example.com", display_name: "Admin", locale: "zh-CN" },
-        tenants: [{ id: 10, name: "Corp", slug: "corp", status: "active", role: "owner" }],
+        user: {
+          id: 1,
+          email: "admin@example.com",
+          display_name: "Admin",
+          locale: "zh-CN",
+        },
+        tenants: [
+          {
+            id: 10,
+            name: "Corp",
+            slug: "corp",
+            status: "active",
+            role: "owner",
+          },
+        ],
         is_admin: true,
       }),
     });

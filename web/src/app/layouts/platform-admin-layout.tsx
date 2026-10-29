@@ -103,7 +103,10 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
   };
 
   const renderNavLinks = (onNavigate?: () => void) => (
-    <nav className="flex-1 p-3 space-y-1.5" aria-label="Platform Admin Navigation">
+    <nav
+      className="flex-1 p-3 space-y-1.5"
+      aria-label="Platform Admin Navigation"
+    >
       {navigation.map((item) => {
         const Icon = item.icon;
         return (
@@ -166,7 +169,11 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
           className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors w-full"
         >
           <ArrowRightLeft className="h-3.5 w-3.5" />
-          <span>{t("page.platform.switch_to_tenant", { defaultValue: "进入租户控制台" })}</span>
+          <span>
+            {t("page.platform.switch_to_tenant", {
+              defaultValue: "进入租户控制台",
+            })}
+          </span>
         </Link>
 
         <Button
@@ -248,7 +255,9 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
               className="border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-950 dark:text-amber-200 h-7 text-xs font-semibold shrink-0"
               onClick={handleExitAssume}
             >
-              {t("page.platform.exit_assume", { defaultValue: "退出视察返回平台" })}
+              {t("page.platform.exit_assume", {
+                defaultValue: "退出视察返回平台",
+              })}
             </Button>
           </div>
         )}
@@ -276,7 +285,9 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
               <Button variant="ghost" size="sm" className="text-xs h-8">
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
                 <span className="hidden sm:inline">
-                  {t("page.platform.switch_to_tenant", { defaultValue: "租户控制台" })}
+                  {t("page.platform.switch_to_tenant", {
+                    defaultValue: "租户控制台",
+                  })}
                 </span>
               </Button>
             </Link>

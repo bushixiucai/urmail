@@ -67,8 +67,12 @@ describe("API error contracts", () => {
     it("stores tokens in localStorage by default and prefers localStorage over sessionStorage", () => {
       setSessionToken("tok-local");
       setCSRFToken("csrf-local");
-      expect(window.localStorage.getItem("urmail.session-token")).toBe("tok-local");
-      expect(window.localStorage.getItem("urmail.csrf-token")).toBe("csrf-local");
+      expect(window.localStorage.getItem("urmail.session-token")).toBe(
+        "tok-local",
+      );
+      expect(window.localStorage.getItem("urmail.csrf-token")).toBe(
+        "csrf-local",
+      );
       expect(getSessionToken()).toBe("tok-local");
       expect(getCSRFToken()).toBe("csrf-local");
 
@@ -87,8 +91,12 @@ describe("API error contracts", () => {
     it("supports remember=false to store exclusively in sessionStorage", () => {
       setSessionToken("tok-temp", false);
       setCSRFToken("csrf-temp", false);
-      expect(window.sessionStorage.getItem("urmail.session-token")).toBe("tok-temp");
-      expect(window.sessionStorage.getItem("urmail.csrf-token")).toBe("csrf-temp");
+      expect(window.sessionStorage.getItem("urmail.session-token")).toBe(
+        "tok-temp",
+      );
+      expect(window.sessionStorage.getItem("urmail.csrf-token")).toBe(
+        "csrf-temp",
+      );
       expect(window.localStorage.getItem("urmail.session-token")).toBeNull();
       expect(window.localStorage.getItem("urmail.csrf-token")).toBeNull();
     });

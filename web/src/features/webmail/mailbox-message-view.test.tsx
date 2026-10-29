@@ -40,6 +40,25 @@ describe("MessageHTMLFrame", () => {
     expect(screen.getByText("page.webmail.collapse_body")).toBeTruthy();
   });
 
+  it("adapts height based on content scrollHeight when expanded with minimum 400px", () => {
+    renderFrame();
+    const frame = screen.getByTitle(
+      "page.webmail.message_body",
+    ) as HTMLIFrameElement;
+    if (frame.contentDocument?.body) {
+      Object.defineProperty(frame.contentDocument.body, "scrollHeight", {
+        configurable: true,
+        value: 150,
+      });
+      fireEvent.load(frame);
+    }
+    fireEvent.click(screen.getByText("page.webmail.expand_body"));
+    if (frame.contentDocument?.body) {
+      // 150 + 16 < 400 -> enforces minimum 400px
+      expect(frame.style.height).toBe("400px");
+    }
+  });
+
   it("shows the blocked-image bar and re-requests on load images", () => {
     const { onLoadImages } = renderFrame();
     expect(screen.getByText("page.webmail.remote_images_blocked")).toBeTruthy();

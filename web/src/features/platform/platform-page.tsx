@@ -8,13 +8,7 @@ import { NotificationAdmin } from "./notification-admin";
 import { DocumentProfile } from "@/features/billing/document-profile";
 import { PaymentMerchantAdmin } from "./payment-merchant-admin";
 import { SettingsEditor } from "@/features/auth/settings-editor";
-import {
-  useCallback,
-  useEffect,
-  useState,
-  useMemo,
-  FormEvent,
-} from "react";
+import { useCallback, useEffect, useState, useMemo, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Building2,
@@ -125,9 +119,14 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
         const tab = new URLSearchParams(window.location.search).get("tab");
         if (
           tab &&
-          ["overview", "tenants", "plans", "finance", "brands", "settings"].includes(
-            tab,
-          )
+          [
+            "overview",
+            "tenants",
+            "plans",
+            "finance",
+            "brands",
+            "settings",
+          ].includes(tab)
         ) {
           return tab;
         }
@@ -216,7 +215,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
 
   // Tenant search, filter & pagination state
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "suspended">("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "active" | "suspended"
+  >("all");
   const [tenantPage, setTenantPage] = useState(1);
   const pageSize = 10;
 
@@ -401,7 +402,10 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       label: t("page.platform.tenants"),
       value: overview?.tenants ?? 0,
       icon: Building2,
-      desc: t("page.platform.active_tenants", { defaultValue: "活跃租户" }) + ": " + (overview?.active_tenants ?? 0),
+      desc:
+        t("page.platform.active_tenants", { defaultValue: "活跃租户" }) +
+        ": " +
+        (overview?.active_tenants ?? 0),
     },
     {
       label: t("page.platform.users"),
@@ -422,7 +426,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       desc: "已分配工作邮箱",
     },
     {
-      label: t("page.platform.active_subscriptions", { defaultValue: "有效订阅" }),
+      label: t("page.platform.active_subscriptions", {
+        defaultValue: "有效订阅",
+      }),
       value: overview?.active_subscriptions ?? 0,
       icon: CreditCard,
       desc: "进行中付费履约计划",
@@ -529,7 +535,10 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
         {/* Core Metric Cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((card) => (
-            <Card key={card.label} className="hover:shadow-xs transition-shadow">
+            <Card
+              key={card.label}
+              className="hover:shadow-xs transition-shadow"
+            >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
                   {card.label}
@@ -553,7 +562,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
           <CardHeader>
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4 text-primary" />
-              <span>{t("page.platform.quick_actions", { defaultValue: "快捷入口" })}</span>
+              <span>
+                {t("page.platform.quick_actions", { defaultValue: "快捷入口" })}
+              </span>
             </CardTitle>
             <CardDescription>
               平台高频运维操作与系统级配置快捷通道
@@ -572,7 +583,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   </div>
                   <div>
                     <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_tenants", { defaultValue: "租户全生命周期" })}
+                      {t("page.platform.quick_tenants", {
+                        defaultValue: "租户全生命周期",
+                      })}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       租户管理与代入视察
@@ -593,7 +606,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   </div>
                   <div>
                     <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_plans", { defaultValue: "套餐计划定价" })}
+                      {t("page.platform.quick_plans", {
+                        defaultValue: "套餐计划定价",
+                      })}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       编辑套餐配额与促销
@@ -614,7 +629,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   </div>
                   <div>
                     <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_finance", { defaultValue: "财务与结算" })}
+                      {t("page.platform.quick_finance", {
+                        defaultValue: "财务与结算",
+                      })}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       支付通道与账期日历
@@ -635,7 +652,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   </div>
                   <div>
                     <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_brands", { defaultValue: "品牌与主机" })}
+                      {t("page.platform.quick_brands", {
+                        defaultValue: "品牌与主机",
+                      })}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       品牌矩阵与域名生命周期
@@ -656,7 +675,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   </div>
                   <div>
                     <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_ai", { defaultValue: "AI模型与规则" })}
+                      {t("page.platform.quick_ai", {
+                        defaultValue: "AI模型与规则",
+                      })}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       智能额度与系统全局配置
@@ -676,7 +697,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   </div>
                   <div>
                     <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_support", { defaultValue: "平台工单响应" })}
+                      {t("page.platform.quick_support", {
+                        defaultValue: "平台工单响应",
+                      })}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       跨租户技术支持与诊断
@@ -696,7 +719,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-base font-semibold">
-                  {t("page.platform.recent_tenants", { defaultValue: "近期新增租户" })}
+                  {t("page.platform.recent_tenants", {
+                    defaultValue: "近期新增租户",
+                  })}
                 </CardTitle>
                 <CardDescription>
                   最新入驻平台的租户与其实时规模
@@ -708,7 +733,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                 onClick={() => handleTabChange("tenants")}
                 className="text-xs h-7"
               >
-                {t("page.platform.view_all_tenants", { defaultValue: "查看全部" })}
+                {t("page.platform.view_all_tenants", {
+                  defaultValue: "查看全部",
+                })}
               </Button>
             </CardHeader>
             <CardContent>
@@ -745,8 +772,12 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                           )}
                         >
                           {tenant.status === "active"
-                            ? t("page.platform.status_active", { defaultValue: "正常" })
-                            : t("page.platform.status_suspended", { defaultValue: "已冻结" })}
+                            ? t("page.platform.status_active", {
+                                defaultValue: "正常",
+                              })
+                            : t("page.platform.status_suspended", {
+                                defaultValue: "已冻结",
+                              })}
                         </span>
                         <Button
                           variant="ghost"
@@ -755,7 +786,11 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                           onClick={() => handleAssume(tenant)}
                         >
                           <Eye className="h-3.5 w-3.5 mr-1" />
-                          <span>{t("page.platform.assume_tenant", { defaultValue: "视察" })}</span>
+                          <span>
+                            {t("page.platform.assume_tenant", {
+                              defaultValue: "视察",
+                            })}
+                          </span>
                         </Button>
                       </div>
                     </div>
@@ -769,15 +804,17 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
           <Card>
             <CardHeader>
               <CardTitle className="text-base font-semibold">
-                {t("page.platform.recent_audit", { defaultValue: "最新审计动态" })}
+                {t("page.platform.recent_audit", {
+                  defaultValue: "最新审计动态",
+                })}
               </CardTitle>
-              <CardDescription>
-                平台级特权与租户状态流转日志
-              </CardDescription>
+              <CardDescription>平台级特权与租户状态流转日志</CardDescription>
             </CardHeader>
             <CardContent>
               {auditLogs.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">-</p>
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  -
+                </p>
               ) : (
                 <div className="border rounded-lg divide-y max-h-72 overflow-y-auto">
                   {auditLogs.slice(0, 8).map((log) => (
@@ -809,7 +846,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
           ].map((group) => (
             <Card key={group.title}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">{group.title}</CardTitle>
+                <CardTitle className="text-sm font-semibold">
+                  {group.title}
+                </CardTitle>
               </CardHeader>
               <CardContent className="text-xs text-muted-foreground">
                 {group.items.length === 0 ? "-" : group.items.join(", ")}
@@ -974,13 +1013,19 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   }}
                 >
                   <option value="all">
-                    {t("page.platform.filter_all", { defaultValue: "全部状态" })}
+                    {t("page.platform.filter_all", {
+                      defaultValue: "全部状态",
+                    })}
                   </option>
                   <option value="active">
-                    {t("page.platform.status_active", { defaultValue: "正常运行" })}
+                    {t("page.platform.status_active", {
+                      defaultValue: "正常运行",
+                    })}
                   </option>
                   <option value="suspended">
-                    {t("page.platform.status_suspended", { defaultValue: "已冻结" })}
+                    {t("page.platform.status_suspended", {
+                      defaultValue: "已冻结",
+                    })}
                   </option>
                 </select>
               </div>
@@ -1060,8 +1105,12 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                             )}
                           >
                             {tenant.status === "active"
-                              ? t("page.platform.status_active", { defaultValue: "正常" })
-                              : t("page.platform.status_suspended", { defaultValue: "已冻结" })}
+                              ? t("page.platform.status_active", {
+                                  defaultValue: "正常",
+                                })
+                              : t("page.platform.status_suspended", {
+                                  defaultValue: "已冻结",
+                                })}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-xs font-medium">
@@ -1259,7 +1308,10 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                   }
                   className="rounded border-input text-primary"
                 />
-                <label htmlFor="plan-active-check" className="text-xs font-medium cursor-pointer">
+                <label
+                  htmlFor="plan-active-check"
+                  className="text-xs font-medium cursor-pointer"
+                >
                   {t("state.active")}
                 </label>
               </div>
@@ -1276,7 +1328,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                 >
                   <div>
                     <div className="font-semibold flex items-center gap-2">
-                      <span>{plan.name["zh-CN"] || plan.name.en || plan.code}</span>
+                      <span>
+                        {plan.name["zh-CN"] || plan.name.en || plan.code}
+                      </span>
                       <span className="text-xs font-mono px-2 py-0.5 rounded bg-muted">
                         {plan.code}
                       </span>
@@ -1291,10 +1345,15 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      价格: ¥{(plan.price_cents / 100).toFixed(2)} / 月 · 邮箱上限:{" "}
-                      {plan.mailbox_limit === -1 ? "不限" : plan.mailbox_limit} · 域名:{" "}
-                      {plan.domain_limit === -1 ? "不限" : plan.domain_limit} · 每日发信:{" "}
-                      {plan.daily_send_limit === -1 ? "不限" : plan.daily_send_limit}
+                      价格: ¥{(plan.price_cents / 100).toFixed(2)} / 月 ·
+                      邮箱上限:{" "}
+                      {plan.mailbox_limit === -1 ? "不限" : plan.mailbox_limit}{" "}
+                      · 域名:{" "}
+                      {plan.domain_limit === -1 ? "不限" : plan.domain_limit} ·
+                      每日发信:{" "}
+                      {plan.daily_send_limit === -1
+                        ? "不限"
+                        : plan.daily_send_limit}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -1375,7 +1434,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                           : "bg-muted text-muted-foreground",
                       )}
                     >
-                      {t(`status.${brand.status}`, { defaultValue: brand.status })}
+                      {t(`status.${brand.status}`, {
+                        defaultValue: brand.status,
+                      })}
                     </span>
                   </div>
                 </div>
@@ -1634,7 +1695,10 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                 >
                   <span className="font-mono text-xs">{host.hostname}</span>
                   <div className="flex items-center gap-2">
-                    <BrandHostLifecycle hostname={host.hostname} onChange={load} />
+                    <BrandHostLifecycle
+                      hostname={host.hostname}
+                      onChange={load}
+                    />
                     <Button
                       variant="outline"
                       size="sm"

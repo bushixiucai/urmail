@@ -124,12 +124,16 @@ it("handles mailbox session persistence, remember me, and clearMailboxSession", 
   expect(getMailboxToken()).toBe("mb-token-123");
   expect(getMailboxAddress()).toBe("user@domain.test");
   expect(getMailboxExpiresAt()).toBe("2099-12-31T23:59:59Z");
-  expect(window.localStorage.getItem("urmail.mailbox-token")).toBe("mb-token-123");
+  expect(window.localStorage.getItem("urmail.mailbox-token")).toBe(
+    "mb-token-123",
+  );
   expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBeNull();
 
   // remember=false writes to sessionStorage
   setMailboxSession(session, false);
-  expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBe("mb-token-123");
+  expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBe(
+    "mb-token-123",
+  );
   expect(window.localStorage.getItem("urmail.mailbox-token")).toBeNull();
   expect(hasMailboxSession()).toBe(true);
 
