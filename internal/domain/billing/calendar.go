@@ -141,3 +141,21 @@ func CalculateAnchoredRenewalPeriod(now, currentPeriodEnd time.Time, cycle strin
 	}
 	return start, end, nil
 }
+
+// CalendarBudgetBounds resolves natural calendar boundaries in a frozen tenant
+// zone. A missing midnight advances through the gap; an overlap uses the first
+// occurrence, matching the existing billing wall-clock policy.
+func CalendarBudgetBounds(now time.Time, timezone string) (time.Time, time.Time, time.Time, error) {
+	location, err := time.LoadLocation(timezone)
+	if err != nil || timezone == "" || timezone == "Local" || now.IsZero() {
+		return time.Time{}, time.Time{}, time.Time{}, ErrInvalidCalendarAnchor
+	}
+	local := now.In(location)
+	day := resolveCalendarWall(time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC), location)
+	month := resolveCalendarWall(time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, time.UTC), location)
+	end := resolveCalendarWall(time.Date(local.Year(), local.Month()+1, 1, 0, 0, 0, 0, time.UTC), location)
+	if day.IsZero() || month.IsZero() || end.IsZero() || now.Before(day) || now.Before(month) || !now.Before(end) {
+		return time.Time{}, time.Time{}, time.Time{}, ErrInvalidCalendarAnchor
+	}
+	return day, month, end, nil
+}

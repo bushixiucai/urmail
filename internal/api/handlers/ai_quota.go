@@ -15,6 +15,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -27,13 +28,10 @@ type aiQuotaResolution struct {
 }
 
 func aiQuotaMonth(now time.Time, zone string) (time.Time, time.Time, error) {
-	location, err := time.LoadLocation(zone)
-	if err != nil || zone == "" || zone == "Local" {
+	_, start, end, err := billing.CalendarBudgetBounds(now, zone)
+	if err != nil {
 		return time.Time{}, time.Time{}, errAIBudget
 	}
-	local := now.In(location)
-	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, location)
-	end := time.Date(local.Year(), local.Month()+1, 1, 0, 0, 0, 0, location)
 	return start, end, nil
 }
 
@@ -105,9 +103,10 @@ func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderCo
 	if err != nil {
 		return err
 	}
-	local := now.In(location)
-	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
-	month := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, location)
+	day, month, _, err := billing.CalendarBudgetBounds(now, location.String())
+	if err != nil {
+		return err
+	}
 	daily, err := budgetUsage(c, q, tenant, day, now)
 	if err != nil {
 		return err

@@ -119,3 +119,31 @@ func TestCalendarRejectsInvalidAnchorAndCycle(t *testing.T) {
 		t.Fatal("zero clock accepted")
 	}
 }
+
+func TestCalendarBudgetBoundsResolveMissingAndRepeatedMidnight(t *testing.T) {
+	for _, test := range []struct{ zone, at, day, month string }{
+		{"America/Asuncion", "2017-10-01T12:00:00Z", "2017-10-01T04:00:00Z", "2017-10-01T04:00:00Z"},
+		{"Africa/Cairo", "2014-08-01T12:00:00Z", "2014-07-31T22:00:00Z", "2014-07-31T22:00:00Z"},
+		{"America/Sao_Paulo", "2018-11-04T12:00:00Z", "2018-11-04T03:00:00Z", "2018-11-01T03:00:00Z"},
+		{"America/Havana", "2015-11-01T12:00:00Z", "2015-11-01T04:00:00Z", "2015-11-01T04:00:00Z"},
+	} {
+		t.Run(test.zone, func(t *testing.T) {
+			at, err := time.Parse(time.RFC3339, test.at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			day, month, end, err := billing.CalendarBudgetBounds(at, test.zone)
+			if err != nil || day.UTC().Format(time.RFC3339) != test.day || month.UTC().Format(time.RFC3339) != test.month {
+				t.Fatalf("incorrect natural bounds: %s %s %v", day, month, err)
+			}
+			_, following, _, err := billing.CalendarBudgetBounds(end.Add(time.Hour*12), test.zone)
+			if err != nil || !following.Equal(end) {
+				t.Fatalf("noncontiguous month: %s %s %v", end, following, err)
+			}
+			_, previous, previousEnd, err := billing.CalendarBudgetBounds(month.Add(-time.Nanosecond), test.zone)
+			if err != nil || !previous.Before(month) || !previousEnd.Equal(month) {
+				t.Fatalf("month allowance resets before real boundary: %s %s %v", previous, previousEnd, err)
+			}
+		})
+	}
+}

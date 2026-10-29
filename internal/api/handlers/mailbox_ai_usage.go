@@ -19,6 +19,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -54,9 +55,10 @@ func checkAIProviderBudget(ctx context.Context, q *store.Queries, cfg store.AiPr
 	if err != nil {
 		return err
 	}
-	now = now.In(location)
-	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, location)
+	dayStart, monthStart, _, err := billing.CalendarBudgetBounds(now, location.String())
+	if err != nil {
+		return err
+	}
 	dayUsed, err := budgetUsage(ctx, q, tenantID, dayStart, now)
 	if err != nil {
 		return err
