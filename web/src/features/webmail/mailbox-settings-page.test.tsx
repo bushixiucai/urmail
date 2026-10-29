@@ -137,7 +137,7 @@ it("inserts a signature and saves with the optimistic version", async () => {
       expected_version: 3,
     }),
   );
-  expect(view.getByText("page.webmail.settings_saved")).toBeTruthy();
+  expect(await view.findByText("page.webmail.settings_saved")).toBeTruthy();
 });
 
 it("keeps an untouched later DST occurrence when saving other rule edits", async () => {

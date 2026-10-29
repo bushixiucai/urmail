@@ -756,8 +756,8 @@ it("restores every original attachment before opening a forward", async () => {
     screen.getByRole("button", { name: "page.webmail.compose_forward" }),
   );
   const dialog = await screen.findByRole("dialog");
-  expect(within(dialog).getByText("first.bin")).toBeTruthy();
-  expect(within(dialog).getByText("second.bin")).toBeTruthy();
+  expect(await within(dialog).findByText("first.bin")).toBeTruthy();
+  expect(await within(dialog).findByText("second.bin")).toBeTruthy();
   expect(
     (
       within(dialog).getByLabelText(

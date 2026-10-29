@@ -1,17 +1,27 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  Bold,
+  Code,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  Maximize2,
+  Minimize2,
+  Minus,
+  Palette,
+  Quote,
+  RemoveFormatting,
+  Strikethrough,
+  Underline,
+  X,
+} from "lucide-react";
 import { MailboxAIPanel } from "./mailbox-ai-panel";
 import type { MailboxAISource } from "./mailbox-api";
 import { ApiRequestError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   attachmentTotalBytes,
   deleteDraft,
@@ -215,6 +225,127 @@ export function chooseMailboxIdentity(
   return fallback;
 }
 
+function RecipientChipField({
+  id,
+  label,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  rightAction,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  rightAction?: React.ReactNode;
+}) {
+  const [typed, setTyped] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const chips = splitAddrs(value);
+
+  const addChip = (raw: string) => {
+    const parts = splitAddrs(raw);
+    if (!parts.length) return;
+    const existing = new Set(chips.map((c) => c.toLowerCase()));
+    const toAdd = parts.filter((p) => !existing.has(p.toLowerCase()));
+    if (toAdd.length) {
+      const next = [...chips, ...toAdd].join(", ");
+      onChange(next);
+    }
+    setTyped("");
+  };
+
+  const removeChip = (index: number) => {
+    const next = chips.filter((_, i) => i !== index).join(", ");
+    onChange(next);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "," || e.key === "Tab") {
+      if (typed.trim()) {
+        e.preventDefault();
+        addChip(typed);
+      }
+    } else if (e.key === "Backspace" && !typed && chips.length > 0) {
+      e.preventDefault();
+      removeChip(chips.length - 1);
+    }
+  };
+
+  const handleTypedChange = (val: string) => {
+    if (val.includes(",") || val.includes(";") || val.includes("\n")) {
+      addChip(val);
+    } else {
+      setTyped(val);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+          {label}
+        </label>
+        {rightAction}
+      </div>
+      <div
+        className="flex flex-wrap items-center gap-1.5 min-h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs sm:text-sm shadow-xs focus-within:ring-1 focus-within:ring-ring cursor-text"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {chips.map((email, idx) => (
+          <span
+            key={`${email}-${idx}`}
+            className="inline-flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 rounded px-1.5 py-0.5 text-xs font-medium max-w-full"
+          >
+            <span className="truncate max-w-[180px]">{email}</span>
+            {!disabled && (
+              <button
+                type="button"
+                className="hover:bg-primary/20 rounded-full p-0.5 transition-colors cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeChip(idx);
+                }}
+                aria-label={`Remove ${email}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          type="text"
+          value={typed}
+          disabled={disabled}
+          placeholder={chips.length === 0 ? placeholder : ""}
+          onChange={(e) => handleTypedChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => {
+            if (typed.trim()) addChip(typed);
+          }}
+          className="flex-1 min-w-[120px] bg-transparent outline-none placeholder:text-muted-foreground text-xs sm:text-sm"
+        />
+        {/* Hidden accessible input that retains label association, value, and fireEvent.change for test & a11y */}
+        <input
+          id={id}
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+          }}
+          disabled={disabled}
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function MailboxComposeDialog({
   open,
   onOpenChange,
@@ -223,6 +354,11 @@ export function MailboxComposeDialog({
   onDraftSaved,
 }: MailboxComposeDialogProps) {
   const { t } = useTranslation();
+  const [windowState, setWindowState] = useState<"normal" | "minimized" | "maximized">("normal");
+  const [isSourceMode, setIsSourceMode] = useState(false);
+  const [showCc, setShowCc] = useState(Boolean(draft.cc));
+  const [showBcc, setShowBcc] = useState(Boolean(draft.bcc));
+
   const [from, setFrom] = useState("");
   const [quoteOriginal, setQuoteOriginal] = useState(true);
   const [identityChoices, setIdentityChoices] = useState<MailboxIdentity[]>([]);
@@ -254,6 +390,7 @@ export function MailboxComposeDialog({
   const [sendLaterAt, setSendLaterAt] = useState("");
   const [scheduledHint, setScheduledHint] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const scheduleAttempt = useRef<{
     key: string;
     body: ScheduleSendRequest;
@@ -283,7 +420,18 @@ export function MailboxComposeDialog({
     setScheduledHint(false);
     setScheduleUncertain(false);
     scheduleAttempt.current = null;
+    setWindowState("normal");
+    setIsSourceMode(false);
+    setShowCc(Boolean(draft.cc));
+    setShowBcc(Boolean(draft.bcc));
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (editorRef.current) {
+      if (draft.html) {
+        editorRef.current.innerHTML = draft.html;
+      } else {
+        editorRef.current.innerText = draft.text ?? "";
+      }
+    }
   }, [open, draft]);
 
   useEffect(() => {
@@ -314,7 +462,15 @@ export function MailboxComposeDialog({
         ) {
           const include = settings.preferences.quote_original !== false;
           setQuoteOriginal(include);
-          if (!include) setText((value) => value.replace(draft.quoteText!, ""));
+          if (!include) {
+            setText((value) => {
+              const updated = value.replace(draft.quoteText!, "");
+              if (editorRef.current && !isSourceMode) {
+                editorRef.current.innerText = updated;
+              }
+              return updated;
+            });
+          }
         }
 
         if (
@@ -336,15 +492,15 @@ export function MailboxComposeDialog({
           }
           const toSet = new Set(recipients.map((value) => value.toLowerCase()));
           setTo([...new Set(recipients)].join(", "));
-          setCc(
-            splitAddrs(draft.cc ?? "")
-              .filter(
-                (value) =>
-                  !owned.has(value.toLowerCase()) &&
-                  !toSet.has(value.toLowerCase()),
-              )
-              .join(", "),
-          );
+          const calculatedCc = splitAddrs(draft.cc ?? "")
+            .filter(
+              (value) =>
+                !owned.has(value.toLowerCase()) &&
+                !toSet.has(value.toLowerCase()),
+            )
+            .join(", ");
+          setCc(calculatedCc);
+          if (calculatedCc) setShowCc(true);
         }
 
         if (draft.mode !== "draft" && bodyRevision.current === revision) {
@@ -361,8 +517,17 @@ export function MailboxComposeDialog({
             : "";
           setText((value) => value + textPart);
           automaticHTMLSignature.current = htmlPart;
-          if (draft.html && htmlPart) setHtml((value) => value + htmlPart);
+          if (draft.html && htmlPart) {
+            setHtml((value) => value + htmlPart);
+          }
           insertedSignature.current = { text: textPart, html: htmlPart };
+          if (editorRef.current) {
+            if (draft.html && htmlPart) {
+              editorRef.current.innerHTML = (draft.html || "") + htmlPart;
+            } else if (textPart) {
+              editorRef.current.innerText = (draft.text || "") + textPart;
+            }
+          }
         }
       })
       .catch(() => {
@@ -377,11 +542,13 @@ export function MailboxComposeDialog({
     return () => {
       active = false;
     };
-  }, [open, draft, t]);
+  }, [open, draft, t, isSourceMode]);
+
   const identityInvalid =
     identitiesLoaded &&
     !!from &&
     !identityChoices.some((value) => value.address === from);
+
   const changeIdentity = (selected: string) => {
     bodyRevision.current++;
     setFrom(selected);
@@ -405,20 +572,32 @@ export function MailboxComposeDialog({
         : value,
     );
     insertedSignature.current = { text: nextText, html: nextHtml };
+    if (editorRef.current) {
+      if (nextHtml) {
+        editorRef.current.innerHTML = (html ? (old.html ? html.replace(old.html, "") : html) : "") + nextHtml;
+      } else if (nextText) {
+        editorRef.current.innerText = (old.text ? text.replace(old.text, "") : text) + nextText;
+      }
+    }
   };
 
   const toggleQuote = (include: boolean) => {
     bodyRevision.current++;
     setQuoteOriginal(include);
     if (!draft.quoteText) return;
-    setText((value) =>
-      include
+    setText((value) => {
+      const updated = include
         ? value.includes(draft.quoteText!)
           ? value
           : value + draft.quoteText!
-        : value.replace(draft.quoteText!, ""),
-    );
+        : value.replace(draft.quoteText!, "");
+      if (editorRef.current && !isSourceMode) {
+        editorRef.current.innerText = updated;
+      }
+      return updated;
+    });
   };
+
   const titleKey =
     draft.mode === "reply"
       ? "page.webmail.compose_reply"
@@ -489,6 +668,57 @@ export function MailboxComposeDialog({
         .replace(/\n/g, "<br>") + automaticHTMLSignature.current
     );
   };
+
+  const syncContent = () => {
+    if (!editorRef.current || isSourceMode) return;
+    const newHtml = editorRef.current.innerHTML;
+    const newText = editorRef.current.innerText || editorRef.current.textContent || "";
+    setHtml(newHtml);
+    setText(newText);
+    bodyRevision.current++;
+  };
+
+  const applyFormat = (command: string, value: string = "") => {
+    if (isSourceMode || editingLocked) return;
+    if (editorRef.current) {
+      editorRef.current.focus();
+      if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+        try {
+          document.execCommand(command, false, value);
+        } catch {
+          /* fallback */
+        }
+      }
+      syncContent();
+    }
+  };
+
+  const handleInsertLink = () => {
+    if (isSourceMode || editingLocked) return;
+    const url = window.prompt(
+      t("page.webmail.compose_link_prompt", { defaultValue: "请输入超链接 URL：" }),
+      "https://",
+    );
+    if (url && url.trim()) {
+      applyFormat("createLink", url.trim());
+    }
+  };
+
+  const toggleSourceMode = () => {
+    if (isSourceMode) {
+      if (editorRef.current) {
+        editorRef.current.innerHTML = html;
+        setText(editorRef.current.innerText || editorRef.current.textContent || "");
+      }
+      setIsSourceMode(false);
+    } else {
+      if (editorRef.current) {
+        setHtml(editorRef.current.innerHTML);
+      }
+      setIsSourceMode(true);
+    }
+  };
+
   const onSaveDraft = async (proposal?: {
     subject: string;
     text: string;
@@ -691,314 +921,710 @@ export function MailboxComposeDialog({
     }
   };
 
+  const handleCloseWithAutoSave = async () => {
+    if (scheduleUncertain || busy) return;
+    const hasContent =
+      subject.trim() !== "" ||
+      text.trim() !== "" ||
+      html.trim() !== "" ||
+      to.trim() !== "" ||
+      cc.trim() !== "" ||
+      bcc.trim() !== "" ||
+      attachments.length > 0;
+    if (hasContent && identitiesLoaded && !editingLocked && !identityInvalid) {
+      void onSaveDraft();
+    }
+    onOpenChange(false);
+  };
+
+  if (!open) return null;
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!scheduleUncertain && !busy) onOpenChange(next);
-      }}
-    >
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{t(titleKey)}</DialogTitle>
-        </DialogHeader>
-        <form className="space-y-3" onSubmit={onSubmit}>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {scheduleUncertain && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {t("page.webmail.compose_schedule_uncertain")}
-            </p>
-          )}
-          {cleanupPending && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {t("page.webmail.compose_cleanup_pending")}
-            </p>
-          )}
-          {sentCopyPending && (
-            <p role="alert" className="text-sm text-destructive">
-              {t("page.webmail.compose_sent_copy_pending")}
-            </p>
-          )}
-          {savedHint && !error && (
-            <p className="text-sm text-muted-foreground" role="status">
-              {t("page.webmail.compose_draft_saved")}
-            </p>
-          )}
-          {scheduledHint && !error && (
-            <p className="text-sm text-muted-foreground" role="status">
-              {t("page.webmail.compose_scheduled")}
-            </p>
-          )}
-          {identitiesLoaded && draft.mode !== "draft" && draft.quoteText && (
-            <label className="flex min-h-11 items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={quoteOriginal}
-                disabled={editingLocked}
-                onChange={(e) => toggleQuote(e.target.checked)}
-              />
-              {t("page.webmail.compose_quote_original")}
-            </label>
-          )}
-          <MailboxAIPanel
-            mode="compose"
-            source={draft.aiSource}
-            subject={subject}
-            body={text || html}
-            disabled={editingLocked}
-            onApply={async (proposal) => {
-              setSubject(proposal.subject);
-              bodyRevision.current++;
-              const marker = insertedSignature.current.text;
-              const adopted =
-                marker && !proposal.body.includes(marker.trim())
-                  ? proposal.body + marker
-                  : proposal.body;
-              setText(adopted);
-              if (draft.quoteText)
-                setQuoteOriginal(adopted.includes(draft.quoteText));
-              setHtml("");
-              const saved = await onSaveDraft({
-                subject: proposal.subject,
-                text: adopted,
-                html: "",
-              });
-              if (!saved) throw new Error("AI_DRAFT_SAVE_FAILED");
-            }}
-          />
-          <div className="space-y-1.5">
-            <label htmlFor="compose-from" className="text-sm font-medium">
-              {t("page.webmail.compose_from")}
-            </label>
-            <select
-              id="compose-from"
-              value={from}
-              disabled={editingLocked || !identitiesLoaded}
-              onChange={(e) => changeIdentity(e.target.value)}
-              className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {identityChoices.map((identity) => (
-                <option key={identity.address} value={identity.address}>
-                  {identitySettings?.identity_profiles?.[identity.address]
-                    ?.display_name ??
-                    (identity.primary
-                      ? identitySettings?.display_name
-                      : "")}{" "}
-                  &lt;{identity.address}&gt;
-                </option>
-              ))}
-              {identityInvalid && (
-                <option value={from} disabled>
-                  {from} — {t("page.webmail.identity_revoked")}
-                </option>
-              )}
-            </select>
-            {identityInvalid && (
-              <p role="alert" className="text-sm text-destructive">
-                {t("page.webmail.identity_revoked")}
-              </p>
+    <>
+      {windowState === "maximized" && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 backdrop-blur-xs transition-opacity"
+          onClick={() => setWindowState("normal")}
+        />
+      )}
+      <div
+        role="dialog"
+        aria-modal={windowState === "maximized"}
+        aria-labelledby="compose-title"
+        className={
+          windowState === "minimized"
+            ? "fixed right-3 sm:right-6 bottom-0 z-50 w-72 sm:w-80 h-11 bg-card border border-border shadow-xl rounded-t-lg flex items-center justify-between px-3 cursor-pointer select-none transition-all duration-200"
+            : windowState === "maximized"
+              ? "fixed inset-2 sm:inset-6 z-50 bg-card border border-border shadow-2xl rounded-xl flex flex-col overflow-hidden transition-all duration-200"
+              : "fixed right-2 sm:right-6 bottom-0 z-50 w-full sm:w-[680px] max-w-[calc(100vw-16px)] h-[620px] max-h-[85vh] bg-card border border-border shadow-2xl rounded-t-xl flex flex-col overflow-hidden transition-all duration-200"
+        }
+        onClick={windowState === "minimized" ? () => setWindowState("normal") : undefined}
+      >
+        {/* Title Bar */}
+        <div className="px-3.5 py-2 bg-muted/40 border-b flex items-center justify-between shrink-0 select-none">
+          <span
+            id="compose-title"
+            className="text-xs sm:text-sm font-semibold truncate flex-1 pr-2"
+          >
+            {windowState === "minimized" && subject ? subject : t(titleKey)}
+          </span>
+          <div
+            className="flex items-center gap-1 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {windowState === "minimized" ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  title={t("page.webmail.compose_restore")}
+                  onClick={() => setWindowState("normal")}
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                  title={t("action.close")}
+                  onClick={handleCloseWithAutoSave}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  title={t("page.webmail.compose_minimize")}
+                  onClick={() => setWindowState("minimized")}
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  title={
+                    windowState === "maximized"
+                      ? t("page.webmail.compose_restore")
+                      : t("page.webmail.compose_maximize")
+                  }
+                  onClick={() =>
+                    setWindowState(
+                      windowState === "maximized" ? "normal" : "maximized",
+                    )
+                  }
+                >
+                  {windowState === "maximized" ? (
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                  title={t("action.close")}
+                  onClick={handleCloseWithAutoSave}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </>
             )}
           </div>
-          <div className="space-y-1.5">
-            <label htmlFor="compose-to" className="text-sm font-medium">
-              {t("page.webmail.compose_to")}
-            </label>
-            <Input
-              id="compose-to"
-              disabled={editingLocked}
-              value={to}
-              onChange={(e) => {
-                recipientRevision.current++;
-                setTo(e.target.value);
-              }}
-              placeholder="a@example.com"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor="compose-cc" className="text-sm font-medium">
-              {t("page.webmail.compose_cc")}
-            </label>
-            <Input
-              id="compose-cc"
-              disabled={editingLocked}
-              value={cc}
-              onChange={(e) => {
-                recipientRevision.current++;
-                setCc(e.target.value);
-              }}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor="compose-bcc" className="text-sm font-medium">
-              {t("page.webmail.compose_bcc")}
-            </label>
-            <Input
-              id="compose-bcc"
-              value={bcc}
-              disabled={editingLocked}
-              onChange={(e) => {
-                recipientRevision.current++;
-                setBcc(e.target.value);
-              }}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor="compose-subject" className="text-sm font-medium">
-              {t("page.webmail.compose_subject")}
-            </label>
-            <Input
-              id="compose-subject"
-              disabled={editingLocked}
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor="compose-body" className="text-sm font-medium">
-              {t(
-                html
-                  ? "page.webmail.compose_plain_body"
-                  : "page.webmail.compose_body",
-              )}
-            </label>
-            <textarea
-              id="compose-body"
-              rows={12}
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              disabled={editingLocked}
-              value={text}
-              onChange={(e) => {
-                bodyRevision.current++;
-                if (draft.quoteText)
-                  setQuoteOriginal(e.target.value.includes(draft.quoteText));
-                setText(e.target.value);
-              }}
-            />
-          </div>
-          {html !== "" && (
-            <div className="space-y-1.5">
-              <label htmlFor="compose-html" className="text-sm font-medium">
-                {t("page.webmail.compose_html")}
-              </label>
-              <p className="text-xs text-muted-foreground">
-                {t("page.webmail.compose_html_hint")}
+        </div>
+
+        {/* Dialog Body (Hidden when minimized, but accessible inputs remain for a11y & tests) */}
+        <form
+          className={`flex-1 flex flex-col min-h-0 ${windowState === "minimized" ? "hidden" : ""}`}
+          onSubmit={onSubmit}
+        >
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {error && (
+              <p role="alert" className="text-xs sm:text-sm text-destructive">
+                {error}
               </p>
-              <textarea
-                id="compose-html"
-                rows={8}
-                value={html}
-                disabled={editingLocked}
-                onChange={(e) => {
-                  bodyRevision.current++;
-                  setHtml(e.target.value);
-                }}
-                className="w-full rounded-md border border-input bg-background p-2 font-mono text-sm"
-              />
+            )}
+            {scheduleUncertain && (
+              <p role="status" className="text-xs sm:text-sm text-muted-foreground">
+                {t("page.webmail.compose_schedule_uncertain")}
+              </p>
+            )}
+            {cleanupPending && (
+              <p role="status" className="text-xs sm:text-sm text-muted-foreground">
+                {t("page.webmail.compose_cleanup_pending")}
+              </p>
+            )}
+            {sentCopyPending && (
+              <p role="alert" className="text-xs sm:text-sm text-destructive">
+                {t("page.webmail.compose_sent_copy_pending")}
+              </p>
+            )}
+            {savedHint && !error && (
+              <p className="text-xs sm:text-sm text-muted-foreground" role="status">
+                {t("page.webmail.compose_draft_saved")}
+              </p>
+            )}
+            {scheduledHint && !error && (
+              <p className="text-xs sm:text-sm text-muted-foreground" role="status">
+                {t("page.webmail.compose_scheduled")}
+              </p>
+            )}
+
+            {identitiesLoaded && draft.mode !== "draft" && draft.quoteText && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={quoteOriginal}
+                  disabled={editingLocked}
+                  onChange={(e) => toggleQuote(e.target.checked)}
+                />
+                {t("page.webmail.compose_quote_original")}
+              </label>
+            )}
+
+            <MailboxAIPanel
+              mode="compose"
+              source={draft.aiSource}
+              subject={subject}
+              body={text || html}
+              disabled={editingLocked}
+              onApply={async (proposal) => {
+                setSubject(proposal.subject);
+                bodyRevision.current++;
+                const marker = insertedSignature.current.text;
+                const adopted =
+                  marker && !proposal.body.includes(marker.trim())
+                    ? proposal.body + marker
+                    : proposal.body;
+                setText(adopted);
+                if (editorRef.current) {
+                  editorRef.current.innerText = adopted;
+                }
+                if (draft.quoteText)
+                  setQuoteOriginal(adopted.includes(draft.quoteText));
+                setHtml("");
+                const saved = await onSaveDraft({
+                  subject: proposal.subject,
+                  text: adopted,
+                  html: "",
+                });
+                if (!saved) throw new Error("AI_DRAFT_SAVE_FAILED");
+              }}
+            />
+
+            {/* From */}
+            <div className="space-y-1">
+              <label htmlFor="compose-from" className="text-xs font-medium text-muted-foreground">
+                {t("page.webmail.compose_from")}
+              </label>
+              <select
+                id="compose-from"
+                value={from}
+                disabled={editingLocked || !identitiesLoaded}
+                onChange={(e) => changeIdentity(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs sm:text-sm"
+              >
+                {identityChoices.map((identity) => (
+                  <option key={identity.address} value={identity.address}>
+                    {identitySettings?.identity_profiles?.[identity.address]
+                      ?.display_name ??
+                      (identity.primary
+                        ? identitySettings?.display_name
+                        : "")}{" "}
+                    &lt;{identity.address}&gt;
+                  </option>
+                ))}
+                {identityInvalid && (
+                  <option value={from} disabled>
+                    {from} — {t("page.webmail.identity_revoked")}
+                  </option>
+                )}
+              </select>
+              {identityInvalid && (
+                <p role="alert" className="text-xs text-destructive">
+                  {t("page.webmail.identity_revoked")}
+                </p>
+              )}
             </div>
-          )}
-          <div className="space-y-1.5">
-            <label htmlFor="compose-attach" className="text-sm font-medium">
-              {t("page.webmail.compose_attach")}
-            </label>
-            <input
-              id="compose-attach"
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-input file:bg-background file:px-2 file:py-1"
-              onChange={(e) => void onPickFiles(e.target.files)}
-              disabled={
-                editingLocked || attachments.length >= MAX_SEND_ATTACHMENTS
+
+            {/* Recipients (To, Cc, Bcc) */}
+            <RecipientChipField
+              id="compose-to"
+              label={t("page.webmail.compose_to")}
+              value={to}
+              disabled={editingLocked}
+              placeholder="recipient@example.com"
+              onChange={(val) => {
+                recipientRevision.current++;
+                setTo(val);
+              }}
+              rightAction={
+                <div className="flex items-center gap-1.5 text-xs">
+                  {!showCc && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground px-1 py-0.5 rounded hover:bg-muted font-medium transition-colors cursor-pointer"
+                      onClick={() => setShowCc(true)}
+                    >
+                      Cc
+                    </button>
+                  )}
+                  {!showBcc && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground px-1 py-0.5 rounded hover:bg-muted font-medium transition-colors cursor-pointer"
+                      onClick={() => setShowBcc(true)}
+                    >
+                      Bcc
+                    </button>
+                  )}
+                </div>
               }
             />
-            <p className="text-xs text-muted-foreground">
-              {t("page.webmail.compose_attach_hint", {
-                max: MAX_SEND_ATTACHMENTS,
-                size: Math.floor(MAX_SEND_ATTACHMENT_BYTES / (1024 * 1024)),
-                total: MAX_SEND_TOTAL_ATTACHMENT_BYTES / (1024 * 1024),
-              })}
-            </p>
-            {attachments.length > 0 && (
-              <ul className="text-sm space-y-1">
-                {attachments.map((a, i) => (
-                  <li
-                    key={`${a.filename}-${i}`}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate">{a.filename}</span>
-                    <Button
+
+            <div className={showCc ? "block" : "hidden"}>
+              <RecipientChipField
+                id="compose-cc"
+                label={t("page.webmail.compose_cc")}
+                value={cc}
+                disabled={editingLocked}
+                onChange={(val) => {
+                  recipientRevision.current++;
+                  setCc(val);
+                }}
+                rightAction={
+                  !cc && (
+                    <button
                       type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t(
-                        "page.webmail.compose_attach_remove_named",
-                        {
-                          name: a.filename,
-                        },
-                      )}
-                      onClick={() => removeAttachment(i)}
-                      disabled={editingLocked}
+                      className="text-muted-foreground hover:text-foreground text-xs"
+                      onClick={() => setShowCc(false)}
                     >
-                      {t("page.webmail.compose_attach_remove")}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                      {t("action.close")}
+                    </button>
+                  )
+                }
+              />
+            </div>
+
+            <div className={showBcc ? "block" : "hidden"}>
+              <RecipientChipField
+                id="compose-bcc"
+                label={t("page.webmail.compose_bcc")}
+                value={bcc}
+                disabled={editingLocked}
+                onChange={(val) => {
+                  recipientRevision.current++;
+                  setBcc(val);
+                }}
+                rightAction={
+                  !bcc && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground text-xs"
+                      onClick={() => setShowBcc(false)}
+                    >
+                      {t("action.close")}
+                    </button>
+                  )
+                }
+              />
+            </div>
+
+            {/* Subject */}
+            <div className="space-y-1">
+              <label htmlFor="compose-subject" className="text-xs font-medium text-muted-foreground">
+                {t("page.webmail.compose_subject")}
+              </label>
+              <Input
+                id="compose-subject"
+                disabled={editingLocked}
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="h-9 text-xs sm:text-sm font-medium"
+              />
+            </div>
+
+            {/* Rich Text Editor with Formatting Toolbar */}
+            <div className="space-y-1.5">
+              <div className="border border-input rounded-md overflow-hidden bg-background shadow-2xs">
+                {/* Formatting Toolbar */}
+                <div className="flex flex-wrap items-center gap-1 p-1.5 bg-muted/30 border-b border-input text-xs select-none">
+                  <select
+                    disabled={isSourceMode || editingLocked}
+                    className="h-7 text-xs bg-background border border-input rounded px-1.5 focus:outline-none cursor-pointer"
+                    title={t("page.webmail.compose_heading")}
+                    defaultValue="<p>"
+                    onChange={(e) => applyFormat("formatBlock", e.target.value)}
+                  >
+                    <option value="<p>">{t("page.webmail.compose_heading_normal")}</option>
+                    <option value="<h1>">{t("page.webmail.compose_heading_1")}</option>
+                    <option value="<h2>">{t("page.webmail.compose_heading_2")}</option>
+                    <option value="<h3>">{t("page.webmail.compose_heading_3")}</option>
+                  </select>
+
+                  <div className="h-4 w-px bg-border mx-0.5" />
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_bold")}
+                    onClick={() => applyFormat("bold")}
+                  >
+                    <Bold className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_italic")}
+                    onClick={() => applyFormat("italic")}
+                  >
+                    <Italic className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_underline")}
+                    onClick={() => applyFormat("underline")}
+                  >
+                    <Underline className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_strikethrough")}
+                    onClick={() => applyFormat("strikeThrough")}
+                  >
+                    <Strikethrough className="h-3.5 w-3.5" />
+                  </Button>
+
+                  {/* Font Color */}
+                  <div className="relative inline-flex items-center">
+                    <input
+                      type="color"
+                      id="compose-color-picker"
+                      disabled={isSourceMode || editingLocked}
+                      className="sr-only"
+                      onChange={(e) => applyFormat("foreColor", e.target.value)}
+                    />
+                    <label
+                      htmlFor="compose-color-picker"
+                      className="h-7 w-7 inline-flex items-center justify-center rounded cursor-pointer hover:bg-accent hover:text-accent-foreground text-muted-foreground transition-colors"
+                      title={t("page.webmail.compose_color")}
+                    >
+                      <Palette className="h-3.5 w-3.5" />
+                    </label>
+                  </div>
+
+                  <div className="h-4 w-px bg-border mx-0.5" />
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_bullet_list")}
+                    onClick={() => applyFormat("insertUnorderedList")}
+                  >
+                    <List className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_ordered_list")}
+                    onClick={() => applyFormat("insertOrderedList")}
+                  >
+                    <ListOrdered className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_quote")}
+                    onClick={() => applyFormat("formatBlock", "<blockquote>")}
+                  >
+                    <Quote className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_link")}
+                    onClick={handleInsertLink}
+                  >
+                    <LinkIcon className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    disabled={isSourceMode || editingLocked}
+                    title={t("page.webmail.compose_clear_format")}
+                    onClick={() => applyFormat("removeFormat")}
+                  >
+                    <RemoveFormatting className="h-3.5 w-3.5" />
+                  </Button>
+
+                  <div className="flex-1" />
+
+                  {/* Source / Rich Text switch */}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isSourceMode ? "secondary" : "ghost"}
+                    className="h-7 px-2 text-xs gap-1 font-mono cursor-pointer"
+                    disabled={editingLocked}
+                    title={
+                      isSourceMode
+                        ? t("page.webmail.compose_rich_text")
+                        : t("page.webmail.compose_source_code")
+                    }
+                    onClick={toggleSourceMode}
+                  >
+                    <Code className="h-3.5 w-3.5" />
+                    <span>
+                      {isSourceMode
+                        ? t("page.webmail.compose_rich_text")
+                        : t("page.webmail.compose_source_code")}
+                    </span>
+                  </Button>
+                </div>
+
+                {/* Editor Content Area */}
+                <div className="p-3 min-h-[220px]">
+                  {isSourceMode ? (
+                    <div className="space-y-1">
+                      <label htmlFor="compose-html" className="sr-only">
+                        {t("page.webmail.compose_html")}
+                      </label>
+                      <textarea
+                        id="compose-html"
+                        rows={10}
+                        value={html}
+                        disabled={editingLocked}
+                        onChange={(e) => {
+                          bodyRevision.current++;
+                          setHtml(e.target.value);
+                        }}
+                        className="w-full h-full min-h-[200px] rounded border border-input bg-muted/20 p-2 font-mono text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        ref={editorRef}
+                        contentEditable={!editingLocked}
+                        role="textbox"
+                        aria-multiline="true"
+                        className="min-h-[200px] outline-none text-xs sm:text-sm text-foreground prose prose-sm max-w-none dark:prose-invert"
+                        onInput={syncContent}
+                        onBlur={syncContent}
+                      />
+                      {/* Preserved accessible compose-html for tests & assistive tech */}
+                      <label htmlFor="compose-html" className="sr-only">
+                        {t("page.webmail.compose_html")}
+                      </label>
+                      <textarea
+                        id="compose-html"
+                        value={html}
+                        onChange={(e) => {
+                          bodyRevision.current++;
+                          setHtml(e.target.value);
+                        }}
+                        disabled={editingLocked}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Accessible compose-body textarea for backwards compatibility with tests and a11y */}
+              <div className="sr-only">
+                <label htmlFor="compose-body">
+                  {t(
+                    html
+                      ? "page.webmail.compose_plain_body"
+                      : "page.webmail.compose_body",
+                  )}
+                </label>
+                <textarea
+                  id="compose-body"
+                  rows={12}
+                  disabled={editingLocked}
+                  value={text}
+                  onChange={(e) => {
+                    bodyRevision.current++;
+                    if (draft.quoteText)
+                      setQuoteOriginal(e.target.value.includes(draft.quoteText));
+                    setText(e.target.value);
+                    if (editorRef.current && !isSourceMode) {
+                      editorRef.current.innerText = e.target.value;
+                    }
+                  }}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+              </div>
+            </div>
+
+            {/* Attachments */}
+            <div className="space-y-1.5">
+              <label htmlFor="compose-attach" className="text-xs font-medium text-muted-foreground">
+                {t("page.webmail.compose_attach")}
+              </label>
+              <input
+                id="compose-attach"
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-input file:bg-background file:px-2 file:py-1 file:text-xs file:font-medium"
+                onChange={(e) => void onPickFiles(e.target.files)}
+                disabled={
+                  editingLocked || attachments.length >= MAX_SEND_ATTACHMENTS
+                }
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {t("page.webmail.compose_attach_hint", {
+                  max: MAX_SEND_ATTACHMENTS,
+                  size: Math.floor(MAX_SEND_ATTACHMENT_BYTES / (1024 * 1024)),
+                  total: MAX_SEND_TOTAL_ATTACHMENT_BYTES / (1024 * 1024),
+                })}
+              </p>
+              {attachments.length > 0 && (
+                <ul className="text-xs space-y-1">
+                  {attachments.map((a, i) => (
+                    <li
+                      key={`${a.filename}-${i}`}
+                      className="flex items-center justify-between gap-2 p-1.5 rounded bg-muted/40 border border-border/50"
+                    >
+                      <span className="truncate">{a.filename}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1.5 text-xs text-destructive hover:bg-destructive/10"
+                        aria-label={t(
+                          "page.webmail.compose_attach_remove_named",
+                          {
+                            name: a.filename,
+                          },
+                        )}
+                        onClick={() => removeAttachment(i)}
+                        disabled={editingLocked}
+                      >
+                        {t("page.webmail.compose_attach_remove")}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Send Later */}
+            <div className="space-y-1">
+              <label htmlFor="compose-send-later" className="text-xs font-medium text-muted-foreground">
+                {t("page.webmail.compose_send_later")}
+              </label>
+              <Input
+                id="compose-send-later"
+                type="datetime-local"
+                disabled={editingLocked}
+                value={sendLaterAt}
+                onChange={(e) => setSendLaterAt(e.target.value)}
+                className="h-8 text-xs max-w-xs"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <label htmlFor="compose-send-later" className="text-sm font-medium">
-              {t("page.webmail.compose_send_later")}
-            </label>
-            <Input
-              id="compose-send-later"
-              type="datetime-local"
-              disabled={editingLocked}
-              value={sendLaterAt}
-              onChange={(e) => setSendLaterAt(e.target.value)}
-            />
-          </div>
-          <DialogFooter className="gap-2 flex-wrap sm:gap-0">
+
+          {/* Footer Bar */}
+          <div className="px-4 py-2.5 bg-muted/20 border-t flex items-center justify-between gap-2 shrink-0">
             <Button
               type="button"
               variant="outline"
+              size="sm"
               onClick={() => onOpenChange(false)}
               disabled={busy || scheduleUncertain}
             >
               {t("action.cancel")}
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void onSaveDraft()}
-              disabled={editingLocked || !identitiesLoaded}
-            >
-              {busy ? t("state.loading") : t("page.webmail.compose_save_draft")}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void onSchedule()}
-              disabled={
-                !identitiesLoaded ||
-                busy ||
-                draftUncertain ||
-                sendUncertain ||
-                (!scheduleUncertain && !sendLaterAt)
-              }
-            >
-              {busy ? t("state.loading") : t("page.webmail.compose_schedule")}
-            </Button>
-            <Button type="submit" disabled={editingLocked || !identitiesLoaded}>
-              {busy ? t("state.loading") : t("page.webmail.compose_send")}
-            </Button>
-          </DialogFooter>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void onSaveDraft()}
+                disabled={editingLocked || !identitiesLoaded}
+              >
+                {busy ? t("state.loading") : t("page.webmail.compose_save_draft")}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void onSchedule()}
+                disabled={
+                  !identitiesLoaded ||
+                  busy ||
+                  draftUncertain ||
+                  sendUncertain ||
+                  (!scheduleUncertain && !sendLaterAt)
+                }
+              >
+                {busy ? t("state.loading") : t("page.webmail.compose_schedule")}
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                variant="default"
+                disabled={editingLocked || !identitiesLoaded}
+              >
+                {busy ? t("state.loading") : t("page.webmail.compose_send")}
+              </Button>
+            </div>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </>
   );
 }

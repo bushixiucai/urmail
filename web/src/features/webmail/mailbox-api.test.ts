@@ -3,11 +3,17 @@ import {
   attachmentDecodedBytes,
   attachmentTotalBytes,
   assertAttachmentTotal,
+  clearMailboxSession,
+  getMailboxAddress,
+  getMailboxExpiresAt,
+  getMailboxToken,
+  hasMailboxSession,
   MAX_SEND_ATTACHMENT_BYTES,
   MAX_SEND_TOTAL_ATTACHMENT_BYTES,
   saveDraft,
   scheduleSend,
   sendMessage,
+  setMailboxSession,
 } from "./mailbox-api";
 
 afterEach(() => {
@@ -101,4 +107,44 @@ it("preserves the server aggregate size error in the standard API error path", a
   await expect(
     sendMessage({ to: ["bob@example.test"], subject: "body", text: "body" }),
   ).rejects.toMatchObject({ status: 413, code: "MAILBOX_MESSAGE_TOO_LARGE" });
+});
+
+it("handles mailbox session persistence, remember me, and clearMailboxSession", () => {
+  const session = {
+    token: "mb-token-123",
+    address: "user@domain.test",
+    expires_at: "2099-12-31T23:59:59Z",
+  };
+
+  expect(hasMailboxSession()).toBe(false);
+
+  // default remember=true writes to localStorage
+  setMailboxSession(session);
+  expect(hasMailboxSession()).toBe(true);
+  expect(getMailboxToken()).toBe("mb-token-123");
+  expect(getMailboxAddress()).toBe("user@domain.test");
+  expect(getMailboxExpiresAt()).toBe("2099-12-31T23:59:59Z");
+  expect(window.localStorage.getItem("urmail.mailbox-token")).toBe("mb-token-123");
+  expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBeNull();
+
+  // remember=false writes to sessionStorage
+  setMailboxSession(session, false);
+  expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBe("mb-token-123");
+  expect(window.localStorage.getItem("urmail.mailbox-token")).toBeNull();
+  expect(hasMailboxSession()).toBe(true);
+
+  // fallback to sessionStorage when not in localStorage
+  expect(getMailboxToken()).toBe("mb-token-123");
+  expect(getMailboxAddress()).toBe("user@domain.test");
+  expect(getMailboxExpiresAt()).toBe("2099-12-31T23:59:59Z");
+
+  // clearMailboxSession purges both
+  window.localStorage.setItem("urmail.mailbox-token", "stale");
+  clearMailboxSession();
+  expect(hasMailboxSession()).toBe(false);
+  expect(getMailboxToken()).toBeNull();
+  expect(getMailboxAddress()).toBeNull();
+  expect(getMailboxExpiresAt()).toBeNull();
+  expect(window.localStorage.getItem("urmail.mailbox-token")).toBeNull();
+  expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBeNull();
 });

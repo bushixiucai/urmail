@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Lock, Mail } from "lucide-react";
+import { AlertCircle, Building2, Lock, Mail } from "lucide-react";
 import { ApiRequestError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ export function MailboxLoginPage() {
   const { native, loaded } = useMailboxNative();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -55,7 +56,7 @@ export function MailboxLoginPage() {
     setBusy(true);
     try {
       const session = await createMailboxSession(email.trim(), password);
-      setMailboxSession(session);
+      setMailboxSession(session, remember);
       navigate("/webmail/inbox", { replace: true });
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
@@ -126,14 +127,42 @@ export function MailboxLoginPage() {
                 />
               </div>
             </div>
+
+            <div className="flex items-center space-x-2">
+              <input
+                id="mailbox-remember"
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-4 w-4 rounded border-input text-primary focus:ring-ring"
+              />
+              <label
+                htmlFor="mailbox-remember"
+                className="text-sm font-medium leading-none cursor-pointer text-muted-foreground select-none"
+              >
+                {t("login.remember_me", { defaultValue: "记住登录状态" })}
+              </label>
+            </div>
+
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? t("state.loading") : t("page.webmail.login_submit")}
             </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              <Link to="/webmail/help" className="underline">
-                {t("page.webmail.help_title")}
+            <div className="pt-2 border-t space-y-2 text-center text-sm">
+              <Link
+                to="/login"
+                className="inline-flex items-center justify-center gap-1.5 font-medium text-primary hover:underline"
+              >
+                <Building2 className="h-4 w-4" />
+                {t("page.webmail.switch_to_admin", {
+                  defaultValue: "企业管理后台登录",
+                })}
               </Link>
-            </p>
+              <p className="text-center text-xs text-muted-foreground">
+                <Link to="/webmail/help" className="underline">
+                  {t("page.webmail.help_title")}
+                </Link>
+              </p>
+            </div>
           </form>
         </CardContent>
       </Card>

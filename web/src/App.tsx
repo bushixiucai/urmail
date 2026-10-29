@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import { I18nProvider } from "@/app/providers";
 import { AuthProvider, useAuth } from "@/app/auth-context";
 import { TenantLayout } from "@/app/layouts/tenant-layout";
+import { PlatformAdminLayout } from "@/app/layouts/platform-admin-layout";
+import { hasMailboxSession } from "@/features/webmail/mailbox-api";
 
 const PricingPage = lazy(() =>
   import("@/features/billing/pricing-page").then((m) => ({
@@ -97,11 +99,7 @@ const AISettingsPage = lazy(() =>
 const SievePage = lazy(() =>
   import("@/features/sieve/sieve-page").then((m) => ({ default: m.SievePage })),
 );
-const WebmailEntryPage = lazy(() =>
-  import("@/features/webmail/webmail-entry-page").then((m) => ({
-    default: m.WebmailEntryPage,
-  })),
-);
+
 const WebmailHelpPage = lazy(() =>
   import("@/features/webmail/webmail-help-page").then((m) => ({
     default: m.WebmailHelpPage,
@@ -177,6 +175,39 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <TenantLayout>{children}</TenantLayout>;
 }
 
+function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, isAdmin } = useAuth();
+  const { t } = useTranslation();
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
+        {t("state.loading")}
+      </div>
+    );
+  }
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return <PlatformAdminLayout>{children}</PlatformAdminLayout>;
+}
+
+function MailAliasRoute() {
+  if (hasMailboxSession()) {
+    return <Navigate to="/webmail/inbox" replace />;
+  }
+  return <Navigate to="/webmail/login" replace />;
+}
+
+function WebmailRoute() {
+  if (hasMailboxSession()) {
+    return <Navigate to="/webmail/inbox" replace />;
+  }
+  return <MailboxLoginPage />;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -215,6 +246,14 @@ export function App() {
                 element={
                   <LazyPage>
                     <SievePage />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/mail"
+                element={
+                  <LazyPage>
+                    <MailAliasRoute />
                   </LazyPage>
                 }
               />
@@ -297,6 +336,16 @@ export function App() {
                 }
               />
               <Route
+                path="/console"
+                element={
+                  <ProtectedRoute>
+                    <LazyPage>
+                      <DashboardPage />
+                    </LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/archive"
                 element={
                   <ProtectedRoute>
@@ -349,11 +398,11 @@ export function App() {
               <Route
                 path="/platform/support"
                 element={
-                  <ProtectedRoute>
+                  <PlatformAdminRoute>
                     <LazyPage>
                       <PlatformSupportPage />
                     </LazyPage>
-                  </ProtectedRoute>
+                  </PlatformAdminRoute>
                 }
               />
               <Route
@@ -409,11 +458,21 @@ export function App() {
               <Route
                 path="/platform"
                 element={
-                  <ProtectedRoute>
+                  <PlatformAdminRoute>
                     <LazyPage>
                       <PlatformPage />
                     </LazyPage>
-                  </ProtectedRoute>
+                  </PlatformAdminRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <PlatformAdminRoute>
+                    <LazyPage>
+                      <PlatformPage />
+                    </LazyPage>
+                  </PlatformAdminRoute>
                 }
               />
               <Route
@@ -429,11 +488,9 @@ export function App() {
               <Route
                 path="/webmail"
                 element={
-                  <ProtectedRoute>
-                    <LazyPage>
-                      <WebmailEntryPage />
-                    </LazyPage>
-                  </ProtectedRoute>
+                  <LazyPage>
+                    <WebmailRoute />
+                  </LazyPage>
                 }
               />
               <Route

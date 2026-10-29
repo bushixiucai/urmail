@@ -3,9 +3,11 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDownWideNarrow,
+  ChevronDown,
   ChevronLeft,
   Flag,
   Folder,
+  HelpCircle,
   Layers,
   LogOut,
   Mail,
@@ -16,13 +18,24 @@ import {
   Reply,
   ReplyAll,
   Forward,
+  Settings,
   Trash2,
   KeyRound,
   Filter,
   Clock,
   Upload,
   Download,
+  Users,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ApiRequestError } from "@/lib/api/client";
 import { AppearanceControls } from "@/components/appearance-controls";
 import { Button } from "@/components/ui/button";
@@ -1026,8 +1039,8 @@ export function MailboxInboxPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-muted/20">
-      <header className="border-b bg-card px-3 sm:px-4 py-2 flex flex-wrap items-center gap-2 justify-between">
-        <div className="flex items-center gap-2 min-w-0">
+      <header className="border-b bg-card px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 select-none">
+        <div className="flex items-center gap-2.5 min-w-0">
           <Sheet open={foldersOpen} onOpenChange={setFoldersOpen}>
             <SheetTrigger asChild>
               <Button
@@ -1050,10 +1063,37 @@ export function MailboxInboxPage() {
               <div className="flex-1 overflow-y-auto p-2">{folderList}</div>
             </SheetContent>
           </Sheet>
-          <Mail className="h-4 w-4 shrink-0 text-primary" />
-          <span className="text-sm font-medium truncate">{address}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Mail className="h-4 w-4 shrink-0 text-primary" />
+            <span className="font-bold text-sm tracking-tight hidden sm:inline">urMail</span>
+            <span className="text-muted-foreground/60 hidden sm:inline">·</span>
+            <span className="text-sm font-medium truncate">{address}</span>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button
+            size="sm"
+            variant="default"
+            className="min-h-11 md:min-h-8 font-medium shadow-xs"
+            onClick={() => openCompose({ mode: "new" })}
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1" />
+            {t("page.webmail.compose_new")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-11 md:min-h-8"
+            onClick={() => {
+              setMutationUncertain(false);
+              setMutationNotice("");
+              clearChecked();
+              void refresh();
+            }}
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            {t("page.webmail.refresh")}
+          </Button>
           <AppearanceControls />
           <MailboxKeyboardShortcuts
             disabled={
@@ -1103,117 +1143,121 @@ export function MailboxInboxPage() {
               }
             }}
           />
-          <Button
-            size="sm"
-            variant="default"
-            className="min-h-11 md:min-h-8"
-            onClick={() => openCompose({ mode: "new" })}
-          >
-            <Pencil className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.compose_new")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            onClick={() => {
-              setMutationUncertain(false);
-              setMutationNotice("");
-              clearChecked();
-              void refresh();
-            }}
-          >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.refresh")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            onClick={() => setFolderManagerOpen(true)}
-          >
-            {t("page.webmail.folder_manage")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            disabled={
-              busy ||
-              mutationBusy ||
-              !folderEnc ||
-              !folderValidity ||
-              !!crossResults
-            }
-            onClick={() => setImportOpen(true)}
-          >
-            <Upload className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.import.title")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            onClick={() => setScheduledOpen(true)}
-          >
-            <Clock className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.scheduled_title")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            onClick={() => setPasswordOpen(true)}
-          >
-            <KeyRound className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.password_title")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11 md:min-h-8"
-            asChild
-          >
-            <a href="/mailbox/sieve">
-              <Filter className="h-3.5 w-3.5 mr-1" />
-              {t("page.webmail.sieve")}
-            </a>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="min-h-11 md:min-h-8"
-            asChild
-          >
-            <Link to="/webmail/settings">
-              {t("page.webmail.settings_title")}
-            </Link>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="min-h-11 md:min-h-8"
-            asChild
-          >
-            <Link to="/webmail/people">{t("people.title")}</Link>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="min-h-11 md:min-h-8"
-            asChild
-          >
-            <Link to="/webmail/help">{t("page.webmail.help_title")}</Link>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="min-h-11 md:min-h-8"
-            onClick={() => void logout()}
-          >
-            <LogOut className="h-3.5 w-3.5 mr-1" />
-            {t("page.webmail.logout")}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="min-h-11 md:min-h-8 gap-1"
+                aria-label={t("page.webmail.more_menu")}
+              >
+                <Settings className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t("page.webmail.more_menu")}</span>
+                <ChevronDown className="h-3 w-3 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>{t("nav.settings")}</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem asChild>
+                  <Link to="/webmail/settings">
+                    <Settings className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    <span>{t("page.webmail.settings_title")}</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setPasswordOpen(true)}>
+                  <KeyRound className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  <span>{t("page.webmail.password_title")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFolderManagerOpen(true)}>
+                  <Folder className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  <span>{t("page.webmail.folder_manage")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/webmail/people">
+                    <Users className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    <span>{t("people.title")}</span>
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>{t("page.webmail.sieve")}</DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuItem asChild>
+                  <a href="/mailbox/sieve">
+                    <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    <span>{t("page.webmail.sieve")}</span>
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setScheduledOpen(true)}>
+                  <Clock className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  <span>{t("page.webmail.scheduled_title")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={
+                    busy ||
+                    mutationBusy ||
+                    !folderEnc ||
+                    !folderValidity ||
+                    !!crossResults
+                  }
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  <span>{t("page.webmail.import.title")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={
+                    exportBusy ||
+                    mutationBusy ||
+                    !folderEnc ||
+                    !folderValidity ||
+                    !!crossResults
+                  }
+                  onClick={() => {
+                    if (!folderEnc || !folderValidity) return;
+                    setExportBusy(true);
+                    setError(null);
+                    void downloadMailboxMbox(
+                      folderEnc,
+                      folderValidity,
+                      checkedUids,
+                    )
+                      .catch((cause) => {
+                        if (handleAuthError(cause)) return;
+                        setError(
+                          errorMessage(
+                            cause,
+                            t,
+                            "page.webmail.import.export_failed",
+                          ),
+                        );
+                      })
+                      .finally(() => setExportBusy(false));
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  <span>{t("page.webmail.import.export_mbox")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem asChild>
+                  <Link to="/webmail/help">
+                    <HelpCircle className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    <span>{t("page.webmail.help_title")}</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => void logout()}
+                  className="text-destructive hover:bg-destructive/10 focus:text-destructive"
+                >
+                  <LogOut className="h-3.5 w-3.5 mr-2" />
+                  <span>{t("page.webmail.logout")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
       <div className="px-3 sm:px-4">

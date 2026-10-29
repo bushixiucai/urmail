@@ -67,26 +67,69 @@ export function getApiErrorKey(
 
 const SESSION_TOKEN_KEY = "urmail.session-token";
 const CSRF_TOKEN_KEY = "urmail.csrf-token";
+const MAILBOX_TOKEN_KEY = "urmail.mailbox-token";
 
-export function getSessionToken(): string | null {
-  return window.sessionStorage.getItem(SESSION_TOKEN_KEY);
+function getStorageItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key)
+    );
+  } catch {
+    return null;
+  }
 }
 
-export function setSessionToken(token: string): void {
-  window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+export function getSessionToken(): string | null {
+  return getStorageItem(SESSION_TOKEN_KEY);
+}
+
+export function setSessionToken(token: string, remember = true): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (remember) {
+      window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    } else {
+      window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 export function getCSRFToken(): string | null {
-  return window.sessionStorage.getItem(CSRF_TOKEN_KEY);
+  return getStorageItem(CSRF_TOKEN_KEY);
 }
 
-export function setCSRFToken(csrf: string): void {
-  window.sessionStorage.setItem(CSRF_TOKEN_KEY, csrf);
+export function setCSRFToken(csrf: string, remember = true): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (remember) {
+      window.localStorage.setItem(CSRF_TOKEN_KEY, csrf);
+      window.sessionStorage.removeItem(CSRF_TOKEN_KEY);
+    } else {
+      window.sessionStorage.setItem(CSRF_TOKEN_KEY, csrf);
+      window.localStorage.removeItem(CSRF_TOKEN_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 export function clearAuth(): void {
-  window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
-  window.sessionStorage.removeItem(CSRF_TOKEN_KEY);
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(SESSION_TOKEN_KEY);
+    window.localStorage.removeItem(CSRF_TOKEN_KEY);
+    window.localStorage.removeItem(MAILBOX_TOKEN_KEY);
+    window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    window.sessionStorage.removeItem(CSRF_TOKEN_KEY);
+    window.sessionStorage.removeItem(MAILBOX_TOKEN_KEY);
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 export interface RequestOptions {

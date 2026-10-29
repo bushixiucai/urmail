@@ -73,4 +73,48 @@ describe("mailbox login", () => {
       "user@example.test",
     );
   });
+
+  it("renders switch to admin link and remembers login when checkbox checked", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        token: "mbox-token-remembered",
+        expires_at: "2099-01-01T00:00:00Z",
+        address: "user@example.test",
+      }),
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <MemoryRouter>
+        <MailboxLoginPage />
+      </MemoryRouter>,
+    );
+
+    const adminLink = screen.getByRole("link", {
+      name: "page.webmail.switch_to_admin",
+    });
+    expect(adminLink.getAttribute("href")).toBe("/login");
+
+    const rememberCheck = screen.getByLabelText("login.remember_me");
+    expect(rememberCheck).not.toBeNull();
+    fireEvent.click(rememberCheck);
+
+    fireEvent.change(screen.getByLabelText("page.webmail.field_email"), {
+      target: { value: "user@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("page.webmail.field_password"), {
+      target: { value: "secret-pass" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "page.webmail.login_submit" }),
+    );
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("urmail.mailbox-token")).toBe(
+        "mbox-token-remembered",
+      );
+    });
+  });
 });

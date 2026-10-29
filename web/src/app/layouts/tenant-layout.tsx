@@ -4,21 +4,31 @@ import {
 } from "@/components/brand/public-brand";
 import { usePublicStatus } from "@/features/auth/public-status";
 import { ReactNode, useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
-  Globe,
-  Mail,
-  Share2,
-  LayoutDashboard,
-  LogOut,
+  Archive,
+  AtSign,
+  Bell,
   Building2,
-  ShieldCheck,
-  Menu,
+  CreditCard,
+  Globe,
+  Inbox,
+  KeyRound,
   Languages,
-  Receipt,
+  LayoutDashboard,
+  LifeBuoy,
+  LogOut,
+  MailCheck,
+  Megaphone,
+  Menu,
   ScrollText,
+  SendHorizontal,
+  Sparkles,
+  ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
+import { useAssumedTenant } from "@/lib/assumed-tenant";
 import { useAuth } from "@/app/auth-context";
 import { useI18nLocale } from "@/app/providers";
 import { request } from "@/lib/api/client";
@@ -39,12 +49,14 @@ interface TenantLayoutProps {
 
 export function TenantLayout({ children }: TenantLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const publicStatus = usePublicStatus();
   const publicBrand = usePublicBrand();
   const { t } = useTranslation();
   const { user, tenants, currentTenant, switchTenant, logout, isAdmin } =
     useAuth();
   const { locale, setLocale } = useI18nLocale();
+  const { assumedTenant, exitAssumeTenant } = useAssumedTenant();
   const [brand, setBrand] = useState<{
     theme?: BrandTheme;
     logo_url?: string | null;
@@ -76,51 +88,104 @@ export function TenantLayout({ children }: TenantLayoutProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { native: webmailNative } = useMailboxNative();
 
-  const navigation = [
+  interface NavItem {
+    name: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }
+
+  interface NavGroup {
+    title: string;
+    items: NavItem[];
+  }
+
+  const navGroups: NavGroup[] = [
     {
-      name: t("nav.webmail"),
-      href: webmailNative ? "/webmail/inbox" : "/webmail",
-      icon: Mail,
+      title: t("nav.group_overview", { defaultValue: "业务总览" }),
+      items: [
+        {
+          name: t("layout.dashboard"),
+          href: "/",
+          icon: LayoutDashboard,
+        },
+        {
+          name: t("nav.webmail"),
+          href: webmailNative ? "/webmail/inbox" : "/webmail",
+          icon: MailCheck,
+        },
+      ],
     },
-    { name: t("layout.dashboard"), href: "/", icon: LayoutDashboard },
-    { name: t("layout.domains"), href: "/domains", icon: Globe },
-    { name: t("layout.mailboxes"), href: "/mailboxes", icon: Mail },
-    { name: t("layout.aliases"), href: "/aliases", icon: Share2 },
-    { name: t("nav.billing"), href: "/billing", icon: Receipt },
-    { name: t("nav.audit"), href: "/audit", icon: ScrollText },
-    ...(currentTenant?.role === "owner" || currentTenant?.role === "admin"
-      ? [{ name: t("nav.ai"), href: "/ai", icon: ShieldCheck }]
-      : []),
-    { name: t("archive.title"), href: "/archive", icon: Mail },
-    { name: t("delivery.title"), href: "/delivery", icon: Mail },
-    { name: t("nav.marketing"), href: "/marketing", icon: Mail },
-    { name: t("nav.notifications"), href: "/notifications", icon: Mail },
-    { name: t("nav.support"), href: "/support", icon: Mail },
-    { name: t("layout.settings"), href: "/settings/mfa", icon: ShieldCheck },
-    ...(isAdmin
-      ? [{ name: t("nav.platform"), href: "/platform", icon: Building2 }]
-      : []),
+    {
+      title: t("nav.group_assets", { defaultValue: "邮件资产" }),
+      items: [
+        { name: t("layout.domains"), href: "/domains", icon: Globe },
+        { name: t("layout.mailboxes"), href: "/mailboxes", icon: Inbox },
+        { name: t("layout.aliases"), href: "/aliases", icon: AtSign },
+      ],
+    },
+    {
+      title: t("nav.group_compliance", { defaultValue: "合规与外发" }),
+      items: [
+        { name: t("archive.title"), href: "/archive", icon: Archive },
+        { name: t("delivery.title"), href: "/delivery", icon: SendHorizontal },
+        { name: t("nav.marketing"), href: "/marketing", icon: Megaphone },
+        { name: t("nav.audit"), href: "/audit", icon: ScrollText },
+      ],
+    },
+    {
+      title: t("nav.group_capabilities", { defaultValue: "增值能力" }),
+      items: [
+        ...(currentTenant?.role === "owner" || currentTenant?.role === "admin"
+          ? [{ name: t("nav.ai"), href: "/ai", icon: Sparkles }]
+          : []),
+        { name: t("nav.notifications"), href: "/notifications", icon: Bell },
+        { name: t("nav.support"), href: "/support", icon: LifeBuoy },
+      ],
+    },
+    {
+      title: t("nav.group_organization", { defaultValue: "组织与账单" }),
+      items: [
+        { name: t("nav.billing"), href: "/billing", icon: CreditCard },
+        { name: t("layout.settings"), href: "/settings/mfa", icon: KeyRound },
+        ...(isAdmin
+          ? [{ name: t("nav.platform"), href: "/platform", icon: Building2 }]
+          : []),
+      ],
+    },
   ];
 
   const renderNavLinks = (onNavigate?: () => void) => (
-    <nav className="flex-1 p-3 space-y-1">
-      {navigation.map((item) => {
-        const Icon = item.icon;
-        const isActive = location.pathname === item.href;
+    <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-4">
+      {navGroups.map((group) => {
+        if (!group.items.length) return null;
         return (
-          <Link
-            key={item.href}
-            to={item.href}
-            onClick={onNavigate}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-              isActive
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-            {item.name}
-          </Link>
+          <div key={group.title} className="space-y-1">
+            <div className="px-3 py-1 text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider">
+              {group.title}
+            </div>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                location.pathname === item.href ||
+                (item.href === "/" && location.pathname === "/console") ||
+                (item.href === "/platform" && location.pathname === "/admin");
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  onClick={onNavigate}
+                  className={`flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.name}</span>
+                </Link>
+              );
+            })}
+          </div>
         );
       })}
     </nav>
@@ -228,6 +293,34 @@ export function TenantLayout({ children }: TenantLayoutProps) {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {assumedTenant && (
+          <div
+            role="alert"
+            className="bg-amber-500/15 border-b border-amber-500/30 text-amber-950 dark:text-amber-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-medium sticky top-0 z-30 backdrop-blur-xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="truncate">
+                {t("page.platform.assume_banner", {
+                  defaultValue: `当前处于代入租户视察模式：${assumedTenant.name} (${assumedTenant.slug})。所有操作将作用于该租户数据。`,
+                  name: assumedTenant.name,
+                  slug: assumedTenant.slug,
+                })}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-950 dark:text-amber-200 h-7 text-xs font-semibold shrink-0"
+              onClick={() => {
+                exitAssumeTenant();
+                navigate("/platform?tab=tenants");
+              }}
+            >
+              {t("page.platform.exit_assume", { defaultValue: "退出视察返回平台" })}
+            </Button>
+          </div>
+        )}
         <header className="min-h-14 border-b bg-card flex flex-wrap gap-2 items-center justify-between pl-14 pr-3 md:px-6 py-2 shrink-0">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building2 className="h-4 w-4" />

@@ -42,6 +42,7 @@ interface AuthState {
     tenants: TenantInfo[],
     isAdmin: boolean,
     currentTenantId?: number | null,
+    remember?: boolean,
   ) => void;
   logout: () => Promise<void>;
   switchTenant: (tenant: TenantInfo) => Promise<void>;
@@ -98,9 +99,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     t: TenantInfo[],
     admin: boolean,
     currentTenantId?: number | null,
+    remember = true,
   ) => {
-    setSessionToken(token);
-    setCSRFToken(csrfToken);
+    setSessionToken(token, remember);
+    setCSRFToken(csrfToken, remember);
     setUser(u);
     setTenants(t);
     const current =

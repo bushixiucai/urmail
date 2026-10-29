@@ -41,6 +41,7 @@ export function LoginPage() {
   const { setLocale } = useI18nLocale();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   // Second MFA login leg: set once the first leg returns mfa_required.
@@ -70,6 +71,7 @@ export function LoginPage() {
         data.tenants,
         data.is_admin,
         data.current_tenant_id,
+        remember,
       );
       setLocale(data.user.locale || "zh-CN");
       navigate("/");
@@ -104,6 +106,7 @@ export function LoginPage() {
         data.tenants,
         data.is_admin,
         data.current_tenant_id,
+        remember,
       );
       setLocale(data.user.locale || "zh-CN");
       navigate("/");
@@ -234,20 +237,48 @@ export function LoginPage() {
                 </div>
               </div>
 
+              <div className="flex items-center space-x-2">
+                <input
+                  id="remember"
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  className="h-4 w-4 rounded border-input text-primary focus:ring-ring"
+                />
+                <label
+                  htmlFor="remember"
+                  className="text-sm font-medium leading-none cursor-pointer text-muted-foreground select-none"
+                >
+                  {t("login.remember_me", { defaultValue: "记住登录状态" })}
+                </label>
+              </div>
+
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? t("login.signing_in") : t("login.submit")}
                 {!isLoading && <ArrowRight className="h-4 w-4 ml-2" />}
               </Button>
             </form>
           )}
-          <Link className="block text-sm underline" to="/pricing">
-            {t("pricing.title")}
-          </Link>
-          {publicStatus.registration && (
-            <Link className="inline-block text-sm underline" to="/register">
-              {t("registration.action")}
+
+          <div className="mt-4 pt-4 border-t space-y-2 text-center text-sm">
+            <Link
+              to="/webmail/login"
+              className="inline-flex items-center justify-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <Mail className="h-4 w-4" />
+              {t("login.switch_to_webmail", { defaultValue: "员工邮箱登录" })}
             </Link>
-          )}
+            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground pt-1">
+              <Link className="hover:underline" to="/pricing">
+                {t("pricing.title")}
+              </Link>
+              {publicStatus.registration && (
+                <Link className="hover:underline" to="/register">
+                  {t("registration.action")}
+                </Link>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

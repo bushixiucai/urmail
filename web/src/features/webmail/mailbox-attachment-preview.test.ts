@@ -17,6 +17,7 @@ const png = Uint8Array.from(
 afterEach(() => {
   vi.unstubAllGlobals();
   sessionStorage.clear();
+  localStorage.clear();
 });
 describe("bounded attachment previews", () => {
   it("pins folder, UID and UIDVALIDITY and refuses an unpinned source", () => {

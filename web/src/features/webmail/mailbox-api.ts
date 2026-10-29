@@ -83,24 +83,64 @@ export interface MailboxSession {
   address: string;
 }
 
+function getMailboxStorageItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key)
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function getMailboxToken(): string | null {
-  return window.sessionStorage.getItem(MAILBOX_TOKEN_KEY);
+  return getMailboxStorageItem(MAILBOX_TOKEN_KEY);
 }
 
 export function getMailboxAddress(): string | null {
-  return window.sessionStorage.getItem(MAILBOX_ADDRESS_KEY);
+  return getMailboxStorageItem(MAILBOX_ADDRESS_KEY);
 }
 
-export function setMailboxSession(session: MailboxSession): void {
-  window.sessionStorage.setItem(MAILBOX_TOKEN_KEY, session.token);
-  window.sessionStorage.setItem(MAILBOX_ADDRESS_KEY, session.address);
-  window.sessionStorage.setItem(MAILBOX_EXPIRES_KEY, session.expires_at);
+export function getMailboxExpiresAt(): string | null {
+  return getMailboxStorageItem(MAILBOX_EXPIRES_KEY);
+}
+
+export function setMailboxSession(
+  session: MailboxSession,
+  remember = true,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    const target = remember ? window.localStorage : window.sessionStorage;
+    const clean = remember ? window.sessionStorage : window.localStorage;
+
+    target.setItem(MAILBOX_TOKEN_KEY, session.token);
+    target.setItem(MAILBOX_ADDRESS_KEY, session.address);
+    target.setItem(MAILBOX_EXPIRES_KEY, session.expires_at);
+
+    clean.removeItem(MAILBOX_TOKEN_KEY);
+    clean.removeItem(MAILBOX_ADDRESS_KEY);
+    clean.removeItem(MAILBOX_EXPIRES_KEY);
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 export function clearMailboxSession(): void {
-  window.sessionStorage.removeItem(MAILBOX_TOKEN_KEY);
-  window.sessionStorage.removeItem(MAILBOX_ADDRESS_KEY);
-  window.sessionStorage.removeItem(MAILBOX_EXPIRES_KEY);
+  if (typeof window === "undefined") return;
+  try {
+    for (const key of [
+      MAILBOX_TOKEN_KEY,
+      MAILBOX_ADDRESS_KEY,
+      MAILBOX_EXPIRES_KEY,
+    ]) {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 export function hasMailboxSession(): boolean {
