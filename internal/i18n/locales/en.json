@@ -2036,7 +2036,7 @@
   "page.webmail.ai_unavailable": "AI is unavailable or has not been authorized by your administrator. Normal mail remains available.",
   "page.webmail.ai_unlimited": "No configured limit",
   "page.webmail.ai_use_custom": "Use Custom AI Configuration (BYOK)",
-  "page.webmail.ai_use_custom_desc": "Use your own API key and model when enabled, bypassing organization quota; fallback to organization AI when disabled.",
+  "page.webmail.ai_use_custom_desc": "Use your own AI service under organization usage and concurrency limits, without platform model charges. Turn off to use organization AI.",
   "page.webmail.ai_use_reply": "Use as a reply draft",
   "page.webmail.app_mail": "Mail",
   "page.webmail.app_navigation": "App navigation",

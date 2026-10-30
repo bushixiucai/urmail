@@ -4037,10 +4037,14 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/NativeMailboxCompose'}
       responses:
-        '200': {description: Durable attempt status; sent is true only for accepted. sent_copy is saved or pending. Replayed uncertain attempts remain non-sendable.}
+        '200':
+          description: Durable attempt status; sent is true only for accepted. A replayed uncertain receipt never submits SMTP again.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NativeMailboxSendResponse'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
-        '409': {description: MAILBOX_SEND_UNCERTAIN. Submission may have succeeded; do not automatically resend., $ref: '#/components/responses/Error'}
+        '409': {description: 'IDEMPOTENCY_CONFLICT, DRAFT_CHANGED or DRAFT_SEND_LOCKED. No new SMTP submission is permitted by this conflict.', $ref: '#/components/responses/Error'}
         '413': {description: MAILBOX_MESSAGE_TOO_LARGE., $ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
   /mailbox/drafts:
@@ -9526,7 +9530,17 @@ paths:
       - {name: uid, in: query, schema: {type: integer, minimum: 1}}
       - {name: uid_validity, in: query, schema: {type: integer, minimum: 1}}
       responses:
-        '200': {description: 'Owner-scoped items, each containing id, request_key, status, sent_copy_state, message_id, created_at, accepted_at, last_error and optional draft_source. No raw mail or secrets are returned.'}
+        '200':
+          description: Owner-scoped delivery metadata. No raw mail or secrets are returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/NativeMailboxSendReceipt'}
         '401': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /mailbox/send-receipts/{id}:
@@ -9536,7 +9550,11 @@ paths:
       summary: Read one owner-scoped immediate send receipt
       security: [{MailboxBearer: []}]
       responses:
-        '200': {description: 'receipt with status prepared/submitting/accepted/rejected/uncertain and independent sent_copy_state none/pending/unknown/complete/held.'}
+        '200':
+          description: Owner receipt; pending or held does not confirm that a Sent copy was saved.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NativeMailboxReceiptResponse'}
         '404': {$ref: '#/components/responses/Error'}
   /mailbox/send-receipts/{id}/repair-sent-copy:
     parameters:
@@ -9546,7 +9564,11 @@ paths:
       description: Performs IMAP only, never SMTP. Full-byte reconciliation precedes any APPEND; unknown outcomes do not permit blind append. Held recovery content survives until repaired or explicitly handled. Changed credentials require a new login.
       security: [{MailboxBearer: []}]
       responses:
-        '200': {description: Updated owner receipt; pending or held is not confirmation of a saved copy.}
+        '200':
+          description: Owner receipt; pending or held does not confirm that a Sent copy was saved.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NativeMailboxReceiptResponse'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -9568,7 +9590,11 @@ paths:
               properties:
                 confirmed: {type: boolean, enum: [true]}
       responses:
-        '200': {description: Updated scheduled item.}
+        '200':
+          description: Updated scheduled item after explicit owner review; this endpoint never sends mail.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NativeMailboxSchedule'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -9925,6 +9951,33 @@ components:
         api_key: {type: string, maxLength: 4096, writeOnly: true}
         clear_api_key: {type: boolean, writeOnly: true}
         key_configured: {type: boolean, readOnly: true}
+    NativeMailboxSendReceipt:
+      type: object
+      additionalProperties: false
+      required: [id, request_key, status, sent_copy_state, message_id, created_at, last_error, draft_released]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        request_key: {type: string, minLength: 16, maxLength: 128}
+        status: {type: string, enum: [prepared, submitting, accepted, rejected, uncertain]}
+        sent_copy_state: {type: string, enum: [none, pending, unknown, complete, held]}
+        message_id: {type: string}
+        created_at: {type: string, format: date-time}
+        accepted_at: {type: string, format: date-time}
+        last_error: {type: string, description: Stable safe error or review code; never raw provider errors.}
+        draft_released: {type: boolean}
+        draft_source: {$ref: '#/components/schemas/MailboxMessageRef'}
+    NativeMailboxReceiptResponse:
+      type: object
+      required: [receipt]
+      properties:
+        receipt: {$ref: '#/components/schemas/NativeMailboxSendReceipt'}
+    NativeMailboxSendResponse:
+      type: object
+      required: [sent, receipt]
+      properties:
+        sent: {type: boolean, description: True only when status is accepted; SMTP acceptance does not prove final delivery.}
+        sent_copy: {type: string, enum: [saved, pending], description: Present only for an accepted attempt. Inspect receipt.sent_copy_state for pending, unknown or held recovery.}
+        receipt: {$ref: '#/components/schemas/NativeMailboxSendReceipt'}
     NativeMailboxCompose:
       type: object
       properties:
