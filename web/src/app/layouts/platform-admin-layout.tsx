@@ -164,7 +164,7 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
         </div>
 
         <Link
-          to="/"
+          to="/console"
           onClick={onNavigate}
           className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors w-full"
         >
@@ -281,7 +281,7 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
               <ShieldCheck className="h-3.5 w-3.5" />
               {t("layout.platform_admin", { defaultValue: "平台超级管理员" })}
             </div>
-            <Link to="/">
+            <Link to="/console">
               <Button variant="ghost" size="sm" className="text-xs h-8">
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
                 <span className="hidden sm:inline">

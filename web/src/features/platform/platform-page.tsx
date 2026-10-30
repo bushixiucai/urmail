@@ -373,7 +373,7 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
     if (match && auth?.switchTenant) {
       await auth.switchTenant(match);
     } else if (typeof window !== "undefined") {
-      window.location.href = "/";
+      window.location.href = "/console";
     }
   };
 

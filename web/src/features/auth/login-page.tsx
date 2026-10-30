@@ -74,7 +74,7 @@ export function LoginPage() {
         remember,
       );
       setLocale(data.user.locale || "zh-CN");
-      navigate("/");
+      navigate("/console");
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
         setError(
@@ -109,7 +109,7 @@ export function LoginPage() {
         remember,
       );
       setLocale(data.user.locale || "zh-CN");
-      navigate("/");
+      navigate("/console");
     } catch (err: unknown) {
       if (err instanceof ApiRequestError) {
         setError(

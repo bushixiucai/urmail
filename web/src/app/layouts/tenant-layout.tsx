@@ -105,7 +105,7 @@ export function TenantLayout({ children }: TenantLayoutProps) {
       items: [
         {
           name: t("layout.dashboard"),
-          href: "/",
+          href: "/console",
           icon: LayoutDashboard,
         },
         {
@@ -167,7 +167,6 @@ export function TenantLayout({ children }: TenantLayoutProps) {
               const Icon = item.icon;
               const isActive =
                 location.pathname === item.href ||
-                (item.href === "/" && location.pathname === "/console") ||
                 (item.href === "/platform" && location.pathname === "/admin");
               return (
                 <Link

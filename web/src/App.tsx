@@ -145,6 +145,11 @@ const NotFoundPage = lazy(() =>
     default: m.NotFoundPage,
   })),
 );
+const HomePage = lazy(() =>
+  import("@/features/home/home-page").then((m) => ({
+    default: m.HomePage,
+  })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -199,7 +204,7 @@ function PlatformAdminRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />;
   }
   if (!isAdmin) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/console" replace />;
   }
   return <PlatformAdminLayout>{children}</PlatformAdminLayout>;
 }
@@ -354,11 +359,9 @@ export function App() {
               <Route
                 path="/"
                 element={
-                  <ProtectedRoute>
-                    <LazyPage>
-                      <DashboardPage />
-                    </LazyPage>
-                  </ProtectedRoute>
+                  <LazyPage>
+                    <HomePage />
+                  </LazyPage>
                 }
               />
               <Route
