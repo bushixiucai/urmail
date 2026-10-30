@@ -484,6 +484,35 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
+	var input struct {
+		Provider string `json:"provider"`
+		Endpoint string `json:"endpoint"`
+		Model    string `json:"model"`
+		APIKey   string `json:"api_key"`
+	}
+	_ = c.ShouldBindJSON(&input)
+	if input.Endpoint != "" {
+		if input.Provider == "" {
+			input.Provider = "openai"
+		}
+		if input.Model == "" {
+			input.Model = "gpt-4o"
+		}
+		candidate, err := ai.DynamicProvider(input.Provider, input.Endpoint, input.Model, input.APIKey)
+		if err != nil {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+		models, err := ai.FetchModels(ctx, candidate)
+		if err != nil {
+			authError(c, 502, "AI_PROVIDER_UNREACHABLE")
+			return
+		}
+		c.JSON(200, gin.H{"status": "reachable", "models": models, "operation": "models_metadata", "completion_performed": false})
+		return
+	}
 	cfg, err := store.New(h.Pool).PlatformGetAIProvider(c, tid)
 	if err != nil || !cfg.Enabled {
 		authError(c, 409, "AI_DISABLED")
@@ -521,13 +550,14 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
-	if ai.CheckHealth(ctx, provider) != nil {
+	models, err := ai.FetchModels(ctx, provider)
+	if err != nil {
 		authError(c, 502, "AI_PROVIDER_UNREACHABLE")
 		return
 	}
-	c.JSON(200, gin.H{"status": "reachable", "operation": "models_metadata", "completion_performed": false})
+	c.JSON(200, gin.H{"status": "reachable", "models": models, "operation": "models_metadata", "completion_performed": false})
 }
 
 // ResolveUsage requires a platform operator to supply explicit observed usage;

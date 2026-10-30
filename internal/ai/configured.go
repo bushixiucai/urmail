@@ -23,6 +23,15 @@ func ConfiguredProvider(kind, endpoint, model, key string, cloudAllowed, localAl
 	if !found {
 		return nil, ErrProviderDisabled
 	}
+	return DynamicProvider(kind, endpoint, model, key)
+}
+
+// DynamicProvider builds a validated provider instance for direct or user-provided (BYOK) endpoints.
+// For cloud endpoints, HTTPS is strictly enforced and SSRF protections apply.
+func DynamicProvider(kind, endpoint, model, key string) (Provider, error) {
+	if kind == "" {
+		kind = ProviderOpenAI
+	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return nil, ErrInvalidRequest

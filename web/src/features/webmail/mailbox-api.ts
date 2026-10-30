@@ -813,9 +813,18 @@ export function saveMailboxRules(body: {
   );
 }
 
+export interface MailboxUserAIConfig {
+  use_custom?: boolean;
+  provider?: "openai" | "ollama" | "azure";
+  endpoint?: string;
+  model?: string;
+  api_key?: string;
+}
+
 export interface MailboxAITarget {
   enabled: boolean;
   allowed: boolean;
+  is_custom?: boolean;
   provider?: string;
   model?: string;
   endpoint?: string;
@@ -909,6 +918,21 @@ export const fetchMailboxAICitation = (id: string, signal?: AbortSignal) =>
   );
 export const fetchMailboxAIBudget = (signal?: AbortSignal) =>
   mailboxRequest<AIBudgetStatus>("/api/v1/mailbox/ai/budget", { signal });
+
+export function fetchMailboxAIModels(
+  body?: {
+    provider?: string;
+    endpoint?: string;
+    model?: string;
+    api_key?: string;
+  },
+  signal?: AbortSignal,
+) {
+  return mailboxRequest<{ status: string; models: string[] }>(
+    "/api/v1/mailbox/ai/models",
+    { method: "POST", body: body ?? {}, signal },
+  );
+}
 
 export interface MailboxMutationResult {
   results: Array<{

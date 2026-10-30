@@ -364,6 +364,23 @@ func (c *Config) applyDefaults() {
 		// Production Dovecot disables cleartext 143; prefer IMAPS loopback.
 		c.IMAPAddr = "127.0.0.1:993"
 	}
+	if len(c.AICloudEndpoints) == 0 {
+		c.AICloudEndpoints = []string{
+			"https://api.openai.com/v1",
+			"https://api.deepseek.com/v1",
+			"https://api.deepseek.com",
+			"https://dashscope.aliyuncs.com/compatible-mode/v1",
+			"https://api.moonshot.cn/v1",
+			"https://api.siliconflow.cn/v1",
+			"https://open.bigmodel.cn/api/paas/v4",
+		}
+	}
+	if len(c.AILocalEndpoints) == 0 {
+		c.AILocalEndpoints = []string{
+			"http://127.0.0.1:11434",
+			"http://localhost:11434",
+		}
+	}
 }
 
 // validate rejects a configuration that cannot work.

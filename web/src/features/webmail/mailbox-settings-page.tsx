@@ -5,6 +5,7 @@ import { ApiRequestError } from "@/lib/api/client";
 import { AppearanceControls } from "@/components/appearance-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sparkles } from "lucide-react";
 import { formatZonedInput, zonedInputToISO } from "./people-time";
 
 import {
@@ -19,6 +20,8 @@ import {
   MailboxIdentityProfile,
   MailboxRulesView,
   MailboxSieveRule,
+  MailboxUserAIConfig,
+  fetchMailboxAIModels,
 } from "./mailbox-api";
 
 function formatBytes(
@@ -87,6 +90,19 @@ export function MailboxSettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [userAIConfig, setUserAIConfig] = useState<MailboxUserAIConfig>({
+    use_custom: false,
+    provider: "openai",
+    endpoint: "",
+    model: "",
+    api_key: "",
+  });
+  const [userAIModels, setUserAIModels] = useState<string[]>([]);
+  const [userAIFetching, setUserAIFetching] = useState(false);
+  const [userAINotice, setUserAINotice] = useState<{
+    text: string;
+    error?: boolean;
+  } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -98,6 +114,16 @@ export function MailboxSettingsPage() {
           getMailboxRules(),
         ]);
         setSettings(s);
+        const aiPref = s.preferences?.ai as MailboxUserAIConfig | undefined;
+        if (aiPref) {
+          setUserAIConfig({
+            use_custom: Boolean(aiPref.use_custom),
+            provider: aiPref.provider || "openai",
+            endpoint: aiPref.endpoint || "",
+            model: aiPref.model || "",
+            api_key: aiPref.api_key || "",
+          });
+        }
         setQuoteOriginal(s.preferences.quote_original !== false);
         setEditorIdentity(s.address);
         setProfiles(s.identity_profiles ?? {});
@@ -169,6 +195,34 @@ export function MailboxSettingsPage() {
     })();
   }, [t]);
 
+  const handleFetchUserModels = async () => {
+    setUserAIFetching(true);
+    setUserAINotice(null);
+    try {
+      const res = await fetchMailboxAIModels({
+        provider: userAIConfig.provider,
+        endpoint: userAIConfig.endpoint,
+        api_key: userAIConfig.api_key,
+        model: userAIConfig.model || "gpt-4o",
+      });
+      if (res.models && res.models.length > 0) {
+        setUserAIModels(res.models);
+        setUserAINotice({
+          text: t("page.webmail.ai_models_count", { count: res.models.length }),
+        });
+        if (!userAIConfig.model && res.models[0]) {
+          setUserAIConfig((prev) => ({ ...prev, model: res.models[0] }));
+        }
+      } else {
+        setUserAINotice({ text: t("page.ai.reachable") });
+      }
+    } catch {
+      setUserAINotice({ text: t("page.ai.health_failed"), error: true });
+    } finally {
+      setUserAIFetching(false);
+    }
+  };
+
   const saveIdentity = async (e: FormEvent) => {
     e.preventDefault();
     if (!settings) return;
@@ -194,6 +248,7 @@ export function MailboxSettingsPage() {
         quote_original: quoteOriginal,
         timezone,
         date_format: dateFormat,
+        ai: userAIConfig,
       };
       const primary = editorIdentity === settings.address;
       const next = await saveMailboxSettings({
@@ -858,6 +913,171 @@ export function MailboxSettingsPage() {
             })}
           </p>
         )}
+      </section>
+
+      <section aria-labelledby="settings-ai" className="space-y-4">
+        <div>
+          <h2 id="settings-ai" className="font-medium text-base">
+            {t("page.webmail.ai_settings_title")}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {t("page.webmail.ai_use_custom_desc")}
+          </p>
+        </div>
+
+        <div className="p-4 rounded-xl border border-border/70 bg-card space-y-4 shadow-2xs">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={userAIConfig.use_custom ?? false}
+              onChange={(e) => {
+                setUserAIConfig((prev) => ({
+                  ...prev,
+                  use_custom: e.target.checked,
+                }));
+                setSaved(false);
+              }}
+              className="h-4 w-4 rounded border-input text-primary accent-primary"
+            />
+            <span className="text-sm font-medium">
+              {t("page.webmail.ai_use_custom")}
+            </span>
+          </label>
+
+          {userAIConfig.use_custom && (
+            <div className="space-y-3 pt-2 border-t border-border/50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <label className="space-y-1">
+                  <span className="text-xs text-muted-foreground">
+                    服务提供商 (Provider)
+                  </span>
+                  <select
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    value={userAIConfig.provider ?? "openai"}
+                    onChange={(e) => {
+                      setUserAIConfig((prev) => ({
+                        ...prev,
+                        provider: e.target.value as
+                          "openai" | "ollama" | "azure",
+                      }));
+                      setSaved(false);
+                    }}
+                  >
+                    <option value="openai">
+                      OpenAI 兼容 (DeepSeek / OpenAI / 阿里百炼 / 硅基流动等)
+                    </option>
+                    <option value="ollama">Ollama (本地私有部署)</option>
+                    <option value="azure">Azure OpenAI</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-xs text-muted-foreground">
+                    API 接口端点 (Endpoint)
+                  </span>
+                  <Input
+                    type="url"
+                    className="h-9 text-sm"
+                    placeholder="https://api.deepseek.com/v1"
+                    value={userAIConfig.endpoint ?? ""}
+                    onChange={(e) => {
+                      setUserAIConfig((prev) => ({
+                        ...prev,
+                        endpoint: e.target.value,
+                      }));
+                      setSaved(false);
+                    }}
+                  />
+                </label>
+
+                <label className="space-y-1 sm:col-span-2">
+                  <span className="text-xs text-muted-foreground">
+                    API 密钥 (API Key)
+                  </span>
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    className="h-9 text-sm font-mono"
+                    placeholder="sk-..."
+                    value={userAIConfig.api_key ?? ""}
+                    onChange={(e) => {
+                      setUserAIConfig((prev) => ({
+                        ...prev,
+                        api_key: e.target.value,
+                      }));
+                      setSaved(false);
+                    }}
+                  />
+                </label>
+
+                <div className="sm:col-span-2 space-y-2">
+                  <div className="flex items-end gap-2">
+                    <label className="flex-1 space-y-1">
+                      <span className="text-xs text-muted-foreground">
+                        模型名称 (Model)
+                      </span>
+                      <Input
+                        list="user-ai-models-list"
+                        className="h-9 text-sm font-mono"
+                        placeholder="例如：deepseek-chat 或 gpt-4o"
+                        value={userAIConfig.model ?? ""}
+                        onChange={(e) => {
+                          setUserAIConfig((prev) => ({
+                            ...prev,
+                            model: e.target.value,
+                          }));
+                          setSaved(false);
+                        }}
+                      />
+                      <datalist id="user-ai-models-list">
+                        {userAIModels.map((m) => (
+                          <option key={m} value={m} />
+                        ))}
+                      </datalist>
+                    </label>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-9 shrink-0 gap-1.5"
+                      disabled={userAIFetching || !userAIConfig.endpoint}
+                      onClick={handleFetchUserModels}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {userAIFetching
+                        ? "拉取中..."
+                        : t("page.webmail.ai_test_fetch")}
+                    </Button>
+                  </div>
+
+                  {userAINotice && (
+                    <p
+                      className={`text-xs ${
+                        userAINotice.error
+                          ? "text-destructive"
+                          : "text-emerald-600 dark:text-emerald-400"
+                      }`}
+                    >
+                      {userAINotice.text}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-2 border-t flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={(e) => void saveIdentity(e as unknown as FormEvent)}
+            >
+              {t("action.save")}
+            </Button>
+          </div>
+        </div>
       </section>
 
       <section aria-labelledby="settings-password" className="space-y-2">

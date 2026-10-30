@@ -48,6 +48,7 @@ export function AISettingsPage() {
   const [local, setLocal] = useState<string[]>([]);
   const [key, setKey] = useState("");
   const [usage, setUsage] = useState<Usage[]>([]);
+  const [models, setModels] = useState<string[]>([]);
   const [budget, setBudget] = useState<AIBudgetStatus | null>(null);
   const [budgetUnavailable, setBudgetUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -118,8 +119,29 @@ export function AISettingsPage() {
     setError("");
     setMessage("");
     try {
-      await request("/api/v1/ai/health", { method: "POST" });
-      setMessage(t("page.ai.reachable"));
+      const res = await request<{ status: string; models?: string[] }>(
+        "/api/v1/ai/health",
+        {
+          method: "POST",
+          body: config.endpoint
+            ? {
+                provider: config.provider,
+                endpoint: config.endpoint,
+                model: config.model || "gpt-4o",
+                api_key: key,
+              }
+            : {},
+        },
+      );
+      if (res.models && res.models.length > 0) {
+        setModels(res.models);
+        setMessage(t("page.ai.models_loaded", { count: res.models.length }));
+        if (!config.model && res.models[0]) {
+          setConfig((prev) => ({ ...prev, model: res.models![0] }));
+        }
+      } else {
+        setMessage(t("page.ai.reachable"));
+      }
     } catch {
       setError(t("page.ai.health_failed"));
     } finally {
@@ -237,17 +259,30 @@ export function AISettingsPage() {
             ))}
           </select>
         </label>
-        <label>
-          {t("page.ai.model")}
-          <Input
-            disabled={config.mode === "platform"}
-            value={config.model ?? ""}
-            maxLength={200}
-            onChange={(event) =>
-              setConfig({ ...config, model: event.target.value })
-            }
-          />
-        </label>
+        <div>
+          <label>
+            {t("page.ai.model")}
+            <Input
+              disabled={config.mode === "platform"}
+              list="admin-ai-models-list"
+              value={config.model ?? ""}
+              maxLength={200}
+              placeholder={
+                models.length > 0
+                  ? t("page.ai.select_model")
+                  : "例如：deepseek-chat 或 gpt-4o"
+              }
+              onChange={(event) =>
+                setConfig({ ...config, model: event.target.value })
+              }
+            />
+            <datalist id="admin-ai-models-list">
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </label>
+        </div>
         {config.mode === "byo" && (
           <label>
             {t("page.ai.api_key")}
@@ -290,10 +325,10 @@ export function AISettingsPage() {
           </Button>
           <Button
             variant="outline"
-            disabled={busy || !config.enabled}
+            disabled={busy || (!config.enabled && !config.endpoint)}
             onClick={() => void health()}
           >
-            {t("page.ai.health")}
+            {t("page.ai.test_and_fetch_models")}
           </Button>
         </div>
       </section>
