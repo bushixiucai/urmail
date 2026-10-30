@@ -264,16 +264,17 @@ func New(opts Options) *gin.Engine {
 	aiSearchAsk.Accounting = handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
 	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
 	mailboxNative := &handlers.MailboxNativeHandler{
-		MailHost:  opts.MyHostname,
-		Enabled:   opts.WebmailNative && platformQueries != nil,
-		Auth:      nativeStore,
-		Sessions:  nativeStore,
-		Vault:     webmailVault,
-		Dialer:    webmail.NetDialer{Addr: opts.IMAPAddr},
-		Submitter: webmail.NetSubmitter{Addr: smtpAddr},
-		Secrets:   opts.Secrets,
-		Pool:      opts.PlatformPool,
-		MaySend:   handlers.MailAllowed(platformQueries),
+		MailHost:         opts.MyHostname,
+		Enabled:          opts.WebmailNative && platformQueries != nil,
+		Auth:             nativeStore,
+		Sessions:         nativeStore,
+		Vault:            webmailVault,
+		Dialer:           webmail.NetDialer{Addr: opts.IMAPAddr, AuthenticationSecrets: opts.Secrets},
+		Submitter:        webmail.NetSubmitter{Addr: smtpAddr},
+		Secrets:          opts.Secrets,
+		AILocalEndpoints: opts.AILocalEndpoints,
+		Pool:             opts.PlatformPool,
+		MaySend:          handlers.MailAllowed(platformQueries),
 		// WEBMAIL-005/006 mailbox self-service: signature, identities,
 		// quota and managed-sieve rules through the existing safe pipeline.
 		SelfSettings: handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool},
@@ -386,6 +387,10 @@ func New(opts Options) *gin.Engine {
 			handlers.RegisterMailboxImportRoutes(mailboxAuthed, mailboxNative)
 			mailboxAuthed.POST("/folders/:name/import", mailboxNative.ImportMessage)
 			mailboxAuthed.POST("/send", mailboxNative.SendMessage)
+			mailboxAuthed.GET("/send-receipts", mailboxNative.ListSendReceipts)
+			mailboxAuthed.GET("/send-receipts/:id", mailboxNative.GetSendReceipt)
+			mailboxAuthed.POST("/send-receipts/:id/repair-sent-copy", mailboxNative.RepairSendReceiptCopy)
+			mailboxAuthed.POST("/scheduled-sends/:id/acknowledge-uncertain", mailboxNative.AcknowledgeUncertainScheduledSend)
 			mailboxAuthed.PUT("/drafts", mailboxNative.SaveDraft)
 			mailboxAuthed.GET("/drafts", mailboxNative.ListDrafts)
 			mailboxAuthed.DELETE("/drafts/:uid", mailboxNative.DeleteDraft)

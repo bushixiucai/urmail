@@ -43,6 +43,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/mailauth"
 )
 
 // Milter protocol command bytes (SMFIC_*).
@@ -96,6 +98,9 @@ const (
 // MilterConfig controls the wire layer only; classification thresholds live
 // in the pure engine constants.
 type MilterConfig struct {
+	// Authentication seals bounded, receive-time DKIM facts. Nil preserves
+	// delivery behavior while mail without a verifiable proof remains unknown.
+	Authentication *mailauth.Receiver
 	// DenyActions enables SMFIR_REJECT for verdicts at DenyScoreThreshold.
 	// It is OFF by default: v1 classification + Junk foldering is the
 	// product behavior and nothing must be rejected by accident.
@@ -275,27 +280,55 @@ func cleanAddress(raw string) string {
 	return strings.ToLower(raw)
 }
 
+// Full-message DKIM capture is an optional enrichment, never a delivery gate.
+// Limit concurrent 16 MiB captures and their verification buffers; overload
+// delivers normally without a proof instead of retaining unbounded MIME bodies.
+var authenticationCaptureSlots = make(chan struct{}, 4)
+
 // session is one connection's mutable state.
 type session struct {
-	cfg            MilterConfig
-	handler        VerdictHandler
-	macros         map[string]string
-	recipients     []string
-	headers        []Header
-	body           []byte
-	envelopeFrom   string
-	verdictHeaders map[string]uint32
+	cfg                      MilterConfig
+	handler                  VerdictHandler
+	macros                   map[string]string
+	recipients               []string
+	headers                  []Header
+	body                     []byte
+	authenticationBody       []byte
+	authenticationIncomplete bool
+	authenticationSlot       bool
+	headerBytes              int
+	envelopeFrom             string
+	verdictHeaders           map[string]uint32
 	// dirty marks that a message is in flight (MAIL seen, not yet EOM/ABORT).
 	dirty bool
 }
 
 func (s *session) resetMessage() {
+	if s.authenticationSlot {
+		<-authenticationCaptureSlots
+		s.authenticationSlot = false
+	}
 	s.recipients = nil
 	s.headers = nil
 	s.body = nil
+	s.authenticationBody = nil
+	s.authenticationIncomplete = false
+	s.headerBytes = 0
 	s.envelopeFrom = ""
 	s.verdictHeaders = nil
 	s.dirty = false
+}
+
+func (s *session) startAuthenticationCapture() {
+	if s.cfg.Authentication == nil {
+		return
+	}
+	select {
+	case authenticationCaptureSlots <- struct{}{}:
+		s.authenticationSlot = true
+	default:
+		s.authenticationIncomplete = true
+	}
 }
 
 // handlePacket advances the session for one command. The returned actions are
@@ -330,6 +363,7 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 		// command, so they must survive into this event; stale macros were
 		// already cleared at the previous EOM/ABORT boundary.
 		s.resetMessage()
+		s.startAuthenticationCapture()
 		s.dirty = true
 		if len(payload) > 0 {
 			fields := splitNUL(payload)
@@ -354,7 +388,16 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 			}
 			s.verdictHeaders[canonicalVerdictHeader(fields[0])]++
 		}
-		if len(fields) >= 1 && len(s.headers) < maxHeaders {
+		if len(fields) >= 1 {
+			s.headerBytes += len(fields[0])
+			if len(fields) >= 2 {
+				s.headerBytes += len(fields[1])
+			}
+			if len(s.headers) >= maxHeaders || s.headerBytes > mailauth.MaxHeaderBytes {
+				s.authenticationIncomplete = true
+			}
+		}
+		if len(fields) >= 1 && len(s.headers) < maxHeaders && s.headerBytes <= mailauth.MaxHeaderBytes {
 			name := fields[0]
 			value := ""
 			if len(fields) >= 2 {
@@ -366,6 +409,14 @@ func (s *session) handlePacket(ctx context.Context, pkt []byte, w io.Writer) (do
 	case cmdEOH:
 		return false, writeResponse(w, resContinue)
 	case cmdBody:
+		if s.dirty && s.authenticationSlot && !s.authenticationIncomplete {
+			if len(s.authenticationBody)+len(payload) > mailauth.MaxBodyBytes {
+				s.authenticationIncomplete = true
+				s.authenticationBody = nil
+			} else {
+				s.authenticationBody = append(s.authenticationBody, payload...)
+			}
+		}
 		if s.dirty && len(s.body) < s.cfg.MaxBodySampleBytes {
 			room := s.cfg.MaxBodySampleBytes - len(s.body)
 			if len(payload) < room {
@@ -404,13 +455,22 @@ func (s *session) finishMessage(ctx context.Context, w io.Writer) error {
 		// panic as a connection error and let the metrics see it.
 		verdict = s.handler.Decide(ctx, req)
 	}
+	if s.cfg.Authentication != nil && s.authenticationSlot && !s.authenticationIncomplete {
+		headers := make([]mailauth.Header, 0, len(s.headers))
+		for _, header := range s.headers {
+			headers = append(headers, mailauth.Header{Name: header.Name, Value: header.Value})
+		}
+		if token, attestErr := s.cfg.Authentication.Attest(ctx, headers, s.authenticationBody); attestErr == nil && token != "" {
+			verdict.InsertHeaders = append(verdict.InsertHeaders, [2]string{mailauth.HeaderName, token})
+		}
+	}
 	if !s.cfg.DenyActions {
 		verdict.Reject = false
 	}
 	// SMFIR_CHGHEADER uses a 32-bit network-order, one-based occurrence index.
 	// Delete every incoming verdict occurrence, including ones beyond the
 	// bounded classification header sample; clients must not forge delivery tags.
-	for _, name := range []string{HeaderNameSpam, HeaderNameScore} {
+	for _, name := range []string{HeaderNameSpam, HeaderNameScore, mailauth.HeaderName} {
 		count := s.verdictHeaders[name]
 		for index := count; index > 0; index-- {
 			payload := make([]byte, 4, 4+len(name)+2)
@@ -452,6 +512,7 @@ func (s *session) finishMessage(ctx context.Context, w io.Writer) error {
 func serveConn(ctx context.Context, conn net.Conn, cfg MilterConfig, h VerdictHandler) error {
 	defer func() { _ = conn.Close() }()
 	s := &session{cfg: cfg.withDefaults(), handler: h}
+	defer s.resetMessage()
 	for {
 		pkt, err := packet(conn, cfg.withDefaults().IdleTimeout)
 		if err != nil {
@@ -472,10 +533,13 @@ func serveConn(ctx context.Context, conn net.Conn, cfg MilterConfig, h VerdictHa
 
 // isVerdictHeader identifies private delivery classifications supplied by us.
 func isVerdictHeader(name string) bool {
-	return strings.EqualFold(name, HeaderNameSpam) || strings.EqualFold(name, HeaderNameScore)
+	return strings.EqualFold(name, HeaderNameSpam) || strings.EqualFold(name, HeaderNameScore) || strings.EqualFold(name, mailauth.HeaderName)
 }
 
 func canonicalVerdictHeader(name string) string {
+	if strings.EqualFold(name, mailauth.HeaderName) {
+		return mailauth.HeaderName
+	}
 	if strings.EqualFold(name, HeaderNameSpam) {
 		return HeaderNameSpam
 	}

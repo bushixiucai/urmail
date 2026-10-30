@@ -11,6 +11,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const platformAcknowledgeUncertainScheduledSend = `-- name: PlatformAcknowledgeUncertainScheduledSend :one
+UPDATE mailbox_scheduled_sends SET status='cancelled',smtp_secret='',sent_raw=NULL,sent_raw_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SCHEDULE_UNCERTAIN_ACKNOWLEDGED',updated_at=now()
+WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND status IN('uncertain','held') RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
+`
+
+type PlatformAcknowledgeUncertainScheduledSendParams struct {
+	TenantID  int64 `json:"tenant_id"`
+	MailboxID int64 `json:"mailbox_id"`
+	ID        int64 `json:"id"`
+}
+
+func (q *Queries) PlatformAcknowledgeUncertainScheduledSend(ctx context.Context, arg PlatformAcknowledgeUncertainScheduledSendParams) (MailboxScheduledSends, error) {
+	row := q.db.QueryRow(ctx, platformAcknowledgeUncertainScheduledSend, arg.TenantID, arg.MailboxID, arg.ID)
+	var i MailboxScheduledSends
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.MailboxID,
+		&i.DraftFolder,
+		&i.DraftUid,
+		&i.SendAt,
+		&i.Status,
+		&i.Attempts,
+		&i.LastError,
+		&i.SmtpSecret,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftUidvalidity,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+		&i.ClaimToken,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
+	)
+	return i, err
+}
+
 const platformBeginMailboxScheduledSendSubmission = `-- name: PlatformBeginMailboxScheduledSendSubmission :one
 UPDATE mailbox_scheduled_sends s SET status='submitting',updated_at=now()
 WHERE s.id=$1 AND s.claim_token=$2
@@ -19,7 +63,7 @@ WHERE s.id=$1 AND s.claim_token=$2
   JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
   WHERE m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
    AND m.status='active' AND t.status='active' AND d.status='active')
-RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state
+RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state, s.sent_raw_secret, s.copy_pending_since, s.copy_attempts, s.smtp_password_version
 `
 
 type PlatformBeginMailboxScheduledSendSubmissionParams struct {
@@ -52,16 +96,20 @@ func (q *Queries) PlatformBeginMailboxScheduledSendSubmission(ctx context.Contex
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
 
 const platformCancelMailboxScheduledSend = `-- name: PlatformCancelMailboxScheduledSend :one
 UPDATE mailbox_scheduled_sends
-SET status='cancelled',smtp_secret='',claim_token=claim_token+1,lease_until=NULL,
+SET status='cancelled',smtp_secret='',sent_raw_secret='',sent_raw=NULL,claim_token=claim_token+1,lease_until=NULL,
  updated_at=now(),last_error=NULL
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND status IN('pending','preparing','cancelled')
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformCancelMailboxScheduledSendParams struct {
@@ -95,6 +143,10 @@ func (q *Queries) PlatformCancelMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
@@ -114,7 +166,7 @@ UPDATE mailbox_scheduled_sends s
 SET status='preparing',attempts=s.attempts+1,claim_token=s.claim_token+1,
  lease_until=now()+interval '5 minutes',updated_at=now()
 FROM candidate c WHERE s.id=c.id
-RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state
+RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state, s.sent_raw_secret, s.copy_pending_since, s.copy_attempts, s.smtp_password_version
 `
 
 func (q *Queries) PlatformClaimMailboxScheduledSend(ctx context.Context) (MailboxScheduledSends, error) {
@@ -142,6 +194,10 @@ func (q *Queries) PlatformClaimMailboxScheduledSend(ctx context.Context) (Mailbo
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
@@ -150,12 +206,12 @@ const platformCreateMailboxScheduledSend = `-- name: PlatformCreateMailboxSchedu
 
 INSERT INTO mailbox_scheduled_sends(
  tenant_id,mailbox_id,draft_folder,draft_uid,draft_uidvalidity,send_at,next_attempt_at,
- status,smtp_secret,idempotency_key,request_hash
+ status,smtp_secret,idempotency_key,request_hash,smtp_password_version
 ) VALUES(
  $1,$2,$3,$4,
  $5,$6,$6,'pending',
- $7,$8,$9
-) RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+ $7,$8,$9,(SELECT md5(m.password_hash) FROM mailboxes m WHERE m.tenant_id=$1 AND m.id=$2)
+) RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformCreateMailboxScheduledSendParams struct {
@@ -206,16 +262,20 @@ func (q *Queries) PlatformCreateMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
 
 const platformFinishMailboxScheduledSend = `-- name: PlatformFinishMailboxScheduledSend :one
 UPDATE mailbox_scheduled_sends
-SET status=$1,smtp_secret='',last_error=$2,
+SET status=$1,smtp_secret='',sent_raw_secret=CASE WHEN $1::text='failed' THEN '' ELSE sent_raw_secret END,last_error=$2,
  lease_until=NULL,updated_at=now(),sent_at=CASE WHEN $1::text='sent' THEN now() ELSE sent_at END
 WHERE id=$3 AND claim_token=$4 AND status=$5
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformFinishMailboxScheduledSendParams struct {
@@ -257,12 +317,16 @@ func (q *Queries) PlatformFinishMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
 
 const platformGetMailboxScheduledSend = `-- name: PlatformGetMailboxScheduledSend :one
-SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state FROM mailbox_scheduled_sends
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version FROM mailbox_scheduled_sends
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3
 `
 
@@ -297,6 +361,10 @@ func (q *Queries) PlatformGetMailboxScheduledSend(ctx context.Context, arg Platf
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
@@ -322,7 +390,7 @@ func (q *Queries) PlatformGetMailboxScheduledSendAddress(ctx context.Context, ar
 }
 
 const platformGetMailboxScheduledSendByKey = `-- name: PlatformGetMailboxScheduledSendByKey :one
-SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state FROM mailbox_scheduled_sends
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version FROM mailbox_scheduled_sends
 WHERE tenant_id=$1 AND mailbox_id=$2 AND idempotency_key=$3
 `
 
@@ -357,12 +425,16 @@ func (q *Queries) PlatformGetMailboxScheduledSendByKey(ctx context.Context, arg 
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
 
 const platformListMailboxScheduledSends = `-- name: PlatformListMailboxScheduledSends :many
-SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state FROM mailbox_scheduled_sends
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version FROM mailbox_scheduled_sends
 WHERE tenant_id=$1 AND mailbox_id=$2
 ORDER BY created_at DESC,id DESC
 LIMIT $4 OFFSET $3
@@ -411,6 +483,10 @@ func (q *Queries) PlatformListMailboxScheduledSends(ctx context.Context, arg Pla
 			&i.SentAt,
 			&i.SentRaw,
 			&i.SentCopyState,
+			&i.SentRawSecret,
+			&i.CopyPendingSince,
+			&i.CopyAttempts,
+			&i.SmtpPasswordVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -445,7 +521,7 @@ UPDATE mailbox_scheduled_sends
 SET status='pending',next_attempt_at=$1,last_error=$2,
  lease_until=NULL,updated_at=now()
 WHERE id=$3 AND claim_token=$4 AND status=$5
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformRequeueMailboxScheduledSendParams struct {
@@ -487,6 +563,10 @@ func (q *Queries) PlatformRequeueMailboxScheduledSend(ctx context.Context, arg P
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }

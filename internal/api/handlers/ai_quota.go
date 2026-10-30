@@ -243,6 +243,11 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
+	cfg, err = mailboxQuotaTarget(c, q, cfg, session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
 	if err = writeAIQuotaStatus(c, q, cfg, session.TenantID, session.MailboxID); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

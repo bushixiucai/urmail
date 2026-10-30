@@ -13,8 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
+	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
 const canceledStatus = "cancelled" //nolint:misspell // Keep the persisted API status.
@@ -265,11 +267,11 @@ func TestScheduleAcceptedCopyDurabilityAndOwnerFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := []byte("Message-ID: <durable-copy@fixture>\r\nFrom: team@example.test\r\n\r\naccepted payload\r\n")
-	accepted, err := q.PlatformAcceptMailboxScheduledSend(ctx, store.PlatformAcceptMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID, ClaimToken: claim.ClaimToken, SentRaw: raw})
+	accepted, err := q.PlatformAcceptMailboxScheduledSend(ctx, store.PlatformAcceptMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID, ClaimToken: claim.ClaimToken, SentRaw: []byte("enc:v1:" + string(raw))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.Status != "sent" || accepted.SentCopyState != "pending" || !bytes.Equal(accepted.SentRaw, raw) || !accepted.SentAt.Valid || accepted.SmtpSecret == "" {
+	if accepted.Status != "sent" || accepted.SentCopyState != "pending" || accepted.SentRawSecret != "enc:v1:"+string(raw) || !accepted.SentAt.Valid || accepted.SmtpSecret == "" {
 		t.Fatal("acceptance and repair payload not atomic")
 	}
 	if _, err = q.PlatformClaimOwnedScheduledSentCopy(ctx, store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: tenant + 100, MailboxID: mailbox, ID: original.ID}); !errors.Is(err, pgx.ErrNoRows) {
@@ -289,7 +291,7 @@ func TestScheduleAcceptedCopyDurabilityAndOwnerFence(t *testing.T) {
 		t.Fatal("old owner completed", err)
 	}
 	imap := &fakeIMAP{validity: 9, copyStored: true}
-	if err = RepairSentCopy(ctx, q, repair, imap); err != nil {
+	if err = RepairSentCopy(ctx, q, repair, imap, fakeSecrets{}); err != nil {
 		t.Fatal(err)
 	}
 	done, err := q.PlatformGetMailboxScheduledSend(ctx, store.PlatformGetMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
@@ -303,5 +305,73 @@ func TestScheduleAcceptedCopyDurabilityAndOwnerFence(t *testing.T) {
 	err = p.QueryRow(ctx, `SELECT NOT has_table_privilege('urmail_app','mailbox_scheduled_sends','SELECT')`).Scan(&denied)
 	if err != nil || !denied {
 		t.Fatal("app role can read temporary raw", err)
+	}
+}
+
+func TestScheduledSevenDayCopyDeadlineAndEncryptedLegacyUpgrade(t *testing.T) {
+	p, q, tenant, mailbox := scheduleDatabase(t)
+	ctx := t.Context()
+	original := createDueSchedule(t, q, tenant, mailbox, 91)
+	box, err := secrets.New(bytes.Repeat([]byte{6}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("Message-ID: <legacy-copy@fixture>\r\n\r\nretained legacy payload\r\n")
+	if _, err = p.Exec(ctx, `UPDATE mailbox_scheduled_sends SET status='sent',sent_raw=$1,sent_copy_state='unknown',sent_at=now()-interval '8 days',copy_pending_since=now()-interval '8 days',lease_until=NULL WHERE id=$2`, raw, original.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := q.PlatformGetMailboxScheduledSend(ctx, store.PlatformGetMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = SealLegacyCopies(ctx, p, box); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := q.PlatformGetMailboxScheduledSend(ctx, store.PlatformGetMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
+	if err != nil || len(sealed.SentRaw) != 0 || sealed.SentRawSecret == "" || sealed.CopyPendingSince != before.CopyPendingSince || sealed.SentCopyState != "unknown" {
+		t.Fatal("legacy sealing lost content, state or original deadline")
+	}
+	plain, err := box.DecryptString(sealed.SentRawSecret)
+	if err != nil || plain != string(raw) {
+		t.Fatal("legacy encryption changed retained bytes")
+	}
+	if n, err := q.PlatformHoldExpiredScheduledCopies(ctx); err != nil || n != 1 {
+		t.Fatal("seven-day scheduled copy not held", err)
+	}
+	if _, err = q.PlatformClaimScheduledSentCopy(ctx); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("expired scheduled copy still retried automatically")
+	}
+	held, err := q.PlatformClaimOwnedScheduledSentCopy(ctx, store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
+	if err != nil || held.SmtpSecret != "" || held.SentCopyState != "held" {
+		t.Fatal("expired scheduled credentials retained", err)
+	}
+	imap := &fakeIMAP{validity: 9, copyStored: true}
+	if err = RepairSentCopy(ctx, q, held, imap, box); err != nil {
+		t.Fatal(err)
+	}
+	complete, err := q.PlatformGetMailboxScheduledSend(ctx, store.PlatformGetMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: original.ID})
+	if err != nil || complete.SentCopyState != "complete" || complete.SentRawSecret != "" || complete.SmtpSecret != "" || complete.CopyPendingSince != before.CopyPendingSince || complete.SentAt != before.SentAt || imap.appendCalls != 0 {
+		t.Fatal("held manual repair reset deadline or retained encrypted material")
+	}
+}
+
+func TestScheduledCopyRevocationDuringFindCannotAppend(t *testing.T) {
+	p, q, tenant, mailbox := scheduleDatabase(t)
+	ctx := t.Context()
+	row := createDueSchedule(t, q, tenant, mailbox, 94)
+	imap := &fakeIMAP{validity: 9}
+	submit := &fakeSubmitter{}
+	imap.onFind = func() {
+		if _, err := p.Exec(ctx, `UPDATE mailboxes SET password_hash='changed-during-scheduled-copy' WHERE tenant_id=$1 AND id=$2`, tenant, mailbox); err != nil {
+			t.Fatal(err)
+		}
+	}
+	worker := NewWorker(Options{Store: q, Secrets: fakeSecrets{plain: "password"}, Dialer: fakeDialer{imap}, Submitter: submit})
+	if _, err := worker.Step(ctx); !errors.Is(err, webmail.ErrSentCopyPending) {
+		t.Fatalf("revoked scheduled copy error=%v", err)
+	}
+	current, err := q.PlatformGetMailboxScheduledSend(ctx, store.PlatformGetMailboxScheduledSendParams{TenantID: tenant, MailboxID: mailbox, ID: row.ID})
+	if err != nil || current.Status != "sent" || current.SentCopyState != "held" || current.SmtpSecret != "" || current.SentRawSecret == "" || imap.appendCalls != 0 || imap.deleted || submit.calls != 1 {
+		t.Fatal("revoked scheduled copy appended, resent or lost recovery material")
 	}
 }

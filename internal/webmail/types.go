@@ -1,6 +1,10 @@
 package webmail
 
-import "time"
+import (
+	"time"
+
+	"github.com/bushixiucai/urmail/internal/mailauth"
+)
 
 // ListOpts controls UID listing pagination, optional SEARCH, server-side or
 // fallback sorting, and optional thread grouping.
@@ -59,12 +63,15 @@ type Address struct {
 
 // MessageSummary is the envelope row for a folder listing.
 type MessageSummary struct {
-	UID     uint32    `json:"uid"`
-	Subject string    `json:"subject"`
-	From    []Address `json:"from"`
-	Date    time.Time `json:"date"`
-	Flags   []string  `json:"flags"`
-	Size    int64     `json:"size"`
+	// UIDValidity belongs to the source mailbox, including cross-folder results.
+	UIDValidity    uint32    `json:"uid_validity"`
+	HasAttachments bool      `json:"has_attachments"`
+	UID            uint32    `json:"uid"`
+	Subject        string    `json:"subject"`
+	From           []Address `json:"from"`
+	Date           time.Time `json:"date"`
+	Flags          []string  `json:"flags"`
+	Size           int64     `json:"size"`
 	// MessageID / InReplyTo come from ENVELOPE and feed client-side threading.
 	MessageID string `json:"message_id,omitempty"`
 	InReplyTo string `json:"in_reply_to,omitempty"`
@@ -99,6 +106,7 @@ type ListResult struct {
 
 // AttachmentMeta describes a non-inline MIME part (download endpoint optional).
 type AttachmentMeta struct {
+	Inline      bool   `json:"inline,omitempty"`
 	PartID      string `json:"part_id"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
@@ -110,6 +118,7 @@ type AttachmentMeta struct {
 
 // Message is a single message body view for the lean inbox.
 type Message struct {
+	Authentication mailauth.Result `json:"authentication"`
 	MessageSummary
 	UIDValidity uint32           `json:"uid_validity"`
 	To          []Address        `json:"to,omitempty"`
@@ -130,7 +139,10 @@ type Message struct {
 // Outgoing is a basic SMTP submission payload.
 type Outgoing struct {
 	// MessageID is an optional stable tracking identity, never a delivery deduplication guarantee.
-	MessageID   string
+	MessageID string
+	Date      time.Time
+	// Raw freezes the exact SMTP DATA bytes before a durable submission intention.
+	Raw         []byte
 	InReplyTo   string
 	References  string
 	From        string

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/mailauth"
 )
 
 // ErrDialFailed is returned when the IMAP endpoint cannot be reached or
@@ -63,8 +64,9 @@ type Dialer interface {
 
 // NetDialer dials a loopback IMAP listener with LOGIN + LIST.
 type NetDialer struct {
-	Addr    string
-	Timeout time.Duration
+	AuthenticationSecrets mailauth.Secrets
+	Addr                  string
+	Timeout               time.Duration
 	// TLS wraps the TCP connection (IMAPS). When nil, TLS is used automatically
 	// for :993. ServerName defaults to the dial host; set InsecureSkipVerify for
 	// loopback Dovecot with a hostname cert (box.urmail.cn).
@@ -125,7 +127,7 @@ func (d NetDialer) Dial(ctx context.Context, address, password string) (Client, 
 		conn = tlsConn
 	}
 	_ = conn.SetDeadline(time.Now().Add(timeout))
-	c := &imapConn{conn: conn, r: bufio.NewReader(conn), tag: 0, timeout: timeout}
+	c := &imapConn{conn: conn, r: bufio.NewReader(conn), tag: 0, timeout: timeout, authenticationSecrets: d.AuthenticationSecrets}
 	finishGreeting := c.guardIO(ctx)
 	err = c.readGreeting()
 	finishGreeting()
@@ -142,12 +144,13 @@ func (d NetDialer) Dial(ctx context.Context, address, password string) (Client, 
 }
 
 type imapConn struct {
-	conn                net.Conn
-	r                   *bufio.Reader
-	tag                 int
-	timeout             time.Duration
-	validities          map[string]uint32
-	selectedUIDValidity uint32
+	authenticationSecrets mailauth.Secrets
+	conn                  net.Conn
+	r                     *bufio.Reader
+	tag                   int
+	timeout               time.Duration
+	validities            map[string]uint32
+	selectedUIDValidity   uint32
 }
 
 func (c *imapConn) nextTag() string {

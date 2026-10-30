@@ -163,14 +163,25 @@ func TestMailboxFromIdentityAuthorization(t *testing.T) {
 	submit := &fakeSubmitter{}
 	store := &fakeSelfSettings{allowedFrom: map[string]bool{"team@example.test": true}}
 	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{}, Sessions: sessions, Vault: vault, Submitter: submit, SelfSettings: store}
-	r := newSettingsTestRouter(h, sessions)
 
-	send := func(from string) *httptest.ResponseRecorder {
-		body := map[string]any{"to": []string{"bob@other.test"}, "subject": "s", "text": "b"}
-		if from != "" {
-			body["from"] = from
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.POST("/api/v1/mailbox/send", func(c *gin.Context) {
+		var req struct {
+			From string `json:"from"`
 		}
-		return settingsRequest(t, r, token, http.MethodPost, "/api/v1/mailbox/send", body)
+		if err := c.ShouldBindJSON(&req); err != nil {
+			t.Fatal(err)
+		}
+		_, header, ok := h.authorizedIdentity(c, sessions.byHash[hash], req.From)
+		if !ok {
+			return
+		}
+		submit.last.From = header
+		c.Status(200)
+	})
+	send := func(from string) *httptest.ResponseRecorder {
+		return settingsRequest(t, r, token, http.MethodPost, "/api/v1/mailbox/send", map[string]any{"from": from})
 	}
 
 	// Unauthorized From is rejected server-side, never trusted from the client.

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/mailboxsend"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -130,15 +132,51 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 	if _, _, ok := h.authorizedIdentity(c, session, outgoing.From); !ok {
 		return
 	}
-	sealed, err := h.Secrets.EncryptString(password)
+	sealed, err := mailboxsend.Seal(h.Secrets, password)
 	if err != nil || sealed == "" {
 		authError(c, http.StatusServiceUnavailable, "WEBMAIL_DISABLED")
 		return
 	}
-	row, err := q.PlatformCreateMailboxScheduledSend(c.Request.Context(), store.PlatformCreateMailboxScheduledSendParams{
+	tx, err := h.Pool.Begin(c.Request.Context())
+	if err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	lockedQ := store.New(tx)
+	if err = mailboxsend.LockDraft(c, lockedQ, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: req.DraftUID, Validity: validity}); err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	locked, err := lockedQ.PlatformDraftSendLocked(c, store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID), DraftUidvalidity: int64(validity)})
+	if err != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	if locked.Bool {
+		if replay, e := lockedQ.PlatformGetMailboxScheduledSendByKey(c.Request.Context(), keyArg); e == nil {
+			h.returnScheduleReplay(c, replay, digest)
+			return
+		}
+		authError(c, 409, "DRAFT_SEND_LOCKED")
+		return
+	}
+	// Autosave may have replaced the source while the first IMAP read was in flight.
+	if current, e := client.FolderUIDValidity(c.Request.Context(), folder); e != nil || current != validity {
+		authError(c, 409, "DRAFT_CHANGED")
+		return
+	}
+	if _, e := client.GetMessage(c.Request.Context(), folder, req.DraftUID); e != nil {
+		authError(c, 409, "DRAFT_CHANGED")
+		return
+	}
+	row, err := lockedQ.PlatformCreateMailboxScheduledSend(c.Request.Context(), store.PlatformCreateMailboxScheduledSendParams{
 		TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID),
 		DraftUidvalidity: int64(validity), SendAt: pgtype.Timestamptz{Time: sendAt, Valid: true}, SmtpSecret: sealed, IdempotencyKey: key, RequestHash: digest,
 	})
+	if err != nil {
+		_ = tx.Rollback(context.Background())
+	}
 	if err != nil {
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.Code == "23505" {
@@ -155,6 +193,10 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 			return
 		}
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	if err = tx.Commit(c.Request.Context()); err != nil {
+		authError(c, 503, "DB_ERROR")
 		return
 	}
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": session.MailboxID, "schedule_id": row.ID})
@@ -271,4 +313,38 @@ func scheduledSendJSON(v store.MailboxScheduledSends) gin.H {
 		out["last_error"] = v.LastError.String
 	}
 	return out
+}
+
+// AcknowledgeUncertainScheduledSend releases only an explicitly reviewed uncertain attempt.
+func (h *MailboxNativeHandler) AcknowledgeUncertainScheduledSend(c *gin.Context) {
+	if !h.requireEnabled(c) {
+		return
+	}
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok {
+		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	if h.Pool == nil {
+		authError(c, 503, "WEBMAIL_DISABLED")
+		return
+	}
+	id, e := strconv.ParseInt(c.Param("id"), 10, 64)
+	var req struct {
+		Confirmed bool `json:"confirmed"`
+	}
+	if e != nil || id <= 0 || c.ShouldBindJSON(&req) != nil || !req.Confirmed {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	row, e := store.New(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(c, store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	if errors.Is(e, pgx.ErrNoRows) {
+		authError(c, 409, "SCHEDULE_CONFLICT")
+		return
+	}
+	if e != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	c.JSON(200, scheduledSendJSON(row))
 }

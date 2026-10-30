@@ -239,7 +239,7 @@ func (h *MailboxNativeHandler) transferMessages(c *gin.Context, operation string
 	if !h.transferJournal(c, key, digest, false) {
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
@@ -301,10 +301,26 @@ func (h *MailboxNativeHandler) transferMessages(c *gin.Context, operation string
 			}
 		}
 	}
+	// Persist the operation intent before holding the source-draft transaction.
+	// Journal commits must never wait for a second pool connection while that
+	// same request occupies a transaction-scoped submission lock.
 	if !h.transferJournal(c, key, digest, true) {
 		return
 	}
+	release, guarded := h.guardDraftMutation(c, client, session, folder, req.UIDValidity, req.UIDs, operation == "trash", folders)
+	if !guarded {
+		failed := webmail.TransferResult{Destination: destination, Results: make([]webmail.TransferItem, 0, len(req.UIDs))}
+		for _, uid := range req.UIDs {
+			failed.Results = append(failed.Results, webmail.TransferItem{UID: uid, Status: "failed", Code: "DRAFT_MUTATION_REJECTED"})
+		}
+		_ = h.finishTransferJournal(c, key, digest, failed, true)
+		return
+	}
+	defer release()
 	result, err := manager.TransferMessages(c.Request.Context(), folder, req.UIDs, destination, operation != "copy")
+	// The IMAP side effect is complete or unknown now. Release the source lock
+	// before independently recording its outcome, including on a single-slot pool.
+	release()
 	certain := err == nil
 	for _, item := range result.Results {
 		if item.Status == "unknown" {

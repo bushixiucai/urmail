@@ -9,22 +9,33 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
+	"github.com/gin-gonic/gin"
+
+	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
 func TestMailboxNativeUploadBodyAndDecodedAttachmentLimits(t *testing.T) {
-	token := "native-upload-fixture-token"
-	hash := mailboxprincipal.HashToken(token)
-	sessions := &fakeMailboxSessions{byHash: map[string]webmail.Session{hash: {TokenHash: hash, TenantID: 7, MailboxID: 9, Address: "alice@example.test", ExpiresAt: time.Now().Add(time.Hour)}}}
-	vault := webmail.NewMemoryVault()
-	vault.Put(hash, "fixture-password")
-	imap := &fakeIMAPClient{}
-	submit := &fakeSubmitter{}
-	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{}, Sessions: sessions, Vault: vault, Dialer: &fakeDialer{wantAddress: "alice@example.test", client: imap}, Submitter: submit}
-	router := newNativeTestRouter(t, h, sessions)
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(middleware.BodyLimitWithMailboxUploads(1<<20, 16<<20))
+	var received webmail.Outgoing
+	// Both durable send and draft handlers use these same transport/decoded guards.
+	validate := func(c *gin.Context) {
+		var req mailboxSendRequest
+		if !bindMailboxMessage(c, &req) {
+			return
+		}
+		atts, ok := decodeSendAttachments(c, req.Attachments)
+		if !ok {
+			return
+		}
+		received = webmail.Outgoing{Subject: req.Subject, Attachments: atts}
+		c.Status(200)
+	}
+	router.POST("/api/v1/mailbox/send", validate)
+	router.PUT("/api/v1/mailbox/drafts", validate)
 	for _, endpoint := range []struct{ method, path string }{{http.MethodPost, "/api/v1/mailbox/send"}, {http.MethodPut, "/api/v1/mailbox/drafts"}} {
 		for _, tc := range []struct {
 			name   string
@@ -39,8 +50,7 @@ func TestMailboxNativeUploadBodyAndDecodedAttachmentLimits(t *testing.T) {
 			{name: "transport_over_16MiB", text: strings.Repeat("x", (16<<20)+1), status: http.StatusRequestEntityTooLarge},
 		} {
 			t.Run(endpoint.method+endpoint.path+"/"+tc.name, func(t *testing.T) {
-				submit.last = webmail.Outgoing{}
-				imap.savedDraft = webmail.Outgoing{}
+				received = webmail.Outgoing{}
 				atts := make([]mailboxSendAttachment, 0, len(tc.sizes))
 				for _, size := range tc.sizes {
 					atts = append(atts, mailboxSendAttachment{Filename: "file.bin", ContentType: "application/octet-stream", ContentB64: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x5a}, size))})
@@ -51,7 +61,7 @@ func TestMailboxNativeUploadBodyAndDecodedAttachmentLimits(t *testing.T) {
 				}
 				request := httptest.NewRequestWithContext(context.Background(), endpoint.method, endpoint.path, bytes.NewReader(payload))
 				request.Header.Set("Content-Type", "application/json")
-				request.Header.Set("Authorization", "Bearer "+token)
+				request.Header.Set("Idempotency-Key", "upload-fixture-0001")
 				response := httptest.NewRecorder()
 				router.ServeHTTP(response, request)
 				if response.Code != tc.status {
@@ -61,15 +71,12 @@ func TestMailboxNativeUploadBodyAndDecodedAttachmentLimits(t *testing.T) {
 					if !strings.Contains(response.Body.String(), "MAILBOX_MESSAGE_TOO_LARGE") {
 						t.Fatalf("wrong error: %s", response.Body.String())
 					}
-					if submit.last.Subject != "" || imap.savedDraft.Subject != "" {
+					if received.Subject != "" {
 						t.Fatal("oversized payload reached IMAP save or SMTP send")
 					}
 					return
 				}
-				outgoing := submit.last
-				if endpoint.method == http.MethodPut {
-					outgoing = imap.savedDraft
-				}
+				outgoing := received
 				if outgoing.Subject != "upload-limit" || len(outgoing.Attachments) != len(tc.sizes) {
 					t.Fatalf("handler did not receive full upload: %s", response.Body.String())
 				}

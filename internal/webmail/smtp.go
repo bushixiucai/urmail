@@ -2,10 +2,13 @@ package webmail
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -173,7 +176,25 @@ func uniqueAddrs(in []string) []string {
 
 // BuildMIME renders an RFC822 message for SMTP DATA (no Bcc header).
 func BuildMIME(from string, msg Outgoing) string {
-	return buildMIME(from, msg, false)
+	if len(msg.Raw) > 0 {
+		return string(msg.Raw)
+	}
+	return canonicalSMTPPayload(buildMIME(from, FreezeOutgoing(msg), false))
+}
+
+// FreezeOutgoing assigns immutable message identity before persistence or SMTP.
+func FreezeOutgoing(msg Outgoing) Outgoing {
+	if msg.Date.IsZero() {
+		msg.Date = time.Now().UTC()
+	}
+	if msg.MessageID == "" {
+		var identity [16]byte
+		if _, err := rand.Read(identity[:]); err != nil {
+			panic("message identity entropy unavailable")
+		}
+		msg.MessageID = "<urmail-" + hex.EncodeToString(identity[:]) + "@localhost>"
+	}
+	return msg
 }
 
 // BuildDraftMIME is BuildMIME plus a Bcc header so drafts can resume recipients.
@@ -181,7 +202,23 @@ func BuildDraftMIME(from string, msg Outgoing) string {
 	if msg.From != "" {
 		from = msg.From
 	}
-	return buildMIME(from, msg, true)
+	return canonicalSMTPPayload(buildMIME(from, FreezeOutgoing(msg), true))
+}
+
+// canonicalSMTPPayload matches SMTP DATA newline handling before hashing or APPEND.
+func canonicalSMTPPayload(raw string) string {
+	var b strings.Builder
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '\n' && (i == 0 || raw[i-1] != '\r') {
+			b.WriteByte('\r')
+		}
+		b.WriteByte(raw[i])
+	}
+	result := b.String()
+	if !strings.HasSuffix(result, "\r\n") {
+		result += "\r\n"
+	}
+	return result
 }
 
 func buildMIME(from string, msg Outgoing, includeBcc bool) string {
@@ -194,6 +231,7 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 		b.WriteString(v)
 		b.WriteString("\r\n")
 	}
+	writeHeader("Date", msg.Date.Format(time.RFC1123Z))
 	writeHeader("From", from)
 	if len(msg.To) > 0 {
 		writeHeader("To", strings.Join(msg.To, ", "))
@@ -204,7 +242,7 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 	if includeBcc && len(msg.Bcc) > 0 {
 		writeHeader("Bcc", strings.Join(msg.Bcc, ", "))
 	}
-	writeHeader("Subject", msg.Subject)
+	writeHeader("Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
 	id := strings.TrimSpace(msg.MessageID)
 	if strings.HasPrefix(id, "<") && strings.HasSuffix(id, ">") && strings.Contains(id, "@") && !strings.ContainsAny(id, "\r\n\t ") {
 		writeHeader("Message-ID", id)
@@ -234,9 +272,12 @@ func buildMIME(from string, msg Outgoing, includeBcc bool) string {
 		writeBodyPart(&b, hasText, hasHTML, msg)
 		for _, att := range msg.Attachments {
 			b.WriteString("--" + boundary + "\r\n")
-			ct := att.ContentType
-			if ct == "" {
+			ct, params, ctErr := mime.ParseMediaType(att.ContentType)
+			if ctErr != nil || strings.ContainsAny(ct, "\r\n") {
 				ct = "application/octet-stream"
+			} else {
+				delete(params, "name")
+				ct = mime.FormatMediaType(ct, params)
 			}
 			name := att.Filename
 			if name == "" {

@@ -65,6 +65,19 @@ func aiCost(input, output, inputRate, outputRate int64) (int64, error) {
 
 // Run serializes reservation and caches one exact mailbox operation.
 func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, expectedConfiguration ...string) (json.RawMessage, error) {
+	return s.run(ctx, principal, key, input, nil, expectedConfiguration...)
+}
+
+// RunCustom uses the same durable intent, reservation and settlement ledger as
+// managed AI, with zero platform cost and the tenant's nonplatform governance.
+func (s *MailboxAIService) RunCustom(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, target *userAICustomConfig, expected string) (json.RawMessage, error) {
+	if target == nil {
+		return nil, errAITargetChanged
+	}
+	return s.run(ctx, principal, key, input, target, expected)
+}
+
+func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, custom *userAICustomConfig, expectedConfiguration ...string) (json.RawMessage, error) {
 	if s == nil || s.Pool == nil || len(key) < 16 || len(key) > 200 {
 		return nil, ai.ErrProviderDisabled
 	}
@@ -100,6 +113,16 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	if err = q.PlatformExpireAIReservations(ctx, principal.TenantID); err != nil {
 		return nil, err
 	}
+	cfg, configurationErr := q.PlatformGetAIProvider(ctx, principal.TenantID)
+	if custom != nil {
+		if configurationErr != nil || !cfg.Enabled {
+			return nil, ai.ErrProviderDisabled
+		}
+		cfg, err = customAIConfiguration(ctx, q, cfg, principal.TenantID, principal.MailboxID, custom, targetDigest)
+		if err != nil {
+			return nil, err
+		}
+	}
 	existing, lookup := q.PlatformGetAIRequest(ctx, store.PlatformGetAIRequestParams{TenantID: principal.TenantID, RequestKey: key})
 	if lookup == nil {
 		if existing.InputDigest != hash || existing.MailboxID != principal.MailboxID {
@@ -116,14 +139,13 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 	if !errors.Is(lookup, pgx.ErrNoRows) {
 		return nil, lookup
 	}
-	cfg, err := q.PlatformGetAIProvider(ctx, principal.TenantID)
-	if err != nil || !cfg.Enabled {
+	if configurationErr != nil || !cfg.Enabled {
 		return nil, ai.ErrProviderDisabled
 	}
 	if targetDigest != "" && targetDigest != cfg.ConfigurationDigest {
 		return nil, errAITargetChanged
 	}
-	if cfg.Provider != "ollama" {
+	if custom == nil && cfg.Provider != "ollama" {
 		if targetDigest == "" || cfg.CloudScopeHash != AICloudScopeHash {
 			return nil, errAIConsent
 		}
@@ -169,9 +191,16 @@ func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformCons
 		return nil, err
 	}
 	var provider ai.Provider
-	if s.Provider != nil {
+	switch {
+	case s.Provider != nil:
 		provider, err = s.Provider(cfg)
-	} else {
+	case custom != nil:
+		if cfg.Provider == ai.ProviderOllama {
+			provider, err = ai.ConfiguredProvider(cfg.Provider, cfg.Endpoint, cfg.Model, "", nil, s.LocalEndpoints)
+		} else {
+			provider, err = ai.DynamicProvider(cfg.Provider, cfg.Endpoint, cfg.Model, custom.APIKey)
+		}
+	default:
 		credential := ""
 		if cfg.Provider != "ollama" {
 			if s.Secrets == nil {

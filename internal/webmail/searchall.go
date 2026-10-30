@@ -61,6 +61,7 @@ func SearchAll(ctx context.Context, client FolderLister, q string, folders []str
 			continue // best-effort per folder
 		}
 		for _, m := range res.Messages {
+			m.UIDValidity = res.UIDValidity
 			m.Folder = name
 			m.FolderEnc = EncodeFolderName(name)
 			merged = append(merged, m)

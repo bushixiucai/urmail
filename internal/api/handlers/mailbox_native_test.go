@@ -439,25 +439,10 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	if w.Code != http.StatusOK || !imap.expunged {
 		t.Fatalf("delete %d expunge=%v", w.Code, imap.expunged)
 	}
-	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{
-		"to": []string{"bob@example.test"}, "subject": "Hi", "text": "body",
-	})
-	if w.Code != http.StatusOK || submit.last.Subject != "Hi" {
-		t.Fatalf("send %d %#v", w.Code, submit.last)
-	}
-	calls := submit.calls
-	h.MaySend = func(context.Context, int64, int64) (bool, error) { return false, nil }
-	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{"to": []string{"bob@example.test"}, "text": "blocked"})
-	if w.Code != http.StatusForbidden || !bytes.Contains(w.Body.Bytes(), []byte("MAIL_SENDING_SUSPENDED")) || submit.calls != calls {
-		t.Fatalf("suspended %d calls=%d %s", w.Code, submit.calls, w.Body.String())
-	}
-	h.MaySend = func(context.Context, int64, int64) (bool, error) { return true, nil }
-	submit.err = fmt.Errorf("acceptance reply lost: %w", webmail.ErrSubmitUncertain)
-	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{
-		"to": []string{"bob@example.test"}, "text": "do not blindly repeat",
-	})
-	if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("MAILBOX_SEND_UNCERTAIN")) {
-		t.Fatalf("uncertain SMTP result %d %s", w.Code, w.Body.String())
+	// Without durable receipt storage a send must fail before SMTP.
+	w = auth(http.MethodPost, "/api/v1/mailbox/send", map[string]any{"to": []string{"bob@example.test"}, "text": "body"})
+	if w.Code != http.StatusServiceUnavailable || submit.calls != 0 {
+		t.Fatalf("send without durable store: status=%d calls=%d", w.Code, submit.calls)
 	}
 	for _, failure := range []struct {
 		err    error
@@ -475,7 +460,7 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	}
 }
 
-func TestMailboxNativeDraftsSaveListDelete(t *testing.T) {
+func TestMailboxNativeDraftsRequireDurableJournal(t *testing.T) {
 	loginAttempts = newLoginLimiter()
 	password := "correct-horse-battery"
 	hash, err := domainMail.HashPassword(password)
@@ -520,62 +505,17 @@ func TestMailboxNativeDraftsSaveListDelete(t *testing.T) {
 		return w
 	}
 
-	w := auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{
-		"to": []string{"bob@example.test"}, "subject": "Draft hi", "text": "body",
-		"attachments": []map[string]string{{
-			"filename": "a.txt", "content_type": "text/plain",
-			"content_base64": "aGVsbG8=",
-		}},
-	})
-	if w.Code != http.StatusOK {
-		t.Fatalf("save draft %d %s", w.Code, w.Body.String())
+	w := auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"to": []string{"bob@example.test"}, "text": "body"})
+	if w.Code != http.StatusBadRequest || imap.savedDraft.Text != "" {
+		t.Fatalf("missing save identity must not append: %d %s", w.Code, w.Body.String())
 	}
-	if imap.savedDraft.Subject != "Draft hi" || len(imap.savedDraft.Attachments) != 1 {
-		t.Fatalf("saved=%#v", imap.savedDraft)
-	}
-	var saved struct {
-		UID         uint32 `json:"uid"`
-		Folder      string `json:"folder"`
-		UIDValidity uint32 `json:"uid_validity"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil || saved.UID != 101 || saved.Folder != "Drafts" || saved.UIDValidity != 9 {
-		t.Fatalf("save body=%s", w.Body.String())
-	}
-
-	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{
-		"uid": saved.UID, "uid_validity": saved.UIDValidity, "subject": "Draft hi 2", "text": "updated",
-	})
-	if w.Code != http.StatusOK || imap.replaceUID != 101 || !imap.expunged {
-		t.Fatalf("replace %d replaceUID=%d expunge=%v body=%s", w.Code, imap.replaceUID, imap.expunged, w.Body.String())
-	}
-
 	w = auth(http.MethodGet, "/api/v1/mailbox/drafts?limit=10", nil)
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"Draft hi"`)) {
 		t.Fatalf("list %d %s", w.Code, w.Body.String())
 	}
-
 	w = auth(http.MethodDelete, "/api/v1/mailbox/drafts/101?uid_validity=9", nil)
-	if w.Code != http.StatusOK || len(imap.deleted) != 1 || imap.deleted[0] != 101 {
-		t.Fatalf("delete %d deleted=%v", w.Code, imap.deleted)
-	}
-	imap.deleted = nil
-	w = auth(http.MethodDelete, "/api/v1/mailbox/drafts/101?uid_validity=10", nil)
-	if w.Code != http.StatusConflict || len(imap.deleted) != 0 {
-		t.Fatalf("stale draft deletion %d deleted=%v", w.Code, imap.deleted)
-	}
-	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"uid": 102, "uid_validity": 10, "text": "stale"})
-	if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("DRAFT_CHANGED")) {
-		t.Fatalf("stale draft save %d %s", w.Code, w.Body.String())
-	}
-	imap.draftErr = webmail.ErrDraftUncertain
-	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"text": "unconfirmed"})
-	if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("DRAFT_SAVE_UNCERTAIN")) {
-		t.Fatalf("uncertain draft %d %s", w.Code, w.Body.String())
-	}
-	imap.draftErr, imap.cleanupPending = nil, true
-	w = auth(http.MethodPut, "/api/v1/mailbox/drafts", map[string]any{"text": "saved new copy"})
-	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"cleanup_pending":true`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"uid_validity":9`)) {
-		t.Fatalf("partial cleanup %d %s", w.Code, w.Body.String())
+	if w.Code != http.StatusServiceUnavailable || len(imap.deleted) != 0 {
+		t.Fatalf("missing journal must not delete: %d %s", w.Code, w.Body.String())
 	}
 }
 

@@ -1,7 +1,6 @@
 package mailboxschedule
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -21,13 +20,14 @@ func (f *fakeStore) PlatformAcceptMailboxScheduledSend(_ context.Context, p stor
 		return store.MailboxScheduledSends{}, pgx.ErrNoRows
 	}
 	f.row.Status = "sent"
-	f.row.SentRaw = append([]byte(nil), p.SentRaw...)
+	f.row.SentRawSecret = string(p.SentRaw)
+	f.row.SentRaw = nil
 	f.row.SentCopyState = "pending"
 	f.row.LastError = pgtype.Text{String: "SENT_COPY_PENDING", Valid: true}
 	return f.row, nil
 }
 func (f *fakeStore) PlatformClaimScheduledSentCopy(context.Context) (store.MailboxScheduledSends, error) {
-	if f.row.Status != "sent" || len(f.row.SentRaw) == 0 || f.row.SentCopyState == "held" {
+	if f.row.Status != "sent" || len(f.row.SentRawSecret) == 0 || f.row.SentCopyState == "held" {
 		return store.MailboxScheduledSends{}, pgx.ErrNoRows
 	}
 	f.row.ClaimToken++
@@ -46,6 +46,7 @@ func (f *fakeStore) PlatformCompleteScheduledSentCopy(_ context.Context, p store
 	}
 	f.row.SentCopyState = "complete"
 	f.row.SentRaw = nil
+	f.row.SentRawSecret = ""
 	f.row.SmtpSecret = ""
 	f.row.LastError = pgtype.Text{}
 	return f.row, nil
@@ -54,6 +55,9 @@ func (*fakeStore) PlatformDeferScheduledSentCopy(context.Context, store.Platform
 	return nil
 }
 func (f *fakeIMAP) FindSentCopy(context.Context, []byte) (webmail.DraftSaveResult, bool, error) {
+	if f.onFind != nil {
+		f.onFind()
+	}
 	return webmail.DraftSaveResult{}, f.copyStored, f.findErr
 }
 
@@ -64,7 +68,7 @@ func TestAcceptedScheduledSentCopyRecoveryNeverResubmits(t *testing.T) {
 	if _, err := w.Step(t.Context()); !errors.Is(err, webmail.ErrSentCopyPending) {
 		t.Fatalf("expected pending: %v", err)
 	}
-	if st.row.Status != "sent" || st.row.SentCopyState != "unknown" || !bytes.Equal(st.row.SentRaw, []byte("raw")) || imap.deleted || submit.calls != 1 || imap.appendCalls != 1 {
+	if st.row.Status != "sent" || st.row.SentCopyState != "unknown" || st.row.SentRawSecret == "" || imap.deleted || submit.calls != 1 || imap.appendCalls != 1 {
 		t.Fatal("accepted payload not preserved safely")
 	}
 	imap.appendErr = nil
@@ -81,7 +85,7 @@ func TestScheduledSentCopySearchFailureDoesNotBlindlyAppend(t *testing.T) {
 	if _, err := w.Step(t.Context()); !errors.Is(err, webmail.ErrSentCopyPending) {
 		t.Fatal(err)
 	}
-	if st.row.Status != "sent" || len(st.row.SentRaw) == 0 || imap.appendCalls != 0 || imap.deleted || submit.calls != 1 {
+	if st.row.Status != "sent" || len(st.row.SentRawSecret) == 0 || imap.appendCalls != 0 || imap.deleted || submit.calls != 1 {
 		t.Fatal("incomplete reconciliation appended or lost accepted data")
 	}
 	imap.findErr = nil

@@ -65,7 +65,7 @@ func (h *MailboxNativeHandler) RepairScheduledSentCopy(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
 	defer cancel()
-	if err = mailboxschedule.RepairSentCopy(ctx, q, row, client); err != nil {
+	if err = mailboxschedule.RepairSentCopyWithAuthority(ctx, q, row, client, h.Secrets, h.copySessionAuthority(session)); err != nil {
 		authError(c, http.StatusConflict, "SENT_COPY_PENDING")
 		return
 	}

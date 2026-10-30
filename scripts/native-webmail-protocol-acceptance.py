@@ -64,7 +64,9 @@ def main():
               "tls_scope": "self-signed fixture CA explicitly trusted by IMAP test; not public PKI",
               "source_files_sha256": {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted([*root.glob("internal/webmail/*.go"), *root.glob("internal/api/handlers/mailbox_native*.go"),
-                                      *root.glob("internal/mailboxschedule/*.go"), *root.glob("migrations/*.sql"),
+                                      *root.glob("internal/mailboxschedule/*.go"), *root.glob("internal/mailboxsend/*.go"),
+                                      *root.glob("internal/mailauth/*.go"), *root.glob("internal/store/queries/platform_mailbox*.sql"),
+                                      *root.glob("internal/store/platform_mailbox*.sql.go"), *root.glob("migrations/*.sql"),
                                       *root.glob("internal/archive/*.go"), *root.glob("internal/mail/frombind/*.go"),
                                       *root.glob("internal/mail/frommilter/*.go"), *root.glob("internal/api/middleware/*.go"),
                                       *root.glob("internal/domain/auth/*.go"), *root.glob("internal/domain/mail/password*.go"),

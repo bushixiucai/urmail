@@ -11,11 +11,11 @@ import (
 
 const platformAcceptMailboxScheduledSend = `-- name: PlatformAcceptMailboxScheduledSend :one
 UPDATE mailbox_scheduled_sends
-SET status='sent',sent_at=now(),sent_raw=$1,sent_copy_state='pending',
+SET status='sent',sent_at=now(),sent_raw=NULL,sent_raw_secret=convert_from($1::bytea,'UTF8'),sent_copy_state='pending',copy_pending_since=COALESCE(copy_pending_since,now()),
  last_error='SENT_COPY_PENDING',updated_at=now(),lease_until=now()+interval '2 minutes'
 WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$2 AND mailbox_id=$3
  AND id=$4 AND claim_token=$5 AND status='submitting'
-RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformAcceptMailboxScheduledSendParams struct {
@@ -57,15 +57,46 @@ func (q *Queries) PlatformAcceptMailboxScheduledSend(ctx context.Context, arg Pl
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
+}
+
+const platformAuthorizeScheduledCopy = `-- name: PlatformAuthorizeScheduledCopy :one
+SELECT r.id FROM mailbox_scheduled_sends r
+JOIN mailboxes m ON m.tenant_id=r.tenant_id AND m.id=r.mailbox_id
+JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
+WHERE r.tenant_id=$1 AND r.mailbox_id=$2 AND r.id=$3 AND r.claim_token=$4 AND r.status='sent' AND r.lease_until>now()
+AND NOT urmail_restore_quarantine_active() AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version
+`
+
+type PlatformAuthorizeScheduledCopyParams struct {
+	TenantID   int64 `json:"tenant_id"`
+	MailboxID  int64 `json:"mailbox_id"`
+	ID         int64 `json:"id"`
+	ClaimToken int64 `json:"claim_token"`
+}
+
+func (q *Queries) PlatformAuthorizeScheduledCopy(ctx context.Context, arg PlatformAuthorizeScheduledCopyParams) (int64, error) {
+	row := q.db.QueryRow(ctx, platformAuthorizeScheduledCopy,
+		arg.TenantID,
+		arg.MailboxID,
+		arg.ID,
+		arg.ClaimToken,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const platformClaimOwnedScheduledSentCopy = `-- name: PlatformClaimOwnedScheduledSentCopy :one
 UPDATE mailbox_scheduled_sends SET claim_token=claim_token+1,lease_until=now()+interval '2 minutes'
 WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$1 AND mailbox_id=$2 AND id=$3
- AND status='sent' AND sent_raw IS NOT NULL AND sent_copy_state IN('pending','unknown','held')
- AND (lease_until IS NULL OR lease_until<now()) RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+ AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'') AND sent_copy_state IN('pending','unknown','held')
+ AND (lease_until IS NULL OR lease_until<now()) RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformClaimOwnedScheduledSentCopyParams struct {
@@ -99,6 +130,10 @@ func (q *Queries) PlatformClaimOwnedScheduledSentCopy(ctx context.Context, arg P
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
@@ -106,12 +141,12 @@ func (q *Queries) PlatformClaimOwnedScheduledSentCopy(ctx context.Context, arg P
 const platformClaimScheduledSentCopy = `-- name: PlatformClaimScheduledSentCopy :one
 WITH candidate AS (
  SELECT id FROM mailbox_scheduled_sends
- WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND sent_raw IS NOT NULL AND sent_copy_state IN('pending','unknown')
- AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now())
+ WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'') AND sent_copy_state IN('pending','unknown')
+ AND copy_pending_since>now()-interval '7 days' AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now())
  ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1
 )
-UPDATE mailbox_scheduled_sends s SET claim_token=claim_token+1,lease_until=now()+interval '2 minutes'
-FROM candidate c WHERE s.id=c.id RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state
+UPDATE mailbox_scheduled_sends s SET claim_token=claim_token+1,lease_until=now()+interval '2 minutes',copy_attempts=copy_attempts+1
+FROM candidate c WHERE s.id=c.id RETURNING s.id, s.tenant_id, s.mailbox_id, s.draft_folder, s.draft_uid, s.send_at, s.status, s.attempts, s.last_error, s.smtp_secret, s.created_at, s.updated_at, s.draft_uidvalidity, s.idempotency_key, s.request_hash, s.claim_token, s.lease_until, s.next_attempt_at, s.sent_at, s.sent_raw, s.sent_copy_state, s.sent_raw_secret, s.copy_pending_since, s.copy_attempts, s.smtp_password_version
 `
 
 func (q *Queries) PlatformClaimScheduledSentCopy(ctx context.Context) (MailboxScheduledSends, error) {
@@ -139,15 +174,19 @@ func (q *Queries) PlatformClaimScheduledSentCopy(ctx context.Context) (MailboxSc
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
 
 const platformCompleteScheduledSentCopy = `-- name: PlatformCompleteScheduledSentCopy :one
-UPDATE mailbox_scheduled_sends SET sent_copy_state='complete',sent_raw=NULL,smtp_secret='',
+UPDATE mailbox_scheduled_sends SET sent_copy_state='complete',sent_raw=NULL,sent_raw_secret='',smtp_secret='',
  last_error=NULL,lease_until=NULL,updated_at=now()
 WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$1 AND mailbox_id=$2 AND id=$3
- AND claim_token=$4 AND status='sent' AND sent_raw IS NOT NULL RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+ AND claim_token=$4 AND lease_until>now() AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'') RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformCompleteScheduledSentCopyParams struct {
@@ -187,15 +226,19 @@ func (q *Queries) PlatformCompleteScheduledSentCopy(ctx context.Context, arg Pla
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
 }
 
 const platformDeferScheduledSentCopy = `-- name: PlatformDeferScheduledSentCopy :exec
-UPDATE mailbox_scheduled_sends SET lease_until=NULL,next_attempt_at=now()+interval '5 minutes',
+UPDATE mailbox_scheduled_sends SET lease_until=NULL,next_attempt_at=now()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(copy_attempts,7)))::int),sent_copy_state=CASE WHEN copy_pending_since<=now()-interval '7 days' OR smtp_secret='' THEN 'held' ELSE sent_copy_state END,smtp_secret=CASE WHEN copy_pending_since<=now()-interval '7 days' THEN '' ELSE smtp_secret END,
  last_error='SENT_COPY_PENDING',updated_at=now()
 WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$1 AND mailbox_id=$2 AND id=$3
- AND claim_token=$4 AND status='sent' AND sent_raw IS NOT NULL
+ AND claim_token=$4 AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'')
 `
 
 type PlatformDeferScheduledSentCopyParams struct {
@@ -215,11 +258,119 @@ func (q *Queries) PlatformDeferScheduledSentCopy(ctx context.Context, arg Platfo
 	return err
 }
 
+const platformFreezeScheduledSend = `-- name: PlatformFreezeScheduledSend :one
+UPDATE mailbox_scheduled_sends SET sent_raw_secret=$1,sent_raw=NULL,updated_at=now()
+WHERE NOT urmail_restore_quarantine_active() AND id=$2 AND claim_token=$3 AND status='preparing' AND lease_until>now() RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
+`
+
+type PlatformFreezeScheduledSendParams struct {
+	RawSecret  string `json:"raw_secret"`
+	ID         int64  `json:"id"`
+	ClaimToken int64  `json:"claim_token"`
+}
+
+func (q *Queries) PlatformFreezeScheduledSend(ctx context.Context, arg PlatformFreezeScheduledSendParams) (MailboxScheduledSends, error) {
+	row := q.db.QueryRow(ctx, platformFreezeScheduledSend, arg.RawSecret, arg.ID, arg.ClaimToken)
+	var i MailboxScheduledSends
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.MailboxID,
+		&i.DraftFolder,
+		&i.DraftUid,
+		&i.SendAt,
+		&i.Status,
+		&i.Attempts,
+		&i.LastError,
+		&i.SmtpSecret,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftUidvalidity,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+		&i.ClaimToken,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
+	)
+	return i, err
+}
+
+const platformGetLegacyScheduledCopy = `-- name: PlatformGetLegacyScheduledCopy :one
+SELECT id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version FROM mailbox_scheduled_sends WHERE sent_raw IS NOT NULL ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
+`
+
+func (q *Queries) PlatformGetLegacyScheduledCopy(ctx context.Context) (MailboxScheduledSends, error) {
+	row := q.db.QueryRow(ctx, platformGetLegacyScheduledCopy)
+	var i MailboxScheduledSends
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.MailboxID,
+		&i.DraftFolder,
+		&i.DraftUid,
+		&i.SendAt,
+		&i.Status,
+		&i.Attempts,
+		&i.LastError,
+		&i.SmtpSecret,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftUidvalidity,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+		&i.ClaimToken,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.SentAt,
+		&i.SentRaw,
+		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
+	)
+	return i, err
+}
+
+const platformHoldExpiredScheduledCopies = `-- name: PlatformHoldExpiredScheduledCopies :execrows
+UPDATE mailbox_scheduled_sends SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_PENDING',updated_at=now()
+WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND sent_copy_state IN('pending','unknown') AND copy_pending_since<=now()-interval '7 days' AND (lease_until IS NULL OR lease_until<now())
+`
+
+func (q *Queries) PlatformHoldExpiredScheduledCopies(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, platformHoldExpiredScheduledCopies)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const platformHoldUnauthorizedScheduledCopies = `-- name: PlatformHoldUnauthorizedScheduledCopies :execrows
+UPDATE mailbox_scheduled_sends r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=now()
+WHERE NOT urmail_restore_quarantine_active() AND r.status='sent' AND r.sent_copy_state IN('pending','unknown')
+AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version)
+`
+
+func (q *Queries) PlatformHoldUnauthorizedScheduledCopies(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, platformHoldUnauthorizedScheduledCopies)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const platformMarkScheduledSentCopyUnknown = `-- name: PlatformMarkScheduledSentCopyUnknown :one
 UPDATE mailbox_scheduled_sends SET sent_copy_state='unknown',updated_at=now()
 WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$1 AND mailbox_id=$2 AND id=$3
- AND claim_token=$4 AND status='sent' AND sent_raw IS NOT NULL
- AND lease_until>now() RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state
+ AND claim_token=$4 AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'')
+ AND lease_until>now() RETURNING id, tenant_id, mailbox_id, draft_folder, draft_uid, send_at, status, attempts, last_error, smtp_secret, created_at, updated_at, draft_uidvalidity, idempotency_key, request_hash, claim_token, lease_until, next_attempt_at, sent_at, sent_raw, sent_copy_state, sent_raw_secret, copy_pending_since, copy_attempts, smtp_password_version
 `
 
 type PlatformMarkScheduledSentCopyUnknownParams struct {
@@ -259,6 +410,31 @@ func (q *Queries) PlatformMarkScheduledSentCopyUnknown(ctx context.Context, arg 
 		&i.SentAt,
 		&i.SentRaw,
 		&i.SentCopyState,
+		&i.SentRawSecret,
+		&i.CopyPendingSince,
+		&i.CopyAttempts,
+		&i.SmtpPasswordVersion,
 	)
 	return i, err
+}
+
+const platformSealLegacyScheduledCopy = `-- name: PlatformSealLegacyScheduledCopy :exec
+UPDATE mailbox_scheduled_sends SET sent_raw_secret=$1,sent_raw=NULL,updated_at=now() WHERE tenant_id=$2 AND mailbox_id=$3 AND id=$4
+`
+
+type PlatformSealLegacyScheduledCopyParams struct {
+	SentRawSecret string `json:"sent_raw_secret"`
+	TenantID      int64  `json:"tenant_id"`
+	MailboxID     int64  `json:"mailbox_id"`
+	ID            int64  `json:"id"`
+}
+
+func (q *Queries) PlatformSealLegacyScheduledCopy(ctx context.Context, arg PlatformSealLegacyScheduledCopyParams) error {
+	_, err := q.db.Exec(ctx, platformSealLegacyScheduledCopy,
+		arg.SentRawSecret,
+		arg.TenantID,
+		arg.MailboxID,
+		arg.ID,
+	)
+	return err
 }

@@ -1,10 +1,18 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http/httptest"
 	netmail "net/mail"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,6 +37,7 @@ import (
 type nativeAIFixtureMail struct {
 	webmail.Client
 	mu       sync.Mutex
+	raw      map[uint32][]byte
 	messages map[string]map[uint32]*webmail.Message
 	next     uint32
 }
@@ -42,7 +51,7 @@ func (f *nativeAIFixtureMail) FolderUIDValidity(context.Context, string) (uint32
 func (f *nativeAIFixtureMail) ListMessages(_ context.Context, folder string, opts webmail.ListOpts) (webmail.ListResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	result := webmail.ListResult{Messages: []webmail.MessageSummary{}, Total: len(f.messages[folder])}
+	result := webmail.ListResult{UIDValidity: 9, Messages: []webmail.MessageSummary{}, Total: len(f.messages[folder])}
 	for uid, msg := range f.messages[folder] {
 		if opts.CursorUID == 0 || uid < opts.CursorUID {
 			result.Messages = append(result.Messages, msg.MessageSummary)
@@ -97,6 +106,100 @@ func (f *nativeAIFixtureMail) SaveDraft(_ context.Context, from string, msg webm
 	f.messages["Drafts"][uid] = &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: msg.Subject, InReplyTo: msg.InReplyTo, From: []webmail.Address{{Name: identity.Name, Email: identity.Address}}, Flags: []string{`\Draft`}, Date: time.Now()}, UIDValidity: 9, To: addrs(msg.To), Cc: addrs(msg.Cc), Bcc: addrs(msg.Bcc), Text: msg.Text, HTML: msg.HTML, Attachments: []webmail.AttachmentMeta{}}
 	return webmail.DraftSaveResult{Folder: "Drafts", NameEnc: webmail.EncodeFolderName("Drafts"), UID: uid, UIDValidity: 9}, nil
 }
+func (f *nativeAIFixtureMail) EnsureDraftsFolder(context.Context) (string, error) {
+	return "Drafts", nil
+}
+func (f *nativeAIFixtureMail) AppendPreparedDraft(ctx context.Context, _ string, raw []byte) (webmail.DraftSaveResult, error) {
+	parsed, err := netmail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return webmail.DraftSaveResult{}, err
+	}
+	out := webmail.Outgoing{From: parsed.Header.Get("From"), Subject: parsed.Header.Get("Subject"), InReplyTo: parsed.Header.Get("In-Reply-To")}
+	for _, field := range []struct {
+		name   string
+		target *[]string
+	}{{"To", &out.To}, {"Cc", &out.Cc}, {"Bcc", &out.Bcc}} {
+		addresses, _ := parsed.Header.AddressList(field.name)
+		for _, address := range addresses {
+			*field.target = append(*field.target, address.Address)
+		}
+	}
+	var walk func(textproto.MIMEHeader, io.Reader) error
+	walk = func(header textproto.MIMEHeader, body io.Reader) error {
+		contentType, params, _ := mime.ParseMediaType(header.Get("Content-Type"))
+		if strings.HasPrefix(contentType, "multipart/") {
+			reader := multipart.NewReader(body, params["boundary"])
+			for {
+				part, e := reader.NextPart()
+				if errors.Is(e, io.EOF) {
+					return nil
+				}
+				if e != nil {
+					return e
+				}
+				if e = walk(part.Header, part); e != nil {
+					return e
+				}
+			}
+		}
+		content, e := io.ReadAll(body)
+		if e != nil {
+			return e
+		}
+		switch contentType {
+		case "text/html":
+			out.HTML = string(content)
+		case "text/plain":
+			out.Text = string(content)
+		}
+		return nil
+	}
+	if err = walk(textproto.MIMEHeader(parsed.Header), parsed.Body); err != nil {
+		return webmail.DraftSaveResult{}, err
+	}
+	result, err := f.SaveDraft(ctx, out.From, out, 0, 0)
+	if err != nil {
+		return result, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.raw == nil {
+		f.raw = map[uint32][]byte{}
+	}
+	f.raw[result.UID] = append([]byte(nil), raw...)
+	return result, nil
+}
+func (f *nativeAIFixtureMail) FindDraftCopy(_ context.Context, folder, id, digest string) (webmail.DraftSaveResult, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for uid, raw := range f.raw {
+		sum := sha256.Sum256(raw)
+		if strings.Contains(string(raw), "Message-ID: "+id) && hex.EncodeToString(sum[:]) == digest {
+			return webmail.DraftSaveResult{Folder: folder, NameEnc: webmail.EncodeFolderName(folder), UID: uid, UIDValidity: 9}, true, nil
+		}
+	}
+	return webmail.DraftSaveResult{}, false, nil
+}
+func (f *nativeAIFixtureMail) GetRawMessage(_ context.Context, folder string, uid uint32) ([]byte, uint32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if folder != "Drafts" || f.raw[uid] == nil {
+		return nil, 0, webmail.ErrMessageNotFound
+	}
+	return append([]byte(nil), f.raw[uid]...), 9, nil
+}
+func (f *nativeAIFixtureMail) DeleteMessages(_ context.Context, folder string, uids []uint32, _ bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, uid := range uids {
+		delete(f.messages[folder], uid)
+		if folder == "Drafts" {
+			delete(f.raw, uid)
+		}
+	}
+	return nil
+}
+
 func (f *nativeAIFixtureMail) Close() error { return nil }
 
 type nativeAIFixtureDialer struct{ client *nativeAIFixtureMail }
@@ -249,6 +352,10 @@ func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
 	authed.GET("/folders/:name/messages/:uid", native.GetMessage)
 	authed.POST("/folders/:name/messages/flags", native.FlagMessages)
 	authed.PUT("/drafts", native.SaveDraft)
+	authed.DELETE("/drafts/:uid", native.DeleteDraft)
+	authed.GET("/send-receipts", native.ListSendReceipts)
+	authed.GET("/send-receipts/:id", native.GetSendReceipt)
+	authed.POST("/send-receipts/:id/repair-sent-copy", native.RepairSendReceiptCopy)
 	authed.GET("/settings", native.GetSettings)
 	authed.PUT("/settings", native.PutSettings)
 	authed.GET("/identities", native.ListIdentities)

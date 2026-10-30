@@ -250,7 +250,7 @@ func (h *MailboxNativeHandler) GetSettings(c *gin.Context) {
 		"identity_profiles": json.RawMessage(defaultProfiles(settings.IdentityProfiles)),
 		"signature_text":    settings.SignatureText,
 		"signature_html":    settings.SignatureHTML,
-		"preferences":       settings.Preferences,
+		"preferences":       publicMailboxPreferences(settings.Preferences),
 		"version":           settings.Version,
 		"updated_at":        settings.UpdatedAt.UTC().Format(time.RFC3339),
 		"address":           session.Address,
@@ -295,6 +295,24 @@ func (h *MailboxNativeHandler) PutSettings(c *gin.Context) {
 	prefs, err := mailboxsettings.Preferences(req.Preferences)
 	if err != nil {
 		authError(c, http.StatusBadRequest, mailboxsettings.ErrPreferences.Error())
+		return
+	}
+	previous, err := h.SelfSettings.Settings(c.Request.Context(), session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	if previous.Version != req.ExpectedVersion {
+		authError(c, http.StatusConflict, "MAILBOX_SETTINGS_VERSION_CONFLICT")
+		return
+	}
+	prefs, err = h.protectMailboxAI(prefs, previous.Preferences)
+	if err != nil {
+		if errors.Is(err, mailboxsettings.ErrPreferences) || errors.Is(err, mailboxsettings.ErrAICredentialTarget) {
+			authError(c, http.StatusBadRequest, err.Error())
+		} else {
+			authError(c, http.StatusServiceUnavailable, "AI_UNAVAILABLE")
+		}
 		return
 	}
 	profiles, ok := h.normalizeIdentityProfiles(c, session, req.IdentityProfiles)

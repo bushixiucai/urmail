@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/mailboxsend"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -27,8 +28,12 @@ type SecretBox interface{ DecryptString(string) (string, error) }
 type Store interface {
 	SentCopyStore
 	PlatformAcceptMailboxScheduledSend(context.Context, store.PlatformAcceptMailboxScheduledSendParams) (store.MailboxScheduledSends, error)
+	PlatformAuthorizeScheduledCopy(context.Context, store.PlatformAuthorizeScheduledCopyParams) (int64, error)
 	PlatformClaimScheduledSentCopy(context.Context) (store.MailboxScheduledSends, error)
 
+	PlatformFreezeScheduledSend(context.Context, store.PlatformFreezeScheduledSendParams) (store.MailboxScheduledSends, error)
+	PlatformHoldUnauthorizedScheduledCopies(context.Context) (int64, error)
+	PlatformHoldExpiredScheduledCopies(context.Context) (int64, error)
 	PlatformRecoverStaleMailboxScheduledSends(context.Context) (int64, error)
 	PlatformClaimMailboxScheduledSend(context.Context) (store.MailboxScheduledSends, error)
 	PlatformGetMailboxScheduledSendAddress(context.Context, store.PlatformGetMailboxScheduledSendAddressParams) (string, error)
@@ -111,6 +116,21 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if !w.enabled() {
 		return false, nil
 	}
+	if box, ok := w.opts.Secrets.(mailboxsend.SecretBox); ok && w.opts.Pool != nil {
+		if err := SealLegacyCopies(ctx, w.opts.Pool, box); err != nil {
+			return false, err
+		}
+		worked, err := (mailboxsend.Service{Pool: w.opts.Pool, Secrets: box, Dialer: w.opts.Dialer}).StepCopy(ctx)
+		if worked || err != nil {
+			return worked, err
+		}
+	}
+	if _, err := w.opts.Store.PlatformHoldUnauthorizedScheduledCopies(ctx); err != nil {
+		return false, err
+	}
+	if _, err := w.opts.Store.PlatformHoldExpiredScheduledCopies(ctx); err != nil {
+		return false, err
+	}
 	if _, err := w.opts.Store.PlatformRecoverStaleMailboxScheduledSends(ctx); err != nil {
 		return false, err
 	}
@@ -131,7 +151,7 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 			return true, deferSentCopy(taskCtx, w.opts.Store, copyRow, err)
 		}
 		defer func() { _ = client.Close() }()
-		return true, RepairSentCopy(taskCtx, w.opts.Store, copyRow, client)
+		return true, RepairSentCopyWithAuthority(taskCtx, w.opts.Store, copyRow, client, w.opts.Secrets, w.copyAuthority(copyRow))
 	}
 	if !errors.Is(copyErr, pgx.ErrNoRows) {
 		return false, copyErr
@@ -200,7 +220,7 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 		}
 	}
 	// A stable identifier supports reconciliation; SMTP recipients need not deduplicate it.
-	outgoing.MessageID = fmt.Sprintf("<urmail-schedule-%d@localhost>", row.ID)
+	// Message identity is random once, then retained with the frozen encrypted bytes.
 	if w.opts.MaySend != nil {
 		allowed, allowErr := w.opts.MaySend(ctx, row.TenantID, row.MailboxID)
 		if allowErr != nil {
@@ -210,6 +230,32 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 			return w.finish(ctx, row, "preparing", "failed", "MAIL_SENDING_SUSPENDED")
 		}
 	}
+	// Freeze exact bytes and their identity before entering SMTP, including retry paths.
+	if row.SentRawSecret != "" {
+		frozen, e := w.opts.Secrets.DecryptString(row.SentRawSecret)
+		if e != nil {
+			return w.finish(ctx, row, "preparing", "failed", "SCHEDULE_CREDENTIAL_UNAVAILABLE")
+		}
+		outgoing.Raw = []byte(frozen)
+	} else {
+		outgoing = webmail.FreezeOutgoing(outgoing)
+		outgoing.Raw = []byte(webmail.BuildMIME(outgoing.From, outgoing))
+		box, ok := w.opts.Secrets.(interface{ EncryptString(string) (string, error) })
+		if !ok {
+			return w.finish(ctx, row, "preparing", "failed", "SCHEDULE_CREDENTIAL_UNAVAILABLE")
+		}
+		sealed, e := mailboxsend.Seal(box, string(outgoing.Raw))
+		if e != nil {
+			return w.finish(ctx, row, "preparing", "failed", "SCHEDULE_CREDENTIAL_UNAVAILABLE")
+		}
+		if _, e = w.opts.Store.PlatformFreezeScheduledSend(ctx, store.PlatformFreezeScheduledSendParams{ID: row.ID, ClaimToken: row.ClaimToken, RawSecret: sealed}); e != nil {
+			if errors.Is(e, pgx.ErrNoRows) {
+				return nil
+			}
+			return e
+		}
+		row.SentRawSecret = sealed
+	}
 	// This durable CAS is the cancellation boundary. No SMTP call is allowed
 	// unless this exact claim still owns a live preparing row.
 	if _, err = w.opts.Store.PlatformBeginMailboxScheduledSendSubmission(ctx, store.PlatformBeginMailboxScheduledSendSubmissionParams{ID: row.ID, ClaimToken: row.ClaimToken}); err != nil {
@@ -218,7 +264,7 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 		}
 		return err
 	}
-	submission, err := w.opts.Submitter.Send(ctx, address, password, outgoing)
+	_, err = w.opts.Submitter.Send(ctx, address, password, outgoing)
 	if err != nil {
 		if errors.Is(err, webmail.ErrSubmitUncertain) || !errors.Is(err, webmail.ErrSubmitFailed) {
 			return w.finish(ctx, row, "submitting", "uncertain", "SCHEDULE_DELIVERY_UNCERTAIN")
@@ -230,7 +276,7 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 	finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	accepted, err := w.opts.Store.PlatformAcceptMailboxScheduledSend(finalCtx, store.PlatformAcceptMailboxScheduledSendParams{
-		TenantID: row.TenantID, MailboxID: row.MailboxID, ID: row.ID, ClaimToken: row.ClaimToken, SentRaw: submission.Raw})
+		TenantID: row.TenantID, MailboxID: row.MailboxID, ID: row.ID, ClaimToken: row.ClaimToken, SentRaw: []byte(row.SentRawSecret)})
 	if err != nil {
 		return err
 	}
@@ -238,7 +284,7 @@ func (w *Worker) fire(ctx context.Context, row store.MailboxScheduledSends) erro
 	if w.opts.Vault != nil {
 		w.opts.Vault.DeleteSchedule(row.ID)
 	}
-	return RepairSentCopy(ctx, w.opts.Store, accepted, client)
+	return RepairSentCopyWithAuthority(ctx, w.opts.Store, accepted, client, w.opts.Secrets, w.copyAuthority(accepted))
 }
 
 func (w *Worker) finish(ctx context.Context, row store.MailboxScheduledSends, expected, status, code string) error {
@@ -281,5 +327,15 @@ func (w *Worker) audit(ctx context.Context, row store.MailboxScheduledSends, act
 	_, err := w.opts.Store.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: row.TenantID, Valid: true}, Action: action, TargetType: pgtype.Text{String: "mailbox_scheduled_send", Valid: true}, TargetID: pgtype.Text{String: fmt.Sprintf("%d", row.ID), Valid: true}, Detail: raw})
 	if err != nil {
 		w.opts.Logger.Warn("scheduled send audit", zap.String("action", action))
+	}
+}
+
+func (w *Worker) copyAuthority(row store.MailboxScheduledSends) func(context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := w.opts.Store.PlatformAuthorizeScheduledCopy(ctx, store.PlatformAuthorizeScheduledCopyParams{TenantID: row.TenantID, MailboxID: row.MailboxID, ID: row.ID, ClaimToken: row.ClaimToken})
+		if err != nil {
+			_, _ = w.opts.Store.PlatformHoldUnauthorizedScheduledCopies(ctx)
+		}
+		return err
 	}
 }

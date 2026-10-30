@@ -32,13 +32,14 @@ func timestamptzTime(v pgtype.Timestamptz) time.Time {
 // It never consumes a panel session and does not require Roundcube HMAC.
 type MailboxNativeHandler struct {
 	// MailHost is operator-configured, never inferred from the request Host header.
-	MailHost  string
-	Enabled   bool
-	Auth      MailboxNativeAuth
-	Sessions  MailboxNativeSessions
-	Vault     webmail.CredentialVault
-	Dialer    webmail.Dialer
-	Submitter webmail.Submitter
+	AILocalEndpoints []string
+	MailHost         string
+	Enabled          bool
+	Auth             MailboxNativeAuth
+	Sessions         MailboxNativeSessions
+	Vault            webmail.CredentialVault
+	Dialer           webmail.Dialer
+	Submitter        webmail.Submitter
 	// MaySend reports whether this mailbox may submit mail. Nil preserves older routes.
 	MaySend func(context.Context, int64, int64) (bool, error)
 	// Secrets seals SMTP passwords into mailbox_scheduled_sends.smtp_secret.

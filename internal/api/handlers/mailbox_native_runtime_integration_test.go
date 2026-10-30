@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/mailboxschedule"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -112,14 +114,14 @@ func TestMailboxNativeRuntime(t *testing.T) {
 	subject := fmt.Sprintf("native-api-runtime-%d", time.Now().UnixNano())
 	attachment := bytes.Repeat([]byte("native-attachment-"), 512)
 	compose := map[string]any{"to": []string{"bob@example.test"}, "bcc": []string{"hidden@example.test"}, "subject": subject, "text": "plain draft", "html": "<p>HTML draft</p>", "attachments": []map[string]string{{"filename": "runtime.bin", "content_type": "application/octet-stream", "content_base64": base64.StdEncoding.EncodeToString(attachment)}}}
-	status, raw = request(http.MethodPut, "/drafts", compose, "")
+	status, raw = request(http.MethodPut, "/drafts", compose, "native-runtime-draft-first")
 	var draft webmail.DraftSaveResult
 	if status != http.StatusOK || json.Unmarshal(raw, &draft) != nil || draft.UID == 0 || draft.UIDValidity == 0 {
 		t.Fatalf("save status=%d body=%s", status, raw)
 	}
 	compose["uid"], compose["uid_validity"] = draft.UID, draft.UIDValidity
 	compose["text"] = "updated plain draft"
-	status, raw = request(http.MethodPut, "/drafts", compose, "")
+	status, raw = request(http.MethodPut, "/drafts", compose, "native-runtime-draft-replace")
 	if status != http.StatusOK || json.Unmarshal(raw, &draft) != nil || draft.UID == 0 {
 		t.Fatalf("replace status=%d body=%s", status, raw)
 	}
@@ -209,5 +211,123 @@ func TestMailboxNativeRuntime(t *testing.T) {
 	if status != http.StatusOK || !bytes.Contains(raw, []byte(`"status":"sent"`)) {
 		t.Fatal("terminal idempotency replay failed")
 	}
-	t.Log("real PG + HTTP mailbox login + IMAP draft replace + durable scheduled send + SMTP/LMTP + Bcc + HTML + attachment digest + terminal replay passed")
+	// Real immediate-send recovery shares the receipt key and never enters SMTP twice.
+	for _, loseAppendAck := range []bool{false, true} {
+		attemptKey := fmt.Sprintf("native-immediate-request-%t", loseAppendAck)
+		attemptSubject := subject + fmt.Sprintf("-immediate-%t", loseAppendAck)
+		fault := &runtimeCopyFaultDialer{base: dialer, failConnect: !loseAppendAck, dropAck: loseAppendAck}
+		h.Dialer = fault
+		immediate := map[string]any{"to": []string{"bob@example.test"}, "bcc": []string{"hidden@example.test"}, "subject": attemptSubject, "text": "immediate receipt body"}
+		status, raw = request(http.MethodPost, "/send", immediate, attemptKey)
+		var result struct {
+			Sent    bool `json:"sent"`
+			Receipt struct {
+				ID        int64  `json:"id"`
+				Status    string `json:"status"`
+				Copy      string `json:"sent_copy_state"`
+				MessageID string `json:"message_id"`
+			} `json:"receipt"`
+		}
+		if status != 200 || json.Unmarshal(raw, &result) != nil || !result.Sent || result.Receipt.Status != "accepted" || result.Receipt.Copy == "complete" {
+			t.Fatalf("accepted copy failure returned invalid outcome: %d %s", status, raw)
+		}
+		// Only this isolated receipt is advanced past its copy backoff.
+		if _, err = p.Exec(ctx, `UPDATE mailbox_send_receipts SET next_attempt_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2`, tenant, result.Receipt.ID); err != nil {
+			t.Fatal(err)
+		}
+		if worked, err = worker.Step(ctx); err != nil || !worked {
+			t.Fatalf("immediate copy repair: worked=%v err=%v", worked, err)
+		}
+		row, e := q.PlatformGetSendReceipt(ctx, store.PlatformGetSendReceiptParams{TenantID: tenant, MailboxID: sessionMailboxID(ctx, t, principal, token), ID: result.Receipt.ID})
+		if e != nil || row.SentCopyState != "complete" || row.RawSecret != "" || row.SmtpSecret != "" {
+			t.Fatal("immediate copy recovery did not complete", e)
+		}
+		status, raw = request(http.MethodPost, "/send", immediate, attemptKey)
+		if status != 200 || !bytes.Contains(raw, []byte(`"sent_copy":"saved"`)) {
+			t.Fatal("immediate successful key replay changed outcome")
+		}
+		for _, address := range []string{"alice@example.test", "bob@example.test", "hidden@example.test"} {
+			client, e := dialer.Dial(ctx, address, password)
+			if e != nil {
+				t.Fatal(e)
+			}
+			folder := "INBOX"
+			if address == "alice@example.test" {
+				folders, e := client.ListFolders(ctx)
+				if e != nil {
+					t.Fatal(e)
+				}
+				folder = webmail.ResolveSentFolder(folders)
+			}
+			var listed webmail.ListResult
+			until := time.Now().Add(15 * time.Second)
+			for {
+				listed, e = client.ListMessages(ctx, folder, webmail.ListOpts{Query: "subject:" + attemptSubject})
+				if e != nil {
+					t.Fatal(e)
+				}
+				if listed.Total > 0 || time.Now().After(until) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			if listed.Total != 1 {
+				t.Fatalf("SMTP replay or duplicate Sent: address=%s count=%d", address, listed.Total)
+			}
+			message, e := client.GetMessage(ctx, folder, listed.Messages[0].UID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if message.MessageID != result.Receipt.MessageID || message.Date.IsZero() || len(message.Bcc) != 0 {
+				t.Fatal("Date/Message-ID/Bcc identity drift")
+			}
+			_ = client.Close()
+		}
+	}
+	h.Dialer = dialer
+	t.Log("real PG + HTTP + SMTP/LMTP scheduled and immediate receipts; lost IMAP connection and APPEND ACK; exactly one delivery and Sent copy; stable Date/Message-ID/Bcc; recovery secret cleanup passed")
+}
+
+// runtimeCopyFaultDialer exercises real SMTP/IMAP with an injected lost copy acknowledgement.
+type runtimeCopyFaultDialer struct {
+	base                 webmail.Dialer
+	failConnect, dropAck bool
+}
+
+func (d *runtimeCopyFaultDialer) Dial(ctx context.Context, address, password string) (webmail.Client, error) {
+	if d.failConnect {
+		d.failConnect = false
+		return nil, errors.New("isolated fixture IMAP outage")
+	}
+	client, err := d.base.Dial(ctx, address, password)
+	if err != nil {
+		return nil, err
+	}
+	if d.dropAck {
+		d.dropAck = false
+		return &runtimeLostCopyAckClient{Client: client}, nil
+	}
+	return client, nil
+}
+
+type runtimeLostCopyAckClient struct{ webmail.Client }
+
+func (c *runtimeLostCopyAckClient) FindSentCopy(ctx context.Context, raw []byte) (webmail.DraftSaveResult, bool, error) {
+	return c.Client.(webmail.SentCopyFinder).FindSentCopy(ctx, raw)
+}
+func (c *runtimeLostCopyAckClient) SaveSentCopy(ctx context.Context, raw []byte) (webmail.DraftSaveResult, error) {
+	result, err := c.Client.SaveSentCopy(ctx, raw)
+	if err == nil {
+		err = webmail.ErrSentCopyPending
+	}
+	return result, err
+}
+
+func sessionMailboxID(ctx context.Context, t *testing.T, principal StoreMailboxNative, token string) int64 {
+	t.Helper()
+	session, err := principal.Get(ctx, mailboxprincipal.HashToken(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session.MailboxID
 }

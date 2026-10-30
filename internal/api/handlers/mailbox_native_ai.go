@@ -17,6 +17,8 @@ import (
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/airetrieval"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/domain/aianswer"
+	"github.com/bushixiucai/urmail/internal/domain/mailboxsettings"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -39,6 +41,37 @@ func RegisterNativeMailboxAI(group *gin.RouterGroup, native *MailboxNativeHandle
 	group.POST("/ai/models", h.Models)
 	if search != nil {
 		search.Policy = h.requireTarget
+		search.ReserveForSession = func(ctx context.Context, sess webmail.Session, question, expected string) (*Reservation, error) {
+			cfg, custom, err := h.getUserAI(ctx, sess)
+			if err != nil {
+				return nil, err
+			}
+			if !custom {
+				return search.Accounting.Reserve(ctx, sess.TenantID, sess.MailboxID, question)
+			}
+			if cfg.Digest != expected {
+				return nil, errAITargetChanged
+			}
+			return search.Accounting.ReserveCustom(ctx, sess.TenantID, sess.MailboxID, question, cfg)
+		}
+
+		search.SessionModelFor = func(ctx context.Context, sess webmail.Session, expected string) (aianswer.Model, error) {
+			cfg, custom, err := h.getUserAI(ctx, sess)
+			if err != nil {
+				return nil, err
+			}
+			if !custom {
+				return search.ModelFor(context.WithValue(ctx, aiConfirmedTargetKey{}, expected), sess.TenantID)
+			}
+			if cfg.Digest != expected {
+				return nil, errAITargetChanged
+			}
+			provider, err := h.customProvider(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return airetrieval.CitationModel(provider, cfg.Model), nil
+		}
 	}
 }
 
@@ -46,6 +79,8 @@ type nativeAIInput struct {
 	Operation           string  `json:"operation"`
 	ConfigurationDigest string  `json:"configuration_digest"`
 	Confirmed           bool    `json:"confirmed"`
+	PreviewOnly         bool    `json:"preview_only"`
+	ContentDigest       string  `json:"content_digest"`
 	RequestKey          string  `json:"request_key"`
 	Folder              string  `json:"folder_enc"`
 	UID                 uint32  `json:"uid"`
@@ -58,38 +93,66 @@ type nativeAIInput struct {
 }
 
 type userAICustomConfig struct {
-	UseCustom bool   `json:"use_custom"`
-	Provider  string `json:"provider"`
-	Endpoint  string `json:"endpoint"`
-	Model     string `json:"model"`
-	APIKey    string `json:"api_key"`
+	mailboxsettings.AIConfig
+	Digest string
 }
 
-func (h *NativeMailboxAI) getUserAI(ctx context.Context, sess webmail.Session) (*userAICustomConfig, bool) {
+func (h *NativeMailboxAI) getUserAI(ctx context.Context, sess webmail.Session) (*userAICustomConfig, bool, error) {
 	if h.Service == nil || h.Service.Pool == nil {
-		return nil, false
+		return nil, false, nil
 	}
-	q := store.New(h.Service.Pool)
-	row, err := q.PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{
-		TenantID:  sess.TenantID,
-		MailboxID: sess.MailboxID,
-	})
-	if err != nil || len(row.Preferences) == 0 {
-		return nil, false
+	row, err := store.New(h.Service.Pool).PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
 	}
 	var prefs struct {
-		AI *userAICustomConfig `json:"ai"`
+		AI *mailboxsettings.AIConfig `json:"ai"`
 	}
-	if err := json.Unmarshal(row.Preferences, &prefs); err != nil || prefs.AI == nil {
-		return nil, false
+	if err = json.Unmarshal(row.Preferences, &prefs); err != nil {
+		return nil, false, err
 	}
-	if !prefs.AI.UseCustom || strings.TrimSpace(prefs.AI.Endpoint) == "" {
-		return nil, false
+	if prefs.AI == nil || !prefs.AI.UseCustom {
+		return nil, false, nil
 	}
-	if prefs.AI.Provider == "" {
-		prefs.AI.Provider = "openai"
+	raw, _ := json.Marshal(prefs.AI) //nolint:gosec // G117: Hash/validate the persisted encrypted configuration; never serialize it to HTTP.
+	cfg, err := mailboxsettings.ParseAI(raw)
+	if err != nil {
+		return nil, false, err
 	}
-	return prefs.AI, true
+	digest := fmt.Sprintf("%x", sha256.Sum256(append(raw, []byte(fmt.Sprint(row.Version))...)))
+	if cfg.APIKey != "" {
+		if h.Service.Secrets == nil || !strings.HasPrefix(cfg.APIKey, "enc:v1:") {
+			return nil, false, ai.ErrProviderDisabled
+		}
+		cfg.APIKey, err = h.Service.Secrets.DecryptString(cfg.APIKey)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	return &userAICustomConfig{AIConfig: cfg, Digest: digest}, true, nil
+}
+
+func (h *NativeMailboxAI) customProvider(cfg *userAICustomConfig) (ai.Provider, error) {
+	if cfg.Provider == ai.ProviderOllama {
+		return ai.ConfiguredProvider(cfg.Provider, cfg.Endpoint, cfg.Model, "", nil, h.Service.LocalEndpoints)
+	}
+	return ai.DynamicProvider(cfg.Provider, cfg.Endpoint, cfg.Model, cfg.APIKey)
+}
+
+func (h *NativeMailboxAI) customGovernance(c *gin.Context, sess webmail.Session, cfg *userAICustomConfig) bool {
+	governance, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	if err != nil || !governance.Enabled {
+		authError(c, 403, "AI_DISABLED")
+		return false
+	}
+	if governance.LocalOnly && cfg.Provider != ai.ProviderOllama {
+		authError(c, 403, "AI_LOCAL_ONLY")
+		return false
+	}
+	return true
 }
 
 func (h *NativeMailboxAI) principal(c *gin.Context) (webmail.Session, bool) {
@@ -111,8 +174,20 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if userAI, custom := h.getUserAI(c.Request.Context(), sess); custom {
-		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(userAI.Endpoint+":"+userAI.Model+":"+userAI.Provider)))
+	userAI, custom, configErr := h.getUserAI(c.Request.Context(), sess)
+	if configErr != nil {
+		authError(c, 503, "AI_UNAVAILABLE")
+		return
+	}
+	if custom {
+		if !h.customGovernance(c, sess, userAI) {
+			return
+		}
+		if _, err := h.customProvider(userAI); err != nil {
+			authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
+			return
+		}
+		digest := userAI.Digest
 		c.JSON(200, gin.H{
 			"enabled":               true,
 			"allowed":               true,
@@ -122,7 +197,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 			"endpoint":              userAI.Endpoint,
 			"configuration_digest":  digest,
 			"scope_hash":            AICloudScopeHash,
-			"requires_confirmation": false,
+			"requires_confirmation": true,
 		})
 		return
 	}
@@ -158,6 +233,25 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 	if h.Service == nil || h.Service.Pool == nil {
 		authError(c, 503, "AI_DISABLED")
 		return false
+	}
+	userAI, custom, configErr := h.getUserAI(c.Request.Context(), sess)
+	if configErr != nil {
+		authError(c, 503, "AI_UNAVAILABLE")
+		return false
+	}
+	if custom {
+		if digest == "" || digest != userAI.Digest {
+			authError(c, 409, "AI_CLOUD_CONSENT_STALE")
+			return false
+		}
+		if !h.customGovernance(c, sess, userAI) {
+			return false
+		}
+		if _, err := h.customProvider(userAI); err != nil {
+			authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
+			return false
+		}
+		return true
 	}
 	cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 	if err != nil || !cfg.Enabled {
@@ -267,13 +361,16 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if !bindMailboxMessage(c, &req) {
 		return
 	}
-	userAI, custom := h.getUserAI(c.Request.Context(), sess)
-	if !custom {
-		if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed) {
-			return
-		}
-	} else if !req.Confirmed {
-		authError(c, 403, "AI_CONTENT_CONSENT_REQUIRED")
+	userAI, custom, configErr := h.getUserAI(c.Request.Context(), sess)
+	if configErr != nil {
+		authError(c, 503, "AI_UNAVAILABLE")
+		return
+	}
+	if custom && userAI.Digest != req.ConfigurationDigest {
+		authError(c, 409, "AI_CLOUD_CONSENT_STALE")
+		return
+	}
+	if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed || req.PreviewOnly) {
 		return
 	}
 	input := ai.OperationInput{Operation: req.Operation, Body: req.Body, Subject: req.Subject, TargetLanguage: req.Language, Instruction: req.Instruction}
@@ -314,60 +411,82 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if req.Operation == "draft_new" && input.Body == "" {
 		input.Body = req.Instruction
 	}
-	if custom {
-		provider, err := ai.DynamicProvider(userAI.Provider, userAI.Endpoint, userAI.Model, userAI.APIKey)
-		if err != nil {
-			authError(c, 400, "INVALID_PARAMS")
-			return
-		}
-		callCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-		aiReq, buildErr := ai.BuildOperation(input)
-		if buildErr != nil {
-			authError(c, 400, "INVALID_PARAMS")
-			return
-		}
-		if userAI.Model != "" {
-			aiReq.Model = userAI.Model
-		}
-		completion, callErr := provider.Complete(callCtx, aiReq)
-		if callErr != nil {
-			nativeAIError(c, callErr)
-			return
-		}
-		res, valErr := ai.ValidateOperation(input.Operation, completion.Content)
-		if valErr != nil {
-			nativeAIError(c, valErr)
-			return
-		}
-		c.JSON(200, gin.H{"result": res})
+	previewRequest, buildErr := ai.BuildOperation(input)
+	if buildErr != nil {
+		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
+	previewRaw, _ := json.Marshal(struct {
+		Configuration string
+		Input         ai.OperationInput
+		Folder        string
+		UID, Validity uint32
+	}{req.ConfigurationDigest, input, req.Folder, req.UID, req.UIDValidity})
+	contentDigest := fmt.Sprintf("%x", sha256.Sum256(previewRaw))
+	if req.PreviewOnly {
+		provider, model, endpoint := "", "", ""
+		if custom {
+			provider, model, endpoint = userAI.Provider, userAI.Model, userAI.Endpoint
+		} else {
+			cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+			if err != nil {
+				authError(c, 503, "AI_UNAVAILABLE")
+				return
+			}
+			if !cfg.Enabled || cfg.ConfigurationDigest != req.ConfigurationDigest {
+				authError(c, 409, "AI_CLOUD_CONSENT_STALE")
+				return
+			}
+			provider, model, endpoint = cfg.Provider, cfg.Model, cfg.Endpoint
+		}
+		c.JSON(200, gin.H{"content_digest": contentDigest, "messages": previewRequest.Messages, "provider": provider, "model": model, "endpoint": endpoint})
+		return
+	}
+	if req.ContentDigest == "" || req.ContentDigest != contentDigest {
+		authError(c, 409, "AI_CONTENT_CONSENT_STALE")
+		return
+	}
+	if custom {
+		if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed) {
+			return
+		}
+		result, err := h.Service.RunCustom(c.Request.Context(), principal, req.RequestKey, input, userAI, req.ConfigurationDigest)
+		if err != nil {
+			nativeAIError(c, err)
+			return
+		}
+		if !h.verifyResultSource(c, sess, req, digest) {
+			return
+		}
+		c.JSON(200, gin.H{"result": result})
+		return
+	}
+
 	result, err := h.Service.Run(c.Request.Context(), principal, req.RequestKey, input, req.ConfigurationDigest)
 	if err != nil {
 		nativeAIError(c, err)
 		return
 	}
-	// Recheck the target, live session and selected source after generation.
-	if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed) {
+	if !h.verifyResultSource(c, sess, req, digest) {
 		return
 	}
-	current, err := h.Native.Sessions.Get(c, sess.TokenHash)
-	if err != nil || current.MailboxID != sess.MailboxID || current.TenantID != sess.TenantID {
-		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
-		return
+	c.JSON(200, gin.H{"result": result})
+}
+func (h *NativeMailboxAI) verifyResultSource(c *gin.Context, sess webmail.Session, req nativeAIInput, digest string) bool {
+	if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed) {
+		return false
 	}
 	if req.UID != 0 {
 		_, msg, ok := h.readContext(c, req.Folder, req.UID, req.UIDValidity)
 		if !ok {
-			return
+			return false
 		}
 		if airetrieval.ContentDigest(plainAIMessage(msg)) != digest {
 			authError(c, 409, "AI_SOURCE_CHANGED")
-			return
+			return false
 		}
 	}
-	c.JSON(200, gin.H{"result": result})
+	return true
 }
 func nativeAIError(c *gin.Context, err error) {
 	switch {
@@ -381,6 +500,8 @@ func nativeAIError(c *gin.Context, err error) {
 		authError(c, 403, "AI_CLOUD_CONSENT_REQUIRED")
 	case errors.Is(err, errAITargetChanged):
 		authError(c, 409, "AI_CLOUD_CONSENT_STALE")
+	case errors.Is(err, ai.ErrLocalOnly):
+		authError(c, 403, "AI_LOCAL_ONLY")
 	case errors.Is(err, ai.ErrProviderDisabled), errors.Is(err, ai.ErrUnauthorized):
 		authError(c, 403, "AI_DISABLED")
 	default:
@@ -466,13 +587,31 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 		if input.Model == "" {
 			input.Model = "gpt-4o"
 		}
-		provider, err = ai.DynamicProvider(input.Provider, input.Endpoint, input.Model, input.APIKey)
+		if input.APIKey == "" && input.Provider != ai.ProviderOllama {
+			saved, custom, configErr := h.getUserAI(c.Request.Context(), sess)
+			if configErr != nil {
+				authError(c, 503, "AI_UNAVAILABLE")
+				return
+			}
+			if custom && saved.Provider == input.Provider && strings.TrimRight(saved.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/") {
+				input.APIKey = saved.APIKey
+			}
+		}
+
+		if input.Provider == ai.ProviderOllama {
+			provider, err = ai.ConfiguredProvider(input.Provider, input.Endpoint, input.Model, "", nil, h.Service.LocalEndpoints)
+		} else {
+			provider, err = ai.DynamicProvider(input.Provider, input.Endpoint, input.Model, input.APIKey)
+		}
 		if err != nil {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-	} else if userAI, custom := h.getUserAI(c.Request.Context(), sess); custom {
-		provider, err = ai.DynamicProvider(userAI.Provider, userAI.Endpoint, userAI.Model, userAI.APIKey)
+	} else if userAI, custom, configErr := h.getUserAI(c.Request.Context(), sess); configErr != nil {
+		authError(c, 503, "AI_UNAVAILABLE")
+		return
+	} else if custom {
+		provider, err = h.customProvider(userAI)
 		if err != nil {
 			authError(c, 400, "INVALID_PARAMS")
 			return

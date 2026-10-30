@@ -33,6 +33,8 @@ var (
 type mimeLeaf struct {
 	id, filename, contentType string
 	contentID                 string
+	inline                    bool
+	attachmentContentType     string
 	attachment                bool
 	body                      []byte
 }
@@ -122,8 +124,9 @@ func walkMIME(header textproto.MIMEHeader, body io.Reader, id string, depth int,
 	if len(data) > int(leafCap) {
 		return ErrAttachmentTooLarge
 	}
+	delete(params, "name")
 	attachment := disp == "attachment" || filename != "" || (media != "text/plain" && media != "text/html")
-	return visit(mimeLeaf{id: id, filename: filename, contentType: media, contentID: contentID, attachment: attachment, body: data})
+	return visit(mimeLeaf{id: id, filename: filename, contentType: media, contentID: contentID, inline: disp == "inline", attachmentContentType: mime.FormatMediaType(media, params), attachment: attachment, body: data})
 }
 
 func parseMIMEBodyStrict(raw []byte) (text, html string, atts []AttachmentMeta, err error) {
@@ -134,7 +137,7 @@ func parseMIMEBodyStrict(raw []byte) (text, html string, atts []AttachmentMeta, 
 			// Surfaced attachment list is capped (WEBMAIL-007); downloads of
 			// later parts still work via their part IDs.
 			if len(atts) < MaxAttachmentsPerMessage {
-				atts = append(atts, AttachmentMeta{PartID: part.id, Filename: part.filename, ContentType: part.contentType, Size: int64(len(part.body)), ContentID: part.contentID})
+				atts = append(atts, AttachmentMeta{PartID: part.id, Filename: part.filename, ContentType: part.attachmentContentType, Inline: part.inline, Size: int64(len(part.body)), ContentID: part.contentID})
 			}
 		case part.contentType == "text/plain" && text == "":
 			text = string(part.body)
@@ -161,7 +164,7 @@ func extractMIMEPart(raw []byte, partID string) (filename, contentType string, d
 			return ErrAttachmentTooLarge
 		}
 		found = true
-		filename, contentType, data = part.filename, part.contentType, part.body
+		filename, contentType, data = part.filename, part.attachmentContentType, part.body
 		if filename == "" {
 			filename = "attachment-" + partID
 		}

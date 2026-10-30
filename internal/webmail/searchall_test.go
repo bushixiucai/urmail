@@ -8,10 +8,11 @@ import (
 )
 
 type fakeFanoutClient struct {
-	folders  []Folder
-	messages map[string][]MessageSummary
-	errFor   map[string]error
-	queried  []ListOpts
+	folders    []Folder
+	messages   map[string][]MessageSummary
+	errFor     map[string]error
+	queried    []ListOpts
+	validities map[string]uint32
 }
 
 func (f *fakeFanoutClient) ListFolders(context.Context) ([]Folder, error) {
@@ -23,7 +24,7 @@ func (f *fakeFanoutClient) ListMessages(_ context.Context, folder string, opts L
 	if err, ok := f.errFor[folder]; ok {
 		return ListResult{}, err
 	}
-	return ListResult{Messages: f.messages[folder], Total: len(f.messages[folder])}, nil
+	return ListResult{UIDValidity: f.validities[folder], Messages: f.messages[folder], Total: len(f.messages[folder])}, nil
 }
 
 func TestSearchAllFanoutMerge(t *testing.T) {
@@ -89,5 +90,25 @@ func TestSearchAllSelectedFoldersAndDeadline(t *testing.T) {
 	cancel()
 	if _, err := SearchAll(ctx, client, "x", nil, 50); err != nil {
 		t.Fatalf("canceled ctx should not error: %v", err)
+	}
+}
+
+func TestSearchAllPreservesEachSourceUIDValidity(t *testing.T) {
+	client := &fakeFanoutClient{
+		folders:    []Folder{{Name: "INBOX"}, {Name: "Archive"}},
+		validities: map[string]uint32{"INBOX": 7, "Archive": 19},
+		messages: map[string][]MessageSummary{
+			"INBOX":   {{UID: 1, UIDValidity: 999}},
+			"Archive": {{UID: 1, UIDValidity: 999}},
+		},
+	}
+	rows, err := SearchAll(context.Background(), client, "same uid", nil, 50)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("search: rows=%+v err=%v", rows, err)
+	}
+	for _, row := range rows {
+		if row.UIDValidity != client.validities[row.Folder] || row.FolderEnc != EncodeFolderName(row.Folder) {
+			t.Fatalf("source identity replaced with another mailbox: %+v", row)
+		}
 	}
 }

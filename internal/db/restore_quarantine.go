@@ -236,6 +236,9 @@ func holdRestoredWork(ctx context.Context, tx pgx.Tx, restoreID string, strict b
 	if err := invalidateRestoredBrandHostProofs(ctx, tx, held); err != nil {
 		return err
 	}
+	if err := holdRestoredImmediateSends(ctx, tx, held); err != nil {
+		return err
+	}
 	if err := holdRestoredScheduledSentCopies(ctx, tx, held); err != nil {
 		return err
 	}

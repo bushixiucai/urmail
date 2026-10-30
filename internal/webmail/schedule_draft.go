@@ -17,6 +17,9 @@ func OutgoingFromDraft(ctx context.Context, client Client, folder string, uid ui
 	if err != nil {
 		return Outgoing{}, err
 	}
+	if msg.AttachmentsCapped {
+		return Outgoing{}, fmt.Errorf("draft attachments exceed reconstruction limit")
+	}
 	out := Outgoing{
 		To:      emailsOf(msg.To),
 		Cc:      emailsOf(msg.Cc),
@@ -42,6 +45,8 @@ func OutgoingFromDraft(ctx context.Context, client Client, folder string, uid ui
 			ct = meta.ContentType
 		}
 		out.Attachments = append(out.Attachments, OutgoingAttachment{
+			ContentID:   meta.ContentID,
+			Inline:      meta.Inline,
 			Filename:    filename,
 			ContentType: ct,
 			Content:     data,

@@ -112,7 +112,23 @@ var ErrNotAccounted = errors.New("ai not accounted")
 // is accounted and the caller proceeds to the normal AI_UNAVAILABLE
 // surfacing. ErrAIBudgetExceeded is returned before any provider call.
 func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID int64, question string) (*Reservation, error) {
+	return h.reserve(ctx, tenantID, mailboxID, question, nil)
+}
+
+// ReserveCustom applies the same call, concurrency and token governance without
+// charging a user's own provider as platform-funded inference.
+func (h AISearchAskAccounting) ReserveCustom(ctx context.Context, tenantID, mailboxID int64, question string, target *userAICustomConfig) (*Reservation, error) {
+	if target == nil {
+		return nil, errAITargetChanged
+	}
+	return h.reserve(ctx, tenantID, mailboxID, question, target)
+}
+
+func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID int64, question string, custom *userAICustomConfig) (*Reservation, error) {
 	if h.Pool == nil {
+		if custom != nil {
+			return nil, ai.ErrProviderDisabled
+		}
 		return nil, ErrNotAccounted
 	}
 	tx, err := h.Pool.PlatformTx(ctx)
@@ -129,13 +145,25 @@ func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID 
 	}
 	cfg, err := q.PlatformGetAIProvider(ctx, tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if custom != nil {
+			return nil, ai.ErrProviderDisabled
+		}
 		return nil, ErrNotAccounted
 	}
 	if err != nil {
 		return nil, err
 	}
 	if !cfg.Enabled {
+		if custom != nil {
+			return nil, ai.ErrProviderDisabled
+		}
 		return nil, ErrNotAccounted
+	}
+	if custom != nil {
+		cfg, err = customAIConfiguration(ctx, q, cfg, tenantID, mailboxID, custom, custom.Digest)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Twenty excerpts of at most 500 bytes, 20 digit citation identifiers,
 	// prompt framing and a 2048-token output all fit inside this bound.

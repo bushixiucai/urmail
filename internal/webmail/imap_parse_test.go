@@ -99,3 +99,21 @@ func TestParseUIDSearch(t *testing.T) {
 		t.Fatalf("%v", uids)
 	}
 }
+
+func TestSummaryAttachmentsUseMIMEMetadataNotSize(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		size       string
+		want       bool
+	}{
+		{"large plain", `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 80000 900 NIL NIL NIL)`, "80000", false},
+		{"small attachment", `(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 2 1)("APPLICATION" "PDF" ("NAME" "invoice.pdf") NIL NIL "BASE64" 10 NIL ("ATTACHMENT" ("FILENAME" "invoice.pdf"))) "MIXED")`, "50", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row, err := summaryFromAttrs(map[string]string{"UID": "1", "RFC822.SIZE": tc.size, "BODYSTRUCTURE": tc.body})
+			if err != nil || row.HasAttachments != tc.want {
+				t.Fatalf("row=%+v err=%v want attachment=%v", row, err, tc.want)
+			}
+		})
+	}
+}

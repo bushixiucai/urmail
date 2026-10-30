@@ -1,6 +1,7 @@
 package mailspam
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
+	"github.com/bushixiucai/urmail/internal/mailauth"
+	"github.com/bushixiucai/urmail/internal/secrets"
 )
 
 // TestRealPostfixMilterInterop delegates parsing of the wire actions and rate
@@ -29,6 +32,10 @@ func TestRealPostfixMilterInterop(t *testing.T) {
 	t.Cleanup(func() { _ = listener.Close() })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	box, err := secrets.New(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler := staticHandler(VerdictResponse{InsertHeaders: VerdictHeaders(Verdict{Class: ClassHam, Score: 0.25})})
 	go func() {
 		for {
@@ -36,7 +43,9 @@ func TestRealPostfixMilterInterop(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func() { _ = serveConn(ctx, conn, MilterConfig{}.withDefaults(), handler) }()
+			go func() {
+				_ = serveConn(ctx, conn, MilterConfig{Authentication: &mailauth.Receiver{Secrets: box}}.withDefaults(), handler)
+			}()
 		}
 	}()
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -50,7 +59,7 @@ func TestRealPostfixMilterInterop(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, cleanup := range []string{"enabled", "disabled"} {
+	for _, cleanup := range []string{"enabled", "disabled", "unavailable"} {
 		t.Run(cleanup, func(t *testing.T) {
 			runCtx, stop := context.WithTimeout(t.Context(), 90*time.Second)
 			defer stop()
@@ -90,9 +99,9 @@ for setting in ('myhostname=box.example.test', 'inet_interfaces=loopback-only',
                 'relay_domains=example.test', 'defer_transports=relay',
                 'mynetworks=127.0.0.0/8', 'smtpd_tls_security_level=none',
                 'smtpd_relay_restrictions=reject_unauth_destination',
-                'smtpd_milters=inet:host.docker.internal:'+os.environ['MILTER_PORT'],
-                'non_smtpd_milters=', 'milter_default_action=tempfail', 'milter_protocol=6',
-                'maillog_file=/var/log/postfix.log', 'header_checks='+('regexp:/test/checks' if os.environ['HEADER_CLEANUP']=='enabled' else '')):
+                'smtpd_milters='+('inet:127.0.0.1:1' if os.environ['HEADER_CLEANUP']=='unavailable' else 'inet:host.docker.internal:'+os.environ['MILTER_PORT']),
+                'non_smtpd_milters=', 'milter_default_action='+('accept' if os.environ['HEADER_CLEANUP']=='unavailable' else 'tempfail'), 'milter_protocol=6',
+                'maillog_file=/var/log/postfix.log', 'header_checks='+('regexp:/test/checks' if os.environ['HEADER_CLEANUP']!='disabled' else '')):
     call('postconf','-e',setting)
 call('postconf','-M','smtp/inet=smtp inet n - n - - smtpd')
 call('postconf','-M','cleanup/unix=cleanup unix n - n - 0 cleanup')
@@ -110,7 +119,9 @@ try:
         raise RuntimeError('real smtpd failed to initialize generated integer budgets')
     message=('From: Sender <sender@outside.test>\r\nTo: alice@example.test\r\n'
              'Subject: interop\r\nX-UrMail-Spam: yes\r\nx-urmail-spam: yes\r\n'
-             'X-UrMail-Spam-Score: 999\r\n\r\nbody\r\n')
+             'X-UrMail-Spam-Score: 999\r\nX-UrMail-Receive-Authentication: enc:v1:forged-pass\r\n'
+             'x-urmail-receive-authentication: forged-second\r\n'
+             'Authentication-Results: box.example.test; dkim=pass; spf=pass\r\n\r\nbody\r\n')
     with client:
         client.sendmail('sender@outside.test',['alice@example.test'],message)
     queued=[]
@@ -121,11 +132,17 @@ try:
     assert len(queued)==1,queued
     content=call('postcat','-bhq',queued[0]['queue_id'])
     lines=content.lower().splitlines()
-    assert sum(line.startswith('x-urmail-spam:') for line in lines)==1,content
-    assert 'x-urmail-spam: no' in lines,content
-    assert 'x-urmail-spam-score: 0.25' in lines,content
+    if os.environ['HEADER_CLEANUP']=='unavailable':
+        assert not any(line.startswith('x-urmail-spam:') or line.startswith('x-urmail-receive-authentication:') for line in lines),content
+    else:
+        assert sum(line.startswith('x-urmail-spam:') for line in lines)==1,content
+        assert 'x-urmail-spam: no' in lines,content
+        assert 'x-urmail-spam-score: 0.25' in lines,content
+        proofs=[line for line in lines if line.startswith('x-urmail-receive-authentication:')]
+        assert len(proofs)==1 and proofs[0].startswith('x-urmail-receive-authentication: enc:v1:'),content
+    assert 'forged-pass' not in content and 'forged-second' not in content,content
     assert 'x-urmail-spam-score: 999' not in lines,content
-    print('POSTFIX_MILTER_INTEROP_OK: real smtpd accepted generated budgets; 32-bit insertion and forged-header removal verified')
+    print('POSTFIX_MILTER_INTEROP_OK: real smtpd accepted generated budgets; authenticated receive proof insertion and forged-header removal verified; mode='+os.environ['HEADER_CLEANUP'])
 except Exception:
     print(pathlib.Path('/var/log/postfix.log').read_text() if pathlib.Path('/var/log/postfix.log').exists() else 'no postfix logfile', flush=True)
     raise

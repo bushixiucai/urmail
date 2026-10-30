@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/bushixiucai/urmail/internal/mailauth"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -77,6 +78,11 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	}
 	if result.Messages == nil {
 		result.Messages = []webmail.MessageSummary{}
+	}
+	for i := range result.Messages {
+		result.Messages[i].UIDValidity = result.UIDValidity
+		result.Messages[i].Folder = folder
+		result.Messages[i].FolderEnc = webmail.EncodeFolderName(folder)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"messages":      result.Messages,
@@ -181,6 +187,9 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 	if value := c.Query("uid_validity"); value != "" && value != strconv.FormatUint(uint64(msg.UIDValidity), 10) {
 		authError(c, 409, "AI_SOURCE_CHANGED")
 		return
+	}
+	if msg.Authentication.Status == "" {
+		msg.Authentication = mailauth.Result{Status: "unknown", Reason: "receive_proof_missing"}
 	}
 	if msg.Attachments == nil {
 		msg.Attachments = []webmail.AttachmentMeta{}
@@ -300,13 +309,26 @@ func (h *MailboxNativeHandler) FlagMessages(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
 	defer func() { _ = client.Close() }()
 	if !mailboxExpectedValidity(c, client, folder, req.UIDValidity, true) {
 		return
+	}
+	deleting := false
+	for _, flag := range add {
+		if strings.EqualFold(flag, "\\Deleted") {
+			deleting = true
+		}
+	}
+	if deleting {
+		release, guarded := h.guardDraftMutation(c, client, session, folder, req.UIDValidity, req.UIDs, false, nil)
+		if !guarded {
+			return
+		}
+		defer release()
 	}
 	if err := client.SetFlags(c.Request.Context(), folder, req.UIDs, add, remove); err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
@@ -341,7 +363,7 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 	if decoded, err := webmail.DecodeFolderName(dest); err == nil {
 		dest = decoded
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
@@ -349,6 +371,11 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 	if !mailboxExpectedValidity(c, client, folder, req.UIDValidity, true) {
 		return
 	}
+	release, guarded := h.guardDraftMutation(c, client, session, folder, req.UIDValidity, req.UIDs, false, nil)
+	if !guarded {
+		return
+	}
+	defer release()
 	if err := client.MoveMessages(c.Request.Context(), folder, req.UIDs, dest); err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
@@ -378,7 +405,7 @@ func (h *MailboxNativeHandler) DeleteMessages(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
@@ -386,6 +413,11 @@ func (h *MailboxNativeHandler) DeleteMessages(c *gin.Context) {
 	if !mailboxExpectedValidity(c, client, folder, req.UIDValidity, true) {
 		return
 	}
+	release, guarded := h.guardDraftMutation(c, client, session, folder, req.UIDValidity, req.UIDs, true, nil)
+	if !guarded {
+		return
+	}
+	defer release()
 	if err := client.DeleteMessages(c.Request.Context(), folder, req.UIDs, req.Expunge); err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return

@@ -71,7 +71,7 @@ func Preferences(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, ErrPreferences
 	}
 	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) != nil {
+	if json.Unmarshal(raw, &object) != nil || object == nil {
 		return nil, ErrPreferences
 	}
 	if len(object) > MaxPreferenceKeys {
@@ -80,6 +80,12 @@ func Preferences(raw json.RawMessage) (json.RawMessage, error) {
 	for key, value := range object {
 		if key == "" || len(key) > 64 || strings.ContainsFunc(key, unicode.IsControl) {
 			return nil, ErrPreferences
+		}
+		if key == "ai" {
+			if _, err := ParseAI(value); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		var scalar any
 		if json.Unmarshal(value, &scalar) != nil {

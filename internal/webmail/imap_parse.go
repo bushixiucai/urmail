@@ -326,13 +326,14 @@ func summaryFromAttrs(attrs map[string]string) (MessageSummary, error) {
 	subject, from, date := parseEnvelope(attrs["ENVELOPE"])
 	inReplyTo, messageID := parseEnvelopeIDs(attrs["ENVELOPE"])
 	return MessageSummary{
-		UID:       uid,
-		Subject:   subject,
-		From:      from,
-		Date:      date,
-		Flags:     parseFlags(attrs["FLAGS"]),
-		Size:      parseSize(attrs["RFC822.SIZE"]),
-		InReplyTo: inReplyTo,
-		MessageID: messageID,
+		UID:            uid,
+		Subject:        subject,
+		From:           from,
+		Date:           date,
+		Flags:          parseFlags(attrs["FLAGS"]),
+		Size:           parseSize(attrs["RFC822.SIZE"]),
+		InReplyTo:      inReplyTo,
+		MessageID:      messageID,
+		HasAttachments: bodyStructureHasAttachment(attrs["BODYSTRUCTURE"], 0),
 	}, nil
 }

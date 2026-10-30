@@ -39,6 +39,7 @@ linters:
     generated: lax
     paths:
       - web/node_modules/
+      - ^tmp/
     rules:
       - path: _test\.go
         linters:
@@ -46,6 +47,9 @@ linters:
           - errcheck
 
 formatters:
+  exclusions:
+    paths:
+      - ^tmp/
   enable:
     - gofmt
     - goimports

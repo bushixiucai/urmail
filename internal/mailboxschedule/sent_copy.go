@@ -26,22 +26,57 @@ func deferSentCopy(ctx context.Context, q SentCopyStore, row store.MailboxSchedu
 
 // RepairSentCopy only reconciles/APPENDs Sent, and can never submit SMTP.
 // Callers must own the bounded copy lease and close their IMAP connection.
-func RepairSentCopy(ctx context.Context, q SentCopyStore, row store.MailboxScheduledSends, client webmail.Client) error {
+func RepairSentCopy(ctx context.Context, q SentCopyStore, row store.MailboxScheduledSends, client webmail.Client, boxes ...SecretBox) error {
+	var box SecretBox
+	if len(boxes) > 0 {
+		box = boxes[0]
+	}
+	return RepairSentCopyWithAuthority(ctx, q, row, client, box, nil)
+}
+
+// RepairSentCopyWithAuthority rechecks live authorization around IMAP side effects.
+func RepairSentCopyWithAuthority(ctx context.Context, q SentCopyStore, row store.MailboxScheduledSends, client webmail.Client, box SecretBox, authorize func(context.Context) error) error {
+	raw := row.SentRaw
+	if row.SentRawSecret != "" {
+		if box == nil {
+			return deferSentCopy(ctx, q, row, errors.New("copy encryption unavailable"))
+		}
+		plain, e := box.DecryptString(row.SentRawSecret)
+		if e != nil {
+			return deferSentCopy(ctx, q, row, e)
+		}
+		raw = []byte(plain)
+	}
 	finder, ok := client.(webmail.SentCopyFinder)
-	if !ok || len(row.SentRaw) == 0 {
+	if !ok || len(raw) == 0 {
 		return deferSentCopy(ctx, q, row, errors.New("sent reconciliation unavailable"))
 	}
-	_, found, err := finder.FindSentCopy(ctx, row.SentRaw)
+	check := func() error {
+		if authorize != nil {
+			return authorize(ctx)
+		}
+		return nil
+	}
+	if err := check(); err != nil {
+		return deferSentCopy(ctx, q, row, err)
+	}
+	_, found, err := finder.FindSentCopy(ctx, raw)
 	if err != nil {
+		return deferSentCopy(ctx, q, row, err)
+	}
+	if err = check(); err != nil {
 		return deferSentCopy(ctx, q, row, err)
 	}
 	if !found {
 		if _, err = q.PlatformMarkScheduledSentCopyUnknown(ctx, store.PlatformMarkScheduledSentCopyUnknownParams{TenantID: row.TenantID, MailboxID: row.MailboxID, ID: row.ID, ClaimToken: row.ClaimToken}); err != nil {
 			return deferSentCopy(ctx, q, row, err)
 		}
-		if _, err = client.SaveSentCopy(ctx, row.SentRaw); err != nil {
+		if _, err = client.SaveSentCopy(ctx, raw); err != nil {
 			return deferSentCopy(ctx, q, row, err)
 		}
+	}
+	if err = check(); err != nil {
+		return deferSentCopy(ctx, q, row, err)
 	}
 	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()

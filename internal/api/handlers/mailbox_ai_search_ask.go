@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -33,7 +36,9 @@ type AISearchAsk struct {
 	ModelFor func(ctx context.Context, tenantID int64) (aianswer.Model, error)
 	// Accounting records usage and enforces the tenant budget. The zero
 	// value (nil Pool) disables accounting: offline tests are unaffected.
-	Accounting AISearchAskAccounting
+	Accounting        AISearchAskAccounting
+	SessionModelFor   func(context.Context, webmail.Session, string) (aianswer.Model, error)
+	ReserveForSession func(context.Context, webmail.Session, string, string) (*Reservation, error)
 }
 
 // Handle answers one question from the mailbox principal's indexed mail.
@@ -51,6 +56,8 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		Question            string `json:"question"`
 		ConfigurationDigest string `json:"configuration_digest"`
 		Confirmed           bool   `json:"confirmed"`
+		PreviewOnly         bool   `json:"preview_only"`
+		ContentDigest       string `json:"content_digest"`
 		Folder              string `json:"folder_enc"`
 		After               string `json:"after"`
 		Before              string `json:"before"`
@@ -58,7 +65,7 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 	if !bindMailboxMessage(c, &req) {
 		return
 	}
-	if h.Policy != nil && !h.Policy(c, session, req.ConfigurationDigest, req.Confirmed) {
+	if h.Policy != nil && !h.Policy(c, session, req.ConfigurationDigest, req.Confirmed || req.PreviewOnly) {
 		return
 	}
 	question, err := aianswer.Question(req.Question)
@@ -101,7 +108,16 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 
 	// Budget enforcement happens BEFORE any provider call; an exhausted
 	// budget is a distinct, actionable error for the client.
-	reservation, err := h.Accounting.Reserve(c.Request.Context(), session.TenantID, session.MailboxID, question)
+	var reservation *Reservation
+	var reserveErr error
+	if !req.PreviewOnly {
+		if h.ReserveForSession != nil {
+			reservation, reserveErr = h.ReserveForSession(c.Request.Context(), session, question, req.ConfigurationDigest)
+		} else {
+			reservation, reserveErr = h.Accounting.Reserve(c.Request.Context(), session.TenantID, session.MailboxID, question)
+		}
+	}
+	err = reserveErr
 	if err != nil {
 		if errors.Is(err, ErrAIBudgetExceeded) {
 			authError(c, http.StatusTooManyRequests, "AI_BUDGET_EXCEEDED")
@@ -126,6 +142,9 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		}
 	}()
 	model, err := h.ModelFor(c.Request.Context(), session.TenantID)
+	if h.SessionModelFor != nil {
+		model, err = h.SessionModelFor(c.Request.Context(), session, req.ConfigurationDigest)
+	}
 	if err != nil || model == nil {
 		authError(c, http.StatusServiceUnavailable, "AI_UNAVAILABLE")
 		return
@@ -164,13 +183,45 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 	if req.Folder != "" || req.After != "" || req.Before != "" {
 		chunkStore = askScopeStore{ChunkStore: chunkStore, source: scoped}
 	}
+	previewStopped := errors.New("mailbox AI preview ready")
+	policyDenied := errors.New("mailbox AI policy denied before export")
+	consentChanged := errors.New("mailbox AI preview changed")
+	var previewSources []aianswer.Source
+	previewDigest := func(sources []aianswer.Source) string {
+		data, _ := json.Marshal(struct {
+			Configuration, Question, Folder, After, Before string
+			Sources                                        []aianswer.Source
+		}{req.ConfigurationDigest, question, req.Folder, req.After, req.Before, sources})
+		return fmt.Sprintf("%x", sha256.Sum256(data))
+	}
 	countedModel := func(ctx context.Context, question string, sources []aianswer.Source) (string, []string, error) {
+		previewSources = sources
+		if req.PreviewOnly {
+			return "", nil, previewStopped
+		}
+		if h.Policy != nil && (req.ContentDigest == "" || req.ContentDigest != previewDigest(sources)) {
+			return "", nil, consentChanged
+		}
+		if h.Policy != nil && !h.Policy(c, session, req.ConfigurationDigest, req.Confirmed) {
+			return "", nil, policyDenied
+		}
 		modelCalled = true
 		return model(ctx, question, sources)
 	}
 	var observed ai.CompletionResponse
 	askCtx := airetrieval.WithUsageRecorder(c.Request.Context(), func(usage ai.CompletionResponse) { observed = usage })
 	answer, askErr := (airetrieval.Pipeline{Store: chunkStore, Source: source, Model: countedModel}).Ask(askCtx, principal, question)
+	if errors.Is(askErr, policyDenied) {
+		return
+	}
+	if req.PreviewOnly && (askErr == nil || errors.Is(askErr, previewStopped)) {
+		c.JSON(200, gin.H{"content_digest": previewDigest(previewSources), "question": question, "sources": previewSources})
+		return
+	}
+	if errors.Is(askErr, consentChanged) {
+		authError(c, 409, "AI_CONTENT_CONSENT_STALE")
+		return
+	}
 	// Usage recording is best-effort: it must never fail the delivered
 	// answer. With no usage reported by the pipeline the reservation stays
 	// charged at its worst-case estimate, matching platform accounting.
@@ -222,6 +273,8 @@ func (h *AISearchAsk) chunkStore() airetrieval.ChunkStore {
 	return airetrieval.PGChunkStore{Pool: h.Pool}
 }
 
+type aiConfirmedTargetKey struct{}
+
 // TenantCitationModel builds citation models from the tenant AI provider
 // configuration stored in PostgreSQL.
 func TenantCitationModel(pool *db.Pool, secrets SecretsBox, cloudEndpoints, localEndpoints []string) func(ctx context.Context, tenantID int64) (aianswer.Model, error) {
@@ -237,6 +290,9 @@ func TenantCitationModel(pool *db.Pool, secrets SecretsBox, cloudEndpoints, loca
 		}
 		if err != nil {
 			return nil, err
+		}
+		if expected, _ := ctx.Value(aiConfirmedTargetKey{}).(string); expected != "" && expected != config.ConfigurationDigest {
+			return nil, errAITargetChanged
 		}
 		if !config.Enabled {
 			return nil, ai.ErrProviderDisabled

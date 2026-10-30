@@ -34,6 +34,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/frommilter"
 	"github.com/bushixiucai/urmail/internal/mail/policy"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
+	"github.com/bushixiucai/urmail/internal/mailauth"
 	"github.com/bushixiucai/urmail/internal/mailboxschedule"
 	"github.com/bushixiucai/urmail/internal/mailspam"
 	"github.com/bushixiucai/urmail/internal/marketing"
@@ -111,6 +112,14 @@ func run() error {
 		return fmt.Errorf("open platform database pool: %w", err)
 	}
 	defer platformPool.Close()
+
+	// Seal legacy recovery MIME before any worker can read it, including on a
+	// quarantined restore where delivery workers deliberately remain stopped.
+	if secretBox != nil {
+		if err := mailboxschedule.SealLegacyCopies(ctx, platformPool, secretBox); err != nil {
+			return fmt.Errorf("seal legacy webmail recovery material: %w", err)
+		}
+	}
 
 	marketingPool, err := db.OpenBackgroundPlatform(ctx, cfg.DatabaseURLPlatform)
 	if err != nil {
@@ -228,7 +237,7 @@ func run() error {
 				TrustedAuthServIDs: []string{cfg.MyHostname},
 			},
 		}
-		spamMilter := &mailspam.Server{Addr: mailspam.DefaultAddr, Handler: spamVerdict}
+		spamMilter := &mailspam.Server{Addr: mailspam.DefaultAddr, Handler: spamVerdict, Config: mailspam.MilterConfig{Authentication: &mailauth.Receiver{Secrets: secretBox}}}
 		go func() {
 			logger.Info("spam verdict milter listening", zap.String("addr", mailspam.DefaultAddr))
 			if err := spamMilter.ListenAndServe(ctx); err != nil && ctx.Err() == nil {

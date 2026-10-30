@@ -3,6 +3,7 @@ package mailboxschedule
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +20,13 @@ type fakeSecrets struct {
 	err   error
 }
 
-func (f fakeSecrets) DecryptString(string) (string, error) { return f.plain, f.err }
+func (f fakeSecrets) EncryptString(value string) (string, error) { return "enc:v1:" + value, f.err }
+func (f fakeSecrets) DecryptString(value string) (string, error) {
+	if strings.HasPrefix(value, "enc:v1:") {
+		return strings.TrimPrefix(value, "enc:v1:"), f.err
+	}
+	return f.plain, f.err
+}
 
 type fakeStore struct {
 	row                 store.MailboxScheduledSends
@@ -78,6 +85,7 @@ func (*fakeStore) CreateAuditLog(context.Context, store.CreateAuditLogParams) (s
 }
 
 type fakeIMAP struct {
+	onFind                   func()
 	copyStored, appendStored bool
 	appendCalls              int
 	appendErr, findErr       error
@@ -192,7 +200,7 @@ func TestWorkerDeliveryOutcome(t *testing.T) {
 			if st.row.Status != tc.status || st.requeued != tc.retry || submit.calls != 1 {
 				t.Fatalf("row=%+v retry=%v calls=%d", st.row, st.requeued, submit.calls)
 			}
-			if submit.lastMessageID != "<urmail-schedule-1@localhost>" {
+			if !strings.HasPrefix(submit.lastMessageID, "<urmail-") || !strings.HasSuffix(submit.lastMessageID, "@localhost>") {
 				t.Fatal("submission lacks stable reconciliation identity")
 			}
 			if st.row.SendAt != original {
@@ -332,4 +340,21 @@ func TestWorkerRechecksSavedAliasGrantBeforeSubmission(t *testing.T) {
 			t.Fatal("authorized alias was not sent")
 		}
 	}
+}
+
+func (f *fakeStore) PlatformFreezeScheduledSend(_ context.Context, p store.PlatformFreezeScheduledSendParams) (store.MailboxScheduledSends, error) {
+	f.row.SentRawSecret = p.RawSecret
+	return f.row, nil
+}
+func (f *fakeStore) PlatformHoldExpiredScheduledCopies(context.Context) (int64, error) { return 0, nil }
+
+func (f *fakeStore) PlatformHoldUnauthorizedScheduledCopies(context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeStore) PlatformAuthorizeScheduledCopy(_ context.Context, p store.PlatformAuthorizeScheduledCopyParams) (int64, error) {
+	if f.row.ID != p.ID || f.row.ClaimToken != p.ClaimToken {
+		return 0, pgx.ErrNoRows
+	}
+	return f.row.ID, nil
 }

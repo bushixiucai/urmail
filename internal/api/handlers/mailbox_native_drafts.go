@@ -1,15 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -71,30 +73,15 @@ func (h *MailboxNativeHandler) SaveDraft(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := client.SaveDraft(c.Request.Context(), session.Address, webmail.Outgoing{
-		From:        from,
-		InReplyTo:   inReplyTo,
-		References:  inReplyTo,
-		To:          cleanAddrs(req.To),
-		Cc:          cleanAddrs(req.Cc),
-		Bcc:         cleanAddrs(req.Bcc),
-		Subject:     req.Subject,
-		Text:        req.Text,
-		HTML:        req.HTML,
-		Attachments: atts,
-	}, req.UID, req.UIDValidity)
-	if err != nil {
-		if errors.Is(err, webmail.ErrDraftChanged) {
-			authError(c, http.StatusConflict, "DRAFT_CHANGED")
-			return
-		}
-		if errors.Is(err, webmail.ErrDraftUncertain) {
-			authError(c, http.StatusConflict, "DRAFT_SAVE_UNCERTAIN")
-			return
-		}
-		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+	result, saved := h.saveDraftJournal(c, client, session, req, webmail.Outgoing{
+		From: from, InReplyTo: inReplyTo, References: inReplyTo,
+		To: cleanAddrs(req.To), Cc: cleanAddrs(req.Cc), Bcc: cleanAddrs(req.Bcc),
+		Subject: req.Subject, Text: req.Text, HTML: req.HTML, Attachments: atts,
+	})
+	if !saved {
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"folder":          result.Folder,
 		"name_enc":        result.NameEnc,
@@ -151,7 +138,7 @@ func (h *MailboxNativeHandler) DeleteDraft(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
@@ -160,6 +147,23 @@ func (h *MailboxNativeHandler) DeleteDraft(c *gin.Context) {
 	folder, err := client.EnsureDraftsFolder(c.Request.Context())
 	if err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+		return
+	}
+	tx, locked := h.lockDraftEdit(c, session, folder, uint32(uid), uint32(validity))
+	if !locked {
+		return
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if h.draftDeletionLocked(c, folder, uint32(uid), uint32(validity), store.New(tx)) {
+		return
+	}
+	pending, pendingErr := store.New(tx).PlatformDraftReplacementPending(c.Request.Context(), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uid, 10), PreviousValidity: strconv.FormatUint(validity, 10)})
+	if pendingErr != nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	if pending {
+		authError(c, 409, "DRAFT_SAVE_UNCERTAIN")
 		return
 	}
 	currentValidity, err := client.FolderUIDValidity(c.Request.Context(), folder)
@@ -187,6 +191,10 @@ func decodeSendAttachments(c *gin.Context, in []mailboxSendAttachment) ([]webmai
 	var atts []webmail.OutgoingAttachment
 	totalBytes := 0
 	for _, a := range in {
+		if len(a.ContentID) > 998 || strings.ContainsFunc(a.ContentID, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) || r == '<' || r == '>' }) {
+			authError(c, 400, "INVALID_PARAMS")
+			return nil, false
+		}
 		raw, err := base64.StdEncoding.DecodeString(a.ContentB64)
 		if err != nil {
 			raw, err = base64.RawStdEncoding.DecodeString(a.ContentB64)
@@ -201,6 +209,7 @@ func decodeSendAttachments(c *gin.Context, in []mailboxSendAttachment) ([]webmai
 			return nil, false
 		}
 		atts = append(atts, webmail.OutgoingAttachment{
+			ContentID: a.ContentID, Inline: a.Inline,
 			Filename:    strings.TrimSpace(a.Filename),
 			ContentType: strings.TrimSpace(a.ContentType),
 			Content:     raw,

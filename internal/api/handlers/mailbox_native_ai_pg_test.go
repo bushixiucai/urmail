@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/store"
@@ -15,6 +16,25 @@ import (
 
 func nativeAIJSON(t *testing.T, f nativeAIHTTPFixture, token, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
+	if input, ok := body.(map[string]any); ok && input["confirmed"] == true && input["preview_only"] != true && input["content_digest"] == nil && (path == "/api/v1/mailbox/ai/assist" || path == "/api/v1/mailbox/ai/search-ask") {
+		previewInput := make(map[string]any, len(input)+1)
+		for key, value := range input {
+			previewInput[key] = value
+		}
+		previewInput["preview_only"] = true
+		response := nativeAIJSON(t, f, token, path, previewInput)
+		if response.Code != 200 {
+			return response
+		}
+		var preview struct {
+			Digest string `json:"content_digest"`
+		}
+		if json.Unmarshal(response.Body.Bytes(), &preview) != nil || preview.Digest == "" {
+			t.Fatal("preview digest missing")
+		}
+		input["content_digest"] = preview.Digest
+		defer delete(input, "content_digest")
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -178,5 +198,51 @@ func TestNativeAIScopeMigrationRequiresRenewedConsentPG(t *testing.T) {
 	allowed, err := q.AICloudAuthorized(t.Context(), store.AICloudAuthorizedParams{TenantID: principal.TenantID, ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash})
 	if err != nil || !allowed {
 		t.Fatal("explicit renewed authorization did not restore access")
+	}
+}
+
+func TestNativeAIPreviewBindsActualContentPG(t *testing.T) {
+	f := newNativeAIHTTPFixture(t)
+	token := loginNative(t, f.router, f.principal.Address, f.password)
+	cfg, err := store.New(f.pool).PlatformGetAIProvider(t.Context(), f.principal.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"operation": "summarize", "configuration_digest": cfg.ConfigurationDigest, "confirmed": false, "preview_only": true, "request_key": "content-preview-proof-0001", "body": "Only this selected content", "subject": "Invoice"}
+	preview := nativeAIJSON(t, f, token, "/api/v1/mailbox/ai/assist", input)
+	var value struct {
+		Digest   string `json:"content_digest"`
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if preview.Code != 200 || json.Unmarshal(preview.Body.Bytes(), &value) != nil || value.Digest == "" || f.model.calls.Load() != 0 {
+		t.Fatalf("preview exported content: %d %s", preview.Code, preview.Body.String())
+	}
+	input["preview_only"] = false
+	input["confirmed"] = true
+	input["content_digest"] = value.Digest
+	input["body"] = "Different unconfirmed content"
+	if response := nativeAIJSON(t, f, token, "/api/v1/mailbox/ai/assist", input); response.Code != 409 || f.model.calls.Load() != 0 {
+		t.Fatal("changed content was exported")
+	}
+	input["body"] = "Only this selected content"
+	if response := nativeAIJSON(t, f, token, "/api/v1/mailbox/ai/assist", input); response.Code != 200 || f.model.calls.Load() != 1 {
+		t.Fatalf("confirmed content failed: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestNativeAIModelsRejectUnapprovedLoopbackPG(t *testing.T) {
+	f := newNativeAIHTTPFixture(t)
+	token := loginNative(t, f.router, f.principal.Address, f.password)
+	var calls atomic.Int32
+	private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"data":[{"id":"private-model"}]}`))
+	}))
+	defer private.Close()
+	response := nativeAIJSON(t, f, token, "/api/v1/mailbox/ai/models", map[string]any{"provider": "ollama", "endpoint": private.URL, "model": "private"})
+	if response.Code != 400 || calls.Load() != 0 {
+		t.Fatalf("unapproved local endpoint accessed: status=%d calls=%d", response.Code, calls.Load())
 	}
 }

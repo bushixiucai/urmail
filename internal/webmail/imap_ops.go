@@ -8,6 +8,8 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+
+	"github.com/bushixiucai/urmail/internal/mailauth"
 )
 
 // ListMessages SELECTs the folder, computes the ordered UID sequence, then
@@ -173,6 +175,7 @@ func (c *imapConn) GetMessage(ctx context.Context, folder string, uid uint32) (*
 		msg.Attachments = atts
 		msg.AttachmentsCapped = len(atts) >= MaxAttachmentsPerMessage
 		msg.ReplyTo, msg.To, msg.Cc, msg.Bcc = parseHeaderRecipients(rawBody)
+		msg.Authentication = mailauth.Read(rawBody, c.authenticationSecrets)
 	}
 	return msg, nil
 }
@@ -442,7 +445,7 @@ func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]Mess
 		return nil, err
 	}
 	tag := c.nextTag()
-	cmd := fmt.Sprintf("%s UID FETCH %s (UID FLAGS RFC822.SIZE ENVELOPE)\r\n", tag, formatUIDSet(uids))
+	cmd := fmt.Sprintf("%s UID FETCH %s (UID FLAGS RFC822.SIZE ENVELOPE BODYSTRUCTURE)\r\n", tag, formatUIDSet(uids))
 	if _, err := io.WriteString(c.conn, cmd); err != nil {
 		return nil, err
 	}
@@ -456,6 +459,7 @@ func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]Mess
 			attrs := parseFetchAttrs(attrsPayload)
 			sum, sumErr := summaryFromAttrs(attrs)
 			if sumErr == nil {
+				sum.UIDValidity = c.selectedUIDValidity
 				byUID[sum.UID] = sum
 			}
 			continue

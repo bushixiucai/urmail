@@ -3,11 +3,11 @@
 -- name: PlatformCreateMailboxScheduledSend :one
 INSERT INTO mailbox_scheduled_sends(
  tenant_id,mailbox_id,draft_folder,draft_uid,draft_uidvalidity,send_at,next_attempt_at,
- status,smtp_secret,idempotency_key,request_hash
+ status,smtp_secret,idempotency_key,request_hash,smtp_password_version
 ) VALUES(
  sqlc.arg(tenant_id),sqlc.arg(mailbox_id),sqlc.arg(draft_folder),sqlc.arg(draft_uid),
  sqlc.arg(draft_uidvalidity),sqlc.arg(send_at),sqlc.arg(send_at),'pending',
- sqlc.arg(smtp_secret),sqlc.arg(idempotency_key),sqlc.arg(request_hash)
+ sqlc.arg(smtp_secret),sqlc.arg(idempotency_key),sqlc.arg(request_hash),(SELECT md5(m.password_hash) FROM mailboxes m WHERE m.tenant_id=sqlc.arg(tenant_id) AND m.id=sqlc.arg(mailbox_id))
 ) RETURNING *;
 
 -- name: PlatformGetMailboxScheduledSendByKey :one
@@ -26,7 +26,7 @@ LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: PlatformCancelMailboxScheduledSend :one
 UPDATE mailbox_scheduled_sends
-SET status='cancelled',smtp_secret='',claim_token=claim_token+1,lease_until=NULL,
+SET status='cancelled',smtp_secret='',sent_raw_secret='',sent_raw=NULL,claim_token=claim_token+1,lease_until=NULL,
  updated_at=now(),last_error=NULL
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND status IN('pending','preparing','cancelled')
 RETURNING *;
@@ -67,7 +67,7 @@ RETURNING s.*;
 
 -- name: PlatformFinishMailboxScheduledSend :one
 UPDATE mailbox_scheduled_sends
-SET status=sqlc.arg(final_status),smtp_secret='',last_error=sqlc.narg(last_error),
+SET status=sqlc.arg(final_status),smtp_secret='',sent_raw_secret=CASE WHEN sqlc.arg(final_status)::text='failed' THEN '' ELSE sent_raw_secret END,last_error=sqlc.narg(last_error),
  lease_until=NULL,updated_at=now(),sent_at=CASE WHEN sqlc.arg(final_status)::text='sent' THEN now() ELSE sent_at END
 WHERE id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token) AND status=sqlc.arg(expected_status)
 RETURNING *;
@@ -87,3 +87,7 @@ SET status=CASE WHEN status='preparing' THEN 'pending' ELSE 'uncertain' END,
  lease_until=NULL,updated_at=now(),
  last_error=CASE WHEN status='preparing' THEN 'SCHEDULE_PREPARATION_EXPIRED' ELSE 'SCHEDULE_DELIVERY_UNCERTAIN' END
 WHERE status IN('preparing','submitting') AND lease_until<now();
+
+-- name: PlatformAcknowledgeUncertainScheduledSend :one
+UPDATE mailbox_scheduled_sends SET status='cancelled',smtp_secret='',sent_raw=NULL,sent_raw_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SCHEDULE_UNCERTAIN_ACKNOWLEDGED',updated_at=now()
+WHERE NOT urmail_restore_quarantine_active() AND tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND status IN('uncertain','held') RETURNING *;
