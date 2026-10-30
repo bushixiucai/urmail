@@ -15,6 +15,7 @@ const (
 	// sieve_before line rendered into dovecot.conf (MAIL-002). It lives
 	// under /etc/dovecot/conf.d, which is already an agent write root.
 	FileSpamSieve       = "urmail-spam/spam-before.sieve"
+	FileSpamAfterSieve  = "urmail-spam/spam-after.sieve"
 	FileSieveGateHelper = "urmail-spam/execute/outbound-check"
 )
 
@@ -35,6 +36,7 @@ func Generate(node NodeConfig) (map[string]string, error) {
 	result[FileDovecotMailboxes] = renderDovecotMailboxes()
 	result[FileDovecotQuota] = renderDovecotQuota()
 	result[FileSpamSieve] = renderSpamSieve(node.SpamPolicies)
+	result[FileSpamAfterSieve] = renderSpamAfterSieve()
 	result[FileSieveGateHelper] = sievegate.HelperScript
 
 	return result, nil

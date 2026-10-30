@@ -3,11 +3,12 @@ import {
   decorateThreads,
   groupThreads,
   normalizeThreadSubject,
+  parseMessageIds,
 } from "./mailbox-threading";
 import type { MessageSummary } from "./mailbox-api";
 
 function msg(
-  overrides: Partial<MessageSummary> & { uid: number },
+  overrides: Partial<MessageSummary> & { uid: number; references?: string | string[] },
 ): MessageSummary {
   return {
     subject: "Hello",
@@ -28,7 +29,21 @@ describe("normalizeThreadSubject", () => {
   });
 });
 
-describe("groupThreads", () => {
+describe("parseMessageIds", () => {
+  it("extracts and strips angle brackets from message ID strings", () => {
+    expect(parseMessageIds("<a@example.com> <b@example.com>")).toEqual([
+      "a@example.com",
+      "b@example.com",
+    ]);
+    expect(parseMessageIds(["<c@test>", "d@test"])).toEqual([
+      "c@test",
+      "d@test",
+    ]);
+    expect(parseMessageIds("")).toEqual([]);
+  });
+});
+
+describe("groupThreads (WP02 / I04: References & In-Reply-To without subject-only merging)", () => {
   it("links replies via in_reply_to chains", () => {
     const messages = [
       msg({ uid: 1, message_id: "<a@x>" }),
@@ -40,28 +55,58 @@ describe("groupThreads", () => {
     expect(groups.get(3)?.messages.map((m) => m.uid)).toEqual([3]);
   });
 
-  it("falls back to normalized subject and ignores empty subjects", () => {
+  it("links messages using References header chains", () => {
     const messages = [
-      msg({ uid: 7, subject: "Re: 计划" }),
-      msg({ uid: 5, subject: "计划" }),
-      msg({ uid: 8, subject: "" }),
+      msg({ uid: 10, message_id: "<root@domain>" }),
+      msg({
+        uid: 11,
+        message_id: "<mid1@domain>",
+        references: "<root@domain>",
+      }),
+      msg({
+        uid: 12,
+        message_id: "<mid2@domain>",
+        references: "<root@domain> <mid1@domain>",
+      }),
     ];
     const groups = groupThreads(messages);
-    expect(groups.get(5)?.messages.map((m) => m.uid)).toEqual([5, 7]);
-    expect(groups.get(8)?.messages).toHaveLength(1);
+    expect(groups.get(10)?.messages.map((m) => m.uid)).toEqual([10, 11, 12]);
+  });
+
+  it("links siblings sharing the same unseen parent reference", () => {
+    const messages = [
+      msg({ uid: 21, references: "<missing-parent@domain>" }),
+      msg({ uid: 22, references: "<missing-parent@domain>" }),
+    ];
+    const groups = groupThreads(messages);
+    expect(groups.get(21)?.messages.map((m) => m.uid)).toEqual([21, 22]);
+  });
+
+  it("NEVER merges purely by subject when no in_reply_to or references exist", () => {
+    const messages = [
+      msg({ uid: 5, subject: "计划" }),
+      msg({ uid: 7, subject: "Re: 计划" }),
+      msg({ uid: 8, subject: "计划" }),
+    ];
+    const groups = groupThreads(messages);
+    // Each remains its own thread root
+    expect(groups.get(5)?.messages.map((m) => m.uid)).toEqual([5]);
+    expect(groups.get(7)?.messages.map((m) => m.uid)).toEqual([7]);
+    expect(groups.get(8)?.messages.map((m) => m.uid)).toEqual([8]);
   });
 });
 
-describe("decorateThreads", () => {
-  it("prefers server-side thread_id counts when present", () => {
+describe("decorateThreads (Accurate conversation count not bounded by current page)", () => {
+  it("preserves accurate conversation count when server supplies thread_count greater than loaded page", () => {
     const out = decorateThreads([
       msg({ uid: 2, thread_id: 1, thread_count: 9 }),
-      msg({ uid: 3, thread_id: 1 }),
+      msg({ uid: 3, thread_id: 1, thread_count: 9 }),
     ]);
-    expect(out.map((o) => o.threadCount)).toEqual([2, 2]);
+    // The server thread_count (9) is not capped to 2 (loaded messages on page)
+    expect(out.map((o) => o.threadCount)).toEqual([9, 9]);
   });
 
-  it("groups client-side when no thread_id present", () => {
+  it("calculates accurate count when thread_count is not provided by server", () => {
     const out = decorateThreads([
       msg({ uid: 1, subject: "Hi", message_id: "<h@x>" }),
       msg({ uid: 2, subject: "Re: Hi", in_reply_to: "<h@x>" }),

@@ -105,6 +105,16 @@ const WebmailHelpPage = lazy(() =>
     default: m.WebmailHelpPage,
   })),
 );
+const MailboxStandaloneRead = lazy(() =>
+  import("@/features/webmail/mailbox-standalone-read").then((m) => ({
+    default: m.MailboxStandaloneRead,
+  })),
+);
+const MailboxStandaloneCompose = lazy(() =>
+  import("@/features/webmail/mailbox-standalone-compose").then((m) => ({
+    default: m.MailboxStandaloneCompose,
+  })),
+);
 const ClientGuidesPage = lazy(() =>
   import("@/features/guides/client-guides-page").then((m) => ({
     default: m.ClientGuidesPage,
@@ -296,6 +306,22 @@ export function App() {
                     <main className="mx-auto max-w-lg px-4 py-10">
                       <WebmailHelpPage />
                     </main>
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/read"
+                element={
+                  <LazyPage>
+                    <MailboxStandaloneRead />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/compose"
+                element={
+                  <LazyPage>
+                    <MailboxStandaloneCompose />
                   </LazyPage>
                 }
               />

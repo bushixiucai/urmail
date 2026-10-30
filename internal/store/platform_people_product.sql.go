@@ -290,7 +290,7 @@ func (q *Queries) PlatformListCalendarEventsPage(ctx context.Context, arg Platfo
 }
 
 const platformListContactGroupMembers = `-- name: PlatformListContactGroupMembers :many
-SELECT c.id, c.tenant_id, c.mailbox_id, c.addressbook_id, c.version, c.display_name, c.given_name, c.family_name, c.emails, c.phones, c.note, c.created_at, c.updated_at, c.deleted_at FROM mailbox_contacts c JOIN mailbox_contact_group_members m ON m.tenant_id=c.tenant_id AND m.mailbox_id=c.mailbox_id AND m.contact_id=c.id
+SELECT c.id, c.tenant_id, c.mailbox_id, c.addressbook_id, c.version, c.display_name, c.given_name, c.family_name, c.emails, c.phones, c.note, c.created_at, c.updated_at, c.deleted_at, c.organization, c.job_title, c.addresses, c.birthday, c.photo, c.vcard_extra FROM mailbox_contacts c JOIN mailbox_contact_group_members m ON m.tenant_id=c.tenant_id AND m.mailbox_id=c.mailbox_id AND m.contact_id=c.id
 JOIN mailbox_contact_groups g ON g.tenant_id=m.tenant_id AND g.mailbox_id=m.mailbox_id AND g.id=m.group_id
 WHERE c.tenant_id=$1 AND c.mailbox_id=$2 AND g.id=$3 AND c.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY c.id
 `
@@ -325,6 +325,12 @@ func (q *Queries) PlatformListContactGroupMembers(ctx context.Context, arg Platf
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Organization,
+			&i.JobTitle,
+			&i.Addresses,
+			&i.Birthday,
+			&i.Photo,
+			&i.VcardExtra,
 		); err != nil {
 			return nil, err
 		}
@@ -337,7 +343,7 @@ func (q *Queries) PlatformListContactGroupMembers(ctx context.Context, arg Platf
 }
 
 const platformListContactsPage = `-- name: PlatformListContactsPage :many
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM mailbox_contacts WHERE tenant_id=$1 AND mailbox_id=$2 AND deleted_at IS NULL AND id>$3 ORDER BY id LIMIT $4
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM mailbox_contacts WHERE tenant_id=$1 AND mailbox_id=$2 AND deleted_at IS NULL AND id>$3 ORDER BY id LIMIT $4
 `
 
 type PlatformListContactsPageParams struct {
@@ -376,6 +382,12 @@ func (q *Queries) PlatformListContactsPage(ctx context.Context, arg PlatformList
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Organization,
+			&i.JobTitle,
+			&i.Addresses,
+			&i.Birthday,
+			&i.Photo,
+			&i.VcardExtra,
 		); err != nil {
 			return nil, err
 		}

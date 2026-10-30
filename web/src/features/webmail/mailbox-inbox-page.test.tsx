@@ -7,7 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter as Router } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -145,7 +145,7 @@ function mockMailboxApi(
         }),
       };
     }
-    if (u.includes("/messages/trash")) {
+    if (u.includes("/messages/trash") || u.includes("/messages/restore")) {
       return {
         ok: true,
         status: 200,
@@ -154,8 +154,8 @@ function mockMailboxApi(
             uid,
             status: "success",
           })),
-          destination: "Trash",
-          name_enc: "b64.VHJhc2g",
+          destination: u.includes("/restore") ? "INBOX" : "Trash",
+          name_enc: "b64.SU5CT1g",
           uid_validity: 10,
         }),
       };
@@ -1250,3 +1250,106 @@ it("preserves a visibly edited inline reply when autosave fails during navigatio
       .textContent,
   ).toBe("Unsaved visible reply");
 });
+
+describe("mailbox workspace and search enhancements (WP02 & WP03)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  function renderMailbox() {
+    return render(
+      <MemoryRouter>
+        <MailboxInboxPage />
+      </MemoryRouter>,
+    );
+  }
+
+  it("supports one-click move to Trash with undo notification", async () => {
+    sessionStorageReady();
+    const fetcher = mockMailboxApi();
+    renderMailbox();
+
+    await screen.findByText("Hello inbox");
+    const row = screen.getByText("Hello inbox").closest("li")!;
+    const deleteBtn = within(row).getByRole("button", {
+      name: "page.webmail.delete",
+    });
+
+    fireEvent.click(deleteBtn);
+
+    // Confirm dialog should NOT appear for single message one-click delete
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Undo notification should appear
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "action.undo" })).toBeTruthy();
+    });
+
+    // Verify move to trash API call was made
+    const trashCalls = fetcher.mock.calls.filter((c) =>
+      String(c[0]).endsWith("/messages/trash"),
+    );
+    expect(trashCalls.length).toBeGreaterThan(0);
+
+    // Clicking Undo should trigger restore
+    fireEvent.click(screen.getByRole("button", { name: "action.undo" }));
+    await waitFor(() => {
+      const restoreCalls = fetcher.mock.calls.filter((c) =>
+        String(c[0]).includes("/messages/restore"),
+      );
+      expect(restoreCalls.length).toBeGreaterThan(0);
+      const body = JSON.parse(String(restoreCalls[0][1]?.body));
+      expect(body.uids).toEqual([1]);
+    });
+  });
+
+  it("handles read timer delay and cancellation on blur or manual cancel", async () => {
+    sessionStorageReady();
+    localStorage.setItem("urmail.webmail.readTimerMode", JSON.stringify("5s"));
+    const fetcher = mockMailboxApi();
+    renderMailbox();
+
+    await screen.findByText("Hello inbox");
+    // Message 1 ("Hello inbox") has empty flags (unseen)
+    fireEvent.click(screen.getByText("Hello inbox"));
+    await screen.findByText("body");
+
+    // Marking read indicator with Cancel button should be displayed
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "action.cancel" }),
+      ).toBeTruthy();
+    });
+
+    // Clicking Cancel cancels the timer
+    fireEvent.click(screen.getByRole("button", { name: "action.cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "action.cancel" })).toBeNull();
+    });
+
+    // Verify flagMessages with \Seen was not called for message 2
+    const flagCalls = fetcher.mock.calls.filter(
+      (c) =>
+        String(c[0]).includes("/messages/flags") &&
+        String(c[1]?.body).includes("\\Seen"),
+    );
+    expect(flagCalls).toHaveLength(0);
+  });
+
+  it("displays folder unread badge and updates with loaded message status", async () => {
+    sessionStorageReady();
+    mockMailboxApi();
+    renderMailbox();
+
+    await screen.findByText("Hello inbox");
+    // Inbox has 1 unseen message (Second mail)
+    await waitFor(() => {
+      const badge = screen.getByTestId("unread-badge-INBOX");
+      expect(badge).toBeTruthy();
+      expect(badge.textContent).toBe("1");
+    });
+  });
+});
+

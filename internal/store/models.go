@@ -670,6 +670,12 @@ type MailboxContacts struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	Organization  string             `json:"organization"`
+	JobTitle      string             `json:"job_title"`
+	Addresses     []byte             `json:"addresses"`
+	Birthday      string             `json:"birthday"`
+	Photo         string             `json:"photo"`
+	VcardExtra    []byte             `json:"vcard_extra"`
 }
 
 type MailboxEasCollectionState struct {
@@ -908,6 +914,17 @@ type MailboxSettings struct {
 	Preferences      []byte             `json:"preferences"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	IdentityProfiles []byte             `json:"identity_profiles"`
+}
+
+type MailboxSnippets struct {
+	ID        int64              `json:"id"`
+	TenantID  int64              `json:"tenant_id"`
+	MailboxID int64              `json:"mailbox_id"`
+	Title     string             `json:"title"`
+	Content   string             `json:"content"`
+	Shortcut  string             `json:"shortcut"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MailboxSpamFeedback struct {
@@ -1697,6 +1714,29 @@ type TenantContacts struct {
 	Email              string             `json:"email"`
 	VerifiedAt         pgtype.Timestamptz `json:"verified_at"`
 	RegistrationSource string             `json:"registration_source"`
+}
+
+type TenantDirectoryContacts struct {
+	ID           int64              `json:"id"`
+	TenantID     int64              `json:"tenant_id"`
+	DisplayName  string             `json:"display_name"`
+	GivenName    string             `json:"given_name"`
+	FamilyName   string             `json:"family_name"`
+	Organization string             `json:"organization"`
+	Department   string             `json:"department"`
+	JobTitle     string             `json:"job_title"`
+	Emails       []byte             `json:"emails"`
+	Phones       []byte             `json:"phones"`
+	Addresses    []byte             `json:"addresses"`
+	Note         string             `json:"note"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type TenantDirectorySettings struct {
+	TenantID  int64              `json:"tenant_id"`
+	Enabled   bool               `json:"enabled"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type TenantQuotaCalendar struct {

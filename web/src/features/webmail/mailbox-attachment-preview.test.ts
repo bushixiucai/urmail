@@ -20,6 +20,31 @@ afterEach(() => {
   localStorage.clear();
 });
 describe("bounded attachment previews", () => {
+  it("safely previews genuine PDF bytes and handles Office documents with download guidance", () => {
+    const genuinePdf = new TextEncoder().encode("%PDF-1.4 genuine content");
+    const preview = decodePreview(genuinePdf, {
+      part_id: "1",
+      filename: "doc.pdf",
+      size: genuinePdf.length,
+      content_type: "application/pdf",
+    });
+    expect(preview.kind).toBe("pdf");
+    if (preview.kind === "pdf") {
+      expect(preview.dataURL).toContain("data:application/pdf;base64,");
+    }
+
+    const officePreview = decodePreview(new Uint8Array([1, 2, 3]), {
+      part_id: "2",
+      filename: "sheet.xlsx",
+      size: 3,
+      content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    expect(officePreview.kind).toBe("office");
+    if (officePreview.kind === "office") {
+      expect(officePreview.filename).toBe("sheet.xlsx");
+    }
+  });
+
   it("pins folder, UID and UIDVALIDITY and refuses an unpinned source", () => {
     expect(attachmentURL(source, "1.2")).toBe(
       "/api/v1/mailbox/folders/5bel5L2c/messages/9/attachments/1.2?uid_validity=42",

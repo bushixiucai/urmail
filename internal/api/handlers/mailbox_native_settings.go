@@ -397,7 +397,8 @@ func (h *MailboxNativeHandler) GetQuota(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"used_bytes": used, "quota_bytes": total})
+	const defaultMaxMessageBytes int64 = 26214400 // 25 MiB (encoded) default
+	c.JSON(http.StatusOK, gin.H{"used_bytes": used, "quota_bytes": total, "max_message_bytes": defaultMaxMessageBytes})
 }
 
 // normalizeFromCandidate lowercases and bounds a client-provided From.

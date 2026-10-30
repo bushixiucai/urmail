@@ -5,6 +5,15 @@ import {
   type MailboxAttendee,
 } from "./mailbox-api";
 
+export interface ContactAddress {
+  street?: string;
+  city?: string;
+  region?: string;
+  postal_code?: string;
+  country?: string;
+  label?: string;
+}
+
 export interface PeopleContact {
   id: number;
   addressbook_id: number;
@@ -15,11 +24,24 @@ export interface PeopleContact {
   emails: { address: string; label?: string }[];
   phones: { number: string; label?: string }[];
   note: string;
+  organization?: string;
+  job_title?: string;
+  addresses?: ContactAddress[];
+  birthday?: string;
+  photo?: string;
+  vcard_extra?: Record<string, unknown>;
 }
 export type ContactDraft = Pick<
   PeopleContact,
   "display_name" | "given_name" | "family_name" | "emails" | "phones" | "note"
->;
+> & {
+  organization?: string;
+  job_title?: string;
+  addresses?: ContactAddress[];
+  birthday?: string;
+  photo?: string;
+  vcard_extra?: Record<string, unknown>;
+};
 export interface PeopleGroup {
   id: number;
   addressbook_id: number;

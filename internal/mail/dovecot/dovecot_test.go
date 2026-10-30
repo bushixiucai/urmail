@@ -90,6 +90,7 @@ func TestGoldenCases(t *testing.T) {
 		{dovecot.FileDovecotMailboxes, "dovecot-mailboxes.conf.ext"},
 		{dovecot.FileDovecotQuota, "dovecot-quota.conf.ext"},
 		{dovecot.FileSpamSieve, "spam-before.sieve"},
+		{dovecot.FileSpamAfterSieve, "spam-after.sieve"},
 		{dovecot.FileSieveGateHelper, "outbound-check"},
 	}
 

@@ -298,4 +298,51 @@ describe("MailboxMessageRow", () => {
     expect(screen.getByText("page.webmail.unknown_sender")).toBeTruthy();
     expect(screen.getByText("page.webmail.no_subject")).toBeTruthy();
   });
+  it("renders compact density layout with smaller typography (WP03 / I02)", () => {
+    renderRow({
+      density: "compact",
+      message: createMessage({ subject: "Compact Subject" }),
+    });
+    const subjectEl = screen.getByText("Compact Subject");
+    expect(subjectEl.className).toContain("text-xs");
+  });
+
+  it("renders pure list density layout with single line tabular structure (WP03 / I02)", () => {
+    const { container } = renderRow({
+      density: "list",
+      message: createMessage({ subject: "List Subject", size: 1048576 }),
+      visibleColumns: { size: true },
+    });
+    const li = container.querySelector("li");
+    expect(li?.className).toContain("h-10");
+    expect(screen.getByText("List Subject")).toBeTruthy();
+    expect(screen.getByText("1.0 MB")).toBeTruthy();
+  });
+
+  it("displays recipient instead of sender for Sent / Drafts messages (WP03 / I02)", () => {
+    renderRow({
+      isSentOrDrafts: true,
+      message: {
+        ...createMessage({
+          from: [{ name: "Self", email: "me@example.test" }],
+        }),
+        to: [{ name: "Recipient User", email: "recipient@example.test" }],
+      } as any,
+    });
+
+    expect(screen.getByText(/Recipient User/)).toBeTruthy();
+    expect(screen.queryByText("Self")).toBeNull();
+  });
+
+  it("respects visibleColumns configuration to toggle columns (WP03 / I02)", () => {
+    renderRow({
+      density: "list",
+      message: createMessage({ subject: "Hidden Subject", size: 2048 }),
+      visibleColumns: { subject: false, size: true, fromTo: true, date: true, flags: true },
+    });
+
+    expect(screen.queryByText("Hidden Subject")).toBeNull();
+    expect(screen.getByText("2 KB")).toBeTruthy();
+  });
 });
+

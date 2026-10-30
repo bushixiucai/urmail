@@ -37,7 +37,7 @@ func TestVacationFiniteDatesAndLoopSuppression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, term := range []string{"Auto-Submitted", "List-Id", "Precedence", `not envelope :is "from" ""`, `vacation :days 7`, `:handle`, `:zone "+0000"`} {
+	for _, term := range []string{"Auto-Submitted", "List-Id", "Precedence", `not envelope :is "from" ""`, `vacation :days 7`, `:handle`, `:zone "+0000"`, `not hasflag "urmail_spam"`} {
 		if !strings.Contains(script, term) {
 			t.Fatalf("missing suppression %s", term)
 		}
@@ -76,5 +76,81 @@ func TestForwardCopyRequiresExtensionAndAcceptsOnlyExactLegacyForm(t *testing.T)
 	fixed, err := Compile(decoded)
 	if err != nil || fixed != script {
 		t.Fatal("legacy policy did not normalize to the exact intended program")
+	}
+}
+
+func TestCompoundConditionsAllAndAny(t *testing.T) {
+	// MatchType: any
+	rulesAny := Rules{Rules: []Rule{{
+		Conditions: []RuleCondition{
+			{Header: "subject", Match: "contains", Value: "invoice"},
+			{Header: "from", Match: "contains", Value: "billing@"},
+		},
+		MatchType: "any",
+		Action:    "fileinto",
+		Folder:    "Finance",
+	}}}
+	scriptAny, err := Compile(rulesAny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(scriptAny, `if anyof (header :contains "subject" "invoice", header :contains "from" "billing@") {`) {
+		t.Fatalf("expected anyof compound condition, got:\n%s", scriptAny)
+	}
+	if _, err = Decode(scriptAny); err != nil {
+		t.Fatalf("failed to decode scriptAny: %v", err)
+	}
+
+	// MatchType: all
+	rulesAll := Rules{Rules: []Rule{{
+		Conditions: []RuleCondition{
+			{Header: "subject", Match: "contains", Value: "urgent"},
+			{Header: "from", Match: "is", Value: "boss@example.com"},
+		},
+		MatchType: "all",
+		Action:    "fileinto",
+		Folder:    "Priority",
+	}}}
+	scriptAll, err := Compile(rulesAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(scriptAll, `if allof (header :contains "subject" "urgent", header :is "from" "boss@example.com") {`) {
+		t.Fatalf("expected allof compound condition, got:\n%s", scriptAll)
+	}
+	if _, err = Decode(scriptAll); err != nil {
+		t.Fatalf("failed to decode scriptAll: %v", err)
+	}
+}
+
+func TestMultiScriptOrderingDiscardForwardingVacationFolder(t *testing.T) {
+	now := time.Now().UTC()
+	rules := Rules{
+		Rules: []Rule{
+			{Header: "from", Match: "is", Value: "spammer@bad.test", Action: "discard"},
+			{Header: "subject", Match: "contains", Value: "receipt", Action: "fileinto", Folder: "Receipts"},
+		},
+		Forwarding: &Forwarding{Enabled: true, Target: "archive@backup.test", KeepCopy: true},
+		Vacation:   Vacation{Enabled: true, Subject: "Out", Message: "Away", Days: 3, From: now, Until: now.Add(48 * time.Hour)},
+	}
+	script, err := Compile(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	idxDiscard := strings.Index(script, "discard; stop;")
+	idxForward := strings.Index(script, "redirect :copy")
+	idxVacation := strings.Index(script, "vacation :days")
+	idxFileinto := strings.Index(script, `fileinto :create "Receipts"`)
+
+	if idxDiscard < 0 || idxForward < 0 || idxVacation < 0 || idxFileinto < 0 {
+		t.Fatalf("missing required sieve statements:\n%s", script)
+	}
+	if !(idxDiscard < idxForward && idxForward < idxVacation && idxVacation < idxFileinto) {
+		t.Fatalf("execution order violated: discard (%d) < forward (%d) < vacation (%d) < fileinto (%d)\n%s",
+			idxDiscard, idxForward, idxVacation, idxFileinto, script)
+	}
+	if _, err = Decode(script); err != nil {
+		t.Fatalf("failed to decode multi-script rule: %v", err)
 	}
 }

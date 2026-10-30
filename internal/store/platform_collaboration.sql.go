@@ -53,7 +53,7 @@ WITH next AS (
  UPDATE mailbox_contacts AS c
  SET deleted_at=now(), version=c.version+1, updated_at=now()
  WHERE c.tenant_id=$1 AND c.mailbox_id=$2 AND c.id=$3 AND c.version=$4 AND c.deleted_at IS NULL
- RETURNING id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at
+ RETURNING id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
  SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, true FROM next
@@ -61,7 +61,7 @@ WITH next AS (
  DELETE FROM mailbox_contact_group_members m USING next
  WHERE m.tenant_id=next.tenant_id AND m.mailbox_id=next.mailbox_id AND m.contact_id=next.id
 )
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM next
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM next
 `
 
 type PlatformDeleteContactParams struct {
@@ -86,6 +86,12 @@ type PlatformDeleteContactRow struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	Organization  string             `json:"organization"`
+	JobTitle      string             `json:"job_title"`
+	Addresses     []byte             `json:"addresses"`
+	Birthday      string             `json:"birthday"`
+	Photo         string             `json:"photo"`
+	VcardExtra    []byte             `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformDeleteContact(ctx context.Context, arg PlatformDeleteContactParams) (PlatformDeleteContactRow, error) {
@@ -111,6 +117,12 @@ func (q *Queries) PlatformDeleteContact(ctx context.Context, arg PlatformDeleteC
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Organization,
+		&i.JobTitle,
+		&i.Addresses,
+		&i.Birthday,
+		&i.Photo,
+		&i.VcardExtra,
 	)
 	return i, err
 }
@@ -350,7 +362,7 @@ func (q *Queries) PlatformGetCalendarByName(ctx context.Context, arg PlatformGet
 }
 
 const platformGetContact = `-- name: PlatformGetContact :one
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM mailbox_contacts
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM mailbox_contacts
 WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND deleted_at IS NULL
 `
 
@@ -378,6 +390,12 @@ func (q *Queries) PlatformGetContact(ctx context.Context, arg PlatformGetContact
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Organization,
+		&i.JobTitle,
+		&i.Addresses,
+		&i.Birthday,
+		&i.Photo,
+		&i.VcardExtra,
 	)
 	return i, err
 }
@@ -530,12 +548,12 @@ WITH next AS (
  ) VALUES(
   $1, $2, $3, $4,
   $5, $6, $7, $8, $9
- ) RETURNING id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at
+ ) RETURNING id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
  SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, false FROM next
 )
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM next
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM next
 `
 
 type PlatformInsertContactParams struct {
@@ -565,6 +583,12 @@ type PlatformInsertContactRow struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	Organization  string             `json:"organization"`
+	JobTitle      string             `json:"job_title"`
+	Addresses     []byte             `json:"addresses"`
+	Birthday      string             `json:"birthday"`
+	Photo         string             `json:"photo"`
+	VcardExtra    []byte             `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformInsertContact(ctx context.Context, arg PlatformInsertContactParams) (PlatformInsertContactRow, error) {
@@ -595,6 +619,12 @@ func (q *Queries) PlatformInsertContact(ctx context.Context, arg PlatformInsertC
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Organization,
+		&i.JobTitle,
+		&i.Addresses,
+		&i.Birthday,
+		&i.Photo,
+		&i.VcardExtra,
 	)
 	return i, err
 }
@@ -941,7 +971,7 @@ func (q *Queries) PlatformListContactGroups(ctx context.Context, arg PlatformLis
 }
 
 const platformListContacts = `-- name: PlatformListContacts :many
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM mailbox_contacts
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM mailbox_contacts
 WHERE tenant_id=$1 AND mailbox_id=$2 AND deleted_at IS NULL
 ORDER BY lower(display_name), id
 LIMIT $3
@@ -977,6 +1007,12 @@ func (q *Queries) PlatformListContacts(ctx context.Context, arg PlatformListCont
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Organization,
+			&i.JobTitle,
+			&i.Addresses,
+			&i.Birthday,
+			&i.Photo,
+			&i.VcardExtra,
 		); err != nil {
 			return nil, err
 		}
@@ -1060,7 +1096,7 @@ func (q *Queries) PlatformListEvents(ctx context.Context, arg PlatformListEvents
 }
 
 const platformSearchContacts = `-- name: PlatformSearchContacts :many
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM mailbox_contacts
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM mailbox_contacts
 WHERE tenant_id=$1 AND mailbox_id=$2 AND deleted_at IS NULL
  AND length($3::text) BETWEEN 1 AND 100
  AND (
@@ -1101,6 +1137,12 @@ func (q *Queries) PlatformSearchContacts(ctx context.Context, arg PlatformSearch
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Organization,
+			&i.JobTitle,
+			&i.Addresses,
+			&i.Birthday,
+			&i.Photo,
+			&i.VcardExtra,
 		); err != nil {
 			return nil, err
 		}
@@ -1120,12 +1162,12 @@ WITH next AS (
   version=c.version+1, updated_at=now()
  WHERE c.tenant_id=$7 AND c.mailbox_id=$8 AND c.id=$9
   AND c.version=$10 AND c.deleted_at IS NULL
- RETURNING id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at
+ RETURNING id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra
 ), logged AS (
  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
  SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, false FROM next
 )
-SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at FROM next
+SELECT id, tenant_id, mailbox_id, addressbook_id, version, display_name, given_name, family_name, emails, phones, note, created_at, updated_at, deleted_at, organization, job_title, addresses, birthday, photo, vcard_extra FROM next
 `
 
 type PlatformUpdateContactParams struct {
@@ -1156,6 +1198,12 @@ type PlatformUpdateContactRow struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	Organization  string             `json:"organization"`
+	JobTitle      string             `json:"job_title"`
+	Addresses     []byte             `json:"addresses"`
+	Birthday      string             `json:"birthday"`
+	Photo         string             `json:"photo"`
+	VcardExtra    []byte             `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformUpdateContact(ctx context.Context, arg PlatformUpdateContactParams) (PlatformUpdateContactRow, error) {
@@ -1187,6 +1235,12 @@ func (q *Queries) PlatformUpdateContact(ctx context.Context, arg PlatformUpdateC
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Organization,
+		&i.JobTitle,
+		&i.Addresses,
+		&i.Birthday,
+		&i.Photo,
+		&i.VcardExtra,
 	)
 	return i, err
 }

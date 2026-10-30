@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { ApiRequestError } from "@/lib/api/client";
 import {
   composeFromSavedDraft,
@@ -13,6 +14,8 @@ import {
   MailboxComposeDialog,
   chooseMailboxIdentity,
 } from "./mailbox-compose-dialog";
+import { openStandaloneRead, MailboxStandaloneRead } from "./mailbox-standalone-read";
+import { openStandaloneCompose, MailboxStandaloneCompose } from "./mailbox-standalone-compose";
 import * as mailboxApi from "./mailbox-api";
 
 vi.mock("react-i18next", () => {
@@ -25,12 +28,14 @@ vi.mock("./mailbox-api", async (importOriginal) => ({
   getMailboxSettings: vi.fn(),
   listMailboxIdentities: vi.fn(),
   getMailboxAddress: vi.fn(() => "alice@example.test"),
+  getMessage: vi.fn(),
   scheduleSend: vi.fn(),
   sendMessage: vi.fn(),
   deleteDraft: vi.fn(),
   getSendReceiptByRequestKey: vi.fn().mockResolvedValue(null),
   getSendReceiptForDraft: vi.fn().mockResolvedValue(null),
   fileToOutgoingAttachment: vi.fn(),
+  listMailboxSnippets: vi.fn().mockResolvedValue({ snippets: [] }),
 }));
 
 beforeEach(() => {
@@ -983,3 +988,218 @@ it("persists clearing all content from an existing draft instead of restoring it
     html: "",
   });
 });
+it("populates Auto-Bcc when enabled in preferences and allows removing it", async () => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "Alice",
+    signature_text: "",
+    signature_html: "",
+    preferences: {
+      auto_bcc_enabled: true,
+      auto_bcc_address: "archive@domain.test",
+    },
+    version: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  await compose({ mode: "new" });
+
+  const bccInput = screen.getByLabelText("page.webmail.compose_bcc") as HTMLInputElement;
+  await waitFor(() => expect(bccInput.value).toBe("archive@domain.test"));
+
+  // User can remove or modify the Auto-Bcc for the current message
+  fireEvent.change(bccInput, { target: { value: "" } });
+  expect(bccInput.value).toBe("");
+});
+
+it("shows and customizes external Reply-To and validates before sending", async () => {
+  await compose({ mode: "new" });
+
+  // Click Reply-To button to reveal field
+  const replyToBtn = screen.getByRole("button", { name: "Reply-To" });
+  fireEvent.click(replyToBtn);
+
+  const replyToInput = screen.getByLabelText("page.webmail.compose_reply_to") as HTMLInputElement;
+  expect(replyToInput).toBeDefined();
+
+  // Enter invalid email
+  fireEvent.change(replyToInput, { target: { value: "invalid-email" } });
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
+    target: { value: "bob@example.test" },
+  });
+
+  const sendBtn = screen.getByRole("button", { name: "page.webmail.compose_send" });
+  fireEvent.click(sendBtn);
+
+  await screen.findByText("page.webmail.invalid_reply_to");
+  expect(mailboxApi.sendMessage).not.toHaveBeenCalled();
+
+  // Fix email to valid external address
+  fireEvent.change(replyToInput, { target: { value: "external-reply@other.org" } });
+  fireEvent.click(sendBtn);
+
+  await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalled());
+  const sentCall = vi.mocked(mailboxApi.sendMessage).mock.calls[0][0];
+  expect(sentCall.reply_to).toBe("external-reply@other.org");
+});
+
+it("supports MDN (read receipt) and DSN (delivery status) checkboxes", async () => {
+  await compose({ mode: "new" });
+
+  const mdnCheckbox = screen.getByLabelText("page.webmail.compose_request_mdn") as HTMLInputElement;
+  const dsnCheckbox = screen.getByLabelText("page.webmail.compose_request_dsn") as HTMLInputElement;
+
+  expect(mdnCheckbox.checked).toBe(false);
+  expect(dsnCheckbox.checked).toBe(false);
+
+  fireEvent.click(mdnCheckbox);
+  expect(mdnCheckbox.checked).toBe(true);
+
+  fireEvent.click(dsnCheckbox);
+  expect(dsnCheckbox.checked).toBe(true);
+
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
+    target: { value: "bob@example.test" },
+  });
+  const sendBtn = screen.getByRole("button", { name: "page.webmail.compose_send" });
+  fireEvent.click(sendBtn);
+
+  await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalled());
+  const sentCall = vi.mocked(mailboxApi.sendMessage).mock.calls[0][0];
+  expect(sentCall.request_mdn).toBe(true);
+  expect(sentCall.request_dsn).toBe(true);
+});
+
+it("loads and inserts personal canned snippet at cursor position", async () => {
+  vi.mocked(mailboxApi.listMailboxSnippets).mockResolvedValue({
+    snippets: [
+      {
+        id: 1,
+        title: "Meeting Request",
+        content: "Let us schedule a sync tomorrow.",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ],
+  });
+
+  await compose({ mode: "new" });
+
+  const snippetsBtn = screen.getByRole("button", { name: "page.webmail.compose_snippets" });
+  fireEvent.click(snippetsBtn);
+
+  const snippetItem = await screen.findByText("Meeting Request");
+  expect(snippetItem).toBeDefined();
+
+  fireEvent.click(snippetItem);
+
+  const body = screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(body.value).toContain("Let us schedule a sync tomorrow.");
+  });
+});
+
+it("inserts visual signature when signature button is clicked", async () => {
+  vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+    address: "alice@example.test",
+    display_name: "Alice",
+    signature_text: "Best Regards,\nAlice Support Team",
+    signature_html: "<p>Best Regards,<br>Alice Support Team</p>",
+    preferences: {},
+    version: 1,
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  await compose({ mode: "new" });
+
+  const sigBtn = screen.getByRole("button", { name: "page.webmail.compose_insert_signature" });
+  fireEvent.click(sigBtn);
+
+  const body = screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(body.value).toContain("Alice Support Team");
+  });
+});
+describe("standalone read and compose tabs", () => {
+  it("openStandaloneRead and openStandaloneCompose never leak tokens in URL", () => {
+    const originalOpen = window.open;
+    const openedUrls: string[] = [];
+    window.open = vi.fn((url) => {
+      openedUrls.push(String(url));
+      return { postMessage: vi.fn() } as unknown as Window;
+    });
+
+    openStandaloneRead("INBOX", 42);
+    openStandaloneCompose({ to: "bob@example.test", subject: "Meeting" });
+
+    expect(openedUrls.length).toBe(2);
+    for (const url of openedUrls) {
+      expect(url).not.toContain("token");
+      expect(url).not.toContain("bearer");
+      expect(url).not.toContain("password");
+    }
+
+    expect(openedUrls[0]).toBe("/webmail/read?folder=INBOX&uid=42");
+    expect(openedUrls[1]).toContain("/webmail/compose?to=bob%40example.test&subject=Meeting");
+
+    window.open = originalOpen;
+  });
+
+  it("renders MailboxStandaloneRead and displays sanitized message content", async () => {
+    vi.mocked(mailboxApi.getMessage).mockResolvedValue({
+      uid: 42,
+      subject: "Important announcement",
+      from: [{ name: "Boss", email: "boss@example.test" }],
+      to: [{ email: "alice@example.test" }],
+      date: "2026-10-27T10:00:00Z",
+      flags: [],
+      size: 500,
+      text: "Plain text message content",
+      html: "<p>HTML message <strong>content</strong></p>",
+      attachments: [],
+    });
+
+    // Mock search params with folder and uid
+    delete (window as unknown as { location?: unknown }).location;
+    (window as unknown as { location: unknown }).location = new URL(
+      "http://localhost:3000/webmail/read?folder=INBOX&uid=42",
+    );
+
+    sessionStorage.setItem("urmail.mailbox-token", "fake-token");
+    sessionStorage.setItem("urmail.mailbox-address", "alice@example.test");
+    render(
+      <MemoryRouter>
+        <MailboxStandaloneRead />
+      </MemoryRouter>,
+    );
+
+    await screen.findAllByText("Important announcement");
+    expect(screen.getByText("HTML message")).toBeDefined();
+    expect(screen.getByText("INBOX")).toBeDefined();
+  });
+
+  it("renders MailboxStandaloneCompose with prefilled query parameters", async () => {
+    delete (window as unknown as { location?: unknown }).location;
+    (window as unknown as { location: unknown }).location = new URL(
+      "http://localhost:3000/webmail/compose?to=charlie@example.test&subject=Hello%20Charlie",
+    );
+
+    sessionStorage.setItem("urmail.mailbox-token", "fake-token");
+    sessionStorage.setItem("urmail.mailbox-address", "alice@example.test");
+    render(
+      <MemoryRouter initialEntries={["/webmail/compose?to=charlie@example.test&subject=Hello%20Charlie"]}>
+        <MailboxStandaloneCompose />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      const toInput = screen.getByLabelText("page.webmail.compose_to") as HTMLInputElement;
+      expect(toInput.value).toBe("charlie@example.test");
+    });
+
+    const subjectInput = screen.getByLabelText("page.webmail.compose_subject") as HTMLInputElement;
+    expect(subjectInput.value).toBe("Hello Charlie");
+  });
+});
+
+

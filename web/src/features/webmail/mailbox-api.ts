@@ -387,6 +387,7 @@ export const MAX_SEND_ATTACHMENTS = 10;
 
 export interface SendMessageRequest {
   from?: string;
+  reply_to?: string;
   in_reply_to?: string;
   to: string[];
   cc?: string[];
@@ -397,6 +398,8 @@ export interface SendMessageRequest {
   attachments?: OutgoingAttachment[];
   draft_source?: MessageRef;
   acknowledged_uncertain_receipt_id?: number;
+  request_mdn?: boolean;
+  request_dsn?: boolean;
 }
 
 export interface SendReceipt {
@@ -804,12 +807,29 @@ export interface MailboxIdentityProfile {
   signature_html: string;
 }
 
+export interface MailboxPreferences {
+  read_timer_mode?: "5s" | "immediate" | "manual";
+  after_delete_action?: "next" | "list";
+  density?: "comfortable" | "compact" | "list";
+  preview_layout?: "right" | "bottom" | "none";
+  visible_columns?: string[];
+  allow_all_remote_images?: boolean;
+  trusted_image_senders?: string[];
+  notifications_enabled?: boolean;
+  notification_sound_enabled?: boolean;
+  auto_bcc_enabled?: boolean;
+  auto_bcc_address?: string;
+  reply_to_address?: string;
+  ai?: MailboxUserAIConfig | Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface MailboxSettingsView {
   identity_profiles?: Record<string, MailboxIdentityProfile>;
   display_name: string;
   signature_text: string;
   signature_html: string;
-  preferences: Record<string, unknown>;
+  preferences: MailboxPreferences;
   version: number;
   updated_at: string;
   address: string;
@@ -857,9 +877,15 @@ export function listMailboxIdentities() {
 }
 
 export function getMailboxQuota() {
-  return mailboxRequest<{ used_bytes: number; quota_bytes: number }>(
+  return mailboxRequest<{ used_bytes: number; quota_bytes: number; max_message_bytes?: number }>(
     "/api/v1/mailbox/quota",
   );
+}
+
+export interface RuleCondition {
+  header: "subject" | "from" | "to" | "cc";
+  match: "contains" | "is";
+  value: string;
 }
 
 export interface MailboxSieveRule {
@@ -867,6 +893,8 @@ export interface MailboxSieveRule {
   header: "subject" | "from" | "to" | "cc";
   match: "contains" | "is";
   value: string;
+  conditions?: RuleCondition[];
+  match_type?: "all" | "any";
   action: "fileinto" | "keep" | "discard";
   folder?: string;
 }
@@ -1204,4 +1232,94 @@ export function acknowledgeUncertainScheduledSend(id: number) {
     `/api/v1/mailbox/scheduled-sends/${id}/acknowledge-uncertain`,
     { method: "POST", body: { confirmed: true } },
   );
+}
+
+// --- WP05 & I16: Personal Canned Snippets ---
+export interface MailboxSnippet {
+  id: number;
+  title: string;
+  content: string;
+  shortcut?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listMailboxSnippets() {
+  return mailboxRequest<{ snippets: MailboxSnippet[] }>("/api/v1/mailbox/snippets");
+}
+
+export function createMailboxSnippet(body: { title: string; content: string; shortcut?: string }) {
+  return mailboxRequest<MailboxSnippet>("/api/v1/mailbox/snippets", {
+    method: "POST",
+    body,
+  });
+}
+
+export function updateMailboxSnippet(
+  id: number,
+  body: { title: string; content: string; shortcut?: string },
+) {
+  return mailboxRequest<MailboxSnippet>(`/api/v1/mailbox/snippets/${id}`, {
+    method: "PUT",
+    body,
+  });
+}
+
+export function deleteMailboxSnippet(id: number) {
+  return mailboxRequest<{ deleted: boolean }>(`/api/v1/mailbox/snippets/${id}`, {
+    method: "DELETE",
+  });
+}
+
+// --- WP06 & I13: Corporate Directory ---
+export interface CorporateContact {
+  id: number;
+  display_name: string;
+  given_name?: string;
+  family_name?: string;
+  organization?: string;
+  department?: string;
+  job_title?: string;
+  emails: { address: string; type?: string; primary?: boolean }[];
+  phones: { number: string; type?: string; primary?: boolean }[];
+  addresses?: unknown[];
+  note?: string;
+}
+
+export function listCorporateContacts() {
+  return mailboxRequest<{ contacts: CorporateContact[]; enabled: boolean }>(
+    "/api/v1/mailbox/corporate-directory",
+  );
+}
+
+export function searchCorporateContacts(query: string) {
+  return mailboxRequest<{ contacts: CorporateContact[] }>(
+    `/api/v1/mailbox/corporate-directory/search?q=${encodeURIComponent(query)}`,
+  );
+}
+
+// --- WP07 & I12: Sender Allow / Deny Rules ---
+export interface SenderRule {
+  scope: "mailbox" | "tenant";
+  address: string;
+  domain: string;
+  list: "allow" | "deny";
+}
+
+export function listSenderRules() {
+  return mailboxRequest<{ rules: SenderRule[] }>("/api/v1/mailbox/spam/senders");
+}
+
+export function addSenderRule(body: { address?: string; domain?: string; list: "allow" | "deny" }) {
+  return mailboxRequest<{ saved: boolean }>("/api/v1/mailbox/spam/senders", {
+    method: "POST",
+    body,
+  });
+}
+
+export function deleteSenderRule(body: { address?: string; domain?: string; list: "allow" | "deny" }) {
+  return mailboxRequest<{ deleted: boolean }>("/api/v1/mailbox/spam/senders", {
+    method: "DELETE",
+    body,
+  });
 }

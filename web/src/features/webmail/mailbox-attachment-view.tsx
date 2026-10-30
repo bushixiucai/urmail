@@ -86,6 +86,25 @@ export function AttachmentPreview({
             className="mx-auto max-h-[65vh] max-w-full object-contain"
             onError={() => setError(true)}
           />
+        ) : preview.kind === "pdf" ? (
+          <iframe
+            src={preview.dataURL}
+            title={attachment.filename}
+            className="w-full h-[65vh] rounded border"
+          />
+        ) : preview.kind === "office" ? (
+          <div className="p-4 text-center space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Office 文档需下载后使用本地软件打开，系统不上传至第三方预览服务。
+            </p>
+            <a
+              href={`/api/v1/mailbox/folders/${encodeURIComponent(source.folderEnc)}/messages/${source.uid}/attachments/${attachment.part_id}?uid_validity=${source.uidValidity}`}
+              download={attachment.filename}
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground shadow hover:bg-primary/90"
+            >
+              {t("action.download")}
+            </a>
+          </div>
         ) : (
           <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-sm">
             {preview.text}

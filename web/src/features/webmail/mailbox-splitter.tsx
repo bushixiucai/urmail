@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-export type LayoutMode = "vertical" | "horizontal";
+export type LayoutMode =
+  | "split-right"
+  | "split-bottom"
+  | "list-only"
+  | "vertical"
+  | "horizontal";
 
 interface UseResizablePanesProps {
   initialFolderWidth?: number;
@@ -66,15 +71,32 @@ export function useResizablePanes({
       maxListHeight,
     ),
   );
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
+  const [layoutMode, setLayoutModeState] = useState<LayoutMode>(() => {
     try {
-      return localStorage.getItem("urmail.webmail.layoutMode") === "horizontal"
-        ? "horizontal"
-        : "vertical";
+      const stored = localStorage.getItem("urmail.webmail.layoutMode");
+      if (stored === "split-bottom" || stored === "horizontal") return "split-bottom";
+      if (stored === "list-only") return "list-only";
+      return "split-right";
     } catch {
-      return "vertical";
+      return "split-right";
     }
   });
+
+  const setLayoutMode = useCallback((mode: LayoutMode) => {
+    const normalized: LayoutMode =
+      mode === "horizontal"
+        ? "split-bottom"
+        : mode === "vertical"
+          ? "split-right"
+          : mode;
+    setLayoutModeState(normalized);
+    try {
+      localStorage.setItem("urmail.webmail.layoutMode", normalized);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const resizeBy = (
     target: "folder" | "list-width" | "list-height",
     delta: number,
@@ -205,18 +227,32 @@ export function useResizablePanes({
   ]);
 
   const toggleLayoutMode = useCallback(() => {
-    setLayoutMode((prev) => {
-      const next = prev === "vertical" ? "horizontal" : "vertical";
-      localStorage.setItem("urmail.webmail.layoutMode", next);
+    setLayoutModeState((prev) => {
+      let next: LayoutMode;
+      if (prev === "split-right" || prev === "vertical") next = "split-bottom";
+      else if (prev === "split-bottom" || prev === "horizontal") next = "list-only";
+      else next = "split-right";
+      try {
+        localStorage.setItem("urmail.webmail.layoutMode", next);
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   }, []);
+
+  const isSplitRight = layoutMode === "split-right" || layoutMode === "vertical";
+  const isSplitBottom = layoutMode === "split-bottom" || layoutMode === "horizontal";
+  const isListOnly = layoutMode === "list-only";
 
   return {
     folderWidth,
     listWidth,
     listHeight,
     layoutMode,
+    isSplitRight,
+    isSplitBottom,
+    isListOnly,
     isDragging,
     startDragging,
     toggleLayoutMode,

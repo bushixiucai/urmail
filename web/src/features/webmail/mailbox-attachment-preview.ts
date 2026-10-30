@@ -8,10 +8,33 @@ export interface AttachmentSource {
 export const PREVIEW_LIMIT = 1024 * 1024;
 export const PREVIEW_PIXELS = 16_000_000;
 const TEXT_TYPES = new Set(["text/plain", "text/csv", "application/json"]);
-export function previewType(type: string): "image" | "text" | null {
+const OFFICE_TYPES = new Set([
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+]);
+
+export function previewType(type: string): "image" | "text" | "pdf" | "office" | null {
   const mime = type.split(";", 1)[0].trim().toLowerCase();
   if (mime === "image/png" || mime === "image/jpeg") return "image";
-  return TEXT_TYPES.has(mime) ? "text" : null;
+  if (mime === "application/pdf") return "pdf";
+  if (TEXT_TYPES.has(mime)) return "text";
+  if (OFFICE_TYPES.has(mime)) return "office";
+  return null;
+}
+
+export function isPdf(bytes: Uint8Array): boolean {
+  if (bytes.length < 5) return false;
+  return (
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46 &&
+    bytes[4] === 0x2d
+  );
 }
 export function attachmentURL(source: AttachmentSource, part: string): string {
   if (
@@ -171,7 +194,10 @@ export function rasterDimensions(
 }
 export type SafePreview =
   | { kind: "image"; dataURL: string; pixels: number }
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  | { kind: "pdf"; dataURL: string }
+  | { kind: "office"; filename: string };
+
 export function decodePreview(
   bytes: Uint8Array,
   attachment: AttachmentMeta,
@@ -187,6 +213,22 @@ export function decodePreview(
       kind: "image",
       dataURL: `data:${mime};base64,${btoa(binary)}`,
       pixels: width * height,
+    };
+  }
+  if (mime === "application/pdf") {
+    if (!isPdf(bytes)) throw new Error("INVALID_PDF");
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192)
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return {
+      kind: "pdf",
+      dataURL: `data:application/pdf;base64,${btoa(binary)}`,
+    };
+  }
+  if (OFFICE_TYPES.has(mime)) {
+    return {
+      kind: "office",
+      filename: attachment.filename,
     };
   }
   if (TEXT_TYPES.has(mime))

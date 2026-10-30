@@ -26,6 +26,9 @@ import {
   Upload,
   Download,
   Users,
+  SlidersHorizontal,
+  X,
+  Check,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -42,7 +45,7 @@ import { MailboxAppRail, MailboxAppId } from "./mailbox-app-rail";
 import { useResizablePanes, SplitterHandle } from "./mailbox-splitter";
 import { MailboxAIDrawer } from "./mailbox-ai-drawer";
 import { MailboxInlineReply } from "./mailbox-inline-reply";
-import { MailboxMessageRow } from "./mailbox-message-row";
+import { MailboxMessageRow, RowDensity, RowColumnsConfig } from "./mailbox-message-row";
 import { MailboxDetailHeader } from "./mailbox-detail-header";
 import { getFolderInfo, sortMailboxFolders } from "./mailbox-folder-utils";
 import { PeopleCalendarPanel } from "./people-calendar-panel";
@@ -271,6 +274,140 @@ export function MailboxInboxPage() {
     null,
   );
   const [threadFilter, setThreadFilter] = useState<string | null>(null);
+
+  // WP02 / I04: Folder-scoped thread toggle
+  const [folderThreading, setFolderThreading] = useState<Record<string, boolean>>(
+    () => {
+      try {
+        const stored = localStorage.getItem("urmail.webmail.folderThreading");
+        return stored ? JSON.parse(stored) : {};
+      } catch {
+        return {};
+      }
+    },
+  );
+
+  // WP02 / I01: Search folder statuses & continuation
+  interface SearchFolderStatus {
+    folder: string;
+    folderEnc: string;
+    status: "complete" | "partial" | "failed";
+    count: number;
+    error?: string;
+  }
+  const [searchFolderStates, setSearchFolderStates] = useState<
+    SearchFolderStatus[]
+  >([]);
+  const [crossLimit, setCrossLimit] = useState(50);
+
+  // WP03 / I02: Workspace density ('comfortable' | 'compact' | 'list')
+  const [density, setDensity] = useState<RowDensity>(() => {
+    try {
+      return (
+        (localStorage.getItem("urmail.webmail.density") as RowDensity) ||
+        "comfortable"
+      );
+    } catch {
+      return "comfortable";
+    }
+  });
+  const updateDensity = (d: RowDensity) => {
+    setDensity(d);
+    try {
+      localStorage.setItem("urmail.webmail.density", d);
+    } catch {}
+  };
+
+  // WP03 / I02: Optional columns visibility
+  const [visibleColumns, setVisibleColumns] = useState<RowColumnsConfig>(() => {
+    try {
+      const stored = localStorage.getItem("urmail.webmail.columns");
+      return stored
+        ? JSON.parse(stored)
+        : { fromTo: true, subject: true, date: true, size: false, flags: true };
+    } catch {
+      return { fromTo: true, subject: true, date: true, size: false, flags: true };
+    }
+  });
+  const toggleColumn = (col: keyof RowColumnsConfig) => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev, [col]: !prev[col] };
+      try {
+        localStorage.setItem("urmail.webmail.columns", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // WP03 / I05: Read timer (5s delay / immediate / manual)
+  const [readTimerMode, setReadTimerMode] = useState<"5s" | "immediate" | "manual">(
+    () => {
+      try {
+        const raw = localStorage.getItem("urmail.webmail.readTimerMode")?.replace(/"/g, "");
+        if (raw === "immediate" || raw === "manual" || raw === "5s") return raw;
+        return "5s";
+      } catch {
+        return "5s";
+      }
+    },
+  );
+  const updateReadTimerMode = (m: "5s" | "immediate" | "manual") => {
+    setReadTimerMode(m);
+    try {
+      localStorage.setItem("urmail.webmail.readTimerMode", m);
+    } catch {}
+  };
+  const [readTimerRemaining, setReadTimerRemaining] = useState<number | null>(
+    null,
+  );
+  const readTimerTimeout = useRef<NodeJS.Timeout | null>(null);
+  const readTimerInterval = useRef<NodeJS.Timeout | null>(null);
+  const cancelReadTimer = useCallback(() => {
+    if (readTimerTimeout.current) {
+      clearTimeout(readTimerTimeout.current);
+      readTimerTimeout.current = null;
+    }
+    if (readTimerInterval.current) {
+      clearInterval(readTimerInterval.current);
+      readTimerInterval.current = null;
+    }
+    setReadTimerRemaining(null);
+  }, []);
+
+  // WP03 / I06: One-click Trash undo notification & Empty folder dialog
+  const [undoNotice, setUndoNotice] = useState<{
+    refs: MessageRef[];
+    originalFolderEnc: string;
+    originalFolderName: string;
+  } | null>(null);
+  const undoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [emptyFolderOpen, setEmptyFolderOpen] = useState(false);
+
+  // WP03 / I07: Next message navigation after delete ('next' | 'list')
+  const [afterDeletePref, setAfterDeletePref] = useState<"next" | "list">(
+    () => {
+      try {
+        return (
+          (localStorage.getItem(
+            "urmail.webmail.afterDelete",
+          ) as "next" | "list") || "next"
+        );
+      } catch {
+        return "next";
+      }
+    },
+  );
+  const updateAfterDeletePref = (pref: "next" | "list") => {
+    setAfterDeletePref(pref);
+    try {
+      localStorage.setItem("urmail.webmail.afterDelete", pref);
+    } catch {}
+  };
+
+  // Folder unread count map for badges
+  const [folderUnreadCounts, setFolderUnreadCounts] = useState<
+    Record<string, number>
+  >({});
   const [cursor, setCursor] = useState(0);
   const [nextCursor, setNextCursor] = useState(0);
   const [cursorHistory, setCursorHistory] = useState<number[]>([]);
@@ -299,6 +436,28 @@ export function MailboxInboxPage() {
     },
     [],
   );
+
+  // WP02 / I04: Sync threadGroup from folder-scoped preference
+  useEffect(() => {
+    if (folderEnc) {
+      setThreadGroup(Boolean(folderThreading[folderEnc]));
+    }
+  }, [folderEnc, folderThreading]);
+
+  // WP03 / I05: Cancel read timer immediately when tab/window is hidden or blurred
+  useEffect(() => {
+    const handleHideOrBlur = () => {
+      if (document.hidden) {
+        cancelReadTimer();
+      }
+    };
+    document.addEventListener("visibilitychange", handleHideOrBlur);
+    window.addEventListener("blur", handleHideOrBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", handleHideOrBlur);
+      window.removeEventListener("blur", handleHideOrBlur);
+    };
+  }, [cancelReadTimer]);
 
   const address = getMailboxAddress() ?? "";
   const currentFolder = useMemo(
@@ -462,6 +621,13 @@ export function MailboxInboxPage() {
         setTotal(res.total);
         setOffset(res.offset);
         setNextCursor(res.next_cursor ?? 0);
+        const unreadCount = (res.messages ?? []).filter(
+          (m) => !hasFlag(m.flags, "\\Seen"),
+        ).length;
+        setFolderUnreadCounts((prev) => ({
+          ...prev,
+          [enc]: unreadCount,
+        }));
       } catch (err) {
         if (
           !controller.signal.aborted &&
@@ -477,7 +643,7 @@ export function MailboxInboxPage() {
   );
 
   const loadCrossMessages = useCallback(
-    async (q: string) => {
+    async (q: string, limit = 50) => {
       listRequest.current.generation += 1;
       listRequest.current.controller?.abort();
       crossRequest.current.controller?.abort();
@@ -485,23 +651,61 @@ export function MailboxInboxPage() {
       const generation = ++crossRequest.current.generation;
       crossRequest.current.controller = controller;
       setBusy(true);
+      setError(null);
       try {
-        const result = await crossFolderSearch(q, undefined, controller.signal);
+        const result = await crossFolderSearch(q, { limit }, controller.signal);
         if (
           controller.signal.aborted ||
           generation !== crossRequest.current.generation
         )
           return;
-        setCrossResults(result.messages ?? []);
+        const msgList = result.messages ?? [];
+        setCrossResults(msgList);
         setTotal(result.total ?? 0);
+        setCrossLimit(limit);
+
+        // WP02 / I01: Track per-folder search statuses
+        const countsByFolder = new Map<string, number>();
+        for (const msg of msgList) {
+          const fName = msg.folder || "Unknown";
+          countsByFolder.set(fName, (countsByFolder.get(fName) ?? 0) + 1);
+        }
+        const activeFolders = folders.filter(
+          (f) =>
+            !(f.flags ?? []).some((flag) => flag.toLowerCase() === "\\noselect"),
+        );
+        const folderStates: SearchFolderStatus[] = (activeFolders.length ? activeFolders : folders).map((f) => {
+          const count = countsByFolder.get(f.name) ?? 0;
+          return {
+            folder: f.name,
+            folderEnc: f.name_enc,
+            count,
+            status: count >= limit ? "partial" : "complete",
+          };
+        });
+        setSearchFolderStates(folderStates);
       } catch (err) {
         if (
           controller.signal.aborted ||
           generation !== crossRequest.current.generation
         )
           return;
+        const msg = errorMessage(err, t, "page.webmail.load_failed");
+        const activeFolders = folders.filter(
+          (f) =>
+            !(f.flags ?? []).some((flag) => flag.toLowerCase() === "\\noselect"),
+        );
+        setSearchFolderStates(
+          (activeFolders.length ? activeFolders : folders).map((f) => ({
+            folder: f.name,
+            folderEnc: f.name_enc,
+            count: 0,
+            status: "failed",
+            error: msg,
+          })),
+        );
         if (!handleAuthError(err))
-          setError(errorMessage(err, t, "page.webmail.load_failed"));
+          setError(msg);
       } finally {
         if (
           !controller.signal.aborted &&
@@ -510,8 +714,13 @@ export function MailboxInboxPage() {
           setBusy(false);
       }
     },
-    [handleAuthError, t],
+    [handleAuthError, t, folders],
   );
+
+  const loadMoreCrossResults = () => {
+    const nextLimit = crossLimit + 50;
+    void loadCrossMessages(searchQ, nextLimit);
+  };
 
   /** Options describing the current sort/group selection for reloads. */
   const listOpts = useCallback(
@@ -634,37 +843,91 @@ export function MailboxInboxPage() {
           throw new Error("MESSAGE_SOURCE_CHANGED");
         const loaded = { ...message, folder_enc: source.folder_enc };
         setDetail(loaded);
+        cancelReadTimer();
+
+        // WP03 / I05: Read timer (5s delay / immediate / manual)
         if (!hasFlag(message.flags, "\\Seen") && message.uid_validity) {
-          try {
-            await flagMessages(source.folder_enc, {
-              uids: [source.uid],
-              uid_validity: message.uid_validity,
-              add: ["\\Seen"],
-            });
-            if (
-              controller.signal.aborted ||
-              generation !== detailRequest.current
-            )
-              return;
-            const markRead = (rows: MessageSummary[]) =>
-              rows.map((row) =>
-                sameMessage(rowRef(row), source)
+          const executeMarkRead = async () => {
+            try {
+              await flagMessages(source.folder_enc, {
+                uids: [source.uid],
+                uid_validity: message.uid_validity,
+                add: ["\\Seen"],
+              });
+              if (
+                controller.signal.aborted ||
+                generation !== detailRequest.current ||
+                !sameMessage(source, selectedRefLive.current)
+              )
+                return;
+              const markRead = (rows: MessageSummary[]) =>
+                rows.map((row) =>
+                  sameMessage(rowRef(row), source)
+                    ? {
+                        ...row,
+                        flags: [
+                          ...row.flags.filter(
+                            (flag) => flag.toLowerCase() !== "\\seen",
+                          ),
+                          "\\Seen",
+                        ],
+                      }
+                    : row,
+                );
+              setMessages(markRead);
+              setCrossResults((rows) => (rows == null ? null : markRead(rows)));
+              setDetail((prev) =>
+                prev && sameMessage(rowRef(prev as any), source)
                   ? {
-                      ...row,
+                      ...prev,
                       flags: [
-                        ...row.flags.filter(
+                        ...prev.flags.filter(
                           (flag) => flag.toLowerCase() !== "\\seen",
                         ),
                         "\\Seen",
                       ],
                     }
-                  : row,
+                  : prev,
               );
-            setMessages(markRead);
-            setCrossResults((rows) => (rows == null ? null : markRead(rows)));
-          } catch {
-            /* Reading remains usable when an ancillary flag update fails. */
+              setFolderUnreadCounts((prev) => ({
+                ...prev,
+                [source.folder_enc]: Math.max(0, (prev[source.folder_enc] ?? 1) - 1),
+              }));
+            } catch {
+              /* Reading remains usable when an ancillary flag update fails. */
+            } finally {
+              setReadTimerRemaining(null);
+            }
+          };
+
+          if (readTimerMode === "immediate") {
+            void executeMarkRead();
+          } else if (readTimerMode === "5s") {
+            setReadTimerRemaining(5);
+            let remaining = 5;
+            readTimerInterval.current = setInterval(() => {
+              remaining -= 1;
+              if (remaining <= 0) {
+                if (readTimerInterval.current) {
+                  clearInterval(readTimerInterval.current);
+                  readTimerInterval.current = null;
+                }
+                setReadTimerRemaining(null);
+              } else {
+                setReadTimerRemaining(remaining);
+              }
+            }, 1000);
+
+            readTimerTimeout.current = setTimeout(() => {
+              readTimerTimeout.current = null;
+              if (readTimerInterval.current) {
+                clearInterval(readTimerInterval.current);
+                readTimerInterval.current = null;
+              }
+              void executeMarkRead();
+            }, 5000);
           }
+          // "manual" mode does nothing automatically
         }
       })
       .catch((err) => {
@@ -677,10 +940,37 @@ export function MailboxInboxPage() {
         if (!controller.signal.aborted && generation === detailRequest.current)
           setDetailLoading(false);
       });
-    return () => controller.abort();
-  }, [selectedRef, loadImages, handleAuthError, t, rowRef]);
+    return () => {
+      cancelReadTimer();
+      controller.abort();
+    };
+  }, [selectedRef, loadImages, handleAuthError, t, rowRef, readTimerMode, cancelReadTimer]);
 
   const handleLoadImages = () => setLoadImages(true);
+
+  // WP03 / I07: Auto-refresh sensing (interval polling / window focus)
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    const intervalMs = 60000;
+    const poll = () => {
+      if (!document.hidden && hasMailboxSession()) {
+        void refresh();
+      }
+    };
+    timer = setInterval(poll, intervalMs);
+
+    const onFocus = () => {
+      if (hasMailboxSession()) {
+        void refresh();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      if (timer) clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refresh]);
 
   if (!nativeLoaded) {
     return (
@@ -1040,14 +1330,35 @@ export function MailboxInboxPage() {
       refs.some((item) => sameMessage(ref, item));
     setCheckedRefs((previous) => previous.filter((ref) => !matches(ref)));
     if (removeFromList) {
+      let nextToOpen: MessageSummary | null = null;
+      if (selectedRefLive.current && matches(selectedRefLive.current)) {
+        if (afterDeletePref === "next") {
+          const currentIndex = visibleMessages.findIndex((m) =>
+            sameMessage(rowRef(m), selectedRefLive.current),
+          );
+          if (currentIndex !== -1) {
+            for (let i = currentIndex + 1; i < visibleMessages.length; i++) {
+              if (!matches(rowRef(visibleMessages[i]))) {
+                nextToOpen = visibleMessages[i];
+                break;
+              }
+            }
+          }
+        }
+      }
+
       setMessages((rows) => rows.filter((row) => !matches(rowRef(row))));
       setCrossResults((rows) =>
         rows == null ? null : rows.filter((row) => !matches(rowRef(row))),
       );
       if (selectedRefLive.current && matches(selectedRefLive.current)) {
-        setSelectedRef(null);
-        setDetail(null);
-        setMobilePane("list");
+        if (nextToOpen) {
+          openReference(rowRef(nextToOpen));
+        } else {
+          setSelectedRef(null);
+          setDetail(null);
+          setMobilePane("list");
+        }
       }
     }
   };
@@ -1175,13 +1486,95 @@ export function MailboxInboxPage() {
       const regular = deleteRefs.filter(
         (ref) => !trash.some((item) => sameMessage(item, ref)),
       );
-      if (regular.length) await mutateReferences("trash", regular);
+      if (regular.length) {
+        await mutateReferences("trash", regular);
+        const origFolderEnc = regular[0]?.folder_enc ?? folderEnc ?? "";
+        const origFolder = folders.find((f) => f.name_enc === origFolderEnc);
+        setUndoNotice({
+          refs: regular,
+          originalFolderEnc: origFolderEnc,
+          originalFolderName: origFolder?.name ?? "",
+        });
+        if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+        undoTimeoutRef.current = setTimeout(() => {
+          setUndoNotice(null);
+        }, 10000);
+      }
       if (trash.length) await mutateReferences("delete", trash);
     } finally {
       setDeleteOpen(false);
       setDeleteRefs([]);
     }
   };
+
+  const moveToTrashWithUndo = async (refs: MessageRef[]) => {
+    const generation = navigationGeneration.current;
+    if (!(await preserveEdits()) || generation !== navigationGeneration.current)
+      return;
+    if (!refs.length || mutationLock.current || mutationUncertain) return;
+    const trash = refs.filter((ref) =>
+      isTrashFolder(
+        folders.find((folder) => folder.name_enc === ref.folder_enc),
+      ),
+    );
+    if (trash.length > 0) {
+      openDeleteConfirm(refs);
+      return;
+    }
+    await mutateReferences("trash", refs);
+    const origFolderEnc = refs[0]?.folder_enc ?? folderEnc ?? "";
+    const origFolder = folders.find((f) => f.name_enc === origFolderEnc);
+    setUndoNotice({
+      refs,
+      originalFolderEnc: origFolderEnc,
+      originalFolderName: origFolder?.name ?? "",
+    });
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    undoTimeoutRef.current = setTimeout(() => {
+      setUndoNotice(null);
+    }, 10000);
+  };
+
+  const undoTrash = async () => {
+    if (!undoNotice) return;
+    const { refs, originalFolderEnc } = undoNotice;
+    setUndoNotice(null);
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+      undoTimeoutRef.current = null;
+    }
+    const trashFolder = folders.find((f) => isTrashFolder(f));
+    const trashFolderEnc = trashFolder?.name_enc ?? "";
+    const updatedRefs = refs.map((r) => ({
+      ...r,
+      folder_enc: trashFolderEnc || r.folder_enc,
+    }));
+    await mutateReferences("restore", updatedRefs, originalFolderEnc);
+  };
+
+  const confirmEmptyFolder = async () => {
+    if (!folderEnc || mutationLock.current) return;
+    try {
+      const allUids = messages.map((m) => m.uid);
+      if (allUids.length > 0) {
+        await deleteMessages(folderEnc, {
+          uids: allUids,
+          expunge: true,
+          uid_validity: folderValidity,
+        });
+        setMessages([]);
+        setTotal(0);
+        setSelectedRef(null);
+        setDetail(null);
+      }
+    } catch (err) {
+      if (!handleAuthError(err))
+        setError(errorMessage(err, t, "page.webmail.action_failed"));
+    } finally {
+      setEmptyFolderOpen(false);
+    }
+  };
+
   const doMove = async (refs: MessageRef[], to: string) => {
     if (await preserveEdits()) await mutateReferences("move", refs, to);
   };
@@ -1295,6 +1688,13 @@ export function MailboxInboxPage() {
     setSortBy(sort);
     setSortAsc(asc);
     setThreadGroup(threads);
+    setFolderThreading((prev) => {
+      const next = { ...prev, [folderEnc]: threads };
+      try {
+        localStorage.setItem("urmail.webmail.folderThreading", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     resetListCursor();
     if (searchAllFolders && searchQ.trim()) return;
     setBusy(true);
@@ -1313,6 +1713,20 @@ export function MailboxInboxPage() {
   const currentFolderInfo = currentFolder
     ? getFolderInfo(currentFolder, t)
     : null;
+
+  const isSentOrDrafts = useMemo(() => {
+    if (!currentFolder) return false;
+    const name = currentFolder.name.toLowerCase();
+    const flags = currentFolder.flags ?? [];
+    return (
+      name === "sent" ||
+      name === "drafts" ||
+      flags.some(
+        (f) =>
+          f.toLowerCase() === "\\sent" || f.toLowerCase() === "\\drafts",
+      )
+    );
+  }, [currentFolder]);
 
   const folderList = (
     <ul className="space-y-1" aria-label={t("page.webmail.folders")}>
@@ -1340,6 +1754,14 @@ export function MailboxInboxPage() {
                 />
                 <span className="truncate">{info.displayName}</span>
               </div>
+              {(folderUnreadCounts[f.name_enc] ?? 0) > 0 && (
+                <span
+                  data-testid={`unread-badge-${f.name}`}
+                  className="rounded-full bg-primary/20 text-primary text-[11px] font-semibold px-2 py-0.5 shrink-0"
+                >
+                  {folderUnreadCounts[f.name_enc]}
+                </span>
+              )}
             </button>
           </li>
         );
@@ -1510,25 +1932,129 @@ export function MailboxInboxPage() {
                   </span>
                 </Button>
 
-                {/* Layout Mode Toggle (Vertical 3-pane vs Horizontal Top-Bottom) */}
+                {/* Layout Mode Toggle (Split Right vs Split Bottom vs List Only) */}
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
                   className="hidden md:inline-flex h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                   title={
-                    resizable.layoutMode === "vertical"
+                    resizable.isSplitRight
                       ? t("page.webmail.layout_horizontal")
                       : t("page.webmail.layout_vertical")
                   }
                   onClick={resizable.toggleLayoutMode}
                 >
-                  {resizable.layoutMode === "vertical" ? (
+                  {resizable.isSplitRight ? (
                     <Rows2 className="h-4 w-4" />
                   ) : (
                     <Columns3 className="h-4 w-4" />
                   )}
                 </Button>
+
+                {/* View Options (Density, Layout, Columns, Read Timer, Navigation) (WP03 / I02) */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="hidden md:inline-flex h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                      title={t("page.webmail.view_options", { defaultValue: "View Options" })}
+                      aria-label={t("page.webmail.view_options", { defaultValue: "View Options" })}
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 text-xs">
+                    <DropdownMenuLabel>
+                      {t("page.webmail.layout_density", { defaultValue: "Layout & Density" })}
+                    </DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onClick={() => resizable.setLayoutMode("split-right")}>
+                        <Columns3 className="h-3.5 w-3.5 mr-2" />
+                        <span className="flex-1">{t("page.webmail.layout_vertical", { defaultValue: "Split Right" })}</span>
+                        {resizable.isSplitRight && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => resizable.setLayoutMode("split-bottom")}>
+                        <Rows2 className="h-3.5 w-3.5 mr-2" />
+                        <span className="flex-1">{t("page.webmail.layout_horizontal", { defaultValue: "Split Bottom" })}</span>
+                        {resizable.isSplitBottom && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => resizable.setLayoutMode("list-only")}>
+                        <Menu className="h-3.5 w-3.5 mr-2" />
+                        <span className="flex-1">{t("page.webmail.layout_list_only", { defaultValue: "List Only" })}</span>
+                        {resizable.isListOnly && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>
+                      {t("page.webmail.density", { defaultValue: "Density" })}
+                    </DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onClick={() => updateDensity("comfortable")}>
+                        <span className="flex-1">{t("page.webmail.density_comfortable", { defaultValue: "Comfortable" })}</span>
+                        {density === "comfortable" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateDensity("compact")}>
+                        <span className="flex-1">{t("page.webmail.density_compact", { defaultValue: "Compact" })}</span>
+                        {density === "compact" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateDensity("list")}>
+                        <span className="flex-1">{t("page.webmail.density_list", { defaultValue: "Pure List" })}</span>
+                        {density === "list" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>
+                      {t("page.webmail.columns", { defaultValue: "Columns" })}
+                    </DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      {(["fromTo", "subject", "date", "size", "flags"] as const).map((col) => (
+                        <DropdownMenuItem key={col} onClick={() => toggleColumn(col)}>
+                          <span className="flex-1">
+                            {t(`page.webmail.column_${col}`, col)}
+                          </span>
+                          {visibleColumns[col] !== false && (
+                            <Check className="h-3.5 w-3.5 text-primary" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>
+                      {t("page.webmail.read_timer", { defaultValue: "Read Timer" })}
+                    </DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onClick={() => updateReadTimerMode("5s")}>
+                        <span className="flex-1">{t("page.webmail.timer_5s", { defaultValue: "5 Seconds Delay" })}</span>
+                        {readTimerMode === "5s" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateReadTimerMode("immediate")}>
+                        <span className="flex-1">{t("page.webmail.timer_immediate", { defaultValue: "Immediate" })}</span>
+                        {readTimerMode === "immediate" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateReadTimerMode("manual")}>
+                        <span className="flex-1">{t("page.webmail.timer_manual", { defaultValue: "Manual" })}</span>
+                        {readTimerMode === "manual" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>
+                      {t("page.webmail.after_delete", { defaultValue: "After Move / Delete" })}
+                    </DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onClick={() => updateAfterDeletePref("next")}>
+                        <span className="flex-1">{t("page.webmail.after_delete_next", { defaultValue: "Open Next Message" })}</span>
+                        {afterDeletePref === "next" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => updateAfterDeletePref("list")}>
+                        <span className="flex-1">{t("page.webmail.after_delete_list", { defaultValue: "Return to List" })}</span>
+                        {afterDeletePref === "list" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
                 {/* AI Copilot Toggle */}
                 <Button
@@ -1590,8 +2116,9 @@ export function MailboxInboxPage() {
                             ),
                           );
                         else if (action === "forward") void openForward();
-                        else if (action === "trash")
-                          openDeleteConfirm(selectedRef ? [selectedRef] : []);
+                        else if (action === "trash") {
+                          if (selectedRef) void moveToTrashWithUndo([selectedRef]);
+                        }
                       }
                     }}
                   />
@@ -1838,7 +2365,7 @@ export function MailboxInboxPage() {
               {/* Main Content Pane (List + Detail depending on layoutMode) */}
               <div
                 className={
-                  resizable.layoutMode === "horizontal"
+                  resizable.isSplitBottom
                     ? "flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
                     : "flex-1 flex flex-row min-h-0 min-w-0 overflow-hidden"
                 }
@@ -1846,7 +2373,7 @@ export function MailboxInboxPage() {
                 {/* Message list pane */}
                 <section
                   style={
-                    resizable.layoutMode === "horizontal"
+                    resizable.isSplitBottom
                       ? ({
                           "--mail-list-height": `${resizable.listHeight}px`,
                         } as React.CSSProperties)
@@ -1856,7 +2383,15 @@ export function MailboxInboxPage() {
                   }
                   className={`border-r flex flex-col min-h-0 min-w-0 bg-background/50 ${
                     mobilePane === "detail" ? "hidden md:flex" : "flex"
-                  } ${resizable.layoutMode === "vertical" ? "w-full md:w-[min(var(--mail-list-width),40%)] md:shrink-0" : "flex-1 md:flex-none md:h-[var(--mail-list-height)] md:shrink-0"}`}
+                  } ${
+                    resizable.isListOnly
+                      ? mobilePane === "detail"
+                        ? "hidden"
+                        : "w-full flex-1"
+                      : resizable.isSplitBottom
+                        ? "flex-1 md:flex-none md:h-[var(--mail-list-height)] md:shrink-0"
+                        : "w-full md:w-[min(var(--mail-list-width),40%)] md:shrink-0"
+                  }`}
                 >
                   {/* Search and filters header */}
                   <div className="px-3 py-2 border-b space-y-2 bg-card/40 shrink-0">
@@ -1867,13 +2402,86 @@ export function MailboxInboxPage() {
                           : (currentFolder?.name ?? "—")}{" "}
                         · {total} {t("page.webmail.messages_count")}
                       </span>
+                      {total > 0 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
+                          onClick={() => setEmptyFolderOpen(true)}
+                          title={t("page.webmail.empty_folder", { defaultValue: "Empty Folder" })}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          <span>{t("page.webmail.empty_folder", { defaultValue: "Empty Folder" })}</span>
+                        </Button>
+                      )}
                     </div>
 
                     <MailboxSearchBox
                       value={searchQ}
                       disabled={busy || !folderEnc}
                       onSearch={runSearch}
+                      scope={searchAllFolders ? "all" : "current"}
+                      onScopeChange={(nextScope) => {
+                        const isAll = nextScope === "all";
+                        void guardedNavigation(() => {
+                          setSearchAllFolders(isAll);
+                          void runSearch(searchQ, isAll);
+                        });
+                      }}
+                      currentFolderName={
+                        currentFolderInfo?.displayName || currentFolder?.name
+                      }
                     />
+
+                    {/* WP02 / I01: Per-folder search status display and continuation */}
+                    {crossResults != null && (
+                      <div className="p-2 rounded-md border bg-muted/40 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between font-medium">
+                          <span>
+                            {t("page.webmail.search_results_summary", {
+                              count: crossResults.length,
+                              defaultValue: `${crossResults.length} cross-folder results`,
+                            })}
+                          </span>
+                          {searchFolderStates.some((s) => s.status === "partial") && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-xs px-2"
+                              disabled={busy}
+                              onClick={loadMoreCrossResults}
+                            >
+                              {t("page.webmail.search_continue", { defaultValue: "Continue searching" })}
+                            </Button>
+                          )}
+                        </div>
+                        {searchFolderStates.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {searchFolderStates.map((st) => (
+                              <span
+                                key={st.folderEnc}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border ${
+                                  st.status === "failed"
+                                    ? "bg-destructive/10 text-destructive border-destructive/20"
+                                    : st.status === "partial"
+                                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                      : "bg-background text-muted-foreground border-border/60"
+                                }`}
+                                title={st.error || undefined}
+                              >
+                                <span>{st.folder}:</span>
+                                <span>{st.count}</span>
+                                <span>
+                                  ({t(`page.webmail.search_status_${st.status}`, st.status)})
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap items-center gap-1.5 text-xs">
                       {/* Preserved accessible select for sort_by to guarantee test compatibility */}
@@ -2158,6 +2766,9 @@ export function MailboxInboxPage() {
                             dateText={dateFmt(m.date)}
                             isSelectionMode={checkedRefs.length > 0}
                             crossResults={Boolean(crossResults)}
+                            density={density}
+                            visibleColumns={visibleColumns}
+                            isSentOrDrafts={isSentOrDrafts}
                             onSelect={() =>
                               crossResults
                                 ? openCrossMessage(m)
@@ -2173,7 +2784,7 @@ export function MailboxInboxPage() {
                             onToggleRead={(e) => void toggleRowRead(m, e)}
                             onDelete={(e) => {
                               e.stopPropagation();
-                              openDeleteConfirm([reference]);
+                              void moveToTrashWithUndo([reference]);
                             }}
                             onThreadFilter={
                               threadGroup && !crossResults && threadCount > 1
@@ -2220,36 +2831,44 @@ export function MailboxInboxPage() {
                 </section>
 
                 {/* Resizable handle between list and detail */}
-                <SplitterHandle
-                  label={t("page.webmail.resize_messages")}
-                  onAdjust={(delta) =>
-                    resizable.resizeBy(
-                      resizable.layoutMode === "horizontal"
-                        ? "list-height"
-                        : "list-width",
-                      delta,
-                    )
-                  }
-                  orientation={
-                    resizable.layoutMode === "horizontal"
-                      ? "horizontal"
-                      : "vertical"
-                  }
-                  onMouseDown={(e) =>
-                    resizable.startDragging(
-                      resizable.layoutMode === "horizontal"
-                        ? "list-height"
-                        : "list-width",
-                      e.clientX,
-                      e.clientY,
-                    )
-                  }
-                />
+                {!resizable.isListOnly && (
+                  <SplitterHandle
+                    label={t("page.webmail.resize_messages")}
+                    onAdjust={(delta) =>
+                      resizable.resizeBy(
+                        resizable.isSplitBottom
+                          ? "list-height"
+                          : "list-width",
+                        delta,
+                      )
+                    }
+                    orientation={
+                      resizable.isSplitBottom
+                        ? "horizontal"
+                        : "vertical"
+                    }
+                    onMouseDown={(e) =>
+                      resizable.startDragging(
+                        resizable.isSplitBottom
+                          ? "list-height"
+                          : "list-width",
+                        e.clientX,
+                        e.clientY,
+                      )
+                    }
+                  />
+                )}
 
                 {/* Detail pane */}
                 <section
                   className={`flex-1 flex flex-col min-h-0 min-w-0 bg-card overflow-hidden ${
-                    mobilePane === "list" ? "hidden md:flex" : "flex"
+                    resizable.isListOnly
+                      ? mobilePane === "detail"
+                        ? "flex"
+                        : "hidden"
+                      : mobilePane === "list"
+                        ? "hidden md:flex"
+                        : "flex"
                   }`}
                 >
                   {!detail ? (
@@ -2309,12 +2928,33 @@ export function MailboxInboxPage() {
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="md:hidden shrink-0 min-h-11 min-w-11 px-0"
+                            className={`${resizable.isListOnly ? "inline-flex" : "md:hidden"} shrink-0 min-h-11 min-w-11 px-0`}
                             aria-label={t("page.webmail.back_to_list")}
                             onClick={backToList}
                           >
                             <ChevronLeft className="h-5 w-5" />
                           </Button>
+
+                          {readTimerRemaining !== null && (
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-muted/60 text-xs text-muted-foreground border border-border/50">
+                              <Clock className="h-3.5 w-3.5 animate-pulse text-primary" />
+                              <span>
+                                {t("page.webmail.marking_read_in", {
+                                  seconds: readTimerRemaining,
+                                  defaultValue: `Marking read in ${readTimerRemaining}s...`,
+                                })}
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                                onClick={cancelReadTimer}
+                              >
+                                {t("action.cancel", { defaultValue: "Cancel" })}
+                              </Button>
+                            </div>
+                          )}
 
                           {isDraftsFolder(detailFolder) ? (
                             <Button
@@ -2430,11 +3070,9 @@ export function MailboxInboxPage() {
                                     mutationUncertain ||
                                     !detail.uid_validity
                                   }
-                                  onClick={() =>
-                                    openDeleteConfirm(
-                                      selectedRef ? [selectedRef] : [],
-                                    )
-                                  }
+                                  onClick={() => {
+                                    if (selectedRef) void moveToTrashWithUndo([selectedRef]);
+                                  }}
                                 >
                                   <Trash2 className="h-3.5 w-3.5 mr-1" />
                                   {t("page.webmail.delete")}
@@ -2906,6 +3544,52 @@ export function MailboxInboxPage() {
         destructive
         onConfirm={confirmDelete}
       />
+
+      {/* WP03 / I06: Empty folder confirmation dialog */}
+      <ConfirmDialog
+        open={emptyFolderOpen}
+        onOpenChange={setEmptyFolderOpen}
+        title={t("page.webmail.empty_folder_confirm_title", { defaultValue: "Empty folder?" })}
+        description={t(
+          "page.webmail.empty_folder_confirm",
+          "All messages in this folder will be permanently deleted. This action cannot be undone.",
+        )}
+        destructive
+        onConfirm={confirmEmptyFolder}
+      />
+
+      {/* WP03 / I06: One-click move to Trash undo notification */}
+      {undoNotice && (
+        <div
+          role="status"
+          className="fixed bottom-16 right-4 md:bottom-6 md:right-6 z-50 flex items-center gap-3 bg-card border border-border shadow-lg rounded-lg px-4 py-3 text-sm animate-in fade-in slide-in-from-bottom-2"
+        >
+          <span>
+            {t("page.webmail.moved_to_trash", {
+              count: undoNotice.refs.length,
+              folder: undoNotice.originalFolderName,
+              defaultValue: `Moved ${undoNotice.refs.length} message(s) to Trash`,
+            })}
+          </span>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 text-xs font-semibold px-2.5"
+            onClick={() => void undoTrash()}
+          >
+            {t("action.undo", { defaultValue: "Undo" })}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setUndoNotice(null)}
+            aria-label={t("action.close")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

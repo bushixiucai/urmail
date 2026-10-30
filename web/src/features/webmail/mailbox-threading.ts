@@ -1,14 +1,7 @@
 import type { MessageSummary } from "./mailbox-api";
 
 /**
- * Client-side thread grouping over loaded summaries — the fallback path used
- * when the server did not stamp thread_id (no THREAD=REFERENCES on the IMAP
- * server, or the request was made without thread=1).
- *
- * Groups by in_reply_to -> message_id chains first, then by normalized
- * subject (RFC 5256-style base subject: reply/forward markers and CJK
- * equivalents stripped). Thread roots are the lowest UID in the group so ids
- * are stable across renders.
+ * Strips RFC 5256-style reply and forward markers including CJK equivalents.
  */
 export function normalizeThreadSubject(subject: string): string {
   let s = subject.trim();
@@ -26,16 +19,40 @@ export function normalizeThreadSubject(subject: string): string {
   }
 }
 
+/**
+ * Extracts and normalizes message IDs from header strings (In-Reply-To, References).
+ * Strips surrounding '<' and '>' and extracts tokens.
+ */
+export function parseMessageIds(raw?: string | string[]): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.flatMap((item) => parseMessageIds(item));
+  }
+  const str = String(raw).trim();
+  if (!str) return [];
+  const matches = str.match(/<([^>]+)>/g);
+  if (matches && matches.length > 0) {
+    return matches.map((m) => m.replace(/^<|>$/g, "").trim()).filter(Boolean);
+  }
+  return str
+    .split(/\s+/)
+    .map((s) => s.replace(/^<|>$/g, "").trim())
+    .filter(Boolean);
+}
+
 export interface ThreadGroup {
   threadId: string;
   messages: MessageSummary[];
 }
 
+/**
+ * Groups messages into conversations strictly based on Message-ID,
+ * In-Reply-To, and References tree parsing.
+ * RFC 5256 / Roundcube parity rule (I04): Never merge purely by subject.
+ */
 export function groupThreads(
   messages: MessageSummary[],
 ): Map<number, ThreadGroup> {
-  const byUid = new Map<number, number>();
-  const lowest: number[] = [];
   const parent = new Map<number, number>();
   const find = (u: number): number => {
     let root = u;
@@ -47,6 +64,7 @@ export function groupThreads(
     }
     return root;
   };
+
   const union = (a: number, b: number): void => {
     const ra = find(a);
     const rb = find(b);
@@ -55,29 +73,58 @@ export function groupThreads(
     parent.set(hi, lo);
   };
 
-  const idToUid = new Map<string, number>();
   const sorted = [...messages].sort((a, b) => a.uid - b.uid);
   for (const m of sorted) {
     parent.set(m.uid, m.uid);
-    const mid = (m.message_id ?? "").replace(/^<|>$/g, "");
-    if (mid) idToUid.set(mid, m.uid);
   }
+
+  // Map known Message-IDs to their message UID.
+  const idToUid = new Map<string, number>();
+  // Map referenced Message-IDs (including unseen ancestors) to the first message referencing them.
+  const refToFirstUid = new Map<string, number>();
+
   for (const m of sorted) {
-    const ref = (m.in_reply_to ?? "").replace(/^<|>$/g, "");
-    if (ref && idToUid.has(ref)) union(m.uid, idToUid.get(ref) as number);
+    const mid = (m.message_id ?? "").replace(/^<|>$/g, "").trim();
+    if (mid) {
+      idToUid.set(mid, m.uid);
+    }
   }
-  const bySubject = new Map<string, number>();
+
   for (const m of sorted) {
-    const norm = normalizeThreadSubject(m.subject ?? "").toLowerCase();
-    if (!norm) continue;
-    const first = bySubject.get(norm);
-    if (first != null) union(m.uid, first);
-    else bySubject.set(norm, m.uid);
+    const mid = (m.message_id ?? "").replace(/^<|>$/g, "").trim();
+    // In-Reply-To IDs
+    const inReplyToIds = parseMessageIds(m.in_reply_to);
+    // References IDs (check both summary field and any extended property)
+    const rawRefs = (m as { references?: string | string[] }).references;
+    const refIds = parseMessageIds(rawRefs);
+
+    const relatedIds = Array.from(new Set([...inReplyToIds, ...refIds]));
+
+    for (const refId of relatedIds) {
+      if (!refId) continue;
+      // 1. Direct parent/ancestor match
+      const targetUid = idToUid.get(refId);
+      if (targetUid != null) {
+        union(m.uid, targetUid);
+      }
+      // 2. Siblings sharing the same reference ancestor even if missing locally
+      const siblingUid = refToFirstUid.get(refId);
+      if (siblingUid != null) {
+        union(m.uid, siblingUid);
+      } else {
+        refToFirstUid.set(refId, m.uid);
+      }
+    }
+
+    // If mid was already referenced by an earlier message before this message was registered
+    if (mid && refToFirstUid.has(mid)) {
+      union(m.uid, refToFirstUid.get(mid)!);
+    }
   }
+
+  const byUid = new Map<number, number>();
   for (const m of sorted) {
-    const root = find(m.uid);
-    byUid.set(m.uid, root);
-    lowest[root] = (lowest[root] ?? 0) + 1;
+    byUid.set(m.uid, find(m.uid));
   }
 
   const groups = new Map<number, ThreadGroup>();
@@ -93,11 +140,6 @@ export function groupThreads(
   return groups;
 }
 
-/**
- * UI grouping used by the inbox list: messages already carrying server-side
- * thread_id are grouped by it; otherwise groupThreads runs over the loaded
- * page. Returns (message, threadCount) pairs in the original order.
- */
 export interface DecoratedThread {
   message: MessageSummary;
   threadCount: number;
@@ -105,35 +147,57 @@ export interface DecoratedThread {
   threadKey: string;
 }
 
+/**
+ * UI grouping: returns (message, threadCount, threadKey) triples.
+ * Accurate conversation count: respects server-side thread_count when available,
+ * not bounded by current page count.
+ */
 export function decorateThreads(messages: MessageSummary[]): DecoratedThread[] {
-  const serverGrouped = messages.some((m) => m.thread_id);
+  const serverGrouped = messages.some((m) => m.thread_id != null);
   const countByThread = new Map<number, number>();
+
   if (serverGrouped) {
     for (const m of messages) {
-      if (m.thread_id != null)
+      if (m.thread_id != null) {
         countByThread.set(
           m.thread_id,
           (countByThread.get(m.thread_id) ?? 0) + 1,
         );
+      }
     }
-    return messages.map((message) => ({
-      message,
-      threadCount:
+    return messages.map((message) => {
+      const localCount =
         message.thread_id != null
           ? (countByThread.get(message.thread_id) ?? 1)
-          : 1,
-      threadKey: String(message.thread_id ?? message.uid),
-    }));
+          : 1;
+      const accurateCount = Math.max(
+        message.thread_count ?? 1,
+        localCount,
+      );
+      return {
+        message,
+        threadCount: accurateCount,
+        threadKey: String(message.thread_id ?? message.uid),
+      };
+    });
   }
-  // groups are keyed by thread ROOT uid; flatten to per-message counts/keys.
+
+  // Client-side grouping via groupThreads
+  const groups = groupThreads(messages);
   const countByUid = new Map<number, number>();
   const rootByUid = new Map<number, number>();
-  for (const group of groupThreads(messages).values()) {
+
+  for (const group of groups.values()) {
     for (const m of group.messages) {
-      countByUid.set(m.uid, group.messages.length);
+      const accurateCount = Math.max(
+        m.thread_count ?? 1,
+        group.messages.length,
+      );
+      countByUid.set(m.uid, accurateCount);
       rootByUid.set(m.uid, Number(group.threadId));
     }
   }
+
   return messages.map((message) => ({
     message,
     threadCount: countByUid.get(message.uid) ?? 1,

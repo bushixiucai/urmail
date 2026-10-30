@@ -25,13 +25,26 @@ func TestSpamSieveGlobalBeforeScript(t *testing.T) {
 		t.Fatal("spam-before.sieve missing from Generate output")
 	}
 	for _, required := range []string{
-		`require ["fileinto", "mailbox", "envelope", "variables", "relational", "comparator-i;ascii-numeric"];`,
+		`require ["fileinto", "mailbox", "envelope", "variables", "relational", "comparator-i;ascii-numeric", "imap4flags"];`,
 		`header :is "X-UrMail-Spam" "yes"`,
-		`fileinto :create "Junk";`,
-		"stop;",
+		`addflag "urmail_spam";`,
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("spam sieve missing %q", required)
+		}
+	}
+	afterScript, ok := files[dovecot.FileSpamAfterSieve]
+	if !ok {
+		t.Fatal("spam-after.sieve missing from Generate output")
+	}
+	for _, required := range []string{
+		`require ["fileinto", "mailbox", "imap4flags"];`,
+		`if hasflag "urmail_spam" {`,
+		`fileinto :create "Junk";`,
+		"stop;",
+	} {
+		if !strings.Contains(afterScript, required) {
+			t.Fatalf("spam after sieve missing %q", required)
 		}
 	}
 	// A before-script must never discard: the worst outcome is Junk foldering.
@@ -82,8 +95,8 @@ func TestSieveGateStopsPersonalMultiScriptChainWithoutDroppingInbound(t *testing
 	}
 	script := files[dovecot.FileSpamSieve]
 	gate := strings.Index(script, `if not execute "outbound-check"`)
-	junk := strings.Index(script, `fileinto :create "Junk"`)
-	if gate < 0 || junk < 0 || junk >= gate {
+	spam := strings.Index(script, `addflag "urmail_spam"`)
+	if gate < 0 || spam < 0 || spam >= gate {
 		t.Fatal("spam handling must precede the outbound gate")
 	}
 	if !strings.Contains(script[gate:], `fileinto "INBOX"; stop;`) {

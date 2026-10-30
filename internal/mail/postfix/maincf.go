@@ -34,8 +34,14 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("append_dot_mydomain = no\n")
 	b.WriteString("recipient_delimiter = +\n\n")
 	if node.V80Preserve {
+		limit := int64(134217728)
+		if node.MessageSizeLimit > limit {
+			limit = node.MessageSizeLimit
+		}
 		b.WriteString("# Reviewed v80 SMTP limit (128 MiB), independent of HTTP/PHP limits.\n")
-		b.WriteString("message_size_limit = 134217728\n\n")
+		fmt.Fprintf(&b, "message_size_limit = %d\n\n", limit)
+	} else if node.MessageSizeLimit > 0 {
+		fmt.Fprintf(&b, "message_size_limit = %d\n\n", node.MessageSizeLimit)
 	} else {
 		// Pin the existing Postfix default (decimal bytes), not a larger binary MiB value.
 		b.WriteString("message_size_limit = 10240000\n\n")

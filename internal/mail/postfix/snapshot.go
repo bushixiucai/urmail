@@ -13,6 +13,7 @@ type NodeConfig struct {
 	PolicySocket             string // default private/policy (relative to Postfix chroot)
 	ArchiveEnabled           bool   // URMAIL_ARCHIVE_ENABLED, default false
 	ArchiveSocket            string // default private/urmail-archive (relative to Postfix chroot)
+	MessageSizeLimit         int64  // custom message_size_limit; defaults to 25MiB (26214400) when specified
 }
 
 // Domain represents a mail domain in the database snapshot.

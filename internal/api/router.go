@@ -410,7 +410,11 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.PUT("/rules", mailboxNative.PutRules)
 			// MAIL-002: user spam feedback drives the per-mailbox allow/deny
 			// delivery policies; private rules never classify another recipient.
-			mailboxAuthed.POST("/spam/feedback", (&handlers.MailboxSpamFeedback{Pool: opts.AppPool, Reconcile: opts.Reconcile}).Feedback)
+			spamFeedbackHandler := &handlers.MailboxSpamFeedback{Pool: opts.AppPool, Reconcile: opts.Reconcile}
+			mailboxAuthed.POST("/spam/feedback", spamFeedbackHandler.Feedback)
+			handlers.RegisterMailboxSpamSenderRoutes(mailboxAuthed, spamFeedbackHandler)
+			handlers.RegisterMailboxSnippetRoutes(mailboxAuthed, &handlers.MailboxSnippetsHandler{Pool: opts.AppPool})
+			handlers.RegisterMailboxCorporateDirectoryRoutes(mailboxAuthed, &handlers.MailboxCorporateDirectoryHandler{Pool: opts.AppPool})
 			mailboxAuthed.GET("/contacts", contactsHandler.ListContacts)
 			mailboxDataImport := handlers.MailboxDataImport{Pool: opts.PlatformPool}
 			mailboxAuthed.POST("/data/import/:action", mailboxDataImport.Handle)
@@ -678,6 +682,7 @@ func New(opts Options) *gin.Engine {
 			protected.PATCH("/tenants/current", middleware.RequireRole("owner", "admin"), tenantHandler.UpdateSettings)
 
 			// Domains
+			handlers.RegisterAdminCorporateDirectoryRoutes(protected, &handlers.MailboxCorporateDirectoryHandler{Pool: opts.AppPool})
 			protected.GET("/domains", domainHandler.List)
 			protected.POST("/domains", middleware.RequireRole("owner", "admin"), domainHandler.Create)
 			protected.POST("/domains/:id/verify", middleware.RequireRole("owner", "admin"), domainHandler.Verify)

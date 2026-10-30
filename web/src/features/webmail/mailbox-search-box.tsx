@@ -3,10 +3,15 @@ import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
 export interface MailboxSearchBoxProps {
   value: string;
   disabled?: boolean;
   onSearch: (q: string) => void;
+  /** Folder search scope: 'current' (current folder) vs 'all' (all folders) (WP02 / I01). */
+  scope?: "current" | "all";
+  onScopeChange?: (scope: "current" | "all") => void;
+  currentFolderName?: string;
 }
 
 export function splitMailboxSearch(value: string) {
@@ -43,6 +48,9 @@ export function MailboxSearchBox({
   value,
   disabled,
   onSearch,
+  scope = "current",
+  onScopeChange,
+  currentFolderName,
 }: MailboxSearchBoxProps) {
   const { t } = useTranslation();
   const initial = splitMailboxSearch(value);
@@ -50,6 +58,7 @@ export function MailboxSearchBox({
   const [since, setSince] = useState(initial.since);
   const [before, setBefore] = useState(initial.before);
   const [attachment, setAttachment] = useState(initial.attachment);
+
   useEffect(() => {
     const next = splitMailboxSearch(value);
     setDraft(next.draft);
@@ -57,6 +66,7 @@ export function MailboxSearchBox({
     setBefore(next.before);
     setAttachment(next.attachment);
   }, [value]);
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     onSearch(
@@ -70,6 +80,7 @@ export function MailboxSearchBox({
         .join(" "),
     );
   };
+
   return (
     <form
       className="space-y-2 px-3 py-2 border-b"
@@ -77,20 +88,36 @@ export function MailboxSearchBox({
       role="search"
     >
       <div className="flex gap-1.5 items-center">
+        {onScopeChange && (
+          <select
+            value={scope}
+            disabled={disabled}
+            onChange={(event) =>
+              onScopeChange(event.target.value as "current" | "all")
+            }
+            aria-label={t("page.webmail.search_scope")}
+            className="h-8 text-xs border rounded-md px-1.5 bg-background text-foreground shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer max-w-[130px] truncate"
+          >
+            <option value="current">
+              {currentFolderName || t("page.webmail.search_current_folder")}
+            </option>
+            <option value="all">{t("page.webmail.search_all_folders")}</option>
+          </select>
+        )}
         <Input
           value={draft}
           disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={t("page.webmail.search_placeholder")}
           aria-label={t("page.webmail.search_aria")}
-          className="h-8 text-sm"
+          className="h-8 text-sm flex-1 min-w-0"
         />
         <Button
           type="submit"
           size="sm"
           variant="secondary"
           disabled={disabled}
-          className="min-h-11 md:min-h-8"
+          className="min-h-11 md:min-h-8 shrink-0"
         >
           <Search className="h-3.5 w-3.5 mr-1" />
           {t("page.webmail.search")}

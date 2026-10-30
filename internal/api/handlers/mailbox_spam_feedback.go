@@ -10,31 +10,24 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/mailspam"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // MailboxSpamFeedback implements the MAIL-002 user-correction endpoint:
-// POST /api/v1/mailbox/spam/feedback (mailbox bearer session required).
+// POST /api/v1/mailbox/spam/feedback (mailbox bearer session required),
+// as well as explicit permanent sender allow/deny rules (WP07, I12).
 //
-// One call writes the feedback row and upserts the per-mailbox sender
-// allow/deny entry derived from the message's From address, so the next
-// recipient-scoped Sieve configuration for that mailbox honors the correction. Every statement
-// runs inside a MailboxTx (SET LOCAL urmail.tenant_id / urmail.mailbox_id):
+// Every statement runs inside a MailboxTx (SET LOCAL urmail.tenant_id / urmail.mailbox_id):
 // row-level security fails closed, so mailbox B and tenant 2 can never see
-// or modify mailbox A's rules or training input, even with a buggy
-// predicate.
+// or modify mailbox A's rules or training input.
 type MailboxSpamFeedback struct {
-	// Pool is the tenant-scoped (urmail_app) pool. The platform pool is
-	// deliberately NOT used: the RLS policies on the mailbox_spam_* tables
-	// are the authoritative isolation boundary.
 	Pool      *db.Pool
 	Reconcile ReconcileTrigger
 }
 
-// spamFeedbackRequest is the documented body. from_address and subject are
-// optional but recommended: the webmail client already displays them, and
-// without a from_address only the feedback row (no sender rule) is written.
+// spamFeedbackRequest is the body for user spam/ham corrections.
 type spamFeedbackRequest struct {
 	MessageID   string `json:"message_id"`
 	Folder      string `json:"folder"`
@@ -43,8 +36,21 @@ type spamFeedbackRequest struct {
 	Subject     string `json:"subject"`
 }
 
-// maxFeedbackSubject bounds the optional learning input; it matches the
-// RFC 5322 practical header limit the webmail client enforces.
+// SenderRule represents one sender allow/deny policy entry.
+type SenderRule struct {
+	Scope   string `json:"scope"`
+	Address string `json:"address"`
+	Domain  string `json:"domain"`
+	List    string `json:"list"`
+}
+
+// senderRuleRequest is the body for explicit sender rule addition/deletion.
+type senderRuleRequest struct {
+	Address string `json:"address"`
+	Domain  string `json:"domain"`
+	List    string `json:"list"`
+}
+
 const maxFeedbackSubject = 998
 
 // Feedback applies one user correction.
@@ -82,9 +88,6 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "SPAM_FEEDBACK_INVALID")
 		return
 	}
-	// The sender identity is normalized, never trusted structurally: an
-	// invalid value writes the feedback row without a sender rule instead of
-	// poisoning the policy tables.
 	fromAddress := strings.ToLower(strings.TrimSpace(req.FromAddress))
 	fromDomain := ""
 	if !validFeedbackSender(fromAddress) {
@@ -118,9 +121,6 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 	}
 
 	if fromAddress != "" {
-		// The correction IS the policy: reporting spam denies the sender,
-		// reporting ham allows it. The opposite-list entry is removed so the
-		// latest verdict always wins deterministically.
 		keep, drop := "allow", "deny"
 		if req.Verdict == "spam" {
 			keep, drop = "deny", "allow"
@@ -145,8 +145,6 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 			authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 			return
 		}
-		// Training input: bounded token deltas from the subject and sender
-		// identity, scoped to this mailbox only.
 		if inserted > 0 {
 			if err = applyTokenDeltas(ctx, q, session.TenantID, session.MailboxID, req.Subject, fromAddress, req.Verdict); err != nil {
 				authError(c, http.StatusServiceUnavailable, "DB_ERROR")
@@ -166,6 +164,195 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "recorded", "verdict": req.Verdict, "application_state": "pending_configuration"})
 }
 
+// ListSenders returns the active allow/deny sender rules for this mailbox and tenant.
+func (h *MailboxSpamFeedback) ListSenders(c *gin.Context) {
+	if h.Pool == nil {
+		authError(c, http.StatusServiceUnavailable, "SPAM_FEEDBACK_UNAVAILABLE")
+		return
+	}
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+	tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `SELECT scope, address, domain, list FROM mailbox_spam_senders WHERE tenant_id = $1 AND (mailbox_id = 0 OR mailbox_id = $2) ORDER BY address ASC, domain ASC`, session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	defer rows.Close()
+
+	rules := make([]SenderRule, 0)
+	for rows.Next() {
+		var r SenderRule
+		if err := rows.Scan(&r.Scope, &r.Address, &r.Domain, &r.List); err != nil {
+			authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+			return
+		}
+		rules = append(rules, r)
+	}
+	if err := rows.Err(); err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rules": rules})
+}
+
+// AddSender adds or updates a sender allow/deny rule.
+func (h *MailboxSpamFeedback) AddSender(c *gin.Context) {
+	if h.Pool == nil {
+		authError(c, http.StatusServiceUnavailable, "SPAM_FEEDBACK_UNAVAILABLE")
+		return
+	}
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	var req senderRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
+		return
+	}
+	req.List = strings.ToLower(strings.TrimSpace(req.List))
+	if req.List != "allow" && req.List != "deny" {
+		authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
+		return
+	}
+	address := strings.ToLower(strings.TrimSpace(req.Address))
+	domain := strings.ToLower(strings.TrimSpace(req.Domain))
+	if address != "" {
+		if !validFeedbackSender(address) {
+			authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
+			return
+		}
+		if domain == "" {
+			domain = senderDomain(address)
+		}
+	} else if domain != "" {
+		if !validation.IsValidHostname(domain) {
+			authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
+			return
+		}
+	} else {
+		authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+	tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := store.New(tx)
+
+	opposite := "allow"
+	if req.List == "allow" {
+		opposite = "deny"
+	}
+	if _, err := q.MailboxSpamSetSenderList(ctx, store.MailboxSpamSetSenderListParams{
+		TenantID:  session.TenantID,
+		MailboxID: session.MailboxID,
+		Address:   address,
+		Domain:    domain,
+		List:      req.List,
+	}); err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	_, _ = q.MailboxSpamRemoveSenderList(ctx, store.MailboxSpamRemoveSenderListParams{
+		TenantID:  session.TenantID,
+		MailboxID: session.MailboxID,
+		Address:   address,
+		Domain:    domain,
+		List:      opposite,
+	})
+
+	if err := tx.Commit(ctx); err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	if h.Reconcile != nil {
+		h.Reconcile.Trigger()
+	}
+	c.JSON(http.StatusOK, gin.H{"saved": true})
+}
+
+// DeleteSender removes a sender allow/deny rule.
+func (h *MailboxSpamFeedback) DeleteSender(c *gin.Context) {
+	if h.Pool == nil {
+		authError(c, http.StatusServiceUnavailable, "SPAM_FEEDBACK_UNAVAILABLE")
+		return
+	}
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	var req senderRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Support query parameters as fallback
+		req.Address = c.Query("address")
+		req.Domain = c.Query("domain")
+		req.List = c.Query("list")
+	}
+	req.List = strings.ToLower(strings.TrimSpace(req.List))
+	address := strings.ToLower(strings.TrimSpace(req.Address))
+	domain := strings.ToLower(strings.TrimSpace(req.Domain))
+	if address != "" && domain == "" {
+		domain = senderDomain(address)
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+	tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
+	if err != nil {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := store.New(tx)
+
+	deleted, err := q.MailboxSpamRemoveSenderList(ctx, store.MailboxSpamRemoveSenderListParams{
+		TenantID:  session.TenantID,
+		MailboxID: session.MailboxID,
+		Address:   address,
+		Domain:    domain,
+		List:      req.List,
+	})
+	if err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+		return
+	}
+	if h.Reconcile != nil && deleted > 0 {
+		h.Reconcile.Trigger()
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted > 0})
+}
+
+// RegisterMailboxSpamSenderRoutes registers sender allow/deny endpoints.
+func RegisterMailboxSpamSenderRoutes(group *gin.RouterGroup, h *MailboxSpamFeedback) {
+	group.GET("/spam/senders", h.ListSenders)
+	group.POST("/spam/senders", h.AddSender)
+	group.DELETE("/spam/senders", h.DeleteSender)
+}
+
 // applyTokenDeltas writes the learned token counts for one feedback event.
 func applyTokenDeltas(ctx context.Context, q *store.Queries, tenantID, mailboxID int64, subject, fromAddress, verdict string) error {
 	for token, delta := range mailspam.LearnFromFeedback(subject, fromAddress, verdict) {
@@ -182,8 +369,7 @@ func applyTokenDeltas(ctx context.Context, q *store.Queries, tenantID, mailboxID
 	return nil
 }
 
-// validFeedbackSender accepts one concrete address (local@domain), matching
-// the strictness the allow/deny tables require for deterministic matching.
+// validFeedbackSender accepts one concrete address (local@domain).
 func validFeedbackSender(address string) bool {
 	if len(address) < 6 || len(address) > 254 {
 		return false

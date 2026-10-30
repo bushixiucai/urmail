@@ -44,6 +44,9 @@ function sessionStorageReady() {
 interface Row {
   uid: number;
   subject: string;
+  message_id?: string;
+  in_reply_to?: string;
+  references?: string;
   from?: Array<{ email: string }>;
   date?: string;
   flags?: string[];
@@ -59,6 +62,7 @@ function mockMailboxApi(opts: { messages?: Row[] } = {}) {
     {
       uid: 1,
       subject: "Plan",
+      message_id: "<plan-1@example.test>",
       from: [{ email: "a@example.test" }],
       date: "2026-01-01T00:00:00Z",
       flags: [],
@@ -67,6 +71,9 @@ function mockMailboxApi(opts: { messages?: Row[] } = {}) {
     {
       uid: 2,
       subject: "Re: Plan",
+      message_id: "<plan-2@example.test>",
+      in_reply_to: "<plan-1@example.test>",
+      references: "<plan-1@example.test>",
       from: [{ email: "b@example.test" }],
       date: "2026-01-02T00:00:00Z",
       flags: ["\\Seen"],
