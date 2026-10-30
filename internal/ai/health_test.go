@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -74,7 +75,7 @@ func TestFetchModels_RejectInvalidJSONAndHTML(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error on %s, got nil", name)
 			}
-			if err != ErrProviderError {
+			if !errors.Is(err, ErrProviderError) {
 				t.Fatalf("expected ErrProviderError, got %v", err)
 			}
 		})

@@ -3,7 +3,6 @@ package stub
 import (
 	"encoding/json"
 	"io"
-	"github.com/bushixiucai/urmail/internal/ai"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/ai"
 )
 
 // RecordedRequest stores metadata and decoded payload of one HTTP request.

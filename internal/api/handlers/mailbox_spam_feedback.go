@@ -230,7 +230,8 @@ func (h *MailboxSpamFeedback) AddSender(c *gin.Context) {
 	}
 	address := strings.ToLower(strings.TrimSpace(req.Address))
 	domain := strings.ToLower(strings.TrimSpace(req.Domain))
-	if address != "" {
+	switch {
+	case address != "":
 		if !validFeedbackSender(address) {
 			authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
 			return
@@ -238,12 +239,12 @@ func (h *MailboxSpamFeedback) AddSender(c *gin.Context) {
 		if domain == "" {
 			domain = senderDomain(address)
 		}
-	} else if domain != "" {
+	case domain != "":
 		if !validation.IsValidHostname(domain) {
 			authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
 			return
 		}
-	} else {
+	default:
 		authError(c, http.StatusBadRequest, "SPAM_RULE_INVALID")
 		return
 	}

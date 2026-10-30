@@ -1,3 +1,4 @@
+// Package stub provides HTTP stubs for AI provider contract tests.
 package stub
 
 import (

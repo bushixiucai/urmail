@@ -293,7 +293,7 @@ func TestMailboxAIPersonalBYOKWithNoEnterpriseModel(t *testing.T) {
 	service := &MailboxAIService{
 		Pool:    pool,
 		Secrets: sec,
-		Provider: func(cfg store.AiProviderConfigs) (ai.Provider, error) {
+		Provider: func(_ store.AiProviderConfigs) (ai.Provider, error) {
 			return model, nil
 		},
 	}

@@ -99,7 +99,8 @@ func (h *MailboxCorporateDirectoryHandler) List(c *gin.Context) {
 	defer cancel()
 
 	var q *store.Queries
-	if h.Pool != nil {
+	switch {
+	case h.Pool != nil:
 		tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
 		if err != nil {
 			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
@@ -107,9 +108,9 @@ func (h *MailboxCorporateDirectoryHandler) List(c *gin.Context) {
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 		q = store.New(tx)
-	} else if h.Store != nil {
+	case h.Store != nil:
 		q = h.Store
-	} else {
+	default:
 		authError(c, http.StatusServiceUnavailable, "DIRECTORY_UNAVAILABLE")
 		return
 	}
@@ -151,7 +152,8 @@ func (h *MailboxCorporateDirectoryHandler) Search(c *gin.Context) {
 	defer cancel()
 
 	var q *store.Queries
-	if h.Pool != nil {
+	switch {
+	case h.Pool != nil:
 		tx, err := h.Pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
 		if err != nil {
 			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
@@ -159,9 +161,9 @@ func (h *MailboxCorporateDirectoryHandler) Search(c *gin.Context) {
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 		q = store.New(tx)
-	} else if h.Store != nil {
+	case h.Store != nil:
 		q = h.Store
-	} else {
+	default:
 		authError(c, http.StatusServiceUnavailable, "DIRECTORY_UNAVAILABLE")
 		return
 	}

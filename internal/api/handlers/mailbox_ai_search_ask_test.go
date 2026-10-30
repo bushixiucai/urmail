@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -181,7 +180,6 @@ func TestAISearchAskRequiresMailboxSession(t *testing.T) {
 	}
 }
 
-var _ = sync.Mutex{}
 func TestMailboxAISearchAskGroundedAnswerCitesRetrievedChunks(t *testing.T) {
 	TestAISearchAskGroundedAnswerCitesRetrievedChunks(t)
 }
@@ -339,15 +337,14 @@ func TestMailboxAISearchAskFolderExclusionsAndFilters(t *testing.T) {
 	// Let the handler's reindex run via dialer/WebmailSource during Handle call.
 
 	modelCalls := 0
-	var model aianswer.Model
-	model = func(ctx context.Context, q string, sources []aianswer.Source) (string, []string, error) {
+	model := aianswer.Model(func(_ context.Context, _ string, sources []aianswer.Source) (string, []string, error) {
 		modelCalls++
-		var cites []string
+		cites := make([]string, 0, len(sources))
 		for _, s := range sources {
 			cites = append(cites, s.ID)
 		}
 		return "Answer", cites, nil
-	}
+	})
 	handler := &AISearchAsk{
 		Store:  store,
 		Dialer: fakeAskDialer{client: fakeIMAP},
@@ -547,4 +544,3 @@ func TestMailboxAISearchAskAttachmentOptIn(t *testing.T) {
 		t.Fatalf("attachments omitted when opted in: %s", textOptedIn)
 	}
 }
-

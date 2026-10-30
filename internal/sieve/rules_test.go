@@ -146,7 +146,7 @@ func TestMultiScriptOrderingDiscardForwardingVacationFolder(t *testing.T) {
 	if idxDiscard < 0 || idxForward < 0 || idxVacation < 0 || idxFileinto < 0 {
 		t.Fatalf("missing required sieve statements:\n%s", script)
 	}
-	if !(idxDiscard < idxForward && idxForward < idxVacation && idxVacation < idxFileinto) {
+	if idxDiscard >= idxForward || idxForward >= idxVacation || idxVacation >= idxFileinto {
 		t.Fatalf("execution order violated: discard (%d) < forward (%d) < vacation (%d) < fileinto (%d)\n%s",
 			idxDiscard, idxForward, idxVacation, idxFileinto, script)
 	}

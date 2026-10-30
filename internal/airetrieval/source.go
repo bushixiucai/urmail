@@ -138,11 +138,12 @@ func (s WebmailSource) MessageText(ctx context.Context, folder string, uid uint3
 	if len(message.From) > 0 {
 		var froms []string
 		for _, f := range message.From {
-			if f.Name != "" && f.Email != "" {
+			switch {
+			case f.Name != "" && f.Email != "":
 				froms = append(froms, fmt.Sprintf("%s <%s>", f.Name, f.Email))
-			} else if f.Email != "" {
+			case f.Email != "":
 				froms = append(froms, f.Email)
-			} else if f.Name != "" {
+			case f.Name != "":
 				froms = append(froms, f.Name)
 			}
 		}
