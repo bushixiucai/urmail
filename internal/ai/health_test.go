@@ -9,7 +9,7 @@ import (
 )
 
 func TestFetchModelsOpenAIFormat(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Errorf("expected /v1/models, got %s", r.URL.Path)
 		}
