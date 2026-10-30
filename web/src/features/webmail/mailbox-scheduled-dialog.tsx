@@ -11,8 +11,12 @@ import {
 } from "@/components/ui/dialog";
 import {
   cancelScheduledSend,
+  acknowledgeUncertainScheduledSend,
   repairScheduledSentCopy,
   listScheduledSends,
+  listSendReceipts,
+  repairSentCopy,
+  SendReceipt,
   ScheduledSendItem,
 } from "./mailbox-api";
 
@@ -29,20 +33,27 @@ export function MailboxScheduledDialog({
 }: MailboxScheduledDialogProps) {
   const { t, i18n } = useTranslation();
   const [items, setItems] = useState<ScheduledSendItem[]>([]);
+  const [receipts, setReceipts] = useState<SendReceipt[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [reviewId, setReviewId] = useState<number | null>(null);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const reload = useCallback(
     async (signal?: AbortSignal) => {
       setError(null);
       setBusy(true);
       try {
-        const res = await listScheduledSends(signal, {
-          limit: PAGE_SIZE,
-          offset,
-        });
-        if (!signal?.aborted) setItems(res.items ?? []);
+        const [res, receiptRes] = await Promise.all([
+          listScheduledSends(signal, { limit: PAGE_SIZE, offset }),
+          listSendReceipts({ limit: PAGE_SIZE, offset }, signal),
+        ]);
+        if (!signal?.aborted) {
+          setItems(res.items ?? []);
+          setReceipts(receiptRes.items ?? []);
+        }
       } catch (err: unknown) {
         if (signal?.aborted) return;
         if (err instanceof ApiRequestError) {
@@ -116,17 +127,138 @@ export function MailboxScheduledDialog({
     }
   };
 
+  const onRepairReceipt = async (id: number) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await repairSentCopy(id);
+      await reload();
+      setNotice(
+        t(
+          res.receipt.sent_copy_state === "complete"
+            ? "page.webmail.receipt_copy_repaired"
+            : "page.webmail.compose_sent_copy_pending",
+        ),
+      );
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiRequestError
+          ? t(`error.${err.code}`)
+          : t("page.webmail.compose_sent_copy_pending"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onAcknowledge = async (id: number) => {
+    if (!reviewConfirmed || reviewId !== id) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await acknowledgeUncertainScheduledSend(id);
+      setReviewId(null);
+      setReviewConfirmed(false);
+      await reload();
+      setNotice(t("page.webmail.scheduled_uncertain_released"));
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiRequestError
+          ? t(`error.${err.code}`)
+          : t("page.webmail.scheduled_cancel_failed"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("page.webmail.scheduled_title")}</DialogTitle>
         </DialogHeader>
+        {notice && (
+          <p role="status" className="text-sm text-muted-foreground">
+            {notice}
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
         )}
+        <section
+          aria-label={t("page.webmail.receipts_title")}
+          className="space-y-2"
+        >
+          <h3 className="font-medium">{t("page.webmail.receipts_title")}</h3>
+          {receipts.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {t("page.webmail.receipts_empty")}
+            </p>
+          )}
+          <ul className="space-y-3 text-sm">
+            {receipts.map((receipt) => (
+              <li
+                key={receipt.id}
+                className="flex items-start justify-between gap-2 border-b border-border pb-2"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium">
+                    {t("page.webmail.receipt_item", {
+                      id: receipt.id,
+                      time: new Date(receipt.created_at).toLocaleString(
+                        i18n.language,
+                      ),
+                      status: t(
+                        `page.webmail.receipt_status_${receipt.status}`,
+                      ),
+                    })}
+                  </p>
+                  {receipt.status === "accepted" && (
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        `page.webmail.receipt_copy_${receipt.sent_copy_state}`,
+                      )}
+                    </p>
+                  )}
+                  {receipt.status === "uncertain" &&
+                    !receipt.draft_released && (
+                      <p className="text-xs text-muted-foreground">
+                        {t("page.webmail.receipt_uncertain_review")}
+                      </p>
+                    )}
+                  {receipt.last_error && (
+                    <p className="text-xs text-destructive">
+                      {t(`error.${receipt.last_error}`, {
+                        defaultValue: t("page.webmail.scheduled_attention"),
+                      })}
+                    </p>
+                  )}
+                </div>
+                {receipt.status === "accepted" &&
+                  ["pending", "unknown", "held"].includes(
+                    receipt.sent_copy_state,
+                  ) && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void onRepairReceipt(receipt.id)}
+                    >
+                      {t("page.webmail.repair_sent_copy")}
+                    </Button>
+                  )}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <h3 className="font-medium">
+          {t("page.webmail.scheduled_section_title")}
+        </h3>
         {items.length === 0 && !error ? (
           <p className="text-sm text-muted-foreground">
             {t("page.webmail.scheduled_empty")}
@@ -177,11 +309,52 @@ export function MailboxScheduledDialog({
                       {t("page.webmail.scheduled_review_required")}
                     </p>
                   )}
+                  {["uncertain", "held"].includes(item.status) &&
+                    reviewId === item.id && (
+                      <div className="mt-2 space-y-2">
+                        <p>{t("page.webmail.scheduled_uncertain_review")}</p>
+                        <label className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={reviewConfirmed}
+                            onChange={(event) =>
+                              setReviewConfirmed(event.target.checked)
+                            }
+                          />
+                          <span>
+                            {t("page.webmail.scheduled_uncertain_confirm")}
+                          </span>
+                        </label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || !reviewConfirmed}
+                          onClick={() => void onAcknowledge(item.id)}
+                        >
+                          {t("page.webmail.scheduled_uncertain_release")}
+                        </Button>
+                      </div>
+                    )}
                 </div>
-                {item.status === "sent" &&
-                ["pending", "unknown", "held"].includes(
-                  item.sent_copy_state ?? "",
-                ) ? (
+                {["uncertain", "held"].includes(item.status) ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setReviewId(item.id);
+                      setReviewConfirmed(false);
+                      setNotice(null);
+                    }}
+                  >
+                    {t("page.webmail.scheduled_uncertain_review_action")}
+                  </Button>
+                ) : item.status === "sent" &&
+                  ["pending", "unknown", "held"].includes(
+                    item.sent_copy_state ?? "",
+                  ) ? (
                   <Button
                     type="button"
                     size="sm"
@@ -220,7 +393,9 @@ export function MailboxScheduledDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={busy || items.length < PAGE_SIZE}
+            disabled={
+              busy || (items.length < PAGE_SIZE && receipts.length < PAGE_SIZE)
+            }
             onClick={() => setOffset(offset + PAGE_SIZE)}
           >
             {t("page.webmail.next_page")}

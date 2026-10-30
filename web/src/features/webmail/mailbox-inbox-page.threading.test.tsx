@@ -119,8 +119,10 @@ function mockMailboxApi(opts: { messages?: Row[] } = {}) {
         }),
       };
     }
-    if (/\/messages\/\d+$/.test(u)) {
-      const uid = Number(u.split("/").pop());
+    if (/\/messages\/\d+(?:\?|$)/.test(u)) {
+      const uid = Number(
+        new URL(u, "http://local.test").pathname.split("/").pop(),
+      );
       const msg = messages.find((m) => m.uid === uid) ?? messages[0];
       return {
         ok: true,
@@ -196,6 +198,15 @@ describe("mailbox inbox cross-folder search entry (WEBMAIL-004)", () => {
     renderInbox();
     await screen.findByText("Plan");
     fireEvent.click(screen.getByLabelText("page.webmail.search_all_folders"));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByLabelText(
+            "page.webmail.search_all_folders",
+          ) as HTMLInputElement
+        ).checked,
+      ).toBe(true),
+    );
     const box = screen.getByLabelText(
       "page.webmail.search_aria",
     ) as HTMLInputElement;

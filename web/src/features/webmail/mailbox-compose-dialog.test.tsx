@@ -28,10 +28,13 @@ vi.mock("./mailbox-api", async (importOriginal) => ({
   scheduleSend: vi.fn(),
   sendMessage: vi.fn(),
   deleteDraft: vi.fn(),
+  getSendReceiptByRequestKey: vi.fn().mockResolvedValue(null),
+  getSendReceiptForDraft: vi.fn().mockResolvedValue(null),
   fileToOutgoingAttachment: vi.fn(),
 }));
 
 beforeEach(() => {
+  vi.mocked(mailboxApi.getSendReceiptForDraft).mockResolvedValue(null);
   vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
     address: "alice@example.test",
     display_name: "Alice",
@@ -136,6 +139,7 @@ describe("mailbox compose persistence", () => {
         {
           uid: 8,
           uid_validity: 4,
+          folder_enc: "drafts",
           subject: "HTML",
           from: [],
           date: "",
@@ -170,6 +174,7 @@ describe("mailbox compose persistence", () => {
           html: "<p>Keep me</p>",
           attachments: [attachment],
         }),
+        expect.any(String),
       ),
     );
   });
@@ -192,6 +197,7 @@ describe("mailbox compose persistence", () => {
         .getByLabelText("page.webmail.compose_body")
         .hasAttribute("disabled"),
     ).toBe(true);
+    const savesBeforeReplay = vi.mocked(mailboxApi.saveDraft).mock.calls.length;
     fireEvent.click(
       screen.getByRole("button", { name: "page.webmail.compose_schedule" }),
     );
@@ -201,7 +207,8 @@ describe("mailbox compose persistence", () => {
     const calls = vi.mocked(mailboxApi.scheduleSend).mock.calls;
     expect(calls[1]).toEqual(calls[0]);
     expect(calls[0][0]).toMatchObject({ draft_uid: 77, draft_uidvalidity: 9 });
-    expect(mailboxApi.saveDraft).toHaveBeenCalledTimes(1);
+    expect(savesBeforeReplay).toBeGreaterThanOrEqual(1);
+    expect(mailboxApi.saveDraft).toHaveBeenCalledTimes(savesBeforeReplay);
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
@@ -384,6 +391,7 @@ it("changes signatures without replacing manually authored text or recipients", 
         text: expect.stringContaining("My words"),
         html: expect.stringContaining("My words"),
       }),
+      expect.any(String),
     ),
   );
 });
@@ -518,6 +526,7 @@ it("freezes the selected sender and reply source into a scheduled draft", async 
       reply_source: source,
       text: "Reply body",
     }),
+    expect.any(String),
   );
 });
 
@@ -593,4 +602,384 @@ it("keeps outbound actions disabled when identity settings fail", async () => {
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
+});
+
+it("keeps the editor open when close-time save fails", async () => {
+  vi.mocked(mailboxApi.saveDraft).mockRejectedValueOnce(
+    new ApiRequestError(409, {
+      error: { code: "DRAFT_CHANGED", message: "error.DRAFT_CHANGED" },
+    }),
+  );
+  const { onOpenChange } = await compose();
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
+    target: { value: "bob@example.test" },
+  });
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_subject"), {
+    target: { value: "Retain this revision" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "action.cancel" }));
+  await screen.findByRole("alert");
+  expect(onOpenChange).not.toHaveBeenCalled();
+  expect(
+    (screen.getByLabelText("page.webmail.compose_subject") as HTMLInputElement)
+      .value,
+  ).toBe("Retain this revision");
+});
+
+it("locks an accepted submission with a pending copy and never deletes its draft", async () => {
+  vi.mocked(mailboxApi.sendMessage).mockResolvedValueOnce({
+    sent: true,
+    sent_copy: "pending",
+    receipt: {
+      id: 8,
+      request_key: "accepted-receipt-key",
+      status: "accepted",
+      sent_copy_state: "pending",
+      message_id: "<accepted@example.test>",
+      created_at: "2026-10-30T00:00:00Z",
+    },
+  });
+  await compose();
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
+    target: { value: "bob@example.test" },
+  });
+  const body = screen.getByRole("textbox", {
+    name: "page.webmail.compose_rich_text",
+  });
+  body.innerHTML = "<p>Visible body</p>";
+  fireEvent.input(body);
+  await waitFor(() => expect(body.textContent).toBe("Visible body"));
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_send" }),
+  );
+  await screen.findByText("page.webmail.compose_sent_copy_pending");
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "page.webmail.compose_send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "page.webmail.compose_discard",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect(mailboxApi.deleteDraft).not.toHaveBeenCalled();
+  expect(mailboxApi.sendMessage).toHaveBeenCalledTimes(1);
+  expect(
+    vi.mocked(mailboxApi.sendMessage).mock.calls[0][0].draft_source,
+  ).toEqual({ folder_enc: "drafts", uid: 77, uid_validity: 9 });
+});
+
+it("blocks close and send until an attachment has finished decoding", async () => {
+  let finish!: (attachment: mailboxApi.OutgoingAttachment) => void;
+  vi.mocked(mailboxApi.fileToOutgoingAttachment).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { onOpenChange } = await compose();
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
+    target: { value: "bob@example.test" },
+  });
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_attach"), {
+    target: { files: [new File(["attachment"], "pending.txt")] },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "action.cancel" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_send" }),
+  );
+  expect(onOpenChange).not.toHaveBeenCalled();
+  expect(mailboxApi.sendMessage).not.toHaveBeenCalled();
+  finish({
+    filename: "pending.txt",
+    content_type: "text/plain",
+    content_base64: "YQ==",
+  });
+  await screen.findByText("pending.txt");
+  fireEvent.click(screen.getByRole("button", { name: "action.cancel" }));
+  await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  expect(
+    vi.mocked(mailboxApi.saveDraft).mock.calls.at(-1)?.[0].attachments?.[0]
+      .filename,
+  ).toBe("pending.txt");
+});
+
+it("preserves identity, recipients and formatted source when changing editor presentation", async () => {
+  await compose({
+    mode: "new",
+    to: "bob@example.test",
+    subject: "Keep format",
+    html: "<p><strong>Retain bold</strong></p>",
+    text: "Retain bold",
+    attachments: [
+      {
+        filename: "kept.txt",
+        content_type: "text/plain",
+        content_base64: "YQ==",
+      },
+    ],
+  });
+  fireEvent.change(screen.getByLabelText("page.webmail.compose_from"), {
+    target: { value: "team@example.test" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_source_code" }),
+  );
+  const source = screen.getByRole("textbox", {
+    name: "page.webmail.compose_source_code",
+  });
+  fireEvent.change(source, {
+    target: { value: "<p><em>Updated HTML</em></p>" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_maximize" }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_rich_text" }),
+  );
+  expect(
+    (screen.getByLabelText("page.webmail.compose_from") as HTMLSelectElement)
+      .value,
+  ).toBe("team@example.test");
+  expect(
+    (screen.getByLabelText("page.webmail.compose_to") as HTMLInputElement)
+      .value,
+  ).toBe("bob@example.test");
+  expect(
+    screen
+      .getByRole("textbox", { name: "page.webmail.compose_rich_text" })
+      .querySelector("em")?.textContent,
+  ).toBe("Updated HTML");
+  expect(screen.getByText("kept.txt")).toBeTruthy();
+});
+
+it("claims a submission synchronously while its draft is still saving", async () => {
+  let complete!: (
+    value: Awaited<ReturnType<typeof mailboxApi.saveDraft>>,
+  ) => void;
+  vi.mocked(mailboxApi.saveDraft).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  await compose({ mode: "new", to: "bob@example.test", text: "once" });
+  const send = screen.getByRole("button", {
+    name: "page.webmail.compose_send",
+  });
+  fireEvent.click(send);
+  fireEvent.click(send);
+  expect(mailboxApi.sendMessage).not.toHaveBeenCalled();
+  complete({
+    saved: true,
+    uid: 77,
+    uid_validity: 9,
+    folder: "Drafts",
+    name_enc: "drafts",
+  });
+  await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalledTimes(1));
+});
+
+it("requires an explicit reviewed new send and keeps its original frozen content", async () => {
+  vi.mocked(mailboxApi.sendMessage)
+    .mockResolvedValueOnce({
+      sent: false,
+      receipt: {
+        id: 9,
+        request_key: "original-uncertain-key",
+        status: "uncertain",
+        sent_copy_state: "none",
+        message_id: "<uncertain@example.test>",
+        created_at: "2026-10-30T00:00:00Z",
+      },
+    })
+    .mockResolvedValueOnce({
+      sent: true,
+      receipt: {
+        id: 10,
+        request_key: "new-independent-key",
+        status: "accepted",
+        sent_copy_state: "complete",
+        message_id: "<new@example.test>",
+        created_at: "2026-10-30T00:00:01Z",
+      },
+    });
+  await compose({
+    mode: "new",
+    to: "bob@example.test",
+    text: "Frozen content",
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_send" }),
+  );
+  await screen.findByText("page.webmail.compose_confirm_new_send");
+  const retry = screen.getByRole("button", {
+    name: "page.webmail.compose_prepare_new_send",
+  }) as HTMLButtonElement;
+  expect(retry.disabled).toBe(true);
+  expect(
+    (screen.getByLabelText("page.webmail.compose_to") as HTMLInputElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.click(
+    screen.getByRole("checkbox", {
+      name: "page.webmail.compose_confirm_new_send",
+    }),
+  );
+  fireEvent.click(retry);
+  await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalledTimes(2));
+  const [first, second] = vi.mocked(mailboxApi.sendMessage).mock.calls;
+  expect(second[1]).not.toBe(first[1]);
+  expect(second[0]).toEqual({
+    ...first[0],
+    acknowledged_uncertain_receipt_id: 9,
+  });
+  expect(mailboxApi.deleteDraft).not.toHaveBeenCalled();
+});
+
+it("recovers an uncertain receipt when reopening a saved draft and explicitly resubmits its frozen content", async () => {
+  vi.mocked(mailboxApi.getSendReceiptForDraft).mockResolvedValueOnce({
+    id: 20,
+    request_key: "resumed-uncertain-key",
+    status: "uncertain",
+    sent_copy_state: "none",
+    message_id: "<resumed@example.test>",
+    created_at: "2026-10-30T00:00:00Z",
+  });
+  vi.mocked(mailboxApi.sendMessage).mockResolvedValueOnce({
+    sent: true,
+    receipt: {
+      id: 21,
+      request_key: "resumed-new-key",
+      status: "accepted",
+      sent_copy_state: "complete",
+      message_id: "<resumed-new@example.test>",
+      created_at: "2026-10-30T00:00:01Z",
+    },
+  });
+  render(
+    <MailboxComposeDialog
+      open
+      draft={{
+        mode: "draft",
+        uid: 7,
+        uidValidity: 9,
+        folderEnc: "drafts",
+        from: "alice@example.test",
+        to: "bob@example.test",
+        subject: "Resumed",
+        text: "Persisted original",
+      }}
+      onOpenChange={vi.fn()}
+      onSent={vi.fn()}
+    />,
+  );
+  await screen.findByText("page.webmail.compose_confirm_new_send");
+  expect(mailboxApi.saveDraft).not.toHaveBeenCalled();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "page.webmail.compose_send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(
+    screen.getByRole("checkbox", {
+      name: "page.webmail.compose_confirm_new_send",
+    }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "page.webmail.compose_prepare_new_send",
+    }),
+  );
+  await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(mailboxApi.sendMessage).mock.calls[0][0]).toMatchObject({
+    text: "Persisted original",
+    acknowledged_uncertain_receipt_id: 20,
+    draft_source: { folder_enc: "drafts", uid: 7, uid_validity: 9 },
+  });
+  expect(mailboxApi.saveDraft).not.toHaveBeenCalled();
+});
+
+it("allows explicit cleanup of a confirmed sent draft without enabling another send", async () => {
+  vi.mocked(mailboxApi.getSendReceiptForDraft).mockResolvedValueOnce({
+    id: 30,
+    request_key: "completed-original-key",
+    status: "accepted",
+    sent_copy_state: "complete",
+    message_id: "<complete@example.test>",
+    created_at: "2026-10-30T00:00:00Z",
+  });
+  const onOpenChange = vi.fn();
+  render(
+    <MailboxComposeDialog
+      open
+      draft={{
+        mode: "draft",
+        uid: 7,
+        uidValidity: 9,
+        folderEnc: "drafts",
+        from: "alice@example.test",
+        to: "bob@example.test",
+        text: "Already accepted",
+      }}
+      onOpenChange={onOpenChange}
+      onSent={vi.fn()}
+    />,
+  );
+  await screen.findByText("page.webmail.compose_already_sent");
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "page.webmail.compose_send",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.compose_discard" }),
+  );
+  await waitFor(() =>
+    expect(mailboxApi.deleteDraft).toHaveBeenCalledExactlyOnceWith(7, 9),
+  );
+  expect(mailboxApi.sendMessage).not.toHaveBeenCalled();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+it("persists clearing all content from an existing draft instead of restoring its old body", async () => {
+  const { onOpenChange } = await compose({
+    mode: "draft",
+    uid: 6,
+    uidValidity: 9,
+    folderEnc: "drafts",
+    from: "alice@example.test",
+    text: "Remove all of this",
+  });
+  const editor = screen.getByRole("textbox", {
+    name: "page.webmail.compose_rich_text",
+  });
+  editor.innerHTML = "";
+  fireEvent.input(editor);
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          "page.webmail.compose_body",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe(""),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "action.cancel" }));
+  await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  expect(vi.mocked(mailboxApi.saveDraft).mock.calls.at(-1)?.[0]).toMatchObject({
+    uid: 6,
+    uid_validity: 9,
+    text: "",
+    html: "",
+  });
 });

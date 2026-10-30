@@ -18,11 +18,6 @@ test("HTML mail blocks CSS, SVG and image tracking in a sandboxed frame", async 
     throw new Error("Native webmail fixtures require a loopback Vite server");
   }
   const requests: string[] = [];
-  const blocked: string[] = [];
-  page.on("console", (message) => {
-    if (/Content Security Policy|violates.*directive/i.test(message.text()))
-      blocked.push(message.text());
-  });
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
@@ -56,8 +51,29 @@ test("HTML mail blocks CSS, SVG and image tracking in a sandboxed frame", async 
   await expect(
     page.frameLocator("iframe").getByText("Preserved message"),
   ).toBeVisible();
-  await expect.poll(() => blocked.length).toBeGreaterThan(0);
   // Give queued CSS/image/font loads an opportunity to reach the route handler.
   await page.waitForTimeout(300);
   expect(requests).toEqual([]);
+  // Exercise CSP independently of sanitization by inserting an image afterwards.
+  await page.evaluate((origin) => {
+    const frame = document.querySelector("iframe")!;
+    frame.srcdoc = frame.srcdoc.replace(
+      "</body>",
+      `<img id="policy-probe" src="${origin}/__tracker/after-sanitization.gif"><script>parent.__mailScriptRan=true</script></body>`,
+    );
+  }, new URL(baseURL).origin);
+  await expect(
+    page.frameLocator("iframe").locator("#policy-probe"),
+  ).toHaveCount(1);
+  await expect(page.locator("iframe")).toHaveAttribute("sandbox", "");
+  await page.waitForTimeout(300);
+  expect(requests).toEqual([]);
+  expect(
+    await page.evaluate(() => ({
+      scriptRan: Boolean(
+        (window as Window & { __mailScriptRan?: boolean }).__mailScriptRan,
+      ),
+      opaque: document.querySelector("iframe")!.contentDocument === null,
+    })),
+  ).toEqual({ scriptRan: false, opaque: true });
 });

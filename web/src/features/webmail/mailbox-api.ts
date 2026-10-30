@@ -17,8 +17,16 @@ export interface MailboxAddress {
   email: string;
 }
 
+export interface MessageRef {
+  folder_enc: string;
+  uid_validity: number;
+  uid: number;
+}
+
 export interface MessageSummary {
   uid: number;
+  uid_validity?: number;
+  has_attachments?: boolean;
   subject: string;
   from: MailboxAddress[];
   date: string;
@@ -53,6 +61,7 @@ export interface MailboxListResponse {
 }
 
 export interface AttachmentMeta {
+  inline?: boolean;
   part_id: string;
   filename: string;
   content_type: string;
@@ -62,6 +71,13 @@ export interface AttachmentMeta {
 }
 
 export interface MessageDetail extends MessageSummary {
+  authentication?: {
+    status: "pass" | "fail" | "unknown";
+    source?: string;
+    reason: string;
+    domain?: string;
+    checked_at?: string;
+  };
   uid_validity?: number;
   to?: MailboxAddress[];
   cc?: MailboxAddress[];
@@ -328,6 +344,8 @@ export function deleteMessages(
 }
 
 export interface OutgoingAttachment {
+  content_id?: string;
+  inline?: boolean;
   filename: string;
   content_type: string;
   content_base64: string;
@@ -367,7 +385,7 @@ export function assertAttachmentTotal(
 }
 export const MAX_SEND_ATTACHMENTS = 10;
 
-export async function sendMessage(body: {
+export interface SendMessageRequest {
   from?: string;
   in_reply_to?: string;
   to: string[];
@@ -377,32 +395,99 @@ export async function sendMessage(body: {
   text: string;
   html?: string;
   attachments?: OutgoingAttachment[];
-}) {
+  draft_source?: MessageRef;
+  acknowledged_uncertain_receipt_id?: number;
+}
+
+export interface SendReceipt {
+  draft_released?: boolean;
+  id: number;
+  request_key: string;
+  status: "prepared" | "submitting" | "accepted" | "rejected" | "uncertain";
+  sent_copy_state: "none" | "pending" | "unknown" | "complete" | "held";
+  message_id: string;
+  created_at: string;
+  accepted_at?: string;
+  last_error?: string;
+  draft_source?: MessageRef;
+}
+
+export async function sendMessage(
+  body: SendMessageRequest,
+  requestKey: string = crypto.randomUUID(),
+) {
   assertAttachmentTotal(body.attachments);
-  return mailboxRequest<{ sent: boolean; sent_copy?: "saved" | "pending" }>(
-    "/api/v1/mailbox/send",
-    {
-      method: "POST",
-      body,
-    },
+  return mailboxRequest<{
+    sent: boolean;
+    sent_copy?: "saved" | "pending";
+    receipt?: SendReceipt;
+  }>("/api/v1/mailbox/send", {
+    method: "POST",
+    body,
+    idempotencyKey: requestKey,
+  });
+}
+
+export async function getSendReceiptByRequestKey(
+  key: string,
+): Promise<SendReceipt | null> {
+  const response = await mailboxRequest<{ items: SendReceipt[] }>(
+    `/api/v1/mailbox/send-receipts?request_key=${encodeURIComponent(key)}`,
+  );
+  return response.items[0] ?? null;
+}
+
+export function listSendReceipts(
+  options: {
+    limit?: number;
+    offset?: number;
+    request_key?: string;
+  } & Partial<MessageRef> = {},
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  return mailboxRequest<{ items: SendReceipt[] }>(
+    `/api/v1/mailbox/send-receipts?${params}`,
+    { signal },
+  );
+}
+
+export async function getSendReceiptForDraft(
+  source: MessageRef,
+  signal?: AbortSignal,
+): Promise<SendReceipt | null> {
+  const response = await listSendReceipts(source, signal);
+  return response.items[0] ?? null;
+}
+
+export function repairSentCopy(id: number) {
+  return mailboxRequest<{ receipt: SendReceipt }>(
+    `/api/v1/mailbox/send-receipts/${id}/repair-sent-copy`,
+    { method: "POST" },
   );
 }
 
 /** Save (or replace) a draft via IMAP APPEND into SPECIAL-USE \Drafts. */
-export async function saveDraft(body: {
-  from?: string;
-  in_reply_to?: string;
-  reply_source?: MailboxAISource;
-  uid?: number;
-  uid_validity?: number;
-  to?: string[];
-  cc?: string[];
-  bcc?: string[];
-  subject: string;
-  text: string;
-  html?: string;
-  attachments?: OutgoingAttachment[];
-}) {
+export async function saveDraft(
+  body: {
+    from?: string;
+    in_reply_to?: string;
+    reply_source?: MailboxAISource;
+    uid?: number;
+    uid_validity?: number;
+    to?: string[];
+    cc?: string[];
+    bcc?: string[];
+    subject: string;
+    text: string;
+    html?: string;
+    attachments?: OutgoingAttachment[];
+  },
+  requestKey: string = crypto.randomUUID(),
+) {
   assertAttachmentTotal(body.attachments);
   return mailboxRequest<{
     saved: boolean;
@@ -414,6 +499,7 @@ export async function saveDraft(body: {
   }>("/api/v1/mailbox/drafts", {
     method: "PUT",
     body,
+    idempotencyKey: requestKey,
   });
 }
 
@@ -733,7 +819,10 @@ export function getMailboxSettings() {
   return mailboxRequest<MailboxSettingsView>("/api/v1/mailbox/settings");
 }
 
-export function saveMailboxSettings(body: {
+export const MAILBOX_AI_CONFIGURATION_CHANGED =
+  "urmail.mailbox-ai-configuration-changed";
+
+export async function saveMailboxSettings(body: {
   identity_profiles?: Record<string, MailboxIdentityProfile>;
   display_name: string;
   signature_text: string;
@@ -741,10 +830,19 @@ export function saveMailboxSettings(body: {
   preferences?: Record<string, unknown>;
   expected_version: number;
 }) {
-  return mailboxRequest<{ saved: boolean; version: number }>(
+  const result = await mailboxRequest<{ saved: boolean; version: number }>(
     "/api/v1/mailbox/settings",
     { method: "PUT", body },
   );
+  if (
+    typeof window !== "undefined" &&
+    body.preferences &&
+    Object.prototype.hasOwnProperty.call(body.preferences, "ai")
+  ) {
+    // No credentials or configuration data travel with this invalidation signal.
+    window.dispatchEvent(new Event(MAILBOX_AI_CONFIGURATION_CHANGED));
+  }
+  return result;
 }
 
 export interface MailboxIdentity {
@@ -819,6 +917,8 @@ export interface MailboxUserAIConfig {
   endpoint?: string;
   model?: string;
   api_key?: string;
+  key_configured?: boolean;
+  clear_api_key?: boolean;
 }
 
 export interface MailboxAITarget {
@@ -880,6 +980,7 @@ export function runMailboxAI(
     operation: MailboxAIOperation;
     configuration_digest: string;
     confirmed: boolean;
+    content_digest?: string;
     request_key: string;
     body?: string;
     subject?: string;
@@ -899,6 +1000,7 @@ export function askMailboxAI(
     question: string;
     configuration_digest: string;
     confirmed: boolean;
+    content_digest?: string;
     folder_enc?: string;
     after?: string;
     before?: string;
@@ -910,6 +1012,28 @@ export function askMailboxAI(
     grounded: boolean;
     citations: string[];
   }>("/api/v1/mailbox/ai/search-ask", { method: "POST", body, signal });
+}
+
+export interface MailboxAIPreview {
+  content_digest: string;
+  provider?: string;
+  model?: string;
+  endpoint?: string;
+  messages?: Array<{ role: string; content: string }>;
+  question?: string;
+  sources?: Array<{ ID: string; Quote: string }>;
+}
+
+export function previewMailboxAI(
+  kind: "assist" | "search-ask",
+  body: object,
+  signal?: AbortSignal,
+) {
+  return mailboxRequest<MailboxAIPreview>(`/api/v1/mailbox/ai/${kind}`, {
+    method: "POST",
+    body: { ...body, confirmed: false, preview_only: true },
+    signal,
+  });
 }
 export const fetchMailboxAICitation = (id: string, signal?: AbortSignal) =>
   mailboxRequest<MailboxAICitation>(
@@ -1072,5 +1196,12 @@ export function repairScheduledSentCopy(id: number) {
   return mailboxRequest<{ item: ScheduledSendItem }>(
     `/api/v1/mailbox/scheduled-sends/${id}/repair-sent-copy`,
     { method: "POST" },
+  );
+}
+
+export function acknowledgeUncertainScheduledSend(id: number) {
+  return mailboxRequest<ScheduledSendItem>(
+    `/api/v1/mailbox/scheduled-sends/${id}/acknowledge-uncertain`,
+    { method: "POST", body: { confirmed: true } },
   );
 }

@@ -121,7 +121,9 @@ export function MailboxSettingsPage() {
             provider: aiPref.provider || "openai",
             endpoint: aiPref.endpoint || "",
             model: aiPref.model || "",
-            api_key: aiPref.api_key || "",
+            api_key: "",
+            key_configured: Boolean(aiPref.key_configured),
+            clear_api_key: false,
           });
         }
         setQuoteOriginal(s.preferences.quote_original !== false);
@@ -268,6 +270,13 @@ export function MailboxSettingsPage() {
         signature_text: primary ? signatureText : settings.signature_text,
         signature_html: primary ? signatureHtml : settings.signature_html,
       });
+      setUserAIConfig((prev) => ({
+        ...prev,
+        api_key: "",
+        clear_api_key: false,
+        key_configured:
+          !prev.clear_api_key && Boolean(prev.api_key || prev.key_configured),
+      }));
       setProfiles(nextProfiles);
       setSaved(true);
     } catch (err) {
@@ -949,7 +958,7 @@ export function MailboxSettingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">
-                    服务提供商 (Provider)
+                    {t("page.webmail.ai_provider_label")}
                   </span>
                   <select
                     className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -964,16 +973,18 @@ export function MailboxSettingsPage() {
                     }}
                   >
                     <option value="openai">
-                      OpenAI 兼容 (DeepSeek / OpenAI / 阿里百炼 / 硅基流动等)
+                      {t("page.webmail.ai_openai_compatible")}
                     </option>
-                    <option value="ollama">Ollama (本地私有部署)</option>
+                    <option value="ollama">
+                      {t("page.webmail.ai_ollama_local")}
+                    </option>
                     <option value="azure">Azure OpenAI</option>
                   </select>
                 </label>
 
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">
-                    API 接口端点 (Endpoint)
+                    {t("page.webmail.ai_endpoint")}
                   </span>
                   <Input
                     type="url"
@@ -992,7 +1003,7 @@ export function MailboxSettingsPage() {
 
                 <label className="space-y-1 sm:col-span-2">
                   <span className="text-xs text-muted-foreground">
-                    API 密钥 (API Key)
+                    {t("page.webmail.ai_api_key")}
                   </span>
                   <Input
                     type="password"
@@ -1000,26 +1011,47 @@ export function MailboxSettingsPage() {
                     className="h-9 text-sm font-mono"
                     placeholder="sk-..."
                     value={userAIConfig.api_key ?? ""}
+                    aria-label={t("page.webmail.ai_api_key")}
                     onChange={(e) => {
                       setUserAIConfig((prev) => ({
                         ...prev,
                         api_key: e.target.value,
+                        clear_api_key: false,
                       }));
                       setSaved(false);
                     }}
                   />
                 </label>
-
+                {userAIConfig.key_configured && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("page.webmail.ai_key_saved")}
+                  </p>
+                )}
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={userAIConfig.clear_api_key ?? false}
+                    onChange={(e) =>
+                      setUserAIConfig((prev) => ({
+                        ...prev,
+                        api_key: "",
+                        clear_api_key: e.target.checked,
+                        use_custom: e.target.checked ? false : prev.use_custom,
+                      }))
+                    }
+                  />
+                  {t("page.webmail.ai_clear_key")}
+                </label>
                 <div className="sm:col-span-2 space-y-2">
                   <div className="flex items-end gap-2">
                     <label className="flex-1 space-y-1">
                       <span className="text-xs text-muted-foreground">
-                        模型名称 (Model)
+                        {t("page.webmail.ai_model_label")}
                       </span>
                       <Input
                         list="user-ai-models-list"
                         className="h-9 text-sm font-mono"
-                        placeholder="例如：deepseek-chat 或 gpt-4o"
+                        placeholder={t("page.webmail.ai_model_placeholder")}
                         value={userAIConfig.model ?? ""}
                         onChange={(e) => {
                           setUserAIConfig((prev) => ({
@@ -1046,7 +1078,7 @@ export function MailboxSettingsPage() {
                     >
                       <Sparkles className="h-3.5 w-3.5" />
                       {userAIFetching
-                        ? "拉取中..."
+                        ? t("state.loading")
                         : t("page.webmail.ai_test_fetch")}
                     </Button>
                   </div>

@@ -27,10 +27,13 @@ export interface MailboxEditorProps {
   onChange: (data: { html: string; text: string }) => void;
   isSourceMode?: boolean;
   onToggleSourceMode?: () => void;
+  onCompositionChange?: (composing: boolean) => void;
 }
 
 export function MailboxEditor({
   initialContent,
+  isHtml = true,
+  onCompositionChange,
   disabled = false,
   placeholder = "",
   onChange,
@@ -39,7 +42,16 @@ export function MailboxEditor({
 }: MailboxEditorProps) {
   const { t } = useTranslation();
   const isUpdatingRef = useRef(false);
-  const isMountedRef = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const normalize = (value: string) =>
+    isHtml
+      ? value
+      : value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br>");
   const [sourceCode, setSourceCode] = useState(initialContent);
 
   const editor = useEditor({
@@ -61,44 +73,47 @@ export function MailboxEditor({
         placeholder: placeholder || t("page.webmail.compose_body"),
       }),
     ],
-    content: initialContent || "",
+    content: normalize(initialContent) || "",
     editable: !disabled,
     onUpdate: ({ editor }) => {
       if (isUpdatingRef.current) return;
-      if (!isMountedRef.current) return;
       const html = editor.getHTML();
       const text = editor.getText();
       const isEmpty = editor.isEmpty;
       setSourceCode(isEmpty ? "" : html);
-      onChange({ html: isEmpty ? "" : html, text });
+      onChangeRef.current({ html: isEmpty ? "" : html, text });
     },
     editorProps: {
       attributes: {
+        role: "textbox",
+        "aria-label": t("page.webmail.compose_rich_text"),
+        "aria-multiline": "true",
         class:
           "min-h-[220px] max-h-[500px] overflow-y-auto px-4 py-3 text-sm focus:outline-none prose prose-sm max-w-none dark:prose-invert font-sans leading-relaxed selection:bg-primary/20",
       },
     },
   });
 
+  // External adoption, signature changes and quote changes also update a focused editor.
   useEffect(() => {
-    // Delay marking as mounted to prevent initial mount onUpdate from triggering
-    const timer = setTimeout(() => {
-      isMountedRef.current = true;
-    }, 50);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Sync external changes when initial content changes significantly
-  useEffect(() => {
-    if (!editor) return;
-    const currentHTML = editor.getHTML();
-    if (initialContent !== currentHTML && !editor.isFocused) {
-      isUpdatingRef.current = true;
-      editor.commands.setContent(initialContent || "");
-      setSourceCode(initialContent);
-      isUpdatingRef.current = false;
-    }
-  }, [initialContent, editor]);
+    if (!editor || isUpdatingRef.current) return;
+    const next = isHtml
+      ? initialContent
+      : initialContent
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br>");
+    if (
+      next === editor.getHTML() ||
+      (!isHtml && initialContent === editor.getText())
+    )
+      return;
+    isUpdatingRef.current = true;
+    editor.commands.setContent(next || "", { emitUpdate: false });
+    setSourceCode(isSourceMode ? initialContent : editor.getHTML());
+    isUpdatingRef.current = false;
+  }, [initialContent, isHtml, editor, isSourceMode]);
 
   // Sync disabled state
   useEffect(() => {
@@ -128,7 +143,7 @@ export function MailboxEditor({
     if (editor) {
       isUpdatingRef.current = true;
       editor.commands.setContent(next || "");
-      onChange({ html: next, text: editor.getText() });
+      onChangeRef.current({ html: next, text: editor.getText() });
       isUpdatingRef.current = false;
     }
   };
@@ -245,7 +260,7 @@ export function MailboxEditor({
           variant="ghost"
           className="h-7 w-7 p-0 cursor-pointer"
           disabled={disabled || isSourceMode || !editor?.can().undo()}
-          title="撤销"
+          title={t("page.webmail.compose_undo")}
           onClick={() => editor?.chain().focus().undo().run()}
         >
           <Undo2 className="h-3.5 w-3.5" />
@@ -257,7 +272,7 @@ export function MailboxEditor({
           variant="ghost"
           className="h-7 w-7 p-0 cursor-pointer"
           disabled={disabled || isSourceMode || !editor?.can().redo()}
-          title="重做"
+          title={t("page.webmail.compose_redo")}
           onClick={() => editor?.chain().focus().redo().run()}
         >
           <Redo2 className="h-3.5 w-3.5" />
@@ -292,6 +307,9 @@ export function MailboxEditor({
       {/* Editor Body */}
       {isSourceMode ? (
         <textarea
+          aria-label={t("page.webmail.compose_source_code")}
+          onCompositionStart={() => onCompositionChange?.(true)}
+          onCompositionEnd={() => onCompositionChange?.(false)}
           rows={10}
           value={sourceCode}
           disabled={disabled}
@@ -300,7 +318,11 @@ export function MailboxEditor({
           className="w-full h-full min-h-[220px] p-3 font-mono text-xs bg-muted/10 outline-none resize-y"
         />
       ) : (
-        <EditorContent editor={editor} />
+        <EditorContent
+          editor={editor}
+          onCompositionStart={() => onCompositionChange?.(true)}
+          onCompositionEnd={() => onCompositionChange?.(false)}
+        />
       )}
     </div>
   );

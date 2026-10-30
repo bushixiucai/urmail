@@ -14,6 +14,23 @@ interface UseResizablePanesProps {
   maxListHeight?: number;
 }
 
+function storedDimension(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  try {
+    const raw = localStorage.getItem(key);
+    const value = raw == null ? fallback : Number(raw);
+    return Number.isFinite(value)
+      ? Math.max(min, Math.min(max, value))
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function useResizablePanes({
   initialFolderWidth = 220,
   initialListWidth = 380,
@@ -25,31 +42,75 @@ export function useResizablePanes({
   minListHeight = 180,
   maxListHeight = 600,
 }: UseResizablePanesProps = {}) {
-  const [folderWidth, setFolderWidth] = useState(() => {
-    const saved = localStorage.getItem("urmail.webmail.folderWidth");
-    return saved
-      ? Math.max(minFolderWidth, Math.min(maxFolderWidth, parseInt(saved, 10)))
-      : initialFolderWidth;
-  });
-
-  const [listWidth, setListWidth] = useState(() => {
-    const saved = localStorage.getItem("urmail.webmail.listWidth");
-    return saved
-      ? Math.max(minListWidth, Math.min(maxListWidth, parseInt(saved, 10)))
-      : initialListWidth;
-  });
-
-  const [listHeight, setListHeight] = useState(() => {
-    const saved = localStorage.getItem("urmail.webmail.listHeight");
-    return saved
-      ? Math.max(minListHeight, Math.min(maxListHeight, parseInt(saved, 10)))
-      : initialListHeight;
-  });
-
+  const [folderWidth, setFolderWidth] = useState(() =>
+    storedDimension(
+      "urmail.webmail.folderWidth",
+      initialFolderWidth,
+      minFolderWidth,
+      maxFolderWidth,
+    ),
+  );
+  const [listWidth, setListWidth] = useState(() =>
+    storedDimension(
+      "urmail.webmail.listWidth",
+      initialListWidth,
+      minListWidth,
+      maxListWidth,
+    ),
+  );
+  const [listHeight, setListHeight] = useState(() =>
+    storedDimension(
+      "urmail.webmail.listHeight",
+      initialListHeight,
+      minListHeight,
+      maxListHeight,
+    ),
+  );
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
-    const saved = localStorage.getItem("urmail.webmail.layoutMode");
-    return saved === "horizontal" ? "horizontal" : "vertical";
+    try {
+      return localStorage.getItem("urmail.webmail.layoutMode") === "horizontal"
+        ? "horizontal"
+        : "vertical";
+    } catch {
+      return "vertical";
+    }
   });
+  const resizeBy = (
+    target: "folder" | "list-width" | "list-height",
+    delta: number,
+  ) => {
+    const [value, min, max, setter, key] =
+      target === "folder"
+        ? ([
+            folderWidth,
+            minFolderWidth,
+            maxFolderWidth,
+            setFolderWidth,
+            "folderWidth",
+          ] as const)
+        : target === "list-width"
+          ? ([
+              listWidth,
+              minListWidth,
+              maxListWidth,
+              setListWidth,
+              "listWidth",
+            ] as const)
+          : ([
+              listHeight,
+              minListHeight,
+              maxListHeight,
+              setListHeight,
+              "listHeight",
+            ] as const);
+    const next = Math.max(min, Math.min(max, value + delta));
+    setter(next);
+    try {
+      localStorage.setItem(`urmail.webmail.${key}`, String(next));
+    } catch {
+      /* Resizing also works without persistence. */
+    }
+  };
 
   const [isDragging, setIsDragging] = useState(false);
   const dragTargetRef = useRef<"folder" | "list-width" | "list-height" | null>(
@@ -160,25 +221,45 @@ export function useResizablePanes({
     startDragging,
     toggleLayoutMode,
     setLayoutMode,
+    resizeBy,
   };
 }
 
 export function SplitterHandle({
   orientation = "vertical",
   onMouseDown,
+  onAdjust,
+  label,
+  className = "",
 }: {
   orientation?: "vertical" | "horizontal";
   onMouseDown: (e: React.MouseEvent) => void;
+  onAdjust?: (delta: number) => void;
+  label?: string;
+  className?: string;
 }) {
   return (
     <div
       role="separator"
       tabIndex={0}
       aria-orientation={orientation}
+      aria-label={label}
+      onKeyDown={(event) => {
+        const decrease = orientation === "vertical" ? "ArrowLeft" : "ArrowUp";
+        const increase =
+          orientation === "vertical" ? "ArrowRight" : "ArrowDown";
+        if (onAdjust && (event.key === decrease || event.key === increase)) {
+          event.preventDefault();
+          onAdjust(event.key === decrease ? -20 : 20);
+        }
+      }}
       className={
-        orientation === "vertical"
-          ? "w-1 hover:w-1.5 -mx-0.5 z-10 cursor-col-resize hover:bg-primary/40 active:bg-primary transition-all shrink-0 select-none group flex items-center justify-center"
-          : "h-1 hover:h-1.5 -my-0.5 z-10 cursor-row-resize hover:bg-primary/40 active:bg-primary transition-all shrink-0 select-none group flex items-center justify-center"
+        "hidden md:flex " +
+        className +
+        " " +
+        (orientation === "vertical"
+          ? "w-1 hover:w-1.5 -mx-0.5 z-10 cursor-col-resize hover:bg-primary/40 active:bg-primary transition-all shrink-0 select-none group items-center justify-center"
+          : "h-1 hover:h-1.5 -my-0.5 z-10 cursor-row-resize hover:bg-primary/40 active:bg-primary transition-all shrink-0 select-none group items-center justify-center")
       }
       onMouseDown={onMouseDown}
     >

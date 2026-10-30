@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useMailboxAIConsent } from "./mailbox-ai-consent";
+import {
+  MAILBOX_AI_CONFIGURATION_CHANGED,
+  previewMailboxAI,
+} from "./mailbox-api";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Sparkles,
@@ -48,7 +53,10 @@ interface MailboxAIDrawerProps {
   selectedFolderEnc?: string;
   detail: MessageDetail | null;
   onCitation: (source: MailboxAICitation) => void;
-  onApplyAIProposal?: (proposal: { subject: string; body: string }) => void;
+  onApplyAIProposal?: (proposal: {
+    subject: string;
+    body: string;
+  }) => void | Promise<void>;
 }
 
 export function MailboxAIDrawer({
@@ -61,6 +69,11 @@ export function MailboxAIDrawer({
   onApplyAIProposal,
 }: MailboxAIDrawerProps) {
   const { t } = useTranslation();
+  const {
+    confirm: confirmConsent,
+    cancel: cancelConsent,
+    dialog: consentDialog,
+  } = useMailboxAIConsent();
   const [activeTab, setActiveTab] = useState<"current" | "ask" | "settings">(
     "current",
   );
@@ -77,6 +90,7 @@ export function MailboxAIDrawer({
   const [genError, setGenError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [selectionText, setSelectionText] = useState("");
 
   // Ask / Q&A State
@@ -107,15 +121,56 @@ export function MailboxAIDrawer({
   const [savingSettings, setSavingSettings] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const askControllerRef = useRef<AbortController | null>(null);
+  const targetRevision = useRef(0);
+  const visible = useRef(open);
+  visible.current = open;
+  const invalidateTargetResults = useCallback(() => {
+    abortControllerRef.current?.abort();
+    askControllerRef.current?.abort();
+    cancelConsent();
+    setGenerating(false);
+    setAsking(false);
+    setResult(null);
+    setAskAnswer(null);
+    setGenError(null);
+    setAskError(null);
+    setApplied(false);
+    setCopied(false);
+  }, [cancelConsent]);
+  useEffect(() => {
+    invalidateTargetResults();
+  }, [target?.configuration_digest, invalidateTargetResults]);
+
+  useEffect(
+    () => () => {
+      askControllerRef.current?.abort();
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!open) {
+      targetRevision.current++;
+      invalidateTargetResults();
+    }
+  }, [open, invalidateTargetResults]);
 
   // Load target configuration and user AI preferences
-  const loadTargetAndSettings = () => {
+  const loadTargetAndSettings = useCallback(() => {
+    const generation = ++targetRevision.current;
     void fetchMailboxAITarget()
-      .then(setTarget)
-      .catch(() => setTarget(null));
+      .then((next) => {
+        if (visible.current && generation === targetRevision.current)
+          setTarget(next);
+      })
+      .catch(() => {
+        if (visible.current && generation === targetRevision.current)
+          setTarget(null);
+      });
 
     void getMailboxSettings()
       .then((s) => {
+        if (!visible.current || generation !== targetRevision.current) return;
         const aiPref = s.preferences?.ai as MailboxUserAIConfig | undefined;
         if (aiPref) {
           setUserAI({
@@ -123,35 +178,62 @@ export function MailboxAIDrawer({
             provider: aiPref.provider || "openai",
             endpoint: aiPref.endpoint || "https://api.deepseek.com/v1",
             model: aiPref.model || "deepseek-chat",
-            api_key: aiPref.api_key || "",
+            api_key: "",
+            key_configured: Boolean(aiPref.key_configured),
+            clear_api_key: false,
           });
         }
       })
       .catch(() => {});
-  };
+  }, []);
+
+  useEffect(() => {
+    const invalidate = () => {
+      targetRevision.current++;
+      invalidateTargetResults();
+      setTarget(null);
+      if (visible.current) loadTargetAndSettings();
+    };
+    window.addEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, invalidate);
+    return () =>
+      window.removeEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, invalidate);
+  }, [invalidateTargetResults, loadTargetAndSettings]);
 
   useEffect(() => {
     if (open) {
       loadTargetAndSettings();
     }
-  }, [open]);
+  }, [open, loadTargetAndSettings]);
 
   // Load message context when selected mail changes
   useEffect(() => {
+    abortControllerRef.current?.abort();
+    cancelConsent();
+    setGenerating(false);
     setResult(null);
     setGenError(null);
     setApplied(false);
     setSelectionText("");
-    if (detail && selectedFolderEnc && detail.uid_validity) {
+    let active = true;
+    if (open && detail && selectedFolderEnc && detail.uid_validity) {
       void fetchMailboxAIContext({
         folder_enc: selectedFolderEnc,
         uid: detail.uid,
         uid_validity: detail.uid_validity,
       })
-        .then((ctx) => setSelectionText(ctx.body))
-        .catch(() => setSelectionText(detail.text ?? ""));
+        .then((ctx) => {
+          if (active) setSelectionText(ctx.body);
+        })
+        .catch(() => {
+          if (active) setSelectionText(detail.text ?? "");
+        });
     }
-  }, [detail, selectedFolderEnc]);
+    return () => {
+      active = false;
+      abortControllerRef.current?.abort();
+      cancelConsent();
+    };
+  }, [detail, selectedFolderEnc, open, cancelConsent]);
 
   if (!open) return null;
 
@@ -172,21 +254,29 @@ export function MailboxAIDrawer({
     setActiveOp(op);
 
     try {
+      const input = {
+        operation: op,
+        configuration_digest: target.configuration_digest,
+        confirmed: true,
+        request_key: `native-${crypto.randomUUID()}`,
+        body: detail.text ?? "",
+        subject: detail.subject ?? "",
+        instruction: instruction.trim(),
+        target_language: targetLang,
+        folder_enc: selectedFolderEnc,
+        uid: detail.uid,
+        uid_validity: detail.uid_validity,
+        selection: selectionText || (detail.text ?? ""),
+      };
+      const preview = await previewMailboxAI(
+        "assist",
+        input,
+        controller.signal,
+      );
+      if (!(await confirmConsent({ ...target, ...preview }, controller.signal)))
+        return;
       const response = await runMailboxAI(
-        {
-          operation: op,
-          configuration_digest: target.configuration_digest,
-          confirmed: true,
-          request_key: `native-${crypto.randomUUID()}`,
-          body: detail.text ?? "",
-          subject: detail.subject ?? "",
-          instruction: instruction.trim(),
-          target_language: targetLang,
-          folder_enc: selectedFolderEnc,
-          uid: detail.uid,
-          uid_validity: detail.uid_validity,
-          selection: selectionText || (detail.text ?? ""),
-        },
+        { ...input, content_digest: preview.content_digest },
         controller.signal,
       );
       if (!controller.signal.aborted) {
@@ -212,26 +302,47 @@ export function MailboxAIDrawer({
   // Execute Mailbox Q&A Search
   const handleAsk = async (q: string = question) => {
     if (!q.trim() || !target?.configuration_digest) return;
+    askControllerRef.current?.abort();
+    const controller = new AbortController();
+    askControllerRef.current = controller;
     setAsking(true);
     setAskError(null);
     setAskAnswer(null);
 
     try {
-      const response = await askMailboxAI({
+      const input = {
         question: q.trim(),
         configuration_digest: target.configuration_digest,
         confirmed: true,
         folder_enc: askFolder || undefined,
-      });
-      const citations = await Promise.all(
-        response.citations.map((id) => fetchMailboxAICitation(id)),
+      };
+      const preview = await previewMailboxAI(
+        "search-ask",
+        input,
+        controller.signal,
       );
+      if (!(await confirmConsent({ ...target, ...preview }, controller.signal)))
+        return;
+      const response = await askMailboxAI(
+        {
+          ...input,
+          content_digest: preview.content_digest,
+        },
+        controller.signal,
+      );
+      const citations = await Promise.all(
+        response.citations.map((id) =>
+          fetchMailboxAICitation(id, controller.signal),
+        ),
+      );
+      if (controller.signal.aborted) return;
       setAskAnswer({
         text: response.text,
         grounded: response.grounded,
         citations,
       });
     } catch (err) {
+      if (controller.signal.aborted) return;
       setAskError(
         err instanceof ApiRequestError
           ? t(`error.${err.code}`, {
@@ -240,7 +351,7 @@ export function MailboxAIDrawer({
           : t("page.webmail.ai_failed"),
       );
     } finally {
-      setAsking(false);
+      if (!controller.signal.aborted) setAsking(false);
     }
   };
 
@@ -291,8 +402,8 @@ export function MailboxAIDrawer({
         preferences: updatedPrefs,
         expected_version: current.version,
       });
+      invalidateTargetResults();
       setSettingsNotice({ text: t("page.webmail.ai_custom_saved") });
-      loadTargetAndSettings();
     } catch {
       setSettingsNotice({ text: t("page.ai.save_failed"), error: true });
     } finally {
@@ -317,9 +428,10 @@ export function MailboxAIDrawer({
 
   return (
     <aside
-      className="w-84 sm:w-96 border-l bg-card flex flex-col h-full shadow-2xl z-30 shrink-0 select-none"
-      aria-label="AI Copilot"
+      className="fixed inset-x-0 top-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] w-full max-w-full border-l bg-card flex flex-col min-h-0 shadow-xl z-30 select-none md:static md:w-84 lg:w-96 md:h-full md:shrink-0"
+      aria-label={t("page.webmail.ai_copilot")}
     >
+      {consentDialog}
       {/* 1. Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20 shrink-0">
         <div className="flex items-center gap-2">
@@ -328,19 +440,21 @@ export function MailboxAIDrawer({
           </div>
           <div>
             <h3 className="text-sm font-semibold flex items-center gap-1.5">
-              <span>AI Copilot</span>
+              <span>{t("page.webmail.ai_copilot")}</span>
               {target?.is_custom ? (
                 <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                  BYOK 自定义
+                  {t("page.webmail.ai_custom_badge")}
                 </span>
               ) : target?.enabled ? (
                 <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-primary/10 text-primary border border-primary/20">
-                  企业托管
+                  {t("page.webmail.ai_managed_badge")}
                 </span>
               ) : null}
             </h3>
             <p className="text-[11px] text-muted-foreground truncate max-w-[200px]">
-              {target?.model ? `模型: ${target.model}` : "智能邮件生产力助手"}
+              {target?.model
+                ? t("page.webmail.ai_model_current", { model: target.model })
+                : t("page.webmail.ai_copilot_description")}
             </p>
           </div>
         </div>
@@ -351,6 +465,7 @@ export function MailboxAIDrawer({
             variant="ghost"
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground cursor-pointer"
             onClick={onClose}
+            aria-label={t("action.close")}
           >
             <X className="h-4 w-4" />
           </Button>
@@ -420,21 +535,25 @@ export function MailboxAIDrawer({
                       {detail.subject || t("page.webmail.no_subject")}
                     </p>
                     <span className="text-[10px] text-muted-foreground shrink-0 font-mono">
-                      {selectionText ? `${selectionText.length} 字符` : ""}
+                      {selectionText
+                        ? t("page.webmail.ai_characters", {
+                            count: selectionText.length,
+                          })
+                        : ""}
                     </span>
                   </div>
                   <p className="text-[11px] text-muted-foreground truncate">
-                    发件人:{" "}
+                    {t("page.webmail.from")}{" "}
                     {detail.from?.[0]?.name ||
                       detail.from?.[0]?.email ||
-                      "未知"}
+                      t("page.webmail.unknown_sender")}
                   </p>
                 </div>
 
                 {/* Quick Action Chips Grid */}
                 <div className="space-y-2">
                   <p className="text-[11px] font-medium text-muted-foreground">
-                    快捷指令 (Quick Actions):
+                    {t("page.webmail.ai_quick_actions")}
                   </p>
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
@@ -456,7 +575,7 @@ export function MailboxAIDrawer({
                       onClick={() =>
                         handleGenerate(
                           "summarize",
-                          "请提炼此邮件中的待办事项、需跟进工作、关键截止日期及对接人，以清晰清单呈现",
+                          t("page.webmail.ai_action_items_prompt"),
                         )
                       }
                     >
@@ -473,7 +592,7 @@ export function MailboxAIDrawer({
                       onClick={() =>
                         handleGenerate(
                           "draft_reply",
-                          "请以礼貌、严谨且富有成效的商务口吻生成回复草稿，感谢对方并就核心事宜给出明确响应",
+                          t("page.webmail.ai_reply_prompt"),
                         )
                       }
                     >
@@ -541,7 +660,7 @@ export function MailboxAIDrawer({
                 {generating && (
                   <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-center justify-center gap-2.5 text-primary text-xs font-medium">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>AI 正在深入分析并生成结果...</span>
+                    <span>{t("page.webmail.ai_generating")}</span>
                   </div>
                 )}
 
@@ -550,7 +669,7 @@ export function MailboxAIDrawer({
                   <div className="p-3 rounded-lg border border-destructive/40 bg-destructive/5 text-destructive text-xs space-y-1">
                     <div className="flex items-center gap-1.5 font-medium">
                       <AlertCircle className="h-4 w-4 shrink-0" />
-                      <span>生成失败</span>
+                      <span>{t("page.webmail.ai_generation_failed")}</span>
                     </div>
                     <p className="pl-5.5 text-[11px] leading-relaxed">
                       {genError}
@@ -564,11 +683,13 @@ export function MailboxAIDrawer({
                     <div className="flex items-center justify-between pb-2 border-b">
                       <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5 text-primary" />
-                        AI 建议结果
+                        {t("page.webmail.ai_result_title")}
                       </span>
                       {typeof result.score === "number" && (
                         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted">
-                          匹配度 {Math.round(result.score * 100)}%
+                          {t("page.webmail.ai_match_score", {
+                            score: Math.round(result.score * 100),
+                          })}
                         </span>
                       )}
                     </div>
@@ -590,14 +711,26 @@ export function MailboxAIDrawer({
                           <Button
                             type="button"
                             size="sm"
-                            disabled={applied}
+                            disabled={applied || applying}
                             className="h-7 text-xs gap-1 cursor-pointer"
-                            onClick={() => {
-                              onApplyAIProposal({
-                                subject: result.subject ?? detail.subject,
-                                body: resultDisplayText,
-                              });
-                              setApplied(true);
+                            onClick={async () => {
+                              const sourceRequest = abortControllerRef.current;
+                              setApplying(true);
+                              try {
+                                await onApplyAIProposal({
+                                  subject: result.subject ?? detail.subject,
+                                  body: resultDisplayText,
+                                });
+                                if (!sourceRequest?.signal.aborted)
+                                  setApplied(true);
+                              } catch {
+                                if (!sourceRequest?.signal.aborted)
+                                  setGenError(
+                                    t("page.webmail.compose_draft_failed"),
+                                  );
+                              } finally {
+                                setApplying(false);
+                              }
                             }}
                           >
                             <MailCheck className="h-3 w-3" />
@@ -617,7 +750,9 @@ export function MailboxAIDrawer({
                         ) : (
                           <Copy className="h-3 w-3" />
                         )}
-                        {copied ? "已复制" : t("page.webmail.ai_copy")}
+                        {copied
+                          ? t("page.webmail.copied")
+                          : t("page.webmail.ai_copy")}
                       </Button>
 
                       <Button
@@ -640,10 +775,10 @@ export function MailboxAIDrawer({
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-foreground">
-                    尚未选择邮件
+                    {t("page.webmail.ai_no_message")}
                   </p>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    在左侧列表中点击选择一封邮件，即可快速进行核心要点提炼、待办事项抽取与商务回复起草。
+                    {t("page.webmail.ai_select_message")}
                   </p>
                 </div>
               </div>
@@ -659,9 +794,15 @@ export function MailboxAIDrawer({
                 <Input
                   value={question}
                   disabled={asking}
-                  placeholder="提问邮箱内容，如：发票金额、会议安排..."
+                  placeholder={t("page.webmail.ai_question_placeholder")}
                   className="h-9 text-xs pr-8 bg-background"
-                  onChange={(e) => setQuestion(e.target.value)}
+                  onChange={(e) => {
+                    askControllerRef.current?.abort();
+                    cancelConsent();
+                    setAsking(false);
+                    setAskAnswer(null);
+                    setQuestion(e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && question.trim()) {
                       e.preventDefault();
@@ -705,12 +846,18 @@ export function MailboxAIDrawer({
             {/* Folder Scope Filter */}
             <div className="flex items-center gap-2">
               <label className="text-xs text-muted-foreground shrink-0">
-                范围:
+                {t("page.webmail.ai_scope_label")}
               </label>
               <select
                 className="h-7 text-xs rounded border bg-background px-2 flex-1"
                 value={askFolder}
-                onChange={(e) => setAskFolder(e.target.value)}
+                onChange={(e) => {
+                  askControllerRef.current?.abort();
+                  cancelConsent();
+                  setAsking(false);
+                  setAskAnswer(null);
+                  setAskFolder(e.target.value);
+                }}
               >
                 <option value="">{t("page.webmail.ai_all_folders")}</option>
                 {folders.map((f) => (
@@ -725,7 +872,7 @@ export function MailboxAIDrawer({
             {asking && (
               <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-center justify-center gap-2 text-primary text-xs font-medium">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>正在检索全邮箱并归纳回答...</span>
+                <span>{t("page.webmail.ai_searching")}</span>
               </div>
             )}
 
@@ -741,7 +888,7 @@ export function MailboxAIDrawer({
               <div className="p-3.5 rounded-xl border border-border/80 bg-card space-y-3 shadow-xs">
                 <p className="text-xs font-semibold text-foreground flex items-center gap-1.5 border-b pb-2">
                   <Bot className="h-3.5 w-3.5 text-primary" />
-                  智能回答
+                  {t("page.webmail.ai_answer_title")}
                 </p>
                 <p className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap break-words select-text">
                   {askAnswer.grounded
@@ -753,7 +900,9 @@ export function MailboxAIDrawer({
                 {askAnswer.citations.length > 0 && (
                   <div className="pt-2 border-t space-y-2">
                     <p className="text-[11px] font-semibold text-muted-foreground">
-                      引用邮件来源 ({askAnswer.citations.length} 处):
+                      {t("page.webmail.ai_citation_count", {
+                        count: askAnswer.citations.length,
+                      })}
                     </p>
                     <ul className="space-y-1.5">
                       {askAnswer.citations.map((cite, idx) => (
@@ -765,7 +914,9 @@ export function MailboxAIDrawer({
                           <div className="flex items-center justify-between text-[11px] text-primary font-medium">
                             <span className="flex items-center gap-1">
                               <ExternalLink className="h-3 w-3" />
-                              来源 {idx + 1}
+                              {t("page.webmail.ai_source_number", {
+                                number: idx + 1,
+                              })}
                             </span>
                             <ChevronRight className="h-3 w-3 text-muted-foreground" />
                           </div>
@@ -816,7 +967,7 @@ export function MailboxAIDrawer({
                 <div className="space-y-3 pt-2 border-t border-border/60">
                   <label className="block space-y-1">
                     <span className="text-muted-foreground">
-                      服务提供商 (Provider)
+                      {t("page.webmail.ai_provider_label")}
                     </span>
                     <select
                       className="h-8 w-full rounded border bg-background px-2 text-xs"
@@ -830,16 +981,18 @@ export function MailboxAIDrawer({
                       }
                     >
                       <option value="openai">
-                        OpenAI 兼容 (DeepSeek / OpenAI / 阿里百炼 / 硅基流动等)
+                        {t("page.webmail.ai_openai_compatible")}
                       </option>
-                      <option value="ollama">Ollama (本地私有部署)</option>
+                      <option value="ollama">
+                        {t("page.webmail.ai_ollama_local")}
+                      </option>
                       <option value="azure">Azure OpenAI</option>
                     </select>
                   </label>
 
                   <label className="block space-y-1">
                     <span className="text-muted-foreground">
-                      API 接口端点 (Endpoint)
+                      {t("page.webmail.ai_endpoint")}
                     </span>
                     <Input
                       type="url"
@@ -857,7 +1010,7 @@ export function MailboxAIDrawer({
 
                   <label className="block space-y-1">
                     <span className="text-muted-foreground">
-                      API 密钥 (API Key)
+                      {t("page.webmail.ai_api_key")}
                     </span>
                     <Input
                       type="password"
@@ -865,25 +1018,48 @@ export function MailboxAIDrawer({
                       className="h-8 text-xs font-mono"
                       placeholder="sk-..."
                       value={userAI.api_key ?? ""}
+                      aria-label={t("page.webmail.ai_api_key")}
                       onChange={(e) =>
                         setUserAI((prev) => ({
                           ...prev,
                           api_key: e.target.value,
+                          clear_api_key: false,
                         }))
                       }
                     />
                   </label>
-
+                  {userAI.key_configured && (
+                    <p className="text-xs text-muted-foreground">
+                      {t("page.webmail.ai_key_saved")}
+                    </p>
+                  )}
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={userAI.clear_api_key ?? false}
+                      onChange={(e) =>
+                        setUserAI((prev) => ({
+                          ...prev,
+                          api_key: "",
+                          clear_api_key: e.target.checked,
+                          use_custom: e.target.checked
+                            ? false
+                            : prev.use_custom,
+                        }))
+                      }
+                    />
+                    {t("page.webmail.ai_clear_key")}
+                  </label>
                   <div className="space-y-1.5">
                     <div className="flex items-end gap-1.5">
                       <label className="flex-1 space-y-1">
                         <span className="text-muted-foreground">
-                          模型名称 (Model)
+                          {t("page.webmail.ai_model_label")}
                         </span>
                         <Input
                           list="drawer-ai-models-list"
                           className="h-8 text-xs font-mono"
-                          placeholder="例如 deepseek-chat 或 gpt-4o"
+                          placeholder={t("page.webmail.ai_model_placeholder")}
                           value={userAI.model ?? ""}
                           onChange={(e) =>
                             setUserAI((prev) => ({
@@ -908,7 +1084,7 @@ export function MailboxAIDrawer({
                       >
                         <Sparkles className="h-3 w-3" />
                         {fetchingModels
-                          ? "拉取中..."
+                          ? t("state.loading")
                           : t("page.webmail.ai_test_fetch")}
                       </Button>
                     </div>
@@ -916,7 +1092,7 @@ export function MailboxAIDrawer({
                     {availableModels.length > 0 && (
                       <div className="pt-1">
                         <span className="text-[11px] text-muted-foreground">
-                          快捷选用:
+                          {t("page.webmail.ai_model_presets")}
                         </span>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {availableModels.slice(0, 6).map((m) => (
@@ -938,7 +1114,7 @@ export function MailboxAIDrawer({
                 </div>
               ) : (
                 <div className="p-2.5 rounded-lg bg-muted/20 border border-border/50 text-[11px] text-muted-foreground leading-relaxed">
-                  当前处于企业全局模式。由企业管理员统一配置的大模型服务承载分析与问答。
+                  {t("page.webmail.ai_managed_notice")}
                 </div>
               )}
 
@@ -962,7 +1138,7 @@ export function MailboxAIDrawer({
                   className="h-7 text-xs cursor-pointer"
                   onClick={handleSaveSettings}
                 >
-                  {savingSettings ? "保存中..." : t("action.save")}
+                  {savingSettings ? t("state.loading") : t("action.save")}
                 </Button>
               </div>
             </div>

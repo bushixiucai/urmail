@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,8 @@ import { sanitizeHtmlMail } from "./sanitize-html-mail";
  * allow-scripts and WITHOUT allow-same-origin, fed via srcDoc of the
  * server-sanitized HTML.
  *
- * Height adaptively conforms to content height (minimum 400px, no rigid upper bound)
- * when expanded to eliminate nested iframe scrollbars and allow smooth outer scrolling.
- * An expand toggle allows collapsing down to a bounded preview (420px).
+ * The opaque sandbox retains its own vertical scrolling. Expanding increases
+ * the reading viewport without granting same-origin access or executing scripts.
  * A privacy bar exposes the "load images" action while remote images are blocked.
  */
 export function MessageHTMLFrame({
@@ -31,70 +30,7 @@ export function MessageHTMLFrame({
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const [contentHeight, setContentHeight] = useState<number | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
-  const updateHeight = useCallback(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    try {
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (doc) {
-        const body = doc.body;
-        const docEl = doc.documentElement;
-        const scrollH = Math.max(
-          body?.scrollHeight ?? 0,
-          body?.offsetHeight ?? 0,
-          docEl?.scrollHeight ?? 0,
-          docEl?.offsetHeight ?? 0,
-        );
-        if (scrollH > 0) {
-          // Provide buffer (+16px) to eliminate subpixel rounding scrollbars
-          setContentHeight(Math.max(400, Math.ceil(scrollH) + 16));
-        }
-      }
-    } catch {
-      // In sandboxed frames without allow-same-origin, contentDocument access
-      // may throw or be null depending on browser security policies.
-    }
-  }, []);
-
-  // Reset the expanded and measured state when switching messages.
-  useEffect(() => {
-    setExpanded(false);
-    setContentHeight(null);
-  }, [html]);
-
-  // Update height and attach ResizeObserver when contentDocument is accessible
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    let ro: ResizeObserver | null = null;
-    try {
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      const target = doc?.body || doc?.documentElement;
-      if (target && typeof ResizeObserver !== "undefined") {
-        ro = new ResizeObserver(() => {
-          updateHeight();
-        });
-        ro.observe(target);
-      }
-    } catch {
-      // Sandboxed access restricted
-    }
-
-    return () => {
-      if (ro) ro.disconnect();
-    };
-  }, [html, loadImages, inlineImages, updateHeight]);
-
-  // Re-measure height upon expand toggle
-  useEffect(() => {
-    if (expanded) {
-      updateHeight();
-    }
-  }, [expanded, updateHeight]);
+  useEffect(() => setExpanded(false), [html]);
 
   const hasBlockedImages = notes.includes("remote_images_blocked");
   const truncated = notes.includes("html_truncated");
@@ -130,22 +66,15 @@ export function MessageHTMLFrame({
         </div>
       )}
       <iframe
-        ref={iframeRef}
         title={t("page.webmail.message_body")}
         // No allow-scripts, no allow-same-origin: the mail document cannot
         // run script or touch app storage/tokens even if sanitizer layers
         // were ever bypassed.
         sandbox=""
         referrerPolicy="no-referrer"
-        onLoad={updateHeight}
         className={
           "w-full rounded border bg-background transition-[height] duration-200 " +
-          (expanded ? "h-[80vh]" : "h-[420px]")
-        }
-        style={
-          expanded && contentHeight
-            ? { height: `${contentHeight}px` }
-            : undefined
+          (expanded ? "h-[80dvh]" : "h-[420px] max-h-[65dvh]")
         }
         srcDoc={sanitizeHtmlMail(html, {
           allowRemoteImages: loadImages,

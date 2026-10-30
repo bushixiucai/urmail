@@ -14,6 +14,8 @@ export default defineConfig({
     },
   },
   server: {
+    // Acceptance pages must not reload midway when concurrent work updates source.
+    hmr: process.env.URMAIL_E2E_NATIVE_FIXTURE === "1" ? false : undefined,
     port: 5173,
     proxy: {
       "/admin": {

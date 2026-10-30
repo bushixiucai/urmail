@@ -155,12 +155,12 @@ describe("MailboxMessageRow", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("displays paperclip icon when message size exceeds 50KB", () => {
+  it("does not infer an attachment from a large message body", () => {
     renderRow({
-      message: createMessage({ size: 65 * 1024 }),
+      message: createMessage({ size: 65 * 1024, has_attachments: false }),
     });
 
-    expect(screen.getByTestId("attachment-icon")).toBeTruthy();
+    expect(screen.queryByTestId("attachment-icon")).toBeNull();
   });
 
   it("displays paperclip icon when has_attachments flag is present", () => {

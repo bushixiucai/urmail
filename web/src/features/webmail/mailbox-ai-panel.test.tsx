@@ -17,8 +17,13 @@ vi.mock("./mailbox-api", async (original) => ({
   fetchMailboxAIContext: vi.fn(),
   fetchMailboxAIBudget: vi.fn(),
   runMailboxAI: vi.fn(),
+  previewMailboxAI: vi.fn(),
 }));
 beforeEach(() => {
+  vi.mocked(api.previewMailboxAI).mockResolvedValue({
+    content_digest: "preview-hash",
+    messages: [{ role: "user", content: "Original" }],
+  });
   vi.mocked(api.fetchMailboxAITarget).mockResolvedValue({
     enabled: true,
     allowed: true,
@@ -79,6 +84,13 @@ async function start() {
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.ai_generate" }),
   );
+  expect(api.runMailboxAI).not.toHaveBeenCalled();
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "page.webmail.ai_confirm_execute",
+    }),
+  );
+  await waitFor(() => expect(api.runMailboxAI).toHaveBeenCalled());
 }
 
 describe("native mailbox AI review boundaries", () => {

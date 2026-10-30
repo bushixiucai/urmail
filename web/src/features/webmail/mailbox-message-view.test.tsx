@@ -36,27 +36,19 @@ describe("MessageHTMLFrame", () => {
     const frame = screen.getByTitle("page.webmail.message_body");
     expect(frame.className).toContain("h-[420px]");
     fireEvent.click(screen.getByText("page.webmail.expand_body"));
-    expect(frame.className).toContain("h-[80vh]");
+    expect(frame.className).toContain("h-[80dvh]");
     expect(screen.getByText("page.webmail.collapse_body")).toBeTruthy();
   });
 
-  it("adapts height based on content scrollHeight when expanded with minimum 400px", () => {
+  it("keeps an opaque scrollable viewport when expanded", () => {
     renderFrame();
     const frame = screen.getByTitle(
       "page.webmail.message_body",
     ) as HTMLIFrameElement;
-    if (frame.contentDocument?.body) {
-      Object.defineProperty(frame.contentDocument.body, "scrollHeight", {
-        configurable: true,
-        value: 150,
-      });
-      fireEvent.load(frame);
-    }
     fireEvent.click(screen.getByText("page.webmail.expand_body"));
-    if (frame.contentDocument?.body) {
-      // 150 + 16 < 400 -> enforces minimum 400px
-      expect(frame.style.height).toBe("400px");
-    }
+    expect(frame.getAttribute("sandbox")).toBe("");
+    expect(frame.style.height).toBe("");
+    expect(frame.className).toContain("h-[80dvh]");
   });
 
   it("shows the blocked-image bar and re-requests on load images", () => {

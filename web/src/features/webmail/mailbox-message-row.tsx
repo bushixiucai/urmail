@@ -40,12 +40,7 @@ export const MailboxMessageRow = React.memo(function MailboxMessageRow({
   const unread = !hasFlag(message.flags, "\\Seen");
   const flagged = hasFlag(message.flags, "\\Flagged");
 
-  const hasAttachment = Boolean(
-    (typeof message.size === "number" && message.size > 50 * 1024) ||
-    (typeof message.size === "number" && message.size > 50_000) ||
-    (message as { has_attachments?: boolean }).has_attachments ||
-    ((message as { attachments?: unknown[] }).attachments?.length ?? 0) > 0,
-  );
+  const hasAttachment = message.has_attachments === true;
 
   const senderName =
     formatFrom(message.from) || t("page.webmail.unknown_sender");

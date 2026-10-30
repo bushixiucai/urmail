@@ -1,4 +1,12 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
+import { useDraftPersistence } from "./use-draft-persistence";
 import { useTranslation } from "react-i18next";
 import { Maximize2, Minimize2, Minus, X } from "lucide-react";
 import { MailboxAIPanel } from "./mailbox-ai-panel";
@@ -26,6 +34,9 @@ import {
   scheduleSend,
   ScheduleSendRequest,
   sendMessage,
+  getSendReceiptByRequestKey,
+  getSendReceiptForDraft,
+  type SendReceipt,
 } from "./mailbox-api";
 
 export type ComposeMode = "new" | "reply" | "reply-all" | "forward" | "draft";
@@ -40,6 +51,7 @@ export interface ComposeDraft {
   /** IMAP UID when editing a saved draft (replace on next save). */
   uid?: number;
   uidValidity?: number;
+  folderEnc?: string;
   to?: string;
   cc?: string;
   bcc?: string;
@@ -49,7 +61,13 @@ export interface ComposeDraft {
   attachments?: OutgoingAttachment[];
 }
 
+export interface ComposeControllerHandle {
+  flush: () => Promise<boolean>;
+}
+
 interface MailboxComposeDialogProps {
+  ref?: Ref<ComposeControllerHandle>;
+  inline?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   draft: ComposeDraft;
@@ -174,6 +192,7 @@ export function composeFromSavedDraft(
     inReplyTo: msg.in_reply_to,
     uid: msg.uid,
     uidValidity: msg.uid_validity,
+    folderEnc: msg.folder_enc,
     to: formatAddrList(msg.to),
     cc: formatAddrList(msg.cc),
     bcc: formatAddrList(msg.bcc),
@@ -210,7 +229,50 @@ export function chooseMailboxIdentity(
   return fallback;
 }
 
-function RecipientChipField({
+function plainToHTML(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+}
+
+/** Remove known quoted/signature text while retaining surrounding formatting. */
+function removeHTMLText(value: string, text: string, trailing = false) {
+  if (!value || !text.trim()) return value;
+  const template = document.createElement("template");
+  template.innerHTML = value;
+  const positions: { node: Text; offset: number }[] = [];
+  let compact = "";
+  const walker = document.createTreeWalker(
+    template.content,
+    NodeFilter.SHOW_TEXT,
+  );
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    for (let offset = 0; offset < node.data.length; offset++)
+      if (!/\s/.test(node.data[offset])) {
+        compact += node.data[offset];
+        positions.push({ node, offset });
+      }
+  }
+  const target = text.replace(/\s/g, "");
+  const index = trailing
+    ? compact.endsWith(target)
+      ? compact.length - target.length
+      : -1
+    : compact.indexOf(target);
+  if (index < 0 || !target) return value;
+  const first = positions[index],
+    last = positions[index + target.length - 1];
+  const range = document.createRange();
+  range.setStart(first.node, first.offset);
+  range.setEnd(last.node, last.offset + 1);
+  range.deleteContents();
+  return template.innerHTML;
+}
+
+function RecipientField({
   id,
   label,
   value,
@@ -227,47 +289,6 @@ function RecipientChipField({
   placeholder?: string;
   rightAction?: React.ReactNode;
 }) {
-  const [typed, setTyped] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const chips = splitAddrs(value);
-
-  const addChip = (raw: string) => {
-    const parts = splitAddrs(raw);
-    if (!parts.length) return;
-    const existing = new Set(chips.map((c) => c.toLowerCase()));
-    const toAdd = parts.filter((p) => !existing.has(p.toLowerCase()));
-    if (toAdd.length) {
-      const next = [...chips, ...toAdd].join(", ");
-      onChange(next);
-    }
-    setTyped("");
-  };
-
-  const removeChip = (index: number) => {
-    const next = chips.filter((_, i) => i !== index).join(", ");
-    onChange(next);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === "," || e.key === "Tab") {
-      if (typed.trim()) {
-        e.preventDefault();
-        addChip(typed);
-      }
-    } else if (e.key === "Backspace" && !typed && chips.length > 0) {
-      e.preventDefault();
-      removeChip(chips.length - 1);
-    }
-  };
-
-  const handleTypedChange = (val: string) => {
-    if (val.includes(",") || val.includes(";") || val.includes("\n")) {
-      addChip(val);
-    } else {
-      setTyped(val);
-    }
-  };
-
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
@@ -279,69 +300,43 @@ function RecipientChipField({
         </label>
         {rightAction}
       </div>
-      <div
-        className="flex flex-wrap items-center gap-1.5 min-h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs sm:text-sm shadow-xs focus-within:ring-1 focus-within:ring-ring cursor-text"
-        onClick={() => inputRef.current?.focus()}
-      >
-        {chips.map((email, idx) => (
-          <span
-            key={`${email}-${idx}`}
-            className="inline-flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 rounded px-1.5 py-0.5 text-xs font-medium max-w-full"
-          >
-            <span className="truncate max-w-[180px]">{email}</span>
-            {!disabled && (
-              <button
-                type="button"
-                className="hover:bg-primary/20 rounded-full p-0.5 transition-colors cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeChip(idx);
-                }}
-                aria-label={`Remove ${email}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </span>
-        ))}
-        <input
-          ref={inputRef}
-          type="text"
-          value={typed}
-          disabled={disabled}
-          placeholder={chips.length === 0 ? placeholder : ""}
-          onChange={(e) => handleTypedChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onBlur={() => {
-            if (typed.trim()) addChip(typed);
-          }}
-          className="flex-1 min-w-[120px] bg-transparent outline-none placeholder:text-muted-foreground text-xs sm:text-sm"
-        />
-        {/* Hidden accessible input that retains label association, value, and fireEvent.change for test & a11y */}
-        <input
-          id={id}
-          value={value}
-          onChange={(e) => {
-            onChange(e.target.value);
-          }}
-          disabled={disabled}
-          className="sr-only"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
-      </div>
+      <Input
+        id={id}
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        autoComplete="off"
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 text-xs sm:text-sm"
+      />
     </div>
   );
 }
 
-export function MailboxComposeDialog({
+let nextComposeIdentity = 0;
+const composeIdentities = new WeakMap<ComposeDraft, number>();
+export function MailboxComposeDialog(props: MailboxComposeDialogProps) {
+  if (!props.open) return null;
+  let identity = composeIdentities.get(props.draft);
+  if (identity === undefined) {
+    identity = ++nextComposeIdentity;
+    composeIdentities.set(props.draft, identity);
+  }
+  return <MailboxComposeEditor key={identity} {...props} />;
+}
+
+function MailboxComposeEditor({
   open,
   onOpenChange,
   draft,
   onSent,
   onDraftSaved,
+  ref,
+  inline = false,
 }: MailboxComposeDialogProps) {
   const { t } = useTranslation();
+  const translation = useRef(t);
+  translation.current = t;
   const [windowState, setWindowState] = useState<
     "normal" | "minimized" | "maximized"
   >("normal");
@@ -349,7 +344,7 @@ export function MailboxComposeDialog({
   const [showCc, setShowCc] = useState(Boolean(draft.cc));
   const [showBcc, setShowBcc] = useState(Boolean(draft.bcc));
 
-  const [from, setFrom] = useState("");
+  const [from, setFrom] = useState(draft.from ?? getMailboxAddress() ?? "");
   const [quoteOriginal, setQuoteOriginal] = useState(true);
   const [identityChoices, setIdentityChoices] = useState<MailboxIdentity[]>([]);
   const [identitySettings, setIdentitySettings] =
@@ -359,35 +354,63 @@ export function MailboxComposeDialog({
   const recipientRevision = useRef(0);
   const insertedSignature = useRef({ text: "", html: "" });
   const automaticHTMLSignature = useRef("");
-  const [to, setTo] = useState("");
-  const [cc, setCc] = useState("");
-  const [bcc, setBcc] = useState("");
-  const [html, setHtml] = useState("");
-  const [subject, setSubject] = useState("");
-  const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<OutgoingAttachment[]>([]);
-  const [draftUid, setDraftUid] = useState<number | undefined>();
-  const [draftUidValidity, setDraftUidValidity] = useState<
-    number | undefined
-  >();
+  const [to, setTo] = useState(draft.to ?? "");
+  const [cc, setCc] = useState(draft.cc ?? "");
+  const [bcc, setBcc] = useState(draft.bcc ?? "");
+  const [html, setHtml] = useState(draft.html ?? "");
+  const [subject, setSubject] = useState(draft.subject ?? "");
+  const [text, setText] = useState(draft.text ?? "");
+  const [attachments, setAttachments] = useState<OutgoingAttachment[]>(
+    draft.attachments ?? [],
+  );
   const [draftUncertain, setDraftUncertain] = useState(false);
   const [sendUncertain, setSendUncertain] = useState(false);
   const [sentCopyPending, setSentCopyPending] = useState(false);
   const [cleanupPending, setCleanupPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const [preparingSubmission, setPreparingSubmission] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  const readingAttachmentRef = useRef(false);
+  const [sendReceipt, setSendReceipt] = useState<SendReceipt | null>(null);
+  const [newSendConfirmed, setNewSendConfirmed] = useState(false);
+  const [receiptLoaded, setReceiptLoaded] = useState(
+    !(draft.uid && draft.uidValidity && draft.folderEnc),
+  );
+  const [receiptLookupRevision, setReceiptLookupRevision] = useState(0);
+  const sendAttempt = useRef<{
+    key: string;
+    body: Parameters<typeof sendMessage>[0];
+  } | null>(null);
   const [savedHint, setSavedHint] = useState(false);
+  const hasSavedDraft = useRef(Boolean(draft.uid));
   const [sendLaterAt, setSendLaterAt] = useState("");
   const [scheduledHint, setScheduledHint] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    containerRef.current
+      ?.querySelector<HTMLInputElement>("#compose-to")
+      ?.focus();
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
   const scheduleAttempt = useRef<{
     key: string;
     body: ScheduleSendRequest;
   } | null>(null);
   const [scheduleUncertain, setScheduleUncertain] = useState(false);
   const editingLocked =
-    busy || scheduleUncertain || draftUncertain || sendUncertain;
+    busy ||
+    scheduleUncertain ||
+    draftUncertain ||
+    sendUncertain ||
+    sentCopyPending ||
+    sendReceipt?.status === "accepted";
 
   useEffect(() => {
     if (!open) return;
@@ -399,10 +422,11 @@ export function MailboxComposeDialog({
     setSubject(draft.subject ?? "");
     setText(draft.text ?? "");
     setAttachments(draft.attachments ?? []);
-    setDraftUid(draft.uid);
-    setDraftUidValidity(draft.uidValidity);
     setDraftUncertain(false);
     setSendUncertain(false);
+    setSentCopyPending(false);
+    setSendReceipt(null);
+    sendAttempt.current = null;
     setCleanupPending(false);
     setError(null);
     setSavedHint(false);
@@ -415,13 +439,6 @@ export function MailboxComposeDialog({
     setShowCc(Boolean(draft.cc));
     setShowBcc(Boolean(draft.bcc));
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (editorRef.current) {
-      if (draft.html) {
-        editorRef.current.innerHTML = draft.html;
-      } else {
-        editorRef.current.innerText = draft.text ?? "";
-      }
-    }
   }, [open, draft]);
 
   useEffect(() => {
@@ -455,9 +472,7 @@ export function MailboxComposeDialog({
           if (!include) {
             setText((value) => {
               const updated = value.replace(draft.quoteText!, "");
-              if (editorRef.current && !isSourceMode) {
-                editorRef.current.innerText = updated;
-              }
+
               return updated;
             });
           }
@@ -507,17 +522,16 @@ export function MailboxComposeDialog({
             : "";
           setText((value) => value + textPart);
           automaticHTMLSignature.current = htmlPart;
-          if (draft.html && htmlPart) {
-            setHtml((value) => value + htmlPart);
+          if (htmlPart) {
+            const original =
+              settings.preferences.quote_original === false && draft.quoteText
+                ? (draft.text ?? "").replace(draft.quoteText, "")
+                : (draft.text ?? "");
+            setHtml((value) => (value || plainToHTML(original)) + htmlPart);
+          } else if (draft.html && textPart) {
+            setHtml((value) => value + plainToHTML(textPart));
           }
           insertedSignature.current = { text: textPart, html: htmlPart };
-          if (editorRef.current) {
-            if (draft.html && htmlPart) {
-              editorRef.current.innerHTML = (draft.html || "") + htmlPart;
-            } else if (textPart) {
-              editorRef.current.innerText = (draft.text || "") + textPart;
-            }
-          }
         }
       })
       .catch(() => {
@@ -526,13 +540,13 @@ export function MailboxComposeDialog({
           setIdentityChoices(
             primary ? [{ address: primary, primary: true }] : [],
           );
-          setError(t("page.webmail.settings_load_failed"));
+          setError(translation.current("page.webmail.settings_load_failed"));
         }
       });
     return () => {
       active = false;
     };
-  }, [open, draft, t, isSourceMode]);
+  }, [open, draft]);
 
   const identityInvalid =
     identitiesLoaded &&
@@ -556,37 +570,38 @@ export function MailboxComposeDialog({
       (value) => (old.text ? value.replace(old.text, "") : value) + nextText,
     );
     automaticHTMLSignature.current = nextHtml;
-    setHtml((value) =>
-      value
-        ? (old.html ? value.replace(old.html, "") : value) + nextHtml
-        : value,
-    );
+    setHtml((value) => {
+      if (!value)
+        return nextHtml
+          ? plainToHTML(old.text ? text.replace(old.text, "") : text) + nextHtml
+          : value;
+      const withoutOld =
+        old.html && value.includes(old.html)
+          ? value.replace(old.html, "")
+          : removeHTMLText(value, old.text, true);
+      return withoutOld + (nextHtml || plainToHTML(nextText));
+    });
     insertedSignature.current = { text: nextText, html: nextHtml };
-    if (editorRef.current) {
-      if (nextHtml) {
-        editorRef.current.innerHTML =
-          (html ? (old.html ? html.replace(old.html, "") : html) : "") +
-          nextHtml;
-      } else if (nextText) {
-        editorRef.current.innerText =
-          (old.text ? text.replace(old.text, "") : text) + nextText;
-      }
-    }
   };
 
   const toggleQuote = (include: boolean) => {
     bodyRevision.current++;
     setQuoteOriginal(include);
     if (!draft.quoteText) return;
+    setHtml((value) =>
+      !value
+        ? value
+        : include
+          ? value + plainToHTML(draft.quoteText!)
+          : removeHTMLText(value, draft.quoteText!),
+    );
     setText((value) => {
       const updated = include
         ? value.includes(draft.quoteText!)
           ? value
           : value + draft.quoteText!
         : value.replace(draft.quoteText!, "");
-      if (editorRef.current && !isSourceMode) {
-        editorRef.current.innerText = updated;
-      }
+
       return updated;
     });
   };
@@ -601,8 +616,10 @@ export function MailboxComposeDialog({
           : "page.webmail.compose_new";
 
   const onPickFiles = async (files: FileList | null) => {
-    if (!files?.length) return;
+    if (!files?.length || readingAttachmentRef.current) return;
+    readingAttachmentRef.current = true;
     setError(null);
+    setReadingAttachments(true);
     const next = [...attachments];
     for (const file of Array.from(files)) {
       if (next.length >= MAX_SEND_ATTACHMENTS) {
@@ -641,6 +658,8 @@ export function MailboxComposeDialog({
       }
     }
     setAttachments(next);
+    setReadingAttachments(false);
+    readingAttachmentRef.current = false;
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -662,133 +681,317 @@ export function MailboxComposeDialog({
     );
   };
 
-  const toggleSourceMode = () => {
-    if (isSourceMode) {
-      if (editorRef.current) {
-        editorRef.current.innerHTML = html;
-        setText(
-          editorRef.current.innerText || editorRef.current.textContent || "",
-        );
-      }
-      setIsSourceMode(false);
-    } else {
-      if (editorRef.current) {
-        setHtml(editorRef.current.innerHTML);
-      }
-      setIsSourceMode(true);
-    }
-  };
+  const toggleSourceMode = () => setIsSourceMode((value) => !value);
 
+  const outgoing = {
+    from,
+    in_reply_to: draft.inReplyTo,
+    reply_source: draft.aiSource,
+    to: splitAddrs(to),
+    cc: splitAddrs(cc),
+    bcc: splitAddrs(bcc),
+    html: outgoingHTML(text, html),
+    subject,
+    text,
+    attachments: attachments.length ? attachments : undefined,
+  };
+  const initialOutgoing = useRef(outgoing);
+  const hasContent = Boolean(
+    to.trim() ||
+    cc.trim() ||
+    bcc.trim() ||
+    subject.trim() ||
+    text.trim() ||
+    html.trim() ||
+    attachments.length,
+  );
+  const persistence = useDraftPersistence({
+    enabled:
+      open &&
+      identitiesLoaded &&
+      receiptLoaded &&
+      (hasContent || hasSavedDraft.current) &&
+      !identityInvalid,
+    value: outgoing,
+    initialValue: initialOutgoing.current,
+    initialResult:
+      draft.uid && draft.uidValidity
+        ? ({
+            uid: draft.uid,
+            uid_validity: draft.uidValidity,
+            name_enc: draft.folderEnc ?? "",
+            folder: "Drafts",
+            saved: true,
+          } as Awaited<ReturnType<typeof saveDraft>>)
+        : undefined,
+    blocked: Boolean(editingLocked || composing || readingAttachments),
+    save: async (value, previous, key) => {
+      const result = await saveDraft(
+        { ...value, uid: previous?.uid, uid_validity: previous?.uid_validity },
+        key,
+      );
+      if (!result.uid || !result.uid_validity)
+        throw new Error("DRAFT_REFERENCE_MISSING");
+      setCleanupPending(Boolean(result.cleanup_pending));
+      if (result.cleanup_pending)
+        throw new ApiRequestError(409, {
+          error: {
+            code: "DRAFT_SAVE_UNCERTAIN",
+            message: "error.DRAFT_SAVE_UNCERTAIN",
+          },
+        });
+      hasSavedDraft.current = true;
+      onDraftSaved?.(result.uid);
+      setError(null);
+      setSavedHint(true);
+      return result;
+    },
+    remove: (previous) => deleteDraft(previous.uid!, previous.uid_validity!),
+    uncertain: (cause) =>
+      !(cause instanceof ApiRequestError) ||
+      cause.code === "DRAFT_SAVE_UNCERTAIN" ||
+      cause.status >= 500,
+    onError: (cause) =>
+      setError(
+        cause instanceof ApiRequestError
+          ? t(`error.${cause.code}`, {
+              defaultValue: t("page.webmail.compose_draft_failed"),
+            })
+          : t("error.DRAFT_SAVE_UNCERTAIN"),
+      ),
+  });
   const onSaveDraft = async (proposal?: {
     subject: string;
     text: string;
     html: string;
   }) => {
-    if (editingLocked || identityInvalid || !identitiesLoaded) return;
+    if (proposal) {
+      // Save the adopted revision immediately, through the same serialized writer.
+      setSubject(proposal.subject);
+      setText(proposal.text);
+      setHtml(proposal.html);
+      return persistence.flushValue({
+        ...outgoing,
+        ...proposal,
+        html: outgoingHTML(proposal.text, proposal.html),
+      });
+    }
     setError(null);
-    setSavedHint(false);
+    if (!hasContent && !hasSavedDraft.current) return true;
+    return persistence.flush();
+  };
+  useImperativeHandle(ref, () => ({
+    flush: async () => {
+      if (!open || (!hasContent && !hasSavedDraft.current)) return true;
+      if (!receiptLoaded) return false;
+      if (submitting.current) return false;
+      if (sendReceipt && sendReceipt.status !== "rejected") return true;
+      return Boolean(await persistence.flush());
+    },
+  }));
+
+  const applyReceipt = (receipt: SendReceipt) => {
+    setSendReceipt(receipt);
+    if (receipt.status === "accepted") {
+      setSendUncertain(false);
+      setSentCopyPending(receipt.sent_copy_state !== "complete");
+      if (receipt.sent_copy_state === "complete") onOpenChange(false);
+      onSent();
+    } else if (receipt.status === "rejected") {
+      setSendUncertain(false);
+      sendAttempt.current = null;
+      setError(t("page.webmail.compose_failed"));
+    } else {
+      setSendUncertain(true);
+      setError(t("error.MAILBOX_SEND_UNCERTAIN"));
+    }
+  };
+  useEffect(() => {
+    if (!draft.uid || !draft.uidValidity || !draft.folderEnc) return;
+    const controller = new AbortController();
+    setReceiptLoaded(false);
+    const source = {
+      folder_enc: draft.folderEnc,
+      uid: draft.uid,
+      uid_validity: draft.uidValidity,
+    };
+    void getSendReceiptForDraft(source, controller.signal)
+      .then((receipt) => {
+        if (controller.signal.aborted) return;
+        if (receipt && receipt.status !== "rejected") {
+          setSendReceipt(receipt);
+          setSentCopyPending(
+            receipt.status === "accepted" &&
+              receipt.sent_copy_state !== "complete",
+          );
+          setSendUncertain(receipt.status !== "accepted");
+          sendAttempt.current = {
+            key: receipt.request_key,
+            body: {
+              from: draft.from,
+              to: splitAddrs(draft.to ?? ""),
+              cc: splitAddrs(draft.cc ?? ""),
+              bcc: splitAddrs(draft.bcc ?? ""),
+              subject: draft.subject ?? "",
+              text: draft.text ?? "",
+              html: draft.html,
+              in_reply_to: draft.inReplyTo,
+              attachments: draft.attachments,
+              draft_source: source,
+            },
+          };
+        }
+        setReceiptLoaded(true);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setError(
+            translation.current("page.webmail.compose_receipt_load_failed"),
+          );
+      });
+    return () => controller.abort();
+  }, [draft, receiptLookupRevision]);
+  const reconcileSend = async () => {
+    if (!sendAttempt.current || busy) return;
     setBusy(true);
     try {
-      const res = await saveDraft({
-        from,
-        in_reply_to: draft.inReplyTo,
-        reply_source: draft.aiSource,
-        uid: draftUid,
-        uid_validity: draftUidValidity,
-        to: splitAddrs(to),
-        cc: splitAddrs(cc),
-        bcc: splitAddrs(bcc),
-        html: outgoingHTML(proposal?.text ?? text, proposal?.html ?? html),
-        subject: proposal?.subject ?? subject,
-        text: proposal?.text ?? text,
-        attachments: attachments.length ? attachments : undefined,
-      });
-      if (!res.uid || !res.uid_validity)
-        throw new Error("DRAFT_REFERENCE_MISSING");
-      if (res.uid) {
-        setDraftUid(res.uid);
-        setDraftUidValidity(res.uid_validity);
-        setCleanupPending(Boolean(res.cleanup_pending));
-        onDraftSaved?.(res.uid);
-      }
-      setSavedHint(true);
-      return true;
-    } catch (err: unknown) {
-      if (err instanceof ApiRequestError) {
-        if (err.code === "DRAFT_SAVE_UNCERTAIN") setDraftUncertain(true);
-        if (err.code === "MAILBOX_SEND_UNCERTAIN") setSendUncertain(true);
-        setError(
-          t(`error.${err.code}`, {
-            defaultValue: t("page.webmail.compose_draft_failed"),
-          }),
-        );
-      } else {
-        setDraftUncertain(true);
-        setError(t("error.DRAFT_SAVE_UNCERTAIN"));
-      }
+      const receipt = await getSendReceiptByRequestKey(sendAttempt.current.key);
+      if (receipt) applyReceipt(receipt);
+      else setError(t("error.MAILBOX_SEND_UNCERTAIN"));
+    } catch {
+      setError(t("error.MAILBOX_SEND_UNCERTAIN"));
     } finally {
       setBusy(false);
     }
   };
-
+  const startNewSend = async () => {
+    if (
+      !identitiesLoaded ||
+      identityInvalid ||
+      !receiptLoaded ||
+      !newSendConfirmed ||
+      sendReceipt?.status !== "uncertain" ||
+      !sendAttempt.current ||
+      submitting.current
+    )
+      return;
+    submitting.current = true;
+    setBusy(true);
+    setNewSendConfirmed(false);
+    const attempt = {
+      key: crypto.randomUUID(),
+      body: {
+        ...sendAttempt.current.body,
+        acknowledged_uncertain_receipt_id: sendReceipt.id,
+      },
+    };
+    sendAttempt.current = attempt;
+    try {
+      const result = await sendMessage(attempt.body, attempt.key);
+      if (result.receipt) applyReceipt(result.receipt);
+      else {
+        setSendUncertain(true);
+        setError(t("error.MAILBOX_SEND_UNCERTAIN"));
+      }
+    } catch {
+      setSendUncertain(true);
+      setError(t("error.MAILBOX_SEND_UNCERTAIN"));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (editingLocked || identityInvalid || !identitiesLoaded) return;
-    setError(null);
-    const recipients = splitAddrs(to);
     if (
-      recipients.length + splitAddrs(cc).length + splitAddrs(bcc).length ===
+      editingLocked ||
+      identityInvalid ||
+      !identitiesLoaded ||
+      composing ||
+      readingAttachments ||
+      persistence.status === "save_uncertain"
+    )
+      return;
+    setError(null);
+    if (
+      splitAddrs(to).length + splitAddrs(cc).length + splitAddrs(bcc).length ===
       0
     ) {
       setError(t("page.webmail.compose_need_to"));
       return;
     }
+    if (submitting.current) return;
+    submitting.current = true;
+    setPreparingSubmission(true);
+    if (!(await persistence.flush())) {
+      submitting.current = false;
+      setPreparingSubmission(false);
+      return;
+    }
+    const saved = persistence.currentResult();
+    if (!saved?.uid || !saved.uid_validity || !saved.name_enc) {
+      setError(t("page.webmail.compose_draft_failed"));
+      submitting.current = false;
+      setPreparingSubmission(false);
+      return;
+    }
+    const attempt = {
+      key: crypto.randomUUID(),
+      body: {
+        ...persistence.persistedValue(),
+        draft_source: {
+          folder_enc: saved.name_enc,
+          uid: saved.uid,
+          uid_validity: saved.uid_validity,
+        },
+        ...(sendReceipt?.status === "uncertain" && newSendConfirmed
+          ? { acknowledged_uncertain_receipt_id: sendReceipt.id }
+          : {}),
+      },
+    };
+    sendAttempt.current = attempt;
     setBusy(true);
     try {
-      const res = await sendMessage({
-        from,
-        in_reply_to: draft.inReplyTo,
-        to: recipients,
-        cc: splitAddrs(cc),
-        bcc: splitAddrs(bcc),
-        html: outgoingHTML(text, html),
-        subject,
-        text,
-        attachments: attachments.length ? attachments : undefined,
-      });
-      setSentCopyPending(res.sent_copy === "pending");
-      // Best-effort: remove the IMAP draft after a successful send.
-      if (draftUid && draftUidValidity) {
-        try {
-          await deleteDraft(draftUid, draftUidValidity);
-        } catch {
-          /* non-fatal */
-        }
+      const res = await sendMessage(attempt.body, attempt.key);
+      if (res.receipt) applyReceipt(res.receipt);
+      else {
+        // Compatibility with the previous success response; pending still locks editing.
+        setSentCopyPending(res.sent_copy === "pending");
+        if (res.sent_copy !== "pending") onOpenChange(false);
+        onSent();
       }
-      if (res.sent_copy !== "pending") {
-        onOpenChange(false);
-      }
-      onSent();
-    } catch (err: unknown) {
-      if (err instanceof ApiRequestError) {
-        if (err.code === "DRAFT_SAVE_UNCERTAIN") setDraftUncertain(true);
-        if (err.code === "MAILBOX_SEND_UNCERTAIN") setSendUncertain(true);
-        setError(
-          t(`error.${err.code}`, {
-            defaultValue: t("page.webmail.compose_failed"),
-          }),
-        );
-      } else {
-        setSendUncertain(true);
-        setError(t("error.MAILBOX_SEND_UNCERTAIN"));
+    } catch (err) {
+      // Once submission starts, recover its durable receipt before offering a new attempt.
+      setSendUncertain(true);
+      setError(
+        err instanceof ApiRequestError
+          ? t(`error.${err.code}`, {
+              defaultValue: t("error.MAILBOX_SEND_UNCERTAIN"),
+            })
+          : t("error.MAILBOX_SEND_UNCERTAIN"),
+      );
+      try {
+        const receipt = await getSendReceiptByRequestKey(attempt.key);
+        if (receipt) applyReceipt(receipt);
+      } catch {
+        /* Preserve the original attempt and recovery controls. */
       }
     } finally {
       setBusy(false);
+      submitting.current = false;
+      setPreparingSubmission(false);
     }
   };
 
   const onSchedule = async () => {
-    if (busy || draftUncertain || sendUncertain || !identitiesLoaded) return;
+    if (
+      busy ||
+      submitting.current ||
+      draftUncertain ||
+      sendUncertain ||
+      !identitiesLoaded
+    )
+      return;
     setError(null);
     setScheduledHint(false);
     if (!scheduleAttempt.current) {
@@ -811,29 +1014,14 @@ export function MailboxComposeDialog({
         return;
       }
     }
-    setBusy(true);
+    submitting.current = true;
+    setPreparingSubmission(true);
     try {
       if (!scheduleAttempt.current) {
-        const saved = await saveDraft({
-          from,
-          in_reply_to: draft.inReplyTo,
-          reply_source: draft.aiSource,
-          uid: draftUid,
-          uid_validity: draftUidValidity,
-          to: splitAddrs(to),
-          cc: splitAddrs(cc),
-          bcc: splitAddrs(bcc),
-          subject,
-          text,
-          html: outgoingHTML(text, html),
-          attachments: attachments.length ? attachments : undefined,
-        });
-        if (!saved.uid || !saved.uid_validity)
+        if (!(await persistence.flush())) return;
+        const saved = persistence.currentResult();
+        if (!saved?.uid || !saved.uid_validity)
           throw new Error("DRAFT_REFERENCE_MISSING");
-        setDraftUid(saved.uid);
-        setDraftUidValidity(saved.uid_validity);
-        setCleanupPending(Boolean(saved.cleanup_pending));
-        onDraftSaved?.(saved.uid);
         scheduleAttempt.current = {
           key: crypto.randomUUID(),
           body: {
@@ -843,6 +1031,7 @@ export function MailboxComposeDialog({
           },
         };
       }
+      setBusy(true);
       await scheduleSend(
         scheduleAttempt.current.body,
         scheduleAttempt.current.key,
@@ -878,24 +1067,55 @@ export function MailboxComposeDialog({
       }
     } finally {
       setBusy(false);
+      submitting.current = false;
+      setPreparingSubmission(false);
     }
   };
 
   const handleCloseWithAutoSave = async () => {
-    if (scheduleUncertain || busy) return;
-    const hasContent =
-      subject.trim() !== "" ||
-      text.trim() !== "" ||
-      html.trim() !== "" ||
-      to.trim() !== "" ||
-      cc.trim() !== "" ||
-      bcc.trim() !== "" ||
-      attachments.length > 0;
-    if (hasContent && identitiesLoaded && !editingLocked && !identityInvalid) {
-      void onSaveDraft();
+    if (sendReceipt && sendReceipt.status !== "rejected") {
+      onOpenChange(false);
+      return;
     }
+    if (
+      scheduleUncertain ||
+      busy ||
+      submitting.current ||
+      readingAttachments ||
+      composing
+    )
+      return;
+    if ((hasContent || hasSavedDraft.current) && !(await persistence.flush()))
+      return;
     onOpenChange(false);
   };
+  const handleDiscard = async () => {
+    if (
+      sendReceipt?.status === "accepted" &&
+      sendReceipt.sent_copy_state === "complete"
+    ) {
+      const saved = persistence.currentResult();
+      if (!saved?.uid || !saved.uid_validity) return;
+      try {
+        await deleteDraft(saved.uid, saved.uid_validity);
+        onOpenChange(false);
+      } catch {
+        setError(t("page.webmail.compose_draft_failed"));
+      }
+      return;
+    }
+    if (editingLocked || submitting.current || composing || readingAttachments)
+      return;
+    if (await persistence.discard()) onOpenChange(false);
+  };
+
+  const fieldsLocked =
+    editingLocked ||
+    !receiptLoaded ||
+    preparingSubmission ||
+    readingAttachments ||
+    persistence.status === "save_uncertain" ||
+    persistence.status === "discarding";
 
   if (!open) return null;
 
@@ -908,15 +1128,44 @@ export function MailboxComposeDialog({
         />
       )}
       <div
+        ref={containerRef}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleCloseWithAutoSave();
+          }
+          if (event.key !== "Tab" || windowState !== "maximized") return;
+          const controls = [
+            ...(containerRef.current?.querySelectorAll<HTMLElement>(
+              'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[contenteditable="true"],[tabindex="0"]',
+            ) ?? []),
+          ].filter(
+            (element) =>
+              element.getClientRects().length &&
+              element.getAttribute("aria-hidden") !== "true",
+          );
+          const first = controls[0],
+            last = controls.at(-1);
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
         role="dialog"
         aria-modal={windowState === "maximized"}
         aria-labelledby="compose-title"
         className={
-          windowState === "minimized"
-            ? "fixed right-3 sm:right-6 bottom-0 z-50 w-72 sm:w-80 h-11 bg-card border border-border shadow-xl rounded-t-lg flex items-center justify-between px-3 cursor-pointer select-none transition-all duration-200"
-            : windowState === "maximized"
-              ? "fixed inset-2 sm:inset-6 z-50 bg-card border border-border shadow-2xl rounded-xl flex flex-col overflow-hidden transition-all duration-200"
-              : "fixed right-2 sm:right-6 bottom-0 z-50 w-full sm:w-[680px] max-w-[calc(100vw-16px)] h-[620px] max-h-[85vh] bg-card border border-border shadow-2xl rounded-t-xl flex flex-col overflow-hidden transition-all duration-200"
+          inline && windowState === "normal"
+            ? "relative w-full bg-card border border-border rounded-xl flex flex-col overflow-hidden"
+            : windowState === "minimized"
+              ? "fixed right-3 sm:right-6 bottom-0 z-50 w-72 sm:w-80 h-11 bg-card border border-border shadow-xl rounded-t-lg flex items-center justify-between px-3 cursor-pointer select-none transition-all duration-200"
+              : windowState === "maximized"
+                ? "fixed inset-2 sm:inset-6 z-50 bg-card border border-border shadow-2xl rounded-xl flex flex-col overflow-hidden transition-all duration-200"
+                : "fixed right-2 sm:right-6 bottom-0 z-50 w-full sm:w-[680px] max-w-[calc(100vw-16px)] h-[620px] max-h-[85dvh] bg-card border border-border shadow-2xl rounded-t-xl flex flex-col overflow-hidden transition-all duration-200"
         }
         onClick={
           windowState === "minimized"
@@ -1019,6 +1268,19 @@ export function MailboxComposeDialog({
                 {error}
               </p>
             )}
+            {!receiptLoaded && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setReceiptLookupRevision((value) => value + 1)}
+              >
+                {t("page.webmail.compose_check_receipt")}
+              </Button>
+            )}
+            {sendReceipt?.status === "accepted" &&
+              sendReceipt.sent_copy_state === "complete" && (
+                <p role="status">{t("page.webmail.compose_already_sent")}</p>
+              )}
             {scheduleUncertain && (
               <p
                 role="status"
@@ -1035,19 +1297,71 @@ export function MailboxComposeDialog({
                 {t("page.webmail.compose_cleanup_pending")}
               </p>
             )}
+            {(sendUncertain || sentCopyPending) && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void reconcileSend()}
+              >
+                {t("page.webmail.compose_check_receipt")}
+              </Button>
+            )}
+            {sendReceipt?.status === "uncertain" && (
+              <div className="space-y-2">
+                <label className="flex gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={newSendConfirmed}
+                    onChange={(e) => setNewSendConfirmed(e.target.checked)}
+                  />
+                  {t("page.webmail.compose_confirm_new_send")}
+                </label>
+                <Button
+                  type="button"
+                  disabled={!newSendConfirmed || busy}
+                  onClick={() => void startNewSend()}
+                >
+                  {t("page.webmail.compose_prepare_new_send")}
+                </Button>
+              </div>
+            )}
             {sentCopyPending && (
               <p role="alert" className="text-xs sm:text-sm text-destructive">
                 {t("page.webmail.compose_sent_copy_pending")}
               </p>
             )}
-            {savedHint && !error && (
-              <p
-                className="text-xs sm:text-sm text-muted-foreground"
-                role="status"
-              >
-                {t("page.webmail.compose_draft_saved")}
+            {(persistence.status === "saving" ||
+              persistence.status === "dirty") && (
+              <p role="status" className="text-xs text-muted-foreground">
+                {t(`page.webmail.draft_${persistence.status}`)}
               </p>
             )}
+            {persistence.status === "save_uncertain" && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void persistence.flush(true)}
+              >
+                {t("page.webmail.compose_reconcile_draft")}
+              </Button>
+            )}
+            {readingAttachments && (
+              <p role="status">
+                {t("page.webmail.compose_reading_attachments")}
+              </p>
+            )}
+            {savedHint &&
+              !error &&
+              (persistence.status === "saved" ||
+                persistence.status === "clean") && (
+                <p
+                  className="text-xs sm:text-sm text-muted-foreground"
+                  role="status"
+                >
+                  {t("page.webmail.compose_draft_saved")}
+                </p>
+              )}
             {scheduledHint && !error && (
               <p
                 className="text-xs sm:text-sm text-muted-foreground"
@@ -1062,7 +1376,7 @@ export function MailboxComposeDialog({
                 <input
                   type="checkbox"
                   checked={quoteOriginal}
-                  disabled={editingLocked}
+                  disabled={fieldsLocked}
                   onChange={(e) => toggleQuote(e.target.checked)}
                 />
                 {t("page.webmail.compose_quote_original")}
@@ -1074,7 +1388,7 @@ export function MailboxComposeDialog({
               source={draft.aiSource}
               subject={subject}
               body={text || html}
-              disabled={editingLocked}
+              disabled={fieldsLocked}
               onApply={async (proposal) => {
                 setSubject(proposal.subject);
                 bodyRevision.current++;
@@ -1084,9 +1398,7 @@ export function MailboxComposeDialog({
                     ? proposal.body + marker
                     : proposal.body;
                 setText(adopted);
-                if (editorRef.current) {
-                  editorRef.current.innerText = adopted;
-                }
+
                 if (draft.quoteText)
                   setQuoteOriginal(adopted.includes(draft.quoteText));
                 setHtml("");
@@ -1110,7 +1422,7 @@ export function MailboxComposeDialog({
               <select
                 id="compose-from"
                 value={from}
-                disabled={editingLocked || !identitiesLoaded}
+                disabled={fieldsLocked || !identitiesLoaded}
                 onChange={(e) => changeIdentity(e.target.value)}
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs sm:text-sm"
               >
@@ -1138,11 +1450,11 @@ export function MailboxComposeDialog({
             </div>
 
             {/* Recipients (To, Cc, Bcc) */}
-            <RecipientChipField
+            <RecipientField
               id="compose-to"
               label={t("page.webmail.compose_to")}
               value={to}
-              disabled={editingLocked}
+              disabled={fieldsLocked}
               placeholder="recipient@example.com"
               onChange={(val) => {
                 recipientRevision.current++;
@@ -1173,11 +1485,11 @@ export function MailboxComposeDialog({
             />
 
             <div className={showCc ? "block" : "hidden"}>
-              <RecipientChipField
+              <RecipientField
                 id="compose-cc"
                 label={t("page.webmail.compose_cc")}
                 value={cc}
-                disabled={editingLocked}
+                disabled={fieldsLocked}
                 onChange={(val) => {
                   recipientRevision.current++;
                   setCc(val);
@@ -1197,11 +1509,11 @@ export function MailboxComposeDialog({
             </div>
 
             <div className={showBcc ? "block" : "hidden"}>
-              <RecipientChipField
+              <RecipientField
                 id="compose-bcc"
                 label={t("page.webmail.compose_bcc")}
                 value={bcc}
-                disabled={editingLocked}
+                disabled={fieldsLocked}
                 onChange={(val) => {
                   recipientRevision.current++;
                   setBcc(val);
@@ -1230,7 +1542,7 @@ export function MailboxComposeDialog({
               </label>
               <Input
                 id="compose-subject"
-                disabled={editingLocked}
+                disabled={fieldsLocked}
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 className="h-9 text-xs sm:text-sm font-medium"
@@ -1241,7 +1553,9 @@ export function MailboxComposeDialog({
             <div className="space-y-1.5">
               <MailboxEditor
                 initialContent={html || text}
-                disabled={editingLocked}
+                isHtml={Boolean(html)}
+                onCompositionChange={setComposing}
+                disabled={fieldsLocked}
                 isSourceMode={isSourceMode}
                 onToggleSourceMode={toggleSourceMode}
                 onChange={({ html: newHtml, text: newText }) => {
@@ -1265,7 +1579,7 @@ export function MailboxComposeDialog({
                   bodyRevision.current++;
                   setHtml(e.target.value);
                 }}
-                disabled={editingLocked}
+                disabled={fieldsLocked}
                 className="sr-only"
                 tabIndex={-1}
                 aria-hidden="true"
@@ -1284,7 +1598,7 @@ export function MailboxComposeDialog({
                 <textarea
                   id="compose-body"
                   rows={12}
-                  disabled={editingLocked}
+                  disabled={fieldsLocked}
                   value={text}
                   onChange={(e) => {
                     bodyRevision.current++;
@@ -1316,7 +1630,7 @@ export function MailboxComposeDialog({
                 className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-input file:bg-background file:px-2 file:py-1 file:text-xs file:font-medium"
                 onChange={(e) => void onPickFiles(e.target.files)}
                 disabled={
-                  editingLocked || attachments.length >= MAX_SEND_ATTACHMENTS
+                  fieldsLocked || attachments.length >= MAX_SEND_ATTACHMENTS
                 }
               />
               <p className="text-[11px] text-muted-foreground">
@@ -1346,7 +1660,7 @@ export function MailboxComposeDialog({
                           },
                         )}
                         onClick={() => removeAttachment(i)}
-                        disabled={editingLocked}
+                        disabled={fieldsLocked}
                       >
                         {t("page.webmail.compose_attach_remove")}
                       </Button>
@@ -1367,7 +1681,7 @@ export function MailboxComposeDialog({
               <Input
                 id="compose-send-later"
                 type="datetime-local"
-                disabled={editingLocked}
+                disabled={fieldsLocked}
                 value={sendLaterAt}
                 onChange={(e) => setSendLaterAt(e.target.value)}
                 className="h-8 text-xs max-w-xs"
@@ -1376,23 +1690,41 @@ export function MailboxComposeDialog({
           </div>
 
           {/* Footer Bar */}
-          <div className="px-4 py-2.5 bg-muted/20 border-t flex items-center justify-between gap-2 shrink-0">
+          <div className="px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] bg-muted/20 border-t flex items-center justify-between gap-2 shrink-0">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onOpenChange(false)}
+              onClick={() => void handleCloseWithAutoSave()}
               disabled={busy || scheduleUncertain}
             >
               {t("action.cancel")}
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => void handleDiscard()}
+                disabled={
+                  (fieldsLocked &&
+                    !(
+                      sendReceipt?.status === "accepted" &&
+                      sendReceipt.sent_copy_state === "complete"
+                    )) ||
+                  composing ||
+                  readingAttachments ||
+                  persistence.status === "save_uncertain"
+                }
+              >
+                {t("page.webmail.compose_discard")}
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => void onSaveDraft()}
-                disabled={editingLocked || !identitiesLoaded}
+                disabled={fieldsLocked || !identitiesLoaded}
               >
                 {busy
                   ? t("state.loading")
@@ -1417,7 +1749,7 @@ export function MailboxComposeDialog({
                 type="submit"
                 size="sm"
                 variant="default"
-                disabled={editingLocked || !identitiesLoaded}
+                disabled={fieldsLocked || !identitiesLoaded}
               >
                 {busy ? t("state.loading") : t("page.webmail.compose_send")}
               </Button>

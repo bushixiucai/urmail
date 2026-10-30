@@ -8,6 +8,8 @@ import {
   getMailboxExpiresAt,
   getMailboxToken,
   hasMailboxSession,
+  MAILBOX_AI_CONFIGURATION_CHANGED,
+  saveMailboxSettings,
   MAX_SEND_ATTACHMENT_BYTES,
   MAX_SEND_TOTAL_ATTACHMENT_BYTES,
   saveDraft,
@@ -151,4 +153,72 @@ it("handles mailbox session persistence, remember me, and clearMailboxSession", 
   expect(getMailboxExpiresAt()).toBeNull();
   expect(window.localStorage.getItem("urmail.mailbox-token")).toBeNull();
   expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBeNull();
+});
+
+it("broadcasts only an empty invalidation event after a successful AI settings update", async () => {
+  const changed = vi.fn();
+  window.addEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, changed);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ saved: true, version: 2 }),
+    }),
+  );
+  try {
+    await saveMailboxSettings({
+      display_name: "",
+      signature_text: "",
+      signature_html: "",
+      expected_version: 1,
+      preferences: {
+        ai: { use_custom: true, api_key: "synthetic-write-only-key" },
+      },
+    });
+    expect(changed).toHaveBeenCalledTimes(1);
+    const event = changed.mock.calls[0][0] as Event;
+    expect(event.type).toBe(MAILBOX_AI_CONFIGURATION_CHANGED);
+    expect("detail" in event).toBe(false);
+    expect("api_key" in event).toBe(false);
+  } finally {
+    window.removeEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, changed);
+  }
+});
+it("does not announce a failed AI settings write or an update without AI configuration", async () => {
+  const changed = vi.fn();
+  window.addEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, changed);
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: { code: "CONFLICT", message: "error.CONFLICT" },
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ saved: true, version: 2 }),
+    });
+  vi.stubGlobal("fetch", fetcher);
+  const body = {
+    display_name: "",
+    signature_text: "",
+    signature_html: "",
+    expected_version: 1,
+  };
+  try {
+    await expect(
+      saveMailboxSettings({
+        ...body,
+        preferences: { ai: { use_custom: false } },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    await saveMailboxSettings(body);
+    expect(changed).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, changed);
+  }
 });

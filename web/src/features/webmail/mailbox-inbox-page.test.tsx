@@ -170,8 +170,10 @@ function mockMailboxApi(
         }),
       };
     }
-    if (/\/messages\/\d+$/.test(u)) {
-      const uid = Number(u.split("/").pop());
+    if (/\/messages\/\d+(?:\?|$)/.test(u)) {
+      const uid = Number(
+        new URL(u, "http://local.test").pathname.split("/").pop(),
+      );
       const msg = messages.find((m) => m.uid === uid) ?? messages[0];
       return {
         ok: true,
@@ -512,7 +514,7 @@ describe("mailbox asynchronous isolation", () => {
             },
           }),
         };
-      if (/\/messages\/\d+$/.test(u))
+      if (/\/messages\/\d+(?:\?|$)/.test(u))
         return {
           ok: true,
           status: 200,
@@ -592,12 +594,23 @@ it("does not reset compose contents when the inbox receives the saved draft UID"
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.compose_new" }),
   );
-  fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
+  fireEvent.change(await screen.findByLabelText("page.webmail.compose_to"), {
     target: { value: "bob@example.test" },
   });
-  fireEvent.change(screen.getByLabelText("page.webmail.compose_body"), {
-    target: { value: "Keep current input" },
+  const visibleEditor = await screen.findByRole("textbox", {
+    name: "page.webmail.compose_rich_text",
   });
+  visibleEditor.innerHTML = "<p>Keep current input</p>";
+  fireEvent.input(visibleEditor);
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          "page.webmail.compose_body",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe("Keep current input"),
+  );
   await waitFor(() =>
     expect(
       (
@@ -615,6 +628,26 @@ it("does not reset compose contents when the inbox receives the saved draft UID"
     (screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement)
       .value,
   ).toBe("Keep current input");
+  visibleEditor.innerHTML = "<p>Keep newer input</p>";
+  fireEvent.input(visibleEditor);
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          "page.webmail.compose_body",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe("Keep newer input"),
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "page.webmail.compose_save_draft",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.compose_save_draft" }),
   );
@@ -622,7 +655,7 @@ it("does not reset compose contents when the inbox receives the saved draft UID"
   expect(savedBodies[1]).toMatchObject({
     uid: 78,
     uid_validity: 9,
-    text: "Keep current input",
+    text: "Keep newer input",
   });
 });
 
@@ -653,8 +686,15 @@ it("refuses an over-budget restored draft without dropping any existing attachme
       };
 
     if (u.includes("/attachments/"))
-      return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer };
-    if (/\/messages\/\d+$/.test(u))
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () =>
+          u.includes("/attachments/3")
+            ? new Uint8Array(1).buffer
+            : bytes.buffer,
+      };
+    if (/\/messages\/\d+(?:\?|$)/.test(u))
       return {
         ok: true,
         status: 200,
@@ -706,7 +746,7 @@ it("restores every original attachment before opening a forward", async () => {
   sessionStorageReady();
   const base = mockMailboxApi();
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-    if (/\/messages\/1$/.test(url))
+    if (/\/messages\/1(?:\?|$)/.test(url))
       return {
         ok: true,
         status: 200,
@@ -752,6 +792,7 @@ it("restores every original attachment before opening a forward", async () => {
   await screen.findByText("Hello inbox");
   fireEvent.click(screen.getByText("Hello inbox"));
   await screen.findByRole("heading", { name: "Original with files" });
+  fireEvent.click(screen.getByText("page.webmail.message_actions"));
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.compose_forward" }),
   );
@@ -775,7 +816,7 @@ it("does not open an incomplete forward when any original attachment fails", asy
   sessionStorageReady();
   const base = mockMailboxApi();
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
-    if (/\/messages\/1$/.test(url))
+    if (/\/messages\/1(?:\?|$)/.test(url))
       return {
         ok: true,
         status: 200,
@@ -832,6 +873,7 @@ it("does not open an incomplete forward when any original attachment fails", asy
   await screen.findByText("Hello inbox");
   fireEvent.click(screen.getByText("Hello inbox"));
   await screen.findByRole("heading", { name: "Original with files" });
+  fireEvent.click(screen.getByText("page.webmail.message_actions"));
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.compose_forward" }),
   );
@@ -844,4 +886,367 @@ it("does not open an incomplete forward when any original attachment fails", asy
         String(init?.body ?? "").includes('"attachments"'),
     ),
   ).toBe(false);
+});
+
+describe("mailbox source identity regressions", () => {
+  function renderMailbox() {
+    return render(
+      <MemoryRouter>
+        <MailboxInboxPage />
+      </MemoryRouter>,
+    );
+  }
+  function response(value: unknown, status = 200) {
+    return { ok: status < 400, status, json: async () => value };
+  }
+  async function searchAll(q = "cross") {
+    fireEvent.click(screen.getByLabelText("page.webmail.search_all_folders"));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByLabelText(
+            "page.webmail.search_all_folders",
+          ) as HTMLInputElement
+        ).checked,
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("page.webmail.search_aria") as HTMLInputElement)
+          .disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(screen.getByLabelText("page.webmail.search_aria"), {
+      target: { value: q },
+    });
+    fireEvent.submit(screen.getByRole("search"));
+  }
+  const crossRows = [
+    {
+      uid: 1,
+      uid_validity: 9,
+      folder_enc: "b64.SU5CT1g",
+      folder: "INBOX",
+      subject: "Cross inbox",
+      from: [],
+      date: "2026-01-01",
+      flags: ["\\Seen"],
+      size: 1,
+    },
+    {
+      uid: 1,
+      uid_validity: 11,
+      folder_enc: "b64.QXJjaGl2ZQ",
+      folder: "Archive",
+      subject: "Cross archive",
+      from: [],
+      date: "2026-01-02",
+      flags: ["\\Seen"],
+      size: 1,
+    },
+  ];
+
+  it("removes old actionable detail while the next message is slow or fails", async () => {
+    sessionStorageReady();
+    const base = mockMailboxApi();
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (/messages\/2(?:\?|$)/.test(String(url)))
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        return base(url, init);
+      }),
+    );
+    renderMailbox();
+    await screen.findByText("Hello inbox");
+    fireEvent.click(screen.getByText("Hello inbox"));
+    await screen.findByText("body");
+    fireEvent.click(screen.getByText("Second mail"));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.queryByText("body")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "page.webmail.compose_reply" }),
+    ).toBeNull();
+    await act(async () =>
+      finish(response({ error: { code: "IMAP_UNAVAILABLE" } }, 502)),
+    );
+    expect(screen.queryByText("body")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "page.webmail.compose_reply" }),
+    ).toBeNull();
+  });
+
+  it("retains the current query when sorting or grouping", async () => {
+    sessionStorageReady();
+    const fetcher = mockMailboxApi();
+    renderMailbox();
+    await screen.findByText("Hello inbox");
+    fireEvent.change(screen.getByLabelText("page.webmail.search_aria"), {
+      target: { value: "needle" },
+    });
+    fireEvent.submit(screen.getByRole("search"));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("page.webmail.search_aria") as HTMLInputElement)
+          .disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(screen.getByLabelText("page.webmail.sort_by"), {
+      target: { value: "subject" },
+    });
+    await waitFor(() =>
+      expect(
+        String(
+          fetcher.mock.calls
+            .filter((call) => String(call[0]).includes("/messages?"))
+            .at(-1)?.[0],
+        ),
+      ).toContain("sort=subject"),
+    );
+    expect(
+      (screen.getByLabelText("page.webmail.search_aria") as HTMLInputElement)
+        .value,
+    ).toBe("needle");
+    expect(
+      String(
+        fetcher.mock.calls
+          .filter((call) => String(call[0]).includes("/messages?"))
+          .at(-1)?.[0],
+      ),
+    ).toContain("q=needle");
+  });
+
+  it("opens equal UIDs independently and routes quick flags to their actual source", async () => {
+    sessionStorageReady();
+    const base = mockMailboxApi();
+    const fetcher = vi.fn((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/mailbox/search?"))
+        return Promise.resolve(response({ messages: crossRows, total: 2 }));
+      if (/messages\/1(?:\?|$)/.test(u)) {
+        const source = crossRows.find((row) =>
+          u.includes(`/folders/${row.folder_enc}/`),
+        )!;
+        return Promise.resolve(
+          response({
+            ...source,
+            text: `${source.subject} body`,
+            attachments: [],
+          }),
+        );
+      }
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    renderMailbox();
+    await screen.findByText("Hello inbox");
+    await searchAll();
+    await screen.findByText("Cross archive");
+    fireEvent.click(screen.getByText("Cross inbox"));
+    await screen.findByText("Cross inbox body");
+    fireEvent.click(screen.getByText("Cross archive"));
+    await screen.findByText("Cross archive body");
+    expect(screen.queryByText("Cross inbox body")).toBeNull();
+    const row = screen
+      .getAllByText("Cross archive")
+      .find((node) => node.closest("li"))!
+      .closest("li")!;
+    fireEvent.click(
+      within(row).getByRole("button", { name: "page.webmail.mark_unread" }),
+    );
+    await waitFor(() => {
+      const call = fetcher.mock.calls.find((item) =>
+        String(item[0]).includes("/folders/b64.QXJjaGl2ZQ/messages/flags"),
+      );
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+        uids: [1],
+        uid_validity: 11,
+      });
+    });
+  });
+
+  it("keeps failed cross-folder items selected and never retries already completed items", async () => {
+    sessionStorageReady();
+    const base = mockMailboxApi();
+    const fetcher = vi.fn((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/mailbox/search?"))
+        return Promise.resolve(response({ messages: crossRows, total: 2 }));
+      if (u.endsWith("/messages/trash"))
+        return Promise.resolve(
+          response({
+            results: [
+              {
+                uid: 1,
+                status: u.includes("b64.SU5CT1g") ? "success" : "failed",
+              },
+            ],
+          }),
+        );
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    renderMailbox();
+    await screen.findByText("Hello inbox");
+    await searchAll();
+    await screen.findByText("Cross archive");
+    for (const title of ["Cross inbox", "Cross archive"]) {
+      fireEvent.click(
+        within(screen.getByText(title).closest("li")!).getByRole("checkbox"),
+      );
+    }
+    const deleteSelection = async () => {
+      fireEvent.click(
+        within(screen.getByRole("toolbar")).getByRole("button", {
+          name: "page.webmail.delete",
+        }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "action.confirm" }),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    };
+    await deleteSelection();
+    expect(screen.queryByText("Cross inbox")).toBeNull();
+    expect(
+      within(screen.getByText("Cross archive").closest("li")!)
+        .getByRole("checkbox")
+        .getAttribute("type"),
+    ).toBe("checkbox");
+    await deleteSelection();
+    const changes = fetcher.mock.calls.filter((call) =>
+      String(call[0]).endsWith("/messages/trash"),
+    );
+    expect(
+      changes.filter((call) => String(call[0]).includes("b64.SU5CT1g")),
+    ).toHaveLength(1);
+    expect(
+      changes.filter((call) => String(call[0]).includes("b64.QXJjaGl2ZQ")),
+    ).toHaveLength(2);
+  });
+
+  it("ignores delayed cross-folder search after switching folders", async () => {
+    sessionStorageReady();
+    const base = mockMailboxApi();
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) =>
+        String(url).startsWith("/api/v1/mailbox/search?")
+          ? new Promise((resolve) => {
+              finish = resolve;
+            })
+          : base(url, init),
+      ),
+    );
+    renderMailbox();
+    await screen.findByText("Hello inbox");
+    await searchAll("delayed");
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("page.webmail.search_aria") as HTMLInputElement)
+          .value,
+      ).toBe(""),
+    );
+    await act(async () => finish(response({ messages: crossRows, total: 2 })));
+    expect(screen.queryByText("Cross archive")).toBeNull();
+    expect(screen.getByText("Hello inbox")).toBeTruthy();
+  });
+});
+
+it("preserves a visibly edited inline reply when autosave fails during navigation", async () => {
+  sessionStorageReady();
+  const base = mockMailboxApi();
+  const saves: unknown[] = [];
+  const fetcher = vi.fn((url: string, init?: RequestInit) => {
+    if (String(url) === "/api/v1/mailbox/drafts" && init?.method === "PUT") {
+      saves.push(JSON.parse(String(init.body)));
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        json: async () => ({ error: { code: "DB_ERROR" } }),
+      });
+    }
+    return base(url, init);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <MemoryRouter>
+      <MailboxInboxPage />
+    </MemoryRouter>,
+  );
+  await screen.findByText("Hello inbox");
+  fireEvent.click(screen.getByText("Hello inbox"));
+  await screen.findByText("body");
+  fireEvent.click(
+    screen
+      .getAllByRole("button", {
+        name: "page.webmail.compose_reply",
+      })
+      .at(-1)!,
+  );
+  const editor = await screen.findByRole("textbox", {
+    name: "page.webmail.compose_rich_text",
+  });
+  editor.innerHTML = "<p>Unsaved visible reply</p>";
+  fireEvent.input(editor);
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByLabelText(
+          "page.webmail.compose_body",
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe("Unsaved visible reply"),
+  );
+  fireEvent.click(screen.getByText("Second mail"));
+  await waitFor(() => expect(saves.length).toBeGreaterThan(0));
+  expect(
+    fetcher.mock.calls.some((call) =>
+      /messages\/2(?:\?|$)/.test(String(call[0])),
+    ),
+  ).toBe(false);
+  expect(
+    screen.getByRole("textbox", { name: "page.webmail.compose_rich_text" })
+      .textContent,
+  ).toBe("Unsaved visible reply");
+  fireEvent.click(screen.getByLabelText("page.webmail.search_all_folders"));
+  await act(async () => {});
+  expect(
+    (
+      screen.getByLabelText(
+        "page.webmail.search_all_folders",
+      ) as HTMLInputElement
+    ).checked,
+  ).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+  await act(async () => {});
+  expect(
+    fetcher.mock.calls.some((call) =>
+      String(call[0]).includes("/folders/b64.QXJjaGl2ZQ/messages"),
+    ),
+  ).toBe(false);
+  const navigation = screen.getByRole("navigation", {
+    name: "page.webmail.mobile_navigation",
+  });
+  fireEvent.click(
+    within(navigation).getByRole("button", {
+      name: "page.webmail.contacts_title",
+    }),
+  );
+  await act(async () => {});
+  expect(
+    screen.queryByRole("heading", { name: "page.webmail.contacts_title" }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("textbox", { name: "page.webmail.compose_rich_text" })
+      .textContent,
+  ).toBe("Unsaved visible reply");
 });

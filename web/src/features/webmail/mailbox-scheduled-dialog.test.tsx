@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "@/lib/api/client";
 import { MailboxScheduledDialog } from "./mailbox-scheduled-dialog";
 import * as api from "./mailbox-api";
@@ -17,9 +17,15 @@ vi.mock("react-i18next", () => {
 });
 vi.mock("./mailbox-api", () => ({
   listScheduledSends: vi.fn(),
+  listSendReceipts: vi.fn(),
+  repairSentCopy: vi.fn(),
   cancelScheduledSend: vi.fn(),
   repairScheduledSentCopy: vi.fn(),
+  acknowledgeUncertainScheduledSend: vi.fn(),
 }));
+beforeEach(() => {
+  vi.mocked(api.listSendReceipts).mockResolvedValue({ items: [] });
+});
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -63,8 +69,6 @@ describe("scheduled mail results", () => {
     expect(buttons.map((button) => button.hasAttribute("disabled"))).toEqual([
       false,
       false,
-      true,
-      true,
       true,
       true,
       true,
@@ -152,4 +156,67 @@ it("repairs an accepted copy without exposing a resend action", async () => {
     ).toBeNull(),
   );
   expect(api.cancelScheduledSend).not.toHaveBeenCalled();
+});
+
+it.each(["uncertain", "held"])(
+  "requires a checked review before releasing a %s attempt and never sends it",
+  async (status) => {
+    vi.mocked(api.listScheduledSends)
+      .mockResolvedValueOnce({ items: [item(status, 91)] })
+      .mockResolvedValue({ items: [item("cancelled", 91)] });
+    vi.mocked(api.acknowledgeUncertainScheduledSend).mockResolvedValue(
+      item("cancelled", 91),
+    );
+    render(<MailboxScheduledDialog open onOpenChange={vi.fn()} />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "page.webmail.scheduled_uncertain_review_action",
+      }),
+    );
+    const release = screen.getByRole("button", {
+      name: "page.webmail.scheduled_uncertain_release",
+    });
+    expect(release.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "page.webmail.scheduled_uncertain_confirm",
+      }),
+    );
+    fireEvent.click(release);
+    await waitFor(() =>
+      expect(api.acknowledgeUncertainScheduledSend).toHaveBeenCalledWith(91),
+    );
+    expect(api.cancelScheduledSend).not.toHaveBeenCalled();
+    await screen.findByText("page.webmail.scheduled_uncertain_released");
+  },
+);
+
+it("finds a retained immediate-send copy after reopening and repairs without SMTP", async () => {
+  const receipt: api.SendReceipt = {
+    id: 77,
+    request_key: "reopened-send-0001",
+    status: "accepted",
+    sent_copy_state: "held",
+    message_id: "<reopened@fixture>",
+    created_at: "2026-10-30T00:00:00Z",
+  };
+  vi.mocked(api.listScheduledSends).mockResolvedValue({ items: [] });
+  vi.mocked(api.listSendReceipts)
+    .mockResolvedValueOnce({ items: [receipt] })
+    .mockResolvedValue({
+      items: [{ ...receipt, sent_copy_state: "complete" }],
+    });
+  vi.mocked(api.repairSentCopy).mockResolvedValue({
+    receipt: { ...receipt, sent_copy_state: "complete" },
+  });
+  render(<MailboxScheduledDialog open onOpenChange={vi.fn()} />);
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "page.webmail.repair_sent_copy",
+    }),
+  );
+  await waitFor(() => expect(api.repairSentCopy).toHaveBeenCalledWith(77));
+  expect(api.cancelScheduledSend).not.toHaveBeenCalled();
+  expect(api.acknowledgeUncertainScheduledSend).not.toHaveBeenCalled();
+  await screen.findByText("page.webmail.receipt_copy_repaired");
 });

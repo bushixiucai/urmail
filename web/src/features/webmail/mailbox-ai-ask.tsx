@@ -1,3 +1,8 @@
+import { useMailboxAIConsent } from "./mailbox-ai-consent";
+import {
+  MAILBOX_AI_CONFIGURATION_CHANGED,
+  previewMailboxAI,
+} from "./mailbox-api";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
@@ -20,6 +25,11 @@ export function MailboxAIAsk({
   onCitation: (source: MailboxAICitation) => void;
 }) {
   const { t } = useTranslation();
+  const {
+    confirm: confirmConsent,
+    cancel: cancelConsent,
+    dialog: consentDialog,
+  } = useMailboxAIConsent();
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<MailboxAITarget | null>(null);
   const [question, setQuestion] = useState("");
@@ -35,15 +45,35 @@ export function MailboxAIAsk({
     citations: MailboxAICitation[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [configurationRevision, setConfigurationRevision] = useState(0);
+  const targetGeneration = useRef(0);
   const request = useRef({
     generation: 0,
     controller: undefined as AbortController | undefined,
   });
   function cancel() {
+    cancelConsent();
     request.current.generation++;
     request.current.controller?.abort();
     setBusy(false);
   }
+  useEffect(() => {
+    const invalidate = () => {
+      targetGeneration.current++;
+      request.current.generation++;
+      request.current.controller?.abort();
+      cancelConsent();
+      setBusy(false);
+      setAnswer(null);
+      setConfirmed(false);
+      setError(null);
+      setTarget(null);
+      setConfigurationRevision((value) => value + 1);
+    };
+    window.addEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, invalidate);
+    return () =>
+      window.removeEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, invalidate);
+  }, [cancelConsent]);
   useEffect(
     () => () => {
       request.current.generation++;
@@ -54,14 +84,21 @@ export function MailboxAIAsk({
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
+    const generation = ++targetGeneration.current;
     void fetchMailboxAITarget(controller.signal)
-      .then(setTarget)
+      .then((next) => {
+        if (
+          !controller.signal.aborted &&
+          generation === targetGeneration.current
+        )
+          setTarget(next);
+      })
       .catch(() => {
         if (!controller.signal.aborted)
           setError(t("page.webmail.ai_unavailable"));
       });
     return () => controller.abort();
-  }, [open, t]);
+  }, [open, configurationRevision, t]);
   useEffect(() => {
     if (!answer?.citations.length) return;
     let active = true;
@@ -94,16 +131,25 @@ export function MailboxAIAsk({
     setBusy(true);
     setError(null);
     setAnswer(null);
+    setConfirmed(false);
     try {
+      const input = {
+        question: question.trim().replace(/\s*\n\s*/g, " "),
+        configuration_digest: target.configuration_digest,
+        confirmed: true,
+        folder_enc: scope,
+        after: after || undefined,
+        before: before || undefined,
+      };
+      const preview = await previewMailboxAI(
+        "search-ask",
+        input,
+        controller.signal,
+      );
+      if (!(await confirmConsent({ ...target, ...preview }, controller.signal)))
+        return;
       const response = await askMailboxAI(
-        {
-          question: question.trim().replace(/\s*\n\s*/g, " "),
-          configuration_digest: target.configuration_digest,
-          confirmed: true,
-          folder_enc: scope,
-          after: after || undefined,
-          before: before || undefined,
-        },
+        { ...input, content_digest: preview.content_digest },
         controller.signal,
       );
       const citations = await Promise.all(
@@ -134,6 +180,7 @@ export function MailboxAIAsk({
   }
   return (
     <div className="space-y-2 border-b px-3 py-2 sm:px-4">
+      {consentDialog}
       <Button
         type="button"
         size="sm"

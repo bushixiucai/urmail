@@ -1,3 +1,8 @@
+import { useMailboxAIConsent } from "./mailbox-ai-consent";
+import {
+  MAILBOX_AI_CONFIGURATION_CHANGED,
+  previewMailboxAI,
+} from "./mailbox-api";
 import { useEffect, useId, useRef, useState } from "react";
 import { AIBudgetSummary } from "@/features/ai/ai-budget-summary";
 import type { AIBudgetStatus } from "@/features/ai/ai-budget";
@@ -36,6 +41,11 @@ export function MailboxAIPanel({
   }) => void | Promise<void>;
 }) {
   const { t } = useTranslation();
+  const {
+    confirm: confirmConsent,
+    cancel: cancelConsent,
+    dialog: consentDialog,
+  } = useMailboxAIConsent();
   const id = useId();
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<MailboxAITarget | null>(null);
@@ -64,6 +74,8 @@ export function MailboxAIPanel({
     }
   }, [subject, body, mode]);
   const [budget, setBudget] = useState<AIBudgetStatus | null>(null);
+  const [configurationRevision, setConfigurationRevision] = useState(0);
+  const targetGeneration = useRef(0);
   const [applied, setApplied] = useState(false);
   const request = useRef({
     generation: 0,
@@ -86,6 +98,24 @@ export function MailboxAIPanel({
     request.current.controller?.abort();
     setBusy(false);
   };
+  useEffect(() => {
+    const invalidate = () => {
+      targetGeneration.current++;
+      request.current.generation++;
+      request.current.controller?.abort();
+      cancelConsent();
+      setBusy(false);
+      setResult(null);
+      setConfirmed(false);
+      setApplied(false);
+      setError(null);
+      setTarget(null);
+      setConfigurationRevision((value) => value + 1);
+    };
+    window.addEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, invalidate);
+    return () =>
+      window.removeEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, invalidate);
+  }, [cancelConsent]);
   useEffect(
     () => () => {
       request.current.generation++;
@@ -95,19 +125,27 @@ export function MailboxAIPanel({
   );
   useEffect(() => {
     cancel();
+    cancelConsent();
     setResult(null);
     setConfirmed(false);
     setSelection("");
     setError(null);
     setApplied(false);
-  }, [sourceKey]);
+  }, [sourceKey, cancelConsent]);
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
+    const generation = ++targetGeneration.current;
     setLoading(true);
     setError(null);
     void fetchMailboxAITarget(controller.signal)
-      .then(setTarget)
+      .then((next) => {
+        if (
+          !controller.signal.aborted &&
+          generation === targetGeneration.current
+        )
+          setTarget(next);
+      })
       .catch(() => {
         if (!controller.signal.aborted)
           setError(t("page.webmail.ai_unavailable"));
@@ -151,6 +189,7 @@ export function MailboxAIPanel({
     includeContext,
     mode,
     operation,
+    configurationRevision,
     t,
   ]);
   const resultText =
@@ -187,22 +226,31 @@ export function MailboxAIPanel({
     setError(null);
     setApplied(false);
     setSnapshot({ subject, body, revision: editRevision });
+    setConfirmed(false);
     try {
       const useSource =
         !!source &&
         (mode === "read" || includeContext || operation === "draft_reply");
+      const input = {
+        operation,
+        configuration_digest: target.configuration_digest,
+        confirmed: true,
+        request_key: `native-${crypto.randomUUID()}`,
+        body: body || goal,
+        subject,
+        instruction: goal,
+        target_language: language,
+        ...(useSource ? { ...source, selection } : {}),
+      };
+      const preview = await previewMailboxAI(
+        "assist",
+        input,
+        controller.signal,
+      );
+      if (!(await confirmConsent({ ...target, ...preview }, controller.signal)))
+        return;
       const response = await runMailboxAI(
-        {
-          operation,
-          configuration_digest: target.configuration_digest,
-          confirmed: true,
-          request_key: `native-${crypto.randomUUID()}`,
-          body: body || goal,
-          subject,
-          instruction: goal,
-          target_language: language,
-          ...(useSource ? { ...source, selection } : {}),
-        },
+        { ...input, content_digest: preview.content_digest },
         controller.signal,
       );
       if (
@@ -238,6 +286,7 @@ export function MailboxAIPanel({
           event.preventDefault();
       }}
     >
+      {consentDialog}
       <Button
         type="button"
         variant="outline"
@@ -303,6 +352,8 @@ export function MailboxAIPanel({
                   className="min-h-11 w-full rounded-md border bg-background px-2 md:min-h-10"
                   value={language}
                   onChange={(e) => {
+                    cancel();
+                    cancelConsent();
                     setLanguage(e.target.value);
                     setResult(null);
                     setConfirmed(false);
