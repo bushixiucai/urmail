@@ -96,42 +96,54 @@ export function MailboxSearchBox({
           {t("page.webmail.search")}
         </Button>
       </div>
-      <details className="text-sm">
-        <summary className="cursor-pointer py-1">
-          {t("page.webmail.search_advanced")}
+      <details className="text-xs group">
+        <summary className="cursor-pointer py-0.5 text-muted-foreground hover:text-foreground inline-flex items-center gap-1 select-none font-medium">
+          <span>{t("page.webmail.search_advanced")}</span>
         </summary>
-        <div className="flex flex-wrap gap-3 pt-2">
-          <label className="space-y-1">
-            {t("page.webmail.search_since")}
-            <Input
-              type="date"
-              value={since}
-              disabled={disabled}
-              onChange={(event) => setSince(event.target.value)}
-            />
-          </label>
-          <label className="space-y-1">
-            {t("page.webmail.search_before")}
-            <Input
-              type="date"
-              value={before}
-              disabled={disabled}
-              onChange={(event) => setBefore(event.target.value)}
-            />
-          </label>
-          <label className="flex items-center gap-2">
+        <div className="mt-2 p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <label className="space-y-1 text-muted-foreground">
+              <span className="block font-medium">
+                {t("page.webmail.search_since")}
+              </span>
+              <Input
+                type="date"
+                value={since}
+                disabled={disabled}
+                onChange={(event) => setSince(event.target.value)}
+                className="h-7 text-xs bg-background"
+                aria-label={t("page.webmail.search_since")}
+              />
+            </label>
+            <label className="space-y-1 text-muted-foreground">
+              <span className="block font-medium">
+                {t("page.webmail.search_before")}
+              </span>
+              <Input
+                type="date"
+                value={before}
+                disabled={disabled}
+                onChange={(event) => setBefore(event.target.value)}
+                className="h-7 text-xs bg-background"
+                aria-label={t("page.webmail.search_before")}
+              />
+            </label>
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
             <input
               type="checkbox"
               checked={attachment}
               disabled={disabled}
               onChange={(event) => setAttachment(event.target.checked)}
+              className="h-3.5 w-3.5 rounded border-input accent-primary"
+              aria-label={t("page.webmail.search_attachment")}
             />
-            {t("page.webmail.search_attachment")}
+            <span>{t("page.webmail.search_attachment")}</span>
           </label>
+          <p className="text-[11px] text-muted-foreground border-t border-border/40 pt-1.5 leading-relaxed">
+            {t("page.webmail.search_query_help")}
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground pt-2">
-          {t("page.webmail.search_query_help")}
-        </p>
       </details>
     </form>
   );

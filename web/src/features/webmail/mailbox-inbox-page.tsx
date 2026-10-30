@@ -44,6 +44,7 @@ import { MailboxAIDrawer } from "./mailbox-ai-drawer";
 import { MailboxInlineReply } from "./mailbox-inline-reply";
 import { MailboxMessageRow } from "./mailbox-message-row";
 import { MailboxDetailHeader } from "./mailbox-detail-header";
+import { getFolderInfo, sortMailboxFolders } from "./mailbox-folder-utils";
 import { PeopleCalendarPanel } from "./people-calendar-panel";
 import { PeopleContactsPanel } from "./people-contacts-panel";
 import {
@@ -353,18 +354,21 @@ export function MailboxInboxPage() {
 
   const clearChecked = useCallback(() => setCheckedUids([]), []);
 
-  const loadFolders = useCallback(async (signal?: AbortSignal) => {
-    const res = await listFolders(signal);
-    if (signal?.aborted) return;
-    setFolders(res.folders ?? []);
-    setFolderEnc((prev) => {
-      if (prev && res.folders?.some((f) => f.name_enc === prev)) return prev;
-      const inbox =
-        res.folders?.find((f) => f.name.toUpperCase() === "INBOX") ??
-        res.folders?.[0];
-      return inbox?.name_enc ?? null;
-    });
-  }, []);
+  const loadFolders = useCallback(
+    async (signal?: AbortSignal) => {
+      const res = await listFolders(signal);
+      if (signal?.aborted) return;
+      const sorted = sortMailboxFolders(res.folders ?? [], t);
+      setFolders(sorted);
+      setFolderEnc((prev) => {
+        if (prev && sorted.some((f) => f.name_enc === prev)) return prev;
+        const inbox =
+          sorted.find((f) => f.name.toUpperCase() === "INBOX") ?? sorted[0];
+        return inbox?.name_enc ?? null;
+      });
+    },
+    [t],
+  );
 
   const loadMessages = useCallback(
     async (
@@ -513,13 +517,20 @@ export function MailboxInboxPage() {
   }, [folderEnc, loadMessages, handleAuthError, t, clearChecked, listOpts]);
 
   useEffect(() => {
+    setLoadImages(false);
+  }, [folderEnc, selectedUid]);
+
+  const handleLoadImages = useCallback(() => {
+    setLoadImages(true);
+  }, []);
+
+  useEffect(() => {
     if (!folderEnc || selectedUid == null) {
       setDetail(null);
       return;
     }
     // Cross-folder results can open a UID that lives in another mailbox.
     const detailEnc = selectedEncRef.current ?? folderEnc;
-    setLoadImages(false);
     const controller = new AbortController();
     getMessage(detailEnc, selectedUid, {
       loadImages,
@@ -1111,23 +1122,40 @@ export function MailboxInboxPage() {
       .finally(() => setBusy(false));
   };
 
+  const currentFolderInfo = currentFolder
+    ? getFolderInfo(currentFolder, t)
+    : null;
+
   const folderList = (
-    <ul className="space-y-0.5" aria-label={t("page.webmail.folders")}>
-      {folders.map((f) => (
-        <li key={f.name_enc}>
-          <button
-            type="button"
-            className={`w-full text-left rounded-md px-3 py-3 md:px-2 md:py-1.5 text-sm truncate min-h-11 md:min-h-0 ${
-              f.name_enc === folderEnc
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-muted text-foreground"
-            }`}
-            onClick={() => selectFolder(f.name_enc)}
-          >
-            {f.name}
-          </button>
-        </li>
-      ))}
+    <ul className="space-y-1" aria-label={t("page.webmail.folders")}>
+      {folders.map((f) => {
+        const info = getFolderInfo(f, t);
+        const IconComponent = info.icon;
+        const isSelected = f.name_enc === folderEnc;
+
+        return (
+          <li key={f.name_enc}>
+            <button
+              type="button"
+              className={`w-full flex items-center justify-between gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors text-left min-h-11 md:min-h-8 cursor-pointer ${
+                isSelected
+                  ? "bg-primary/10 text-primary font-semibold shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              }`}
+              onClick={() => selectFolder(f.name_enc)}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <IconComponent
+                  className={`h-4 w-4 shrink-0 ${
+                    isSelected ? "text-primary" : "text-muted-foreground"
+                  }`}
+                />
+                <span className="truncate">{info.displayName}</span>
+              </div>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 
@@ -1319,7 +1347,9 @@ export function MailboxInboxPage() {
                   <span className="hidden sm:inline">AI 助手</span>
                 </Button>
 
-                <AppearanceControls />
+                <div className="md:hidden">
+                  <AppearanceControls />
+                </div>
 
                 <MailboxKeyboardShortcuts
                   disabled={
@@ -1497,7 +1527,7 @@ export function MailboxInboxPage() {
             </header>
 
             <div className="px-3 sm:px-4">
-              <MailboxReminders />
+              <MailboxReminders hideWhenEmpty />
             </div>
 
             {/* Accessible MailboxAIAsk container so tests can locate citations or questions */}
@@ -1595,8 +1625,10 @@ export function MailboxInboxPage() {
                   <div className="px-3 py-2 border-b space-y-2 bg-card/40 shrink-0">
                     <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                       <span className="truncate min-w-0 font-medium">
-                        {currentFolder?.name ?? "—"} · {total}{" "}
-                        {t("page.webmail.messages_count")}
+                        {currentFolderInfo
+                          ? currentFolderInfo.displayName
+                          : (currentFolder?.name ?? "—")}{" "}
+                        · {total} {t("page.webmail.messages_count")}
                       </span>
                     </div>
 
@@ -1791,11 +1823,14 @@ export function MailboxInboxPage() {
                             <option value="">
                               {t("page.webmail.move_to")}
                             </option>
-                            {moveOptions.map((f) => (
-                              <option key={f.name_enc} value={f.name_enc}>
-                                {f.name}
-                              </option>
-                            ))}
+                            {moveOptions.map((f) => {
+                              const info = getFolderInfo(f, t);
+                              return (
+                                <option key={f.name_enc} value={f.name_enc}>
+                                  {info.displayName}
+                                </option>
+                              );
+                            })}
                           </select>
                           <Button
                             size="sm"
@@ -1971,13 +2006,51 @@ export function MailboxInboxPage() {
                   }`}
                 >
                   {!detail ? (
-                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground space-y-3">
-                      <Mail className="h-12 w-12 stroke-[1.2] opacity-30" />
-                      <p className="text-sm">
-                        {busy
-                          ? t("state.loading")
-                          : t("page.webmail.select_message_read")}
-                      </p>
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground space-y-4 select-none">
+                      <div className="h-16 w-16 rounded-2xl bg-muted/40 border border-border/60 flex items-center justify-center text-muted-foreground/50 shadow-2xs">
+                        <Mail className="h-8 w-8 stroke-[1.5]" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">
+                          {busy
+                            ? t("state.loading")
+                            : t("page.webmail.select_message_read")}
+                        </p>
+                        {!busy && (
+                          <div className="hidden sm:flex items-center justify-center gap-3 pt-2 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1">
+                              <kbd className="px-1.5 py-0.5 rounded border border-border/70 bg-muted/60 font-mono text-[10px] shadow-2xs">
+                                J
+                              </kbd>
+                              <kbd className="px-1.5 py-0.5 rounded border border-border/70 bg-muted/60 font-mono text-[10px] shadow-2xs">
+                                K
+                              </kbd>
+                              <span>切换</span>
+                            </span>
+                            <span>·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <kbd className="px-1.5 py-0.5 rounded border border-border/70 bg-muted/60 font-mono text-[10px] shadow-2xs">
+                                C
+                              </kbd>
+                              <span>写信</span>
+                            </span>
+                            <span>·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <kbd className="px-1.5 py-0.5 rounded border border-border/70 bg-muted/60 font-mono text-[10px] shadow-2xs">
+                                /
+                              </kbd>
+                              <span>搜索</span>
+                            </span>
+                            <span>·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <kbd className="px-1.5 py-0.5 rounded border border-border/70 bg-muted/60 font-mono text-[10px] shadow-2xs">
+                                ?
+                              </kbd>
+                              <span>快捷键</span>
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -2098,11 +2171,14 @@ export function MailboxInboxPage() {
                               <option value="">
                                 {t("page.webmail.move_to")}
                               </option>
-                              {moveOptions.map((f) => (
-                                <option key={f.name_enc} value={f.name_enc}>
-                                  {f.name}
-                                </option>
-                              ))}
+                              {moveOptions.map((f) => {
+                                const info = getFolderInfo(f, t);
+                                return (
+                                  <option key={f.name_enc} value={f.name_enc}>
+                                    {info.displayName}
+                                  </option>
+                                );
+                              })}
                             </select>
                             <Button
                               size="sm"
@@ -2279,7 +2355,7 @@ export function MailboxInboxPage() {
                         <div className="prose prose-sm max-w-none dark:prose-invert">
                           {detail.html ? (
                             <MessageHTMLWithAttachments
-                              key={`html:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}`}
+                              key={`html:${selectedEncRef.current ?? folderEnc}:${detail.uid}:${detail.uid_validity}:${loadImages ? "remote" : "blocked"}`}
                               message={detail}
                               source={{
                                 folderEnc: (selectedEncRef.current ??
@@ -2288,7 +2364,7 @@ export function MailboxInboxPage() {
                                 uidValidity: detail.uid_validity ?? 0,
                               }}
                               loadImages={loadImages}
-                              onLoadImages={() => setLoadImages(true)}
+                              onLoadImages={handleLoadImages}
                             />
                           ) : (
                             <pre className="whitespace-pre-wrap break-words text-sm font-sans p-4 rounded-xl bg-muted/20 border border-border/50">
