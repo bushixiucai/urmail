@@ -4024,14 +4024,20 @@ paths:
       tags: [Native mailbox]
       summary: Submit a mailbox-authenticated message to local SMTP
       security: [{MailboxBearer: []}]
-      description: Uploads are limited to 16 MiB of JSON, 5 MiB per decoded attachment and 10 MiB of decoded attachments in total. SMTP acceptance is not final recipient delivery. An uncertain result must be checked before any resend. Bcc is part of the envelope and is never emitted in SMTP message headers.
+      description: Uploads are limited to 16 MiB of JSON, 5 MiB per decoded attachment and 10 MiB of decoded attachments in total. SMTP acceptance is not final recipient delivery. The durable receipt is prepared before SMTP; key replay returns the existing result without submitting again. A crash around SMTP acceptance remains uncertain. Sent-copy failure never changes accepted to a failed send. Recovery material is encrypted; copy retries stop after seven days and remain held for manual repair, without deleting content. An uncertain result must be checked before any resend. Bcc is part of the envelope and is never emitted in SMTP message headers.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+        description: Stable key for this immutable attempt. Reconcile unknown outcomes with the same key; never create a new key as an automatic retry.
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: '#/components/schemas/NativeMailboxCompose'}
       responses:
-        '200': {description: Local SMTP accepted the message. QUIT failure after acceptance does not change this result.}
+        '200': {description: Durable attempt status; sent is true only for accepted. sent_copy is saved or pending. Replayed uncertain attempts remain non-sendable.}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '409': {description: MAILBOX_SEND_UNCERTAIN. Submission may have succeeded; do not automatically resend., $ref: '#/components/responses/Error'}
@@ -4042,7 +4048,13 @@ paths:
       tags: [Native mailbox]
       summary: Save a new draft or replace an explicitly identified draft
       security: [{MailboxBearer: []}]
-      description: Content stays in IMAP. Uploads are limited to 16 MiB of JSON and 10 MiB of decoded attachments in total. To replace, include uid and uid_validity from the original message. Missing or changed identity is rejected before append. Preserve Bcc, HTML and every attachment when editing existing drafts.
+      description: Content stays in IMAP. A mailbox-scoped durable journal records only identity and hashes. Same-key replay reconciles original bytes without a second APPEND; changed old draft identity yields DRAFT_CHANGED. A source with an accepted or uncertain send cannot be edited or discarded as an unsubmitted draft. Uploads are limited to 16 MiB of JSON and 10 MiB of decoded attachments in total. To replace, include uid and uid_validity from the original message. Missing or changed identity is rejected before append. Preserve Bcc, HTML and every attachment when editing existing drafts.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+        description: Stable key for this immutable attempt. Reconcile unknown outcomes with the same key; never create a new key as an automatic retry.
       requestBody:
         required: true
         content:
@@ -5429,7 +5441,7 @@ paths:
       summary: Search bounded folders by IMAP criteria
       description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
         access; tenant/mailbox identities come from the live session, never request IDs. Best-effort bounded fan-out;
-        returned hits carry their source folder handle. Missing/failing folders are not proof of absence.
+        returned hits carry their exact source folder handle, uid and uid_validity; UID alone is never a global message identity. Missing/failing folders are not proof of absence.
       security:
       - MailboxBearer: []
       parameters:
@@ -5471,7 +5483,7 @@ paths:
     get:
       summary: Read mailbox identity profiles and preferences
       description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
-        access; tenant/mailbox identities come from the live session, never request IDs. Returns version, per-identity
+        access; tenant/mailbox identities come from the live session, never request IDs. AI secrets are write-only, encrypted at rest, and omitted from reads; preferences.ai.key_configured reports presence. Blank or omitted api_key retains the stored secret only for the same provider and endpoint; changing the destination requires a replacement or explicit clear. clear_api_key=true explicitly clears it. Only the typed ai object may be nested in preferences; arbitrary nested values are rejected. Returns version, per-identity
         signatures and persisted preferences.
       security:
       - MailboxBearer: []
@@ -5516,6 +5528,8 @@ paths:
                   type: object
                 preferences:
                   type: object
+                  properties:
+                    ai: {$ref: '#/components/schemas/MailboxUserAIConfiguration'}
                 expected_version:
                   type: integer
                   minimum: 0
@@ -5732,7 +5746,7 @@ paths:
   /mailbox/ai/assist:
     post:
       summary: Generate a bounded suggestion after explicit content consent
-      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+      description: Set preview_only=true to obtain the actual selected content and content_digest without any provider call or usage reservation. Display the preview and destination, then send confirmed=true and that content_digest for exactly one call. Changed content, sources or configuration reject before export with AI_CONTENT_CONSENT_STALE. Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
         access; tenant/mailbox identities come from the live session, never request IDs. configuration_digest must
         still match the displayed destination. Reuse the same request_key only for the same intent; duplicate/conflicting
         or uncertain ledger intent is not permission to call the model again. Session, configuration and original
@@ -5762,6 +5776,12 @@ paths:
                   type: string
                 confirmed:
                   type: boolean
+                preview_only:
+                  type: boolean
+                  default: false
+                content_digest:
+                  type: string
+                  description: Required for generation; obtained from the immediately preceding content preview.
                 request_key:
                   type: string
                   minLength: 16
@@ -5793,8 +5813,13 @@ paths:
               - request_key
       responses:
         '200':
-          description: Validated operation-specific result; AI_REQUEST_EXISTS/AI_SOURCE_CHANGED/AI_CLOUD_CONSENT_STALE
-            are explicit conflicts.
+          description: Content preview or validated operation-specific result. No provider call or usage reservation occurs for previews.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/MailboxAIAssistPreview'
+                - $ref: '#/components/schemas/MailboxAIAssistResponse'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -5812,7 +5837,7 @@ paths:
   /mailbox/ai/search-ask:
     post:
       summary: Answer from currently authorized mailbox sources
-      description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
+      description: Set preview_only=true to obtain the actual selected content and content_digest without any provider call or usage reservation. Display the preview and destination, then send confirmed=true and that content_digest for exactly one call. Changed content, sources or configuration reject before export with AI_CONTENT_CONSENT_STALE. Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
         access; tenant/mailbox identities come from the live session, never request IDs. Explicit destination/content
         consent is required for each request. Retrieval and citations remain tenant/mailbox scoped and recheck live
         message generations and deletion. An unanswerable question is not permission to invent sources. Provider reservations/unknown
@@ -5832,6 +5857,12 @@ paths:
                   type: string
                 confirmed:
                   type: boolean
+                preview_only:
+                  type: boolean
+                  default: false
+                content_digest:
+                  type: string
+                  description: Required for generation; obtained from the immediately preceding content preview.
                 folder_enc:
                   type: string
                 after:
@@ -5844,7 +5875,13 @@ paths:
               - confirmed
       responses:
         '200':
-          description: Successful scoped result.
+          description: Retrieved content preview or grounded answer from currently authorized sources.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/MailboxAIAskPreview'
+                - $ref: '#/components/schemas/MailboxAIAskResponse'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -9477,6 +9514,85 @@ paths:
           description: Facts or CSV exceed complete-export budget
         '429':
           description: Export rate exceeded
+  /mailbox/send-receipts:
+    get:
+      summary: Reconcile immediate send attempts without SMTP submission
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: request_key, in: query, schema: {type: string}}
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      - {name: offset, in: query, schema: {type: integer, minimum: 0, default: 0}}
+      - {name: folder_enc, in: query, schema: {type: string}, description: Exact draft source filter; requires uid and uid_validity. Returns active unreleased associations only.}
+      - {name: uid, in: query, schema: {type: integer, minimum: 1}}
+      - {name: uid_validity, in: query, schema: {type: integer, minimum: 1}}
+      responses:
+        '200': {description: 'Owner-scoped items, each containing id, request_key, status, sent_copy_state, message_id, created_at, accepted_at, last_error and optional draft_source. No raw mail or secrets are returned.'}
+        '401': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /mailbox/send-receipts/{id}:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    get:
+      summary: Read one owner-scoped immediate send receipt
+      security: [{MailboxBearer: []}]
+      responses:
+        '200': {description: 'receipt with status prepared/submitting/accepted/rejected/uncertain and independent sent_copy_state none/pending/unknown/complete/held.'}
+        '404': {$ref: '#/components/responses/Error'}
+  /mailbox/send-receipts/{id}/repair-sent-copy:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    post:
+      summary: Reconcile or save an accepted Sent copy using the current mailbox session
+      description: Performs IMAP only, never SMTP. Full-byte reconciliation precedes any APPEND; unknown outcomes do not permit blind append. Held recovery content survives until repaired or explicitly handled. Changed credentials require a new login.
+      security: [{MailboxBearer: []}]
+      responses:
+        '200': {description: Updated owner receipt; pending or held is not confirmation of a saved copy.}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /mailbox/scheduled-sends/{id}/acknowledge-uncertain:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+    post:
+      summary: End an uncertain scheduled attempt after explicit owner review
+      description: Does not send mail. Only uncertain or restored held attempts are released, never accepted ones. The owner may then deliberately start a new send from the retained draft.
+      security: [{MailboxBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmed]
+              properties:
+                confirmed: {type: boolean, enum: [true]}
+      responses:
+        '200': {description: Updated scheduled item.}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /mailbox/ai/models:
+    post:
+      summary: Probe the owner-selected model catalog without mail content
+      description: Sends only a metadata GET. Local Ollama requires the exact operator-approved endpoint. A saved key is used only when the supplied provider and endpoint exactly match its stored destination; credentials are never returned.
+      security: [{MailboxBearer: []}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider: {type: string, enum: [openai, azure, ollama]}
+                endpoint: {type: string}
+                model: {type: string}
+                api_key: {type: string, writeOnly: true}
+      responses:
+        '200': {description: 'status reachable and models array; no completion or sending action.'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     MailboxBearer:
@@ -9501,6 +9617,87 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    MailboxAIAssistPreview:
+      type: object
+      required: [content_digest, messages, provider, model, endpoint]
+      properties:
+        content_digest:
+          type: string
+          description: Binds this exact content and destination for one confirmed invocation.
+        provider:
+          type: string
+        model:
+          type: string
+        endpoint:
+          type: string
+        messages:
+          type: array
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+              content:
+                type: string
+    MailboxAIAssistResponse:
+      type: object
+      required: [result]
+      properties:
+        result:
+          type: object
+          description: Validated fields depend on operation; only the matching operation fields are returned.
+          properties:
+            category:
+              type: string
+            score:
+              type: number
+            summary:
+              type: string
+            translation:
+              type: string
+            reasons:
+              type: array
+              items:
+                type: string
+            subject:
+              type: string
+            body:
+              type: string
+            draft:
+              type: string
+    MailboxAIAskPreview:
+      type: object
+      required: [content_digest, question, sources]
+      properties:
+        content_digest:
+          type: string
+        question:
+          type: string
+        sources:
+          type: array
+          nullable: true
+          items:
+            type: object
+            required: [ID, Quote]
+            properties:
+              ID:
+                type: string
+              Quote:
+                type: string
+    MailboxAIAskResponse:
+      type: object
+      required: [text, citations, grounded]
+      properties:
+        text:
+          type: string
+        citations:
+          type: array
+          nullable: true
+          items:
+            type: string
+        grounded:
+          type: boolean
     AIQuotaBudgetStatus:
       type: object
       required:
@@ -9710,9 +9907,31 @@ components:
         credential_configured:
           type: boolean
           readOnly: true
+    MailboxMessageRef:
+      type: object
+      required: [folder_enc, uid_validity, uid]
+      properties:
+        folder_enc: {type: string}
+        uid_validity: {type: integer, minimum: 1, maximum: 4294967295}
+        uid: {type: integer, minimum: 1, maximum: 4294967295}
+    MailboxUserAIConfiguration:
+      type: object
+      additionalProperties: false
+      properties:
+        use_custom: {type: boolean}
+        provider: {type: string, enum: [openai, azure, ollama]}
+        endpoint: {type: string, maxLength: 2048, description: HTTPS for cloud services; local Ollama requires the exact operator allowlist.}
+        model: {type: string, maxLength: 256}
+        api_key: {type: string, maxLength: 4096, writeOnly: true}
+        clear_api_key: {type: boolean, writeOnly: true}
+        key_configured: {type: boolean, readOnly: true}
     NativeMailboxCompose:
       type: object
       properties:
+        from: {type: string}
+        in_reply_to: {type: string}
+        draft_source: {$ref: '#/components/schemas/MailboxMessageRef'}
+        acknowledged_uncertain_receipt_id: {type: integer, minimum: 1, description: Explicit user-reviewed prior uncertain receipt; a new send still requires a new request key.}
         to: {type: array, items: {type: string, format: email}}
         cc: {type: array, items: {type: string, format: email}}
         bcc: {type: array, items: {type: string, format: email}}
@@ -9729,6 +9948,8 @@ components:
             properties:
               filename: {type: string}
               content_type: {type: string}
+              content_id: {type: string, description: Optional CID for a preserved inline resource.}
+              inline: {type: boolean}
               content_base64: {type: string, format: byte, description: 'One nonempty attachment, at most 5 MiB decoded.'}
     NativeMailboxSchedule:
       type: object
