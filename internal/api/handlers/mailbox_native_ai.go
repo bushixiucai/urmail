@@ -57,7 +57,6 @@ type nativeAIInput struct {
 	Language            string  `json:"target_language"`
 }
 
-
 type userAICustomConfig struct {
 	UseCustom bool   `json:"use_custom"`
 	Provider  string `json:"provider"`
