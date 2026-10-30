@@ -356,3 +356,280 @@ for (const locale of ["en", "zh-CN"]) {
     );
   });
 }
+
+// These loopback route fixtures exercise browser state and request contracts.
+// Real SMTP, IMAP, PostgreSQL and RLS are verified by separate acceptance tests.
+const crossFolderRows = [
+  {
+    uid: 1,
+    uid_validity: 9,
+    folder_enc: "b64.SU5CT1g",
+    folder: "INBOX",
+    subject: "Browser cross inbox",
+    from: [{ email: "sender@example.test" }],
+    date: "2026-10-30T08:00:00Z",
+    flags: ["\\Seen"],
+    size: 100,
+    has_attachments: false,
+  },
+  {
+    uid: 1,
+    uid_validity: 11,
+    folder_enc: "b64.QXJjaGl2ZQ",
+    folder: "Archive",
+    subject: "Browser cross archive",
+    from: [{ email: "sender@example.test" }],
+    date: "2026-10-30T08:00:00Z",
+    flags: ["\\Seen"],
+    size: 100,
+    has_attachments: false,
+  },
+];
+
+async function crossFolderFixture(page: Page) {
+  const t = await localFixture(page, "en");
+  const operations: Array<{
+    path: string;
+    body: { uids: number[]; uid_validity: number };
+  }> = [];
+  let archiveAttempts = 0;
+  await page.route("**/api/v1/mailbox/**", async (route) => {
+    const url = new URL(route.request().url());
+    let payload: unknown;
+    if (url.pathname.endsWith("/folders")) {
+      payload = {
+        folders: crossFolderRows.map((row) => ({
+          name: row.folder,
+          name_enc: row.folder_enc,
+          delimiter: "/",
+          flags: [],
+        })),
+      };
+    } else if (url.pathname.endsWith("/search")) {
+      payload = { messages: crossFolderRows, total: 2, limit: 50, offset: 0 };
+    } else if (url.pathname.endsWith("/messages/trash")) {
+      const body = route.request().postDataJSON() as {
+        uids: number[];
+        uid_validity: number;
+      };
+      operations.push({ path: url.pathname, body });
+      const archive = url.pathname.includes("b64.QXJjaGl2ZQ");
+      if (archive) archiveAttempts++;
+      payload = {
+        results: [
+          {
+            uid: 1,
+            status: archive && archiveAttempts === 1 ? "failed" : "success",
+          },
+        ],
+      };
+    } else if (/\/messages\/1$/.test(url.pathname)) {
+      const row = crossFolderRows.find((item) =>
+        url.pathname.includes(`/folders/${item.folder_enc}/`),
+      );
+      if (!row) throw new Error("Unexpected cross-folder detail source");
+      payload = { ...row, text: `${row.subject} body`, attachments: [] };
+    } else {
+      return route.fallback();
+    }
+    await route.fulfill({ json: payload });
+  });
+  return { t, operations };
+}
+
+async function searchEveryFolder(
+  page: Page,
+  t: Record<string, string>,
+  query: string,
+) {
+  const scope = page.getByRole("checkbox", {
+    name: t["page.webmail.search_all_folders"],
+    exact: true,
+  });
+  await scope.check();
+  await expect(scope).toBeChecked();
+  const input = page.getByRole("textbox", {
+    name: t["page.webmail.search_aria"],
+    exact: true,
+  });
+  await expect(input).toBeEnabled();
+  await input.fill(query);
+  await input.press("Enter");
+}
+
+test("cross-folder equal UIDs keep separate actions and retry only failed selections", async ({
+  page,
+}) => {
+  const { t, operations } = await crossFolderFixture(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/webmail/inbox");
+  await expect(
+    page.getByText("Viewport fixture", { exact: true }),
+  ).toBeVisible();
+  await searchEveryFolder(page, t, "cross");
+  for (const row of crossFolderRows) {
+    await page.getByText(row.subject, { exact: true }).click();
+    await expect(
+      page.getByText(`${row.subject} body`, { exact: true }),
+    ).toBeVisible();
+  }
+  await expect(
+    page.getByText("Browser cross inbox body", { exact: true }),
+  ).toHaveCount(0);
+  const listItem = (subject: string) =>
+    page
+      .getByRole("listitem")
+      .filter({ has: page.getByText(subject, { exact: true }) });
+  for (const row of crossFolderRows)
+    await listItem(row.subject).getByRole("checkbox").check();
+  const removeSelection = async () => {
+    await page
+      .getByRole("toolbar", { name: t["page.webmail.bulk_actions"] })
+      .getByRole("button", { name: t["page.webmail.delete"], exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog
+      .getByRole("button", { name: t["action.confirm"], exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+  };
+  await removeSelection();
+  await expect(listItem("Browser cross inbox")).toHaveCount(0);
+  await expect(
+    listItem("Browser cross archive").getByRole("checkbox"),
+  ).toBeChecked();
+  expect(operations).toEqual([
+    {
+      path: "/api/v1/mailbox/folders/b64.SU5CT1g/messages/trash",
+      body: { uids: [1], uid_validity: 9 },
+    },
+    {
+      path: "/api/v1/mailbox/folders/b64.QXJjaGl2ZQ/messages/trash",
+      body: { uids: [1], uid_validity: 11 },
+    },
+  ]);
+  await removeSelection();
+  await expect(listItem("Browser cross archive")).toHaveCount(0);
+  expect(operations).toHaveLength(3);
+  expect(operations[2]).toEqual({
+    path: "/api/v1/mailbox/folders/b64.QXJjaGl2ZQ/messages/trash",
+    body: { uids: [1], uid_validity: 11 },
+  });
+  await mkdir(evidenceDirectory, { recursive: true });
+  await writeFile(
+    resolve(evidenceDirectory, "cross-folder-actions.json"),
+    JSON.stringify(operations, null, 2),
+  );
+});
+
+test("a delayed cross-folder search cannot replace a newer folder search", async ({
+  page,
+}) => {
+  const { t } = await crossFolderFixture(page);
+  let releaseOld!: () => void;
+  const oldGate = new Promise<void>((resolve) => {
+    releaseOld = resolve;
+  });
+  let oldRequested = false;
+  let oldReleased = false;
+  await page.route("**/api/v1/mailbox/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (
+      url.pathname.endsWith("/search") &&
+      url.searchParams.get("q") === "delayed"
+    ) {
+      oldRequested = true;
+      await oldGate;
+      await route.fulfill({
+        json: {
+          messages: [
+            { ...crossFolderRows[0], subject: "Obsolete browser search" },
+          ],
+          total: 1,
+        },
+      });
+      oldReleased = true;
+    } else if (
+      url.pathname.endsWith("/messages") &&
+      url.pathname.includes("b64.QXJjaGl2ZQ")
+    ) {
+      await route.fulfill({
+        json: {
+          messages: [
+            {
+              ...crossFolderRows[1],
+              subject: url.searchParams.get("q")
+                ? "Newest browser search"
+                : "Current archive message",
+            },
+          ],
+          uid_validity: 11,
+          total: 1,
+          limit: 50,
+          offset: 0,
+        },
+      });
+    } else return route.fallback();
+  });
+  await page.goto("/webmail/inbox");
+  await expect(
+    page.getByText("Viewport fixture", { exact: true }),
+  ).toBeVisible();
+  await searchEveryFolder(page, t, "delayed");
+  await expect.poll(() => oldRequested).toBe(true);
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(
+    page.getByText("Current archive message", { exact: true }),
+  ).toBeVisible();
+  const scope = page.getByRole("checkbox", {
+    name: t["page.webmail.search_all_folders"],
+    exact: true,
+  });
+  await scope.uncheck();
+  await expect(scope).not.toBeChecked();
+  const input = page.getByRole("textbox", {
+    name: t["page.webmail.search_aria"],
+    exact: true,
+  });
+  await expect(input).toBeEnabled();
+  await input.fill("latest");
+  await input.press("Enter");
+  await expect(
+    page.getByText("Newest browser search", { exact: true }),
+  ).toBeVisible();
+  releaseOld();
+  await expect.poll(() => oldReleased).toBe(true);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(input).toBeEnabled();
+  await expect(input).toHaveValue("latest");
+  await expect(
+    page.getByText("Newest browser search", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Obsolete browser search", { exact: true }),
+  ).toHaveCount(0);
+  await mkdir(evidenceDirectory, { recursive: true });
+  await writeFile(
+    resolve(evidenceDirectory, "search-lifecycle.json"),
+    JSON.stringify(
+      {
+        oldRequested,
+        oldReleased,
+        latestQuery: await input.inputValue(),
+        currentResult: await page
+          .getByText("Newest browser search", { exact: true })
+          .innerText(),
+        obsoleteResultCount: await page
+          .getByText("Obsolete browser search", { exact: true })
+          .count(),
+      },
+      null,
+      2,
+    ),
+  );
+});
