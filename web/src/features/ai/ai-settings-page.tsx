@@ -42,6 +42,7 @@ export function AISettingsPage() {
     enabled: false,
     local_only: true,
   });
+  const [byokPolicy, setByokPolicy] = useState<"disabled" | "approved" | "public">("approved");
   const [policy, setPolicy] = useState<CloudPolicy | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [cloud, setCloud] = useState<string[]>([]);
@@ -312,6 +313,21 @@ export function AISettingsPage() {
         <p className="text-sm text-muted-foreground sm:col-span-2">
           {t("page.ai.budget_policy")}
         </p>
+        <label className="sm:col-span-2">
+          {t("page.ai.byok_policy")}
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {t("page.ai.byok_policy_desc")}
+          </p>
+          <select
+            className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
+            value={byokPolicy}
+            onChange={(e) => setByokPolicy(e.target.value as "disabled" | "approved" | "public")}
+          >
+            <option value="approved">{t("page.ai.byok_approved")}</option>
+            <option value="public">{t("page.ai.byok_public")}</option>
+            <option value="disabled">{t("page.ai.byok_disabled")}</option>
+          </select>
+        </label>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
           <Button
             disabled={

@@ -115,8 +115,12 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	}
 	cfg, configurationErr := q.PlatformGetAIProvider(ctx, principal.TenantID)
 	if custom != nil {
-		if configurationErr != nil || !cfg.Enabled {
-			return nil, ai.ErrProviderDisabled
+		if configurationErr != nil && !errors.Is(configurationErr, pgx.ErrNoRows) {
+			return nil, configurationErr
+		}
+		if errors.Is(configurationErr, pgx.ErrNoRows) {
+			cfg = store.AiProviderConfigs{TenantID: principal.TenantID, PersonalMode: "public"}
+			configurationErr = nil
 		}
 		cfg, err = customAIConfiguration(ctx, q, cfg, principal.TenantID, principal.MailboxID, custom, targetDigest)
 		if err != nil {
@@ -139,7 +143,10 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if !errors.Is(lookup, pgx.ErrNoRows) {
 		return nil, lookup
 	}
-	if configurationErr != nil || !cfg.Enabled {
+	if custom == nil && (configurationErr != nil || !cfg.Enabled) {
+		return nil, ai.ErrProviderDisabled
+	}
+	if !cfg.Enabled {
 		return nil, ai.ErrProviderDisabled
 	}
 	if targetDigest != "" && targetDigest != cfg.ConfigurationDigest {
@@ -166,7 +173,31 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	budgetNow := time.Now().Truncate(time.Microsecond)
 	quota, err := resolveAIQuota(ctx, q, cfg, principal.TenantID, budgetNow)
 	if err != nil {
-		return nil, errAIBudget
+		if custom != nil {
+			quota = aiQuotaResolution{
+				Source:      "personal_byok",
+				Independent: true,
+				Start:       pgtype.Timestamptz{Time: budgetNow.Add(-time.Minute), Valid: true},
+				End:         pgtype.Timestamptz{Time: budgetNow.Add(time.Minute), Valid: true},
+			}
+			quota.Limits.AI.Calls = 60
+			quota.Limits.AI.MailboxCalls = 60
+			quota.Limits.AI.Concurrency = 5
+			quota.Limits.AI.Tokens = math.MaxInt64
+			quota.Limits.AI.Cost = math.MaxInt64
+		} else {
+			return nil, errAIBudget
+		}
+	} else if custom != nil {
+		quota.Limits.AI.Tokens = math.MaxInt64
+		quota.Limits.AI.Cost = math.MaxInt64
+		if quota.Limits.AI.Calls <= 0 || quota.Limits.AI.Calls > 60 {
+			quota.Limits.AI.Calls = 60
+			quota.Limits.AI.MailboxCalls = 60
+		}
+		if quota.Limits.AI.Concurrency <= 0 || quota.Limits.AI.Concurrency > 5 {
+			quota.Limits.AI.Concurrency = 5
+		}
 	}
 	limits := quota.Limits
 	start, end := quota.Start, quota.End
@@ -184,11 +215,13 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	} else {
 		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
 	}
-	if err = checkAIProviderBudget(ctx, q, cfg, principal.TenantID, reservedTokens, reservedCost, budgetNow); err != nil {
-		if errors.Is(err, ErrAIBudgetExceeded) {
-			return nil, errAIBudget
+	if custom == nil {
+		if err = checkAIProviderBudget(ctx, q, cfg, principal.TenantID, reservedTokens, reservedCost, budgetNow); err != nil {
+			if errors.Is(err, ErrAIBudgetExceeded) {
+				return nil, errAIBudget
+			}
+			return nil, err
 		}
-		return nil, err
 	}
 	var provider ai.Provider
 	switch {
@@ -319,15 +352,60 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 		return
 	}
 	var input struct {
-		Mode      string `json:"mode"`
-		Provider  string `json:"provider"`
-		Endpoint  string `json:"endpoint"`
-		Model     string `json:"model"`
-		Key       string `json:"api_key"`
-		Enabled   bool   `json:"enabled"`
-		LocalOnly bool   `json:"local_only"`
+		Mode              string   `json:"mode"`
+		Provider          string   `json:"provider"`
+		Endpoint          string   `json:"endpoint"`
+		Model             string   `json:"model"`
+		Key               string   `json:"api_key"`
+		Enabled           bool     `json:"enabled"`
+		LocalOnly         bool     `json:"local_only"`
+		PersonalMode      string   `json:"personal_mode"`
+		ApprovedEndpoints []string `json:"approved_endpoints"`
+		ActiveService     string   `json:"active_service"`
 	}
-	if c.ShouldBindJSON(&input) != nil || len(input.Model) == 0 || len(input.Model) > 200 || len(input.Key) > 4096 || (input.Mode != "byo" && input.Mode != "local") {
+	if c.ShouldBindJSON(&input) != nil {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	if input.PersonalMode != "" && input.PersonalMode != "disabled" && input.PersonalMode != "approved" && input.PersonalMode != "public" {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	if input.ActiveService != "" && input.ActiveService != "platform" && input.ActiveService != "enterprise" {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	raw, ok := middleware.QueriesFromCtx(c)
+	tenantQueries, scoped := raw.(*store.Queries)
+	if !ok || !scoped {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	if input.Mode == "" && (input.PersonalMode != "" || input.ApprovedEndpoints != nil || input.ActiveService != "") {
+		if input.PersonalMode != "" || input.ApprovedEndpoints != nil {
+			pm := input.PersonalMode
+			if pm == "" {
+				pm = "public"
+			}
+			eps := input.ApprovedEndpoints
+			if eps == nil {
+				eps = []string{}
+			}
+			if err := tenantQueries.PlatformConfigureTenantAIGovernance(c, store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
+				authError(c, 503, "DB_ERROR")
+				return
+			}
+		}
+		if input.ActiveService != "" {
+			if err := tenantQueries.PlatformSetActiveAIService(c, store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
+				authError(c, 503, "DB_ERROR")
+				return
+			}
+		}
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if len(input.Model) == 0 || len(input.Model) > 200 || len(input.Key) > 4096 || (input.Mode != "byo" && input.Mode != "local") {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
@@ -356,8 +434,14 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			authError(c, 503, "AI_DISABLED")
 			return
 		}
-	} else if previous, err := q.PlatformGetAIProvider(c, tid); err == nil && previous.Mode == input.Mode && previous.Provider == input.Provider && previous.Endpoint == strings.TrimRight(input.Endpoint, "/") {
-		encrypted = previous.EncryptedKey
+	} else if previous, err := q.PlatformGetAIProvider(c, tid); err == nil {
+		if (previous.EnterpriseProvider == input.Provider || previous.Provider == input.Provider) && (strings.TrimRight(previous.EnterpriseEndpoint, "/") == strings.TrimRight(input.Endpoint, "/") || strings.TrimRight(previous.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/")) {
+			if previous.EnterpriseEncryptedKey != "" {
+				encrypted = previous.EnterpriseEncryptedKey
+			} else {
+				encrypted = previous.EncryptedKey
+			}
+		}
 	}
 	if input.Enabled {
 		credential := input.Key
@@ -369,16 +453,30 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			return
 		}
 	}
-	raw, ok := middleware.QueriesFromCtx(c)
-	tenantQueries, scoped := raw.(*store.Queries)
-	if !ok || !scoped {
-		authError(c, 503, "DB_ERROR")
-		return
-	}
 	err := tenantQueries.PlatformConfigureTenantAI(c, store.PlatformConfigureTenantAIParams{Mode: input.Mode, Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, LocalOnly: input.LocalOnly})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
+	}
+	if input.PersonalMode != "" || input.ApprovedEndpoints != nil {
+		pm := input.PersonalMode
+		if pm == "" {
+			pm = "public"
+		}
+		eps := input.ApprovedEndpoints
+		if eps == nil {
+			eps = []string{}
+		}
+		if err := tenantQueries.PlatformConfigureTenantAIGovernance(c, store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
+			authError(c, 503, "DB_ERROR")
+			return
+		}
+	}
+	if input.ActiveService != "" {
+		if err := tenantQueries.PlatformSetActiveAIService(c, store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
+			authError(c, 503, "DB_ERROR")
+			return
+		}
 	}
 	c.Status(http.StatusNoContent)
 }
@@ -527,8 +625,38 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		if input.Model == "" {
 			input.Model = "gpt-4o"
 		}
-		candidate, err := ai.DynamicProvider(input.Provider, input.Endpoint, input.Model, input.APIKey)
+		// F04: Stored key reuse when endpoint and provider match stored config
+		if input.APIKey == "" && input.Provider != "ollama" {
+			stored, sErr := store.New(h.Pool).PlatformGetAIProvider(c, tid)
+			if sErr == nil && h.Secrets != nil {
+				keyEnc := stored.EncryptedKey
+				if stored.EnterpriseEncryptedKey != "" && strings.TrimRight(stored.EnterpriseEndpoint, "/") == strings.TrimRight(input.Endpoint, "/") {
+					keyEnc = stored.EnterpriseEncryptedKey
+				}
+				if (stored.Provider == input.Provider || stored.EnterpriseProvider == input.Provider) &&
+					(strings.TrimRight(stored.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/") || strings.TrimRight(stored.EnterpriseEndpoint, "/") == strings.TrimRight(input.Endpoint, "/")) &&
+					keyEnc != "" {
+					decrypted, decErr := h.Secrets.DecryptString(keyEnc)
+					if decErr == nil {
+						input.APIKey = decrypted
+					}
+				}
+			}
+		}
+		// F02/F03/D19: Endpoint security: Candidate health test must NOT bypass local endpoint / SSRF / loopback checks.
+		// Local endpoints are restricted to platform approved list.
+		var candidate ai.Provider
+		var err error
+		if input.Provider == "ollama" {
+			candidate, err = ai.ConfiguredProvider(input.Provider, input.Endpoint, input.Model, "", nil, h.LocalEndpoints)
+		} else {
+			candidate, err = ai.DynamicProvider(input.Provider, input.Endpoint, input.Model, input.APIKey)
+		}
 		if err != nil {
+			if errors.Is(err, ai.ErrProviderDisabled) || err.Error() == ai.ErrProviderDisabled.Error() {
+				authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
+				return
+			}
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}

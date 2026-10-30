@@ -146,17 +146,16 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 	cfg, err := q.PlatformGetAIProvider(ctx, tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if custom != nil {
-			return nil, ai.ErrProviderDisabled
+			cfg = store.AiProviderConfigs{TenantID: tenantID, PersonalMode: "public"}
+			err = nil
+		} else {
+			return nil, ErrNotAccounted
 		}
-		return nil, ErrNotAccounted
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !cfg.Enabled {
-		if custom != nil {
-			return nil, ai.ErrProviderDisabled
-		}
+	if custom == nil && !cfg.Enabled {
 		return nil, ErrNotAccounted
 	}
 	if custom != nil {
@@ -175,8 +174,10 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 		}
 	}
 	now := time.Now().Truncate(time.Microsecond)
-	if err = checkAIProviderBudget(ctx, q, cfg, tenantID, reservedTokens, reservedCost, now); err != nil {
-		return nil, err
+	if custom == nil {
+		if err = checkAIProviderBudget(ctx, q, cfg, tenantID, reservedTokens, reservedCost, now); err != nil {
+			return nil, err
+		}
 	}
 
 	digest := sha256.Sum256([]byte(question))
@@ -186,7 +187,31 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 	}
 	quota, err := resolveAIQuota(ctx, q, cfg, tenantID, now)
 	if err != nil {
-		return nil, ErrAIBudgetExceeded
+		if custom != nil {
+			quota = aiQuotaResolution{
+				Source:      "personal_byok",
+				Independent: true,
+				Start:       pgtype.Timestamptz{Time: now.Add(-time.Minute), Valid: true},
+				End:         pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true},
+			}
+			quota.Limits.AI.Calls = 60
+			quota.Limits.AI.MailboxCalls = 60
+			quota.Limits.AI.Concurrency = 5
+			quota.Limits.AI.Tokens = math.MaxInt64
+			quota.Limits.AI.Cost = math.MaxInt64
+		} else {
+			return nil, ErrAIBudgetExceeded
+		}
+	} else if custom != nil {
+		quota.Limits.AI.Tokens = math.MaxInt64
+		quota.Limits.AI.Cost = math.MaxInt64
+		if quota.Limits.AI.Calls <= 0 || quota.Limits.AI.Calls > 60 {
+			quota.Limits.AI.Calls = 60
+			quota.Limits.AI.MailboxCalls = 60
+		}
+		if quota.Limits.AI.Concurrency <= 0 || quota.Limits.AI.Concurrency > 5 {
+			quota.Limits.AI.Concurrency = 5
+		}
 	}
 	limits := quota.Limits
 	start, end := quota.Start, quota.End

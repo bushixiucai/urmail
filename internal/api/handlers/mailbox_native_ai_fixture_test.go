@@ -367,6 +367,12 @@ func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
 	authed.GET("/drafts", native.ListDrafts)
 	RegisterNativeMailboxAI(authed, native, service, answer)
 	authed.POST("/ai/search-ask", answer.Handle)
+	authed.GET("/ai/search-ask/status", answer.Status)
+	authed.POST("/ai/search-ask/clear", answer.Clear)
+	authed.DELETE("/ai/search-ask/index", answer.Clear)
+	authed.GET("/ai/index/status", answer.Status)
+	authed.POST("/ai/index/clear", answer.Clear)
+	authed.DELETE("/ai/index", answer.Clear)
 	authed.GET("/ai/budget", (&AISearchAskAccounting{Pool: p}).BudgetStatus)
 	return nativeAIHTTPFixture{router: r, pool: p, principal: principal, password: password, mail: mail, model: model, native: native, aiService: service, search: answer}
 }

@@ -185,6 +185,24 @@ func (q *Queries) MailboxAIChunkMessageStates(ctx context.Context, arg MailboxAI
 	return items, nil
 }
 
+const purgeMailboxAIChunks = `-- name: PurgeMailboxAIChunks :execrows
+DELETE FROM mailbox_ai_chunks
+WHERE tenant_id = $1 AND mailbox_id = $2
+`
+
+type PurgeMailboxAIChunksParams struct {
+	TenantID  int64 `json:"tenant_id"`
+	MailboxID int64 `json:"mailbox_id"`
+}
+
+func (q *Queries) PurgeMailboxAIChunks(ctx context.Context, arg PurgeMailboxAIChunksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeMailboxAIChunks, arg.TenantID, arg.MailboxID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const searchMailboxAIChunks = `-- name: SearchMailboxAIChunks :many
 SELECT id, folder, folder_uidvalidity, message_uid, chunk_index,
        content_version, content, content_digest

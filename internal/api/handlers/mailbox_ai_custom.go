@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -20,8 +21,31 @@ func customAIConfiguration(ctx context.Context, q *store.Queries, cfg store.AiPr
 	if target == nil || !target.UseCustom || expected == "" || target.Digest != expected {
 		return cfg, errAITargetChanged
 	}
-	if !cfg.Enabled {
-		return cfg, ai.ErrProviderDisabled
+	personalMode := cfg.PersonalMode
+	if personalMode == "" {
+		personalMode = "public"
+	}
+	switch personalMode {
+	case "disabled":
+		return cfg, mailboxsettings.ErrAIPersonalBYOKDisabled
+	case "approved":
+		targetEndpoint := strings.TrimRight(target.Endpoint, "/")
+		allowed := false
+		for _, ep := range cfg.ApprovedEndpoints {
+			if strings.TrimRight(ep, "/") == targetEndpoint {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return cfg, mailboxsettings.ErrAIEndpointNotApproved
+		}
+	case "public":
+		if target.Provider != ai.ProviderOllama && !strings.HasPrefix(target.Endpoint, "https://") {
+			return cfg, mailboxsettings.ErrAIEndpointNotApproved
+		}
+	default:
+		return cfg, mailboxsettings.ErrAIPersonalBYOKDisabled
 	}
 	row, err := q.PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{TenantID: tenant, MailboxID: mailbox})
 	if err != nil {
@@ -47,6 +71,7 @@ func customAIConfiguration(ctx context.Context, q *store.Queries, cfg store.AiPr
 		return cfg, ai.ErrLocalOnly
 	}
 	cfg = projectCustomAITarget(cfg, target.AIConfig)
+	cfg.Enabled = true
 	cfg.ConfigurationDigest = expected
 	return cfg, nil
 }

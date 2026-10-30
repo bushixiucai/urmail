@@ -79,7 +79,9 @@ func FetchModels(ctx context.Context, provider Provider) ([]string, error) {
 			Model string `json:"model"`
 		} `json:"models"`
 	}
-	_ = json.Unmarshal(bodyBytes, &parsed)
+	if err := json.Unmarshal(bodyBytes, &parsed); err != nil {
+		return nil, ErrProviderError
+	}
 
 	seen := make(map[string]bool)
 	var models []string

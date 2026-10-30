@@ -22,6 +22,7 @@ type ChunkStore interface {
 	ReplaceMessage(ctx context.Context, p Principal, folder string, uidValidity, uid uint32, version int, digest string, contents []string) error
 	DeleteMessages(ctx context.Context, p Principal, folder string, uidValidity uint32, uids []uint32) error
 	DeleteFolder(ctx context.Context, p Principal, folder string) error
+	PurgeChunks(ctx context.Context, p Principal) error
 	SearchChunks(ctx context.Context, p Principal, query string, limit int) ([]Chunk, error)
 	// GetChunk re-reads one chunk under the given principal. found=false is
 	// returned when the chunk does not belong to this principal anymore.
@@ -124,6 +125,16 @@ func (s PGChunkStore) DeleteFolder(ctx context.Context, p Principal, folder stri
 	return s.inTx(ctx, p, func(ctx context.Context, q *store.Queries) error {
 		_, err := q.DeleteMailboxAIChunkFolder(ctx, store.DeleteMailboxAIChunkFolderParams{
 			TenantID: p.TenantID, MailboxID: p.MailboxID, Folder: folder,
+		})
+		return err
+	})
+}
+
+// PurgeChunks purges all indexed chunks for this principal.
+func (s PGChunkStore) PurgeChunks(ctx context.Context, p Principal) error {
+	return s.inTx(ctx, p, func(ctx context.Context, q *store.Queries) error {
+		_, err := q.PurgeMailboxAIChunks(ctx, store.PurgeMailboxAIChunksParams{
+			TenantID: p.TenantID, MailboxID: p.MailboxID,
 		})
 		return err
 	})

@@ -113,6 +113,20 @@ func (q *Queries) PlatformConfigureTenantAI(ctx context.Context, arg PlatformCon
 	return err
 }
 
+const platformConfigureTenantAIGovernance = `-- name: PlatformConfigureTenantAIGovernance :exec
+SELECT urmail_configure_tenant_ai_governance($1::text, $2::text[])
+`
+
+type PlatformConfigureTenantAIGovernanceParams struct {
+	PersonalMode      string   `json:"personal_mode"`
+	ApprovedEndpoints []string `json:"approved_endpoints"`
+}
+
+func (q *Queries) PlatformConfigureTenantAIGovernance(ctx context.Context, arg PlatformConfigureTenantAIGovernanceParams) error {
+	_, err := q.db.Exec(ctx, platformConfigureTenantAIGovernance, arg.PersonalMode, arg.ApprovedEndpoints)
+	return err
+}
+
 const platformExpireAIReservations = `-- name: PlatformExpireAIReservations :exec
 UPDATE ai_usage_requests SET status='uncertain',updated_at=now() WHERE tenant_id=$1 AND status='reserved' AND updated_at<now()-interval '2 minutes'
 `
@@ -152,7 +166,7 @@ func (q *Queries) PlatformFinishAIRequest(ctx context.Context, arg PlatformFinis
 }
 
 const platformGetAIProvider = `-- name: PlatformGetAIProvider :one
-SELECT tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone FROM ai_provider_configs WHERE tenant_id=$1
+SELECT tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone, platform_provider, platform_endpoint, platform_model, platform_encrypted_key, platform_enabled, enterprise_mode, enterprise_provider, enterprise_endpoint, enterprise_model, enterprise_encrypted_key, enterprise_enabled, enterprise_local_only, personal_mode, approved_endpoints, active_service FROM ai_provider_configs WHERE tenant_id=$1
 `
 
 func (q *Queries) PlatformGetAIProvider(ctx context.Context, tenantID int64) (AiProviderConfigs, error) {
@@ -188,6 +202,21 @@ func (q *Queries) PlatformGetAIProvider(ctx context.Context, tenantID int64) (Ai
 		&i.NonplatformMailboxCallLimit,
 		&i.NonplatformConcurrencyLimit,
 		&i.QuotaTimezone,
+		&i.PlatformProvider,
+		&i.PlatformEndpoint,
+		&i.PlatformModel,
+		&i.PlatformEncryptedKey,
+		&i.PlatformEnabled,
+		&i.EnterpriseMode,
+		&i.EnterpriseProvider,
+		&i.EnterpriseEndpoint,
+		&i.EnterpriseModel,
+		&i.EnterpriseEncryptedKey,
+		&i.EnterpriseEnabled,
+		&i.EnterpriseLocalOnly,
+		&i.PersonalMode,
+		&i.ApprovedEndpoints,
+		&i.ActiveService,
 	)
 	return i, err
 }
@@ -619,10 +648,55 @@ func (q *Queries) PlatformSetAIBudget(ctx context.Context, arg PlatformSetAIBudg
 }
 
 const platformSetAIProvider = `-- name: PlatformSetAIProvider :one
-INSERT INTO ai_provider_configs(tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,input_micros_per_million,output_micros_per_million,cost_currency)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE(NULLIF($11::text,''),'CNY'))
-ON CONFLICT(tenant_id) DO UPDATE SET mode=EXCLUDED.mode,provider=EXCLUDED.provider,endpoint=EXCLUDED.endpoint,model=EXCLUDED.model,encrypted_key=EXCLUDED.encrypted_key,enabled=EXCLUDED.enabled,local_only=EXCLUDED.local_only,input_micros_per_million=EXCLUDED.input_micros_per_million,output_micros_per_million=EXCLUDED.output_micros_per_million,cost_currency=EXCLUDED.cost_currency,updated_at=now()
-RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone
+INSERT INTO ai_provider_configs(
+  tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,
+  platform_provider,platform_endpoint,platform_model,platform_encrypted_key,platform_enabled,
+  enterprise_mode,enterprise_provider,enterprise_endpoint,enterprise_model,enterprise_encrypted_key,enterprise_enabled,enterprise_local_only,
+  active_service,input_micros_per_million,output_micros_per_million,cost_currency
+)
+VALUES(
+  $1,$2,$3,$4,$5,$6,$7,$8,
+  CASE WHEN $2 = 'platform' THEN $3 ELSE 'openai' END,
+  CASE WHEN $2 = 'platform' THEN $4 ELSE '' END,
+  CASE WHEN $2 = 'platform' THEN $5 ELSE '' END,
+  CASE WHEN $2 = 'platform' THEN $6 ELSE '' END,
+  CASE WHEN $2 = 'platform' THEN $7 ELSE false END,
+  CASE WHEN $2 <> 'platform' THEN $2 ELSE 'byo' END,
+  CASE WHEN $2 <> 'platform' THEN $3 ELSE 'openai' END,
+  CASE WHEN $2 <> 'platform' THEN $4 ELSE '' END,
+  CASE WHEN $2 <> 'platform' THEN $5 ELSE '' END,
+  CASE WHEN $2 <> 'platform' THEN $6 ELSE '' END,
+  CASE WHEN $2 <> 'platform' THEN $7 ELSE false END,
+  CASE WHEN $2 <> 'platform' THEN $8 ELSE true END,
+  CASE WHEN $2 = 'platform' THEN 'platform' ELSE 'enterprise' END,
+  $9,$10,COALESCE(NULLIF($11::text,''),'CNY')
+)
+ON CONFLICT(tenant_id) DO UPDATE SET
+  platform_provider = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.provider ELSE ai_provider_configs.platform_provider END,
+  platform_endpoint = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.endpoint ELSE ai_provider_configs.platform_endpoint END,
+  platform_model = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.model ELSE ai_provider_configs.platform_model END,
+  platform_encrypted_key = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.encrypted_key ELSE ai_provider_configs.platform_encrypted_key END,
+  platform_enabled = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.enabled ELSE ai_provider_configs.platform_enabled END,
+  enterprise_mode = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.mode ELSE ai_provider_configs.enterprise_mode END,
+  enterprise_provider = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.provider ELSE ai_provider_configs.enterprise_provider END,
+  enterprise_endpoint = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.endpoint ELSE ai_provider_configs.enterprise_endpoint END,
+  enterprise_model = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.model ELSE ai_provider_configs.enterprise_model END,
+  enterprise_encrypted_key = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.encrypted_key ELSE ai_provider_configs.enterprise_encrypted_key END,
+  enterprise_enabled = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.enabled ELSE ai_provider_configs.enterprise_enabled END,
+  enterprise_local_only = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.local_only ELSE ai_provider_configs.enterprise_local_only END,
+  active_service = CASE WHEN EXCLUDED.mode = 'platform' THEN 'platform' ELSE 'enterprise' END,
+  mode = EXCLUDED.mode,
+  provider = EXCLUDED.provider,
+  endpoint = EXCLUDED.endpoint,
+  model = EXCLUDED.model,
+  encrypted_key = EXCLUDED.encrypted_key,
+  enabled = EXCLUDED.enabled,
+  local_only = EXCLUDED.local_only,
+  input_micros_per_million = EXCLUDED.input_micros_per_million,
+  output_micros_per_million = EXCLUDED.output_micros_per_million,
+  cost_currency = EXCLUDED.cost_currency,
+  updated_at = now()
+RETURNING tenant_id, mode, provider, endpoint, model, encrypted_key, enabled, local_only, input_micros_per_million, output_micros_per_million, cost_currency, updated_at, configuration_version, cloud_scope_hash, configuration_digest, tenant_local_only, cloud_consent_digest, cloud_consent_scope_hash, cloud_consent_by, cloud_consent_at, cloud_consent_revoked_at, daily_token_limit, daily_cost_micros, monthly_token_limit, monthly_cost_micros, nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone, platform_provider, platform_endpoint, platform_model, platform_encrypted_key, platform_enabled, enterprise_mode, enterprise_provider, enterprise_endpoint, enterprise_model, enterprise_encrypted_key, enterprise_enabled, enterprise_local_only, personal_mode, approved_endpoints, active_service
 `
 
 type PlatformSetAIProviderParams struct {
@@ -684,8 +758,47 @@ func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIPr
 		&i.NonplatformMailboxCallLimit,
 		&i.NonplatformConcurrencyLimit,
 		&i.QuotaTimezone,
+		&i.PlatformProvider,
+		&i.PlatformEndpoint,
+		&i.PlatformModel,
+		&i.PlatformEncryptedKey,
+		&i.PlatformEnabled,
+		&i.EnterpriseMode,
+		&i.EnterpriseProvider,
+		&i.EnterpriseEndpoint,
+		&i.EnterpriseModel,
+		&i.EnterpriseEncryptedKey,
+		&i.EnterpriseEnabled,
+		&i.EnterpriseLocalOnly,
+		&i.PersonalMode,
+		&i.ApprovedEndpoints,
+		&i.ActiveService,
 	)
 	return i, err
+}
+
+const platformSetActiveAIService = `-- name: PlatformSetActiveAIService :exec
+UPDATE ai_provider_configs SET
+  active_service = $1::text,
+  mode = CASE WHEN $1::text = 'platform' THEN 'platform' ELSE enterprise_mode END,
+  provider = CASE WHEN $1::text = 'platform' THEN platform_provider ELSE enterprise_provider END,
+  endpoint = CASE WHEN $1::text = 'platform' THEN platform_endpoint ELSE enterprise_endpoint END,
+  model = CASE WHEN $1::text = 'platform' THEN platform_model ELSE enterprise_model END,
+  encrypted_key = CASE WHEN $1::text = 'platform' THEN platform_encrypted_key ELSE enterprise_encrypted_key END,
+  enabled = CASE WHEN $1::text = 'platform' THEN platform_enabled ELSE enterprise_enabled END,
+  local_only = CASE WHEN $1::text = 'platform' THEN false ELSE enterprise_local_only END,
+  updated_at = now()
+WHERE tenant_id = $2
+`
+
+type PlatformSetActiveAIServiceParams struct {
+	ActiveService string `json:"active_service"`
+	TenantID      int64  `json:"tenant_id"`
+}
+
+func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSetActiveAIServiceParams) error {
+	_, err := q.db.Exec(ctx, platformSetActiveAIService, arg.ActiveService, arg.TenantID)
+	return err
 }
 
 const platformSetMailboxSieve = `-- name: PlatformSetMailboxSieve :execrows

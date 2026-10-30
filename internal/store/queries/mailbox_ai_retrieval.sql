@@ -19,6 +19,10 @@ WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3
 DELETE FROM mailbox_ai_chunks
 WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3;
 
+-- name: PurgeMailboxAIChunks :execrows
+DELETE FROM mailbox_ai_chunks
+WHERE tenant_id = $1 AND mailbox_id = $2;
+
 -- name: InsertMailboxAIChunk :one
 INSERT INTO mailbox_ai_chunks
  (tenant_id, mailbox_id, folder, folder_uidvalidity, message_uid,

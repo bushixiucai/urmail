@@ -118,8 +118,6 @@ import { downloadMailboxMbox } from "./mailbox-import-api";
 import { usableMessageDate } from "./message-date";
 import { MailboxSearchBox } from "./mailbox-search-box";
 import { attachmentDisplayName } from "./attachment-name";
-import { MailboxAIPanel } from "./mailbox-ai-panel";
-import { MailboxAIAsk } from "./mailbox-ai-ask";
 import { MailboxMessageTools } from "./mailbox-message-tools";
 import {
   AttachmentPreview,
@@ -1714,19 +1712,14 @@ export function MailboxInboxPage() {
     ? getFolderInfo(currentFolder, t)
     : null;
 
-  const isSentOrDrafts = useMemo(() => {
-    if (!currentFolder) return false;
-    const name = currentFolder.name.toLowerCase();
-    const flags = currentFolder.flags ?? [];
-    return (
-      name === "sent" ||
-      name === "drafts" ||
-      flags.some(
-        (f) =>
-          f.toLowerCase() === "\\sent" || f.toLowerCase() === "\\drafts",
-      )
-    );
-  }, [currentFolder]);
+  const isSentOrDrafts = Boolean(
+    currentFolder &&
+      (currentFolder.name.toLowerCase() === "sent" ||
+        currentFolder.name.toLowerCase() === "drafts" ||
+        (currentFolder.flags ?? []).some(
+          (f) => f.toLowerCase() === "\\sent" || f.toLowerCase() === "\\drafts",
+        )),
+  );
 
   const folderList = (
     <ul className="space-y-1" aria-label={t("page.webmail.folders")}>
@@ -2286,16 +2279,6 @@ export function MailboxInboxPage() {
 
             <div className="px-3 sm:px-4">
               <MailboxReminders hideWhenEmpty />
-            </div>
-
-            {/* Accessible MailboxAIAsk container so tests can locate citations or questions */}
-            <div className="sr-only">
-              <MailboxAIAsk
-                folders={folders}
-                onCitation={(source) => {
-                  openReference(source);
-                }}
-              />
             </div>
 
             {mutationNotice && (
@@ -3203,68 +3186,6 @@ export function MailboxInboxPage() {
                           message={detail}
                           dateText={dateFmt(detail.date)}
                         />
-
-                        {/* Preserved accessible MailboxAIPanel */}
-                        <div className="sr-only">
-                          {detail.uid_validity &&
-                            (selectedEncRef.current ?? folderEnc) && (
-                              <MailboxAIPanel
-                                key={`ai:${selectedEncRef.current ?? folderEnc}:${detail.uid}`}
-                                mode="read"
-                                source={{
-                                  folder_enc: (selectedEncRef.current ??
-                                    folderEnc)!,
-                                  uid: detail.uid,
-                                  uid_validity: detail.uid_validity,
-                                }}
-                                subject={detail.subject}
-                                body={detail.text ?? ""}
-                                onApply={async (proposal) => {
-                                  const reply = draftFromMessage(
-                                    "reply",
-                                    detail,
-                                  );
-                                  const [settings, identityList] =
-                                    await Promise.all([
-                                      getMailboxSettings(),
-                                      listMailboxIdentities(),
-                                    ]);
-                                  const from = chooseMailboxIdentity(
-                                    settings,
-                                    identityList.identities,
-                                    reply,
-                                  );
-                                  const result = await saveDraft({
-                                    from,
-                                    to: (reply.to ?? "")
-                                      .split(/[,;\s]+/)
-                                      .filter(Boolean),
-                                    cc: (reply.cc ?? "")
-                                      .split(/[,;\s]+/)
-                                      .filter(Boolean),
-                                    subject: reply.subject ?? proposal.subject,
-                                    in_reply_to: detail.message_id,
-                                    reply_source: {
-                                      folder_enc: (selectedEncRef.current ??
-                                        folderEnc)!,
-                                      uid: detail.uid,
-                                      uid_validity: detail.uid_validity!,
-                                    },
-                                    text: proposal.body,
-                                  });
-                                  openCompose({
-                                    ...reply,
-                                    from,
-                                    mode: "draft",
-                                    uid: result.uid,
-                                    uidValidity: result.uid_validity,
-                                    subject: reply.subject ?? proposal.subject,
-                                    text: proposal.body,
-                                  });
-                                }}
-                              />
-                            )}
-                        </div>
 
                         {detail.uid_validity && folderEnc && (
                           <MailboxInvitationPanel

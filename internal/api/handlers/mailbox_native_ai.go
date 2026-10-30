@@ -86,6 +86,7 @@ type nativeAIInput struct {
 	UID                 uint32  `json:"uid"`
 	UIDValidity         uint32  `json:"uid_validity"`
 	Selection           *string `json:"selection"`
+	Draft               string  `json:"draft"`
 	Body                string  `json:"body"`
 	Subject             string  `json:"subject"`
 	Instruction         string  `json:"instruction"`
@@ -144,11 +145,49 @@ func (h *NativeMailboxAI) customProvider(cfg *userAICustomConfig) (ai.Provider, 
 
 func (h *NativeMailboxAI) customGovernance(c *gin.Context, sess webmail.Session, cfg *userAICustomConfig) bool {
 	governance, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
-	if err != nil || !governance.Enabled {
-		authError(c, 403, "AI_DISABLED")
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		authError(c, 503, "AI_UNAVAILABLE")
 		return false
 	}
-	if governance.LocalOnly && cfg.Provider != ai.ProviderOllama {
+	personalMode := "public"
+	var approvedEndpoints []string
+	localOnly := false
+	if err == nil {
+		if governance.PersonalMode != "" {
+			personalMode = governance.PersonalMode
+		}
+		approvedEndpoints = governance.ApprovedEndpoints
+		localOnly = governance.LocalOnly
+	}
+
+	switch personalMode {
+	case "disabled":
+		authError(c, 403, "AI_PERSONAL_BYOK_DISABLED")
+		return false
+	case "approved":
+		targetEndpoint := strings.TrimRight(cfg.Endpoint, "/")
+		allowed := false
+		for _, ep := range approvedEndpoints {
+			if strings.TrimRight(ep, "/") == targetEndpoint {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
+			return false
+		}
+	case "public":
+		if cfg.Provider != ai.ProviderOllama && !strings.HasPrefix(cfg.Endpoint, "https://") {
+			authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
+			return false
+		}
+	default:
+		authError(c, 403, "AI_PERSONAL_BYOK_DISABLED")
+		return false
+	}
+
+	if localOnly && cfg.Provider != ai.ProviderOllama {
 		authError(c, 403, "AI_LOCAL_ONLY")
 		return false
 	}
@@ -373,7 +412,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed || req.PreviewOnly) {
 		return
 	}
-	input := ai.OperationInput{Operation: req.Operation, Body: req.Body, Subject: req.Subject, TargetLanguage: req.Language, Instruction: req.Instruction}
+	input := ai.OperationInput{Operation: req.Operation, Body: req.Body, Subject: req.Subject, TargetLanguage: req.Language, Instruction: req.Instruction, Draft: req.Draft}
 	principal := store.PlatformConsumeMailboxTicketRow{TenantID: sess.TenantID, MailboxID: sess.MailboxID, SessionHash: sess.TokenHash, Address: sess.Address, Scope: "ai_compose"}
 	var digest string
 	if req.UID != 0 {
@@ -381,20 +420,35 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if !ok {
 			return
 		}
-		selected := plainAIMessage(msg)
-		digest = airetrieval.ContentDigest(selected)
+		fullBody := plainAIMessage(msg)
+		digest = airetrieval.ContentDigest(fullBody)
+		selected := fullBody
 		if req.Selection != nil {
 			if strings.TrimSpace(*req.Selection) == "" {
 				authError(c, 400, "AI_SELECTED_CONTENT_REQUIRED")
 				return
 			}
-			if !strings.Contains(selected, *req.Selection) {
+			if !strings.Contains(fullBody, *req.Selection) {
 				authError(c, 409, "AI_SOURCE_CHANGED")
 				return
 			}
 			selected = *req.Selection
 		}
-		input.Draft = req.Body
+		// F06 / D08: Reading context must NOT stuff unselected body into Draft!
+		// Selected text (req.Selection) must be verified against message body; unselected body must NOT be sent to model.
+		// Draft field must only be used if there is an actual draft being polished/replied to.
+		input.Draft = ""
+		if req.Operation == "draft_reply" || req.Operation == "polish" {
+			candidateDraft := req.Draft
+			if candidateDraft == "" && req.Body != "" && req.Body != fullBody && req.Body != selected && !strings.Contains(req.Body, fullBody) {
+				candidateDraft = req.Body
+			}
+			if candidateDraft != "" && candidateDraft != fullBody && candidateDraft != selected && !strings.Contains(candidateDraft, fullBody) {
+				if req.Selection == nil || !strings.Contains(fullBody, candidateDraft) {
+					input.Draft = candidateDraft
+				}
+			}
+		}
 		input.Subject = msg.Subject
 		input.Body = selected
 		if len(msg.From) > 0 {
@@ -490,6 +544,10 @@ func (h *NativeMailboxAI) verifyResultSource(c *gin.Context, sess webmail.Sessio
 }
 func nativeAIError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, mailboxsettings.ErrAIPersonalBYOKDisabled):
+		authError(c, 403, "AI_PERSONAL_BYOK_DISABLED")
+	case errors.Is(err, mailboxsettings.ErrAIEndpointNotApproved):
+		authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
 	case errors.Is(err, errAIBudget):
 		authError(c, 429, "AI_QUOTA_UNAVAILABLE")
 	case errors.Is(err, errAIIntent):
@@ -587,6 +645,31 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 		if input.Model == "" {
 			input.Model = "gpt-4o"
 		}
+		governance, gErr := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+		if gErr == nil {
+			switch governance.PersonalMode {
+			case "disabled":
+				authError(c, 403, "AI_PERSONAL_BYOK_DISABLED")
+				return
+			case "approved":
+				targetEndpoint := strings.TrimRight(input.Endpoint, "/")
+				allowed := false
+				for _, ep := range governance.ApprovedEndpoints {
+					if strings.TrimRight(ep, "/") == targetEndpoint {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					authError(c, 403, "AI_ENDPOINT_FORBIDDEN")
+					return
+				}
+			}
+			if governance.LocalOnly && input.Provider != ai.ProviderOllama {
+				authError(c, 403, "AI_LOCAL_ONLY")
+				return
+			}
+		}
 		if input.APIKey == "" && input.Provider != ai.ProviderOllama {
 			saved, custom, configErr := h.getUserAI(c.Request.Context(), sess)
 			if configErr != nil {
@@ -595,6 +678,11 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 			}
 			if custom && saved.Provider == input.Provider && strings.TrimRight(saved.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/") {
 				input.APIKey = saved.APIKey
+			} else if gErr == nil && governance.Provider == input.Provider && strings.TrimRight(governance.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/") && governance.EncryptedKey != "" && h.Service.Secrets != nil {
+				decrypted, decErr := h.Service.Secrets.DecryptString(governance.EncryptedKey)
+				if decErr == nil {
+					input.APIKey = decrypted
+				}
 			}
 		}
 
@@ -611,6 +699,9 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
 	} else if custom {
+		if !h.customGovernance(c, sess, userAI) {
+			return
+		}
 		provider, err = h.customProvider(userAI)
 		if err != nil {
 			authError(c, 400, "INVALID_PARAMS")

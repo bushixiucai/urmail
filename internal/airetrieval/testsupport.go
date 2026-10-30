@@ -3,6 +3,7 @@ package airetrieval
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // FakeStore is an in-memory ChunkStore exported for sibling handler tests.
@@ -73,6 +74,18 @@ func (f *FakeStore) DeleteFolder(_ context.Context, p Principal, folder string) 
 	return nil
 }
 
+// PurgeChunks purges every chunk belonging to this principal.
+func (f *FakeStore) PurgeChunks(_ context.Context, p Principal) error {
+	for id, owner := range f.owner {
+		if owner == p {
+			delete(f.chunks, id)
+			delete(f.owner, id)
+		}
+	}
+	delete(f.byMsg, p)
+	return nil
+}
+
 // SearchChunks returns principal-scoped chunks whose content matches query.
 func (f *FakeStore) SearchChunks(_ context.Context, p Principal, query string, limit int) ([]Chunk, error) {
 	var out []Chunk
@@ -91,12 +104,7 @@ func (f *FakeStore) SearchChunks(_ context.Context, p Principal, query string, l
 }
 
 func contains(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
 }
 
 // GetChunk re-reads one chunk under the principal.
@@ -110,14 +118,25 @@ func (f *FakeStore) GetChunk(_ context.Context, p Principal, id int64) (Chunk, b
 
 // FakeSource is a MailSource with mutable live state.
 type FakeSource struct {
-	Mail     map[string]map[uint32]string // folder -> uid -> body
-	Validity map[string]uint32
+	Mail       map[string]map[uint32]string // folder -> uid -> body
+	HTML       map[string]map[uint32]string
+	Subject    map[string]map[uint32]string
+	From       map[string]map[uint32]string
+	Validity   map[string]uint32
+	FetchCount int
 }
 
 // Folders lists the folders with live mail.
 func (s *FakeSource) Folders(context.Context) ([]string, error) {
-	names := make([]string, 0, len(s.Mail))
+	all := map[string]bool{}
 	for name := range s.Mail {
+		all[name] = true
+	}
+	for name := range s.HTML {
+		all[name] = true
+	}
+	names := make([]string, 0, len(all))
+	for name := range all {
 		names = append(names, name)
 	}
 	return names, nil
@@ -125,8 +144,15 @@ func (s *FakeSource) Folders(context.Context) ([]string, error) {
 
 // MessageUIDs returns the folder's UIDVALIDITY and live uids.
 func (s *FakeSource) MessageUIDs(_ context.Context, folder string) (uint32, []uint32, error) {
-	uids := make([]uint32, 0, len(s.Mail[folder]))
+	uidsMap := map[uint32]bool{}
 	for uid := range s.Mail[folder] {
+		uidsMap[uid] = true
+	}
+	for uid := range s.HTML[folder] {
+		uidsMap[uid] = true
+	}
+	uids := make([]uint32, 0, len(uidsMap))
+	for uid := range uidsMap {
 		uids = append(uids, uid)
 	}
 	return s.Validity[folder], uids, nil
@@ -134,8 +160,35 @@ func (s *FakeSource) MessageUIDs(_ context.Context, folder string) (uint32, []ui
 
 // MessageText returns one message body.
 func (s *FakeSource) MessageText(_ context.Context, folder string, uid uint32) (string, error) {
-	body, ok := s.Mail[folder][uid]
-	if !ok {
+	s.FetchCount++
+	var body string
+	if text, ok := s.Mail[folder][uid]; ok {
+		body = strings.TrimSpace(text)
+	}
+	if body == "" && s.HTML != nil {
+		if h, ok := s.HTML[folder][uid]; ok && strings.TrimSpace(h) != "" {
+			body = ExtractHTMLText(h)
+		}
+	}
+	var headers []string
+	if s.Subject != nil {
+		if subj, ok := s.Subject[folder][uid]; ok && strings.TrimSpace(subj) != "" {
+			headers = append(headers, "Subject: "+strings.TrimSpace(subj))
+		}
+	}
+	if s.From != nil {
+		if from, ok := s.From[folder][uid]; ok && strings.TrimSpace(from) != "" {
+			headers = append(headers, "From: "+strings.TrimSpace(from))
+		}
+	}
+	header := strings.Join(headers, "\n")
+	if header != "" && body != "" {
+		return header + "\n\n" + body, nil
+	}
+	if header != "" {
+		return header, nil
+	}
+	if body == "" {
 		return "", fmt.Errorf("message gone: %s/%d", folder, uid)
 	}
 	return body, nil

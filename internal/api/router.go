@@ -446,6 +446,12 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.GET("/ai/drafts/:id", aiDrafts.Get)
 			mailboxAuthed.PUT("/ai/drafts/:id", aiDrafts.Update)
 			mailboxAuthed.POST("/ai/search-ask", aiSearchAsk.Handle)
+			mailboxAuthed.GET("/ai/search-ask/status", aiSearchAsk.Status)
+			mailboxAuthed.POST("/ai/search-ask/clear", aiSearchAsk.Clear)
+			mailboxAuthed.DELETE("/ai/search-ask/index", aiSearchAsk.Clear)
+			mailboxAuthed.GET("/ai/index/status", aiSearchAsk.Status)
+			mailboxAuthed.POST("/ai/index/clear", aiSearchAsk.Clear)
+			mailboxAuthed.DELETE("/ai/index", aiSearchAsk.Clear)
 			handlers.RegisterNativeMailboxAI(mailboxAuthed, mailboxNative, mailboxAI, aiSearchAsk)
 			// AI-005 server-authoritative tenant budget visibility.
 			mailboxAuthed.GET("/ai/budget", aiBudgetStatus.BudgetStatus)

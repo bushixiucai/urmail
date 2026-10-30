@@ -5,13 +5,21 @@ import (
 	"sort"
 )
 
+// IndexProgress conveys incremental indexing progress to callers.
+type IndexProgress struct {
+	Folder          string
+	TotalMessages   int
+	IndexedMessages int
+}
+
 // Indexer refreshes one mailbox's retrieval index incrementally. A message
 // whose indexed content digest is unchanged is skipped; deleted or expunged
 // messages and vanished folders, or folders whose UIDVALIDITY changed, are
 // removed before anything new is written.
 type Indexer struct {
-	Store  ChunkStore
-	Source MailSource
+	Store    ChunkStore
+	Source   MailSource
+	Progress func(IndexProgress)
 }
 
 // Reindex synchronizes the index with the mailbox's live messages and returns
@@ -66,18 +74,19 @@ func (i Indexer) Reindex(ctx context.Context, p Principal) (int, error) {
 		for _, uid := range uids {
 			live[uid] = true
 			key := MessageKey{Folder: folder, UIDValidity: uidValidity, UID: uid}
+			// F07 / D10 / A10 Incremental indexing:
+			// Do NOT fetch full message body for messages whose UID and UIDVALIDITY
+			// are already indexed in PG! Compare known UIDs in PG states with live UIDs.
+			// Only fetch MessageText for NEW or CHANGED messages.
+			if _, ok := states[key]; ok {
+				continue
+			}
 			text, err := i.Source.MessageText(ctx, folder, uid)
 			if err != nil {
 				return reindexed, err
 			}
 			digest := ContentDigest(text)
-			if state, ok := states[key]; ok && state.Digest == digest {
-				continue // incremental: content unchanged, keep stored chunks
-			}
 			version := 1
-			if state, ok := states[key]; ok {
-				version = state.Version + 1
-			}
 			contents := ChunkText(text)
 			if len(contents) == 0 {
 				if err := i.Store.DeleteMessages(ctx, p, folder, uidValidity, []uint32{uid}); err != nil {
@@ -89,6 +98,13 @@ func (i Indexer) Reindex(ctx context.Context, p Principal) (int, error) {
 				return reindexed, err
 			}
 			reindexed++
+			if i.Progress != nil {
+				i.Progress(IndexProgress{
+					Folder:          folder,
+					TotalMessages:   len(uids),
+					IndexedMessages: reindexed,
+				})
+			}
 		}
 		// Expunged messages drop out immediately.
 		var gone []uint32
@@ -101,6 +117,9 @@ func (i Indexer) Reindex(ctx context.Context, p Principal) (int, error) {
 		if len(gone) > 0 {
 			if err := i.Store.DeleteMessages(ctx, p, folder, uidValidity, gone); err != nil {
 				return reindexed, err
+			}
+			for _, uid := range gone {
+				delete(states, MessageKey{Folder: folder, UIDValidity: uidValidity, UID: uid})
 			}
 		}
 	}

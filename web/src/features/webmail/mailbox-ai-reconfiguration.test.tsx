@@ -321,15 +321,23 @@ it("invalidates a separate grounded answer when the drawer saves a new target", 
 });
 
 it("cancels a pending confirmation across configuration invalidation without exporting content", async () => {
-  render(<MailboxAIAsk folders={[]} onCitation={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "page.webmail.ai_ask" }));
+  render(
+    <MailboxAIDrawer
+      open
+      onClose={vi.fn()}
+      folders={[]}
+      selectedFolderEnc="INBOX"
+      detail={null}
+      onCitation={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.ai_tab_ask" }),
+  );
   await waitFor(() => expect(api.fetchMailboxAITarget).toHaveBeenCalled());
   fireEvent.change(screen.getByLabelText("page.webmail.ai_question"), {
     target: { value: "What is the invoice?" },
   });
-  fireEvent.click(
-    screen.getByRole("checkbox", { name: "page.webmail.ai_confirm_content" }),
-  );
   fireEvent.click(
     screen.getByRole("button", { name: "page.webmail.ai_ask_submit" }),
   );

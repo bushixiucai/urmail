@@ -43,7 +43,9 @@ import {
   fetchMailboxAIModels,
   getMailboxSettings,
   saveMailboxSettings,
+  fetchMailboxAIBudget,
 } from "./mailbox-api";
+import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 import { ApiRequestError } from "@/lib/api/client";
 
 interface MailboxAIDrawerProps {
@@ -59,6 +61,31 @@ interface MailboxAIDrawerProps {
   }) => void | Promise<void>;
 }
 
+function getUILanguage(i18nLang?: string): "zh-CN" | "en" | "ja" {
+  const l = (i18nLang || "").toLowerCase();
+  if (l.startsWith("zh")) return "zh-CN";
+  if (l.startsWith("ja")) return "ja";
+  return "en";
+}
+
+function detectMailLanguage(text?: string, subject?: string): "zh-CN" | "en" | "ja" {
+  const sample = (subject || "") + " " + (text || "");
+  if (/[\u3040-\u30ff]/.test(sample)) return "ja";
+  if (/[\u4e00-\u9fa5]/.test(sample)) return "zh-CN";
+  return "en";
+}
+
+function getInitialTargetLang(
+  op: MailboxAIOperation,
+  uiLang: string,
+  detail: MessageDetail | null,
+): "zh-CN" | "en" | "ja" {
+  if (op === "draft_reply") {
+    return detectMailLanguage(detail?.text, detail?.subject);
+  }
+  return getUILanguage(uiLang);
+}
+
 export function MailboxAIDrawer({
   open,
   onClose,
@@ -68,7 +95,7 @@ export function MailboxAIDrawer({
   onCitation,
   onApplyAIProposal,
 }: MailboxAIDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     confirm: confirmConsent,
     cancel: cancelConsent,
@@ -80,11 +107,15 @@ export function MailboxAIDrawer({
 
   // Global & User Target State
   const [target, setTarget] = useState<MailboxAITarget | null>(null);
+  const [budget, setBudget] = useState<AIBudgetStatus | null>(null);
 
   // Current Message Analysis State
   const [activeOp, setActiveOp] = useState<MailboxAIOperation>("summarize");
   const [customPrompt, setCustomPrompt] = useState("");
-  const [targetLang] = useState<"zh-CN" | "en" | "ja">("zh-CN");
+  const [targetLang, setTargetLang] = useState<"zh-CN" | "en" | "ja">(() =>
+    getInitialTargetLang("summarize", i18n?.language ?? "zh-CN", detail),
+  );
+  const confirmedScopes = useRef<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<MailboxAIResult | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
@@ -129,6 +160,7 @@ export function MailboxAIDrawer({
     abortControllerRef.current?.abort();
     askControllerRef.current?.abort();
     cancelConsent();
+    confirmedScopes.current.clear();
     setGenerating(false);
     setAsking(false);
     setResult(null);
@@ -185,6 +217,16 @@ export function MailboxAIDrawer({
         }
       })
       .catch(() => {});
+
+    void fetchMailboxAIBudget()
+      .then((b) => {
+        if (visible.current && generation === targetRevision.current)
+          setBudget(b);
+      })
+      .catch(() => {
+        if (visible.current && generation === targetRevision.current)
+          setBudget(null);
+      });
   }, []);
 
   useEffect(() => {
@@ -273,8 +315,15 @@ export function MailboxAIDrawer({
         input,
         controller.signal,
       );
-      if (!(await confirmConsent({ ...target, ...preview }, controller.signal)))
-        return;
+      const scopeKey = `assist:${target.configuration_digest}:${preview.content_digest}`;
+      if (!confirmedScopes.current.has(scopeKey)) {
+        const approved = await confirmConsent(
+          { ...target, ...preview },
+          controller.signal,
+        );
+        if (!approved) return;
+        confirmedScopes.current.add(scopeKey);
+      }
       const response = await runMailboxAI(
         { ...input, content_digest: preview.content_digest },
         controller.signal,
@@ -321,8 +370,15 @@ export function MailboxAIDrawer({
         input,
         controller.signal,
       );
-      if (!(await confirmConsent({ ...target, ...preview }, controller.signal)))
-        return;
+      const scopeKey = `ask:${target.configuration_digest}:${preview.content_digest}`;
+      if (!confirmedScopes.current.has(scopeKey)) {
+        const approved = await confirmConsent(
+          { ...target, ...preview },
+          controller.signal,
+        );
+        if (!approved) return;
+        confirmedScopes.current.add(scopeKey);
+      }
       const response = await askMailboxAI(
         {
           ...input,
@@ -411,10 +467,23 @@ export function MailboxAIDrawer({
     }
   };
 
-  const copyResultText = (text: string) => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyResultText = async (text: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const el = document.createElement("textarea");
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Graceful fallback on clipboard permission denial
+    }
   };
 
   const resultDisplayText =
@@ -521,6 +590,95 @@ export function MailboxAIDrawer({
         </Button>
       </div>
 
+      {/* Service / Quota / Billing Attribution Banner */}
+      <div className="px-3.5 py-2 border-b bg-muted/15 text-xs space-y-1 shrink-0">
+        {(() => {
+          const isExhausted =
+            budget?.entitlement != null &&
+            (!budget.entitlement.available ||
+              (budget.entitlement.calls_remaining <= 0 &&
+                budget.entitlement.call_limit > 0));
+          const isEnterprise =
+            target?.provider === "ollama" || budget?.mode === "byo";
+
+          return (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-foreground flex items-center gap-1.5">
+                  <span
+                    className={
+                      "inline-block h-2 w-2 rounded-full " +
+                      (target?.is_custom
+                        ? "bg-amber-500"
+                        : isExhausted
+                          ? "bg-rose-500"
+                          : "bg-emerald-500")
+                    }
+                  />
+                  {target?.is_custom
+                    ? t("page.webmail.ai_service_personal")
+                    : isEnterprise
+                      ? t("page.webmail.ai_service_enterprise")
+                      : t("page.webmail.ai_service_platform")}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {target?.is_custom
+                    ? t("page.webmail.ai_billing_personal")
+                    : isEnterprise
+                      ? t("page.webmail.ai_billing_enterprise")
+                      : t("page.webmail.ai_billing_platform")}
+                </span>
+              </div>
+              {!target?.is_custom && isExhausted ? (
+                <div className="p-2 rounded bg-destructive/10 text-destructive text-[11px] flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">
+                      {t("page.webmail.ai_quota_exhausted")}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-primary underline hover:no-underline font-medium cursor-pointer"
+                      onClick={() => setActiveTab("settings")}
+                    >
+                      {t("page.webmail.ai_switch_to_personal")}
+                    </button>
+                  </div>
+                  <p className="text-muted-foreground">
+                    {budget?.entitlement?.period_end
+                      ? t("page.webmail.ai_quota_recovery", {
+                          time: new Date(
+                            budget.entitlement.period_end,
+                          ).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }),
+                        })
+                      : t("page.webmail.ai_quota_recovery_tomorrow")}
+                  </p>
+                </div>
+              ) : !target?.is_custom && budget ? (
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span>{t("page.webmail.ai_quota_normal")}</span>
+                  {budget.entitlement?.period_start &&
+                  budget.entitlement?.period_end ? (
+                    <span>
+                      {t("page.webmail.ai_quota_period", {
+                        start: new Date(
+                          budget.entitlement.period_start,
+                        ).toLocaleDateString(),
+                        end: new Date(
+                          budget.entitlement.period_end,
+                        ).toLocaleDateString(),
+                      })}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          );
+        })()}
+      </div>
+
       {/* 3. Main Content Body */}
       <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
         {/* --- TAB 1: CURRENT MAIL ANALYSIS --- */}
@@ -560,7 +718,10 @@ export function MailboxAIDrawer({
                       type="button"
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
-                      onClick={() => handleGenerate("summarize", "")}
+                      onClick={() => {
+                        setTargetLang(getInitialTargetLang("summarize", i18n?.language ?? "zh-CN", detail));
+                        void handleGenerate("summarize", "");
+                      }}
                     >
                       <Sparkles className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                       <span className="truncate">
@@ -572,12 +733,13 @@ export function MailboxAIDrawer({
                       type="button"
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
-                      onClick={() =>
-                        handleGenerate(
+                      onClick={() => {
+                        setTargetLang(getInitialTargetLang("summarize", i18n?.language ?? "zh-CN", detail));
+                        void handleGenerate(
                           "summarize",
                           t("page.webmail.ai_action_items_prompt"),
-                        )
-                      }
+                        );
+                      }}
                     >
                       <ListTodo className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                       <span className="truncate">
@@ -589,12 +751,13 @@ export function MailboxAIDrawer({
                       type="button"
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
-                      onClick={() =>
-                        handleGenerate(
+                      onClick={() => {
+                        setTargetLang(getInitialTargetLang("draft_reply", i18n?.language ?? "zh-CN", detail));
+                        void handleGenerate(
                           "draft_reply",
                           t("page.webmail.ai_reply_prompt"),
-                        )
-                      }
+                        );
+                      }}
                     >
                       <MailCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                       <span className="truncate">
@@ -606,7 +769,10 @@ export function MailboxAIDrawer({
                       type="button"
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
-                      onClick={() => handleGenerate("translate", "")}
+                      onClick={() => {
+                        setTargetLang(getInitialTargetLang("translate", i18n?.language ?? "zh-CN", detail));
+                        void handleGenerate("translate", "");
+                      }}
                     >
                       <Languages className="h-3.5 w-3.5 text-violet-500 shrink-0" />
                       <span className="truncate">
@@ -626,6 +792,28 @@ export function MailboxAIDrawer({
                       </span>
                     </button>
                   </div>
+                </div>
+
+                {/* Target Language Selector */}
+                <div className="flex items-center justify-between gap-2 px-1 text-xs">
+                  <label htmlFor="mailbox-ai-lang-select" className="text-muted-foreground font-medium flex items-center gap-1.5">
+                    <Languages className="h-3.5 w-3.5" />
+                    <span>{t("page.webmail.ai_language")}</span>
+                  </label>
+                  <select
+                    id="mailbox-ai-lang-select"
+                    aria-label={t("page.webmail.ai_language")}
+                    value={targetLang}
+                    disabled={generating}
+                    onChange={(e) =>
+                      setTargetLang(e.target.value as "zh-CN" | "en" | "ja")
+                    }
+                    className="h-7 text-xs rounded border bg-background px-2 font-sans"
+                  >
+                    <option value="zh-CN">简体中文 (zh-CN)</option>
+                    <option value="en">English (en)</option>
+                    <option value="ja">日本語 (ja)</option>
+                  </select>
                 </div>
 
                 {/* Custom Prompt Input */}
@@ -791,27 +979,32 @@ export function MailboxAIDrawer({
           <div className="space-y-3.5">
             <div className="space-y-1.5">
               <div className="relative">
-                <Input
-                  value={question}
-                  disabled={asking}
-                  placeholder={t("page.webmail.ai_question_placeholder")}
-                  className="h-9 text-xs pr-8 bg-background"
-                  onChange={(e) => {
-                    askControllerRef.current?.abort();
-                    cancelConsent();
-                    setAsking(false);
-                    setAskAnswer(null);
-                    setQuestion(e.target.value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && question.trim()) {
-                      e.preventDefault();
-                      void handleAsk();
-                    }
-                  }}
-                />
+                <label className="block space-y-1">
+                  <span className="sr-only">{t("page.webmail.ai_question")}</span>
+                  <Input
+                    aria-label={t("page.webmail.ai_question")}
+                    value={question}
+                    disabled={asking}
+                    placeholder={t("page.webmail.ai_question_placeholder")}
+                    className="h-9 text-xs pr-8 bg-background"
+                    onChange={(e) => {
+                      askControllerRef.current?.abort();
+                      cancelConsent();
+                      setAsking(false);
+                      setAskAnswer(null);
+                      setQuestion(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && question.trim()) {
+                        e.preventDefault();
+                        void handleAsk();
+                      }
+                    }}
+                  />
+                </label>
                 <button
                   type="button"
+                  aria-label={t("page.webmail.ai_ask_submit")}
                   disabled={asking || !question.trim()}
                   className="absolute right-1 top-1 bottom-1 px-2 flex items-center justify-center text-primary disabled:text-muted-foreground cursor-pointer disabled:cursor-not-allowed hover:bg-primary/10 rounded"
                   onClick={() => void handleAsk()}
@@ -909,7 +1102,13 @@ export function MailboxAIDrawer({
                         <li
                           key={cite.uid + "-" + idx}
                           className="p-2 rounded-lg bg-muted/40 border border-border/50 text-xs space-y-1 hover:bg-muted/70 transition-colors cursor-pointer"
-                          onClick={() => onCitation(cite)}
+                          onClick={() => {
+                            try {
+                              onCitation(cite);
+                            } catch {
+                              setAskError(t("page.webmail.ai_citation_invalid"));
+                            }
+                          }}
                         >
                           <div className="flex items-center justify-between text-[11px] text-primary font-medium">
                             <span className="flex items-center gap-1">

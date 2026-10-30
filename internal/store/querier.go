@@ -460,6 +460,7 @@ type Querier interface {
 	PlatformCompleteScheduledSentCopy(ctx context.Context, arg PlatformCompleteScheduledSentCopyParams) (MailboxScheduledSends, error)
 	PlatformCompleteSendCopy(ctx context.Context, arg PlatformCompleteSendCopyParams) (MailboxSendReceipts, error)
 	PlatformConfigureTenantAI(ctx context.Context, arg PlatformConfigureTenantAIParams) error
+	PlatformConfigureTenantAIGovernance(ctx context.Context, arg PlatformConfigureTenantAIGovernanceParams) error
 	PlatformConfirmDomainRecovery(ctx context.Context, arg PlatformConfirmDomainRecoveryParams) (int64, error)
 	PlatformConsumeBrandHostChallenge(ctx context.Context, hostname string) (int64, error)
 	PlatformConsumeMailboxTicket(ctx context.Context, arg PlatformConsumeMailboxTicketParams) (PlatformConsumeMailboxTicketRow, error)
@@ -1010,6 +1011,7 @@ type Querier interface {
 	PlatformSearchPublishedCorporateContacts(ctx context.Context, arg PlatformSearchPublishedCorporateContactsParams) ([]TenantDirectoryContacts, error)
 	PlatformSetAIBudget(ctx context.Context, arg PlatformSetAIBudgetParams) error
 	PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIProviderParams) (AiProviderConfigs, error)
+	PlatformSetActiveAIService(ctx context.Context, arg PlatformSetActiveAIServiceParams) error
 	PlatformSetAliasSenderLogins(ctx context.Context, arg PlatformSetAliasSenderLoginsParams) (int64, error)
 	PlatformSetArchiveOriginalHash(ctx context.Context, arg PlatformSetArchiveOriginalHashParams) error
 	PlatformSetBrandHostLifecycle(ctx context.Context, arg PlatformSetBrandHostLifecycleParams) (int64, error)
@@ -1074,6 +1076,7 @@ type Querier interface {
 	PublicBrandBySlug(ctx context.Context, slug string) (PublicBrandBySlugRow, error)
 	PublishDomainTransportSecurity(ctx context.Context, arg PublishDomainTransportSecurityParams) (DomainTransportSecurity, error)
 	PublishMarketingFlowDefinition(ctx context.Context, arg PublishMarketingFlowDefinitionParams) error
+	PurgeMailboxAIChunks(ctx context.Context, arg PurgeMailboxAIChunksParams) (int64, error)
 	RecallMessageCopies(ctx context.Context, arg RecallMessageCopiesParams) ([]RecallMessageCopiesRow, error)
 	// A conflict returns zero rows so the collector can recognize a safe replay.
 	// Compatibility writes hash the typed canonical payload; unknown tenant IDs

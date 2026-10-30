@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -61,6 +62,13 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		Folder              string `json:"folder_enc"`
 		After               string `json:"after"`
 		Before              string `json:"before"`
+		Sender              string `json:"sender"`
+		Subject             string `json:"subject"`
+		IncludeTrash        bool   `json:"include_trash"`
+		IncludeSpam         bool   `json:"include_spam"`
+		IncludeJunk         bool   `json:"include_junk"`
+		IncludeDrafts       bool   `json:"include_drafts"`
+		IncludeSpecial      bool   `json:"include_special"`
 	}
 	if !bindMailboxMessage(c, &req) {
 		return
@@ -74,37 +82,39 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		return
 	}
 	var scoped askScopeSource
-	if req.Folder != "" || req.After != "" || req.Before != "" {
-
-		if req.Folder != "" {
-			var err error
-			scoped.folder, err = webmail.DecodeFolderName(req.Folder)
-			if err != nil {
-				authError(c, 400, "INVALID_PARAMS")
-				return
-			}
-		}
-		if req.After != "" {
-			value, err := time.Parse("2006-01-02", req.After)
-			if err != nil {
-				authError(c, 400, "INVALID_PARAMS")
-				return
-			}
-			scoped.after = value
-		}
-		if req.Before != "" {
-			value, err := time.Parse("2006-01-02", req.Before)
-			if err != nil {
-				authError(c, 400, "INVALID_PARAMS")
-				return
-			}
-			scoped.before = value
-		}
-		if !scoped.after.IsZero() && !scoped.before.IsZero() && !scoped.after.Before(scoped.before) {
+	if req.Folder != "" {
+		var err error
+		scoped.folder, err = webmail.DecodeFolderName(req.Folder)
+		if err != nil {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
 	}
+	if req.After != "" {
+		value, err := time.Parse("2006-01-02", req.After)
+		if err != nil {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		scoped.after = value
+	}
+	if req.Before != "" {
+		value, err := time.Parse("2006-01-02", req.Before)
+		if err != nil {
+			authError(c, 400, "INVALID_PARAMS")
+			return
+		}
+		scoped.before = value
+	}
+	if !scoped.after.IsZero() && !scoped.before.IsZero() && !scoped.after.Before(scoped.before) {
+		authError(c, 400, "INVALID_PARAMS")
+		return
+	}
+	scoped.sender = strings.TrimSpace(req.Sender)
+	scoped.subject = strings.TrimSpace(req.Subject)
+	scoped.includeTrash = req.IncludeTrash || req.IncludeSpecial
+	scoped.includeSpam = req.IncludeSpam || req.IncludeJunk || req.IncludeSpecial
+	scoped.includeDrafts = req.IncludeDrafts || req.IncludeSpecial
 
 	// Budget enforcement happens BEFORE any provider call; an exhausted
 	// budget is a distinct, actionable error for the client.
@@ -155,13 +165,11 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 	}
 	defer closeSource()
 	canonicalSource := source
-	if req.Folder != "" || req.After != "" || req.Before != "" {
-		scoped.base = source
-		if native, ok := source.(airetrieval.WebmailSource); ok {
-			scoped.client = native.Client
-		}
-		source = scoped
+	scoped.base = canonicalSource
+	if native, ok := canonicalSource.(airetrieval.WebmailSource); ok {
+		scoped.client = native.Client
 	}
+	source = scoped
 
 	principal := airetrieval.Principal{TenantID: session.TenantID, MailboxID: session.MailboxID}
 	chunkStore := h.chunkStore()
@@ -180,9 +188,7 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
 	}
-	if req.Folder != "" || req.After != "" || req.Before != "" {
-		chunkStore = askScopeStore{ChunkStore: chunkStore, source: scoped}
-	}
+	chunkStore = askScopeStore{ChunkStore: chunkStore, source: scoped}
 	previewStopped := errors.New("mailbox AI preview ready")
 	policyDenied := errors.New("mailbox AI policy denied before export")
 	consentChanged := errors.New("mailbox AI preview changed")
@@ -190,8 +196,10 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 	previewDigest := func(sources []aianswer.Source) string {
 		data, _ := json.Marshal(struct {
 			Configuration, Question, Folder, After, Before string
+			Sender, Subject                                string
+			IncludeTrash, IncludeSpam, IncludeDrafts       bool
 			Sources                                        []aianswer.Source
-		}{req.ConfigurationDigest, question, req.Folder, req.After, req.Before, sources})
+		}{req.ConfigurationDigest, question, req.Folder, req.After, req.Before, req.Sender, req.Subject, scoped.includeTrash, scoped.includeSpam, scoped.includeDrafts, sources})
 		return fmt.Sprintf("%x", sha256.Sum256(data))
 	}
 	countedModel := func(ctx context.Context, question string, sources []aianswer.Source) (string, []string, error) {
@@ -271,6 +279,56 @@ func (h *AISearchAsk) chunkStore() airetrieval.ChunkStore {
 		return h.Store
 	}
 	return airetrieval.PGChunkStore{Pool: h.Pool}
+}
+
+// Status reports the retrieval index status for the current mailbox.
+func (h *AISearchAsk) Status(c *gin.Context) {
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok || session.TenantID <= 0 || session.MailboxID <= 0 {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	principal := airetrieval.Principal{TenantID: session.TenantID, MailboxID: session.MailboxID}
+	store := h.chunkStore()
+	if store == nil {
+		authError(c, http.StatusServiceUnavailable, "AI_UNAVAILABLE")
+		return
+	}
+	states, err := store.MessageStates(c.Request.Context(), principal)
+	if err != nil {
+		authError(c, http.StatusBadGateway, "AI_UNAVAILABLE")
+		return
+	}
+	foldersMap := map[string]int{}
+	for key := range states {
+		foldersMap[key.Folder]++
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":          true,
+		"indexed_messages": len(states),
+		"folders":          foldersMap,
+		"status":           "ready",
+	})
+}
+
+// Clear purges all indexed chunks for the current mailbox.
+func (h *AISearchAsk) Clear(c *gin.Context) {
+	session, ok := middleware.GetMailboxSession(c)
+	if !ok || session.TenantID <= 0 || session.MailboxID <= 0 {
+		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+		return
+	}
+	principal := airetrieval.Principal{TenantID: session.TenantID, MailboxID: session.MailboxID}
+	store := h.chunkStore()
+	if store == nil {
+		authError(c, http.StatusServiceUnavailable, "AI_UNAVAILABLE")
+		return
+	}
+	if err := store.PurgeChunks(c.Request.Context(), principal); err != nil {
+		authError(c, http.StatusBadGateway, "AI_UNAVAILABLE")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"purged": true, "status": "cleared"})
 }
 
 type aiConfirmedTargetKey struct{}

@@ -174,11 +174,17 @@ func TestMailboxCustomAITokenBudgetsAndLocalOnlyRemainAuthoritativePG(t *testing
 	if _, err := pool.Exec(t.Context(), "UPDATE ai_provider_configs SET daily_token_limit=1 WHERE tenant_id=$1", principal.TenantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.RunCustom(t.Context(), principal, "custom-token-budget-denied", input, target, target.Digest); !errors.Is(err, errAIBudget) {
-		t.Fatal("custom token budget bypassed", err)
+	// D04/D18: Personal BYOK is exempt from enterprise daily_token_limit business quotas.
+	// Enterprise service is blocked, but personal BYOK proceeds.
+	entCfg, err := store.New(pool).PlatformGetAIProvider(t.Context(), principal.TenantID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := (AISearchAskAccounting{Pool: pool}).ReserveCustom(t.Context(), principal.TenantID, principal.MailboxID, "question", target); !errors.Is(err, ErrAIBudgetExceeded) {
-		t.Fatal("custom ask token budget bypassed", err)
+	if _, err := service.Run(t.Context(), principal, "enterprise-token-budget-denied", input, entCfg.ConfigurationDigest); !errors.Is(err, errAIBudget) {
+		t.Fatal("enterprise token budget bypassed", err)
+	}
+	if _, err := service.RunCustom(t.Context(), principal, "custom-token-budget-exempt", input, target, target.Digest); err != nil {
+		t.Fatal("personal BYOK should be exempt from enterprise token budget per D04/D18", err)
 	}
 	if _, err := pool.Exec(t.Context(), "UPDATE ai_provider_configs SET daily_token_limit=0,local_only=true WHERE tenant_id=$1", principal.TenantID); err != nil {
 		t.Fatal(err)
@@ -186,7 +192,7 @@ func TestMailboxCustomAITokenBudgetsAndLocalOnlyRemainAuthoritativePG(t *testing
 	if _, err := service.RunCustom(t.Context(), principal, "custom-local-policy-denied", input, target, target.Digest); !errors.Is(err, ai.ErrLocalOnly) {
 		t.Fatal("custom cloud bypassed local-only governance", err)
 	}
-	if model.calls.Load() != 0 {
-		t.Fatal("denied custom request called provider")
+	if model.calls.Load() != 1 {
+		t.Fatalf("expected 1 call for exempt personal BYOK, got %d", model.calls.Load())
 	}
 }

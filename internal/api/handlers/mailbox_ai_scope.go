@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/airetrieval"
@@ -14,7 +15,43 @@ type askScopeSource struct {
 	base          airetrieval.MailSource
 	folder        string
 	after, before time.Time
+	sender        string
+	subject       string
+	includeTrash  bool
+	includeSpam   bool
+	includeDrafts bool
 	client        webmail.Client
+}
+
+func isTrashFolder(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return lower == "trash" || lower == "bin" || strings.Contains(lower, "deleted") || strings.HasPrefix(lower, "trash")
+}
+
+func isSpamFolder(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return lower == "junk" || lower == "spam" || strings.Contains(lower, "junk") || strings.Contains(lower, "spam")
+}
+
+func isDraftsFolder(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return lower == "drafts" || lower == "draft" || strings.Contains(lower, "draft")
+}
+
+func (s askScopeSource) isExcludedFolder(name string) bool {
+	if s.folder != "" {
+		return false
+	}
+	if !s.includeTrash && isTrashFolder(name) {
+		return true
+	}
+	if !s.includeSpam && isSpamFolder(name) {
+		return true
+	}
+	if !s.includeDrafts && isDraftsFolder(name) {
+		return true
+	}
+	return false
 }
 
 func (s askScopeSource) Folders(ctx context.Context) ([]string, error) {
@@ -22,38 +59,73 @@ func (s askScopeSource) Folders(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.folder == "" {
-		return folders, nil
-	}
-	for _, folder := range folders {
-		if folder == s.folder {
-			return []string{folder}, nil
+	if s.folder != "" {
+		for _, folder := range folders {
+			if folder == s.folder {
+				return []string{folder}, nil
+			}
 		}
+		return nil, nil
 	}
-	return nil, nil
+	var out []string
+	for _, folder := range folders {
+		if s.isExcludedFolder(folder) {
+			continue
+		}
+		out = append(out, folder)
+	}
+	return out, nil
 }
+
 func (s askScopeSource) MessageUIDs(ctx context.Context, folder string) (uint32, []uint32, error) {
 	if s.folder != "" && folder != s.folder {
 		return 0, nil, nil
 	}
+	if s.folder == "" && s.isExcludedFolder(folder) {
+		return 0, nil, nil
+	}
 	validity, uids, err := s.base.MessageUIDs(ctx, folder)
-	if err != nil || s.after.IsZero() && s.before.IsZero() {
+	if err != nil || (s.after.IsZero() && s.before.IsZero() && s.sender == "" && s.subject == "") {
 		return validity, uids, err
 	}
 	if s.client == nil {
-		return 0, nil, errors.New("AI date filtering requires mailbox metadata")
+		return 0, nil, errors.New("AI metadata filtering requires mailbox metadata")
 	}
 	allowed := map[uint32]bool{}
 	var cursor uint32
+	targetSender := strings.ToLower(s.sender)
+	targetSubject := strings.ToLower(s.subject)
 	for pages := 0; pages < 1000; pages++ {
 		result, err := s.client.ListMessages(ctx, folder, webmail.ListOpts{Limit: webmail.MaxPageSize, CursorUID: cursor})
 		if err != nil {
 			return 0, nil, err
 		}
 		for _, message := range result.Messages {
-			if (s.after.IsZero() || !message.Date.Before(s.after)) && (s.before.IsZero() || message.Date.Before(s.before)) {
-				allowed[message.UID] = true
+			if !s.after.IsZero() && message.Date.Before(s.after) {
+				continue
 			}
+			if !s.before.IsZero() && !message.Date.Before(s.before) {
+				continue
+			}
+			if targetSender != "" {
+				matched := false
+				for _, from := range message.From {
+					if strings.Contains(strings.ToLower(from.Email), targetSender) ||
+						strings.Contains(strings.ToLower(from.Name), targetSender) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
+			if targetSubject != "" {
+				if !strings.Contains(strings.ToLower(message.Subject), targetSubject) {
+					continue
+				}
+			}
+			allowed[message.UID] = true
 		}
 		if result.NextCursor == 0 {
 			out := make([]uint32, 0, len(uids))
@@ -80,6 +152,10 @@ func (s askScopeSource) MessageText(ctx context.Context, folder string, uid uint
 type askScopeStore struct {
 	airetrieval.ChunkStore
 	source askScopeSource
+}
+
+func (s askScopeStore) PurgeChunks(ctx context.Context, p airetrieval.Principal) error {
+	return s.ChunkStore.PurgeChunks(ctx, p)
 }
 
 func (s askScopeStore) SearchChunks(ctx context.Context, p airetrieval.Principal, query string, limit int) ([]airetrieval.Chunk, error) {

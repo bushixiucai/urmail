@@ -425,6 +425,18 @@ export function PlatformAIAdmin({
                 />
                 {t("ai.admin.enable")}
               </label>
+              <label className="grid gap-1 text-sm sm:col-span-2">
+                {t("ai.admin.byok_policy")}
+                <select
+                  name="byok_policy"
+                  className={selectClass}
+                  defaultValue="approved"
+                >
+                  <option value="approved">{t("ai.admin.byok_approved")}</option>
+                  <option value="public">{t("ai.admin.byok_public")}</option>
+                  <option value="disabled">{t("ai.admin.byok_disabled")}</option>
+                </select>
+              </label>
               <label className="flex gap-2 text-sm sm:col-span-2">
                 <input type="checkbox" required />
                 {t("ai.admin.config_confirm")}

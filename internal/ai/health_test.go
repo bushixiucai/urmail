@@ -56,3 +56,27 @@ func TestFetchModelsOllamaFormat(t *testing.T) {
 		t.Errorf("expected %v, got %v", expected, models)
 	}
 }
+
+func TestFetchModels_RejectInvalidJSONAndHTML(t *testing.T) {
+	for name, body := range map[string]string{
+		"html_response": "<html><body>Error page</body></html>",
+		"invalid_json":  "{not valid json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			provider := newLocalTestProvider(t, "test-key", server)
+			_, err := FetchModels(context.Background(), provider)
+			if err == nil {
+				t.Fatalf("expected error on %s, got nil", name)
+			}
+			if err != ErrProviderError {
+				t.Fatalf("expected ErrProviderError, got %v", err)
+			}
+		})
+	}
+}

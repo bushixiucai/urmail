@@ -12,6 +12,8 @@ func TestOperationOutputSchemasAndNoAutomaticActions(t *testing.T) {
 		{"translate", `{"translation":"Hello"}`, []string{`{"translation":""}`}},
 		{"phishing", `{"score":0.2,"reasons":["No trusted authentication"]}`, []string{`{"score":-1,"reasons":[]}`, `{"reasons":[]}`, `{"score":0.1}`}},
 		{"polish", `{"draft":"Review this suggestion"}`, []string{`{"draft":"text","send":true}`}},
+		{"todos", `{"items":[{"task":"Send report","assignee":"Alice","due_date":"2026-11-01"}]}`, []string{`{"items":[{"task":""}]}`, `{"items":"none"}`, `{"items":[{"task":"Send","send":true}]}`}},
+		{"custom", `{"task_type":"summary","result":"Here is the answer"}`, []string{`{"task_type":"illegal","result":"ok"}`, `{"task_type":"summary","result":""}`, `{"result":"missing type"}`}},
 	}
 	for _, test := range cases {
 		t.Run(test.operation, func(t *testing.T) {

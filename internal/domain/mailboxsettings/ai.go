@@ -11,11 +11,14 @@ import (
 
 // ErrAICredentialTarget prevents a retained key from being sent to a new destination.
 var ErrAICredentialTarget = errors.New("MAILBOX_AI_KEY_TARGET_CHANGED")
+var ErrAIPersonalBYOKDisabled = errors.New("AI_PERSONAL_BYOK_DISABLED")
+var ErrAIEndpointNotApproved = errors.New("AI_ENDPOINT_NOT_APPROVED")
 
 // AIConfig is the only structured preference accepted by the settings contract.
 // APIKey is write-only at the HTTP boundary and ciphertext in persisted JSON.
 type AIConfig struct {
 	UseCustom     bool   `json:"use_custom"`
+	Service       string `json:"service,omitempty"`
 	Provider      string `json:"provider"`
 	Endpoint      string `json:"endpoint"`
 	Model         string `json:"model"`
@@ -31,6 +34,18 @@ func ParseAI(raw json.RawMessage) (AIConfig, error) {
 	decoder.DisallowUnknownFields()
 	if len(raw) == 0 || string(raw) == "null" || decoder.Decode(&cfg) != nil {
 		return cfg, ErrPreferences
+	}
+	if cfg.Service != "" && cfg.Service != "enterprise" && cfg.Service != "personal" && cfg.Service != "platform" {
+		return cfg, ErrPreferences
+	}
+	if cfg.Service == "personal" {
+		cfg.UseCustom = true
+	} else if cfg.Service == "enterprise" || cfg.Service == "platform" {
+		cfg.UseCustom = false
+	} else if cfg.UseCustom {
+		cfg.Service = "personal"
+	} else {
+		cfg.Service = "enterprise"
 	}
 	if cfg.Provider == "" {
 		cfg.Provider = "openai"

@@ -2,9 +2,54 @@
 SELECT * FROM ai_provider_configs WHERE tenant_id=$1;
 
 -- name: PlatformSetAIProvider :one
-INSERT INTO ai_provider_configs(tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,input_micros_per_million,output_micros_per_million,cost_currency)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE(NULLIF(sqlc.arg(cost_currency)::text,''),'CNY'))
-ON CONFLICT(tenant_id) DO UPDATE SET mode=EXCLUDED.mode,provider=EXCLUDED.provider,endpoint=EXCLUDED.endpoint,model=EXCLUDED.model,encrypted_key=EXCLUDED.encrypted_key,enabled=EXCLUDED.enabled,local_only=EXCLUDED.local_only,input_micros_per_million=EXCLUDED.input_micros_per_million,output_micros_per_million=EXCLUDED.output_micros_per_million,cost_currency=EXCLUDED.cost_currency,updated_at=now()
+INSERT INTO ai_provider_configs(
+  tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,
+  platform_provider,platform_endpoint,platform_model,platform_encrypted_key,platform_enabled,
+  enterprise_mode,enterprise_provider,enterprise_endpoint,enterprise_model,enterprise_encrypted_key,enterprise_enabled,enterprise_local_only,
+  active_service,input_micros_per_million,output_micros_per_million,cost_currency
+)
+VALUES(
+  $1,$2,$3,$4,$5,$6,$7,$8,
+  CASE WHEN $2 = 'platform' THEN $3 ELSE 'openai' END,
+  CASE WHEN $2 = 'platform' THEN $4 ELSE '' END,
+  CASE WHEN $2 = 'platform' THEN $5 ELSE '' END,
+  CASE WHEN $2 = 'platform' THEN $6 ELSE '' END,
+  CASE WHEN $2 = 'platform' THEN $7 ELSE false END,
+  CASE WHEN $2 <> 'platform' THEN $2 ELSE 'byo' END,
+  CASE WHEN $2 <> 'platform' THEN $3 ELSE 'openai' END,
+  CASE WHEN $2 <> 'platform' THEN $4 ELSE '' END,
+  CASE WHEN $2 <> 'platform' THEN $5 ELSE '' END,
+  CASE WHEN $2 <> 'platform' THEN $6 ELSE '' END,
+  CASE WHEN $2 <> 'platform' THEN $7 ELSE false END,
+  CASE WHEN $2 <> 'platform' THEN $8 ELSE true END,
+  CASE WHEN $2 = 'platform' THEN 'platform' ELSE 'enterprise' END,
+  $9,$10,COALESCE(NULLIF(sqlc.arg(cost_currency)::text,''),'CNY')
+)
+ON CONFLICT(tenant_id) DO UPDATE SET
+  platform_provider = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.provider ELSE ai_provider_configs.platform_provider END,
+  platform_endpoint = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.endpoint ELSE ai_provider_configs.platform_endpoint END,
+  platform_model = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.model ELSE ai_provider_configs.platform_model END,
+  platform_encrypted_key = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.encrypted_key ELSE ai_provider_configs.platform_encrypted_key END,
+  platform_enabled = CASE WHEN EXCLUDED.mode = 'platform' THEN EXCLUDED.enabled ELSE ai_provider_configs.platform_enabled END,
+  enterprise_mode = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.mode ELSE ai_provider_configs.enterprise_mode END,
+  enterprise_provider = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.provider ELSE ai_provider_configs.enterprise_provider END,
+  enterprise_endpoint = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.endpoint ELSE ai_provider_configs.enterprise_endpoint END,
+  enterprise_model = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.model ELSE ai_provider_configs.enterprise_model END,
+  enterprise_encrypted_key = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.encrypted_key ELSE ai_provider_configs.enterprise_encrypted_key END,
+  enterprise_enabled = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.enabled ELSE ai_provider_configs.enterprise_enabled END,
+  enterprise_local_only = CASE WHEN EXCLUDED.mode <> 'platform' THEN EXCLUDED.local_only ELSE ai_provider_configs.enterprise_local_only END,
+  active_service = CASE WHEN EXCLUDED.mode = 'platform' THEN 'platform' ELSE 'enterprise' END,
+  mode = EXCLUDED.mode,
+  provider = EXCLUDED.provider,
+  endpoint = EXCLUDED.endpoint,
+  model = EXCLUDED.model,
+  encrypted_key = EXCLUDED.encrypted_key,
+  enabled = EXCLUDED.enabled,
+  local_only = EXCLUDED.local_only,
+  input_micros_per_million = EXCLUDED.input_micros_per_million,
+  output_micros_per_million = EXCLUDED.output_micros_per_million,
+  cost_currency = EXCLUDED.cost_currency,
+  updated_at = now()
 RETURNING *;
 
 -- name: PlatformGetAIRequest :one
@@ -79,3 +124,19 @@ SELECT urmail_ai_cloud_authorized(@tenant_id::bigint,@configuration_digest::text
 -- name: PlatformPendingAIUsage :many
 SELECT id,mailbox_id,mode,provider,model,cost_currency,status,reserved_tokens,reserved_cost_micros,actual_tokens,actual_cost_micros,period_start,period_end,updated_at
 FROM ai_usage_requests WHERE tenant_id=$1 AND status IN('reserved','uncertain') ORDER BY updated_at,id LIMIT 100;
+
+-- name: PlatformConfigureTenantAIGovernance :exec
+SELECT urmail_configure_tenant_ai_governance(sqlc.arg(personal_mode)::text, sqlc.arg(approved_endpoints)::text[]);
+
+-- name: PlatformSetActiveAIService :exec
+UPDATE ai_provider_configs SET
+  active_service = sqlc.arg(active_service)::text,
+  mode = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN 'platform' ELSE enterprise_mode END,
+  provider = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN platform_provider ELSE enterprise_provider END,
+  endpoint = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN platform_endpoint ELSE enterprise_endpoint END,
+  model = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN platform_model ELSE enterprise_model END,
+  encrypted_key = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN platform_encrypted_key ELSE enterprise_encrypted_key END,
+  enabled = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN platform_enabled ELSE enterprise_enabled END,
+  local_only = CASE WHEN sqlc.arg(active_service)::text = 'platform' THEN false ELSE enterprise_local_only END,
+  updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id);

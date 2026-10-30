@@ -40,6 +40,21 @@ type AiProviderConfigs struct {
 	NonplatformMailboxCallLimit int64              `json:"nonplatform_mailbox_call_limit"`
 	NonplatformConcurrencyLimit int64              `json:"nonplatform_concurrency_limit"`
 	QuotaTimezone               string             `json:"quota_timezone"`
+	PlatformProvider            string             `json:"platform_provider"`
+	PlatformEndpoint            string             `json:"platform_endpoint"`
+	PlatformModel               string             `json:"platform_model"`
+	PlatformEncryptedKey        string             `json:"platform_encrypted_key"`
+	PlatformEnabled             bool               `json:"platform_enabled"`
+	EnterpriseMode              string             `json:"enterprise_mode"`
+	EnterpriseProvider          string             `json:"enterprise_provider"`
+	EnterpriseEndpoint          string             `json:"enterprise_endpoint"`
+	EnterpriseModel             string             `json:"enterprise_model"`
+	EnterpriseEncryptedKey      string             `json:"enterprise_encrypted_key"`
+	EnterpriseEnabled           bool               `json:"enterprise_enabled"`
+	EnterpriseLocalOnly         bool               `json:"enterprise_local_only"`
+	PersonalMode                string             `json:"personal_mode"`
+	ApprovedEndpoints           []string           `json:"approved_endpoints"`
+	ActiveService               string             `json:"active_service"`
 }
 
 type AiUsageRequests struct {

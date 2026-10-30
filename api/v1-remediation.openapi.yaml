@@ -5776,6 +5776,8 @@ paths:
                   - draft_new
                   - draft_reply
                   - polish
+                  - todos
+                  - custom
                 configuration_digest:
                   type: string
                 confirmed:
@@ -9944,6 +9946,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        service: {type: string, enum: [enterprise, platform, personal]}
         use_custom: {type: boolean}
         provider: {type: string, enum: [openai, azure, ollama]}
         endpoint: {type: string, maxLength: 2048, description: HTTPS for cloud services; local Ollama requires the exact operator allowlist.}

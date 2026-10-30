@@ -218,8 +218,16 @@ export function MailboxSettingsPage() {
       } else {
         setUserAINotice({ text: t("page.ai.reachable") });
       }
-    } catch {
-      setUserAINotice({ text: t("page.ai.health_failed"), error: true });
+    } catch (err) {
+      const msg =
+        err instanceof ApiRequestError
+          ? t(`error.${err.code}`, {
+              defaultValue: err.message || t("page.ai.health_failed"),
+            })
+          : err instanceof Error
+            ? err.message
+            : t("page.ai.health_failed");
+      setUserAINotice({ text: msg, error: true });
     } finally {
       setUserAIFetching(false);
     }
@@ -935,6 +943,23 @@ export function MailboxSettingsPage() {
         </div>
 
         <div className="p-4 rounded-xl border border-border/70 bg-card space-y-4 shadow-2xs">
+          {/* Service Hierarchy & Billing Attribution Notice */}
+          <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-xs space-y-1">
+            <p className="font-semibold text-foreground flex items-center justify-between">
+              <span>{t("page.webmail.ai_service_selection")}</span>
+              <span className="font-normal text-muted-foreground">
+                {userAIConfig.use_custom
+                  ? t("page.webmail.ai_billing_personal")
+                  : t("page.webmail.ai_billing_enterprise")}
+              </span>
+            </p>
+            <p className="text-muted-foreground">
+              {userAIConfig.use_custom
+                ? t("page.webmail.ai_quota_personal_unlimited")
+                : t("page.webmail.ai_copilot_description")}
+            </p>
+          </div>
+
           <label className="flex items-center gap-2.5 cursor-pointer select-none">
             <input
               type="checkbox"
