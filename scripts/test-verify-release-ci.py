@@ -161,5 +161,172 @@ class ReleaseGateTests(unittest.TestCase):
                     gate.verify_release(REPO, SHA)
 
 
+    def test_waiting_until_run_succeeds(self):
+        poll_count = [0]
+        sleeps = []
+
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                poll_count[0] += 1
+                if poll_count[0] == 1:
+                    return {"workflow_runs": [dict(candidate(), status="in_progress", conclusion=None)]}
+                return {"workflow_runs": [candidate()]}
+            if "/runs/42/jobs?" in path:
+                if poll_count[0] == 1:
+                    return {"jobs": [dict(j, status="in_progress", conclusion=None) for j in required_jobs()]}
+                return {"jobs": required_jobs()}
+            self.fail(f"unexpected API request: {path}")
+
+        with patch.object(gate, "fetch", side_effect=fetch):
+            res = gate.verify_release(
+                REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: sleeps.append(s)
+            )
+            self.assertEqual(res, 42)
+        self.assertEqual(poll_count[0], 2)
+        self.assertEqual(sleeps, [1])
+
+    def test_waiting_timeout_raises_error(self):
+        simulated_time = [1000.0]
+
+        def fake_monotonic():
+            return simulated_time[0]
+
+        def fake_sleep(sec):
+            simulated_time[0] += sec + 10.0
+
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                return {"workflow_runs": [dict(candidate(), status="in_progress", conclusion=None)]}
+            if "/runs/42/jobs?" in path:
+                return {"jobs": [dict(j, status="in_progress", conclusion=None) for j in required_jobs()]}
+            self.fail(f"unexpected API request: {path}")
+
+        with patch.object(gate, "fetch", side_effect=fetch):
+            with patch("time.monotonic", side_effect=fake_monotonic):
+                with self.assertRaises(gate.VerificationTimeoutError) as ctx:
+                    gate.verify_release(
+                        REPO, SHA, timeout_seconds=5, poll_interval=1, sleeper=fake_sleep
+                    )
+                self.assertIsInstance(ctx.exception, ValueError)
+                self.assertIsInstance(ctx.exception, TimeoutError)
+
+    def test_failure_during_retry_raises_error(self):
+        poll_count = [0]
+        sleeps = []
+
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                poll_count[0] += 1
+                if poll_count[0] == 1:
+                    return {"workflow_runs": [dict(candidate(), run_attempt=2, status="in_progress", conclusion=None)]}
+                return {"workflow_runs": [dict(candidate(), run_attempt=2, status="completed", conclusion="failure")]}
+            if "/runs/42/jobs?" in path:
+                return {"jobs": [dict(j, run_attempt=2, status="in_progress", conclusion=None) for j in required_jobs()]}
+            self.fail(f"unexpected API request: {path}")
+
+        with patch.object(gate, "fetch", side_effect=fetch):
+            with self.assertRaises(ValueError) as ctx:
+                gate.verify_release(
+                    REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: sleeps.append(s)
+                )
+            self.assertIn("failed with conclusion 'failure'", str(ctx.exception))
+        self.assertEqual(poll_count[0], 2)
+
+    def test_required_job_failure_during_retry_fails_closed_immediately(self):
+        sleeps = []
+
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                return {"workflow_runs": [dict(candidate(), run_attempt=2, status="in_progress", conclusion=None)]}
+            if "/runs/42/jobs?" in path:
+                jobs = [dict(j, run_attempt=2, status="in_progress", conclusion=None) for j in required_jobs()]
+                jobs[0]["conclusion"] = "failure"
+                return {"jobs": jobs}
+            self.fail(f"unexpected API request: {path}")
+
+        with patch.object(gate, "fetch", side_effect=fetch):
+            with self.assertRaises(ValueError) as ctx:
+                gate.verify_release(
+                    REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: sleeps.append(s)
+                )
+            self.assertIn("failed with conclusion 'failure'", str(ctx.exception))
+        self.assertEqual(len(sleeps), 0)
+
+    def test_cross_attempt_stitching_forbidden_in_verify_run(self):
+        req = required_jobs()
+        attempt1_jobs = [dict(j, run_attempt=1) for j in req[:6]]
+        attempt2_jobs = [dict(j, run_attempt=2) for j in req[6:]]
+        mixed_jobs = attempt1_jobs + attempt2_jobs
+        run_attempt2 = dict(candidate(), run_attempt=2)
+
+        self.assertFalse(gate.verify_run(run_attempt2, mixed_jobs, SHA, REPO))
+        self.assertFalse(gate.verify_run(dict(candidate(), run_attempt=1), mixed_jobs, SHA, REPO))
+
+        attempt2_all = [dict(j, run_attempt=2) for j in req]
+        attempt2_all[0]["conclusion"] = "failure"
+        attempt1_all = [dict(j, run_attempt=1) for j in req]
+        self.assertFalse(gate.verify_run(run_attempt2, attempt1_all + attempt2_all, SHA, REPO))
+
+    def test_attempt_changed_mid_wait_fails_closed(self):
+        poll_count = [0]
+        sleeps = []
+
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                poll_count[0] += 1
+                if poll_count[0] == 1:
+                    return {"workflow_runs": [dict(candidate(), run_attempt=1, status="in_progress", conclusion=None)]}
+                return {"workflow_runs": [dict(candidate(), run_attempt=2, status="in_progress", conclusion=None)]}
+            if "/runs/42/jobs?" in path:
+                return {"jobs": [dict(j, run_attempt=1, status="in_progress", conclusion=None) for j in required_jobs()]}
+            self.fail(f"unexpected API request: {path}")
+
+        with patch.object(gate, "fetch", side_effect=fetch):
+            with self.assertRaises(ValueError) as ctx:
+                gate.verify_release(
+                    REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: sleeps.append(s)
+                )
+            self.assertIn("cross-attempt stitching is forbidden", str(ctx.exception))
+
+    def test_immediate_unrecoverable_failure_conclusions(self):
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            sleeps = []
+
+            def fetch(path):
+                if path.endswith("/git/ref/heads/main"):
+                    return {"object": {"type": "commit", "sha": MAIN_SHA}}
+                if "/compare/" in path:
+                    return comparison()
+                if "/workflows/ci.yaml/runs?" in path:
+                    return {"workflow_runs": [dict(candidate(), status="completed", conclusion=conclusion)]}
+                self.fail(f"unexpected API request: {path}")
+
+            with patch.object(gate, "fetch", side_effect=fetch):
+                with self.assertRaises(ValueError):
+                    gate.verify_release(
+                        REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: sleeps.append(s)
+                    )
+            self.assertEqual(len(sleeps), 0)
+
 if __name__ == "__main__":
     unittest.main()
