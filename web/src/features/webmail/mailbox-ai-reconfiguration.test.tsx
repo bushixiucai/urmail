@@ -118,6 +118,13 @@ it("invalidates a translation when its requested language changes during generat
 });
 
 it("removes an existing drawer proposal when its provider configuration is saved", async () => {
+  let resolveTarget!: (target: api.MailboxAITarget) => void;
+  vi.mocked(api.fetchMailboxAITarget).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveTarget = resolve;
+      }),
+  );
   vi.mocked(api.runMailboxAI).mockResolvedValue({
     result: { body: "Proposal from original provider" },
   });
@@ -144,7 +151,21 @@ it("removes an existing drawer proposal when its provider configuration is saved
     />,
   );
   await waitFor(() => expect(api.fetchMailboxAITarget).toHaveBeenCalled());
-  fireEvent.click(screen.getByText("page.webmail.ai_quick_reply"));
+  // A fetch call only means initialization started. Flush the target commit and
+  // its digest-change invalidation effect before requesting a proposal.
+  await act(async () => {
+    resolveTarget({
+      enabled: true,
+      allowed: true,
+      provider: "openai",
+      model: "original-model",
+      configuration_digest: "target-a",
+    });
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "page.webmail.ai_quick_reply" }),
+  );
+  await waitFor(() => expect(api.previewMailboxAI).toHaveBeenCalledTimes(1));
   fireEvent.click(
     await screen.findByRole("button", {
       name: "page.webmail.ai_confirm_execute",

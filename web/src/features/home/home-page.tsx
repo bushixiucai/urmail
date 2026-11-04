@@ -72,20 +72,37 @@ export function HomePage() {
       `}</style>
 
       <header className="relative z-10 flex items-center justify-between gap-4 px-5 py-5 sm:px-10">
-        <Link to="/" className="home-display flex items-center gap-3 text-lg font-bold tracking-tight">
+        <Link
+          to="/"
+          className="home-display flex items-center gap-3 text-lg font-bold tracking-tight"
+        >
           {logo ? (
-            <img src={logo} alt="" className="h-8 max-w-[140px] object-contain" />
+            <img
+              src={logo}
+              alt=""
+              className="h-8 max-w-[140px] object-contain"
+            />
           ) : null}
           <span>{brandName}</span>
         </Link>
         <nav className="flex flex-wrap items-center gap-2 text-sm">
-          <Link className="px-2 py-1 text-[var(--home-mute)] hover:text-[var(--home-ink)]" to="/pricing">
+          <Link
+            className="px-2 py-1 text-[var(--home-mute)] hover:text-[var(--home-ink)]"
+            to="/pricing"
+          >
             {t("home.nav_pricing")}
           </Link>
-          <Link className="px-2 py-1 text-[var(--home-mute)] hover:text-[var(--home-ink)]" to={consoleHref}>
+          <Link
+            className="px-2 py-1 text-[var(--home-mute)] hover:text-[var(--home-ink)]"
+            to={consoleHref}
+          >
             {t("home.nav_login")}
           </Link>
-          <Button asChild size="sm" className="bg-[var(--home-accent)] text-[var(--home-accent-fg)] hover:opacity-90">
+          <Button
+            asChild
+            size="sm"
+            className="bg-[var(--home-accent)] text-[var(--home-accent-fg)] hover:opacity-90"
+          >
             <Link to="/register">{t("home.cta_register")}</Link>
           </Button>
         </nav>
@@ -167,7 +184,10 @@ export function HomePage() {
                   index > 0 ? "md:border-l md:border-[var(--home-line)]" : ""
                 } ${index > 0 ? "border-t border-[var(--home-line)] md:border-t-0" : ""}`}
               >
-                <Icon className="h-5 w-5 text-[var(--home-ink)]" strokeWidth={1.75} />
+                <Icon
+                  className="h-5 w-5 text-[var(--home-ink)]"
+                  strokeWidth={1.75}
+                />
                 <div className="space-y-2">
                   <h3 className="home-display text-xl font-semibold tracking-tight">
                     {entry.title}
@@ -192,7 +212,9 @@ export function HomePage() {
             <h2 className="home-display text-3xl font-semibold tracking-[-0.02em]">
               {t("home.capabilities_title")}
             </h2>
-            <p className="text-[var(--home-mute)]">{t("home.capabilities_support")}</p>
+            <p className="text-[var(--home-mute)]">
+              {t("home.capabilities_support")}
+            </p>
           </div>
           <ul className="grid gap-10 md:grid-cols-3">
             {[
@@ -209,11 +231,16 @@ export function HomePage() {
                 body: t("home.cap_webmail_body"),
               },
             ].map((item) => (
-              <li key={item.title} className="space-y-3 border-t border-[var(--home-line)] pt-6">
+              <li
+                key={item.title}
+                className="space-y-3 border-t border-[var(--home-line)] pt-6"
+              >
                 <h3 className="home-display text-lg font-semibold tracking-tight">
                   {item.title}
                 </h3>
-                <p className="text-sm leading-relaxed text-[var(--home-mute)]">{item.body}</p>
+                <p className="text-sm leading-relaxed text-[var(--home-mute)]">
+                  {item.body}
+                </p>
               </li>
             ))}
           </ul>
@@ -237,7 +264,9 @@ export function HomePage() {
               {t("home.footer_support")}
             </Link>
           </div>
-          <p className="text-xs text-[var(--home-mute)]">{t("home.footer_note")}</p>
+          <p className="text-xs text-[var(--home-mute)]">
+            {t("home.footer_note")}
+          </p>
         </div>
       </footer>
     </div>

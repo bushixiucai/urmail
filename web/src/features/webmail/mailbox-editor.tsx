@@ -5,6 +5,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Node, Extension, Mark } from "@tiptap/core";
 import * as pmTables from "@tiptap/pm/tables";
+import type { Schema, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { useTranslation } from "react-i18next";
 import {
   Bold,
@@ -29,15 +30,13 @@ import {
 import { Button } from "@/components/ui/button";
 import type { OutgoingAttachment } from "./mailbox-api";
 
-export function ensureTableTypes(schema: any) {
-  if (schema.nodes.table) (schema.nodes.table.spec as any).tableRole = "table";
-  if (schema.nodes.table_row)
-    (schema.nodes.table_row.spec as any).tableRole = "row";
-  if (schema.nodes.table_cell)
-    (schema.nodes.table_cell.spec as any).tableRole = "cell";
+export function ensureTableTypes(schema: Schema) {
+  if (schema.nodes.table) schema.nodes.table.spec.tableRole = "table";
+  if (schema.nodes.table_row) schema.nodes.table_row.spec.tableRole = "row";
+  if (schema.nodes.table_cell) schema.nodes.table_cell.spec.tableRole = "cell";
   if (schema.nodes.table_header)
-    (schema.nodes.table_header.spec as any).tableRole = "header_cell";
-  (schema.cached as any).tableNodeTypes = {
+    schema.nodes.table_header.spec.tableRole = "header_cell";
+  schema.cached.tableNodeTypes = {
     table: schema.nodes.table,
     row: schema.nodes.table_row,
     cell: schema.nodes.table_cell,
@@ -175,8 +174,7 @@ export const FontColorMark = Mark.create({
     return {
       color: {
         default: null,
-        parseHTML: (el) =>
-          el.style.color || el.getAttribute("color") || null,
+        parseHTML: (el) => el.style.color || el.getAttribute("color") || null,
         renderHTML: (attrs) => {
           if (!attrs.color) return {};
           return { style: `color: ${attrs.color}` };
@@ -426,9 +424,9 @@ export function MailboxEditor({
     if (!editor) return;
     ensureTableTypes(editor.schema);
     const schema = editor.schema;
-    const rowNodes: any[] = [];
+    const rowNodes: ProseMirrorNode[] = [];
     for (let r = 0; r < rows; r++) {
-      const cells: any[] = [];
+      const cells: ProseMirrorNode[] = [];
       const isHeader = r === 0;
       const type = isHeader
         ? schema.nodes.table_header
@@ -604,8 +602,12 @@ export function MailboxEditor({
 
         {/* Font size selector */}
         <select
-          title={t("page.webmail.compose_font_size", { defaultValue: "Font size" })}
-          aria-label={t("page.webmail.compose_font_size", { defaultValue: "Font size" })}
+          title={t("page.webmail.compose_font_size", {
+            defaultValue: "Font size",
+          })}
+          aria-label={t("page.webmail.compose_font_size", {
+            defaultValue: "Font size",
+          })}
           disabled={disabled || isSourceMode || !editor}
           className="h-7 px-1.5 text-xs bg-transparent border border-border/50 rounded hover:bg-muted/50 cursor-pointer focus:outline-none"
           value={fontSize || editor?.getAttributes("fontSize")?.size || ""}
@@ -626,8 +628,12 @@ export function MailboxEditor({
             variant="ghost"
             className="h-7 w-7 p-0 cursor-pointer"
             disabled={disabled || isSourceMode || !editor}
-            title={t("page.webmail.compose_font_color", { defaultValue: "Text color" })}
-            aria-label={t("page.webmail.compose_font_color", { defaultValue: "Text color" })}
+            title={t("page.webmail.compose_font_color", {
+              defaultValue: "Text color",
+            })}
+            aria-label={t("page.webmail.compose_font_color", {
+              defaultValue: "Text color",
+            })}
             onClick={() => setShowColorPicker(!showColorPicker)}
           >
             <Palette className="h-3.5 w-3.5" />
@@ -712,8 +718,12 @@ export function MailboxEditor({
           variant="ghost"
           className="h-7 w-7 p-0 cursor-pointer"
           disabled={disabled || isSourceMode || !editor}
-          title={t("page.webmail.compose_insert_image", { defaultValue: "Insert image" })}
-          aria-label={t("page.webmail.compose_insert_image", { defaultValue: "Insert image" })}
+          title={t("page.webmail.compose_insert_image", {
+            defaultValue: "Insert image",
+          })}
+          aria-label={t("page.webmail.compose_insert_image", {
+            defaultValue: "Insert image",
+          })}
           onClick={() => imageInputRef.current?.click()}
         >
           <ImageIcon className="h-3.5 w-3.5" />
@@ -727,8 +737,12 @@ export function MailboxEditor({
             variant={isTableActive ? "secondary" : "ghost"}
             className="h-7 w-7 p-0 cursor-pointer"
             disabled={disabled || isSourceMode || !editor}
-            title={t("page.webmail.compose_insert_table", { defaultValue: "Table" })}
-            aria-label={t("page.webmail.compose_insert_table", { defaultValue: "Table" })}
+            title={t("page.webmail.compose_insert_table", {
+              defaultValue: "Table",
+            })}
+            aria-label={t("page.webmail.compose_insert_table", {
+              defaultValue: "Table",
+            })}
             onClick={() => {
               if (isTableActive) {
                 setShowTableMenu(!showTableMenu);
@@ -756,7 +770,9 @@ export function MailboxEditor({
                 onClick={handleAddCol}
               >
                 <Columns className="h-3 w-3" />
-                {t("page.webmail.compose_add_col", { defaultValue: "Add column" })}
+                {t("page.webmail.compose_add_col", {
+                  defaultValue: "Add column",
+                })}
               </button>
               <div className="h-px bg-border/60 my-0.5" />
               <button
@@ -765,7 +781,9 @@ export function MailboxEditor({
                 onClick={handleDeleteRow}
               >
                 <Trash2 className="h-3 w-3" />
-                {t("page.webmail.compose_delete_row", { defaultValue: "Delete row" })}
+                {t("page.webmail.compose_delete_row", {
+                  defaultValue: "Delete row",
+                })}
               </button>
               <button
                 type="button"
@@ -773,7 +791,9 @@ export function MailboxEditor({
                 onClick={handleDeleteCol}
               >
                 <Trash2 className="h-3 w-3" />
-                {t("page.webmail.compose_delete_col", { defaultValue: "Delete col" })}
+                {t("page.webmail.compose_delete_col", {
+                  defaultValue: "Delete col",
+                })}
               </button>
               <button
                 type="button"
@@ -781,7 +801,9 @@ export function MailboxEditor({
                 onClick={handleDeleteTable}
               >
                 <Trash2 className="h-3 w-3" />
-                {t("page.webmail.compose_delete_table", { defaultValue: "Delete table" })}
+                {t("page.webmail.compose_delete_table", {
+                  defaultValue: "Delete table",
+                })}
               </button>
             </div>
           )}
@@ -795,8 +817,12 @@ export function MailboxEditor({
               size="sm"
               variant="ghost"
               className="h-7 px-1 text-xs gap-0.5 cursor-pointer"
-              title={t("page.webmail.compose_add_row", { defaultValue: "Add row" })}
-              aria-label={t("page.webmail.compose_add_row", { defaultValue: "Add row" })}
+              title={t("page.webmail.compose_add_row", {
+                defaultValue: "Add row",
+              })}
+              aria-label={t("page.webmail.compose_add_row", {
+                defaultValue: "Add row",
+              })}
               onClick={handleAddRow}
             >
               <Plus className="h-3 w-3" />
@@ -807,8 +833,12 @@ export function MailboxEditor({
               size="sm"
               variant="ghost"
               className="h-7 px-1 text-xs gap-0.5 cursor-pointer"
-              title={t("page.webmail.compose_add_col", { defaultValue: "Add col" })}
-              aria-label={t("page.webmail.compose_add_col", { defaultValue: "Add col" })}
+              title={t("page.webmail.compose_add_col", {
+                defaultValue: "Add col",
+              })}
+              aria-label={t("page.webmail.compose_add_col", {
+                defaultValue: "Add col",
+              })}
               onClick={handleAddCol}
             >
               <Plus className="h-3 w-3" />

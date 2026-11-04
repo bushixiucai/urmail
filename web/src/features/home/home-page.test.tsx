@@ -63,6 +63,8 @@ describe("HomePage", () => {
     );
     const entry = screen.getByText("home.entry_console_cta").closest("a");
     expect(entry?.getAttribute("href")).toBe("/console");
-    expect(within(entry as HTMLElement).getByText("home.entry_console_title")).toBeTruthy();
+    expect(
+      within(entry as HTMLElement).getByText("home.entry_console_title"),
+    ).toBeTruthy();
   });
 });

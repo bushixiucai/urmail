@@ -8,7 +8,14 @@ import {
 } from "react";
 import { useDraftPersistence } from "./use-draft-persistence";
 import { useTranslation } from "react-i18next";
-import { Maximize2, Minimize2, Minus, X, FileText, PenLine } from "lucide-react";
+import {
+  Maximize2,
+  Minimize2,
+  Minus,
+  X,
+  FileText,
+  PenLine,
+} from "lucide-react";
 import { MailboxAIPanel } from "./mailbox-ai-panel";
 import { MailboxEditor } from "./mailbox-editor";
 import type { MailboxAISource } from "./mailbox-api";
@@ -191,7 +198,14 @@ export function draftFromMessage(
   const forwardedHtml = msg.html
     ? `<br><br><div class="urmail-forwarded-message"><p>---------- Forwarded message ----------<br>From: ${from}<br>Subject: ${msg.subject || ""}</p><div>${msg.html}</div></div>`
     : undefined;
-  return { mode, to: "", subject: subj, text: body, quoteText: body, html: forwardedHtml };
+  return {
+    mode,
+    to: "",
+    subject: subj,
+    text: body,
+    quoteText: body,
+    html: forwardedHtml,
+  };
 }
 
 /** Resume an IMAP draft into the compose dialog. */
@@ -489,7 +503,9 @@ function MailboxComposeEditor({
         );
         setFrom(selected);
         if (settings.preferences?.reply_to_address && !draft.replyTo) {
-          const prefReplyTo = String(settings.preferences.reply_to_address).trim();
+          const prefReplyTo = String(
+            settings.preferences.reply_to_address,
+          ).trim();
           if (prefReplyTo) {
             setReplyTo(prefReplyTo);
           }
@@ -618,8 +634,7 @@ function MailboxComposeEditor({
       const textarea =
         containerRef.current?.querySelector<HTMLTextAreaElement>(
           "textarea[aria-label]",
-        ) ||
-        (document.getElementById("compose-body") as HTMLTextAreaElement);
+        ) || (document.getElementById("compose-body") as HTMLTextAreaElement);
       if (textarea) {
         const start = textarea.selectionStart || 0;
         const end = textarea.selectionEnd || 0;
@@ -1045,7 +1060,11 @@ function MailboxComposeEditor({
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const invalid = parts.find((a) => !emailRegex.test(a));
       if (invalid) {
-        setError(t("page.webmail.invalid_reply_to", { defaultValue: "Invalid Reply-To address" }));
+        setError(
+          t("page.webmail.invalid_reply_to", {
+            defaultValue: "Invalid Reply-To address",
+          }),
+        );
         return;
       }
     }
@@ -1625,7 +1644,9 @@ function MailboxComposeEditor({
             <div className={showReplyTo ? "block" : "hidden"}>
               <RecipientField
                 id="compose-reply-to"
-                label={t("page.webmail.compose_reply_to", { defaultValue: "Reply-To" })}
+                label={t("page.webmail.compose_reply_to", {
+                  defaultValue: "Reply-To",
+                })}
                 value={replyTo}
                 disabled={fieldsLocked}
                 placeholder="reply-to@example.com"
@@ -1724,18 +1745,30 @@ function MailboxComposeEditor({
                     id="compose-snippets-btn"
                     className="h-7 px-2 text-xs gap-1.5 cursor-pointer hover:bg-muted"
                     disabled={fieldsLocked}
-                    title={t("page.webmail.compose_snippets", { defaultValue: "Personal snippets" })}
-                    aria-label={t("page.webmail.compose_snippets", { defaultValue: "Personal snippets" })}
+                    title={t("page.webmail.compose_snippets", {
+                      defaultValue: "Personal snippets",
+                    })}
+                    aria-label={t("page.webmail.compose_snippets", {
+                      defaultValue: "Personal snippets",
+                    })}
                     onClick={() => setShowSnippets(!showSnippets)}
                   >
                     <FileText className="h-3.5 w-3.5" />
-                    <span>{t("page.webmail.compose_snippets", { defaultValue: "Snippets" })}</span>
+                    <span>
+                      {t("page.webmail.compose_snippets", {
+                        defaultValue: "Snippets",
+                      })}
+                    </span>
                   </Button>
 
                   {showSnippets && (
                     <div className="absolute left-0 top-8 z-50 w-64 max-h-56 overflow-y-auto rounded-md border border-border bg-popover p-1.5 shadow-lg text-xs">
                       <div className="px-2 py-1 font-semibold text-muted-foreground border-b border-border/50 flex justify-between items-center">
-                        <span>{t("page.webmail.compose_snippets_title", { defaultValue: "Canned Snippets" })}</span>
+                        <span>
+                          {t("page.webmail.compose_snippets_title", {
+                            defaultValue: "Canned Snippets",
+                          })}
+                        </span>
                         <button
                           type="button"
                           className="text-muted-foreground hover:text-foreground cursor-pointer"
@@ -1746,7 +1779,9 @@ function MailboxComposeEditor({
                       </div>
                       {snippets.length === 0 ? (
                         <div className="p-3 text-center text-muted-foreground">
-                          {t("page.webmail.no_snippets", { defaultValue: "No snippets found" })}
+                          {t("page.webmail.no_snippets", {
+                            defaultValue: "No snippets found",
+                          })}
                         </div>
                       ) : (
                         snippets.map((snip) => (
@@ -1756,8 +1791,12 @@ function MailboxComposeEditor({
                             className="w-full text-left px-2 py-1.5 rounded hover:bg-muted cursor-pointer transition-colors block"
                             onClick={() => handleInsertSnippet(snip.content)}
                           >
-                            <div className="font-medium text-foreground truncate">{snip.title}</div>
-                            <div className="text-[11px] text-muted-foreground line-clamp-1 truncate">{snip.content}</div>
+                            <div className="font-medium text-foreground truncate">
+                              {snip.title}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground line-clamp-1 truncate">
+                              {snip.content}
+                            </div>
                           </button>
                         ))
                       )}
@@ -1773,12 +1812,20 @@ function MailboxComposeEditor({
                   id="compose-signature-btn"
                   className="h-7 px-2 text-xs gap-1.5 cursor-pointer hover:bg-muted"
                   disabled={fieldsLocked}
-                  title={t("page.webmail.compose_insert_signature", { defaultValue: "Insert signature" })}
-                  aria-label={t("page.webmail.compose_insert_signature", { defaultValue: "Insert signature" })}
+                  title={t("page.webmail.compose_insert_signature", {
+                    defaultValue: "Insert signature",
+                  })}
+                  aria-label={t("page.webmail.compose_insert_signature", {
+                    defaultValue: "Insert signature",
+                  })}
                   onClick={handleInsertSignature}
                 >
                   <PenLine className="h-3.5 w-3.5" />
-                  <span>{t("page.webmail.compose_signature", { defaultValue: "Signature" })}</span>
+                  <span>
+                    {t("page.webmail.compose_signature", {
+                      defaultValue: "Signature",
+                    })}
+                  </span>
                 </Button>
               </div>
 
@@ -1793,7 +1840,11 @@ function MailboxComposeEditor({
                     onChange={(e) => setRequestMdn(e.target.checked)}
                     className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
-                  <span>{t("page.webmail.compose_request_mdn", { defaultValue: "Read receipt (MDN)" })}</span>
+                  <span>
+                    {t("page.webmail.compose_request_mdn", {
+                      defaultValue: "Read receipt (MDN)",
+                    })}
+                  </span>
                 </label>
                 <label className="flex items-center gap-1.5 cursor-pointer hover:text-foreground select-none">
                   <input
@@ -1804,7 +1855,11 @@ function MailboxComposeEditor({
                     onChange={(e) => setRequestDsn(e.target.checked)}
                     className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                   />
-                  <span>{t("page.webmail.compose_request_dsn", { defaultValue: "Delivery status (DSN)" })}</span>
+                  <span>
+                    {t("page.webmail.compose_request_dsn", {
+                      defaultValue: "Delivery status (DSN)",
+                    })}
+                  </span>
                 </label>
               </div>
             </div>

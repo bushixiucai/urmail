@@ -17,7 +17,9 @@ const OFFICE_TYPES = new Set([
   "application/vnd.ms-powerpoint",
 ]);
 
-export function previewType(type: string): "image" | "text" | "pdf" | "office" | null {
+export function previewType(
+  type: string,
+): "image" | "text" | "pdf" | "office" | null {
   const mime = type.split(";", 1)[0].trim().toLowerCase();
   if (mime === "image/png" || mime === "image/jpeg") return "image";
   if (mime === "application/pdf") return "pdf";

@@ -37,7 +37,8 @@ describe("bounded attachment previews", () => {
       part_id: "2",
       filename: "sheet.xlsx",
       size: 3,
-      content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      content_type:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     expect(officePreview.kind).toBe("office");
     if (officePreview.kind === "office") {

@@ -45,7 +45,11 @@ import { MailboxAppRail, MailboxAppId } from "./mailbox-app-rail";
 import { useResizablePanes, SplitterHandle } from "./mailbox-splitter";
 import { MailboxAIDrawer } from "./mailbox-ai-drawer";
 import { MailboxInlineReply } from "./mailbox-inline-reply";
-import { MailboxMessageRow, RowDensity, RowColumnsConfig } from "./mailbox-message-row";
+import {
+  MailboxMessageRow,
+  RowDensity,
+  RowColumnsConfig,
+} from "./mailbox-message-row";
 import { MailboxDetailHeader } from "./mailbox-detail-header";
 import { getFolderInfo, sortMailboxFolders } from "./mailbox-folder-utils";
 import { PeopleCalendarPanel } from "./people-calendar-panel";
@@ -274,16 +278,16 @@ export function MailboxInboxPage() {
   const [threadFilter, setThreadFilter] = useState<string | null>(null);
 
   // WP02 / I04: Folder-scoped thread toggle
-  const [folderThreading, setFolderThreading] = useState<Record<string, boolean>>(
-    () => {
-      try {
-        const stored = localStorage.getItem("urmail.webmail.folderThreading");
-        return stored ? JSON.parse(stored) : {};
-      } catch {
-        return {};
-      }
-    },
-  );
+  const [folderThreading, setFolderThreading] = useState<
+    Record<string, boolean>
+  >(() => {
+    try {
+      const stored = localStorage.getItem("urmail.webmail.folderThreading");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // WP02 / I01: Search folder statuses & continuation
   interface SearchFolderStatus {
@@ -313,7 +317,9 @@ export function MailboxInboxPage() {
     setDensity(d);
     try {
       localStorage.setItem("urmail.webmail.density", d);
-    } catch {}
+    } catch {
+      // Storage may be unavailable or full; keep this preference in memory.
+    }
   };
 
   // WP03 / I02: Optional columns visibility
@@ -324,7 +330,13 @@ export function MailboxInboxPage() {
         ? JSON.parse(stored)
         : { fromTo: true, subject: true, date: true, size: false, flags: true };
     } catch {
-      return { fromTo: true, subject: true, date: true, size: false, flags: true };
+      return {
+        fromTo: true,
+        subject: true,
+        date: true,
+        size: false,
+        flags: true,
+      };
     }
   });
   const toggleColumn = (col: keyof RowColumnsConfig) => {
@@ -332,28 +344,34 @@ export function MailboxInboxPage() {
       const next = { ...prev, [col]: !prev[col] };
       try {
         localStorage.setItem("urmail.webmail.columns", JSON.stringify(next));
-      } catch {}
+      } catch {
+        // Storage may be unavailable or full; keep this preference in memory.
+      }
       return next;
     });
   };
 
   // WP03 / I05: Read timer (5s delay / immediate / manual)
-  const [readTimerMode, setReadTimerMode] = useState<"5s" | "immediate" | "manual">(
-    () => {
-      try {
-        const raw = localStorage.getItem("urmail.webmail.readTimerMode")?.replace(/"/g, "");
-        if (raw === "immediate" || raw === "manual" || raw === "5s") return raw;
-        return "5s";
-      } catch {
-        return "5s";
-      }
-    },
-  );
+  const [readTimerMode, setReadTimerMode] = useState<
+    "5s" | "immediate" | "manual"
+  >(() => {
+    try {
+      const raw = localStorage
+        .getItem("urmail.webmail.readTimerMode")
+        ?.replace(/"/g, "");
+      if (raw === "immediate" || raw === "manual" || raw === "5s") return raw;
+      return "5s";
+    } catch {
+      return "5s";
+    }
+  });
   const updateReadTimerMode = (m: "5s" | "immediate" | "manual") => {
     setReadTimerMode(m);
     try {
       localStorage.setItem("urmail.webmail.readTimerMode", m);
-    } catch {}
+    } catch {
+      // Storage may be unavailable or full; keep this preference in memory.
+    }
   };
   const [readTimerRemaining, setReadTimerRemaining] = useState<number | null>(
     null,
@@ -386,9 +404,8 @@ export function MailboxInboxPage() {
     () => {
       try {
         return (
-          (localStorage.getItem(
-            "urmail.webmail.afterDelete",
-          ) as "next" | "list") || "next"
+          (localStorage.getItem("urmail.webmail.afterDelete") as
+            "next" | "list") || "next"
         );
       } catch {
         return "next";
@@ -399,7 +416,9 @@ export function MailboxInboxPage() {
     setAfterDeletePref(pref);
     try {
       localStorage.setItem("urmail.webmail.afterDelete", pref);
-    } catch {}
+    } catch {
+      // Storage may be unavailable or full; keep this preference in memory.
+    }
   };
 
   // Folder unread count map for badges
@@ -670,9 +689,13 @@ export function MailboxInboxPage() {
         }
         const activeFolders = folders.filter(
           (f) =>
-            !(f.flags ?? []).some((flag) => flag.toLowerCase() === "\\noselect"),
+            !(f.flags ?? []).some(
+              (flag) => flag.toLowerCase() === "\\noselect",
+            ),
         );
-        const folderStates: SearchFolderStatus[] = (activeFolders.length ? activeFolders : folders).map((f) => {
+        const folderStates: SearchFolderStatus[] = (
+          activeFolders.length ? activeFolders : folders
+        ).map((f) => {
           const count = countsByFolder.get(f.name) ?? 0;
           return {
             folder: f.name,
@@ -691,7 +714,9 @@ export function MailboxInboxPage() {
         const msg = errorMessage(err, t, "page.webmail.load_failed");
         const activeFolders = folders.filter(
           (f) =>
-            !(f.flags ?? []).some((flag) => flag.toLowerCase() === "\\noselect"),
+            !(f.flags ?? []).some(
+              (flag) => flag.toLowerCase() === "\\noselect",
+            ),
         );
         setSearchFolderStates(
           (activeFolders.length ? activeFolders : folders).map((f) => ({
@@ -702,8 +727,7 @@ export function MailboxInboxPage() {
             error: msg,
           })),
         );
-        if (!handleAuthError(err))
-          setError(msg);
+        if (!handleAuthError(err)) setError(msg);
       } finally {
         if (
           !controller.signal.aborted &&
@@ -875,7 +899,7 @@ export function MailboxInboxPage() {
               setMessages(markRead);
               setCrossResults((rows) => (rows == null ? null : markRead(rows)));
               setDetail((prev) =>
-                prev && sameMessage(rowRef(prev as any), source)
+                prev && sameMessage(rowRef(prev), source)
                   ? {
                       ...prev,
                       flags: [
@@ -889,7 +913,10 @@ export function MailboxInboxPage() {
               );
               setFolderUnreadCounts((prev) => ({
                 ...prev,
-                [source.folder_enc]: Math.max(0, (prev[source.folder_enc] ?? 1) - 1),
+                [source.folder_enc]: Math.max(
+                  0,
+                  (prev[source.folder_enc] ?? 1) - 1,
+                ),
               }));
             } catch {
               /* Reading remains usable when an ancillary flag update fails. */
@@ -942,7 +969,15 @@ export function MailboxInboxPage() {
       cancelReadTimer();
       controller.abort();
     };
-  }, [selectedRef, loadImages, handleAuthError, t, rowRef, readTimerMode, cancelReadTimer]);
+  }, [
+    selectedRef,
+    loadImages,
+    handleAuthError,
+    t,
+    rowRef,
+    readTimerMode,
+    cancelReadTimer,
+  ]);
 
   const handleLoadImages = () => setLoadImages(true);
 
@@ -1689,8 +1724,13 @@ export function MailboxInboxPage() {
     setFolderThreading((prev) => {
       const next = { ...prev, [folderEnc]: threads };
       try {
-        localStorage.setItem("urmail.webmail.folderThreading", JSON.stringify(next));
-      } catch {}
+        localStorage.setItem(
+          "urmail.webmail.folderThreading",
+          JSON.stringify(next),
+        );
+      } catch {
+        // Storage may be unavailable or full; keep this preference in memory.
+      }
       return next;
     });
     resetListCursor();
@@ -1714,11 +1754,11 @@ export function MailboxInboxPage() {
 
   const isSentOrDrafts = Boolean(
     currentFolder &&
-      (currentFolder.name.toLowerCase() === "sent" ||
-        currentFolder.name.toLowerCase() === "drafts" ||
-        (currentFolder.flags ?? []).some(
-          (f) => f.toLowerCase() === "\\sent" || f.toLowerCase() === "\\drafts",
-        )),
+    (currentFolder.name.toLowerCase() === "sent" ||
+      currentFolder.name.toLowerCase() === "drafts" ||
+      (currentFolder.flags ?? []).some(
+        (f) => f.toLowerCase() === "\\sent" || f.toLowerCase() === "\\drafts",
+      )),
   );
 
   const folderList = (
@@ -1953,31 +1993,61 @@ export function MailboxInboxPage() {
                       size="sm"
                       variant="ghost"
                       className="hidden md:inline-flex h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                      title={t("page.webmail.view_options", { defaultValue: "View Options" })}
-                      aria-label={t("page.webmail.view_options", { defaultValue: "View Options" })}
+                      title={t("page.webmail.view_options", {
+                        defaultValue: "View Options",
+                      })}
+                      aria-label={t("page.webmail.view_options", {
+                        defaultValue: "View Options",
+                      })}
                     >
                       <SlidersHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 text-xs">
                     <DropdownMenuLabel>
-                      {t("page.webmail.layout_density", { defaultValue: "Layout & Density" })}
+                      {t("page.webmail.layout_density", {
+                        defaultValue: "Layout & Density",
+                      })}
                     </DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onClick={() => resizable.setLayoutMode("split-right")}>
+                      <DropdownMenuItem
+                        onClick={() => resizable.setLayoutMode("split-right")}
+                      >
                         <Columns3 className="h-3.5 w-3.5 mr-2" />
-                        <span className="flex-1">{t("page.webmail.layout_vertical", { defaultValue: "Split Right" })}</span>
-                        {resizable.isSplitRight && <Check className="h-3.5 w-3.5 text-primary" />}
+                        <span className="flex-1">
+                          {t("page.webmail.layout_vertical", {
+                            defaultValue: "Split Right",
+                          })}
+                        </span>
+                        {resizable.isSplitRight && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => resizable.setLayoutMode("split-bottom")}>
+                      <DropdownMenuItem
+                        onClick={() => resizable.setLayoutMode("split-bottom")}
+                      >
                         <Rows2 className="h-3.5 w-3.5 mr-2" />
-                        <span className="flex-1">{t("page.webmail.layout_horizontal", { defaultValue: "Split Bottom" })}</span>
-                        {resizable.isSplitBottom && <Check className="h-3.5 w-3.5 text-primary" />}
+                        <span className="flex-1">
+                          {t("page.webmail.layout_horizontal", {
+                            defaultValue: "Split Bottom",
+                          })}
+                        </span>
+                        {resizable.isSplitBottom && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => resizable.setLayoutMode("list-only")}>
+                      <DropdownMenuItem
+                        onClick={() => resizable.setLayoutMode("list-only")}
+                      >
                         <Menu className="h-3.5 w-3.5 mr-2" />
-                        <span className="flex-1">{t("page.webmail.layout_list_only", { defaultValue: "List Only" })}</span>
-                        {resizable.isListOnly && <Check className="h-3.5 w-3.5 text-primary" />}
+                        <span className="flex-1">
+                          {t("page.webmail.layout_list_only", {
+                            defaultValue: "List Only",
+                          })}
+                        </span>
+                        {resizable.isListOnly && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -1985,17 +2055,39 @@ export function MailboxInboxPage() {
                       {t("page.webmail.density", { defaultValue: "Density" })}
                     </DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onClick={() => updateDensity("comfortable")}>
-                        <span className="flex-1">{t("page.webmail.density_comfortable", { defaultValue: "Comfortable" })}</span>
-                        {density === "comfortable" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateDensity("comfortable")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.density_comfortable", {
+                            defaultValue: "Comfortable",
+                          })}
+                        </span>
+                        {density === "comfortable" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateDensity("compact")}>
-                        <span className="flex-1">{t("page.webmail.density_compact", { defaultValue: "Compact" })}</span>
-                        {density === "compact" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateDensity("compact")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.density_compact", {
+                            defaultValue: "Compact",
+                          })}
+                        </span>
+                        {density === "compact" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => updateDensity("list")}>
-                        <span className="flex-1">{t("page.webmail.density_list", { defaultValue: "Pure List" })}</span>
-                        {density === "list" && <Check className="h-3.5 w-3.5 text-primary" />}
+                        <span className="flex-1">
+                          {t("page.webmail.density_list", {
+                            defaultValue: "Pure List",
+                          })}
+                        </span>
+                        {density === "list" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
@@ -2003,8 +2095,13 @@ export function MailboxInboxPage() {
                       {t("page.webmail.columns", { defaultValue: "Columns" })}
                     </DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      {(["fromTo", "subject", "date", "size", "flags"] as const).map((col) => (
-                        <DropdownMenuItem key={col} onClick={() => toggleColumn(col)}>
+                      {(
+                        ["fromTo", "subject", "date", "size", "flags"] as const
+                      ).map((col) => (
+                        <DropdownMenuItem
+                          key={col}
+                          onClick={() => toggleColumn(col)}
+                        >
                           <span className="flex-1">
                             {t(`page.webmail.column_${col}`, col)}
                           </span>
@@ -2016,34 +2113,78 @@ export function MailboxInboxPage() {
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>
-                      {t("page.webmail.read_timer", { defaultValue: "Read Timer" })}
+                      {t("page.webmail.read_timer", {
+                        defaultValue: "Read Timer",
+                      })}
                     </DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onClick={() => updateReadTimerMode("5s")}>
-                        <span className="flex-1">{t("page.webmail.timer_5s", { defaultValue: "5 Seconds Delay" })}</span>
-                        {readTimerMode === "5s" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateReadTimerMode("5s")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.timer_5s", {
+                            defaultValue: "5 Seconds Delay",
+                          })}
+                        </span>
+                        {readTimerMode === "5s" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateReadTimerMode("immediate")}>
-                        <span className="flex-1">{t("page.webmail.timer_immediate", { defaultValue: "Immediate" })}</span>
-                        {readTimerMode === "immediate" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateReadTimerMode("immediate")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.timer_immediate", {
+                            defaultValue: "Immediate",
+                          })}
+                        </span>
+                        {readTimerMode === "immediate" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateReadTimerMode("manual")}>
-                        <span className="flex-1">{t("page.webmail.timer_manual", { defaultValue: "Manual" })}</span>
-                        {readTimerMode === "manual" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateReadTimerMode("manual")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.timer_manual", {
+                            defaultValue: "Manual",
+                          })}
+                        </span>
+                        {readTimerMode === "manual" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>
-                      {t("page.webmail.after_delete", { defaultValue: "After Move / Delete" })}
+                      {t("page.webmail.after_delete", {
+                        defaultValue: "After Move / Delete",
+                      })}
                     </DropdownMenuLabel>
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onClick={() => updateAfterDeletePref("next")}>
-                        <span className="flex-1">{t("page.webmail.after_delete_next", { defaultValue: "Open Next Message" })}</span>
-                        {afterDeletePref === "next" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateAfterDeletePref("next")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.after_delete_next", {
+                            defaultValue: "Open Next Message",
+                          })}
+                        </span>
+                        {afterDeletePref === "next" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateAfterDeletePref("list")}>
-                        <span className="flex-1">{t("page.webmail.after_delete_list", { defaultValue: "Return to List" })}</span>
-                        {afterDeletePref === "list" && <Check className="h-3.5 w-3.5 text-primary" />}
+                      <DropdownMenuItem
+                        onClick={() => updateAfterDeletePref("list")}
+                      >
+                        <span className="flex-1">
+                          {t("page.webmail.after_delete_list", {
+                            defaultValue: "Return to List",
+                          })}
+                        </span>
+                        {afterDeletePref === "list" && (
+                          <Check className="h-3.5 w-3.5 text-primary" />
+                        )}
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
@@ -2110,7 +2251,8 @@ export function MailboxInboxPage() {
                           );
                         else if (action === "forward") void openForward();
                         else if (action === "trash") {
-                          if (selectedRef) void moveToTrashWithUndo([selectedRef]);
+                          if (selectedRef)
+                            void moveToTrashWithUndo([selectedRef]);
                         }
                       }
                     }}
@@ -2392,10 +2534,16 @@ export function MailboxInboxPage() {
                           variant="ghost"
                           className="h-6 px-1.5 text-xs text-muted-foreground hover:text-destructive"
                           onClick={() => setEmptyFolderOpen(true)}
-                          title={t("page.webmail.empty_folder", { defaultValue: "Empty Folder" })}
+                          title={t("page.webmail.empty_folder", {
+                            defaultValue: "Empty Folder",
+                          })}
                         >
                           <Trash2 className="h-3 w-3 mr-1" />
-                          <span>{t("page.webmail.empty_folder", { defaultValue: "Empty Folder" })}</span>
+                          <span>
+                            {t("page.webmail.empty_folder", {
+                              defaultValue: "Empty Folder",
+                            })}
+                          </span>
                         </Button>
                       )}
                     </div>
@@ -2427,7 +2575,9 @@ export function MailboxInboxPage() {
                               defaultValue: `${crossResults.length} cross-folder results`,
                             })}
                           </span>
-                          {searchFolderStates.some((s) => s.status === "partial") && (
+                          {searchFolderStates.some(
+                            (s) => s.status === "partial",
+                          ) && (
                             <Button
                               type="button"
                               size="sm"
@@ -2436,7 +2586,9 @@ export function MailboxInboxPage() {
                               disabled={busy}
                               onClick={loadMoreCrossResults}
                             >
-                              {t("page.webmail.search_continue", { defaultValue: "Continue searching" })}
+                              {t("page.webmail.search_continue", {
+                                defaultValue: "Continue searching",
+                              })}
                             </Button>
                           )}
                         </div>
@@ -2457,7 +2609,12 @@ export function MailboxInboxPage() {
                                 <span>{st.folder}:</span>
                                 <span>{st.count}</span>
                                 <span>
-                                  ({t(`page.webmail.search_status_${st.status}`, st.status)})
+                                  (
+                                  {t(
+                                    `page.webmail.search_status_${st.status}`,
+                                    st.status,
+                                  )}
+                                  )
                                 </span>
                               </span>
                             ))}
@@ -2819,22 +2976,16 @@ export function MailboxInboxPage() {
                     label={t("page.webmail.resize_messages")}
                     onAdjust={(delta) =>
                       resizable.resizeBy(
-                        resizable.isSplitBottom
-                          ? "list-height"
-                          : "list-width",
+                        resizable.isSplitBottom ? "list-height" : "list-width",
                         delta,
                       )
                     }
                     orientation={
-                      resizable.isSplitBottom
-                        ? "horizontal"
-                        : "vertical"
+                      resizable.isSplitBottom ? "horizontal" : "vertical"
                     }
                     onMouseDown={(e) =>
                       resizable.startDragging(
-                        resizable.isSplitBottom
-                          ? "list-height"
-                          : "list-width",
+                        resizable.isSplitBottom ? "list-height" : "list-width",
                         e.clientX,
                         e.clientY,
                       )
@@ -3054,7 +3205,8 @@ export function MailboxInboxPage() {
                                     !detail.uid_validity
                                   }
                                   onClick={() => {
-                                    if (selectedRef) void moveToTrashWithUndo([selectedRef]);
+                                    if (selectedRef)
+                                      void moveToTrashWithUndo([selectedRef]);
                                   }}
                                 >
                                   <Trash2 className="h-3.5 w-3.5 mr-1" />
@@ -3470,7 +3622,9 @@ export function MailboxInboxPage() {
       <ConfirmDialog
         open={emptyFolderOpen}
         onOpenChange={setEmptyFolderOpen}
-        title={t("page.webmail.empty_folder_confirm_title", { defaultValue: "Empty folder?" })}
+        title={t("page.webmail.empty_folder_confirm_title", {
+          defaultValue: "Empty folder?",
+        })}
         description={t(
           "page.webmail.empty_folder_confirm",
           "All messages in this folder will be permanently deleted. This action cannot be undone.",

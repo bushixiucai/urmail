@@ -4,7 +4,7 @@ import {
   MailboxMessageRow,
   type MailboxMessageRowProps,
 } from "./mailbox-message-row";
-import type { MessageSummary } from "./mailbox-api";
+import type { MessageDetail, MessageSummary } from "./mailbox-api";
 
 const mockT = vi.fn((k: string, o?: Record<string, unknown>) => {
   if (o?.count != null) return `${k}:${o.count}`;
@@ -320,15 +320,13 @@ describe("MailboxMessageRow", () => {
   });
 
   it("displays recipient instead of sender for Sent / Drafts messages (WP03 / I02)", () => {
-    renderRow({
-      isSentOrDrafts: true,
-      message: {
-        ...createMessage({
-          from: [{ name: "Self", email: "me@example.test" }],
-        }),
-        to: [{ name: "Recipient User", email: "recipient@example.test" }],
-      } as any,
-    });
+    const message: MessageSummary & Pick<MessageDetail, "to"> = {
+      ...createMessage({
+        from: [{ name: "Self", email: "me@example.test" }],
+      }),
+      to: [{ name: "Recipient User", email: "recipient@example.test" }],
+    };
+    renderRow({ isSentOrDrafts: true, message });
 
     expect(screen.getByText(/Recipient User/)).toBeTruthy();
     expect(screen.queryByText("Self")).toBeNull();
@@ -338,11 +336,16 @@ describe("MailboxMessageRow", () => {
     renderRow({
       density: "list",
       message: createMessage({ subject: "Hidden Subject", size: 2048 }),
-      visibleColumns: { subject: false, size: true, fromTo: true, date: true, flags: true },
+      visibleColumns: {
+        subject: false,
+        size: true,
+        fromTo: true,
+        date: true,
+        flags: true,
+      },
     });
 
     expect(screen.queryByText("Hidden Subject")).toBeNull();
     expect(screen.getByText("2 KB")).toBeTruthy();
   });
 });
-

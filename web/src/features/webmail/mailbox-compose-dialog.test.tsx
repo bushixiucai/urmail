@@ -14,8 +14,14 @@ import {
   MailboxComposeDialog,
   chooseMailboxIdentity,
 } from "./mailbox-compose-dialog";
-import { openStandaloneRead, MailboxStandaloneRead } from "./mailbox-standalone-read";
-import { openStandaloneCompose, MailboxStandaloneCompose } from "./mailbox-standalone-compose";
+import {
+  openStandaloneRead,
+  MailboxStandaloneRead,
+} from "./mailbox-standalone-read";
+import {
+  openStandaloneCompose,
+  MailboxStandaloneCompose,
+} from "./mailbox-standalone-compose";
 import * as mailboxApi from "./mailbox-api";
 
 vi.mock("react-i18next", () => {
@@ -1004,7 +1010,9 @@ it("populates Auto-Bcc when enabled in preferences and allows removing it", asyn
 
   await compose({ mode: "new" });
 
-  const bccInput = screen.getByLabelText("page.webmail.compose_bcc") as HTMLInputElement;
+  const bccInput = screen.getByLabelText(
+    "page.webmail.compose_bcc",
+  ) as HTMLInputElement;
   await waitFor(() => expect(bccInput.value).toBe("archive@domain.test"));
 
   // User can remove or modify the Auto-Bcc for the current message
@@ -1019,7 +1027,9 @@ it("shows and customizes external Reply-To and validates before sending", async 
   const replyToBtn = screen.getByRole("button", { name: "Reply-To" });
   fireEvent.click(replyToBtn);
 
-  const replyToInput = screen.getByLabelText("page.webmail.compose_reply_to") as HTMLInputElement;
+  const replyToInput = screen.getByLabelText(
+    "page.webmail.compose_reply_to",
+  ) as HTMLInputElement;
   expect(replyToInput).toBeDefined();
 
   // Enter invalid email
@@ -1028,14 +1038,18 @@ it("shows and customizes external Reply-To and validates before sending", async 
     target: { value: "bob@example.test" },
   });
 
-  const sendBtn = screen.getByRole("button", { name: "page.webmail.compose_send" });
+  const sendBtn = screen.getByRole("button", {
+    name: "page.webmail.compose_send",
+  });
   fireEvent.click(sendBtn);
 
   await screen.findByText("page.webmail.invalid_reply_to");
   expect(mailboxApi.sendMessage).not.toHaveBeenCalled();
 
   // Fix email to valid external address
-  fireEvent.change(replyToInput, { target: { value: "external-reply@other.org" } });
+  fireEvent.change(replyToInput, {
+    target: { value: "external-reply@other.org" },
+  });
   fireEvent.click(sendBtn);
 
   await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalled());
@@ -1046,8 +1060,12 @@ it("shows and customizes external Reply-To and validates before sending", async 
 it("supports MDN (read receipt) and DSN (delivery status) checkboxes", async () => {
   await compose({ mode: "new" });
 
-  const mdnCheckbox = screen.getByLabelText("page.webmail.compose_request_mdn") as HTMLInputElement;
-  const dsnCheckbox = screen.getByLabelText("page.webmail.compose_request_dsn") as HTMLInputElement;
+  const mdnCheckbox = screen.getByLabelText(
+    "page.webmail.compose_request_mdn",
+  ) as HTMLInputElement;
+  const dsnCheckbox = screen.getByLabelText(
+    "page.webmail.compose_request_dsn",
+  ) as HTMLInputElement;
 
   expect(mdnCheckbox.checked).toBe(false);
   expect(dsnCheckbox.checked).toBe(false);
@@ -1061,7 +1079,9 @@ it("supports MDN (read receipt) and DSN (delivery status) checkboxes", async () 
   fireEvent.change(screen.getByLabelText("page.webmail.compose_to"), {
     target: { value: "bob@example.test" },
   });
-  const sendBtn = screen.getByRole("button", { name: "page.webmail.compose_send" });
+  const sendBtn = screen.getByRole("button", {
+    name: "page.webmail.compose_send",
+  });
   fireEvent.click(sendBtn);
 
   await waitFor(() => expect(mailboxApi.sendMessage).toHaveBeenCalled());
@@ -1085,7 +1105,9 @@ it("loads and inserts personal canned snippet at cursor position", async () => {
 
   await compose({ mode: "new" });
 
-  const snippetsBtn = screen.getByRole("button", { name: "page.webmail.compose_snippets" });
+  const snippetsBtn = screen.getByRole("button", {
+    name: "page.webmail.compose_snippets",
+  });
   fireEvent.click(snippetsBtn);
 
   const snippetItem = await screen.findByText("Meeting Request");
@@ -1093,7 +1115,9 @@ it("loads and inserts personal canned snippet at cursor position", async () => {
 
   fireEvent.click(snippetItem);
 
-  const body = screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement;
+  const body = screen.getByLabelText(
+    "page.webmail.compose_body",
+  ) as HTMLTextAreaElement;
   await waitFor(() => {
     expect(body.value).toContain("Let us schedule a sync tomorrow.");
   });
@@ -1112,10 +1136,14 @@ it("inserts visual signature when signature button is clicked", async () => {
 
   await compose({ mode: "new" });
 
-  const sigBtn = screen.getByRole("button", { name: "page.webmail.compose_insert_signature" });
+  const sigBtn = screen.getByRole("button", {
+    name: "page.webmail.compose_insert_signature",
+  });
   fireEvent.click(sigBtn);
 
-  const body = screen.getByLabelText("page.webmail.compose_body") as HTMLTextAreaElement;
+  const body = screen.getByLabelText(
+    "page.webmail.compose_body",
+  ) as HTMLTextAreaElement;
   await waitFor(() => {
     expect(body.value).toContain("Alice Support Team");
   });
@@ -1140,7 +1168,9 @@ describe("standalone read and compose tabs", () => {
     }
 
     expect(openedUrls[0]).toBe("/webmail/read?folder=INBOX&uid=42");
-    expect(openedUrls[1]).toContain("/webmail/compose?to=bob%40example.test&subject=Meeting");
+    expect(openedUrls[1]).toContain(
+      "/webmail/compose?to=bob%40example.test&subject=Meeting",
+    );
 
     window.open = originalOpen;
   });
@@ -1187,19 +1217,25 @@ describe("standalone read and compose tabs", () => {
     sessionStorage.setItem("urmail.mailbox-token", "fake-token");
     sessionStorage.setItem("urmail.mailbox-address", "alice@example.test");
     render(
-      <MemoryRouter initialEntries={["/webmail/compose?to=charlie@example.test&subject=Hello%20Charlie"]}>
+      <MemoryRouter
+        initialEntries={[
+          "/webmail/compose?to=charlie@example.test&subject=Hello%20Charlie",
+        ]}
+      >
         <MailboxStandaloneCompose />
       </MemoryRouter>,
     );
 
     await waitFor(() => {
-      const toInput = screen.getByLabelText("page.webmail.compose_to") as HTMLInputElement;
+      const toInput = screen.getByLabelText(
+        "page.webmail.compose_to",
+      ) as HTMLInputElement;
       expect(toInput.value).toBe("charlie@example.test");
     });
 
-    const subjectInput = screen.getByLabelText("page.webmail.compose_subject") as HTMLInputElement;
+    const subjectInput = screen.getByLabelText(
+      "page.webmail.compose_subject",
+    ) as HTMLInputElement;
     expect(subjectInput.value).toBe("Hello Charlie");
   });
 });
-
-

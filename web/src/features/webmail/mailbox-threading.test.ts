@@ -8,7 +8,10 @@ import {
 import type { MessageSummary } from "./mailbox-api";
 
 function msg(
-  overrides: Partial<MessageSummary> & { uid: number; references?: string | string[] },
+  overrides: Partial<MessageSummary> & {
+    uid: number;
+    references?: string | string[];
+  },
 ): MessageSummary {
   return {
     subject: "Hello",

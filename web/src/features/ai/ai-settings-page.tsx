@@ -42,7 +42,9 @@ export function AISettingsPage() {
     enabled: false,
     local_only: true,
   });
-  const [byokPolicy, setByokPolicy] = useState<"disabled" | "approved" | "public">("approved");
+  const [byokPolicy, setByokPolicy] = useState<
+    "disabled" | "approved" | "public"
+  >("approved");
   const [policy, setPolicy] = useState<CloudPolicy | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [cloud, setCloud] = useState<string[]>([]);
@@ -321,7 +323,11 @@ export function AISettingsPage() {
           <select
             className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
             value={byokPolicy}
-            onChange={(e) => setByokPolicy(e.target.value as "disabled" | "approved" | "public")}
+            onChange={(e) =>
+              setByokPolicy(
+                e.target.value as "disabled" | "approved" | "public",
+              )
+            }
           >
             <option value="approved">{t("page.ai.byok_approved")}</option>
             <option value="public">{t("page.ai.byok_public")}</option>

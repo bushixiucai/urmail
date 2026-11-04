@@ -80,7 +80,10 @@ export function MailboxStandaloneCompose() {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isDirty) {
         e.preventDefault();
-        e.returnValue = t("page.webmail.close_window_warning", "You have unsaved changes.");
+        e.returnValue = t(
+          "page.webmail.close_window_warning",
+          "You have unsaved changes.",
+        );
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);

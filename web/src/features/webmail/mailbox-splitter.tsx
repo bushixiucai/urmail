@@ -1,11 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 export type LayoutMode =
-  | "split-right"
-  | "split-bottom"
-  | "list-only"
-  | "vertical"
-  | "horizontal";
+  "split-right" | "split-bottom" | "list-only" | "vertical" | "horizontal";
 
 interface UseResizablePanesProps {
   initialFolderWidth?: number;
@@ -74,7 +70,8 @@ export function useResizablePanes({
   const [layoutMode, setLayoutModeState] = useState<LayoutMode>(() => {
     try {
       const stored = localStorage.getItem("urmail.webmail.layoutMode");
-      if (stored === "split-bottom" || stored === "horizontal") return "split-bottom";
+      if (stored === "split-bottom" || stored === "horizontal")
+        return "split-bottom";
       if (stored === "list-only") return "list-only";
       return "split-right";
     } catch {
@@ -230,7 +227,8 @@ export function useResizablePanes({
     setLayoutModeState((prev) => {
       let next: LayoutMode;
       if (prev === "split-right" || prev === "vertical") next = "split-bottom";
-      else if (prev === "split-bottom" || prev === "horizontal") next = "list-only";
+      else if (prev === "split-bottom" || prev === "horizontal")
+        next = "list-only";
       else next = "split-right";
       try {
         localStorage.setItem("urmail.webmail.layoutMode", next);
@@ -241,8 +239,10 @@ export function useResizablePanes({
     });
   }, []);
 
-  const isSplitRight = layoutMode === "split-right" || layoutMode === "vertical";
-  const isSplitBottom = layoutMode === "split-bottom" || layoutMode === "horizontal";
+  const isSplitRight =
+    layoutMode === "split-right" || layoutMode === "vertical";
+  const isSplitBottom =
+    layoutMode === "split-bottom" || layoutMode === "horizontal";
   const isListOnly = layoutMode === "list-only";
 
   return {

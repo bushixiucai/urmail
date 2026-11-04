@@ -51,7 +51,9 @@ it("renders scope selector dropdown for Current Folder vs All Folders (WP02 / I0
       onScopeChange={onScopeChange}
     />,
   );
-  const select = screen.getByLabelText("page.webmail.search_scope") as HTMLSelectElement;
+  const select = screen.getByLabelText(
+    "page.webmail.search_scope",
+  ) as HTMLSelectElement;
   expect(select).toBeTruthy();
   expect(select.value).toBe("current");
 

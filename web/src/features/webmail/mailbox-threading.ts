@@ -170,10 +170,7 @@ export function decorateThreads(messages: MessageSummary[]): DecoratedThread[] {
         message.thread_id != null
           ? (countByThread.get(message.thread_id) ?? 1)
           : 1;
-      const accurateCount = Math.max(
-        message.thread_count ?? 1,
-        localCount,
-      );
+      const accurateCount = Math.max(message.thread_count ?? 1, localCount);
       return {
         message,
         threadCount: accurateCount,

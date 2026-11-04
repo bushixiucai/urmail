@@ -2,7 +2,12 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { Flag, Layers, Mail, MailOpen, Paperclip, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatFrom, hasFlag, type MessageSummary, type MailboxAddress } from "./mailbox-api";
+import {
+  formatFrom,
+  hasFlag,
+  type MessageSummary,
+  type MailboxAddress,
+} from "./mailbox-api";
 
 export type RowDensity = "comfortable" | "compact" | "list";
 
@@ -147,10 +152,7 @@ export const MailboxMessageRow = React.memo(function MailboxMessageRow({
           className="h-4 w-4 rounded border-input text-primary focus:ring-1 focus:ring-primary accent-primary cursor-pointer shrink-0 transition-all"
           checked={isChecked}
           aria-label={t("page.webmail.select_message_named", {
-            name:
-              senderName ||
-              message.subject ||
-              t("page.webmail.no_subject"),
+            name: senderName || message.subject || t("page.webmail.no_subject"),
           })}
           onChange={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -213,7 +215,9 @@ export const MailboxMessageRow = React.memo(function MailboxMessageRow({
                 </span>
                 {hasAttachment && (
                   <span
-                    title={t("page.webmail.search_attachment", { defaultValue: "Attachment" })}
+                    title={t("page.webmail.search_attachment", {
+                      defaultValue: "Attachment",
+                    })}
                     className="inline-flex items-center shrink-0"
                   >
                     <Paperclip
@@ -269,7 +273,9 @@ export const MailboxMessageRow = React.memo(function MailboxMessageRow({
               <div className="flex items-center gap-1.5 shrink-0 ml-1">
                 {hasAttachment && (
                   <span
-                    title={t("page.webmail.search_attachment", { defaultValue: "Attachment" })}
+                    title={t("page.webmail.search_attachment", {
+                      defaultValue: "Attachment",
+                    })}
                     className="inline-flex items-center"
                   >
                     <Paperclip
@@ -338,7 +344,9 @@ export const MailboxMessageRow = React.memo(function MailboxMessageRow({
       {!isSelectionMode && (
         <div
           className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-background/95 dark:bg-card/95 backdrop-blur-xs border border-border/80 shadow-xs rounded-lg px-1 py-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto transition-all duration-150 z-10"
-          aria-label={t("page.webmail.message_quick_actions", { defaultValue: "Quick actions" })}
+          aria-label={t("page.webmail.message_quick_actions", {
+            defaultValue: "Quick actions",
+          })}
         >
           <button
             type="button"

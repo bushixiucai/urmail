@@ -877,9 +877,11 @@ export function listMailboxIdentities() {
 }
 
 export function getMailboxQuota() {
-  return mailboxRequest<{ used_bytes: number; quota_bytes: number; max_message_bytes?: number }>(
-    "/api/v1/mailbox/quota",
-  );
+  return mailboxRequest<{
+    used_bytes: number;
+    quota_bytes: number;
+    max_message_bytes?: number;
+  }>("/api/v1/mailbox/quota");
 }
 
 export interface RuleCondition {
@@ -1245,10 +1247,16 @@ export interface MailboxSnippet {
 }
 
 export function listMailboxSnippets() {
-  return mailboxRequest<{ snippets: MailboxSnippet[] }>("/api/v1/mailbox/snippets");
+  return mailboxRequest<{ snippets: MailboxSnippet[] }>(
+    "/api/v1/mailbox/snippets",
+  );
 }
 
-export function createMailboxSnippet(body: { title: string; content: string; shortcut?: string }) {
+export function createMailboxSnippet(body: {
+  title: string;
+  content: string;
+  shortcut?: string;
+}) {
   return mailboxRequest<MailboxSnippet>("/api/v1/mailbox/snippets", {
     method: "POST",
     body,
@@ -1266,9 +1274,12 @@ export function updateMailboxSnippet(
 }
 
 export function deleteMailboxSnippet(id: number) {
-  return mailboxRequest<{ deleted: boolean }>(`/api/v1/mailbox/snippets/${id}`, {
-    method: "DELETE",
-  });
+  return mailboxRequest<{ deleted: boolean }>(
+    `/api/v1/mailbox/snippets/${id}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 // --- WP06 & I13: Corporate Directory ---
@@ -1307,17 +1318,27 @@ export interface SenderRule {
 }
 
 export function listSenderRules() {
-  return mailboxRequest<{ rules: SenderRule[] }>("/api/v1/mailbox/spam/senders");
+  return mailboxRequest<{ rules: SenderRule[] }>(
+    "/api/v1/mailbox/spam/senders",
+  );
 }
 
-export function addSenderRule(body: { address?: string; domain?: string; list: "allow" | "deny" }) {
+export function addSenderRule(body: {
+  address?: string;
+  domain?: string;
+  list: "allow" | "deny";
+}) {
   return mailboxRequest<{ saved: boolean }>("/api/v1/mailbox/spam/senders", {
     method: "POST",
     body,
   });
 }
 
-export function deleteSenderRule(body: { address?: string; domain?: string; list: "allow" | "deny" }) {
+export function deleteSenderRule(body: {
+  address?: string;
+  domain?: string;
+  list: "allow" | "deny";
+}) {
   return mailboxRequest<{ deleted: boolean }>("/api/v1/mailbox/spam/senders", {
     method: "DELETE",
     body,

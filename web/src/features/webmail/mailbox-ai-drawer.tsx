@@ -68,7 +68,10 @@ function getUILanguage(i18nLang?: string): "zh-CN" | "en" | "ja" {
   return "en";
 }
 
-function detectMailLanguage(text?: string, subject?: string): "zh-CN" | "en" | "ja" {
+function detectMailLanguage(
+  text?: string,
+  subject?: string,
+): "zh-CN" | "en" | "ja" {
   const sample = (subject || "") + " " + (text || "");
   if (/[\u3040-\u30ff]/.test(sample)) return "ja";
   if (/[\u4e00-\u9fa5]/.test(sample)) return "zh-CN";
@@ -719,7 +722,13 @@ export function MailboxAIDrawer({
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
                       onClick={() => {
-                        setTargetLang(getInitialTargetLang("summarize", i18n?.language ?? "zh-CN", detail));
+                        setTargetLang(
+                          getInitialTargetLang(
+                            "summarize",
+                            i18n?.language ?? "zh-CN",
+                            detail,
+                          ),
+                        );
                         void handleGenerate("summarize", "");
                       }}
                     >
@@ -734,7 +743,13 @@ export function MailboxAIDrawer({
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
                       onClick={() => {
-                        setTargetLang(getInitialTargetLang("summarize", i18n?.language ?? "zh-CN", detail));
+                        setTargetLang(
+                          getInitialTargetLang(
+                            "summarize",
+                            i18n?.language ?? "zh-CN",
+                            detail,
+                          ),
+                        );
                         void handleGenerate(
                           "summarize",
                           t("page.webmail.ai_action_items_prompt"),
@@ -752,7 +767,13 @@ export function MailboxAIDrawer({
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
                       onClick={() => {
-                        setTargetLang(getInitialTargetLang("draft_reply", i18n?.language ?? "zh-CN", detail));
+                        setTargetLang(
+                          getInitialTargetLang(
+                            "draft_reply",
+                            i18n?.language ?? "zh-CN",
+                            detail,
+                          ),
+                        );
                         void handleGenerate(
                           "draft_reply",
                           t("page.webmail.ai_reply_prompt"),
@@ -770,7 +791,13 @@ export function MailboxAIDrawer({
                       disabled={generating}
                       className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-border/70 bg-card hover:bg-primary/5 hover:border-primary/40 text-xs font-medium text-foreground transition-colors text-left cursor-pointer disabled:opacity-50"
                       onClick={() => {
-                        setTargetLang(getInitialTargetLang("translate", i18n?.language ?? "zh-CN", detail));
+                        setTargetLang(
+                          getInitialTargetLang(
+                            "translate",
+                            i18n?.language ?? "zh-CN",
+                            detail,
+                          ),
+                        );
                         void handleGenerate("translate", "");
                       }}
                     >
@@ -796,7 +823,10 @@ export function MailboxAIDrawer({
 
                 {/* Target Language Selector */}
                 <div className="flex items-center justify-between gap-2 px-1 text-xs">
-                  <label htmlFor="mailbox-ai-lang-select" className="text-muted-foreground font-medium flex items-center gap-1.5">
+                  <label
+                    htmlFor="mailbox-ai-lang-select"
+                    className="text-muted-foreground font-medium flex items-center gap-1.5"
+                  >
                     <Languages className="h-3.5 w-3.5" />
                     <span>{t("page.webmail.ai_language")}</span>
                   </label>
@@ -980,7 +1010,9 @@ export function MailboxAIDrawer({
             <div className="space-y-1.5">
               <div className="relative">
                 <label className="block space-y-1">
-                  <span className="sr-only">{t("page.webmail.ai_question")}</span>
+                  <span className="sr-only">
+                    {t("page.webmail.ai_question")}
+                  </span>
                   <Input
                     aria-label={t("page.webmail.ai_question")}
                     value={question}
@@ -1106,7 +1138,9 @@ export function MailboxAIDrawer({
                             try {
                               onCitation(cite);
                             } catch {
-                              setAskError(t("page.webmail.ai_citation_invalid"));
+                              setAskError(
+                                t("page.webmail.ai_citation_invalid"),
+                              );
                             }
                           }}
                         >

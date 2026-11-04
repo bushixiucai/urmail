@@ -23,7 +23,11 @@ import {
   getMailboxExpiresAt,
   type MessageDetail,
 } from "./mailbox-api";
-import { MailboxComposeDialog, draftFromMessage, type ComposeDraft } from "./mailbox-compose-dialog";
+import {
+  MailboxComposeDialog,
+  draftFromMessage,
+  type ComposeDraft,
+} from "./mailbox-compose-dialog";
 import { sanitizeHtmlMail } from "./sanitize-html-mail";
 
 const SESSION_CHANNEL = "urmail.mailbox-session-sync";
@@ -140,7 +144,9 @@ export function MailboxStandaloneRead() {
   useEffect(() => {
     if (!sessionReady) return;
     if (!uid) {
-      setError(t("page.webmail.invalid_message_params", "Invalid message parameters"));
+      setError(
+        t("page.webmail.invalid_message_params", "Invalid message parameters"),
+      );
       setLoading(false);
       return;
     }
@@ -191,9 +197,14 @@ export function MailboxStandaloneRead() {
         <div className="min-h-screen flex items-center justify-center bg-background p-6">
           <div className="max-w-md w-full bg-card border rounded-lg p-6 text-center space-y-4">
             <AlertCircle className="h-10 w-10 text-destructive mx-auto" />
-            <h1 className="text-lg font-semibold">{t("page.webmail.session_required", "Session Handover Required")}</h1>
+            <h1 className="text-lg font-semibold">
+              {t("page.webmail.session_required", "Session Handover Required")}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              {t("page.webmail.session_handover_failed", "Could not inherit webmail session. Please open webmail from the main dashboard.")}
+              {t(
+                "page.webmail.session_handover_failed",
+                "Could not inherit webmail session. Please open webmail from the main dashboard.",
+              )}
             </p>
             <Button onClick={() => (window.location.href = "/webmail/login")}>
               {t("page.webmail.login_title", "Go to Login")}
@@ -222,7 +233,9 @@ export function MailboxStandaloneRead() {
       <div className="min-h-screen flex items-center justify-center bg-background p-6">
         <div className="max-w-md w-full bg-card border rounded-lg p-6 text-center space-y-4">
           <AlertCircle className="h-10 w-10 text-destructive mx-auto" />
-          <h1 className="text-lg font-semibold">{t("page.webmail.message_error", "Message Unavailable")}</h1>
+          <h1 className="text-lg font-semibold">
+            {t("page.webmail.message_error", "Message Unavailable")}
+          </h1>
           <p className="text-sm text-muted-foreground">{error}</p>
           <Button variant="outline" onClick={handleClose}>
             {t("action.close", "Close")}
@@ -257,7 +270,9 @@ export function MailboxStandaloneRead() {
             onClick={() => handleReply("reply")}
           >
             <Reply className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("page.webmail.reply", "Reply")}</span>
+            <span className="hidden sm:inline">
+              {t("page.webmail.reply", "Reply")}
+            </span>
           </Button>
 
           <Button
@@ -267,7 +282,9 @@ export function MailboxStandaloneRead() {
             onClick={() => handleReply("reply-all")}
           >
             <ReplyAll className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("page.webmail.reply_all", "Reply All")}</span>
+            <span className="hidden sm:inline">
+              {t("page.webmail.reply_all", "Reply All")}
+            </span>
           </Button>
 
           <Button
@@ -277,7 +294,9 @@ export function MailboxStandaloneRead() {
             onClick={() => handleReply("forward")}
           >
             <Forward className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("page.webmail.forward", "Forward")}</span>
+            <span className="hidden sm:inline">
+              {t("page.webmail.forward", "Forward")}
+            </span>
           </Button>
 
           <Button
@@ -304,12 +323,16 @@ export function MailboxStandaloneRead() {
 
       {/* Message Metadata Header */}
       <div className="px-6 py-4 border-b bg-card space-y-3">
-        <h1 className="text-xl font-bold">{message.subject || t("page.webmail.no_subject", "(No Subject)")}</h1>
+        <h1 className="text-xl font-bold">
+          {message.subject || t("page.webmail.no_subject", "(No Subject)")}
+        </h1>
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-foreground text-sm">
-              {message.from?.[0]?.name ? `${message.from[0].name} <${message.from[0].email}>` : message.from?.[0]?.email}
+              {message.from?.[0]?.name
+                ? `${message.from[0].name} <${message.from[0].email}>`
+                : message.from?.[0]?.email}
             </span>
             {message.authentication && (
               <span
@@ -328,23 +351,34 @@ export function MailboxStandaloneRead() {
               </span>
             )}
           </div>
-          <div>{message.date ? new Date(message.date).toLocaleString() : ""}</div>
+          <div>
+            {message.date ? new Date(message.date).toLocaleString() : ""}
+          </div>
         </div>
 
         <div className="text-xs text-muted-foreground space-y-0.5">
           <div>
-            <span className="font-medium text-foreground">{t("page.webmail.to", "To")}: </span>
+            <span className="font-medium text-foreground">
+              {t("page.webmail.to", "To")}
+              {": "}
+            </span>
             {message.to?.map((a) => a.email).join(", ") || "-"}
           </div>
           {message.cc && message.cc.length > 0 && (
             <div>
-              <span className="font-medium text-foreground">{t("page.webmail.cc", "Cc")}: </span>
+              <span className="font-medium text-foreground">
+                {t("page.webmail.cc", "Cc")}
+                {": "}
+              </span>
               {message.cc.map((a) => a.email).join(", ")}
             </div>
           )}
           {message.reply_to && message.reply_to.length > 0 && (
             <div>
-              <span className="font-medium text-foreground">{t("page.webmail.reply_to", "Reply-To")}: </span>
+              <span className="font-medium text-foreground">
+                {t("page.webmail.reply_to", "Reply-To")}
+                {": "}
+              </span>
               {message.reply_to.map((a) => a.email).join(", ")}
             </div>
           )}
@@ -355,7 +389,12 @@ export function MailboxStandaloneRead() {
           <div className="flex items-center justify-between bg-muted/40 p-2 rounded-md border text-xs">
             <div className="flex items-center gap-2">
               <ImageIcon className="h-4 w-4 text-muted-foreground" />
-              <span>{t("page.webmail.remote_images_blocked", "Remote images are blocked to protect your privacy.")}</span>
+              <span>
+                {t(
+                  "page.webmail.remote_images_blocked",
+                  "Remote images are blocked to protect your privacy.",
+                )}
+              </span>
             </div>
             <Button
               size="sm"

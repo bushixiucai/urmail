@@ -77,17 +77,29 @@ describe("real mailbox editor", () => {
 
   it("renders table, font size, and color toolbar controls", () => {
     const onChange = vi.fn();
-    render(<MailboxEditor initialContent="<p>Table test</p>" onChange={onChange} />);
+    render(
+      <MailboxEditor initialContent="<p>Table test</p>" onChange={onChange} />,
+    );
 
-    expect(screen.getByLabelText("page.webmail.compose_font_size")).toBeDefined();
-    expect(screen.getByLabelText("page.webmail.compose_font_color")).toBeDefined();
-    expect(screen.getByLabelText("page.webmail.compose_insert_table")).toBeDefined();
-    expect(screen.getByLabelText("page.webmail.compose_insert_image")).toBeDefined();
+    expect(
+      screen.getByLabelText("page.webmail.compose_font_size"),
+    ).toBeDefined();
+    expect(
+      screen.getByLabelText("page.webmail.compose_font_color"),
+    ).toBeDefined();
+    expect(
+      screen.getByLabelText("page.webmail.compose_insert_table"),
+    ).toBeDefined();
+    expect(
+      screen.getByLabelText("page.webmail.compose_insert_image"),
+    ).toBeDefined();
   });
 
   it("inserts table structure when table button is clicked", async () => {
     const onChange = vi.fn();
-    render(<MailboxEditor initialContent="<p>Content</p>" onChange={onChange} />);
+    render(
+      <MailboxEditor initialContent="<p>Content</p>" onChange={onChange} />,
+    );
 
     const tableBtn = screen.getByLabelText("page.webmail.compose_insert_table");
     fireEvent.click(tableBtn);
@@ -147,9 +159,16 @@ describe("real mailbox editor", () => {
 
   it("changes font size and font color from toolbar", async () => {
     const onChange = vi.fn();
-    render(<MailboxEditor initialContent="<p>Formatted text</p>" onChange={onChange} />);
+    render(
+      <MailboxEditor
+        initialContent="<p>Formatted text</p>"
+        onChange={onChange}
+      />,
+    );
 
-    const sizeSelect = screen.getByLabelText("page.webmail.compose_font_size") as HTMLSelectElement;
+    const sizeSelect = screen.getByLabelText(
+      "page.webmail.compose_font_size",
+    ) as HTMLSelectElement;
     fireEvent.change(sizeSelect, { target: { value: "18px" } });
     expect(sizeSelect.value).toBe("18px");
 

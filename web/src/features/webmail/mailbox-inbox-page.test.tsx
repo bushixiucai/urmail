@@ -1326,7 +1326,9 @@ describe("mailbox workspace and search enhancements (WP02 & WP03)", () => {
     // Clicking Cancel cancels the timer
     fireEvent.click(screen.getByRole("button", { name: "action.cancel" }));
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "action.cancel" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "action.cancel" }),
+      ).toBeNull();
     });
 
     // Verify flagMessages with \Seen was not called for message 2
@@ -1352,4 +1354,3 @@ describe("mailbox workspace and search enhancements (WP02 & WP03)", () => {
     });
   });
 });
-
