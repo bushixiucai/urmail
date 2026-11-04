@@ -14,6 +14,9 @@ func runCert(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("cert requires issue <domain> or renew")
 	}
+	if backupWritersHeld() {
+		return fmt.Errorf("certificate operations refused during restore or upgrade hold")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err

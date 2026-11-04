@@ -92,9 +92,15 @@ func TestVaultSweepClearsExternallyRevokedAndFailedLookups(t *testing.T) {
 	if _, ok := v.Get("revoked"); ok {
 		t.Fatal("revoked secret retained")
 	}
+	// Temporary infrastructure failure must NOT evict live credential (fail-closed)
 	v.Sweep(context.Background(), func(context.Context, string) (Session, error) { return Session{}, errors.New("database unavailable") })
+	if _, ok := v.Get("valid"); !ok {
+		t.Fatal("temporary infrastructure failure evicted live credential")
+	}
+	// Definitively revoked lookup (sql.ErrNoRows) clears credential
+	v.Sweep(context.Background(), func(context.Context, string) (Session, error) { return Session{}, errors.New("revoked") })
 	if len(v.byID) != 0 {
-		t.Fatal("lookup failure retained secrets")
+		t.Fatal("definitively revoked credential retained")
 	}
 }
 func TestScheduledVaultCacheExpiresIndependently(t *testing.T) {

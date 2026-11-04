@@ -43,12 +43,10 @@ const StateRoot = "/var/lib/urmail-agent"
 
 // ApplyParams deliberately excludes paths, node configuration and file bodies.
 // The caller can only supply bounded domain data consumed by pure generators.
-type ApplyParams struct {
-	SpamPolicies []dovecot.SpamPolicy `json:"spam_policies,omitempty"`
-	Postfix      postfix.Snapshot     `json:"postfix"`
-	DNS          nsd.Snapshot         `json:"dns"`
-	DKIM         opendkim.Snapshot    `json:"dkim"`
-}
+type ApplyParams = reconcile.ApplyParams
+
+// BuildApplyParams forwards to reconcile.BuildApplyParams for agent callers.
+var BuildApplyParams = reconcile.BuildApplyParams
 
 // ApplyStatus reports desired and applied generation health.
 type ApplyStatus struct {
@@ -69,17 +67,46 @@ type savedFile struct {
 	UID     int    `json:"uid"`
 	GID     int    `json:"gid"`
 }
-type applyJournal struct {
-	Files           map[string]savedFile `json:"files"`
-	Previous        ApplyStatus          `json:"previous"`
-	PreviousPaths   []string             `json:"previous_paths"`
-	PreviousDomains []string             `json:"previous_domains"`
-	Reloaded        []string             `json:"reloaded"`
+
+// ApplyJournalVersion defines the journal format version.
+const ApplyJournalVersion = 2
+
+// DNSRollbackItem holds typed rollback data for a DNS domain.
+type DNSRollbackItem struct {
+	Domain        string       `json:"domain"`
+	OldSigned     savedFile    `json:"old_signed"`
+	OldTxt        savedFile    `json:"old_txt"`
+	StateSnapshot *dnsKeyState `json:"state_snapshot,omitempty"`
+	SignMode      bool         `json:"sign_mode"`
+	ZoneMode      string       `json:"zone_mode,omitempty"`
 }
+
+type applyJournal struct {
+	Version         int                        `json:"version"`
+	Files           map[string]savedFile       `json:"files"`
+	DNS             map[string]DNSRollbackItem `json:"dns,omitempty"`
+	Previous        ApplyStatus                `json:"previous"`
+	PreviousPaths   []string                   `json:"previous_paths"`
+	PreviousDomains []string                   `json:"previous_domains"`
+	Reloaded        []string                   `json:"reloaded"`
+}
+
+// ManifestFileRecord captures file integrity metadata for drift detection and self-healing.
+type ManifestFileRecord struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Mode   uint32 `json:"mode"`
+	UID    int    `json:"uid"`
+	GID    int    `json:"gid"`
+}
+
+const appliedManifestBackupPath = "/var/lib/urmail-backup/applied_manifest.json"
+
 type applyManifest struct {
-	Status  ApplyStatus `json:"status"`
-	Paths   []string    `json:"paths"`
-	Domains []string    `json:"domains"`
+	Status  ApplyStatus                   `json:"status"`
+	Paths   []string                      `json:"paths"`
+	Domains []string                      `json:"domains"`
+	Files   map[string]ManifestFileRecord `json:"files,omitempty"`
 }
 
 // CommandRunner executes a fixed privileged command with a deadline.
@@ -113,6 +140,78 @@ type ApplyManager struct {
 	certRenewFails   int
 	certRenewNextTry time.Time
 	fileWriter       func(string, []byte, os.FileMode, []string) (string, error)
+	manifestFiles    map[string]ManifestFileRecord
+	onDrift          func(string)
+	prepareOnly      bool
+}
+
+// Target returns the target filesystem path for a simulated system file.
+func (m *ApplyManager) Target(path string) string {
+	return m.target(path)
+}
+
+// NewTestApplyManager constructs an ApplyManager rooted in the provided temporary directory,
+// simulating external service commands and tools (such as sievec and postmap) for deterministic testing.
+func NewTestApplyManager(tempDir string, cfg *config.Config) (*ApplyManager, error) {
+	root, err := filepath.EvalSymlinks(tempDir)
+	if err != nil {
+		return nil, err
+	}
+	state := filepath.Join(root, "state")
+	if err := os.MkdirAll(state, 0700); err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		cfg = &config.Config{
+			MyHostname:         "box.example.com",
+			PrimaryDomain:      "example.com",
+			StorageRoot:        filepath.Join(root, "mail"),
+			DatabaseURLDovecot: "host=127.0.0.1 user=dovecot password=secret",
+			ListenAddr:         "127.0.0.1:8080",
+			PublicIPv4:         "192.0.2.1",
+			Nameservers:        []string{"ns.example.com"},
+		}
+	}
+	m := &ApplyManager{
+		root:           state,
+		targetRoot:     filepath.Join(root, "system"),
+		webroot:        filepath.Join(root, "acme"),
+		cfg:            cfg,
+		fileWriter:     writeFileAtomic,
+		readinessProbe: func(context.Context) error { return nil },
+	}
+	m.run = func(_ context.Context, path string, args ...string) error {
+		if path == "/usr/bin/sievec" && len(args) == 6 && args[0] == "-P" && args[1] == "sieve_extprograms" && args[2] == "-x" && args[3] == "+vnd.dovecot.execute" {
+			args = args[4:]
+			source, err := os.ReadFile(m.target(args[0]))
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(m.target(args[1]), append([]byte("compiled sieve: "), source...), 0640) // #nosec G703 -- simulated test tool writes only to isolated targetRoot.
+		}
+		if path == "/usr/sbin/postmap" && len(args) == 1 {
+			return os.WriteFile(m.target(args[0]+".db"), []byte("compiled map"), 0644) // #nosec G703 -- simulated test tool writes only to isolated targetRoot.
+		}
+		return nil
+	}
+	var testManifest applyManifest
+	if raw, err := os.ReadFile(filepath.Join(m.root, "manifest.json")); err == nil {
+		if err = json.Unmarshal(raw, &testManifest); err == nil {
+			m.status = testManifest.Status
+			m.paths = testManifest.Paths
+			m.domains = testManifest.Domains
+			m.manifestFiles = testManifest.Files
+		}
+	} else if raw, err := os.ReadFile(m.target(appliedManifestBackupPath)); err == nil {
+		if err = json.Unmarshal(raw, &testManifest); err == nil {
+			m.status = testManifest.Status
+			m.paths = testManifest.Paths
+			m.domains = testManifest.Domains
+			m.manifestFiles = testManifest.Files
+		}
+	}
+	m.publish()
+	return m, nil
 }
 
 // NewApplyManager creates the serialized root configuration controller.
@@ -152,6 +251,16 @@ func NewApplyManager(cfg *config.Config) (*ApplyManager, error) {
 		m.status.Step = "startup"
 		m.paths = manifest.Paths
 		m.domains = manifest.Domains
+		m.manifestFiles = manifest.Files
+	} else if raw, err := os.ReadFile(m.target(appliedManifestBackupPath)); err == nil {
+		if err = json.Unmarshal(raw, &manifest); err == nil {
+			m.status = manifest.Status
+			m.status.Ready = false
+			m.status.Step = "startup"
+			m.paths = manifest.Paths
+			m.domains = manifest.Domains
+			m.manifestFiles = manifest.Files
+		}
 	}
 	if err := m.recover(); err != nil {
 		return nil, err
@@ -204,6 +313,13 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		}
 		m.publish()
 	}()
+	if _, err := os.Stat(filepath.Join(m.root, "pending.json")); err == nil {
+		m.status.Ready = false
+		m.status.Degraded = true
+		m.status.Error = "cannot apply: pending uncommitted journal exists"
+		m.publish()
+		return "", "", fmt.Errorf("%w: pending apply journal exists; manual resolution or recovery required", ErrRejected)
+	}
 	if err := m.ensureBootstrap(p); err != nil {
 		m.status.Ready = false
 		m.status.Step = "certificate-bootstrap"
@@ -242,22 +358,37 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		_, _ = sum.Write([]byte(path + "\x00" + files[path] + "\x00"))
 	}
 	generation := hex.EncodeToString(sum.Sum(nil))
-	if m.status.Ready && m.status.Applied == generation && m.spamBinaryCurrent() && m.dnsDerivedCurrent(p.DNS) {
-		// Keep Ready=true while rechecking so concurrent config.status readers
-		// do not flap on probe:smtp25 during an otherwise healthy generation.
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := m.checkMailReadiness(ctx); err != nil {
+	if !m.prepareOnly && m.status.Ready && m.status.Applied == generation {
+		driftDetected, driftReason := m.detectDiskDrift()
+		if driftDetected {
 			m.status.Ready = false
-			m.status.Error = "configuration readiness failed at " + m.status.Step + ": " + err.Error()
+			m.status.Step = "drift-detected"
+			m.status.Error = "disk drift detected: " + driftReason
 			m.publish()
-			return "", "", fmt.Errorf("%w: %s", ErrFailed, m.status.Error)
+			if m.onDrift != nil {
+				m.onDrift(driftReason)
+			}
+		} else if m.dnsDerivedCurrent(p.DNS) {
+			// Keep Ready=true while rechecking so concurrent config.status readers
+			// do not flap on probes during an otherwise healthy generation.
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := m.checkRuntimeReadiness(ctx); err != nil {
+				m.status.Ready = false
+				m.status.Step = "runtime-recovery"
+				m.status.Error = "configuration readiness failed at " + m.status.Step + ": " + err.Error()
+				m.publish()
+				if m.onDrift != nil {
+					m.onDrift(m.status.Error)
+				}
+			} else {
+				m.status.Step = "ready"
+				m.status.Error = ""
+				m.status.Ready = true
+				m.publish()
+				return generation, "", nil
+			}
 		}
-		m.status.Step = "ready"
-		m.status.Error = ""
-		m.status.Ready = true
-		m.publish()
-		return generation, "", nil
 	}
 	previous := m.status
 	m.status.Desired = generation
@@ -273,16 +404,34 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	if err := mail.ExportFiles(stage, files); err != nil {
 		return "", "", err
 	}
-	journal := applyJournal{Files: map[string]savedFile{}, Previous: previous, PreviousPaths: append([]string{}, m.paths...), PreviousDomains: append([]string{}, m.domains...)}
+	journal := applyJournal{
+		Version:         ApplyJournalVersion,
+		Files:           map[string]savedFile{},
+		DNS:             map[string]DNSRollbackItem{},
+		Previous:        previous,
+		PreviousPaths:   append([]string{}, m.paths...),
+		PreviousDomains: append([]string{}, m.domains...),
+	}
 	targets := append(append([]string{}, m.paths...), paths...)
 	for _, path := range append(append([]string{}, m.paths...), paths...) {
 		if strings.HasSuffix(path, ".map") {
 			targets = append(targets, path+".db")
 		}
-		if strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") {
+		if strings.HasSuffix(path, "/urmail-spam/spam-before.sieve") || strings.HasSuffix(path, ".sieve") {
 			targets = append(targets, strings.TrimSuffix(path, ".sieve")+".svbin")
 		}
 	}
+	targets = append(targets, "/etc/dovecot/urmail-spam/spam-before.svbin")
+	if _, err := os.Stat(m.target("/etc/postfix/aliases.db")); err == nil {
+		targets = append(targets, "/etc/postfix/aliases.db")
+	}
+	if _, err := os.Stat(m.target("/etc/postfix/aliases")); err == nil {
+		targets = append(targets, "/etc/postfix/aliases")
+	}
+	if _, err := os.Stat(m.target(dnsTSIGPath)); err == nil {
+		targets = append(targets, dnsTSIGPath)
+	}
+	targets = append(targets, appliedManifestBackupPath)
 	for _, path := range targets {
 		if _, ok := journal.Files[path]; ok {
 			continue
@@ -301,6 +450,55 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		}
 		journal.Files[path] = saved
 	}
+
+	dnsDomains := map[string]struct{}{}
+	for _, z := range p.DNS.Zones {
+		dnsDomains[z.Domain] = struct{}{}
+	}
+	for _, path := range m.paths {
+		if strings.HasPrefix(path, "/etc/nsd/zones/") {
+			base := strings.TrimPrefix(path, "/etc/nsd/zones/")
+			if strings.HasSuffix(base, ".txt") {
+				dnsDomains[strings.TrimSuffix(base, ".txt")] = struct{}{}
+			} else if strings.HasSuffix(base, ".signed") {
+				dnsDomains[strings.TrimSuffix(base, ".signed")] = struct{}{}
+			}
+		}
+	}
+	for domain := range dnsDomains {
+		signedPath := "/etc/nsd/zones/" + domain + ".signed"
+		txtPath := "/etc/nsd/zones/" + domain + ".txt"
+		oldSigned, err := saveFile(m.target(signedPath))
+		if err != nil {
+			return "", "", err
+		}
+		oldTxt, err := saveFile(m.target(txtPath))
+		if err != nil {
+			return "", "", err
+		}
+		var stateSnap *dnsKeyState
+		if state, err := m.loadDNSState(domain); err == nil {
+			copyState := state
+			stateSnap = &copyState
+		}
+		var zoneMode string
+		for _, z := range p.DNS.Zones {
+			if z.Domain == domain {
+				zoneMode = z.Mode
+				break
+			}
+		}
+		signMode := oldSigned.Exists || (stateSnap != nil && (stateSnap.Phase == "signed" || stateSnap.Phase == "dual-signing"))
+		journal.DNS[domain] = DNSRollbackItem{
+			Domain:        domain,
+			OldSigned:     oldSigned,
+			OldTxt:        oldTxt,
+			StateSnapshot: stateSnap,
+			SignMode:      signMode,
+			ZoneMode:      zoneMode,
+		}
+	}
+
 	m.status.Step = "stage:journal"
 	if err := m.saveJSON("pending.json", journal); err != nil {
 		return "", "", err
@@ -313,6 +511,10 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		for _, path := range paths {
 			m.status.Step = "write:" + path
 			m.publish()
+			if strings.HasSuffix(path, ".signed") && files[path] == "" {
+				// Derived DNSSEC signed zone is populated exclusively by staging signDNSZone.
+				continue
+			}
 			if err := m.write(path, []byte(files[path]), runtimeMode(path)); err != nil {
 				return err
 			}
@@ -362,15 +564,25 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 				return err
 			}
 		}
+		postmapTargets := make([]string, 0, len(paths)+1)
 		for _, path := range paths {
 			if strings.HasSuffix(path, ".map") {
-				if err := m.run(ctx, "/usr/sbin/postmap", path); err != nil {
-					return err
-				}
-				if err := os.Chmod(m.target(path+".db"), 0644); err != nil {
-					return err
-				}
+				postmapTargets = append(postmapTargets, path)
 			}
+		}
+		if _, err := os.Stat(m.target("/etc/postfix/aliases")); err == nil {
+			postmapTargets = append(postmapTargets, "/etc/postfix/aliases")
+		}
+		for _, path := range postmapTargets {
+			if err := m.run(ctx, "/usr/sbin/postmap", path); err != nil {
+				return err
+			}
+			if err := os.Chmod(m.target(path+".db"), 0644); err != nil {
+				return err
+			}
+		}
+		if m.prepareOnly {
+			return nil
 		}
 		m.status.Step = "reload"
 		m.publish()
@@ -395,16 +607,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 				return fmt.Errorf("reload %s: %w", unit, err)
 			}
 		}
-		m.status.Step = "probe"
-		m.publish()
-		for _, unit := range ConfigUnits {
-			m.status.Step = "probe:" + unit
-			m.publish()
-			if err := m.run(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit); err != nil {
-				return fmt.Errorf("probe %s: %w", unit, err)
-			}
-		}
-		if err := m.checkMailReadiness(ctx); err != nil {
+		if err := m.checkRuntimeReadiness(ctx); err != nil {
 			return err
 		}
 		return nil
@@ -423,10 +626,14 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		} else {
 			_ = os.Remove(filepath.Join(m.root, "pending.json"))
 		}
-		_ = m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains})
+		_ = m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains, Files: m.manifestFiles})
 		return "", "", fmt.Errorf("%w: %s", ErrFailed, m.status.Error)
 	}
-	m.status = ApplyStatus{Desired: generation, Applied: generation, AppliedAt: time.Now().UTC(), Ready: true, Step: "ready"}
+	if m.prepareOnly {
+		m.status = ApplyStatus{Desired: generation, Applied: previous.Applied, AppliedAt: previous.AppliedAt, Ready: false, Step: "prepared"}
+	} else {
+		m.status = ApplyStatus{Desired: generation, Applied: generation, AppliedAt: time.Now().UTC(), Ready: true, Step: "ready"}
+	}
 	m.paths = paths
 	m.paths = append(m.paths, retainedPaths...)
 	sort.Strings(m.paths)
@@ -435,7 +642,15 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 		m.domains = append(m.domains, d.FQDN)
 	}
 	m.domains = append(m.domains, m.transportDomains...)
-	if err := m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains}); err != nil {
+	var colErr error
+	m.manifestFiles, colErr = m.collectManifestFiles(m.paths, p.DNS)
+	if colErr != nil {
+		m.status.Ready = false
+		m.status.Degraded = true
+		m.status.Error = "record manifest files: " + colErr.Error()
+		return "", "", colErr
+	}
+	if err := m.saveCurrentManifest(); err != nil {
 		m.status.Ready = false
 		m.status.Degraded = true
 		return "", "", err
@@ -443,7 +658,7 @@ func (m *ApplyManager) Apply(raw json.RawMessage) (stdout, stderr string, result
 	if err := os.Remove(filepath.Join(m.root, "pending.json")); err != nil {
 		return "", "", err
 	}
-	if m.automaticCertificates && m.cfg.BackgroundWorkersAllowed() && m.certificatePending.CompareAndSwap(false, true) {
+	if !m.prepareOnly && m.automaticCertificates && m.cfg.BackgroundWorkersAllowed() && m.certificatePending.CompareAndSwap(false, true) {
 		go func() { defer m.certificatePending.Store(false); _, _, _ = m.RenewCertificates(json.RawMessage(`{}`)) }()
 	}
 	return generation, "", nil
@@ -746,24 +961,19 @@ func (m *ApplyManager) check(ctx context.Context, p ApplyParams) error {
 	return nil
 }
 func (m *ApplyManager) restore(j applyJournal) error {
+	// If legacy version 1 journal has DNS files, fail closed because it lacks typed DNS context
+	if j.Version < ApplyJournalVersion {
+		for path := range j.Files {
+			if strings.HasPrefix(path, "/etc/nsd/zones/") {
+				return fmt.Errorf("legacy journal version %d missing complete DNSSEC rollback context for %s", j.Version, path)
+			}
+		}
+	}
+
 	for path, s := range j.Files {
-		if s.Exists && m.versions != nil && strings.HasPrefix(path, "/etc/nsd/zones/") && strings.HasSuffix(path, ".txt") {
-			re := regexp.MustCompile(`(?m)^    ([0-9]+) ; serial$`)
-			match := re.FindSubmatch(s.Content)
-			if len(match) == 2 {
-				seed, err := strconv.ParseUint(string(match[1]), 10, 32)
-				if err != nil {
-					return err
-				}
-				normalized := re.ReplaceAll(s.Content, []byte("    0 ; serial"))
-				sum := sha256.Sum256(normalized)
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				serial, err := m.versions.ReserveZoneSerial(ctx, strings.TrimSuffix(filepath.Base(path), ".txt"), hex.EncodeToString(sum[:]), uint32(seed)) // #nosec G115 -- ParseUint above enforces 32 bits.
-				cancel()
-				if err != nil {
-					return err
-				}
-				s.Content = re.ReplaceAll(s.Content, []byte(fmt.Sprintf("    %d ; serial", serial)))
+		if strings.HasPrefix(path, "/etc/nsd/zones/") && (strings.HasSuffix(path, ".txt") || strings.HasSuffix(path, ".signed")) {
+			if len(j.DNS) > 0 {
+				continue
 			}
 		}
 		if s.Exists {
@@ -779,6 +989,69 @@ func (m *ApplyManager) restore(j applyJournal) error {
 			return err
 		}
 	}
+
+	dnsResigned := false
+	for domain, item := range j.DNS {
+		wasSigned := item.OldSigned.Exists || item.SignMode
+		if item.OldTxt.Exists {
+			content := item.OldTxt.Content
+			re := regexp.MustCompile(`(?m)^\s*([0-9]+)\s*;\s*serial`)
+			match := re.FindSubmatch(content)
+			if len(match) == 2 {
+				seed, err := strconv.ParseUint(string(match[1]), 10, 32)
+				if err != nil {
+					return fmt.Errorf("parse serial for %s: %w", domain, err)
+				}
+				normalized := re.ReplaceAll(content, []byte("    0 ; serial"))
+				sum := sha256.Sum256(normalized)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				var serial uint32
+				if m.versions != nil {
+					serial, err = m.versions.ReserveZoneSerial(ctx, domain, hex.EncodeToString(sum[:]), uint32(seed))
+				} else {
+					serial = uint32((int64(seed) + 1) % 4294967296)
+				}
+				cancel()
+				if err != nil {
+					return fmt.Errorf("reserve zone serial for %s rollback: %w", domain, err)
+				}
+				content = re.ReplaceAll(content, []byte(fmt.Sprintf("    %d ; serial", serial)))
+			}
+			if err := m.write("/etc/nsd/zones/"+domain+".txt", content, 0644); err != nil {
+				return fmt.Errorf("write restored txt zone for %s: %w", domain, err)
+			}
+		} else {
+			if err := os.Remove(m.target("/etc/nsd/zones/" + domain + ".txt")); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove txt zone for %s: %w", domain, err)
+			}
+		}
+
+		// Restore DNS state snapshot
+		if item.StateSnapshot != nil {
+			if err := m.saveDNSState(domain, *item.StateSnapshot); err != nil {
+				return fmt.Errorf("restore DNS state for %s: %w", domain, err)
+			}
+		} else {
+			_ = os.Remove(filepath.Join(m.dnsDirectory(domain), "state.json"))
+		}
+
+		if wasSigned {
+			// Must re-sign restored txt content with existing valid keys using staging signDNSZone.
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			err := m.signDNSZone(ctx, domain)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("re-sign zone %s during rollback: %w", domain, err)
+			}
+			dnsResigned = true
+		} else {
+			// Unsigned zone: remove any .signed file so NSD never loads it
+			if err := os.Remove(m.target("/etc/nsd/zones/" + domain + ".signed")); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove signed zone for %s: %w", domain, err)
+			}
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	// Restore writes may change source/binary mtimes in either order. Compile
@@ -790,7 +1063,16 @@ func (m *ApplyManager) restore(j applyJournal) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	for _, unit := range j.Reloaded {
+
+	if m.prepareOnly {
+		return nil
+	}
+	reloaded := append([]string{}, j.Reloaded...)
+	if dnsResigned && !containsUnit(reloaded, "nsd") && (m.cfg == nil || (!m.cfg.PreserveExternalNSD && !m.cfg.WorkersHeld)) {
+		reloaded = append(reloaded, "nsd")
+	}
+
+	for _, unit := range reloaded {
 		verb := "restart"
 		if unit == "nginx" && m.cfg.PreserveExternalWeb {
 			verb = "reload"
@@ -801,7 +1083,10 @@ func (m *ApplyManager) restore(j applyJournal) error {
 	}
 	return nil
 }
+
 func (m *ApplyManager) recover() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	raw, err := os.ReadFile(filepath.Join(m.root, "pending.json"))
 	if os.IsNotExist(err) {
 		return nil
@@ -813,7 +1098,29 @@ func (m *ApplyManager) recover() error {
 	if err := json.Unmarshal(raw, &j); err != nil {
 		return err
 	}
+	if j.Version < ApplyJournalVersion {
+		hasDNS := len(j.DNS) > 0
+		if !hasDNS {
+			for path := range j.Files {
+				if strings.HasPrefix(path, "/etc/nsd/zones/") {
+					hasDNS = true
+					break
+				}
+			}
+		}
+		if hasDNS {
+			m.status.Ready = false
+			m.status.Degraded = true
+			m.status.Error = "legacy journal version 1 lacks complete DNSSEC rollback context; manual resolution required"
+			m.publish()
+			return fmt.Errorf("%w: legacy journal version %d missing complete DNSSEC rollback context", ErrRejected, j.Version)
+		}
+	}
 	if err := m.restore(j); err != nil {
+		m.status.Ready = false
+		m.status.Degraded = true
+		m.status.Error = fmt.Sprintf("recover interrupted configuration: %v", err)
+		m.publish()
 		return fmt.Errorf("recover interrupted configuration: %w", err)
 	}
 	m.status = j.Previous
@@ -821,11 +1128,183 @@ func (m *ApplyManager) recover() error {
 	m.domains = j.PreviousDomains
 	m.status.Ready = false
 	m.status.Step = "recovered"
-	if err := m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains}); err != nil {
+	if err := m.saveCurrentManifest(); err != nil {
 		return err
 	}
 	return os.Remove(filepath.Join(m.root, "pending.json"))
 }
+
+func (m *ApplyManager) recordFileManifest(path string) (ManifestFileRecord, error) {
+	target := m.target(path)
+	info, err := os.Lstat(target)
+	if err != nil {
+		return ManifestFileRecord{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return ManifestFileRecord{}, fmt.Errorf("%s is not a regular file", path)
+	}
+	content, err := os.ReadFile(target) // #nosec G304 -- target is an internal trusted managed path.
+	if err != nil {
+		return ManifestFileRecord{}, err
+	}
+	hash := sha256.Sum256(content)
+	uid, gid := fileOwner(info)
+	return ManifestFileRecord{
+		Path:   path,
+		SHA256: hex.EncodeToString(hash[:]),
+		Mode:   uint32(info.Mode().Perm()),
+		UID:    uid,
+		GID:    gid,
+	}, nil
+}
+
+func (m *ApplyManager) collectManifestFiles(paths []string, dns nsd.Snapshot) (map[string]ManifestFileRecord, error) {
+	files := make(map[string]ManifestFileRecord)
+	allPaths := make(map[string]struct{})
+	for _, p := range paths {
+		allPaths[p] = struct{}{}
+		if strings.HasSuffix(p, ".map") {
+			allPaths[p+".db"] = struct{}{}
+		}
+		if strings.HasSuffix(p, "/urmail-spam/spam-before.sieve") {
+			allPaths["/etc/dovecot/urmail-spam/spam-before.svbin"] = struct{}{}
+		}
+	}
+	allPaths["/etc/dovecot/urmail-spam/spam-before.svbin"] = struct{}{}
+	if _, err := os.Stat(m.target("/etc/postfix/aliases.db")); err == nil {
+		allPaths["/etc/postfix/aliases.db"] = struct{}{}
+	}
+	if _, err := os.Stat(m.target("/etc/postfix/aliases")); err == nil {
+		allPaths["/etc/postfix/aliases"] = struct{}{}
+		allPaths["/etc/postfix/aliases.db"] = struct{}{}
+	}
+	if tsigContent, err := m.dnsTSIGContent(dns); err == nil && tsigContent != "" {
+		allPaths[dnsTSIGPath] = struct{}{}
+	}
+	for _, zone := range dns.Zones {
+		if zone.Sign {
+			allPaths["/etc/nsd/zones/"+zone.Domain+".signed"] = struct{}{}
+		}
+	}
+	sortedPaths := make([]string, 0, len(allPaths))
+	for p := range allPaths {
+		sortedPaths = append(sortedPaths, p)
+	}
+	sort.Strings(sortedPaths)
+	for _, p := range sortedPaths {
+		rec, err := m.recordFileManifest(p)
+		if err != nil {
+			return nil, fmt.Errorf("record file manifest %s: %w", p, err)
+		}
+		files[p] = rec
+	}
+	return files, nil
+}
+
+func (m *ApplyManager) detectDiskDrift() (bool, string) {
+	if len(m.manifestFiles) == 0 {
+		return true, "legacy or missing manifest file integrity records"
+	}
+	sortedPaths := make([]string, 0, len(m.manifestFiles))
+	for p := range m.manifestFiles {
+		sortedPaths = append(sortedPaths, p)
+	}
+	sort.Strings(sortedPaths)
+	for _, path := range sortedPaths {
+		expected := m.manifestFiles[path]
+		target := m.target(path)
+		info, err := os.Lstat(target)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return true, fmt.Sprintf("managed file %s is missing", path)
+			}
+			return true, fmt.Sprintf("failed to lstat %s: %v", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return true, fmt.Sprintf("managed file %s is not a regular file", path)
+		}
+		if uint32(info.Mode().Perm()) != expected.Mode {
+			return true, fmt.Sprintf("managed file %s mode changed: expected %04o, got %04o", path, expected.Mode, info.Mode().Perm())
+		}
+		uid, gid := fileOwner(info)
+		if expected.UID >= 0 && uid != expected.UID {
+			return true, fmt.Sprintf("managed file %s uid changed: expected %d, got %d", path, expected.UID, uid)
+		}
+		if expected.GID >= 0 && gid != expected.GID {
+			return true, fmt.Sprintf("managed file %s gid changed: expected %d, got %d", path, expected.GID, gid)
+		}
+		content, err := os.ReadFile(target) // #nosec G304 -- target is an internal trusted managed path.
+		if err != nil {
+			return true, fmt.Sprintf("failed to read %s: %v", path, err)
+		}
+		hash := sha256.Sum256(content)
+		currentHash := hex.EncodeToString(hash[:])
+		if currentHash != expected.SHA256 {
+			return true, fmt.Sprintf("managed file %s content tampered: expected sha256 %s, got %s", path, expected.SHA256, currentHash)
+		}
+	}
+	if !m.spamBinaryCurrent() {
+		return true, "spam sieve binary is stale or missing"
+	}
+	return false, ""
+}
+
+// CheckDiskDrift checks whether any managed files on disk deviate from the recorded manifest.
+func (m *ApplyManager) CheckDiskDrift() (bool, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.detectDiskDrift()
+}
+
+func (m *ApplyManager) saveCurrentManifest() error {
+	m.publish()
+	manifest := applyManifest{
+		Status:  m.status,
+		Paths:   m.paths,
+		Domains: m.domains,
+		Files:   m.manifestFiles,
+	}
+	if err := m.saveJSON("manifest.json", manifest); err != nil {
+		return err
+	}
+	return m.writeBackupManifest(manifest)
+}
+
+func (m *ApplyManager) writeBackupManifest(manifest applyManifest) error {
+	targetPath := m.target(appliedManifestBackupPath)
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create backup manifest directory: %w", err)
+	}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".applied_manifest-*")
+	if err != nil {
+		return err
+	}
+	tempPath := f.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err = f.Chmod(0644); err == nil {
+		_, err = f.Write(raw)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tempPath, targetPath)
+	}
+	if err == nil {
+		err = syncDir(dir)
+	}
+	return err
+}
+
 func (m *ApplyManager) saveJSON(name string, v any) error {
 	if name == "manifest.json" {
 		m.publish()

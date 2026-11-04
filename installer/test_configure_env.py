@@ -34,7 +34,10 @@ class InstallerEnvironmentTests(unittest.TestCase):
             target = Path(directory) / "urmaild.env"
             target.write_text("URMAIL_DATABASE_URL=postgres://old\nURMAIL_MASTER_KEY_PATH=/secure/master.key\n"
                               "URMAIL_AI_API_KEY=$(touch NEVER_EXECUTE)\nURMAIL_WEBMAIL_NATIVE=false\n"
-                              "URMAIL_CARDDAV_ENABLED=false\nURMAIL_LOG_LEVEL=debug\n")
+                              "URMAIL_CARDDAV_ENABLED=false\nURMAIL_LOG_LEVEL=debug\n"
+                              "URMAIL_STORAGE_ROOT=/srv/mail\nURMAIL_DB_AI_MAX_CONNS=1\n"
+                              "URMAIL_DNS_PROVIDER=cloudflare\nURMAIL_CLOUDFLARE_TOKEN=provider-secret\n"
+                              "URMAIL_METRICS_TOKEN=telemetry-secret\n")
             module.write(target, DEFAULTS, {})
             first = target.read_bytes()
             module.write(target, DEFAULTS, {})
@@ -46,6 +49,10 @@ class InstallerEnvironmentTests(unittest.TestCase):
             self.assertEqual(values["URMAIL_WEBMAIL_NATIVE"], "false")
             self.assertEqual(values["URMAIL_CARDDAV_ENABLED"], "false")
             self.assertEqual(values["URMAIL_LOG_LEVEL"], "debug")
+            for key, expected in {"URMAIL_STORAGE_ROOT": "/srv/mail", "URMAIL_DB_AI_MAX_CONNS": "1",
+                                  "URMAIL_DNS_PROVIDER": "cloudflare", "URMAIL_CLOUDFLARE_TOKEN": "provider-secret",
+                                  "URMAIL_METRICS_TOKEN": "telemetry-secret"}.items():
+                self.assertEqual(values[key], expected)
             self.assertEqual(list(Path(directory).iterdir()), [target])
 
     def test_legacy_absent_webmail_does_not_silently_enable(self):

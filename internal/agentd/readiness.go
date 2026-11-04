@@ -160,6 +160,31 @@ func probeGreeting(ctx context.Context, address, banner string, config *tls.Conf
 	return nil
 }
 
+// checkRuntimeReadiness checks the systemd is-active status of all critical
+// configuration units (Postfix, Dovecot, NSD, OpenDKIM, Nginx), followed by
+// application greeting and protocol readiness.
+func (m *ApplyManager) checkRuntimeReadiness(ctx context.Context) error {
+	m.status.Step = "probe"
+	m.publish()
+	runner := m.run
+	if runner == nil {
+		runner = runCommand
+	}
+	for _, unit := range ConfigUnits {
+		m.status.Step = "probe:" + unit
+		m.publish()
+		if err := runner(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit); err != nil {
+			return fmt.Errorf("probe %s: %w", unit, err)
+		}
+	}
+	return m.checkMailReadiness(ctx)
+}
+
+// CheckRuntimeReadiness exposes checkRuntimeReadiness for tests and diagnostics.
+func (m *ApplyManager) CheckRuntimeReadiness(ctx context.Context) error {
+	return m.checkRuntimeReadiness(ctx)
+}
+
 func (m *ApplyManager) checkMailReadiness(ctx context.Context) error {
 	m.status.Step = "probe:mail"
 	m.publish()

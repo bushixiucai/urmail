@@ -2,13 +2,11 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -52,11 +50,12 @@ func RequireMailboxAuth(lookup MailboxSessionLookup, vaults ...webmail.Credentia
 		session, err := lookup.GetMailboxSession(c.Request.Context(), hash)
 		// An aborted HTTP request or temporary database failure does not revoke
 		// a still-valid credential. Fail closed without erasing the shared vault.
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		status := webmail.ClassifySessionLookup(session, err, time.Now())
+		if status == webmail.InfrastructureUnavailable {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "DB_ERROR", "message": "error.DB_ERROR"}})
 			return
 		}
-		if err != nil || session.Address == "" || session.ExpiresAt.Before(time.Now()) {
+		if status == webmail.RevokedOrInvalid || session.Address == "" {
 			for _, vault := range vaults {
 				if vault != nil {
 					vault.Delete(hash)

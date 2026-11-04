@@ -64,13 +64,30 @@ func TestAIQuota151DefaultDownUpAndPositiveProviderBudgetBackfill(t *testing.T) 
 				t.Fatal(err)
 			}
 			defer func() { _ = migrator.Close() }()
-			if err = migrator.Up(t.Context()); err != nil {
-				t.Fatal(err)
+			assertVersion := func(want uint) {
+				t.Helper()
+				version, dirty, err := migrator.Version()
+				if err != nil || version != want || dirty {
+					t.Fatalf("schema version = %d, dirty = %t, err = %v; want clean %d", version, dirty, err, want)
+				}
 			}
-			cfg, err := store.New(pool).PlatformGetAIProvider(t.Context(), tenant)
-			if err != nil {
-				t.Fatal(err)
+			// Pin this historical rollback test to 151: Up applies every pending
+			// migration, while Down rolls back only the most recent one.
+			testdb.MigrateTo(t, dsn, 151)
+			assertVersion(151)
+			// Current sqlc provider queries also select columns added after 151.
+			// Read only the historical quota fields this migration owns.
+			readQuota := func() store.AiProviderConfigs {
+				t.Helper()
+				var cfg store.AiProviderConfigs
+				if err := pool.QueryRow(t.Context(), `SELECT nonplatform_call_limit, nonplatform_mailbox_call_limit, nonplatform_concurrency_limit, quota_timezone, daily_token_limit FROM ai_provider_configs WHERE tenant_id=$1`, tenant).Scan(
+					&cfg.NonplatformCallLimit, &cfg.NonplatformMailboxCallLimit, &cfg.NonplatformConcurrencyLimit, &cfg.QuotaTimezone, &cfg.DailyTokenLimit,
+				); err != nil {
+					t.Fatal(err)
+				}
+				return cfg
 			}
+			cfg := readQuota()
 			if cfg.NonplatformCallLimit != 0 || cfg.NonplatformMailboxCallLimit != 0 || cfg.NonplatformConcurrencyLimit != 0 {
 				t.Fatal("upgrade silently granted AI calls")
 			}
@@ -81,6 +98,11 @@ func TestAIQuota151DefaultDownUpAndPositiveProviderBudgetBackfill(t *testing.T) 
 				if err = migrator.Down(t.Context()); err == nil || !strings.Contains(err.Error(), "quota facts prevent downgrade") {
 					t.Fatal("downgrade silently discarded frozen configuration", err)
 				}
+				// A rejected migration can mark schema metadata dirty, but must not
+				// discard any of the durable configuration.
+				if after := readQuota(); after.NonplatformCallLimit != cfg.NonplatformCallLimit || after.NonplatformMailboxCallLimit != cfg.NonplatformMailboxCallLimit || after.NonplatformConcurrencyLimit != cfg.NonplatformConcurrencyLimit || after.QuotaTimezone != cfg.QuotaTimezone || after.DailyTokenLimit != cfg.DailyTokenLimit {
+					t.Fatal("rejected downgrade changed frozen configuration")
+				}
 			} else {
 				if cfg.QuotaTimezone != "" {
 					t.Fatal("unconfigured upgrade minted calendar configuration")
@@ -88,8 +110,11 @@ func TestAIQuota151DefaultDownUpAndPositiveProviderBudgetBackfill(t *testing.T) 
 				if err = migrator.Down(t.Context()); err != nil {
 					t.Fatal(err)
 				}
-				if err = migrator.Up(t.Context()); err != nil {
-					t.Fatal(err)
+				assertVersion(150)
+				testdb.MigrateTo(t, dsn, 151)
+				assertVersion(151)
+				if after := readQuota(); after.NonplatformCallLimit != 0 || after.NonplatformMailboxCallLimit != 0 || after.NonplatformConcurrencyLimit != 0 || after.QuotaTimezone != "" || after.DailyTokenLimit != 0 {
+					t.Fatal("re-upgrade changed unconfigured quota defaults")
 				}
 			}
 		})

@@ -24,7 +24,11 @@ func startDomainOnboarding(ctx context.Context, cfg *config.Config, pool *db.Poo
 	if hostname == "" {
 		hostname = "box." + cfg.PrimaryDomain
 	}
-	service := &onboarding.Service{Pool: pool, Secrets: secrets, Hostname: hostname, AfterChange: pipeline.Trigger}
+	var trigger func()
+	if pipeline != nil {
+		trigger = pipeline.Trigger
+	}
+	service := &onboarding.Service{Pool: pool, Secrets: secrets, Hostname: hostname, AfterChange: trigger}
 	if !cfg.BackgroundWorkersAllowed() {
 		return service
 	}
@@ -35,30 +39,16 @@ func startDomainOnboarding(ctx context.Context, cfg *config.Config, pool *db.Poo
 	}
 	owner := hex.EncodeToString(random[:])
 	client := agent.NewClient(cfg.AgentSocket)
-	apply := func(callCtx context.Context, domain string) (string, error) {
-		if _, err := pipeline.RenderOnce(callCtx); err != nil {
-			return "", err
-		}
-		snapshot := pipeline.CurrentSnapshot()
-		if snapshot == nil {
-			return "", errors.New("ONBOARDING_SNAPSHOT_UNAVAILABLE")
-		}
-		found := false
-		for _, d := range snapshot.PostfixSnap.Domains {
-			if d.FQDN == domain {
-				found = true
-				break
+	if pipeline != nil && !pipeline.HasApplier() {
+		pipeline.WithApplier(func(callCtx context.Context, params reconcile.ApplyParams) (string, error) {
+			response, err := client.Do(callCtx, agentd.OpConfigApply, params)
+			if err != nil {
+				return "", err
 			}
-		}
-		if !found {
-			return "", errors.New("ONBOARDING_DOMAIN_NOT_RENDERED")
-		}
-		response, err := client.Do(callCtx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM})
-		if err != nil {
-			return "", err
-		}
-		return response.Stdout, nil
+			return response.Stdout, nil
+		})
 	}
+	apply := newOnboardingApply(pipeline)
 	worker := onboarding.NewWorker(onboarding.WorkerOptions{Service: service, Agent: client, Apply: apply, Nameservers: cfg.Nameservers, Owner: owner})
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -78,4 +68,13 @@ func startDomainOnboarding(ctx context.Context, cfg *config.Config, pool *db.Poo
 		}
 	}()
 	return service
+}
+
+func newOnboardingApply(pipeline *reconcile.Pipeline) func(context.Context, string) (string, error) {
+	return func(callCtx context.Context, domain string) (string, error) {
+		if pipeline == nil {
+			return "", errors.New("ONBOARDING_PIPELINE_UNAVAILABLE")
+		}
+		return pipeline.ReconcileAndWait(callCtx, domain)
+	}
 }

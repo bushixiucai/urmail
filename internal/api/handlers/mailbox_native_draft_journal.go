@@ -14,8 +14,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mailboxsend"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -52,36 +52,30 @@ func (h *MailboxNativeHandler) lockDraftEdit(c *gin.Context, session webmail.Ses
 
 // A session lock spans two committed transactions on one acquired connection.
 // It shares its key with send's transaction lock and is always explicitly released.
-func (h *MailboxNativeHandler) acquireDraftJournal(c *gin.Context, session webmail.Session, folder string, uid, validity uint32) (*pgxpool.Conn, func(), bool) {
+func (h *MailboxNativeHandler) acquireDraftJournal(c *gin.Context, session webmail.Session, folder string, uid, validity uint32) (*db.Lease, func(), bool) {
 	if h.Pool == nil {
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
 	}
-	conn, err := h.Pool.Acquire(c.Request.Context())
+	conn, err := h.Pool.AcquireBudgeted(c.Request.Context())
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
 	}
 	args := store.PlatformAcquireDraftSessionLockParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), Folder: folder, Uid: strconv.FormatUint(uint64(uid), 10), Validity: strconv.FormatUint(uint64(validity), 10)}
 	if err = store.New(conn).PlatformAcquireDraftSessionLock(c.Request.Context(), args); err != nil {
-		_ = conn.Conn().Close(context.Background())
 		conn.Release()
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
 	}
-	release := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		unlocked, unlockErr := store.New(conn).PlatformReleaseDraftSessionLock(ctx, store.PlatformReleaseDraftSessionLockParams(args))
-		if unlockErr != nil || !unlocked {
-			_ = conn.Conn().Close(ctx)
-		}
-		conn.Release()
-	}
+	// Discarding the leased connection releases every session advisory lock.
+	release := conn.Release
 	return conn, release, true
 }
 
-func beginDraftJournal(ctx context.Context, conn *pgxpool.Conn, session webmail.Session) (pgx.Tx, error) {
+func beginDraftJournal(ctx context.Context, conn interface {
+	Begin(context.Context) (pgx.Tx, error)
+}, session webmail.Session) (pgx.Tx, error) {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -115,6 +109,7 @@ func (h *MailboxNativeHandler) saveDraftJournal(c *gin.Context, client webmail.C
 		return webmail.DraftSaveResult{}, false
 	}
 	defer release()
+	c.Request = c.Request.WithContext(conn.Context())
 	tx, err := beginDraftJournal(c.Request.Context(), conn, session)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")

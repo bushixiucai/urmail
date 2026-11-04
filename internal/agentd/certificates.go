@@ -218,7 +218,7 @@ func (m *ApplyManager) recordCertificateError(message string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.status.CertificateError = message
-	_ = m.saveJSON("manifest.json", applyManifest{Status: m.status, Paths: m.paths, Domains: m.domains})
+	_ = m.saveCurrentManifest()
 }
 
 // certRenewBackoff bounds how often a failing ACME renewal is retried: the

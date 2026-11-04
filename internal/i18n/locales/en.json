@@ -655,6 +655,8 @@
   "error.DNS_AUTHORITY_MANAGED_REQUIRED": "This operation requires an active, verified, managed authoritative zone. Externally hosted DNS remains unchanged.",
   "error.DNS_AUTHORITY_REQUIRES_REVIEW": "The agent rejected or could not finish this operation. Refresh signature, parent DS, cache deadline and secondary status before proceeding.",
   "error.DNS_AUTHORITY_UNAVAILABLE": "Authoritative DNS operations are unavailable. Check that external NSD is not preserved and the agent is running.",
+  "error.PROBE_CONFIGURATION_CHANGED": "Configuration or authorization changed during the diagnostic. Refresh and try again.",
+  "error.PROBE_TRANSACTION_ACTIVE": "The diagnostic is temporarily unavailable because its transaction setup is invalid.",
   "error.DOMAIN_CHALLENGE_CHANGED": "The ownership challenge changed or expired; reload its current value",
   "error.DOMAIN_CHALLENGE_EXPIRED": "The ownership challenge has expired; request a new challenge without deleting the domain",
   "error.DOMAIN_CHALLENGE_UNAVAILABLE": "An active domain does not need another ownership challenge",

@@ -346,12 +346,19 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 	// bearer token could brute-force the six-digit TOTP online. The budget is
 	// tighter than login and only resets on a successful disable.
 	attemptKey := mfaDisableKey(userID)
-	if !mfaDisableAttempts.allowN(attemptKey, mfaDisableMaxFailures) {
+	ipKey := "ip|" + c.ClientIP()
+	reservation, err := mfaDisableAttempts.BeginAttempt(attemptKey, ipKey, LimiterBudgets{
+		IdentityMaxFailures: mfaDisableMaxFailures,
+		IPMaxFailures:       loginMaxIPFailures,
+		Window:              loginWindow,
+	})
+	if err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
 		})
 		return
 	}
+	defer reservation.Discard()
 
 	authenticated := false
 	if user.MfaSecret.Valid {
@@ -368,7 +375,7 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 			Column2: hashRecoveryCode(req.Code),
 		})
 		if err != nil || n == 0 {
-			mfaDisableAttempts.fail(attemptKey)
+			reservation.RecordFailure()
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": gin.H{"code": "MFA_INVALID_CODE", "message": "auth.mfa_invalid_code"},
 			})
@@ -382,7 +389,7 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 	}
 	pendingMFATokens.revokeUser(userID)
 
-	mfaDisableAttempts.reset(attemptKey)
+	reservation.CompleteSuccess()
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "mfa_enabled": false})
 }
 
@@ -415,16 +422,19 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		return
 	}
 	ipKey := ipKeyFromLimiterKey(pending.LimiterKey)
-	if !loginAttempts.allow(pending.LimiterKey) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
+	reservation, err := loginAttempts.BeginAttempt(pending.LimiterKey, ipKey, DefaultLoginBudgets)
+	if err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
 		})
 		return
 	}
+	defer reservation.Discard()
 
 	user, err := h.Store.GetUserByID(c, pending.UserID)
 	if err != nil || !user.MfaEnabled || user.CredentialVersion != pending.CredentialVersion {
 		pendingMFATokens.take(req.MFAToken)
+		reservation.RecordFailure()
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
@@ -451,8 +461,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 	}
 	if !authenticated {
 		pendingMFATokens.failed(req.MFAToken)
-		loginAttempts.fail(pending.LimiterKey)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "MFA_INVALID_CODE", "message": "auth.mfa_invalid_code"},
 		})
@@ -463,8 +472,7 @@ func (h *AuthHandler) MFAVerify(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "MFA_TOKEN_INVALID", "message": "auth.mfa_invalid_token"}})
 		return
 	}
-	loginAttempts.reset(pending.LimiterKey)
-	loginAttempts.reset(ipKey)
+	reservation.CompleteSuccess()
 	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, true, user.PasswordHash, pending.CredentialVersion)
 }
 

@@ -107,12 +107,13 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if manifest.Version == backupauto.ManifestVersion2 {
-		if recipient == "" {
+	if manifest.Version == backupauto.ManifestVersion2 || manifest.Version == backupauto.ManifestVersion3 {
+		if recipient == "" && manifest.Encryption != nil {
 			recipient = manifest.Encryption.Recipient
 		}
-	} else if recipient == "" {
-		return fmt.Errorf("v1 manifests carry no encryption metadata; pass --recipient KEY (the archive will be encrypted) ")
+	}
+	if recipient == "" {
+		return fmt.Errorf("manifest carries no encryption metadata; pass --recipient KEY (the archive will be encrypted) ")
 	}
 	base := dirOf(manifestPath)
 	for i, artifact := range manifest.Artifacts {
@@ -135,7 +136,9 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) error {
 		entry.GID = artifact.GID
 		manifest.Artifacts[i] = entry
 	}
-	manifest.Version = backupauto.ManifestVersion2
+	if manifest.Version < backupauto.ManifestVersion3 {
+		manifest.Version = backupauto.ManifestVersion2
+	}
 	manifest.Encryption = &backupauto.EncryptionInfo{Algorithm: backupauto.EncryptionAlgorithmAge, Recipient: recipient}
 	raw, err := manifestJSON(manifest)
 	if err != nil {

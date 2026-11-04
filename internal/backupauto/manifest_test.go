@@ -121,3 +121,31 @@ func encodeAny(t *testing.T, v any) string {
 }
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 func jsonMarshal(v any) ([]byte, error)   { return json.Marshal(v) }
+
+func TestDecodeManifestV3(t *testing.T) {
+	v3Raw := `{"version":3,"layout_version":1,"scope":"local-mail-and-metadata","consistent_maintenance":true,
+"created_at":"2026-01-01T00:00:00Z",
+"slots":{"mail/storage":{"artifact":"urmail-mail-x.tar.gz","archive_path":"mnt/maildata/mail","target_path":"/mnt/maildata/mail","kind":"dir"}},
+"artifacts":[{"name":"urmail-mail-x.tar.gz","sha256":"abc","size":3,"mode":384,"uid":0,"gid":0}]}`
+	m, err := DecodeManifest(strings.NewReader(v3Raw))
+	if err != nil {
+		t.Fatalf("v3 manifest must be accepted: %v", err)
+	}
+	if m.Version != ManifestVersion3 || m.LayoutVersion != LayoutVersion1 || len(m.Slots) != 1 {
+		t.Fatalf("v3 decode mismatch: %+v", m)
+	}
+	slot, ok := m.Slots[SlotMailStorage]
+	if !ok || slot.ArchivePath != "mnt/maildata/mail" {
+		t.Fatalf("v3 slot missing or wrong: %+v", slot)
+	}
+
+	badLayout := `{"version":3,"layout_version":0,"scope":"local-mail-and-metadata","slots":{"mail/storage":{"artifact":"a","archive_path":"b"}}}`
+	if _, err := DecodeManifest(strings.NewReader(badLayout)); err == nil {
+		t.Fatal("v3 with layout_version 0 must be rejected")
+	}
+
+	noSlots := `{"version":3,"layout_version":1,"scope":"local-mail-and-metadata"}`
+	if _, err := DecodeManifest(strings.NewReader(noSlots)); err == nil {
+		t.Fatal("v3 without slots must be rejected")
+	}
+}

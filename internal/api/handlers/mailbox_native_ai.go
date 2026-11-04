@@ -41,7 +41,7 @@ func RegisterNativeMailboxAI(group *gin.RouterGroup, native *MailboxNativeHandle
 	group.POST("/ai/models", h.Models)
 	if search != nil {
 		search.Policy = h.requireTarget
-		search.ReserveForSession = func(ctx context.Context, sess webmail.Session, question, expected string) (*Reservation, error) {
+		search.ReserveForSession = func(ctx context.Context, sess webmail.Session, question, expected string) (*AIUsageReservation, error) {
 			cfg, custom, err := h.getUserAI(ctx, sess)
 			if err != nil {
 				return nil, err

@@ -14,9 +14,18 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/maintenance"
 )
 
 const backupMaintenanceRoot = "/var/lib/urmail-backup"
+
+func currentMaintenanceRoot() string {
+	if env := os.Getenv("URMAIL_MAINTENANCE_ROOT"); env != "" {
+		return env
+	}
+	return backupMaintenanceRoot
+}
+
 const backupReceiptName = "maintenance.json"
 
 type backupOperationContext struct{}
@@ -26,6 +35,8 @@ type backupMaintenanceReceipt struct {
 	Units     []string  `json:"original_active_units"`
 }
 type backupUnitAction func(context.Context, string, string) (bool, error)
+
+var activeBackupUnitAction backupUnitAction = systemBackupUnit
 
 // backupWriterUnits excludes the independent job itself, unlike the restore
 // allowlist which must also stop backup scheduling and the backup job.
@@ -255,15 +266,16 @@ func runBackupAutoResume(ctx context.Context, args []string) error {
 	if len(args) != 0 || os.Geteuid() != 0 {
 		return errors.New("backup-auto-resume requires root and no arguments")
 	}
-	if _, err := os.Lstat(backupMaintenanceRoot); errors.Is(err, os.ErrNotExist) {
+	root := currentMaintenanceRoot()
+	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	lock, err := backupLock(backupMaintenanceRoot, "maintenance.lock")
+	lock, err := backupLock(root, "maintenance.lock")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	return resumeBackupWritersLocked(ctx, backupMaintenanceRoot, systemBackupUnit)
+	return resumeBackupWritersLocked(ctx, root, systemBackupUnit)
 }
 
 // Any maintenance marker fails closed, including an unreadable or dangling
@@ -273,6 +285,9 @@ func backupWritersHeld() bool {
 		return true
 	}
 	if _, err := os.Lstat("/run/urmail-stable-worker-hold.env"); !errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if maintenance.IsUpgradeHeld(currentMaintenanceRoot()) {
 		return true
 	}
 	matches, err := filepath.Glob("/var/lib/urmail-stable-upgrade-*.hold")

@@ -122,13 +122,14 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	email = strings.ToLower(strings.TrimSpace(email))
 	key := c.ClientIP() + "|" + email
 	ipKey := ipKeyFromLimiterKey(key)
-	if !loginAttempts.allow(key) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
+	reservation, err := loginAttempts.BeginAttempt(key, ipKey, DefaultLoginBudgets)
+	if err != nil {
 		authError(c, http.StatusTooManyRequests, "AUTH_RATE_LIMITED")
 		return false
 	}
+	defer reservation.Discard()
 	reject := func(code string) bool {
-		loginAttempts.fail(key)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		authError(c, http.StatusForbidden, code)
 		return false
 	}
@@ -157,7 +158,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 		if !h.auditLegacyAccess(c, access, credential.UserID, "credential:"+strconv.FormatInt(credential.ID, 10)) {
 			return false
 		}
-		loginAttempts.reset(key)
+		reservation.CompleteSuccess()
 		return true
 	}
 	user, err := h.Auth.GetUserByEmail(c, email)
@@ -185,7 +186,7 @@ func (h *LegacyHandler) authorize(c *gin.Context) bool {
 	if !h.auditLegacyAccess(c, access, user.ID, "basic") {
 		return false
 	}
-	loginAttempts.reset(key)
+	reservation.CompleteSuccess()
 	return true
 }
 

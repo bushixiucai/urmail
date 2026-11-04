@@ -655,6 +655,8 @@
   "error.DNS_AUTHORITY_MANAGED_REQUIRED": "仅已验证且启用的自管权威区域可执行此操作，外部 DNS 域名保持原模式。",
   "error.DNS_AUTHORITY_REQUIRES_REVIEW": "agent 拒绝或未完成此操作。请刷新真实签名、父区 DS、缓存期限和备用节点状态；确认条件满足后再操作。",
   "error.DNS_AUTHORITY_UNAVAILABLE": "权威 DNS 操作暂不可用。请确认当前节点未保留外部 NSD，且 agent 正常运行。",
+  "error.PROBE_CONFIGURATION_CHANGED": "诊断期间配置或授权已变更，请刷新后重试。",
+  "error.PROBE_TRANSACTION_ACTIVE": "诊断事务配置异常，暂时无法执行，请联系管理员。",
   "error.DOMAIN_CHALLENGE_CHANGED": "域名验证挑战已变更或过期，请重新获取",
   "error.DOMAIN_CHALLENGE_EXPIRED": "域名验证挑战已过期，请重新签发验证挑战，无需删除域名",
   "error.DOMAIN_CHALLENGE_UNAVAILABLE": "已激活域名无需重新签发验证挑战",

@@ -2,16 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
+	"strings"
 
+	"github.com/bushixiucai/urmail/internal/backupauto"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	domainRestore "github.com/bushixiucai/urmail/internal/domain/restore"
 )
 
 func runRestore(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "quarantine" {
+		return runRestoreQuarantine(ctx, args[1:])
+	}
+	if backupWritersHeld() {
+		return errors.New("restore refused during restore or upgrade hold")
+	}
 	if len(args) > 0 && args[0] == "mailbox" {
 		return runMailboxRestore(ctx, args[1:])
 	}
@@ -20,11 +29,10 @@ func runRestore(ctx context.Context, args []string) error {
 	} else if selected {
 		return runV80Restore(ctx, args, os.Stdout)
 	}
-	if len(args) > 0 && args[0] == "quarantine" {
-		return runRestoreQuarantine(ctx, args[1:])
-	}
 	dumpPath, configPath, databaseURL := "", "", ""
 	mailPath, manifestPath, resumeID := "", "", ""
+	storageRoot, masterKeyPath, targetRootOverride := "", "", ""
+	var legacySlotMapArgs []string
 	force := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -60,6 +68,26 @@ func runRestore(ctx context.Context, args []string) error {
 			}
 		case "--force":
 			force = true
+		case "--storage-root":
+			if i+1 < len(args) {
+				storageRoot = args[i+1]
+				i++
+			}
+		case "--master-key-path":
+			if i+1 < len(args) {
+				masterKeyPath = args[i+1]
+				i++
+			}
+		case "--legacy-slot-map":
+			if i+1 < len(args) {
+				legacySlotMapArgs = append(legacySlotMapArgs, args[i+1])
+				i++
+			}
+		case "--target-root":
+			if i+1 < len(args) {
+				targetRootOverride = args[i+1]
+				i++
+			}
 		default:
 			return fmt.Errorf("unknown restore argument %q", args[i])
 		}
@@ -70,8 +98,18 @@ func runRestore(ctx context.Context, args []string) error {
 	if manifestPath == "" || (mailPath != "" && configPath == "") {
 		return fmt.Errorf("restore requires --manifest")
 	}
-	if os.Geteuid() != 0 {
+	if targetRootOverride == "" && os.Geteuid() != 0 && os.Getenv("URMAIL_ALLOW_TEST_USER") == "" {
 		return fmt.Errorf("restore must run as root")
+	}
+	legacySlotMap := make(map[string]string)
+	for _, entry := range legacySlotMapArgs {
+		pairs := strings.Split(entry, ",")
+		for _, pair := range pairs {
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) == 2 {
+				legacySlotMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
+		}
 	}
 	if err := rejectV80BundleAsDatabase(dumpPath); err != nil {
 		return err
@@ -123,9 +161,23 @@ func runRestore(ctx context.Context, args []string) error {
 			return err
 		}
 	}
+	restoreManifest, err := backupauto.LoadManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+	activeCfg, err := config.Load()
+	if err != nil {
+		activeCfg = &config.Config{}
+	}
+	if storageRoot != "" {
+		activeCfg.StorageRoot = storageRoot
+	}
+	if masterKeyPath != "" {
+		activeCfg.MasterKeyPath = masterKeyPath
+	}
 	for _, archive := range []string{configPath, mailPath} {
 		if archive != "" {
-			if err := validateRestoreArchive(archive); err != nil {
+			if err := validateRestoreArchiveWithManifest(archive, filepath.Base(archive), restoreManifest, activeCfg, legacySlotMap); err != nil {
 				return err
 			}
 		}
@@ -134,11 +186,17 @@ func runRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	maintenanceLock, lockErr := backupLock(backupMaintenanceRoot, "operation.lock")
+	if backupWritersHeld() {
+		return errors.New("restore refused during restore or upgrade hold")
+	}
+	maintenanceLock, lockErr := backupLock(currentMaintenanceRoot(), "operation.lock")
 	if lockErr != nil {
 		return lockErr
 	}
 	defer func() { _ = maintenanceLock.Close() }()
+	if backupWritersHeld() {
+		return errors.New("restore refused during restore or upgrade hold")
+	}
 	var state restoreQuarantineState
 	databaseRestored := false
 	if resumeID != "" {
@@ -172,7 +230,6 @@ func runRestore(ctx context.Context, args []string) error {
 	if err = stopRestoreWriters(ctx, stopSystemdRestoreWriter); err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
 	if !databaseRestored {
 		err = domainRestore.BeforeOverwrite(ctx, func(ctx context.Context) error {
 			pool, openErr := db.OpenPlatform(ctx, databaseURL)
@@ -220,12 +277,8 @@ func runRestore(ctx context.Context, args []string) error {
 
 	for _, archive := range []string{configPath, mailPath} {
 		if archive != "" {
-			cmd = exec.CommandContext(ctx, "tar", "-xzf", archive, "-C", "/") // #nosec G204 G702 -- fixed executable; root-authorized file/URL arguments are passed separately without a shell.
-			cmd.ExtraFiles = append(cmd.ExtraFiles, operationLock)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("restore config: %w", err)
+			if err := extractRestoreArchive(archive, filepath.Base(archive), restoreManifest, activeCfg, legacySlotMap, targetRootOverride); err != nil {
+				return fmt.Errorf("restore extract %s: %w", filepath.Base(archive), err)
 			}
 		}
 	}

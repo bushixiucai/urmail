@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,8 +44,19 @@ func runUsageSync(ctx context.Context, args []string) error {
 	if len(args) != 1 || args[0] != "sync" {
 		return fmt.Errorf("usage requires sync")
 	}
-	if os.Geteuid() != 0 {
+	if os.Geteuid() != 0 && os.Getenv("URMAIL_ALLOW_TEST_USER") == "" {
 		return fmt.Errorf("usage sync must run as root")
+	}
+	if backupWritersHeld() {
+		return errors.New("usage sync refused during restore or upgrade hold")
+	}
+	lock, err := backupLock(currentMaintenanceRoot(), "operation.lock")
+	if err != nil {
+		return fmt.Errorf("usage sync lock: %w", err)
+	}
+	defer func() { _ = lock.Close() }()
+	if backupWritersHeld() {
+		return errors.New("usage sync refused during restore or upgrade hold")
 	}
 	cfg, err := config.Load()
 	if err != nil {

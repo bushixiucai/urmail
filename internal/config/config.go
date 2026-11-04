@@ -23,6 +23,7 @@ const EnvFile = "/etc/urmail/urmaild.env"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
+	DatabaseBudgets      DatabaseBudgets
 	DNSSecondaryOnly     bool
 	DNSListenAddresses   []string
 	DevMode              bool
@@ -257,7 +258,12 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	budgets, err := loadDatabaseBudgets(values)
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
+		DatabaseBudgets:             budgets,
 		DevMode:                     parseBool(values["URMAIL_DEV_MODE"]),
 		WorkersHeld:                 workersHeld,
 		DNSSecondaryOnly:            dnsSecondaryOnly,

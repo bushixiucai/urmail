@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/backupauto"
 	"github.com/bushixiucai/urmail/internal/config"
 )
 
@@ -57,18 +58,21 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	if includeMail && !maintenance {
 		return fmt.Errorf("complete mail backups require --maintenance")
 	}
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("backup must run as root")
-	}
 	if backupWritersHeld() {
 		return errors.New("backup refused during restore or upgrade hold")
 	}
+	if os.Geteuid() != 0 && os.Getenv("URMAIL_ALLOW_TEST_USER") == "" {
+		return fmt.Errorf("backup must run as root")
+	}
 	if owned, _ := ctx.Value(backupOperationContext{}).(bool); !owned {
-		operationLock, lockErr := backupLock(backupMaintenanceRoot, "operation.lock")
+		operationLock, lockErr := backupLock(currentMaintenanceRoot(), "operation.lock")
 		if lockErr != nil {
 			return lockErr
 		}
 		defer func() { _ = operationLock.Close() }()
+		if backupWritersHeld() {
+			return errors.New("backup refused during restore or upgrade hold")
+		}
 		ctx = context.WithValue(ctx, backupOperationContext{}, true)
 	}
 	cfg, err := config.Load()
@@ -152,6 +156,46 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	artifacts := []string{dump, configArchive}
 	scope := "metadata-only"
+
+	configArchiveBase := filepath.Base(configArchive)
+	slots := map[string]backupauto.Slot{
+		backupauto.SlotConfigOperator: {
+			Artifact:    configArchiveBase,
+			ArchivePath: "etc/urmail",
+			TargetPath:  "/etc/urmail",
+			Kind:        "dir",
+		},
+		backupauto.SlotConfigMasterKey: {
+			Artifact:    configArchiveBase,
+			ArchivePath: strings.TrimPrefix(filepath.Clean(cfg.MasterKeyPath), "/"),
+			TargetPath:  filepath.Clean(cfg.MasterKeyPath),
+			Kind:        "file",
+		},
+		backupauto.SlotConfigAgentCerts: {
+			Artifact:    configArchiveBase,
+			ArchivePath: "var/lib/urmail-agent/certs",
+			TargetPath:  "/var/lib/urmail-agent/certs",
+			Kind:        "dir",
+		},
+	}
+	optionalSlotPaths := map[string]struct{ slotName, kind string }{
+		"etc/postfix/urmail":   {backupauto.SlotConfigPostfix, "dir"},
+		"etc/opendkim":         {backupauto.SlotConfigOpenDKIM, "dir"},
+		"var/lib/urmail/certs": {backupauto.SlotConfigCerts, "dir"},
+		"etc/letsencrypt":      {backupauto.SlotConfigLetsEncrypt, "dir"},
+		strings.TrimPrefix(filepath.Clean(filepath.Join(cfg.StorageRoot, "ssl")), "/"): {backupauto.SlotConfigStorageSSL, "dir"},
+	}
+	for p, s := range optionalSlotPaths {
+		if _, err = os.Stat("/" + p); err == nil {
+			slots[s.slotName] = backupauto.Slot{
+				Artifact:    configArchiveBase,
+				ArchivePath: p,
+				TargetPath:  "/" + p,
+				Kind:        s.kind,
+			}
+		}
+	}
+
 	if includeMail {
 		mailArchive := filepath.Join(outDir, "urmail-mail-"+stamp+".tar.gz")
 		archivePaths, archiveErr := archiveBackupPaths("/", cfg.ArchiveEnabled)
@@ -177,9 +221,35 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 		}
 		artifacts = append(artifacts, mailArchive)
 		scope = "local-mail-and-metadata"
+
+		mailArchiveBase := filepath.Base(mailArchive)
+		slots[backupauto.SlotMailStorage] = backupauto.Slot{
+			Artifact:    mailArchiveBase,
+			ArchivePath: strings.TrimPrefix(filepath.Clean(filepath.Join(cfg.StorageRoot, "mail")), "/"),
+			TargetPath:  filepath.Clean(filepath.Join(cfg.StorageRoot, "mail")),
+			Kind:        "dir",
+		}
+		for _, p := range archivePaths {
+			switch p {
+			case "var/lib/urmail/archive":
+				slots[backupauto.SlotMailArchive] = backupauto.Slot{
+					Artifact:    mailArchiveBase,
+					ArchivePath: p,
+					TargetPath:  "/" + p,
+					Kind:        "dir",
+				}
+			case "var/lib/urmail/archive-spool":
+				slots[backupauto.SlotMailSpool] = backupauto.Slot{
+					Artifact:    mailArchiveBase,
+					ArchivePath: p,
+					TargetPath:  "/" + p,
+					Kind:        "dir",
+				}
+			}
+		}
 	}
 	manifest := filepath.Join(outDir, "urmail-"+stamp+".manifest.json")
-	if err = writeBackupManifest(manifest, scope, maintenance, artifacts); err != nil {
+	if err = writeBackupManifest(manifest, scope, maintenance, artifacts, slots); err != nil {
 		return err
 	}
 	if err = writeChecksums(filepath.Join(outDir, "urmail-"+stamp+".sha256"), artifacts); err != nil {
@@ -224,24 +294,43 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-type backupArtifact struct {
-	Name   string `json:"name"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
-	Mode   uint32 `json:"mode"`
-	UID    uint32 `json:"uid"`
-	GID    uint32 `json:"gid"`
-}
-type backupManifest struct {
-	Version    int              `json:"version"`
-	Scope      string           `json:"scope"`
-	Consistent bool             `json:"consistent_maintenance"`
-	CreatedAt  time.Time        `json:"created_at"`
-	Artifacts  []backupArtifact `json:"artifacts"`
-}
+type backupArtifact = backupauto.Artifact
 
-func writeBackupManifest(path, scope string, consistent bool, files []string) error {
-	m := backupManifest{Version: 1, Scope: scope, Consistent: consistent, CreatedAt: time.Now().UTC()}
+func writeBackupManifest(path, scope string, consistent bool, files []string, slots ...map[string]backupauto.Slot) error {
+	var sMap map[string]backupauto.Slot
+	if len(slots) > 0 && slots[0] != nil {
+		sMap = slots[0]
+	} else {
+		sMap = make(map[string]backupauto.Slot)
+		for _, name := range files {
+			base := filepath.Base(name)
+			switch {
+			case strings.Contains(base, "mail"):
+				sMap[backupauto.SlotMailStorage] = backupauto.Slot{
+					Artifact: base, ArchivePath: "var/mail/mail", TargetPath: "/var/mail/mail", Kind: "dir",
+				}
+			case strings.Contains(base, "config"):
+				sMap[backupauto.SlotConfigOperator] = backupauto.Slot{
+					Artifact: base, ArchivePath: "etc/urmail", TargetPath: "/etc/urmail", Kind: "dir",
+				}
+				sMap[backupauto.SlotConfigMasterKey] = backupauto.Slot{
+					Artifact: base, ArchivePath: "etc/urmail/master.key", TargetPath: "/etc/urmail/master.key", Kind: "file",
+				}
+			default:
+				sMap["file/"+base] = backupauto.Slot{
+					Artifact: base, ArchivePath: base, TargetPath: "/" + base, Kind: "file",
+				}
+			}
+		}
+	}
+	m := backupauto.Manifest{
+		Version:       backupauto.ManifestVersion3,
+		LayoutVersion: backupauto.LayoutVersion1,
+		Scope:         scope,
+		Consistent:    consistent,
+		CreatedAt:     time.Now().UTC(),
+		Slots:         sMap,
+	}
 	for _, name := range files {
 		info, err := os.Stat(name) // #nosec G703 -- inspects a root-selected backup artifact to record its metadata.
 		if err != nil {
@@ -251,7 +340,17 @@ func writeBackupManifest(path, scope string, consistent bool, files []string) er
 		if err != nil {
 			return err
 		}
-		entry := backupArtifact{Name: filepath.Base(name), SHA256: hash, Size: info.Size(), Mode: uint32(info.Mode().Perm())}
+		base := filepath.Base(name)
+		kind := ""
+		switch {
+		case strings.HasSuffix(base, ".dump"):
+			kind = backupauto.KindPgDump
+		case strings.Contains(base, "config") && strings.HasSuffix(base, ".tar.gz"):
+			kind = backupauto.KindConfigTar
+		case strings.Contains(base, "mail") && strings.HasSuffix(base, ".tar.gz"):
+			kind = backupauto.KindMailTar
+		}
+		entry := backupauto.Artifact{Name: base, SHA256: hash, Size: info.Size(), Mode: uint32(info.Mode().Perm()), Kind: kind}
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 			entry.UID = stat.Uid
 			entry.GID = stat.Gid
@@ -265,7 +364,7 @@ func writeBackupManifest(path, scope string, consistent bool, files []string) er
 	return os.WriteFile(path, raw, 0o600) // #nosec G703 -- root-selected manifest destination inside the private backup directory.
 }
 func pauseBackupWriters(ctx context.Context) (func() error, error) {
-	return pauseBackupWritersDurable(ctx, backupMaintenanceRoot, systemBackupUnit)
+	return pauseBackupWritersDurable(ctx, currentMaintenanceRoot(), systemBackupUnit)
 }
 
 // validatePrivateBackupDirectory prevents a daemon-owned parent from swapping

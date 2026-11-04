@@ -101,13 +101,13 @@ func run() error {
 		return err
 	}
 
-	appPool, err := db.OpenApp(ctx, cfg.DatabaseURL)
+	appPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "core-app", cfg.DatabaseBudgets.Core)
 	if err != nil {
 		return fmt.Errorf("open tenant database pool: %w", err)
 	}
 	defer appPool.Close()
 
-	platformPool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	platformPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "core-platform", cfg.DatabaseBudgets.Core)
 	if err != nil {
 		return fmt.Errorf("open platform database pool: %w", err)
 	}
@@ -121,11 +121,33 @@ func run() error {
 		}
 	}
 
-	marketingPool, err := db.OpenBackgroundPlatform(ctx, cfg.DatabaseURLPlatform)
+	marketingPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "marketing-platform", cfg.DatabaseBudgets.Marketing)
 	if err != nil {
 		return fmt.Errorf("open marketing database pool: %w", err)
 	}
 	defer marketingPool.Close()
+	backgroundPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "background", cfg.DatabaseBudgets.Background)
+	if err != nil {
+		return fmt.Errorf("open background database pool: %w", err)
+	}
+	defer backgroundPool.Close()
+	aiAppPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "ai-app", cfg.DatabaseBudgets.AI)
+	if err != nil {
+		return fmt.Errorf("open AI tenant pool: %w", err)
+	}
+	defer aiAppPool.Close()
+	aiPlatformPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "ai-platform", cfg.DatabaseBudgets.AI)
+	if err != nil {
+		return fmt.Errorf("open AI platform pool: %w", err)
+	}
+	defer aiPlatformPool.Close()
+	marketingAppPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "marketing-app", cfg.DatabaseBudgets.Marketing)
+	if err != nil {
+		return fmt.Errorf("open marketing tenant pool: %w", err)
+	}
+	defer marketingAppPool.Close()
+	// Cancel workers before pool cleanup also on startup/server failure, not only signals.
+	defer stop()
 
 	messages, err := i18n.NewStore()
 	if err != nil {
@@ -160,17 +182,17 @@ func run() error {
 	// grow without bound. Expired sessions are already rejected at lookup
 	// time; this is pure housekeeping. The app role has no access to
 	// sessions (0008), so the platform pool performs the delete.
-	go purgeExpiredSessions(ctx, platformPool, logger)
+	go purgeExpiredSessions(ctx, backgroundPool, logger)
 	go handlers.RunMFAReaper(ctx)
-	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { payment.RunWebhookMaintenance(ctx, platformPool, logger) })
-	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notify.Run(ctx, platformPool, logger) })
-	notificationWorker := &notify.Worker{Pool: platformPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
+	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { payment.RunWebhookMaintenance(ctx, backgroundPool, logger) })
+	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notify.Run(ctx, backgroundPool, logger) })
+	notificationWorker := &notify.Worker{Pool: backgroundPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
 	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notificationWorker.Run(ctx, logger) })
-	renewalRegistry := &payment.Registry{Store: store.New(platformPool), Secrets: secretBox, BaseURL: baseURL}
-	renewalDispatcher := &billingrenew.Dispatcher{Pool: platformPool, Registry: renewalRegistry, Secrets: secretBox, Adapters: billingrenew.NewProductionAdapters(renewalRegistry)}
-	renewals := billingrenew.Worker{Store: store.New(platformPool.Pool), Chargers: renewalDispatcher, Coordinator: billingrenew.PoolCoordinator{Pool: platformPool}, Settlements: billingrenew.PoolSettlementStore{Pool: platformPool}}
+	renewalRegistry := &payment.Registry{Store: store.New(backgroundPool), Secrets: secretBox, BaseURL: baseURL}
+	renewalDispatcher := &billingrenew.Dispatcher{Pool: backgroundPool, Registry: renewalRegistry, Secrets: secretBox, Adapters: billingrenew.NewProductionAdapters(renewalRegistry)}
+	renewals := billingrenew.Worker{Store: store.New(backgroundPool), Chargers: renewalDispatcher, Coordinator: billingrenew.PoolCoordinator{Pool: backgroundPool}, Settlements: billingrenew.PoolSettlementStore{Pool: backgroundPool}}
 	startRenewalWorker(ctx, cfg, renewals.RunOnce, logger)
-	reminderWorker := appcollab.ReminderWorker{Pool: platformPool, Logger: logger}
+	reminderWorker := appcollab.ReminderWorker{Pool: backgroundPool, Logger: logger}
 	startPeriodicWorker(ctx, cfg, time.Minute, "calendar reminder pass failed", reminderWorker.RunOnce, logger)
 
 	var sieveGateReady func() bool
@@ -208,10 +230,10 @@ func run() error {
 	// authenticated sender is still within their plan's daily send limit.
 	if cfg.PolicyEnabled && !cfg.Quarantined {
 		svc := policy.NewService()
-		svc.InboundChecker = &policy.DBInboundChecker{Store: store.New(platformPool.Pool)}
+		svc.InboundChecker = &policy.DBInboundChecker{Store: store.New(platformPool)}
 		svc.RateLimiter = policy.NewRateLimiter(300, time.Minute)
 		svc.QuotaChecker = policy.NewAtomicDBQuotaChecker(
-			store.New(platformPool.Pool), platformPool.Pool, 0,
+			store.New(platformPool), platformPool.Pool, 0,
 		)
 		policyServer := policy.NewServer(cfg.PolicySocket, svc)
 		go func() {
@@ -249,20 +271,23 @@ func run() error {
 	// The reconcile pipeline re-renders all configuration files whenever a
 	// domain or mailbox changes and pushes them through the privileged
 	// agent, followed by the affected service reloads.
-	reconcilePipeline := reconcile.NewPipeline(cfg, &reconcile.VersionedStore{StoreQuerier: store.New(platformPool.Pool), DB: platformPool.Pool}, cfg.PublicIPv4, cfg.Nameservers).WithLogger(logger)
+	agentClient := agent.NewClient(cfg.AgentSocket)
+	applyFn := func(applyCtx context.Context, params reconcile.ApplyParams) (string, error) {
+		if cfg.DevMode {
+			logger.Info("development configuration rendered without privileged apply", zap.Int("domains", len(params.Postfix.Domains)))
+			return "dev-mode", nil
+		}
+		resp, err := agentClient.Do(applyCtx, agentd.OpConfigApply, params)
+		if err != nil {
+			return "", err
+		}
+		return resp.Stdout, nil
+	}
+	reconcilePipeline := reconcile.NewPipeline(cfg, &reconcile.VersionedStore{StoreQuerier: store.New(platformPool), DB: platformPool.Pool}, cfg.PublicIPv4, cfg.Nameservers).
+		WithLogger(logger).
+		WithApplier(applyFn)
 	if !cfg.Quarantined {
-		go reconcilePipeline.StartWorker(ctx, 2*time.Second, func(files map[string]string) error {
-			if cfg.DevMode {
-				logger.Info("development configuration rendered without privileged apply", zap.Int("files", len(files)))
-				return nil
-			}
-			snapshot := reconcilePipeline.CurrentSnapshot()
-			if snapshot == nil {
-				return fmt.Errorf("configuration snapshot unavailable")
-			}
-			_, err := agent.NewClient(cfg.AgentSocket).Do(ctx, agentd.OpConfigApply, agentd.ApplyParams{Postfix: snapshot.PostfixSnap, DNS: snapshot.NSDSnap, DKIM: snapshot.DKIM, SpamPolicies: snapshot.DovecotNode.SpamPolicies})
-			return err
-		})
+		go reconcilePipeline.StartWorker(ctx, 2*time.Second, nil)
 
 		// Render once on startup so a fresh install does not keep the stock
 		// distribution configuration until the first tenant write.
@@ -271,14 +296,14 @@ func run() error {
 	}
 
 	if cfg.BackgroundWorkersAllowed() {
-		archiveWorker := &archiveStore.Worker{Pool: platformPool}
+		archiveWorker := &archiveStore.Worker{Pool: backgroundPool}
 		go archiveWorker.Start(ctx, logger)
 	}
 	dnsPlans := startDomainOnboarding(ctx, cfg, platformPool, secretBox, reconcilePipeline, logger)
-	startMailTelemetry(ctx, cfg, platformPool, logger)
-	startMailObservability(ctx, cfg, platformPool, logger)
-	startPaymentRecovery(ctx, cfg, platformPool, secretBox, baseURL, stripe, logger)
-	refunds := &refundService.Service{Pool: platformPool, Registry: &payment.Registry{Store: store.New(platformPool), Secrets: secretBox, BaseURL: baseURL}, LegacyStripe: stripe, Enabled: cfg.RefundsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
+	startMailTelemetry(ctx, cfg, backgroundPool, logger)
+	startMailObservability(ctx, cfg, backgroundPool, logger)
+	startPaymentRecovery(ctx, cfg, backgroundPool, secretBox, baseURL, stripe, logger)
+	refunds := &refundService.Service{Pool: backgroundPool, Registry: &payment.Registry{Store: store.New(backgroundPool), Secrets: secretBox, BaseURL: baseURL}, LegacyStripe: stripe, Enabled: cfg.RefundsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
 	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { refunds.Run(ctx, logger) })
 	tokenVerifier := marketingTokenManager(cfg)
 	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
@@ -298,16 +323,16 @@ func run() error {
 	}
 	startBackgroundWorker(ctx, cfg, flowWorker.Run)
 	webmailVault := webmail.NewMemoryVault()
-	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: store.New(platformPool.Pool)}.Get)
+	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: store.New(backgroundPool)}.Get)
 	smtpAddr := "127.0.0.1:587"
 	if cfg.WebmailNative && cfg.BackgroundWorkersAllowed() && secretBox != nil {
 		schedWorker := mailboxschedule.NewWorker(mailboxschedule.Options{
-			Pool:      platformPool,
+			Pool:      backgroundPool,
 			Secrets:   secretBox,
 			Vault:     webmailVault,
 			Dialer:    webmail.NetDialer{Addr: cfg.IMAPAddr},
 			Submitter: webmail.NetSubmitter{Addr: smtpAddr},
-			MaySend:   handlers.MailAllowed(store.New(platformPool.Pool)),
+			MaySend:   handlers.MailAllowed(store.New(backgroundPool)),
 			Logger:    logger,
 		})
 		go schedWorker.Run(ctx)
@@ -331,46 +356,50 @@ func run() error {
 		go handlers.RunSieveReconciler(ctx, platformPool, sieveClient, logger)
 	}
 	engine := api.New(api.Options{
-		RoundcubeEnabled:    cfg.RoundcubeEnabled,
-		WebmailNative:       cfg.WebmailNative,
-		CardDAVEnabled:      &cfg.CardDAVEnabled,
-		CalDAVEnabled:       &cfg.CalDAVEnabled,
-		EASEnabled:          &cfg.EASEnabled,
-		IMAPAddr:            cfg.IMAPAddr,
-		SMTPAddr:            smtpAddr,
-		WebmailVault:        webmailVault,
-		MetricsToken:        cfg.MetricsToken,
-		SieveActivator:      sieveActivator,
-		AICloudEndpoints:    cfg.AICloudEndpoints,
-		AILocalEndpoints:    cfg.AILocalEndpoints,
-		RegistrationEnabled: cfg.RegistrationEnabled,
-		Quarantined:         cfg.Quarantined,
-		WorkersHeld:         cfg.WorkersHeld,
-		SieveGateReady:      sieveGateReady,
-		Recurring:           renewalDispatcher,
-		DNSAuthorityAgent:   agent.NewClient(cfg.AgentSocket),
-		Recall:              recallClient,
-		Queue:               queueReader,
-		TelemetryStream:     telemetryStream,
-		DevMode:             cfg.DevMode,
-		Logger:              logger,
-		AppPool:             appPool,
-		PlatformPool:        platformPool,
-		Messages:            messages,
-		Version:             version,
-		MyHostname:          cfg.MyHostname,
-		Reconcile:           reconcilePipeline,
-		Audit:               store.New(platformPool.Pool),
-		Secrets:             secretBox,
-		DNSProvider:         dnsProvider,
-		DNSManagedZones:     cfg.DNSManagedZones,
-		DNSPlans:            dnsPlans,
-		Payment:             stripe,
-		QuoteHMACKey:        cfg.QuoteHMACKey,
-		BaseURL:             baseURL,
-		MarketingTokens:     tokenVerifier,
-		MarketingEnabled:    cfg.MarketingEnabled && !cfg.WorkersHeld,
-		RoundcubeBridgeKey:  cfg.RoundcubeBridgeKey,
+		RoundcubeEnabled:      cfg.RoundcubeEnabled,
+		WebmailNative:         cfg.WebmailNative,
+		CardDAVEnabled:        &cfg.CardDAVEnabled,
+		CalDAVEnabled:         &cfg.CalDAVEnabled,
+		EASEnabled:            &cfg.EASEnabled,
+		IMAPAddr:              cfg.IMAPAddr,
+		SMTPAddr:              smtpAddr,
+		WebmailVault:          webmailVault,
+		MetricsToken:          cfg.MetricsToken,
+		SieveActivator:        sieveActivator,
+		AICloudEndpoints:      cfg.AICloudEndpoints,
+		AILocalEndpoints:      cfg.AILocalEndpoints,
+		RegistrationEnabled:   cfg.RegistrationEnabled,
+		Quarantined:           cfg.Quarantined,
+		WorkersHeld:           cfg.WorkersHeld,
+		SieveGateReady:        sieveGateReady,
+		Recurring:             renewalDispatcher,
+		DNSAuthorityAgent:     agent.NewClient(cfg.AgentSocket),
+		Recall:                recallClient,
+		Queue:                 queueReader,
+		TelemetryStream:       telemetryStream,
+		DevMode:               cfg.DevMode,
+		Logger:                logger,
+		AppPool:               appPool,
+		PlatformPool:          platformPool,
+		AIAppPool:             aiAppPool,
+		AIPlatformPool:        aiPlatformPool,
+		MarketingAppPool:      marketingAppPool,
+		MarketingPlatformPool: marketingPool,
+		Messages:              messages,
+		Version:               version,
+		MyHostname:            cfg.MyHostname,
+		Reconcile:             reconcilePipeline,
+		Audit:                 store.New(platformPool),
+		Secrets:               secretBox,
+		DNSProvider:           dnsProvider,
+		DNSManagedZones:       cfg.DNSManagedZones,
+		DNSPlans:              dnsPlans,
+		Payment:               stripe,
+		QuoteHMACKey:          cfg.QuoteHMACKey,
+		BaseURL:               baseURL,
+		MarketingTokens:       tokenVerifier,
+		MarketingEnabled:      cfg.MarketingEnabled && !cfg.WorkersHeld,
+		RoundcubeBridgeKey:    cfg.RoundcubeBridgeKey,
 	})
 
 	server := &http.Server{
@@ -421,7 +450,7 @@ func loadRuntimeSecrets(cfg *config.Config) (handlers.SecretsBox, error) {
 // purgeExpiredSessions deletes expired sessions once an hour until ctx is
 // canceled.
 func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger) {
-	queries := store.New(pool.Pool)
+	queries := store.New(pool)
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {

@@ -44,7 +44,14 @@ def merge(previous, defaults, overrides):
     for key in set(defaults) | set(previous):
         if key in overrides:
             values[key] = overrides[key]
+    validate(values)
+    return values
+
+
+def validate(values):
     for key, value in values.items():
+        if not KEY.fullmatch(key):
+            raise ValueError("Invalid environment key")
         if any(char in value for char in ("\n", "\r", "\x00")):
             raise ValueError(f"Invalid line break in {key}")
         if key in BOOLEAN_KEYS and value not in ("true", "false"):
@@ -61,6 +68,11 @@ def write(path, defaults, environment):
         # Before deployment flags existed native Webmail defaulted to off.
         previous.setdefault("URMAIL_WEBMAIL_NATIVE", "false")
     values = merge(previous, parse(defaults), environment)
+    atomic_write(path, values)
+
+
+def atomic_write(path, values):
+    validate(values)
     # Replace only after validation; interrupted writes never truncate secrets.
     fd, temporary = tempfile.mkstemp(prefix=".urmail-env-", dir=path.parent)
     try:
@@ -69,6 +81,11 @@ def write(path, defaults, environment):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

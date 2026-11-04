@@ -416,6 +416,9 @@ func signatureExpiry(path string) time.Time {
 func (m *ApplyManager) signDNSZone(ctx context.Context, domain string) error {
 	m.dnsMu.Lock()
 	defer m.dnsMu.Unlock()
+	if m.cfg != nil && (m.cfg.PreserveExternalNSD || m.cfg.WorkersHeld) {
+		return nil
+	}
 	state, err := m.loadDNSState(domain)
 	if err != nil {
 		return fmt.Errorf("DNSSEC keys must be prepared before enabling signing: %w", err)
@@ -424,11 +427,26 @@ func (m *ApplyManager) signDNSZone(ctx context.Context, domain string) error {
 		return fmt.Errorf("DNSSEC key generation incomplete")
 	}
 	directory := m.dnsDirectory(domain)
-	keySet, err := os.MkdirTemp(m.dnsRoot(), ".signing-keys-*")
+	if err := protectedDNSDirectory(m.dnsRoot()); err != nil {
+		return err
+	}
+
+	// Staging mode: perform key staging, signing, and verification
+	// in an isolated root-owned 0700 temporary working directory.
+	stageDir, err := os.MkdirTemp(m.dnsRoot(), ".staging-sign-*")
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(keySet) }()
+	defer func() { _ = os.RemoveAll(stageDir) }()
+	if err := os.Chmod(stageDir, 0700); err != nil {
+		return err
+	}
+
+	keySet := filepath.Join(stageDir, "keys")
+	if err := os.MkdirAll(keySet, 0700); err != nil {
+		return err
+	}
+
 	generations := []dnsKeyGeneration{state.Current}
 	if state.Previous != nil && state.Phase != "retired" {
 		generations = append(generations, *state.Previous)
@@ -443,36 +461,47 @@ func (m *ApplyManager) signDNSZone(ctx context.Context, domain string) error {
 				if readErr != nil {
 					return readErr
 				}
-				if writeErr := os.WriteFile(filepath.Join(keySet, key+suffix), data, 0600); writeErr != nil { //nolint:gosec // Canonical BIND key names and fixed suffixes in a private temporary directory.
+				if writeErr := os.WriteFile(filepath.Join(keySet, key+suffix), data, 0600); writeErr != nil { //nolint:gosec // Canonical BIND key names in protected staging directory.
 					return writeErr
 				}
 			}
 		}
 	}
 	input := m.target("/etc/nsd/zones/" + domain + ".txt")
+	if _, err := os.Stat(input); err != nil {
+		return fmt.Errorf("unsigned zone file %s: %w", input, err)
+	}
+
+	stagedSigned := filepath.Join(stageDir, domain+".signed")
+	stagedFile, err := os.OpenFile(stagedSigned, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600) // #nosec G304 -- stagedSigned is constructed within the isolated root-owned 0700 staging directory.
+	if err != nil {
+		return err
+	}
+	_ = stagedFile.Close()
+
+	if _, err = m.dnsOutput(ctx, "/usr/bin/dnssec-signzone", "-n", "1", "-S", "-K", keySet, "-d", directory, "-o", domain, "-N", "keep", "-s", "now-300", "-e", "+2592000", "-f", stagedSigned, input); err != nil {
+		return err
+	}
+	if _, err = m.dnsOutput(ctx, "/usr/bin/dnssec-verify", "-o", domain, stagedSigned); err != nil {
+		return err
+	}
+	if _, err = m.dnsOutput(ctx, "/usr/sbin/nsd-checkzone", domain, stagedSigned); err != nil {
+		return err
+	}
+
+	stagedContent, err := os.ReadFile(stagedSigned) // #nosec G304 -- reading verified output from the isolated root-owned 0700 staging directory.
+	if err != nil {
+		return err
+	}
+
+	// Validation successful: atomically commit the verified staged signed zone.
+	if err = m.write("/etc/nsd/zones/"+domain+".signed", stagedContent, 0644); err != nil {
+		return err
+	}
+
 	output := m.target("/etc/nsd/zones/" + domain + ".signed")
-	temporary, err := os.CreateTemp(filepath.Dir(output), ".urmail-sign-*")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	_ = temporary.Close()
-	defer func() { _ = os.Remove(name) }()
-	_, err = m.dnsOutput(ctx, "/usr/bin/dnssec-signzone", "-n", "1", "-S", "-K", keySet, "-d", directory, "-o", domain, "-N", "keep", "-s", "now-300", "-e", "+2592000", "-f", name, input)
-	if err != nil {
-		return err
-	}
-	if _, err = m.dnsOutput(ctx, "/usr/bin/dnssec-verify", "-o", domain, name); err != nil {
-		return err
-	}
-	if _, err = m.dnsOutput(ctx, "/usr/sbin/nsd-checkzone", domain, name); err != nil {
-		return err
-	}
-	if err = os.Chmod(name, 0644); err != nil {
-		return err
-	}
-	if err = os.Rename(name, output); err != nil {
-		return err
+	if m.cfg != nil && m.cfg.BackgroundWorkersAllowed() && !state.PublishedAt.IsZero() && signatureExpiry(output).Before(time.Now().Add(5*24*time.Hour)) {
+		state.SigningEpoch = time.Now().UTC()
 	}
 	if state.PublishedAt.IsZero() {
 		state.PublishedAt = time.Now().UTC()
@@ -547,6 +576,8 @@ func (m *ApplyManager) ManageDNSAuthority(raw json.RawMessage) (string, string, 
 	if !dnsDomain(params.Domain) {
 		return "", "", fmt.Errorf("%w: invalid DNS zone", ErrRejected)
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.dnsMu.Lock()
 	defer m.dnsMu.Unlock()
 	if m.cfg != nil && (m.cfg.WorkersHeld || m.cfg.Quarantined || m.cfg.DevMode) {

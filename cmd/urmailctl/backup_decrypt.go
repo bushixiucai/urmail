@@ -68,8 +68,11 @@ func decryptBackupArtifact(manifestPath, artifactName, outPath, identityPath str
 	if err != nil {
 		return err
 	}
-	if manifest.Version != backupauto.ManifestVersion2 {
+	if manifest.Version != backupauto.ManifestVersion2 && manifest.Version != backupauto.ManifestVersion3 {
 		return fmt.Errorf("manifest is not encrypted (version %d); nothing to decrypt", manifest.Version)
+	}
+	if manifest.Encryption == nil || manifest.Encryption.Algorithm == "" {
+		return fmt.Errorf("manifest has no encryption metadata; nothing to decrypt")
 	}
 	entries, err := backupauto.ArtifactByName(manifest)
 	if err != nil {

@@ -306,3 +306,26 @@ func webmailBackend(cfg *config.Config) string {
 	}
 	return ""
 }
+
+// ApplyParams deliberately excludes paths, node configuration and file bodies.
+// The caller can only supply bounded domain data consumed by pure generators.
+type ApplyParams struct {
+	SpamPolicies []dovecot.SpamPolicy `json:"spam_policies,omitempty"`
+	Postfix      postfix.Snapshot     `json:"postfix"`
+	DNS          nsd.Snapshot         `json:"dns"`
+	DKIM         opendkim.Snapshot    `json:"dkim"`
+}
+
+// BuildApplyParams constructs an ApplyParams from a ConfigContext, ensuring that
+// Postfix, DNS, DKIM, and Dovecot SpamPolicies are always complete and consistent.
+func BuildApplyParams(ctx *mail.ConfigContext) ApplyParams {
+	if ctx == nil {
+		return ApplyParams{}
+	}
+	return ApplyParams{
+		Postfix:      ctx.PostfixSnap,
+		DNS:          ctx.NSDSnap,
+		DKIM:         ctx.DKIM,
+		SpamPolicies: ctx.DovecotNode.SpamPolicies,
+	}
+}

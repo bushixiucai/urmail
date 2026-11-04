@@ -44,10 +44,12 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 		}
 		ipKey := "mbox-ip|" + c.ClientIP()
 		key := "mbox|" + c.ClientIP() + "|" + address
-		if !loginAttempts.allow(key) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
+		reservation, err := loginAttempts.BeginAttempt(key, ipKey, DefaultLoginBudgets)
+		if err != nil {
 			c.AbortWithStatus(http.StatusTooManyRequests)
 			return
 		}
+		defer reservation.Discard()
 		_, _, canonical, hash, lookupErr := h.Auth.Lookup(c.Request.Context(), address)
 		if lookupErr != nil {
 			hash = dummyMailboxPasswordHash
@@ -58,8 +60,7 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 			return
 		}
 		if lookupErr != nil || !matches {
-			loginAttempts.fail(key)
-			loginAttempts.fail(ipKey)
+			reservation.RecordFailure()
 			protocolUnauthorized(c)
 			return
 		}
@@ -93,8 +94,7 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 		} else {
 			h.Vault.Put(tokenHash, password)
 		}
-		loginAttempts.reset(key)
-		loginAttempts.reset(ipKey)
+		reservation.CompleteSuccess()
 		// Only the in-process request sees the token. It is never returned to
 		// Basic clients or retained in a URL, cookie or configuration file.
 		c.Request.Header.Set("Authorization", "Bearer "+token)

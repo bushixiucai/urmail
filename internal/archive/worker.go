@@ -134,7 +134,7 @@ func (w *Worker) Once(ctx context.Context) error {
 	if processed < 100 {
 		w.scanAfter = ""
 	}
-	q := store.New(w.Pool.Pool)
+	q := store.New(w.Pool)
 	if _, expiryErr := q.PlatformExpireArchiveApprovals(ctx); expiryErr != nil {
 		failures = append(failures, expiryErr)
 	}
@@ -178,7 +178,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 	if manifest.Recipient.TenantID <= 0 || manifest.Recipient.MailboxID <= 0 {
 		return errors.New("legacy archive recipient is unbound; manual canonical recovery required")
 	}
-	q := store.New(w.Pool.Pool)
+	q := store.New(w.Pool)
 	_, err = q.PlatformResolvePinnedArchiveMailbox(ctx, store.PlatformResolvePinnedArchiveMailboxParams{TenantID: manifest.Recipient.TenantID, MailboxID: manifest.Recipient.MailboxID, Address: manifest.Recipient.Address})
 	if err != nil {
 		return errors.New("pinned archive mailbox no longer matches canonical ownership")
@@ -386,7 +386,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			err = tx.Commit(ctx)
 		} else {
 			_ = tx.Rollback(ctx)
-			_ = store.New(w.Pool.Pool).PlatformFailArchivePurge(ctx, store.PlatformFailArchivePurgeParams{TenantID: tenantID, EntryID: id, PurgeError: bounded(err.Error(), 1000)})
+			_ = store.New(w.Pool).PlatformFailArchivePurge(ctx, store.PlatformFailArchivePurgeParams{TenantID: tenantID, EntryID: id, PurgeError: bounded(err.Error(), 1000)})
 		}
 		return err
 	}
@@ -415,7 +415,7 @@ func archiveRelative(root, path string) (string, error) {
 }
 
 func (w *Worker) backfill(ctx context.Context) error {
-	q := store.New(w.Pool.Pool)
+	q := store.New(w.Pool)
 	entries, err := q.PlatformListArchiveUnindexedOriginals(ctx, w.legacyAfter)
 	if err != nil {
 		return err
@@ -468,7 +468,7 @@ func (w *Worker) observeOrphans(ctx context.Context) error {
 	if _, err := os.Stat(w.Archive); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	q := store.New(w.Pool.Pool)
+	q := store.New(w.Pool)
 	scanned := 0
 	if w.orphanAfter == "" {
 		w.orphanFound = false

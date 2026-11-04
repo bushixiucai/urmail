@@ -138,12 +138,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	limiterKey := c.ClientIP() + "|" + req.Email
 	ipKey := ipKeyFromLimiterKey(limiterKey)
-	if !loginAttempts.allow(limiterKey) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
+	reservation, err := loginAttempts.BeginAttempt(limiterKey, ipKey, DefaultLoginBudgets)
+	if err != nil {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"error": gin.H{"code": "AUTH_RATE_LIMITED", "message": "auth.rate_limited"},
 		})
 		return
 	}
+	defer reservation.Discard()
 
 	user, err := h.Store.GetUserByEmail(c, req.Email)
 	if err != nil {
@@ -152,8 +154,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		if _, available := panelPasswordMatches(c, req.Password, dummyPasswordHash); !available {
 			return
 		}
-		loginAttempts.fail(limiterKey)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
@@ -169,8 +170,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				return
 			}
 		}
-		loginAttempts.fail(limiterKey)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": gin.H{"code": "INVALID_CREDENTIALS", "message": "auth.invalid_credentials"},
 		})
@@ -190,6 +190,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		if n != 1 {
 			fresh, readErr := h.Store.GetUserByEmail(c, req.Email)
 			if readErr != nil || fresh.CredentialVersion != user.CredentialVersion {
+				reservation.RecordFailure()
 				authError(c, 401, "INVALID_CREDENTIALS")
 				return
 			}
@@ -198,6 +199,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				return
 			}
 			if !matches {
+				reservation.RecordFailure()
 				authError(c, 401, "INVALID_CREDENTIALS")
 				return
 			}
@@ -207,19 +209,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 	}
 	if user.MfaEnabled {
-		// The limiter is only reset once BOTH factors pass (MFAVerify);
-		// second-leg failures keep counting on the same key.
+		// MFA 首腿通过仅释放 pending 状态，不提前重置 identity 历史；第二腿独立进行预留。
 		mfaToken, err := pendingMFATokens.issueForRequest(c, user.ID, limiterKey, user.CredentialVersion)
 		if err != nil {
 			authError(c, 429, "AUTH_RATE_LIMITED")
 			return
 		}
+		reservation.Discard()
 		c.JSON(http.StatusOK, gin.H{"mfa_required": true, "mfa_token": mfaToken})
 		return
 	}
 
-	loginAttempts.reset(limiterKey)
-	loginAttempts.reset(ipKey)
+	reservation.CompleteSuccess()
 	h.establishSession(c, user.ID, user.Email, user.DisplayName, user.Locale, false, user.PasswordHash, user.CredentialVersion)
 }
 

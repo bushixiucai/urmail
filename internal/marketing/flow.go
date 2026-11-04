@@ -46,7 +46,7 @@ func (s *FlowSender) Send(ctx context.Context, tenantID, flowID int64, email, st
 	if !ok {
 		return fmt.Errorf("marketing flow step %q has no content", step)
 	}
-	q := store.New(s.Pool.Pool)
+	q := store.New(s.Pool)
 	channel, err := q.PlatformGetActiveMarketingChannel(ctx, tenantID)
 	if err != nil {
 		return ErrChannelUnavailable
@@ -137,7 +137,7 @@ func (s *FlowSender) Send(ctx context.Context, tenantID, flowID int64, email, st
 // suppression and tells the engine to stop without sending; suppression is
 // terminal for all subsequent steps.
 func (s *FlowSender) revoked(ctx context.Context, tenantID, flowID int64, email string) error {
-	suppressed, err := store.New(s.Pool.Pool).PlatformCheckMarketingEmailSuppressed(ctx, store.PlatformCheckMarketingEmailSuppressedParams{TenantID: tenantID, Email: email})
+	suppressed, err := store.New(s.Pool).PlatformCheckMarketingEmailSuppressed(ctx, store.PlatformCheckMarketingEmailSuppressedParams{TenantID: tenantID, Email: email})
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (s *FlowSender) revoked(ctx context.Context, tenantID, flowID int64, email 
 		// the position, so the driver may retry after the grace window.
 		return marketingflow.ErrNotAllowed
 	}
-	if _, err := store.New(s.Pool.Pool).PlatformMarkMarketingFlowUnsubscribed(ctx, store.PlatformMarkMarketingFlowUnsubscribedParams{TenantID: tenantID, FlowID: flowID, Email: email}); err != nil {
+	if _, err := store.New(s.Pool).PlatformMarkMarketingFlowUnsubscribed(ctx, store.PlatformMarkMarketingFlowUnsubscribedParams{TenantID: tenantID, FlowID: flowID, Email: email}); err != nil {
 		return err
 	}
 	return nil

@@ -42,6 +42,7 @@ func TestVerifyFutureChallengeTimestampFailsClosed(t *testing.T) {
 func assertDomainChallengeExpired(t *testing.T, fake *shapeFakeDomainStore) {
 	t.Helper()
 	handler := NewDomainHandler(fake, nil)
+	handler.Verification = domainStoreProbeFake{fake}
 	router := newShapeRouter(shapeTenantID, func(g *gin.RouterGroup) { g.POST("/domains/:id/verify", handler.Verify) })
 	code, raw, body := shapeRequest(t, router, http.MethodPost, "/api/v1/domains/1/verify", "")
 	if code != http.StatusGone {

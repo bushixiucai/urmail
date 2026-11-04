@@ -48,7 +48,8 @@ var ErrNoMailbox = errors.New("no mailbox in context")
 // Pool is a connection pool bound to one database role.
 type Pool struct {
 	*pgxpool.Pool
-	role string
+	role      string
+	admission *admission
 }
 
 // Open creates a pool for the given connection string and pins every

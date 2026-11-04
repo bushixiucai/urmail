@@ -79,8 +79,13 @@ func retentionManifest(raw []byte, stamp string, now time.Time) (*Manifest, erro
 	if decoder.Decode(new(any)) != io.EOF {
 		return nil, fmt.Errorf("retention manifest trailing data")
 	}
-	if m.Version != ManifestVersion2 || m.Scope != ScopeComplete || !m.Consistent || m.CreatedAt.IsZero() || m.CreatedAt.After(now) || StampFor(m.CreatedAt) != stamp || m.Encryption == nil || m.Encryption.Algorithm != EncryptionAlgorithmAge || len(m.Artifacts) != 3 {
-		return nil, fmt.Errorf("retention requires a complete nonfuture stamp-bound v2 manifest")
+	if (m.Version != ManifestVersion2 && m.Version != ManifestVersion3) || m.Scope != ScopeComplete || !m.Consistent || m.CreatedAt.IsZero() || m.CreatedAt.After(now) || StampFor(m.CreatedAt) != stamp || m.Encryption == nil || m.Encryption.Algorithm != EncryptionAlgorithmAge || len(m.Artifacts) != 3 {
+		return nil, fmt.Errorf("retention requires a complete nonfuture stamp-bound encrypted manifest")
+	}
+	if m.Version == ManifestVersion3 {
+		if m.LayoutVersion != LayoutVersion1 || len(m.Slots) == 0 {
+			return nil, fmt.Errorf("retention requires valid v3 layout and slots")
+		}
 	}
 	if _, e := ParseRecipient(m.Encryption.Recipient); e != nil {
 		return nil, e

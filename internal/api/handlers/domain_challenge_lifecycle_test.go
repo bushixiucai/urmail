@@ -36,6 +36,7 @@ func (f *challengeLifecycleStore) VerifyDomainChallenge(_ context.Context, p sto
 func TestOldDomainCanVerifyFreshChallenge(t *testing.T) {
 	f := &challengeLifecycleStore{shapeFakeDomainStore: &shapeFakeDomainStore{byID: store.GetDomainByIDRow{ID: 4, TenantID: shapeTenantID, Fqdn: "old.example.test", Status: "pending_dns", VerificationToken: "fresh-token", CreatedAt: pgtype.Timestamptz{Time: time.Now().AddDate(-1, 0, 0), Valid: true}, VerificationIssuedAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}, VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}}}
 	h := NewDomainHandler(f, nil)
+	h.Verification = domainStoreProbeFake{f}
 	h.LookupTXT = func(context.Context, string) ([]string, error) { return []string{"fresh-token"}, nil }
 	r := newShapeRouter(shapeTenantID, func(g *gin.RouterGroup) { g.POST("/domains/:id/verify", h.Verify) })
 	status, body, _ := shapeRequest(t, r, http.MethodPost, "/api/v1/domains/4/verify", "")

@@ -39,6 +39,8 @@ func runConfig(ctx context.Context, args []string) error {
 	}
 
 	switch args[0] {
+	case "prepare":
+		return runConfigPrepare(ctx, args[1:])
 	case "status":
 		return runConfigStatus(ctx, args[1:])
 	case "render":

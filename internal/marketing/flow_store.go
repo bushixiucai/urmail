@@ -26,7 +26,7 @@ func (s *FlowStore) q(_ context.Context) (*store.Queries, error) {
 	if s == nil || s.Pool == nil {
 		return nil, ErrChannelUnavailable
 	}
-	return store.New(s.Pool.Pool), nil
+	return store.New(s.Pool), nil
 }
 
 // MayAdvance reports whether the position may send in this window.
@@ -135,7 +135,7 @@ func TemplateFlowContent(pool *db.Pool) FlowContent {
 		if pool == nil {
 			return "", "", false, ErrChannelUnavailable
 		}
-		q := store.New(pool.Pool)
+		q := store.New(pool)
 		versioned, err := q.PlatformMarketingFlowIsVersioned(ctx, store.PlatformMarketingFlowIsVersionedParams{TenantID: tenantID, RuntimeFlowID: flowID})
 		if err != nil {
 			return "", "", false, err
@@ -147,7 +147,7 @@ func TemplateFlowContent(pool *db.Pool) FlowContent {
 			}
 			return content.Subject, content.TextBody, true, nil
 		}
-		row, err := store.New(pool.Pool).PlatformGetMarketingFlowTemplate(ctx, store.PlatformGetMarketingFlowTemplateParams{TenantID: tenantID, Name: step})
+		row, err := store.New(pool).PlatformGetMarketingFlowTemplate(ctx, store.PlatformGetMarketingFlowTemplateParams{TenantID: tenantID, Name: step})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", false, nil
 		}

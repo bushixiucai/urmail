@@ -53,7 +53,7 @@ func TestLegacyAndBoundSessionsUseActualCanonicalHost(t *testing.T) {
 				if kind == "panel" {
 					auth = RequireAuth(originPanelLookup{store.Sessions{UserID: 7, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, OriginHost: tc.origin}})
 				} else {
-					auth = RequireMailboxAuth(originMailboxLookup{webmail.Session{Address: "owned@example.test", ExpiresAt: time.Now().Add(time.Hour), OriginHost: tc.origin}})
+					auth = RequireMailboxAuth(originMailboxLookup{webmail.Session{TokenHash: "synthetic-review-hash", Address: "owned@example.test", ExpiresAt: time.Now().Add(time.Hour), OriginHost: tc.origin}})
 				}
 				router.GET("/private", auth, func(c *gin.Context) { c.Status(204) })
 				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+tc.host+"/private", nil)

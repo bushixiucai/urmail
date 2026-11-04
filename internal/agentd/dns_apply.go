@@ -34,11 +34,10 @@ func (m *ApplyManager) enrichDNSSnapshot(snapshot *nsd.Snapshot) error {
 		if err != nil {
 			return err
 		}
+		signingEpoch := state.SigningEpoch
 		if m.cfg != nil && m.cfg.BackgroundWorkersAllowed() && !state.PublishedAt.IsZero() && signatureExpiry(m.target("/etc/nsd/zones/"+zone.Domain+".signed")).Before(time.Now().Add(5*24*time.Hour)) {
-			state.SigningEpoch = time.Now().UTC()
-			if err = m.saveDNSState(zone.Domain, state); err != nil {
-				return err
-			}
+			signingEpoch = time.Now().UTC()
+			// In-memory calculation only; do not overwrite disk live state.json before commit.
 		}
 		previous := state.Previous
 		if state.Phase == "retired" {
@@ -48,7 +47,7 @@ func (m *ApplyManager) enrichDNSSnapshot(snapshot *nsd.Snapshot) error {
 			Current      dnsKeyGeneration
 			Previous     *dnsKeyGeneration
 			SigningEpoch time.Time
-		}{state.Current, previous, state.SigningEpoch})
+		}{state.Current, previous, signingEpoch})
 		if err != nil {
 			return err
 		}

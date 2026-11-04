@@ -56,8 +56,8 @@ install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.service" "$STAGE/lib/
 install -m 0644 "$ROOT/packaging/systemd/urmail-usage-sync.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-backup-auto.service" "$ROOT/packaging/systemd/urmail-backup-auto.timer" "$STAGE/lib/systemd/system/"
 install -m 0644 "$ROOT/packaging/systemd/urmail-prometheus.service" "$ROOT/packaging/systemd/urmail-alertmanager.service" "$STAGE/lib/systemd/system/"
-install -d "$STAGE/etc/urmail/observability"
-install -m 0644 "$ROOT/packaging/observability/"*.yml "$STAGE/etc/urmail/observability/"
+install -d "$STAGE/usr/share/urmail/observability"
+install -m 0644 "$ROOT/packaging/observability/"*.yml "$STAGE/usr/share/urmail/observability/"
 install -m 0644 "$ROOT/packaging/systemd/opendkim.service.d/urmail.conf" "$STAGE/etc/systemd/system/opendkim.service.d/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/urmail.conf" "$STAGE/etc/nginx/conf.d/urmail/urmail.conf"
 install -m 0644 "$ROOT/packaging/nginx/99-urmail.conf" "$STAGE/etc/nginx/conf.d/99-urmail.conf"
@@ -65,6 +65,8 @@ install -m 0644 "$ROOT/packaging/nginx/urmail-ssl.conf" "$STAGE/etc/nginx/snippe
 install -m 0644 "$ROOT/packaging/dovecot/99-urmail.conf" "$STAGE/etc/dovecot/conf.d/99-urmail.conf"
 install -m 0644 "$ROOT/internal/db/bootstrap.sql" "$STAGE/usr/share/urmail/bootstrap.sql"
 install -m 0644 "$ROOT/installer/configure-env.py" "$STAGE/usr/share/urmail/configure-env.py"
+install -m 0644 "$ROOT/installer/configure-agent-env.py" "$STAGE/usr/share/urmail/configure-agent-env.py"
+install -m 0644 "$ROOT/installer/upgrade-checkpoint.py" "$STAGE/usr/share/urmail/upgrade-checkpoint.py"
 install -m 0644 "$ROOT/packaging/selfhost-capabilities.json" "$STAGE/usr/share/urmail/selfhost-capabilities.json"
 install -m 0644 "$ROOT/packaging/SELFHOST.md" "$STAGE/usr/share/urmail/SELFHOST.md"
 install -d "$STAGE/usr/share/urmail/locales"
@@ -97,6 +99,22 @@ for legacy_input in /etc/mailinabox.conf /home/user-data/mail/users.sqlite /var/
   fi
 done
 # END LEGACY INSTALLATION GUARD
+
+# Snapshot existing observability configuration and enabled markers before unpack
+MIGRATION_BASE="/var/lib/urmail-config-migration"
+MIGRATION_DIR="$MIGRATION_BASE/observability"
+OBS_DIR="/etc/urmail/observability"
+
+if [ -d "$OBS_DIR" ] && [ -n "$(ls -A "$OBS_DIR" 2>/dev/null)" ]; then
+  install -d -m 0700 "$MIGRATION_BASE"
+  rm -rf "$MIGRATION_DIR"
+  install -d -m 0700 "$MIGRATION_DIR"
+  cp -a "$OBS_DIR"/. "$MIGRATION_DIR"/
+  chmod 0700 "$MIGRATION_DIR"
+else
+  rm -rf "$MIGRATION_DIR"
+fi
+
 exit 0
 EOF
 
@@ -116,6 +134,25 @@ install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/backups
 install -d -o mailinabox -g mailinabox -m 0700 /var/lib/urmail/archive
 install -d -o root -g mailinabox -m 0750 /etc/urmail
 install -d -m 0755 /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d /etc/postfix/urmail
+install -d -m 0755 /etc/urmail/observability
+
+# Restore existing observability configuration from preinst snapshot if present
+MIGRATION_DIR="/var/lib/urmail-config-migration/observability"
+if [ -d "$MIGRATION_DIR" ] && [ -n "$(ls -A "$MIGRATION_DIR" 2>/dev/null)" ]; then
+  cp -a "$MIGRATION_DIR"/. /etc/urmail/observability/
+fi
+
+# Seed templates only when target configuration never existed
+if [ -d /usr/share/urmail/observability ]; then
+  for tmpl in /usr/share/urmail/observability/*.yml; do
+    [ -e "$tmpl" ] || continue
+    target="/etc/urmail/observability/$(basename "$tmpl")"
+    if [ ! -e "$target" ]; then
+      install -m 0644 "$tmpl" "$target"
+    fi
+  done
+fi
+
 install -d -o root -g opendkim -m 0750 /etc/opendkim /etc/opendkim/keys
 # Seed the canonical file before the service drop-in is loaded, so a failed
 # first generation can restore a valid stock configuration atomically.

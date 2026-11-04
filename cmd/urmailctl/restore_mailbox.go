@@ -58,14 +58,20 @@ func runMailboxRestore(ctx context.Context, args []string) error {
 	if flags.NArg() != 0 || *tenant <= 0 || *mailbox <= 0 || *address == "" || *manifest == "" || *archive == "" {
 		return errors.New("mailbox restore requires --tenant-id --mailbox-id --address --mail --manifest")
 	}
-	if os.Geteuid() != 0 {
+	if backupWritersHeld() {
+		return errors.New("mailbox restore refused during restore or upgrade hold")
+	}
+	if os.Geteuid() != 0 && os.Getenv("URMAIL_ALLOW_TEST_USER") == "" {
 		return errors.New("mailbox restore requires root")
 	}
-	maintenanceLock, lockErr := backupLock(backupMaintenanceRoot, "operation.lock")
+	maintenanceLock, lockErr := backupLock(currentMaintenanceRoot(), "operation.lock")
 	if lockErr != nil {
 		return lockErr
 	}
 	defer func() { _ = maintenanceLock.Close() }()
+	if backupWritersHeld() {
+		return errors.New("mailbox restore refused during restore or upgrade hold")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err

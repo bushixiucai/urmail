@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -50,13 +51,22 @@ Usage:
   urmailctl restore mailbox --tenant-id T --mailbox-id M --address A --mail FILE --manifest FILE [--apply-review SHA256 --rollback-dir NEW_PRIVATE_DIR]
   urmailctl restore quarantine status|release [--restore-id ID --confirm-reconciled --source-isolated --reason TEXT]
   urmailctl restore --dump FILE --force [--config FILE] [--database-url URL]
+  urmailctl upgrade fence|hold|release|status|resume|rollback|run-installer|check-installer-lease [OPTIONS]
 `
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "urmailctl: %v\n", err)
-		os.Exit(1)
+		os.Exit(commandExitCode(err))
 	}
+}
+
+func commandExitCode(err error) int {
+	var installer *installerExitError
+	if errors.As(err, &installer) && installer.code > 0 && installer.code < 256 {
+		return installer.code
+	}
+	return 1
 }
 
 func run(args []string) error {
@@ -120,6 +130,8 @@ func run(args []string) error {
 		return runBackup(ctx, args[1:])
 	case "restore":
 		return runRestore(ctx, args[1:])
+	case "upgrade":
+		return runUpgrade(ctx, args[1:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

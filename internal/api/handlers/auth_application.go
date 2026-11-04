@@ -41,10 +41,12 @@ func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUse
 	}
 	key := c.ClientIP() + "|mfa-management:" + strconv.FormatInt(userID, 10)
 	ipKey := ipKeyFromLimiterKey(key)
-	if !loginAttempts.allow(key) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
+	reservation, err := loginAttempts.BeginAttempt(key, ipKey, DefaultLoginBudgets)
+	if err != nil {
 		authError(c, http.StatusTooManyRequests, "AUTH_RATE_LIMITED")
 		return store.GetUserByIDRow{}, false
 	}
+	defer reservation.Discard()
 	user, err := h.Store.GetUserByID(c, userID)
 	if err != nil {
 		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
@@ -74,12 +76,11 @@ func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUse
 		verified = consumeErr == nil && n > 0
 	}
 	if !verified {
-		loginAttempts.fail(key)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		authError(c, http.StatusUnauthorized, "MFA_INVALID_CODE")
 		return user, false
 	}
-	loginAttempts.reset(key)
+	reservation.CompleteSuccess()
 	return user, true
 }
 

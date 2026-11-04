@@ -81,8 +81,8 @@ func checkAIProviderBudget(ctx context.Context, q *store.Queries, cfg store.AiPr
 	return nil
 }
 
-// Reservation identifies one written reservation row.
-type Reservation struct {
+// AIUsageReservation identifies one written reservation row.
+type AIUsageReservation struct {
 	id                    int64
 	tenant                int64
 	kind                  string
@@ -111,20 +111,20 @@ var ErrNotAccounted = errors.New("ai not accounted")
 // row. ErrNotAccounted means AI is not configured or disabled: nothing
 // is accounted and the caller proceeds to the normal AI_UNAVAILABLE
 // surfacing. ErrAIBudgetExceeded is returned before any provider call.
-func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID int64, question string) (*Reservation, error) {
+func (h AISearchAskAccounting) Reserve(ctx context.Context, tenantID, mailboxID int64, question string) (*AIUsageReservation, error) {
 	return h.reserve(ctx, tenantID, mailboxID, question, nil)
 }
 
 // ReserveCustom applies the same call, concurrency and token governance without
 // charging a user's own provider as platform-funded inference.
-func (h AISearchAskAccounting) ReserveCustom(ctx context.Context, tenantID, mailboxID int64, question string, target *userAICustomConfig) (*Reservation, error) {
+func (h AISearchAskAccounting) ReserveCustom(ctx context.Context, tenantID, mailboxID int64, question string, target *userAICustomConfig) (*AIUsageReservation, error) {
 	if target == nil {
 		return nil, errAITargetChanged
 	}
 	return h.reserve(ctx, tenantID, mailboxID, question, target)
 }
 
-func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID int64, question string, custom *userAICustomConfig) (*Reservation, error) {
+func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID int64, question string, custom *userAICustomConfig) (*AIUsageReservation, error) {
 	if h.Pool == nil {
 		if custom != nil {
 			return nil, ai.ErrProviderDisabled
@@ -235,13 +235,13 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return &Reservation{id: row.ID, tenant: tenantID, kind: "search_ask", mode: cfg.Mode, created: true, pool: h.Pool, inputRate: cfg.InputMicrosPerMillion, outputRate: cfg.OutputMicrosPerMillion}, nil
+	return &AIUsageReservation{id: row.ID, tenant: tenantID, kind: "search_ask", mode: cfg.Mode, created: true, pool: h.Pool, inputRate: cfg.InputMicrosPerMillion, outputRate: cfg.OutputMicrosPerMillion}, nil
 }
 
 // Settle records observed usage best-effort in a detached context: a
 // recording failure is logged and counted as a metric, never propagated into
 // the already delivered answer.
-func (r *Reservation) Settle(providerErr error, usageKnown bool, promptTokens, outputTokens int64, costFn func(prompt, output int64) (int64, error)) {
+func (r *AIUsageReservation) Settle(providerErr error, usageKnown bool, promptTokens, outputTokens int64, costFn func(prompt, output int64) (int64, error)) {
 	if r == nil || !r.created || r.pool == nil {
 		return
 	}
@@ -404,7 +404,7 @@ func zeroUnlimited(limit int64) int64 {
 
 // releaseUnused is called only when the request proves no provider generation
 // was invoked. It cannot release uncertain outbound work or invent exact usage.
-func (r *Reservation) releaseUnused() {
+func (r *AIUsageReservation) releaseUnused() {
 	if r == nil || !r.created || r.pool == nil {
 		return
 	}
@@ -419,7 +419,7 @@ func (r *Reservation) releaseUnused() {
 	}()
 }
 
-func (r *Reservation) observedCost(prompt, output int64) (int64, error) {
+func (r *AIUsageReservation) observedCost(prompt, output int64) (int64, error) {
 	if r == nil || r.mode != "platform" {
 		return 0, nil
 	}

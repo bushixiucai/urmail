@@ -9,24 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 )
 
 func testManager(t *testing.T) *ApplyManager {
 	t.Helper()
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	m, err := NewTestApplyManager(t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := filepath.Join(root, "state")
-	if err := os.Mkdir(state, 0700); err != nil {
-		t.Fatal(err)
-	}
-	m := &ApplyManager{root: state, targetRoot: filepath.Join(root, "system"), webroot: filepath.Join(root, "acme"), cfg: &config.Config{MyHostname: "box.example.com", PrimaryDomain: "example.com", StorageRoot: filepath.Join(root, "mail"), DatabaseURLDovecot: "host=127.0.0.1 user=dovecot password=secret", ListenAddr: "127.0.0.1:8080", PublicIPv4: "192.0.2.1", Nameservers: []string{"ns.example.com"}}}
-	m.run = func(_ context.Context, path string, args ...string) error { return testCommand(m, path, args...) }
-	m.readinessProbe = func(context.Context) error { return nil }
 	return m
 }
 func emptyApply() json.RawMessage {
@@ -110,8 +102,10 @@ func TestConfigApplyChecksReloadsAndDeduplicates(t *testing.T) {
 	if _, _, err := m.Apply(emptyApply()); err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != before {
-		t.Fatal("unchanged generation restarted services")
+	for _, c := range commands[before:] {
+		if strings.Contains(c, "restart") || strings.Contains(c, "reload") {
+			t.Fatalf("unchanged generation restarted services: %s", c)
+		}
 	}
 	info, err := os.Stat(m.target("/etc/dovecot/conf.d/urmail/db.conf"))
 	if err != nil {
@@ -475,5 +469,140 @@ func TestWorkerHoldKeepsConfigurationReadyWithoutAutomaticACME(t *testing.T) {
 	}
 	if _, err := os.Stat(m.target("/etc/postfix/main.cf")); err != nil {
 		t.Fatal("maintenance removed mail configuration", err)
+	}
+}
+
+func TestDiskDriftDetectionAndSelfHealing(t *testing.T) {
+	m := testManager(t)
+	var commands []string
+	m.run = func(_ context.Context, path string, args ...string) error {
+		commands = append(commands, path+" "+strings.Join(args, " "))
+		return testCommand(m, path, args...)
+	}
+
+	gen1, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatalf("first apply failed: %v", err)
+	}
+	if !m.status.Ready || gen1 == "" {
+		t.Fatalf("manager not ready after first apply: %+v", m.status)
+	}
+
+	// 1. Verify manifest backup file exists and matches
+	backupPath := m.target(appliedManifestBackupPath)
+	backupData, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("backup manifest not found at %s: %v", backupPath, err)
+	}
+	var backupManifest applyManifest
+	if err := json.Unmarshal(backupData, &backupManifest); err != nil {
+		t.Fatalf("unmarshal backup manifest: %v", err)
+	}
+	if len(backupManifest.Files) == 0 {
+		t.Fatalf("backup manifest has 0 tracked files")
+	}
+
+	// 2. Fastpath with untampered files: no drift, no restart
+	commandsBefore := len(commands)
+	drift, reason := m.CheckDiskDrift()
+	if drift {
+		t.Fatalf("unexpected drift on clean files: %s", reason)
+	}
+	gen2, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatalf("fastpath apply failed: %v", err)
+	}
+	if gen2 != gen1 {
+		t.Fatalf("generation changed on fastpath: %s != %s", gen2, gen1)
+	}
+	for _, c := range commands[commandsBefore:] {
+		if strings.Contains(c, "restart") || strings.Contains(c, "reload") {
+			t.Fatalf("fastpath restarted services: %s", c)
+		}
+	}
+
+	// 3. Tamper with a rendered configuration file (e.g. main.cf)
+	mainCF := m.target("/etc/postfix/main.cf")
+	if err := os.WriteFile(mainCF, []byte("# Tampered configuration"), 0644); err != nil {
+		t.Fatalf("write tampered file: %v", err)
+	}
+
+	drift, reason = m.CheckDiskDrift()
+	if !drift || !strings.Contains(reason, "content tampered") {
+		t.Fatalf("expected content tampering drift, got drift=%v reason=%s", drift, reason)
+	}
+
+	// 4. Trigger apply to self-heal
+	driftReported := ""
+	m.onDrift = func(r string) {
+		driftReported = r
+	}
+	commandsBefore = len(commands)
+	gen3, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatalf("self-healing apply failed: %v", err)
+	}
+	if gen3 != gen1 {
+		t.Fatalf("generation should be identical after self-healing: %s != %s", gen3, gen1)
+	}
+	if !m.status.Ready {
+		t.Fatalf("expected Ready=true after self-healing, got %+v", m.status)
+	}
+	if driftReported == "" {
+		t.Fatalf("expected onDrift callback to be triggered")
+	}
+	restartedPostfix := false
+	for _, c := range commands[commandsBefore:] {
+		if c == "/usr/bin/systemctl restart postfix" {
+			restartedPostfix = true
+		}
+	}
+	if !restartedPostfix {
+		t.Fatalf("expected postfix restart during self-healing, commands: %v", commands[commandsBefore:])
+	}
+
+	// Verify main.cf content was restored
+	restored, err := os.ReadFile(mainCF)
+	if err != nil {
+		t.Fatalf("read restored main.cf: %v", err)
+	}
+	if string(restored) == "# Tampered configuration" {
+		t.Fatalf("main.cf was not restored to generated content")
+	}
+
+	// 5. Tamper by deleting a derived binary artifact (.svbin)
+	svbin := m.target("/etc/dovecot/urmail-spam/spam-before.svbin")
+	if err := os.Remove(svbin); err != nil {
+		t.Fatalf("remove svbin: %v", err)
+	}
+	drift, reason = m.CheckDiskDrift()
+	if !drift || !strings.Contains(reason, "missing") {
+		t.Fatalf("expected missing file drift for svbin, got drift=%v reason=%s", drift, reason)
+	}
+	gen4, _, err := m.Apply(emptyApply())
+	if err != nil {
+		t.Fatalf("self-healing after missing svbin failed: %v", err)
+	}
+	if gen4 != gen1 || !m.status.Ready {
+		t.Fatalf("self-healing svbin failed: %+v", m.status)
+	}
+	if _, err := os.Stat(svbin); err != nil {
+		t.Fatalf("svbin was not recreated by self-healing: %v", err)
+	}
+
+	// 6. Tamper with file permission mode
+	if err := os.Chmod(mainCF, 0666); err != nil {
+		t.Fatalf("chmod main.cf: %v", err)
+	}
+	drift, reason = m.CheckDiskDrift()
+	if !drift || !strings.Contains(reason, "mode changed") {
+		t.Fatalf("expected mode drift, got drift=%v reason=%s", drift, reason)
+	}
+	if _, _, err := m.Apply(emptyApply()); err != nil {
+		t.Fatalf("self-healing mode change failed: %v", err)
+	}
+	info, err := os.Stat(mainCF)
+	if err != nil || info.Mode().Perm() != 0644 {
+		t.Fatalf("expected mode 0644 restored, got %v (err=%v)", info.Mode().Perm(), err)
 	}
 }

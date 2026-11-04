@@ -154,7 +154,7 @@ func TestRetentionRefusesCorruptMissingFutureAndCrossGenerationEvidence(t *testi
 			case "wrong_scope":
 				m.Scope = "metadata-only"
 			case "unknown_version":
-				m.Version = 3
+				m.Version = 99
 			case "wrong_age":
 				m.Artifacts[0].Algorithm = "other"
 			case "invalid_recipient":

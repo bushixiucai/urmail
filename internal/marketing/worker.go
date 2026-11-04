@@ -97,7 +97,7 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if !w.opts.Enabled || w.opts.DevMode || w.opts.Quarantined {
 		return false, ErrDisabled
 	}
-	q := store.New(w.opts.Pool.Pool)
+	q := store.New(w.opts.Pool)
 	count, err := q.PlatformRecoverMarketingSubmissions(ctx)
 	if err != nil {
 		return false, err

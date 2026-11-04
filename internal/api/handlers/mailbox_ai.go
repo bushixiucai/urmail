@@ -303,6 +303,8 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 
 // AIConfigurationHandler exposes only redacted configuration and usage to panel administrators.
 type AIConfigurationHandler struct {
+	HealthRepository               AIHealthRepository
+	FetchHealthModels              func(context.Context, ai.Provider) ([]string, error)
 	Pool                           *db.Pool
 	Secrets                        SecretsBox
 	CloudEndpoints, LocalEndpoints []string
@@ -600,15 +602,41 @@ func safelyListedEndpoints(endpoints []string) []string {
 	return safe
 }
 
-// Health performs an explicit, bounded metadata-only provider diagnostic.
+// AIHealthHandler has no Pool, Store, or unrestricted query capability.
+// Accidental platform-pool access in this diagnostic is a compile error.
+type AIHealthHandler struct {
+	HealthRepository               AIHealthRepository
+	Secrets                        SecretsBox
+	CloudEndpoints, LocalEndpoints []string
+	FetchHealthModels              func(context.Context, ai.Provider) ([]string, error)
+}
+
+// Health forwards only the diagnostic capability, never the configuration pool.
 func (h *AIConfigurationHandler) Health(c *gin.Context) {
-	if h.Pool == nil {
+	diagnostic := AIHealthHandler{HealthRepository: h.HealthRepository, Secrets: h.Secrets, CloudEndpoints: h.CloudEndpoints, LocalEndpoints: h.LocalEndpoints, FetchHealthModels: h.FetchHealthModels}
+	diagnostic.Health(c)
+}
+
+// Health performs an explicit, bounded metadata-only provider diagnostic.
+func (h *AIHealthHandler) Health(c *gin.Context) {
+	if h.HealthRepository == nil {
 		authError(c, 503, "AI_DISABLED")
 		return
 	}
 	tid, ok := middleware.GetTenantID(c)
 	if !ok {
 		authError(c, 401, "UNAUTHORIZED")
+		return
+	}
+	if _, active := middleware.QueriesFromCtx(c); active {
+		authError(c, 503, "PROBE_TRANSACTION_ACTIVE")
+		return
+	}
+	uid, _ := middleware.GetUserID(c)
+	actor := ProbeActor{TenantID: tid, UserID: uid}
+	snapshot, snapshotErr := h.HealthRepository.ReadHealth(c.Request.Context(), actor)
+	if snapshotErr != nil {
+		respondProbeError(c, snapshotErr)
 		return
 	}
 	var input struct {
@@ -627,8 +655,8 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		}
 		// F04: Stored key reuse when endpoint and provider match stored config
 		if input.APIKey == "" && input.Provider != "ollama" {
-			stored, sErr := store.New(h.Pool).PlatformGetAIProvider(c, tid)
-			if sErr == nil && h.Secrets != nil {
+			stored := snapshot.Configuration
+			if snapshot.Present && h.Secrets != nil {
 				keyEnc := stored.EncryptedKey
 				if stored.EnterpriseEncryptedKey != "" && strings.TrimRight(stored.EnterpriseEndpoint, "/") == strings.TrimRight(input.Endpoint, "/") {
 					keyEnc = stored.EnterpriseEncryptedKey
@@ -662,7 +690,15 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
-		models, err := ai.FetchModels(ctx, candidate)
+		models, err := h.fetchHealth(ctx, candidate)
+		outcome := "reachable"
+		if err != nil {
+			outcome = "unreachable"
+		}
+		if completeErr := h.HealthRepository.CompleteHealth(c.Request.Context(), actor, snapshot, true, outcome); completeErr != nil {
+			respondProbeError(c, completeErr)
+			return
+		}
 		if err != nil {
 			authError(c, 502, "AI_PROVIDER_UNREACHABLE")
 			return
@@ -670,8 +706,8 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "reachable", "models": models, "operation": "models_metadata", "completion_performed": false})
 		return
 	}
-	cfg, err := store.New(h.Pool).PlatformGetAIProvider(c, tid)
-	if err != nil || !cfg.Enabled {
+	cfg := snapshot.Configuration
+	if !snapshot.Present || !cfg.Enabled {
 		authError(c, 409, "AI_DISABLED")
 		return
 	}
@@ -680,17 +716,13 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 		return
 	}
 	if cfg.Provider != "ollama" {
-		allowed, consentErr := store.New(h.Pool).AICloudAuthorized(c, store.AICloudAuthorizedParams{TenantID: tid, ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash})
-		if consentErr != nil {
-			authError(c, 503, "DB_ERROR")
-			return
-		}
-		if !allowed {
+		if !snapshot.CloudAuthorized {
 			authError(c, 403, "AI_CLOUD_CONSENT_REQUIRED")
 			return
 		}
 	}
 	key := ""
+	var err error
 	if cfg.Provider != "ollama" {
 		if h.Secrets == nil {
 			authError(c, 503, "AI_DISABLED")
@@ -709,7 +741,15 @@ func (h *AIConfigurationHandler) Health(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
-	models, err := ai.FetchModels(ctx, provider)
+	models, err := h.fetchHealth(ctx, provider)
+	outcome := "reachable"
+	if err != nil {
+		outcome = "unreachable"
+	}
+	if completeErr := h.HealthRepository.CompleteHealth(c.Request.Context(), actor, snapshot, false, outcome); completeErr != nil {
+		respondProbeError(c, completeErr)
+		return
+	}
 	if err != nil {
 		authError(c, 502, "AI_PROVIDER_UNREACHABLE")
 		return

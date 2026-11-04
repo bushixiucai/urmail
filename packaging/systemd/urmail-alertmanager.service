@@ -6,6 +6,7 @@ ConditionPathExists=/etc/urmail/observability/receiver.enabled
 [Service]
 User=urmail-monitor
 Group=urmail-monitor
+ExecStartPre=/bin/sh -c 'if [ ! -f /etc/urmail/observability/alertmanager.yml ]; then echo "urmail-alertmanager: /etc/urmail/observability/alertmanager.yml missing" >&2; exit 1; fi; if grep -v "^[[:space:]]*#" /etc/urmail/observability/alertmanager.yml | grep -Eq "127\.0\.0\.1|localhost|operator-configure-before-enabling"; then echo "urmail-alertmanager: receiver.enabled exists but alertmanager.yml still points to 127.0.0.1 placeholder receiver" >&2; exit 1; fi'
 ExecStart=/usr/bin/prometheus-alertmanager --config.file=/etc/urmail/observability/alertmanager.yml --web.listen-address=127.0.0.1:9093 --cluster.listen-address= --storage.path=/var/lib/urmail-monitor/alertmanager
 Restart=on-failure
 StateDirectory=urmail-monitor

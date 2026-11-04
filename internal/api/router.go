@@ -51,6 +51,11 @@ type Options struct {
 	AppPool *db.Pool
 	// PlatformPool is the platform-scoped pool.
 	PlatformPool *db.Pool
+	// Dedicated workload pools; nil preserves legacy embedders and tests.
+	AIAppPool             *db.Pool
+	AIPlatformPool        *db.Pool
+	MarketingAppPool      *db.Pool
+	MarketingPlatformPool *db.Pool
 	// Messages is the message catalog.
 	Messages *i18n.Store
 	// Version is reported by /api/v1/healthz.
@@ -112,8 +117,36 @@ var quarantineRefundQuery = regexp.MustCompile(`^/api/v1/platform/refunds/[1-9][
 
 var quarantinePaymentQuery = regexp.MustCompile(`^/api/v1/platform/payment-merchants/[1-9][0-9]{0,18}/orders/[1-9][0-9]{0,18}/query$`)
 
+// workloadPoolDefaults keeps existing embedders working while production supplies
+// explicit capacity-isolated pools.
+func workloadPoolDefaults(opts Options) Options {
+	if opts.AIAppPool == nil {
+		opts.AIAppPool = opts.AppPool
+	}
+	if opts.AIPlatformPool == nil {
+		opts.AIPlatformPool = opts.PlatformPool
+	}
+	if opts.MarketingAppPool == nil {
+		opts.MarketingAppPool = opts.AppPool
+	}
+	if opts.MarketingPlatformPool == nil {
+		opts.MarketingPlatformPool = opts.PlatformPool
+	}
+	return opts
+}
+
+func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth *store.Queries, pool *db.Pool) *gin.RouterGroup {
+	group := v1.Group("")
+	if opts.Audit != nil {
+		group.Use(middleware.Audit(opts.Audit, opts.Logger))
+	}
+	group.Use(middleware.RequireAuth(auth), middleware.RequireTenantTx(pool, opts.Logger), middleware.RequireCSRF())
+	return group
+}
+
 // New builds the gin engine with all middleware and routes attached.
 func New(opts Options) *gin.Engine {
+	opts = workloadPoolDefaults(opts)
 	if opts.Logger == nil {
 		opts.Logger = zap.NewNop()
 	}
@@ -182,18 +215,29 @@ func New(opts Options) *gin.Engine {
 	// instead, where the RLS context is published with SET LOCAL.
 	var authQueries *store.Queries
 	if opts.PlatformPool != nil {
-		authQueries = store.New(opts.PlatformPool.Pool)
+		authQueries = store.New(opts.PlatformPool)
 	}
 	var appQueries *store.Queries
 	if opts.AppPool != nil {
-		appQueries = store.New(opts.AppPool.Pool)
+		appQueries = store.New(opts.AppPool)
+	}
+
+	var aiPlatformQueries, marketingAppQueries, marketingPlatformQueries *store.Queries
+	if opts.AIPlatformPool != nil {
+		aiPlatformQueries = store.New(opts.AIPlatformPool)
+	}
+	if opts.MarketingAppPool != nil {
+		marketingAppQueries = store.New(opts.MarketingAppPool)
+	}
+	if opts.MarketingPlatformPool != nil {
+		marketingPlatformQueries = store.New(opts.MarketingPlatformPool)
 	}
 
 	authHandler := handlers.NewAuthHandler(authQueries)
 	authHandler.Secrets = opts.Secrets
 	var platformQueries *store.Queries
 	if opts.PlatformPool != nil {
-		platformQueries = store.New(opts.PlatformPool.Pool)
+		platformQueries = store.New(opts.PlatformPool)
 	}
 	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
 	onboardingHandler := &handlers.OnboardingHandler{Store: appQueries}
@@ -202,6 +246,7 @@ func New(opts Options) *gin.Engine {
 	domainHandler.DNS = opts.DNSProvider
 	domainHandler.DNSManagedZones = opts.DNSManagedZones
 	domainHandler.Hostname = opts.MyHostname
+	domainHandler.Verification = handlers.NewDomainVerificationRepository(opts.AppPool)
 	mailboxHandler := handlers.NewMailboxHandler(appQueries, opts.Reconcile)
 	aliasHandler := handlers.NewAliasHandler(appQueries, opts.Reconcile)
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
@@ -244,8 +289,8 @@ func New(opts Options) *gin.Engine {
 	sieveBridge := &handlers.SieveBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, Activator: opts.SieveActivator}
 	paymentGateway := &handlers.PaymentGatewayHandler{Quarantined: opts.Quarantined, LegacyStripe: opts.Payment, Registry: &payment.Registry{Store: platformQueries, Secrets: opts.Secrets, BaseURL: opts.BaseURL}, Platform: platformQueries, Pool: opts.PlatformPool, Secrets: opts.Secrets}
 	billingHandler.Gateway = paymentGateway
-	mailboxAI := &handlers.MailboxAIService{Pool: opts.PlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
-	aiConfiguration := &handlers.AIConfigurationHandler{Pool: opts.PlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
+	mailboxAI := &handlers.MailboxAIService{Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
+	aiConfiguration := &handlers.AIConfigurationHandler{HealthRepository: handlers.NewAIHealthRepository(opts.AIPlatformPool), Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
 	mailboxBridge := &handlers.MailboxBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, AI: mailboxAI, Sieve: opts.SieveActivator}
 	webmailVault := opts.WebmailVault
 	if webmailVault == nil {
@@ -259,10 +304,10 @@ func New(opts Options) *gin.Engine {
 	if smtpAddr == "" {
 		smtpAddr = "127.0.0.1:587"
 	}
-	aiDrafts := handlers.AIDrafts{Q: platformQueries}
-	aiSearchAsk := &handlers.AISearchAsk{Pool: opts.PlatformPool, Dialer: webmail.NetDialer{Addr: opts.IMAPAddr}, Vault: webmailVault, ModelFor: handlers.TenantCitationModel(opts.PlatformPool, opts.Secrets, opts.AICloudEndpoints, opts.AILocalEndpoints)}
-	aiSearchAsk.Accounting = handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
-	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.PlatformPool}
+	aiDrafts := handlers.AIDrafts{Q: aiPlatformQueries}
+	aiSearchAsk := &handlers.AISearchAsk{Pool: opts.AIPlatformPool, Dialer: webmail.NetDialer{Addr: opts.IMAPAddr}, Vault: webmailVault, ModelFor: handlers.TenantCitationModel(opts.AIPlatformPool, opts.Secrets, opts.AICloudEndpoints, opts.AILocalEndpoints)}
+	aiSearchAsk.Accounting = handlers.AISearchAskAccounting{Pool: opts.AIPlatformPool}
+	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.AIPlatformPool}
 	mailboxNative := &handlers.MailboxNativeHandler{
 		MailHost:         opts.MyHostname,
 		Enabled:          opts.WebmailNative && platformQueries != nil,
@@ -295,11 +340,14 @@ func New(opts Options) *gin.Engine {
 		easServer.Mail = eas.MailSourceFromDialer(mailboxNative.Dialer, webmailVault)
 		mailboxNative.EAS = easServer
 	}
+	// AI methods get their own pool without moving core mailbox operations.
+	mailboxNativeAI := *mailboxNative
+	mailboxNativeAI.Pool = opts.AIPlatformPool
 	contactsHandler := handlers.MailboxContactsHandler{Service: appcollab.Service{Q: platformQueries}, GroupStore: platformQueries, Groups: platformQueries}
 	calendarHandler := handlers.MailboxCalendarHandler{Native: mailboxNative, Pool: opts.PlatformPool, Service: appcollab.Service{Q: platformQueries}, Submitter: mailboxNative.Submitter, Vault: webmailVault, MaySend: mailboxNative.MaySend}
 	deliveryHandler := &handlers.DeliveryHandler{Store: appQueries, Platform: platformQueries, Queue: opts.Queue, Stream: opts.TelemetryStream}
-	marketingHandler := &handlers.MarketingHandler{Store: appQueries, Platform: platformQueries, Secrets: opts.Secrets}
-	marketingSuppressionHandler := &handlers.MarketingSuppressionHandler{Store: appQueries, Tokens: opts.MarketingTokens, AppPool: opts.AppPool, Messages: opts.Messages}
+	marketingHandler := &handlers.MarketingHandler{Store: marketingAppQueries, Platform: marketingPlatformQueries, Secrets: opts.Secrets}
+	marketingSuppressionHandler := &handlers.MarketingSuppressionHandler{Store: marketingAppQueries, Tokens: opts.MarketingTokens, AppPool: opts.MarketingAppPool, Messages: opts.Messages}
 
 	engine.GET("/internal/metrics", middleware.MetricsAccess(opts.MetricsToken), gin.WrapH(promhttp.Handler()))
 	// DAV-001 CardDAV adapter. It authenticates mailbox Bearer sessions
@@ -452,7 +500,7 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.GET("/ai/index/status", aiSearchAsk.Status)
 			mailboxAuthed.POST("/ai/index/clear", aiSearchAsk.Clear)
 			mailboxAuthed.DELETE("/ai/index", aiSearchAsk.Clear)
-			handlers.RegisterNativeMailboxAI(mailboxAuthed, mailboxNative, mailboxAI, aiSearchAsk)
+			handlers.RegisterNativeMailboxAI(mailboxAuthed, &mailboxNativeAI, mailboxAI, aiSearchAsk)
 			// AI-005 server-authoritative tenant budget visibility.
 			mailboxAuthed.GET("/ai/budget", aiBudgetStatus.BudgetStatus)
 			handlers.RegisterCalendarReminderRoutes(mailboxAuthed, calendarHandler)
@@ -610,9 +658,9 @@ func New(opts Options) *gin.Engine {
 				platform.PATCH("/tenants/:id", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpdateTenant)
 				platform.POST("/tenants/:id/owner", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.TransferOwner)
 				platform.POST("/tenants/:id/subscription", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.AssignSubscription)
-				platform.POST("/tenants/:id/marketing/channel", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), marketingHandler.ConfigureChannel)
-				platform.PATCH("/tenants/:id/marketing/channels/:channel_id", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), marketingHandler.ConfigureChannel)
-				platform.POST("/tenants/:id/marketing/recipients/:recipient_id/resolve", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), marketingHandler.ResolveAttempt)
+				platform.POST("/tenants/:id/marketing/channel", middleware.RequirePlatformTx(opts.MarketingPlatformPool, opts.Logger), marketingHandler.ConfigureChannel)
+				platform.PATCH("/tenants/:id/marketing/channels/:channel_id", middleware.RequirePlatformTx(opts.MarketingPlatformPool, opts.Logger), marketingHandler.ConfigureChannel)
+				platform.POST("/tenants/:id/marketing/recipients/:recipient_id/resolve", middleware.RequirePlatformTx(opts.MarketingPlatformPool, opts.Logger), marketingHandler.ResolveAttempt)
 				platform.GET("/mail/queue", deliveryHandler.PlatformQueue)
 				platform.GET("/mail/collectors", deliveryHandler.CollectorHealth)
 				platform.POST("/tenants/:id/invoices", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.CreateInvoice)
@@ -660,6 +708,14 @@ func New(opts Options) *gin.Engine {
 		dnsPrepared.POST("/domains/:id/dns/plans", dnsPlanHandler.Preview)
 		dnsPrepared.POST("/domains/:id/dns/plans/:plan/reconcile", dnsPlanHandler.Reconcile)
 
+		// Network probes own short repository transactions, not a request-long tx.
+		probes := v1.Group("")
+		probes.Use(middleware.RequireAuth(authQueries), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey))
+		probes.POST("/domains/:id/verify", domainHandler.Verify)
+		probes.POST("/ai/health", aiConfiguration.Health)
+
+		aiProtected := workloadTenantGroup(v1, opts, authQueries, opts.AIAppPool)
+		marketingProtected := workloadTenantGroup(v1, opts, authQueries, opts.MarketingAppPool)
 		protected := v1.Group("")
 		if opts.Audit != nil {
 			protected.Use(middleware.Audit(opts.Audit, opts.Logger))
@@ -671,8 +727,8 @@ func New(opts Options) *gin.Engine {
 		renewalEnrollment := billingrenew.EnrollmentService{Dispatcher: opts.Recurring, QuoteKey: []byte(opts.QuoteHMACKey)}
 		handlers.RegisterRenewalRoutes(protected, renewalEnrollment)
 		handlers.RegisterHostedRenewalRoutes(protected, renewalEnrollment)
-		handlers.RegisterMarketingFlowRoutes(protected, appQueries, opts.MarketingEnabled && !opts.DevMode && !opts.Quarantined)
-		handlers.RegisterMarketingReportRoutes(protected, appQueries)
+		handlers.RegisterMarketingFlowRoutes(marketingProtected, marketingAppQueries, opts.MarketingEnabled && !opts.DevMode && !opts.Quarantined)
+		handlers.RegisterMarketingReportRoutes(marketingProtected, marketingAppQueries)
 		{
 			// Tenants
 			protected.GET("/tenants/current", tenantHandler.Current)
@@ -691,7 +747,6 @@ func New(opts Options) *gin.Engine {
 			handlers.RegisterAdminCorporateDirectoryRoutes(protected, &handlers.MailboxCorporateDirectoryHandler{Pool: opts.AppPool})
 			protected.GET("/domains", domainHandler.List)
 			protected.POST("/domains", middleware.RequireRole("owner", "admin"), domainHandler.Create)
-			protected.POST("/domains/:id/verify", middleware.RequireRole("owner", "admin"), domainHandler.Verify)
 			protected.POST("/domains/:id/challenge", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), domainHandler.ReissueChallenge)
 			protected.PATCH("/domains/:id", middleware.RequireRole("owner", "admin"), domainHandler.Update)
 			protected.DELETE("/domains/:id", middleware.RequireRole("owner", "admin"), domainHandler.Delete)
@@ -717,30 +772,29 @@ func New(opts Options) *gin.Engine {
 			protected.POST("/compliance/grants/:id/revoke", middleware.RequireRole("owner"), complianceGrantHandler.Revoke)
 			protected.GET("/mail/health", middleware.RequireRole("owner", "admin"), deliveryHandler.Health)
 			protected.GET("/mail/queue", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), deliveryHandler.QueueForTenant)
-			protected.GET("/marketing/campaigns/:campaign_id/preview", middleware.RequireRole("owner", "admin"), marketingHandler.PreviewCampaign)
-			protected.GET("/marketing/campaigns/:campaign_id/report", middleware.RequireRole("owner", "admin"), marketingHandler.CampaignReport)
+			marketingProtected.GET("/marketing/campaigns/:campaign_id/preview", middleware.RequireRole("owner", "admin"), marketingHandler.PreviewCampaign)
+			marketingProtected.GET("/marketing/campaigns/:campaign_id/report", middleware.RequireRole("owner", "admin"), marketingHandler.CampaignReport)
 			protected.GET("/notifications", notificationHandler.List)
-			protected.POST("/ai/consent", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(10, time.Minute, middleware.TenantRateKey), aiConfiguration.Consent)
-			protected.GET("/ai/budget", middleware.RequireRole("owner", "admin"), aiConfiguration.TenantBudgetGet)
-			protected.GET("/ai/configuration", middleware.RequireRole("owner", "admin"), aiConfiguration.Get)
-			protected.PUT("/ai/configuration", middleware.RequireRole("owner", "admin"), aiConfiguration.Put)
-			protected.GET("/ai/usage", middleware.RequireRole("owner", "admin"), aiConfiguration.Usage)
-			protected.POST("/ai/health", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), aiConfiguration.Health)
-			protected.GET("/marketing/channels", middleware.RequireRole("owner", "admin"), marketingHandler.Channels)
-			protected.GET("/marketing/templates", middleware.RequireRole("owner", "admin"), marketingHandler.Templates)
-			protected.POST("/marketing/templates", middleware.RequireRole("owner", "admin"), marketingHandler.CreateTemplate)
-			protected.GET("/marketing/lists", middleware.RequireRole("owner", "admin"), marketingHandler.Lists)
-			protected.POST("/marketing/lists", middleware.RequireRole("owner", "admin"), marketingHandler.CreateList)
-			protected.GET("/marketing/lists/:list_id/contacts", middleware.RequireRole("owner", "admin"), marketingHandler.Contacts)
-			protected.POST("/marketing/lists/:list_id/contacts", middleware.RequireRole("owner", "admin"), marketingHandler.ImportContacts)
-			protected.GET("/marketing/campaigns", middleware.RequireRole("owner", "admin"), marketingHandler.Campaigns)
-			protected.POST("/marketing/campaigns", middleware.RequireRole("owner", "admin"), marketingHandler.CreateCampaign)
-			protected.POST("/marketing/campaigns/:campaign_id/confirm", middleware.RequireRole("owner", "admin"), marketingHandler.ConfirmCampaign)
-			protected.PATCH("/marketing/campaigns/:campaign_id", middleware.RequireRole("owner", "admin"), marketingHandler.ChangeCampaign)
-			protected.GET("/marketing/campaigns/:campaign_id/recipients", middleware.RequireRole("owner", "admin"), marketingHandler.Recipients)
-			protected.GET("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.List)
-			protected.POST("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Add)
-			protected.DELETE("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Remove)
+			aiProtected.POST("/ai/consent", middleware.RequireRole("owner", "admin"), middleware.RateLimitWindow(10, time.Minute, middleware.TenantRateKey), aiConfiguration.Consent)
+			aiProtected.GET("/ai/budget", middleware.RequireRole("owner", "admin"), aiConfiguration.TenantBudgetGet)
+			aiProtected.GET("/ai/configuration", middleware.RequireRole("owner", "admin"), aiConfiguration.Get)
+			aiProtected.PUT("/ai/configuration", middleware.RequireRole("owner", "admin"), aiConfiguration.Put)
+			aiProtected.GET("/ai/usage", middleware.RequireRole("owner", "admin"), aiConfiguration.Usage)
+			marketingProtected.GET("/marketing/channels", middleware.RequireRole("owner", "admin"), marketingHandler.Channels)
+			marketingProtected.GET("/marketing/templates", middleware.RequireRole("owner", "admin"), marketingHandler.Templates)
+			marketingProtected.POST("/marketing/templates", middleware.RequireRole("owner", "admin"), marketingHandler.CreateTemplate)
+			marketingProtected.GET("/marketing/lists", middleware.RequireRole("owner", "admin"), marketingHandler.Lists)
+			marketingProtected.POST("/marketing/lists", middleware.RequireRole("owner", "admin"), marketingHandler.CreateList)
+			marketingProtected.GET("/marketing/lists/:list_id/contacts", middleware.RequireRole("owner", "admin"), marketingHandler.Contacts)
+			marketingProtected.POST("/marketing/lists/:list_id/contacts", middleware.RequireRole("owner", "admin"), marketingHandler.ImportContacts)
+			marketingProtected.GET("/marketing/campaigns", middleware.RequireRole("owner", "admin"), marketingHandler.Campaigns)
+			marketingProtected.POST("/marketing/campaigns", middleware.RequireRole("owner", "admin"), marketingHandler.CreateCampaign)
+			marketingProtected.POST("/marketing/campaigns/:campaign_id/confirm", middleware.RequireRole("owner", "admin"), marketingHandler.ConfirmCampaign)
+			marketingProtected.PATCH("/marketing/campaigns/:campaign_id", middleware.RequireRole("owner", "admin"), marketingHandler.ChangeCampaign)
+			marketingProtected.GET("/marketing/campaigns/:campaign_id/recipients", middleware.RequireRole("owner", "admin"), marketingHandler.Recipients)
+			marketingProtected.GET("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.List)
+			marketingProtected.POST("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Add)
+			marketingProtected.DELETE("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Remove)
 
 			// Billing and distribution (tenant-scoped reads)
 			protected.GET("/billing/document-profile", middleware.RequireRole("owner", "admin", "billing"), invoiceProfile.GetBuyer)

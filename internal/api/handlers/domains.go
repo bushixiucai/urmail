@@ -49,9 +49,10 @@ type DNSProvider interface {
 
 // DomainHandler manages tenant domains and verification.
 type DomainHandler struct {
-	Store     DomainStore
-	Reconcile ReconcileTrigger
-	DNS       DNSProvider
+	Verification DomainVerificationRepository
+	Store        DomainStore
+	Reconcile    ReconcileTrigger
+	DNS          DNSProvider
 	// Hostname is the MX target advertised in DNS guidance. It is injected
 	// from config so a non-default deployment does not publish box.urmail.cn.
 	Hostname string
@@ -273,11 +274,31 @@ func (h *DomainHandler) Create(c *gin.Context) {
 	})
 }
 
-// Verify checks the per-domain TXT record and activates the domain. A
+// DomainVerificationHandler checks TXT ownership without unrestricted DB access. A
 // pending_dns domain is not rendered into Postfix/NSD/nginx until this
 // succeeds, so a tenant cannot claim a domain it does not control.
+type DomainVerificationHandler struct {
+	Verification DomainVerificationRepository
+	Reconcile    ReconcileTrigger
+	LookupTXT    func(context.Context, string) ([]string, error)
+}
+
+// Verify forwards only the narrow verification capability and network dependencies.
 func (h *DomainHandler) Verify(c *gin.Context) {
-	q := requestStore(c, h.Store)
+	verifier := DomainVerificationHandler{Verification: h.Verification, Reconcile: h.Reconcile, LookupTXT: h.LookupTXT}
+	verifier.Verify(c)
+}
+
+// Verify resolves ownership outside transactions and applies only current results.
+func (h *DomainVerificationHandler) Verify(c *gin.Context) {
+	if h.Verification == nil {
+		authError(c, 503, "DB_ERROR")
+		return
+	}
+	if _, active := middleware.QueriesFromCtx(c); active {
+		authError(c, 503, "PROBE_TRANSACTION_ACTIVE")
+		return
+	}
 	tenantID, ok := middleware.GetTenantID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
@@ -292,7 +313,13 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	domain, err := q.GetDomainByID(c, store.GetDomainByIDParams{TenantID: tenantID, ID: id})
+	uid, _ := middleware.GetUserID(c)
+	actor := ProbeActor{TenantID: tenantID, UserID: uid}
+	domain, err := h.Verification.ReadVerification(c.Request.Context(), actor, id)
+	if errors.Is(err, ErrProbeForbidden) {
+		authError(c, 403, "FORBIDDEN")
+		return
+	}
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -312,7 +339,7 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 	lookup := h.LookupTXT
 	if lookup == nil {
@@ -342,8 +369,12 @@ func (h *DomainHandler) Verify(c *gin.Context) {
 		return
 	}
 
-	updated, err := q.VerifyDomainChallenge(c, store.VerifyDomainChallengeParams{TenantID: tenantID, ID: domain.ID, VerificationToken: domain.VerificationToken})
-	if errors.Is(err, pgx.ErrNoRows) {
+	updated, err := h.Verification.CompleteVerification(c.Request.Context(), actor, domain)
+	if errors.Is(err, ErrProbeForbidden) {
+		authError(c, 403, "FORBIDDEN")
+		return
+	}
+	if errors.Is(err, ErrProbeChanged) || errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "DOMAIN_CHALLENGE_CHANGED", "message": "domain.challenge_changed"}})
 		return
 	}

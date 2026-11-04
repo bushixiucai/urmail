@@ -29,6 +29,13 @@ func (rootBackupRunner) RunBackup(ctx context.Context, stamp string) ([]backupau
 	}
 	return backupauto.ReadSpoolArtifacts(automaticBackupSpool, stamp)
 }
+
+func (rootBackupRunner) RunBackupManifest(ctx context.Context, stamp string) (*backupauto.Manifest, []backupauto.LocalArtifact, error) {
+	if err := runBackup(ctx, []string{"--include-mail", "--maintenance", "--stamp", stamp, "--out-dir", automaticBackupSpool}); err != nil {
+		return nil, nil, err
+	}
+	return backupauto.ReadSpool(automaticBackupSpool, stamp)
+}
 func runBackupAuto(ctx context.Context, args []string) error {
 	if os.Geteuid() != 0 || len(args) != 0 {
 		return errors.New("backup-auto requires root and no arguments")
@@ -37,11 +44,15 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		fmt.Println("automatic backup disabled by restore or upgrade hold")
 		return nil
 	}
-	lock, err := backupLock(backupMaintenanceRoot, "operation.lock")
+	lock, err := backupLock(currentMaintenanceRoot(), "operation.lock")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
+	if backupWritersHeld() {
+		fmt.Println("automatic backup disabled by restore or upgrade hold")
+		return nil
+	}
 	ctx = context.WithValue(ctx, backupOperationContext{}, true)
 	if err = runBackupAutoResume(ctx, nil); err != nil {
 		return err

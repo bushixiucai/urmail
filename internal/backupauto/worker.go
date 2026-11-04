@@ -29,6 +29,12 @@ type BackupRunner interface {
 	RunBackup(ctx context.Context, stamp string) ([]LocalArtifact, string, bool, error)
 }
 
+// ManifestRunner is an optional extension of BackupRunner that provides the full
+// manifest (including Version 3 layout and logical slots) alongside artifacts.
+type ManifestRunner interface {
+	RunBackupManifest(ctx context.Context, stamp string) (*Manifest, []LocalArtifact, error)
+}
+
 // Worker runs backup -> encrypt -> upload -> verify -> retention on an
 // hourly tick (same cadence as the billing renewal worker), executing a
 // full pipeline at most once per Interval. Every failure is recorded in
@@ -160,9 +166,9 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	w.retentionDeleted = 0
 	w.retentionNote = ""
 	start := w.now()
-	runUID, err := recorder.StartRun(ctx, ScopeComplete)
-	if err != nil {
-		return err
+	runUID, startErr := recorder.StartRun(ctx, ScopeComplete)
+	if startErr != nil {
+		return startErr
 	}
 	defer func() {
 		success := returnErr == nil
@@ -180,7 +186,22 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	}()
 
 	stamp := StampFor(w.now())
-	artifacts, scope, consistent, err := w.Runner.RunBackup(ctx, stamp)
+	var (
+		sourceManifest *Manifest
+		artifacts      []LocalArtifact
+		scope          string
+		consistent     bool
+		err            error
+	)
+	if mr, ok := w.Runner.(ManifestRunner); ok {
+		sourceManifest, artifacts, err = mr.RunBackupManifest(ctx, stamp)
+		if err == nil && sourceManifest != nil {
+			scope = sourceManifest.Scope
+			consistent = sourceManifest.Consistent
+		}
+	} else {
+		artifacts, scope, consistent, err = w.Runner.RunBackup(ctx, stamp)
+	}
 	if err != nil {
 		return fmt.Errorf("local backup: %w", err)
 	}
@@ -205,13 +226,24 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		w.totalBytes += entry.EncryptedSize
 	}
 
+	manifestVersion := ManifestVersion2
+	layoutVersion := 0
+	var slots map[string]Slot
+	if sourceManifest != nil && sourceManifest.Version == ManifestVersion3 {
+		manifestVersion = ManifestVersion3
+		layoutVersion = sourceManifest.LayoutVersion
+		slots = sourceManifest.Slots
+	}
+
 	manifest := &Manifest{
-		Version:    ManifestVersion2,
-		Scope:      scope,
-		Consistent: consistent,
-		CreatedAt:  start.UTC(),
-		Artifacts:  entries,
-		Encryption: &EncryptionInfo{Algorithm: EncryptionAlgorithmAge, Recipient: w.Recipient},
+		Version:       manifestVersion,
+		LayoutVersion: layoutVersion,
+		Scope:         scope,
+		Consistent:    consistent,
+		CreatedAt:     start.UTC(),
+		Artifacts:     entries,
+		Encryption:    &EncryptionInfo{Algorithm: EncryptionAlgorithmAge, Recipient: w.Recipient},
+		Slots:         slots,
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {

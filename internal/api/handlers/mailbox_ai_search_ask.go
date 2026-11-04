@@ -39,7 +39,7 @@ type AISearchAsk struct {
 	// value (nil Pool) disables accounting: offline tests are unaffected.
 	Accounting        AISearchAskAccounting
 	SessionModelFor   func(context.Context, webmail.Session, string) (aianswer.Model, error)
-	ReserveForSession func(context.Context, webmail.Session, string, string) (*Reservation, error)
+	ReserveForSession func(context.Context, webmail.Session, string, string) (*AIUsageReservation, error)
 }
 
 // Handle answers one question from the mailbox principal's indexed mail.
@@ -118,7 +118,7 @@ func (h *AISearchAsk) Handle(c *gin.Context) {
 
 	// Budget enforcement happens BEFORE any provider call; an exhausted
 	// budget is a distinct, actionable error for the client.
-	var reservation *Reservation
+	var reservation *AIUsageReservation
 	var reserveErr error
 	if !req.PreviewOnly {
 		if h.ReserveForSession != nil {

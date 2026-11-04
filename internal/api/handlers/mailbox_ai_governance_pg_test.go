@@ -320,16 +320,22 @@ func TestMailboxAIPersonalBYOKWithNoEnterpriseModel(t *testing.T) {
 func TestMailboxAIHealthSecurityAndKeyReuse(t *testing.T) {
 	pool, principal := mailboxAIFixture(t, 100)
 	sec := newTestSecrets(t)
+	var owner int64
+	if err := pool.QueryRow(t.Context(), "SELECT user_id FROM user_tenant_roles WHERE tenant_id=$1 AND role='owner'", principal.TenantID).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
 
 	h := &AIConfigurationHandler{
-		Pool:           pool,
-		Secrets:        sec,
-		CloudEndpoints: []string{"https://api.openai.com/v1"},
-		LocalEndpoints: []string{"http://127.0.0.1:11434"},
+		Pool:             pool,
+		Secrets:          sec,
+		CloudEndpoints:   []string{"https://api.openai.com/v1"},
+		LocalEndpoints:   []string{"http://127.0.0.1:11434"},
+		HealthRepository: NewAIHealthRepository(pool),
 	}
 
 	authRouter := gin.New()
 	authRouter.Use(func(ctx *gin.Context) {
+		ctx.Set("urmail.user_id", owner)
 		ctx.Set("urmail.tenant_id", principal.TenantID)
 		ctx.Next()
 	})

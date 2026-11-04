@@ -188,10 +188,12 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 
 	ipKey := "mbox-ip|" + c.ClientIP()
 	limiterKey := "mbox|" + c.ClientIP() + "|" + address
-	if !loginAttempts.allow(limiterKey) || !loginAttempts.allowN(ipKey, loginMaxIPFailures) {
+	reservation, err := loginAttempts.BeginAttempt(limiterKey, ipKey, DefaultLoginBudgets)
+	if err != nil {
 		authError(c, http.StatusTooManyRequests, "RATE_LIMITED")
 		return
 	}
+	defer reservation.Discard()
 
 	tenantID, mailboxID, canonical, hash, err := h.Auth.Lookup(c.Request.Context(), address)
 	if err != nil {
@@ -199,8 +201,7 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 			authError(c, 429, "RATE_LIMITED")
 			return
 		}
-		loginAttempts.fail(limiterKey)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
@@ -219,13 +220,11 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 		return
 	}
 	if !matches {
-		loginAttempts.fail(limiterKey)
-		loginAttempts.fail(ipKey)
+		reservation.RecordFailure()
 		authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
-	loginAttempts.reset(limiterKey)
-	loginAttempts.reset(ipKey)
+	reservation.CompleteSuccess()
 
 	token, tokenHash, err := mailboxprincipal.NewToken()
 	if err != nil {

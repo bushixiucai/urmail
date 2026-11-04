@@ -39,6 +39,7 @@ var allowedWriteRoots = []string{
 	"/etc/opendkim",
 	"/etc/opendkim/keys",
 	"/var/lib/urmail",
+	"/var/lib/urmail-backup",
 }
 
 // allowedUnits lists the systemd units the agent may restart.

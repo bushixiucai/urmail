@@ -76,7 +76,7 @@ func NewWorker(opts Options) *Worker {
 		opts.Now = time.Now
 	}
 	if opts.Store == nil && opts.Pool != nil {
-		opts.Store = store.New(opts.Pool.Pool)
+		opts.Store = store.New(opts.Pool)
 	}
 	return &Worker{opts: opts}
 }
