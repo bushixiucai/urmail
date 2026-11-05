@@ -43,6 +43,12 @@ URMAIL_EAS_ENABLED=true
 
 `URMAIL_PACKAGE` 是运营人员显式指定本地包的受控路径，不表示安装器替该包证明来源；线下分发应随包带原始签名清单，先按固定公钥验证。不要将未签名开发包上传为稳定版本。
 
+## 发布政策
+
+1. **发布前置**：任何 release/tag 只允许发布在已通过该精确 SHA 完整 CI 的提交上（CI 全部 job 绿）。发布流水线内 `scripts/verify-release-ci.py` 会做 exact-SHA CI 校验与 main 祖先校验；发布前事后审计用 `scripts/audit-release-ci.py` 对全部历史 tag 逐一核对。
+2. **CI_WAIVED 豁免**：仅当该 SHA 的 CI 确实失败且本地验证充分时，才可在 `release-lock.json` 记录 `ci_status: "CI_WAIVED"` 并必须写明 PM approver 字段、失败 run id 与具体原因；无人批准的豁免发布视为违规，审计脚本按违规退出（非零）。
+3. **补偿控制**：私有仓库在 GitHub Free 套餐下无法启用 tag 保护 Rulesets（2026-11-06 用户决策暂不升级套餐）。在启用 Rulesets（tag pattern `v*` + 要求 Package workflow 检查通过）之前，以 `scripts/audit-release-ci.py` 审计加人工核对作为补偿控制；升级套餐后应立即启用 Rulesets。
+
 ## 幂等重跑与升级
 
 重复安装保留主密钥、已有证书、数据库口令、非托管操作员配置及现有账号密码/权益。默认值只用于新键，操作员显式传入的设置优先；不会执行旧 env 文件中的 shell 字符串。原权限和 mode 由安装器重新固定。
