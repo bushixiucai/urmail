@@ -28,11 +28,15 @@ async function setupReadFixture(page: Page) {
 
     let payload: unknown = {};
     if (path.startsWith("/api/v1/i18n/")) payload = catalogue;
-    else if (path.endsWith("/branding")) payload = { brand: { name: "urMail Next", theme: {} } };
-    else if (path.endsWith("/mailbox/status")) payload = { native: true, mail_host: "box.example.test" };
+    else if (path.endsWith("/branding"))
+      payload = { brand: { name: "urMail Next", theme: {} } };
+    else if (path.endsWith("/mailbox/status"))
+      payload = { native: true, mail_host: "box.example.test" };
     else if (path.endsWith("/mailbox/folders"))
       payload = {
-        folders: [{ name: "INBOX", name_enc: "INBOX", delimiter: "/", flags: [] }],
+        folders: [
+          { name: "INBOX", name_enc: "INBOX", delimiter: "/", flags: [] },
+        ],
       };
     else if (path.endsWith("/messages"))
       payload = {
@@ -82,7 +86,9 @@ async function setupReadFixture(page: Page) {
 }
 
 test.describe("Webmail Safe Reading & Image Neutralization", () => {
-  test("neutralizes remote images by default and shows unblock banner", async ({ page }) => {
+  test("neutralizes remote images by default and shows unblock banner", async ({
+    page,
+  }) => {
     await setupReadFixture(page);
     await page.goto("/webmail/inbox");
 

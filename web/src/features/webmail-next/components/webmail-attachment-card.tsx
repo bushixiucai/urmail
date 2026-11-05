@@ -1,5 +1,10 @@
-import React from "react";
-import { Download, FileText, Image as ImageIcon, FileArchive, File } from "lucide-react";
+import {
+  Download,
+  FileText,
+  Image as ImageIcon,
+  FileArchive,
+  File,
+} from "lucide-react";
 import type { AttachmentMeta } from "@/features/webmail/mailbox-api";
 
 interface WebmailAttachmentCardProps {
@@ -14,14 +19,18 @@ export function WebmailAttachmentCard({
   uid,
 }: WebmailAttachmentCardProps) {
   const downloadUrl = `/api/v1/mailbox/folders/${encodeURIComponent(
-    folderEnc
+    folderEnc,
   )}/messages/${uid}/attachments/${encodeURIComponent(attachment.part_id)}`;
 
   const getIcon = () => {
     const type = attachment.content_type.toLowerCase();
     if (type.startsWith("image/")) return ImageIcon;
     if (type.includes("pdf") || type.includes("text")) return FileText;
-    if (type.includes("zip") || type.includes("tar") || type.includes("archive"))
+    if (
+      type.includes("zip") ||
+      type.includes("tar") ||
+      type.includes("archive")
+    )
       return FileArchive;
     return File;
   };
@@ -44,7 +53,10 @@ export function WebmailAttachmentCard({
           <Icon className="w-4 h-4" />
         </div>
         <div className="min-w-0">
-          <div className="text-xs font-medium text-[#18181B] truncate" title={attachment.filename}>
+          <div
+            className="text-xs font-medium text-[#18181B] truncate"
+            title={attachment.filename}
+          >
             {attachment.filename}
           </div>
           <div className="text-[10px] text-[#A1A1AA]">

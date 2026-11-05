@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Reply,
@@ -174,11 +174,16 @@ export function WebmailReadingPane({
                   <span className="text-xs font-semibold text-[#18181B]">
                     {senderName}
                   </span>
-                  <span className="text-xs text-[#71717A]">&lt;{senderEmail}&gt;</span>
-                  <WebmailSecurityBadge authentication={message.authentication} />
+                  <span className="text-xs text-[#71717A]">
+                    &lt;{senderEmail}&gt;
+                  </span>
+                  <WebmailSecurityBadge
+                    authentication={message.authentication}
+                  />
                 </div>
                 <div className="text-[11px] text-[#A1A1AA] mt-0.5">
-                  to {message.to?.map((t) => t.name || t.email).join(", ") || "me"}
+                  to{" "}
+                  {message.to?.map((t) => t.name || t.email).join(", ") || "me"}
                 </div>
               </div>
             </div>

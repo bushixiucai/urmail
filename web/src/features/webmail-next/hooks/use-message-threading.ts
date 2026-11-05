@@ -4,7 +4,9 @@ import type { MessageSummary } from "@/features/webmail/mailbox-api";
 import type { WebmailItem } from "../types";
 
 export function useMessageThreading(messages: MessageSummary[]) {
-  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<number>>(new Set());
+  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<number>>(
+    new Set(),
+  );
 
   const toggleThreadExpand = useCallback((threadId: number) => {
     setExpandedThreadIds((prev) => {
@@ -37,7 +39,8 @@ export function useMessageThreading(messages: MessageSummary[]) {
     // Helper to format MessageSummary into WebmailItem
     const toWebmailItem = (m: MessageSummary, isChild = false): WebmailItem => {
       const senderObj = m.from?.[0];
-      const senderName = senderObj?.name || senderObj?.email?.split("@")[0] || "Unknown";
+      const senderName =
+        senderObj?.name || senderObj?.email?.split("@")[0] || "Unknown";
       const isUnread = !m.flags.includes("\\Seen");
       const isStarred = m.flags.includes("\\Flagged");
 
@@ -64,7 +67,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
     for (const [threadId, msgs] of threadGroups.entries()) {
       // Sort msgs newest first
       const sorted = [...msgs].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
       const root = sorted[0];
       const isExpanded = expandedThreadIds.has(threadId);
@@ -79,8 +82,8 @@ export function useMessageThreading(messages: MessageSummary[]) {
         new Set(
           sorted
             .map((s) => s.from?.[0]?.name || s.from?.[0]?.email?.split("@")[0])
-            .filter(Boolean)
-        )
+            .filter(Boolean),
+        ),
       );
       parentItem.sender = `${uniqueSenders.join(", ")} (${msgs.length})`;
 

@@ -1,5 +1,13 @@
 import React from "react";
-import { Star, Paperclip, ChevronRight, ChevronDown, Trash2, MailOpen, Mail } from "lucide-react";
+import {
+  Star,
+  Paperclip,
+  ChevronRight,
+  ChevronDown,
+  Trash2,
+  MailOpen,
+  Mail,
+} from "lucide-react";
 import type { WebmailItem, DensityMode } from "../types";
 
 interface WebmailMessageRowProps {
@@ -39,10 +47,10 @@ export function WebmailMessageRow({
         isActive
           ? "bg-[#EFF6FF]"
           : isSelected
-          ? "bg-[#F8F7F2]"
-          : item.isUnread
-          ? "bg-[#FFFFFF]"
-          : "bg-[#FAF9F5]/40"
+            ? "bg-[#F8F7F2]"
+            : item.isUnread
+              ? "bg-[#FFFFFF]"
+              : "bg-[#FAF9F5]/40"
       } hover:bg-[#F8F7F2]`}
     >
       {/* Active Left Indicator Bar */}
@@ -54,7 +62,10 @@ export function WebmailMessageRow({
       <div className="flex items-center gap-2 shrink-0 mr-2.5">
         <div className="w-2 flex justify-center">
           {item.isUnread ? (
-            <div data-testid={`unread-dot-${item.uid}`} className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary,#2563eb)]" />
+            <div
+              data-testid={`unread-dot-${item.uid}`}
+              className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary,#2563eb)]"
+            />
           ) : (
             <div className="w-1.5 h-1.5" />
           )}
@@ -64,11 +75,15 @@ export function WebmailMessageRow({
           type="button"
           onClick={onToggleStar}
           className={`p-0.5 rounded hover:text-[#F59E0B] transition-colors ${
-            item.isStarred ? "text-[#F59E0B]" : "text-[#D4D4D8] group-hover:text-[#A1A1AA]"
+            item.isStarred
+              ? "text-[#F59E0B]"
+              : "text-[#D4D4D8] group-hover:text-[#A1A1AA]"
           }`}
           title={item.isStarred ? "Starred" : "Not starred"}
         >
-          <Star className={`w-3.5 h-3.5 ${item.isStarred ? "fill-[#F59E0B]" : ""}`} />
+          <Star
+            className={`w-3.5 h-3.5 ${item.isStarred ? "fill-[#F59E0B]" : ""}`}
+          />
         </button>
       </div>
 
@@ -78,7 +93,9 @@ export function WebmailMessageRow({
           <div className="flex items-center gap-1.5 min-w-0">
             <span
               className={`truncate text-xs ${
-                item.isUnread ? "font-bold text-[#18181B]" : "font-medium text-[#3F3F46]"
+                item.isUnread
+                  ? "font-bold text-[#18181B]"
+                  : "font-medium text-[#3F3F46]"
               }`}
             >
               {item.sender}
@@ -87,6 +104,7 @@ export function WebmailMessageRow({
             {/* Thread count badge pill */}
             {item.threadCount && item.threadCount > 1 && (
               <button
+                data-testid={`thread-toggle-${item.threadId || item.uid}`}
                 type="button"
                 onClick={onToggleThread}
                 className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#EBE8E0] text-[#71717A] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
@@ -106,7 +124,12 @@ export function WebmailMessageRow({
           <div className="shrink-0 flex items-center text-[11px] text-[#A1A1AA]">
             {/* Standard date display (hidden on hover if actions available) */}
             <span className="group-hover:hidden">
-              {item.date ? new Date(item.date).toLocaleDateString(undefined, { month: "numeric", day: "numeric" }) : ""}
+              {item.date
+                ? new Date(item.date).toLocaleDateString(undefined, {
+                    month: "numeric",
+                    day: "numeric",
+                  })
+                : ""}
             </span>
 
             {/* Hover quick action buttons */}
@@ -118,7 +141,11 @@ export function WebmailMessageRow({
                   className="p-1 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
                   title={item.isUnread ? "Mark as read" : "Mark as unread"}
                 >
-                  {item.isUnread ? <MailOpen className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
+                  {item.isUnread ? (
+                    <MailOpen className="w-3.5 h-3.5" />
+                  ) : (
+                    <Mail className="w-3.5 h-3.5" />
+                  )}
                 </button>
               )}
               {onDelete && (

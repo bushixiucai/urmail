@@ -1,4 +1,3 @@
-import React from "react";
 import { useTranslation } from "react-i18next";
 import {
   Inbox,
@@ -39,13 +38,43 @@ export function WebmailNavigationRail({
 
   const standardNavItems = [
     { key: "INBOX", label: t("webmail_next.inbox"), icon: Inbox, enc: "INBOX" },
-    { key: "Starred", label: t("webmail_next.starred"), icon: Star, enc: "Starred" },
-    { key: "Drafts", label: t("webmail_next.drafts"), icon: FileText, enc: "Drafts" },
+    {
+      key: "Starred",
+      label: t("webmail_next.starred"),
+      icon: Star,
+      enc: "Starred",
+    },
+    {
+      key: "Drafts",
+      label: t("webmail_next.drafts"),
+      icon: FileText,
+      enc: "Drafts",
+    },
     { key: "Sent", label: t("webmail_next.sent"), icon: Send, enc: "Sent" },
-    { key: "Scheduled", label: t("webmail_next.scheduled"), icon: Clock, enc: "Scheduled" },
-    { key: "Junk", label: t("webmail_next.junk"), icon: AlertOctagon, enc: "Junk" },
-    { key: "Trash", label: t("webmail_next.trash"), icon: Trash2, enc: "Trash" },
-    { key: "Archive", label: t("webmail_next.archive"), icon: Archive, enc: "Archive" },
+    {
+      key: "Scheduled",
+      label: t("webmail_next.scheduled"),
+      icon: Clock,
+      enc: "Scheduled",
+    },
+    {
+      key: "Junk",
+      label: t("webmail_next.junk"),
+      icon: AlertOctagon,
+      enc: "Junk",
+    },
+    {
+      key: "Trash",
+      label: t("webmail_next.trash"),
+      icon: Trash2,
+      enc: "Trash",
+    },
+    {
+      key: "Archive",
+      label: t("webmail_next.archive"),
+      icon: Archive,
+      enc: "Archive",
+    },
   ];
 
   return (
@@ -68,14 +97,19 @@ export function WebmailNavigationRail({
           title={t("webmail_next.compose")}
         >
           <SquarePen className="w-4 h-4 shrink-0" />
-          {!isCollapsed && <span className="text-sm font-semibold">{t("webmail_next.compose")}</span>}
+          {!isCollapsed && (
+            <span className="text-sm font-semibold">
+              {t("webmail_next.compose")}
+            </span>
+          )}
         </button>
 
         {/* Standard Folder List */}
         <nav className="mt-4 space-y-0.5 w-full">
           {standardNavItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeFolder.toLowerCase() === item.enc.toLowerCase();
+            const isActive =
+              activeFolder.toLowerCase() === item.enc.toLowerCase();
             const unread = unreadCounts[item.enc] || 0;
 
             return (
@@ -91,7 +125,9 @@ export function WebmailNavigationRail({
                 }`}
                 title={item.label}
               >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-[var(--brand-primary,#2563eb)]" : "text-[#71717A]"}`} />
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${isActive ? "text-[var(--brand-primary,#2563eb)]" : "text-[#71717A]"}`}
+                />
                 {!isCollapsed && (
                   <div className="flex-1 flex items-center justify-between overflow-hidden">
                     <span className="truncate">{item.label}</span>
@@ -107,32 +143,45 @@ export function WebmailNavigationRail({
           })}
 
           {/* Custom Folders */}
-          {folders.filter(f => !standardNavItems.some(s => s.enc.toLowerCase() === f.name_enc.toLowerCase())).map((cf) => {
-            const isActive = activeFolder.toLowerCase() === cf.name_enc.toLowerCase();
-            return (
-              <button
-                key={cf.name_enc}
-                data-testid={`nav-folder-${cf.name_enc}`}
-                type="button"
-                onClick={() => onSelectFolder(cf.name_enc)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors ${
-                  isActive
-                    ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold"
-                    : "text-[#18181B] hover:bg-[#F3F1EC]"
-                }`}
-                title={cf.name}
-              >
-                <Folder className="w-4 h-4 shrink-0 text-[#71717A]" />
-                {!isCollapsed && <span className="truncate flex-1 text-left">{cf.name}</span>}
-              </button>
-            );
-          })}
+          {folders
+            .filter(
+              (f) =>
+                !standardNavItems.some(
+                  (s) => s.enc.toLowerCase() === f.name_enc.toLowerCase(),
+                ),
+            )
+            .map((cf) => {
+              const isActive =
+                activeFolder.toLowerCase() === cf.name_enc.toLowerCase();
+              return (
+                <button
+                  key={cf.name_enc}
+                  data-testid={`nav-folder-${cf.name_enc}`}
+                  type="button"
+                  onClick={() => onSelectFolder(cf.name_enc)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors ${
+                    isActive
+                      ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold"
+                      : "text-[#18181B] hover:bg-[#F3F1EC]"
+                  }`}
+                  title={cf.name}
+                >
+                  <Folder className="w-4 h-4 shrink-0 text-[#71717A]" />
+                  {!isCollapsed && (
+                    <span className="truncate flex-1 text-left">{cf.name}</span>
+                  )}
+                </button>
+              );
+            })}
         </nav>
       </div>
 
       {/* Quota Gauge Indicator at bottom */}
       {!isCollapsed ? (
-        <div data-testid="webmail-quota-bar" className="p-4 border-t border-[#EBE8E0] bg-[#FFFFFF]/60">
+        <div
+          data-testid="webmail-quota-bar"
+          className="p-4 border-t border-[#EBE8E0] bg-[#FFFFFF]/60"
+        >
           <div className="flex justify-between items-center text-[11px] text-[#71717A] mb-1.5 font-medium">
             <span>Storage</span>
             <span>{quotaPercent}%</span>
@@ -143,20 +192,30 @@ export function WebmailNavigationRail({
                 quotaPercent > 95
                   ? "bg-[#DC2626]"
                   : quotaPercent > 80
-                  ? "bg-[#D97706]"
-                  : "bg-[var(--brand-primary,#2563eb)]"
+                    ? "bg-[#D97706]"
+                    : "bg-[var(--brand-primary,#2563eb)]"
               }`}
               style={{ width: `${Math.min(100, Math.max(0, quotaPercent))}%` }}
             />
           </div>
-          <div className="mt-1 text-[10px] text-[#A1A1AA] truncate">{quotaText}</div>
+          <div className="mt-1 text-[10px] text-[#A1A1AA] truncate">
+            {quotaText}
+          </div>
         </div>
       ) : (
-        <div data-testid="webmail-quota-bar-mini" className="p-3 border-t border-[#EBE8E0] flex justify-center">
+        <div
+          data-testid="webmail-quota-bar-mini"
+          className="p-3 border-t border-[#EBE8E0] flex justify-center"
+        >
           <div
             className="w-2.5 h-2.5 rounded-full"
             style={{
-              backgroundColor: quotaPercent > 95 ? "#DC2626" : quotaPercent > 80 ? "#D97706" : "var(--brand-primary,#2563eb)",
+              backgroundColor:
+                quotaPercent > 95
+                  ? "#DC2626"
+                  : quotaPercent > 80
+                    ? "#D97706"
+                    : "var(--brand-primary,#2563eb)",
             }}
             title={quotaText}
           />

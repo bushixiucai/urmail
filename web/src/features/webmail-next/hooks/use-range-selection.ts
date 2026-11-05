@@ -11,7 +11,9 @@ export function useRangeSelection<T extends { uid: number }>(items: T[]) {
         const next = new Set(prev);
 
         if (isShiftKey && lastSelectedUid !== null) {
-          const lastIdx = items.findIndex((item) => item.uid === lastSelectedUid);
+          const lastIdx = items.findIndex(
+            (item) => item.uid === lastSelectedUid,
+          );
           const currentIdx = items.findIndex((item) => item.uid === uid);
 
           if (lastIdx !== -1 && currentIdx !== -1) {
@@ -44,7 +46,7 @@ export function useRangeSelection<T extends { uid: number }>(items: T[]) {
         return next;
       });
     },
-    [items, lastSelectedUid]
+    [items, lastSelectedUid],
   );
 
   const selectAll = useCallback(() => {

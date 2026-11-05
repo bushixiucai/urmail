@@ -1,10 +1,12 @@
-import React from "react";
 import { useTranslation } from "react-i18next";
 import { CheckSquare, Square, ArrowDownUp, RefreshCw } from "lucide-react";
 import { WebmailMessageRow } from "./webmail-message-row";
 import { useMessageThreading } from "../hooks/use-message-threading";
 import { useRangeSelection } from "../hooks/use-range-selection";
-import type { MessageSummary, MailboxSortKey } from "@/features/webmail/mailbox-api";
+import type {
+  MessageSummary,
+  MailboxSortKey,
+} from "@/features/webmail/mailbox-api";
 import type { DensityMode } from "../types";
 
 interface WebmailMessageListProps {
@@ -98,7 +100,9 @@ export function WebmailMessageList({
             title={`Sort: ${sort || "date"} (${order})`}
           >
             <ArrowDownUp className="w-3 h-3" />
-            <span className="capitalize">{sort || t("webmail_next.sort_date")}</span>
+            <span className="capitalize">
+              {sort || t("webmail_next.sort_date")}
+            </span>
           </button>
 
           {onRefresh && (

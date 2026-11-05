@@ -28,18 +28,20 @@ async function setupComposeFixture(page: Page) {
 
     let payload: unknown = {};
     if (path.startsWith("/api/v1/i18n/")) payload = catalogue;
-    else if (path.endsWith("/branding")) payload = { brand: { name: "urMail Next", theme: {} } };
-    else if (path.endsWith("/mailbox/status")) payload = { native: true, mail_host: "box.example.test" };
+    else if (path.endsWith("/branding"))
+      payload = { brand: { name: "urMail Next", theme: {} } };
+    else if (path.endsWith("/mailbox/status"))
+      payload = { native: true, mail_host: "box.example.test" };
     else if (path.endsWith("/mailbox/folders"))
       payload = {
-        folders: [{ name: "INBOX", name_enc: "INBOX", delimiter: "/", flags: [] }],
+        folders: [
+          { name: "INBOX", name_enc: "INBOX", delimiter: "/", flags: [] },
+        ],
       };
-    else if (path.endsWith("/messages"))
-      payload = { messages: [], total: 0 };
+    else if (path.endsWith("/messages")) payload = { messages: [], total: 0 };
     else if (path.endsWith("/mailbox/drafts"))
       payload = { saved: true, uid: 888, uid_validity: 1 };
-    else if (path.endsWith("/mailbox/send"))
-      payload = { sent: true };
+    else if (path.endsWith("/mailbox/send")) payload = { sent: true };
 
     await route.fulfill({
       status: 200,
@@ -50,7 +52,9 @@ async function setupComposeFixture(page: Page) {
 }
 
 test.describe("Webmail Compose & Debounced Drafts", () => {
-  test("opens floating compose dock and enters recipient chip", async ({ page }) => {
+  test("opens floating compose dock and enters recipient chip", async ({
+    page,
+  }) => {
     await setupComposeFixture(page);
     await page.goto("/webmail/inbox");
 
@@ -66,7 +70,9 @@ test.describe("Webmail Compose & Debounced Drafts", () => {
     await toInput.fill("partner@example.test");
     await toInput.press("Enter");
 
-    await expect(page.getByTestId("recipient-pill-partner@example.test")).toBeVisible();
+    await expect(
+      page.getByTestId("recipient-pill-partner@example.test"),
+    ).toBeVisible();
 
     // Fill subject
     const subjectInput = page.getByTestId("compose-subject-input");

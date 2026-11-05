@@ -2,33 +2,35 @@
 
 :root {
   /* 方向 A：Classic Vellum & Ink (羊皮纸墨) 基底 */
-  --vellum-ground: #FAF9F5;
-  --vellum-surface: #FFFFFF;
-  --vellum-surface-subtle: #F6F4EE;
-  --vellum-border: #EBE8E0;
-  --vellum-border-subtle: #F3F1EC;
-  --vellum-ink: #18181B;
-  --vellum-ink-secondary: #71717A;
-  --vellum-ink-tertiary: #A1A1AA;
-  --vellum-row-hover: #F8F7F2;
-  --vellum-row-active: #EFF6FF;
+  --vellum-ground: #faf9f5;
+  --vellum-surface: #ffffff;
+  --vellum-surface-subtle: #f6f4ee;
+  --vellum-border: #ebe8e0;
+  --vellum-border-subtle: #f3f1ec;
+  --vellum-ink: #18181b;
+  --vellum-ink-secondary: #71717a;
+  --vellum-ink-tertiary: #a1a1aa;
+  --vellum-row-hover: #f8f7f2;
+  --vellum-row-active: #eff6ff;
 
   --vellum-radius-sm: 4px;
   --vellum-radius-md: 6px;
   --vellum-radius-lg: 8px;
 
   /* 状态颜色 */
-  --vellum-color-success: #16A34A;
-  --vellum-color-warning: #D97706;
-  --vellum-color-danger: #DC2626;
-  --vellum-color-info: #0284C7;
-  --vellum-color-starred: #F59E0B;
+  --vellum-color-success: #16a34a;
+  --vellum-color-warning: #d97706;
+  --vellum-color-danger: #dc2626;
+  --vellum-color-info: #0284c7;
+  --vellum-color-starred: #f59e0b;
 }
 
 .webmail-vellum-root {
   background-color: var(--vellum-ground);
   color: var(--vellum-ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Noto Sans SC", sans-serif;
   height: 100vh;
   width: 100vw;
   overflow: hidden;

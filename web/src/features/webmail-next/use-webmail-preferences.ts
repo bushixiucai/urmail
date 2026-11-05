@@ -8,9 +8,7 @@ const SPLIT_MODE_KEY = "urmail.webmail.split_mode";
 export function useWebmailPreferences() {
   const [density, setDensityState] = useState<DensityMode>(() => {
     if (typeof window === "undefined") return "compact";
-    return (
-      (localStorage.getItem(DENSITY_KEY) as DensityMode) || "compact"
-    );
+    return (localStorage.getItem(DENSITY_KEY) as DensityMode) || "compact";
   });
 
   const [splitMode, setSplitModeState] = useState<SplitViewMode>(() => {
@@ -39,7 +37,10 @@ export function useWebmailPreferences() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.remove("density-compact", "density-comfortable");
+    document.documentElement.classList.remove(
+      "density-compact",
+      "density-comfortable",
+    );
     document.documentElement.classList.add(`density-${density}`);
   }, [density]);
 

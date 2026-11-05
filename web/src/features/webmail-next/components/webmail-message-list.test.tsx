@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailMessageList } from "./webmail-message-list";
@@ -56,7 +55,7 @@ describe("WebmailMessageList", () => {
         sort="date"
         order="desc"
         onSortChange={vi.fn()}
-      />
+      />,
     );
 
     // Thread parent row should show thread count badge "2"
@@ -76,7 +75,7 @@ describe("WebmailMessageList", () => {
         sort="date"
         order="desc"
         onSortChange={vi.fn()}
-      />
+      />,
     );
 
     const firstRow = screen.getByTestId("mail-row-102");
@@ -104,7 +103,7 @@ describe("WebmailMessageList", () => {
         sort="date"
         order="desc"
         onSortChange={onSortChange}
-      />
+      />,
     );
 
     const sortBtn = screen.getByTestId("sort-toggle-button");

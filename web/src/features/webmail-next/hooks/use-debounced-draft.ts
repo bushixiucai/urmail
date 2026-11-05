@@ -1,6 +1,9 @@
 // web/src/features/webmail-next/hooks/use-debounced-draft.ts
 import { useState, useEffect, useRef, useCallback } from "react";
-import { saveDraft, type OutgoingAttachment } from "@/features/webmail/mailbox-api";
+import {
+  saveDraft,
+  type OutgoingAttachment,
+} from "@/features/webmail/mailbox-api";
 
 interface DraftPayload {
   to: string[];
@@ -118,7 +121,7 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
         return next;
       });
     },
-    [saveToServer]
+    [saveToServer],
   );
 
   const clearDraft = useCallback(() => {

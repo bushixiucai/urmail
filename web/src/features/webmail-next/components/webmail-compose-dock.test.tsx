@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailComposeDock } from "./webmail-compose-dock";
@@ -8,12 +7,14 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/features/webmail/mailbox-api", async () => {
-  const actual = await vi.importActual<typeof import("@/features/webmail/mailbox-api")>(
-    "@/features/webmail/mailbox-api"
-  );
+  const actual = await vi.importActual<
+    typeof import("@/features/webmail/mailbox-api")
+  >("@/features/webmail/mailbox-api");
   return {
     ...actual,
-    saveDraft: vi.fn().mockResolvedValue({ saved: true, uid: 999, uid_validity: 1 }),
+    saveDraft: vi
+      .fn()
+      .mockResolvedValue({ saved: true, uid: 999, uid_validity: 1 }),
     sendMessage: vi.fn().mockResolvedValue({ sent: true }),
   };
 });
@@ -56,7 +57,7 @@ describe("WebmailComposeDock", () => {
         onClose={vi.fn()}
         initialTo={["client@example.com"]}
         initialSubject="Contract Attached"
-      />
+      />,
     );
 
     const sendBtn = screen.getByTestId("compose-send-button");

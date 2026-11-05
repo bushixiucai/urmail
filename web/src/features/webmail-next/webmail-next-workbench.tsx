@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { WebmailHeader } from "./components/webmail-header";
 import { WebmailNavigationRail } from "./components/webmail-navigation-rail";
 import { WebmailMessageList } from "./components/webmail-message-list";
@@ -24,7 +24,6 @@ interface WebmailNextWorkbenchProps {
 export function WebmailNextWorkbench({
   initialFolder = "INBOX",
 }: WebmailNextWorkbenchProps) {
-  const queryClient = useQueryClient();
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
   const [activeFolder, setActiveFolder] = useState(initialFolder);
   const [searchQuery, setSearchQuery] = useState("");
@@ -59,7 +58,14 @@ export function WebmailNextWorkbench({
     refetch: refetchMessages,
     isRefetching,
   } = useQuery({
-    queryKey: ["webmail", "messages", activeFolder, sortKey, sortOrder, searchQuery],
+    queryKey: [
+      "webmail",
+      "messages",
+      activeFolder,
+      sortKey,
+      sortOrder,
+      searchQuery,
+    ],
     queryFn: () =>
       listMessages(activeFolder, {
         sort: sortKey,
@@ -70,20 +76,32 @@ export function WebmailNextWorkbench({
     staleTime: 10_000,
   });
 
-  const messages = messageListData?.messages || [];
+  const messages = useMemo(
+    () => messageListData?.messages || [],
+    [messageListData?.messages],
+  );
 
   // 3. Fetch selected message details
-  const { data: messageDetail, isLoading: isDetailLoading, refetch: refetchDetail } =
-    useQuery<MessageDetail | null>({
-      queryKey: ["webmail", "detail", activeFolder, selectedUid],
-      queryFn: () =>
-        selectedUid ? getMessage(activeFolder, selectedUid) : Promise.resolve(null),
-      enabled: selectedUid !== null,
-    });
+  const {
+    data: messageDetail,
+    isLoading: isDetailLoading,
+    refetch: refetchDetail,
+  } = useQuery<MessageDetail | null>({
+    queryKey: ["webmail", "detail", activeFolder, selectedUid],
+    queryFn: () =>
+      selectedUid
+        ? getMessage(activeFolder, selectedUid)
+        : Promise.resolve(null),
+    enabled: selectedUid !== null,
+  });
 
   // Automatically select the first message on wide screen if none selected
   useEffect(() => {
-    if (messages.length > 0 && selectedUid === null && window.innerWidth >= 1024) {
+    if (
+      messages.length > 0 &&
+      selectedUid === null &&
+      window.innerWidth >= 1024
+    ) {
       setSelectedUid(messages[0].uid);
     }
   }, [messages, selectedUid]);
@@ -130,7 +148,7 @@ export function WebmailNextWorkbench({
     setComposeSubject(
       msg.subject.toLowerCase().startsWith("re:")
         ? msg.subject
-        : `Re: ${msg.subject}`
+        : `Re: ${msg.subject}`,
     );
     setIsComposeOpen(true);
   };
@@ -154,7 +172,9 @@ export function WebmailNextWorkbench({
       {/* 2. Main Workbench Area: 3-pane responsive layout */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Pane 1: Navigation Rail (220px or 64px collapsed; hidden on mobile 375px if message selected) */}
-        <div className={`hidden md:flex h-full shrink-0 ${selectedUid ? "hidden lg:flex" : ""}`}>
+        <div
+          className={`hidden md:flex h-full shrink-0 ${selectedUid ? "hidden lg:flex" : ""}`}
+        >
           <WebmailNavigationRail
             isCollapsed={isRailCollapsed}
             activeFolder={activeFolder}

@@ -86,7 +86,10 @@ export function WebmailComposeDock({
         });
 
         // Total size check <= 10MB
-        const totalSize = newAttachments.reduce((sum, a) => sum + (a.content_base64.length * 3) / 4, 0);
+        const totalSize = newAttachments.reduce(
+          (sum, a) => sum + (a.content_base64.length * 3) / 4,
+          0,
+        );
         if (totalSize > MAX_SEND_TOTAL_ATTACHMENT_BYTES) {
           setAttachmentError(t("webmail_next.total_attachments_too_large"));
           return;
@@ -131,7 +134,7 @@ export function WebmailComposeDock({
               html: draft.html || undefined,
               attachments: draft.attachments,
             },
-            requestKey
+            requestKey,
           );
           clearDraft();
           onClose();
@@ -161,8 +164,8 @@ export function WebmailComposeDock({
           isMaximized
             ? "inset-4 rounded-xl"
             : isMinimized
-            ? "bottom-0 right-8 w-72 h-10 rounded-t-lg overflow-hidden"
-            : "bottom-0 right-8 w-[580px] h-[640px] rounded-t-xl"
+              ? "bottom-0 right-8 w-72 h-10 rounded-t-lg overflow-hidden"
+              : "bottom-0 right-8 w-[580px] h-[640px] rounded-t-xl"
         }`}
       >
         {/* Dock Header */}
@@ -287,7 +290,9 @@ export function WebmailComposeDock({
                     className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#EBE8E0] rounded text-xs text-[#18181B]"
                   >
                     <Paperclip className="w-3 h-3 text-[#71717A]" />
-                    <span className="truncate max-w-[140px]">{att.filename}</span>
+                    <span className="truncate max-w-[140px]">
+                      {att.filename}
+                    </span>
                     <button
                       type="button"
                       onClick={() => handleRemoveAttachment(idx)}
@@ -342,8 +347,8 @@ export function WebmailComposeDock({
                   {isSaving
                     ? "Saving draft..."
                     : lastSavedAt
-                    ? `${t("webmail_next.draft_saved")} ${lastSavedAt}`
-                    : ""}
+                      ? `${t("webmail_next.draft_saved")} ${lastSavedAt}`
+                      : ""}
                 </span>
 
                 <button

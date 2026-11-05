@@ -28,8 +28,10 @@ async function setupMockFixture(page: Page) {
 
     let payload: unknown = {};
     if (path.startsWith("/api/v1/i18n/")) payload = catalogue;
-    else if (path.endsWith("/branding")) payload = { brand: { name: "urMail Next", theme: {} } };
-    else if (path.endsWith("/mailbox/status")) payload = { native: true, mail_host: "box.example.test" };
+    else if (path.endsWith("/branding"))
+      payload = { brand: { name: "urMail Next", theme: {} } };
+    else if (path.endsWith("/mailbox/status"))
+      payload = { native: true, mail_host: "box.example.test" };
     else if (path.endsWith("/mailbox/folders"))
       payload = {
         folders: [
@@ -72,7 +74,9 @@ async function setupMockFixture(page: Page) {
 }
 
 test.describe("Webmail Core Layout & Responsiveness", () => {
-  test("renders 3-pane workbench at 1440px desktop breakpoint", async ({ page }) => {
+  test("renders 3-pane workbench at 1440px desktop breakpoint", async ({
+    page,
+  }) => {
     await setupMockFixture(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/webmail/inbox");
@@ -80,7 +84,9 @@ test.describe("Webmail Core Layout & Responsiveness", () => {
     await expect(page.getByTestId("webmail-header")).toBeVisible();
     await expect(page.getByTestId("webmail-navigation-rail")).toBeVisible();
     await expect(page.getByTestId("webmail-message-list-pane")).toBeVisible();
-    await expect(page.getByTestId("webmail-reading-pane-wrapper")).toBeVisible();
+    await expect(
+      page.getByTestId("webmail-reading-pane-wrapper"),
+    ).toBeVisible();
 
     // Verify Mini Rail toggle
     const toggleBtn = page.getByTestId("rail-toggle-button");
@@ -91,31 +97,43 @@ test.describe("Webmail Core Layout & Responsiveness", () => {
     );
 
     // Verify zero horizontal scrollbar
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    const scrollWidth = await page.evaluate(
+      () => document.documentElement.scrollWidth,
+    );
     expect(scrollWidth).toBeLessThanOrEqual(1440);
   });
 
-  test("adapts to 1024px tablet breakpoint without horizontal scroll", async ({ page }) => {
+  test("adapts to 1024px tablet breakpoint without horizontal scroll", async ({
+    page,
+  }) => {
     await setupMockFixture(page);
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto("/webmail/inbox");
 
     await expect(page.getByTestId("webmail-header")).toBeVisible();
     await expect(page.getByTestId("webmail-message-list-pane")).toBeVisible();
-    await expect(page.getByTestId("webmail-reading-pane-wrapper")).toBeVisible();
+    await expect(
+      page.getByTestId("webmail-reading-pane-wrapper"),
+    ).toBeVisible();
 
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    const scrollWidth = await page.evaluate(
+      () => document.documentElement.scrollWidth,
+    );
     expect(scrollWidth).toBeLessThanOrEqual(1024);
   });
 
-  test("adapts to 375px mobile single pane stack without horizontal scroll", async ({ page }) => {
+  test("adapts to 375px mobile single pane stack without horizontal scroll", async ({
+    page,
+  }) => {
     await setupMockFixture(page);
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/webmail/inbox");
 
     await expect(page.getByTestId("webmail-header")).toBeVisible();
     // On 375px when reading, reading pane covers list or list covers reading
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    const scrollWidth = await page.evaluate(
+      () => document.documentElement.scrollWidth,
+    );
     expect(scrollWidth).toBeLessThanOrEqual(375);
   });
 });

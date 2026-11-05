@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { ShieldCheck, ShieldAlert, Shield } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -12,7 +12,9 @@ interface WebmailSecurityBadgeProps {
   };
 }
 
-export function WebmailSecurityBadge({ authentication }: WebmailSecurityBadgeProps) {
+export function WebmailSecurityBadge({
+  authentication,
+}: WebmailSecurityBadgeProps) {
   const { t } = useTranslation();
   const [showDetails, setShowDetails] = useState(false);
 
@@ -31,8 +33,8 @@ export function WebmailSecurityBadge({ authentication }: WebmailSecurityBadgePro
           isPass
             ? "bg-[#DCFCE7] text-[#166534] hover:bg-[#BBF7D0]"
             : isFail
-            ? "bg-[#FEF3C7] text-[#92400E] hover:bg-[#FDE68A]"
-            : "bg-[#F3F4F6] text-[#4B5563]"
+              ? "bg-[#FEF3C7] text-[#92400E] hover:bg-[#FDE68A]"
+              : "bg-[#F3F4F6] text-[#4B5563]"
         }`}
         title="Security & Authentication Details"
       >
@@ -60,11 +62,15 @@ export function WebmailSecurityBadge({ authentication }: WebmailSecurityBadgePro
           </div>
           <div className="flex justify-between text-[#71717A]">
             <span>Domain:</span>
-            <span className="font-mono text-[#18181B]">{authentication.domain || "N/A"}</span>
+            <span className="font-mono text-[#18181B]">
+              {authentication.domain || "N/A"}
+            </span>
           </div>
           <div className="flex justify-between text-[#71717A]">
             <span>Status:</span>
-            <span className={`font-semibold ${isPass ? "text-[#16A34A]" : "text-[#D97706]"}`}>
+            <span
+              className={`font-semibold ${isPass ? "text-[#16A34A]" : "text-[#D97706]"}`}
+            >
               {authentication.status.toUpperCase()}
             </span>
           </div>

@@ -1,4 +1,3 @@
-import React from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -117,7 +116,9 @@ export function WebmailEditorTiptap({
             type="button"
             onClick={() => editor?.chain().focus().toggleBulletList().run()}
             className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("bulletList") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+              editor?.isActive("bulletList")
+                ? "bg-[#EBE8E0] text-[#18181B]"
+                : ""
             }`}
             title="Bullet List"
           >
@@ -127,7 +128,9 @@ export function WebmailEditorTiptap({
             type="button"
             onClick={() => editor?.chain().focus().toggleOrderedList().run()}
             className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("orderedList") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+              editor?.isActive("orderedList")
+                ? "bg-[#EBE8E0] text-[#18181B]"
+                : ""
             }`}
             title="Numbered List"
           >
@@ -137,7 +140,9 @@ export function WebmailEditorTiptap({
             type="button"
             onClick={() => editor?.chain().focus().toggleBlockquote().run()}
             className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("blockquote") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+              editor?.isActive("blockquote")
+                ? "bg-[#EBE8E0] text-[#18181B]"
+                : ""
             }`}
             title="Quote"
           >

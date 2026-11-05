@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailReadingPane } from "./webmail-reading-pane";
@@ -45,7 +44,7 @@ describe("WebmailReadingPane", () => {
         message={mockMessage}
         folderEnc="INBOX"
         onLoadRemoteImages={onLoadRemoteImages}
-      />
+      />,
     );
 
     expect(screen.getByTestId("remote-images-banner")).toBeTruthy();

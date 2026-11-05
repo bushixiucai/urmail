@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailNextWorkbench } from "./webmail-next-workbench";
@@ -22,7 +21,7 @@ describe("WebmailNextWorkbench Layout", () => {
         <MemoryRouter>
           <WebmailNextWorkbench />
         </MemoryRouter>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
     expect(screen.getByTestId("webmail-header")).toBeTruthy();
     expect(screen.getByTestId("webmail-navigation-rail")).toBeTruthy();
@@ -36,7 +35,7 @@ describe("WebmailNextWorkbench Layout", () => {
         <MemoryRouter>
           <WebmailNextWorkbench />
         </MemoryRouter>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
     const rail = screen.getByTestId("webmail-navigation-rail");
     expect(rail.getAttribute("data-collapsed")).toBe("false");
@@ -52,7 +51,7 @@ describe("WebmailNextWorkbench Layout", () => {
         <MemoryRouter>
           <WebmailNextWorkbench />
         </MemoryRouter>
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
     const densityBtn = screen.getByTestId("webmail-density-toggle");
     expect(densityBtn.textContent).toMatch(/compact/i);

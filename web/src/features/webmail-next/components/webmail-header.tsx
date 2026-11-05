@@ -1,7 +1,12 @@
-import React from "react";
 import { useTranslation } from "react-i18next";
 import { usePublicBrand } from "@/components/brand/public-brand";
-import { PanelLeft, Search, SlidersHorizontal, RefreshCw, LayoutList } from "lucide-react";
+import {
+  PanelLeft,
+  Search,
+  SlidersHorizontal,
+  RefreshCw,
+  LayoutList,
+} from "lucide-react";
 import type { DensityMode } from "../types";
 
 interface WebmailHeaderProps {
