@@ -7,19 +7,20 @@ test.skip(
   "Requires the isolated local Vite fixture",
 );
 
-async function setupMockFixture(page: Page) {
+async function setupMockFixture(page: Page, locale: "zh-CN" | "en" = "zh-CN") {
   const catalogue = JSON.parse(
     await readFile(
-      resolve(process.cwd(), "../internal/i18n/locales/zh-CN.json"),
+      resolve(process.cwd(), `../internal/i18n/locales/${locale}.json`),
       "utf8",
     ),
   ) as Record<string, string>;
 
-  await page.addInitScript(() => {
+  await page.addInitScript((loc) => {
     sessionStorage.setItem("urmail.mailbox-token", "fixture-token");
     sessionStorage.setItem("urmail.mailbox-address", "reader@example.test");
     localStorage.setItem("urmail.webmail_version", "next");
-  });
+    localStorage.setItem("urmail.locale", loc);
+  }, locale);
 
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -74,10 +75,10 @@ async function setupMockFixture(page: Page) {
 }
 
 test.describe("Webmail Core Layout & Responsiveness", () => {
-  test("renders 3-pane workbench at 1440px desktop breakpoint", async ({
+  test("renders 3-pane workbench at 1440px desktop breakpoint and toggles rail & density", async ({
     page,
   }) => {
-    await setupMockFixture(page);
+    await setupMockFixture(page, "zh-CN");
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/webmail/inbox");
 
@@ -96,6 +97,18 @@ test.describe("Webmail Core Layout & Responsiveness", () => {
       "true",
     );
 
+    // Verify density toggle
+    const densityBtn = page.getByTestId("webmail-density-toggle");
+    await expect(densityBtn).toBeVisible();
+    const initialDensityClass = await page.evaluate(
+      () => document.documentElement.className,
+    );
+    await densityBtn.click();
+    const newDensityClass = await page.evaluate(
+      () => document.documentElement.className,
+    );
+    expect(newDensityClass).not.toEqual(initialDensityClass);
+
     // Verify zero horizontal scrollbar
     const scrollWidth = await page.evaluate(
       () => document.documentElement.scrollWidth,
@@ -106,7 +119,7 @@ test.describe("Webmail Core Layout & Responsiveness", () => {
   test("adapts to 1024px tablet breakpoint without horizontal scroll", async ({
     page,
   }) => {
-    await setupMockFixture(page);
+    await setupMockFixture(page, "en");
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto("/webmail/inbox");
 
@@ -125,15 +138,28 @@ test.describe("Webmail Core Layout & Responsiveness", () => {
   test("adapts to 375px mobile single pane stack without horizontal scroll", async ({
     page,
   }) => {
-    await setupMockFixture(page);
+    await setupMockFixture(page, "zh-CN");
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/webmail/inbox");
 
     await expect(page.getByTestId("webmail-header")).toBeVisible();
-    // On 375px when reading, reading pane covers list or list covers reading
     const scrollWidth = await page.evaluate(
       () => document.documentElement.scrollWidth,
     );
     expect(scrollWidth).toBeLessThanOrEqual(375);
+  });
+
+  test("adapts to short viewport / 200% zoom equivalent (640x480) without overflow", async ({
+    page,
+  }) => {
+    await setupMockFixture(page, "en");
+    await page.setViewportSize({ width: 640, height: 480 });
+    await page.goto("/webmail/inbox");
+
+    await expect(page.getByTestId("webmail-header")).toBeVisible();
+    const scrollWidth = await page.evaluate(
+      () => document.documentElement.scrollWidth,
+    );
+    expect(scrollWidth).toBeLessThanOrEqual(640);
   });
 });

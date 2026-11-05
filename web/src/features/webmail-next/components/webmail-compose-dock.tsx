@@ -51,11 +51,13 @@ export function WebmailComposeDock({
 
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const initialDraftProp =
+    initialTo.length > 0 || Boolean(initialSubject)
+      ? { to: initialTo, subject: initialSubject }
+      : undefined;
+
   const { draft, updateDraft, clearDraft, isSaving, lastSavedAt } =
-    useDebouncedDraft({
-      to: initialTo,
-      subject: initialSubject,
-    });
+    useDebouncedDraft(initialDraftProp);
 
   if (!isOpen) return null;
 
@@ -342,7 +344,7 @@ export function WebmailComposeDock({
                 </label>
               </div>
 
-              <div className="flex items-center gap-3 text-xs text-[#A1A1AA]">
+              <div className="flex items-center gap-3 text-xs text-[#52525B]">
                 <span data-testid="draft-status-indicator">
                   {isSaving
                     ? "Saving draft..."

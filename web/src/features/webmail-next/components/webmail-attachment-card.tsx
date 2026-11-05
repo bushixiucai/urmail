@@ -59,7 +59,7 @@ export function WebmailAttachmentCard({
           >
             {attachment.filename}
           </div>
-          <div className="text-[10px] text-[#A1A1AA]">
+          <div className="text-[10px] text-[#52525B]">
             {formatSize(attachment.size)}
           </div>
         </div>

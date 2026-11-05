@@ -75,7 +75,7 @@ export function WebmailSecurityBadge({
             </span>
           </div>
           {authentication.reason && (
-            <div className="text-[11px] text-[#A1A1AA] pt-1">
+            <div className="text-[11px] text-[#52525B] pt-1">
               {authentication.reason}
             </div>
           )}

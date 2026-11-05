@@ -3001,6 +3001,8 @@
   "webmail_next.sort_subject": "按主题排序",
   "webmail_next.starred": "星标邮件",
   "webmail_next.total_attachments_too_large": "总附件不能超过 10MB",
+  "webmail_next.to_me": "发送给我",
+  "webmail_next.to_recipients": "发送给 {{recipients}}",
   "webmail_next.trash": "已删除",
   "webmail_next.undo_send": "撤回"
 }

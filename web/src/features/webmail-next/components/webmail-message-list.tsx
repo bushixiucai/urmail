@@ -86,7 +86,7 @@ export function WebmailMessageList({
             )}
           </button>
           <span className="font-semibold text-[#18181B]">{folderName}</span>
-          <span className="text-[11px] text-[#A1A1AA]">
+          <span className="text-[11px] text-[#52525B]">
             ({messages.length})
           </span>
         </div>
@@ -128,7 +128,7 @@ export function WebmailMessageList({
         style={{ contain: "layout paint" }}
       >
         {items.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-xs text-[#A1A1AA]">
+          <div className="h-full flex items-center justify-center text-xs text-[#52525B]">
             No messages
           </div>
         ) : (

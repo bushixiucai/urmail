@@ -28,10 +28,14 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
           const parsed = JSON.parse(stored);
           return {
             to: [],
+            cc: [],
+            bcc: [],
             subject: "",
             text: "",
-            ...parsed,
+            html: "",
+            attachments: [],
             ...initialDraft,
+            ...parsed,
           };
         }
       } catch {

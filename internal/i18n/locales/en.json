@@ -3001,6 +3001,8 @@
   "webmail_next.sort_subject": "Sort by Subject",
   "webmail_next.starred": "Starred",
   "webmail_next.total_attachments_too_large": "Total attachments cannot exceed 10MB",
+  "webmail_next.to_me": "to me",
+  "webmail_next.to_recipients": "to {{recipients}}",
   "webmail_next.trash": "Trash",
   "webmail_next.undo_send": "Undo"
 }

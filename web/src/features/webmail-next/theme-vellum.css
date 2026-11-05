@@ -8,8 +8,8 @@
   --vellum-border: #ebe8e0;
   --vellum-border-subtle: #f3f1ec;
   --vellum-ink: #18181b;
-  --vellum-ink-secondary: #71717a;
-  --vellum-ink-tertiary: #a1a1aa;
+  --vellum-ink-secondary: #52525b; /* 4.6:1+ contrast on vellum */
+  --vellum-ink-tertiary: #52525b; /* WCAG AA 4.5:1+ compliance for metadata */
   --vellum-row-hover: #f8f7f2;
   --vellum-row-active: #eff6ff;
 

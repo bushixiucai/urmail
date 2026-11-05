@@ -121,7 +121,7 @@ export function WebmailMessageRow({
           </div>
 
           {/* Timestamp / Quick Action Hover Bar */}
-          <div className="shrink-0 flex items-center text-[11px] text-[#A1A1AA]">
+          <div className="shrink-0 flex items-center text-[11px] text-[#52525B]">
             {/* Standard date display (hidden on hover if actions available) */}
             <span className="group-hover:hidden">
               {item.date
@@ -171,7 +171,7 @@ export function WebmailMessageRow({
             {item.subject}
           </span>
           {item.hasAttachments && (
-            <Paperclip className="w-3 h-3 text-[#A1A1AA] shrink-0" />
+            <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
           )}
         </div>
       </div>

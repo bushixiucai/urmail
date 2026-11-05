@@ -93,7 +93,7 @@ async function setupListFixture(page: Page) {
 }
 
 test.describe("Webmail List & Threading", () => {
-  test("renders threads with thread count pill and handles expand/collapse", async ({
+  test("renders threads, expands/collapses threads, cycles sort, and toggles selection", async ({
     page,
   }) => {
     await setupListFixture(page);
@@ -103,18 +103,41 @@ test.describe("Webmail List & Threading", () => {
     const listPane = page.getByTestId("webmail-message-list-pane");
     await expect(listPane).toBeVisible();
 
-    // Expect thread row with pill "2"
-    const threadPill = page.getByTestId("thread-toggle-10");
-    await expect(threadPill).toBeVisible();
+    // 1. Thread toggle & expand/collapse
+    const threadToggle = page.getByTestId("thread-toggle-10");
+    await expect(threadToggle).toBeVisible();
 
-    // Verify selection of message row (top message in thread is 202 because date is newer)
-    const row = page.getByTestId("mail-row-202");
-    await expect(row).toBeVisible();
-    await row.click();
-    await expect(row).toHaveAttribute("data-active", "true");
+    // Top message 202 is visible
+    const row202 = page.getByTestId("mail-row-202");
+    await expect(row202).toBeVisible();
 
-    // Verify sort cycle button
+    // Initially child message 201 is collapsed
+    const row201 = page.getByTestId("mail-row-201");
+    await expect(row201).toHaveCount(0);
+
+    // Expand thread
+    await threadToggle.click();
+    await expect(page.getByTestId("mail-row-201")).toBeVisible();
+
+    // Collapse thread
+    await threadToggle.click();
+    await expect(page.getByTestId("mail-row-201")).toHaveCount(0);
+
+    // 2. Sort cycle button
     const sortBtn = page.getByTestId("sort-toggle-button");
     await expect(sortBtn).toBeVisible();
+    const initialSortTitle = await sortBtn.getAttribute("title");
+    await sortBtn.click();
+    const newSortTitle = await sortBtn.getAttribute("title");
+    expect(newSortTitle).not.toEqual(initialSortTitle);
+
+    // 3. Select all and range selection
+    const selectAllBtn = page.getByTestId("select-all-button");
+    await expect(selectAllBtn).toBeVisible();
+    await selectAllBtn.click();
+    await expect(row202).toHaveAttribute("data-selected", "true");
+
+    await selectAllBtn.click();
+    await expect(row202).toHaveAttribute("data-selected", "false");
   });
 });

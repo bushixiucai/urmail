@@ -37,6 +37,7 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
+  const [loadImagesForUid, setLoadImagesForUid] = useState<number | null>(null);
 
   const { density, setDensity } = useWebmailPreferences();
 
@@ -87,13 +88,25 @@ export function WebmailNextWorkbench({
     isLoading: isDetailLoading,
     refetch: refetchDetail,
   } = useQuery<MessageDetail | null>({
-    queryKey: ["webmail", "detail", activeFolder, selectedUid],
+    queryKey: [
+      "webmail",
+      "detail",
+      activeFolder,
+      selectedUid,
+      loadImagesForUid === selectedUid,
+    ],
     queryFn: () =>
       selectedUid
-        ? getMessage(activeFolder, selectedUid)
+        ? getMessage(activeFolder, selectedUid, {
+            loadImages: loadImagesForUid === selectedUid,
+          })
         : Promise.resolve(null),
     enabled: selectedUid !== null,
   });
+
+  useEffect(() => {
+    setLoadImagesForUid(null);
+  }, [selectedUid]);
 
   // Automatically select the first message on wide screen if none selected
   useEffect(() => {
@@ -235,7 +248,7 @@ export function WebmailNextWorkbench({
             onReply={handleReply}
             onDelete={handleDeleteMessage}
             onToggleStar={handleToggleStar}
-            onLoadRemoteImages={() => refetchDetail()}
+            onLoadRemoteImages={() => setLoadImagesForUid(selectedUid)}
           />
         </div>
       </div>

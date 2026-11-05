@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Reply,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
+import { sanitizeHtmlMail } from "@/features/webmail/sanitize-html-mail";
 import type { MessageDetail } from "@/features/webmail/mailbox-api";
 
 interface WebmailReadingPaneProps {
@@ -43,11 +44,15 @@ export function WebmailReadingPane({
   const { t } = useTranslation();
   const [imagesLoaded, setImagesLoaded] = useState(false);
 
+  useEffect(() => {
+    setImagesLoaded(false);
+  }, [message?.uid]);
+
   if (isLoading) {
     return (
       <div
         data-testid="webmail-reading-pane"
-        className="flex-1 h-full flex items-center justify-center bg-[#FAF9F5] text-xs text-[#A1A1AA]"
+        className="flex-1 h-full flex items-center justify-center bg-[#FAF9F5] text-xs text-[#52525B]"
       >
         Loading message...
       </div>
@@ -58,7 +63,7 @@ export function WebmailReadingPane({
     return (
       <div
         data-testid="webmail-reading-pane"
-        className="flex-1 h-full flex flex-col items-center justify-center bg-[#FAF9F5] text-xs text-[#A1A1AA]"
+        className="flex-1 h-full flex flex-col items-center justify-center bg-[#FAF9F5] text-xs text-[#52525B]"
       >
         <div className="w-12 h-12 rounded-full bg-[#EBE8E0]/50 flex items-center justify-center mb-2">
           📬
@@ -73,11 +78,16 @@ export function WebmailReadingPane({
   const senderName = sender?.name || senderEmail;
   const isStarred = message.flags.includes("\\Flagged");
 
-  // Check if remote images were blocked by server notes or HTML markers
+  // Check if remote images were blocked by server notes or HTML markers, or if HTML contains remote images
+  const containsRemoteImages = Boolean(
+    message.html &&
+    (/<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i.test(message.html) ||
+      message.html.includes("data-blocked-src")),
+  );
   const hasBlockedImages =
     !imagesLoaded &&
     (message.notes?.some((n) => n.includes("blocked_remote_image")) ||
-      Boolean(message.html && message.html.includes("data-blocked-src")));
+      containsRemoteImages);
 
   const handleShowImages = () => {
     setImagesLoaded(true);
@@ -181,14 +191,19 @@ export function WebmailReadingPane({
                     authentication={message.authentication}
                   />
                 </div>
-                <div className="text-[11px] text-[#A1A1AA] mt-0.5">
-                  to{" "}
-                  {message.to?.map((t) => t.name || t.email).join(", ") || "me"}
+                <div className="text-[11px] text-[#52525B] mt-0.5">
+                  {message.to && message.to.length > 0
+                    ? t("webmail_next.to_recipients", {
+                        recipients: message.to
+                          .map((t) => t.name || t.email)
+                          .join(", "),
+                      })
+                    : t("webmail_next.to_me")}
                 </div>
               </div>
             </div>
 
-            <div className="text-xs text-[#71717A]">
+            <div className="text-xs text-[#52525B]">
               {message.date ? new Date(message.date).toLocaleString() : ""}
             </div>
           </div>
@@ -231,10 +246,15 @@ export function WebmailReadingPane({
           className="bg-white p-6 rounded-xl border border-[#EBE8E0] shadow-sm text-sm text-[#18181B] leading-relaxed min-h-[220px]"
         >
           {message.html ? (
-            <div
-              data-testid="mail-html-body"
-              dangerouslySetInnerHTML={{ __html: message.html }}
-              className="prose prose-sm max-w-none"
+            <iframe
+              data-testid="mail-html-frame"
+              title={message.subject || "Email Content"}
+              sandbox=""
+              referrerPolicy="no-referrer"
+              className="w-full min-h-[420px] rounded border-0 bg-transparent"
+              srcDoc={sanitizeHtmlMail(message.html, {
+                allowRemoteImages: imagesLoaded,
+              })}
             />
           ) : (
             <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B]">

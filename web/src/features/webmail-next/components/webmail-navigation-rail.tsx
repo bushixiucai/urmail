@@ -198,7 +198,7 @@ export function WebmailNavigationRail({
               style={{ width: `${Math.min(100, Math.max(0, quotaPercent))}%` }}
             />
           </div>
-          <div className="mt-1 text-[10px] text-[#A1A1AA] truncate">
+          <div className="mt-1 text-[10px] text-[#52525B] truncate">
             {quotaText}
           </div>
         </div>
