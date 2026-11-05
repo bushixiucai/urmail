@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/app/auth-context";
 import { TenantLayout } from "@/app/layouts/tenant-layout";
 import { PlatformAdminLayout } from "@/app/layouts/platform-admin-layout";
 import { hasMailboxSession } from "@/features/webmail/mailbox-api";
+import { isWebmailNextEnabled } from "@/features/webmail-next/feature-flag";
 
 const PricingPage = lazy(() =>
   import("@/features/billing/pricing-page").then((m) => ({
@@ -130,6 +131,11 @@ const MailboxInboxPage = lazy(() =>
     default: m.MailboxInboxPage,
   })),
 );
+const WebmailNextEntry = lazy(() =>
+  import("@/features/webmail-next/webmail-next-entry").then((m) => ({
+    default: m.WebmailNextEntry,
+  })),
+);
 const MailboxSettingsPage = lazy(() =>
   import("@/features/webmail/mailbox-settings-page").then((m) => ({
     default: m.MailboxSettingsPage,
@@ -223,6 +229,13 @@ function WebmailRoute() {
   return <MailboxLoginPage />;
 }
 
+function WebmailInboxRoute() {
+  if (isWebmailNextEnabled()) {
+    return <WebmailNextEntry />;
+  }
+  return <MailboxInboxPage />;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -284,7 +297,15 @@ export function App() {
                 path="/webmail/inbox"
                 element={
                   <LazyPage>
-                    <MailboxInboxPage />
+                    <WebmailInboxRoute />
+                  </LazyPage>
+                }
+              />
+              <Route
+                path="/webmail/folder/:folderEnc"
+                element={
+                  <LazyPage>
+                    <WebmailInboxRoute />
                   </LazyPage>
                 }
               />
