@@ -289,9 +289,12 @@ func (s EnrollmentService) recordHostedSession(ctx context.Context, original sto
 }
 
 // ListHostedSetups permits only the original actor with a currently live role.
+// It is a pure read of persisted intents, so a missing charging channel must
+// not surface as 409 ADAPTER_UNAVAILABLE to browsers; without a pool nothing
+// was ever persisted and the list is simply empty.
 func (s EnrollmentService) ListHostedSetups(ctx context.Context, tenant, actor int64, key string) ([]HostedSetup, error) {
-	if e := s.setupAvailable(); e != nil {
-		return nil, e
+	if s.Dispatcher == nil || s.Dispatcher.Pool == nil {
+		return []HostedSetup{}, nil
 	}
 	tx, e := s.Dispatcher.Pool.PlatformTx(ctx)
 	if e != nil {

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/mailimport"
 	"io"
 	"net"
 	"net/http"
@@ -19,6 +18,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/mailimport"
 
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -82,7 +83,7 @@ func TestMailboxImportRealDovecotRuntime(t *testing.T) {
 	if e := os.Chown(home, 8, 8); e != nil {
 		t.Fatal(e)
 	}
-	listener, e := net.Listen("tcp", "127.0.0.1:0")
+	listener, e := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -193,7 +194,7 @@ service stats {
 	}
 
 	exportURL := f.server.URL + "/api/v1/mailbox/folders/" + url.PathEscape(webmail.EncodeFolderName("INBOX")) + "/export.mbox?uid_validity=" + strconv.FormatUint(uint64(validity), 10) + "&uids=" + strconv.FormatUint(uint64(uid), 10)
-	request, e := http.NewRequestWithContext(t.Context(), "GET", exportURL, nil)
+	request, e := http.NewRequestWithContext(t.Context(), http.MethodGet, exportURL, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -204,7 +205,7 @@ service stats {
 	}
 	exported, e := io.ReadAll(response.Body)
 	_ = response.Body.Close()
-	if e != nil || response.StatusCode != 200 {
+	if e != nil || response.StatusCode != http.StatusOK {
 		t.Fatal("real MBOX export", response.StatusCode, e, string(exported))
 	}
 	roundtrip, e := mailimport.Parse("mbox", "export.mbox", exported)

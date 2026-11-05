@@ -78,13 +78,18 @@ export function HostedRenewalAuthorization({
       setUnconfirmed(false);
     }
   }, []);
+  // Without an approved hosted channel there is nothing to list; skip the
+  // request so deployments without billing (and development) never surface a
+  // failing call in the browser console.
+  const hostedChannelReady = merchants.length > 0;
   useEffect(() => {
+    if (!hostedChannelReady) return;
     const ac = new AbortController();
     void load(ac.signal).catch(() => {
       if (!ac.signal.aborted) setError(true);
     });
     return () => ac.abort();
-  }, [load]);
+  }, [load, hostedChannelReady]);
   const act = async (
     item: HostedAuthorization | null,
     action: "complete" | "reconcile" | "cancel" | "start",

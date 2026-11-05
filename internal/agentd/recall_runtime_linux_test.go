@@ -13,10 +13,11 @@ import (
 	"testing"
 	"time"
 
-	recall "github.com/bushixiucai/urmail/internal/domain/recall"
-	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	recall "github.com/bushixiucai/urmail/internal/domain/recall"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // TestReviewedRecallDovecotRuntime is explicitly opt-in and creates its own

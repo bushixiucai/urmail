@@ -4,8 +4,9 @@ package sievegate
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"net"
+
+	"golang.org/x/sys/unix"
 )
 
 func authorize(conn *net.UnixConn, uid uint32) error {

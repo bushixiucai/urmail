@@ -94,11 +94,12 @@ func ensureMailStorageTree(root string, uid, gid int) error {
 			_ = unix.Close(child)
 			return err
 		}
-		required := uint32(1)
+		required := uint64(1)
 		if i == len(parts)-1 {
 			required = 3
 		}
-		mode := uint32(info.Mode)
+		// info.Mode is uint32 on Linux but uint16 on darwin; widen explicitly.
+		mode := uint64(info.Mode)
 		permissions := mode & 7
 		if int(info.Uid) == uid {
 			permissions = (mode >> 6) & 7

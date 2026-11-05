@@ -190,6 +190,25 @@ class CheckpointTests(unittest.TestCase):
                 cp.main(["verify", self.name])
         self.assertEqual(result.exception.code, 1)
 
+    def test_quiescence_set_excludes_service_templates(self):
+        # systemd rejects property queries for uninstantiated templates
+        # ("neither a valid invocation ID nor unit name"), and a template can
+        # never be active. The quiescence proof set must stay a mirror of the
+        # Go DefaultWriterUnits list: concrete units only.
+        for unit in cp.QUIESCENCE_UNITS:
+            self.assertFalse("@" in unit and unit.split("@", 1)[1].startswith("."),
+                             "template unit in QUIESCENCE_UNITS: " + unit)
+
+    def test_quiescence_rejects_non_inactive_state(self):
+        states = {unit: "inactive" for unit in cp.QUIESCENCE_UNITS}
+        states[cp.QUIESCENCE_UNITS[0]] = "activating"
+        with self.assertRaises(ValueError):
+            self.helper.quiescence(states.get)
+        states[cp.QUIESCENCE_UNITS[0]] = "inactive"
+        entries = self.helper.quiescence(states.get)
+        self.assertEqual([entry["unit"] for entry in entries], list(cp.QUIESCENCE_UNITS))
+        self.assertTrue(all(entry["state"] == "inactive" for entry in entries))
+
     def test_separate_quoted_agent_master_key_is_captured(self):
         raw = b"URMAIL_MASTER_KEY_PATH=\"/secure/agent.key\"\n"
         self.put("/etc/urmail/agent.env", raw)

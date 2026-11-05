@@ -57,14 +57,19 @@ func TestSpamPoliciesWithRealDovecot(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err = os.WriteFile(filepath.Join(dir, "policy.sieve"), []byte(files[dovecot.FileSpamSieve]), 0640); err != nil {
+	// sieve-test exercises one script, so the fixture chains the exact
+	// generated before and after scripts the way Dovecot does (before, then
+	// after, sharing the flag state). The outbound gate helper is stubbed to
+	// allow: the fixture has no gate socket, and the real helper contract is
+	// covered by the sievegate unit tests and the generated-content checks.
+	if err = os.WriteFile(filepath.Join(dir, "policy.sieve"), []byte(chainSieveScripts(files)), 0640); err != nil {
 		t.Fatal(err)
 	}
 	permissionCheck := exec.CommandContext(t.Context(), "docker", "run", "--rm", "--network", "none", "-v", dir+":/test:ro", image, "sh", "-ec", "install -d -m 0750 -o root -g mail /etc/dovecot/urmail-spam; install -m 0640 -o root -g mail /test/policy.sieve /etc/dovecot/urmail-spam/spam-before.sieve; runuser -u mail -- test -r /etc/dovecot/urmail-spam/spam-before.sieve; ! runuser -u nobody -- test -r /etc/dovecot/urmail-spam/spam-before.sieve")
 	if out, err := permissionCheck.CombinedOutput(); err != nil {
 		t.Fatalf("private policy permissions: %v\n%s", err, out)
 	}
-	conf := "mail_uid = 8\nmail_gid = 8\nmail_home = /tmp\nmail_location = maildir:/tmp/test-mail\nfirst_valid_uid = 1\nlog_path = /dev/stderr\nplugin {\n sieve_plugins = sieve_extprograms\n sieve_extensions = +vnd.dovecot.execute\n}\n"
+	conf := sieveRuntimePluginConf
 	if err = os.WriteFile(filepath.Join(dir, "dovecot.conf"), []byte(conf), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -101,8 +106,8 @@ func TestAmbiguousFromCannotSelectPrivateAllow(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for name, content := range map[string]string{
-		"policy.sieve": files[dovecot.FileSpamSieve],
-		"dovecot.conf": "mail_uid = 8\nmail_gid = 8\nmail_home = /tmp\nmail_location = maildir:/tmp/test-mail\nfirst_valid_uid = 1\nlog_path = /dev/stderr\nplugin {\n sieve_plugins = sieve_extprograms\n sieve_extensions = +vnd.dovecot.execute\n}\n",
+		"policy.sieve": chainSieveScripts(files),
+		"dovecot.conf": sieveRuntimePluginConf,
 		"message.eml":  "From: news@vendor.test\r\nFrom: attacker@evil.test\r\nSubject: ordinary\r\nX-UrMail-Spam: yes\r\n\r\nbody\r\n",
 	} {
 		if err = os.WriteFile(filepath.Join(dir, name), []byte(content), 0640); err != nil {
@@ -116,12 +121,40 @@ func TestAmbiguousFromCannotSelectPrivateAllow(t *testing.T) {
 	}
 }
 
+// chainSieveScripts concatenates the generated before and after scripts the
+// way Dovecot chains them. Sieve only allows require commands at the very top
+// of a script, so every require line is hoisted above both script bodies.
+func chainSieveScripts(files map[string]string) string {
+	var requires, body strings.Builder
+	for _, script := range []string{files[dovecot.FileSpamSieve], files[dovecot.FileSpamAfterSieve]} {
+		for _, line := range strings.Split(script, "\n") {
+			if strings.HasPrefix(line, "require ") {
+				requires.WriteString(line + "\n")
+			} else {
+				body.WriteString(line + "\n")
+			}
+		}
+	}
+	return requires.String() + body.String()
+}
+
+// sieveRuntimePluginConf mirrors the managed plugin contract from render.go:
+// vnd.dovecot.execute stays global-only with the helper binary directory
+// configured, so the outbound gate program is resolvable at runtime.
+const sieveRuntimePluginConf = "mail_uid = 8\nmail_gid = 8\nmail_home = /tmp\nmail_location = maildir:/tmp/test-mail\nfirst_valid_uid = 1\nlog_path = /dev/stderr\nplugin {\n sieve_plugins = sieve_extprograms\n sieve_extensions = -vnd.dovecot.execute\n sieve_global_extensions = +vnd.dovecot.execute\n sieve_execute_bin_dir = /etc/dovecot/urmail-spam/execute\n}\n"
+
 // The host temp tree intentionally stays private (CI uid1001, mode0700/0640).
 // Root installs a runtime-owned copy; no bind-mount chmod/chown weakens it.
+// The gate helper is a stub that reports "outbound allowed" so the combined
+// before/after script reaches the Junk fileinto; the real helper behavior is
+// covered by the sievegate unit tests.
 const privateSieveFixture = `install -d -m 0755 /tmp/urmail-mailfix-input
 install -m 0644 /test/dovecot.conf /tmp/urmail-mailfix-input/dovecot.conf
 install -m 0644 /test/message.eml /tmp/urmail-mailfix-input/message.eml
 install -d -m 0750 -o root -g mail /etc/dovecot/urmail-spam
+install -d -m 0755 -o root -g mail /etc/dovecot/urmail-spam/execute
+printf '#!/bin/sh\nexit 0\n' > /etc/dovecot/urmail-spam/execute/outbound-check
+chmod 0755 /etc/dovecot/urmail-spam/execute/outbound-check
 install -m 0640 -o root -g mail /test/policy.sieve /etc/dovecot/urmail-spam/spam-before.sieve
 /usr/bin/sievec -c /tmp/urmail-mailfix-input/dovecot.conf /etc/dovecot/urmail-spam/spam-before.sieve /etc/dovecot/urmail-spam/spam-before.svbin
 chown root:mail /etc/dovecot/urmail-spam/spam-before.svbin

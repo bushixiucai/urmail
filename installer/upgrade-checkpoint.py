@@ -59,8 +59,10 @@ ARTIFACTS = {"database.dump", "urmaild.env", "agent.env", "master.key", "agent-m
              "state.tar", "packages.json", "upgrade.hold", "upgrade_receipt.json"}
 
 # Quiescence proof set: every writer/activation unit from the Go fence list
-# (DefaultWriterUnits mirror) plus the Postfix template that guards other
-# instances. All must be inactive before and after a checkpoint capture.
+# (DefaultWriterUnits mirror). All must be inactive before and after a
+# checkpoint capture. Service templates (postfix@.service) are deliberately
+# excluded like in DefaultWriterUnits: only concrete instances can be
+# observed, and systemd rejects property queries for uninstantiated templates.
 QUIESCENCE_UNITS = (
     "dovecot.socket",
     "urmail-backup-auto.timer",
@@ -80,7 +82,6 @@ QUIESCENCE_UNITS = (
     "php8.6-fpm.service",
     "postfix.service",
     "postfix@-.service",
-    "postfix@.service",
     "dovecot.service",
     "urmaild.service",
     "urmaild-agent.service",
