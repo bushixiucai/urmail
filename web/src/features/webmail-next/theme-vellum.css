@@ -1,0 +1,48 @@
+/* web/src/features/webmail-next/theme-vellum.css */
+
+:root {
+  /* 方向 A：Classic Vellum & Ink (羊皮纸墨) 基底 */
+  --vellum-ground: #FAF9F5;
+  --vellum-surface: #FFFFFF;
+  --vellum-surface-subtle: #F6F4EE;
+  --vellum-border: #EBE8E0;
+  --vellum-border-subtle: #F3F1EC;
+  --vellum-ink: #18181B;
+  --vellum-ink-secondary: #71717A;
+  --vellum-ink-tertiary: #A1A1AA;
+  --vellum-row-hover: #F8F7F2;
+  --vellum-row-active: #EFF6FF;
+
+  --vellum-radius-sm: 4px;
+  --vellum-radius-md: 6px;
+  --vellum-radius-lg: 8px;
+
+  /* 状态颜色 */
+  --vellum-color-success: #16A34A;
+  --vellum-color-warning: #D97706;
+  --vellum-color-danger: #DC2626;
+  --vellum-color-info: #0284C7;
+  --vellum-color-starred: #F59E0B;
+}
+
+.webmail-vellum-root {
+  background-color: var(--vellum-ground);
+  color: var(--vellum-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", sans-serif;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 列表紧凑与舒适模式行高 */
+.density-comfortable .mail-row-item {
+  height: 52px;
+  padding: 8px 16px;
+}
+
+.density-compact .mail-row-item {
+  height: 40px;
+  padding: 6px 12px;
+}
