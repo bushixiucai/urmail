@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/agent"
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
@@ -390,6 +391,92 @@ func validSHA256(value string) bool {
 
 func validPreparedEvidence(status *readinessAgentSnapshot) bool {
 	return status != nil && !status.Ready && !status.Degraded && status.Step == "prepared" && status.Desired != "" && validSHA256(status.ManifestSHA256)
+}
+
+// activeLiveAgentStatus reports the RUNNING agent's readiness over its socket.
+// Injectable for tests; the release path uses it to close the prepared-stuck
+// receipt gap observed in production (v0.6.0 receipt never left "prepared"
+// even after the agent reported ready).
+var activeLiveAgentStatus = defaultLiveAgentStatus
+
+func defaultLiveAgentStatus(ctx context.Context) (*readinessAgentSnapshot, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load config for live agent status: %w", err)
+	}
+	client := agent.NewClient(cfg.AgentSocket)
+	resp, err := client.Do(ctx, agentd.OpConfigStatus, struct{}{})
+	if err != nil {
+		return nil, fmt.Errorf("query live agent status: %w", err)
+	}
+	var status agentd.ApplyStatus
+	if err = json.Unmarshal([]byte(resp.Stdout), &status); err != nil {
+		return nil, fmt.Errorf("parse live agent status: %w", err)
+	}
+	return &readinessAgentSnapshot{
+		Ready:     status.Ready,
+		Degraded:  status.Degraded,
+		Desired:   status.Desired,
+		Applied:   status.Applied,
+		AppliedAt: status.AppliedAt,
+		Step:      status.Step,
+	}, nil
+}
+
+// rewriteReadinessForRelease atomically re-signs the readiness receipt so it
+// binds the live, ready agent snapshot instead of the offline prepared one.
+// Fence hold/receipt digests are kept as historical bindings of the fence that
+// was just released. The signature is renamed first (matching --replace
+// semantics), so a crash mid-rewrite leaves a verify-fails-closed state, never
+// an unsigned or half-signed receipt.
+func rewriteReadinessForRelease(rootDir, keyPath string, doc *upgradeReadinessDoc, live *readinessAgentSnapshot) error {
+	if doc == nil || live == nil {
+		return nil
+	}
+	if doc.AgentStatus == nil || doc.AgentStatus.Ready || !live.Ready || live.Degraded ||
+		live.Desired == "" || live.Desired != live.Applied || live.Step == "" ||
+		live.Desired != doc.AgentStatus.Desired {
+		return nil
+	}
+	updated := *doc
+	snapshot := *live
+	updated.AgentStatus = &snapshot
+	updated.RecordedAt = readinessNow().UTC()
+	payload, err := canonicalJSON(updated)
+	if err != nil {
+		return fmt.Errorf("canonicalize rewritten readiness record: %w", err)
+	}
+	key, err := loadOrCreateReleaseSigningKey(keyPath)
+	if err != nil {
+		return fmt.Errorf("load release signing key: %w", err)
+	}
+	signature := ed25519.Sign(key, payload)
+	recordPath := filepath.Join(maintenance.Root(rootDir), DefaultReadinessRecordName)
+	tmp := recordPath + ".replace.tmp"
+	_ = os.Remove(tmp)
+	if err = writePrivateExclusive(tmp, []byte(hex.EncodeToString(signature)+"\n")); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("stage rewritten readiness signature: %w", err)
+	}
+	if err = os.Rename(tmp, recordPath+".sig"); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("install rewritten readiness signature: %w", err)
+	}
+	tmp = recordPath + ".replace.tmp"
+	_ = os.Remove(tmp)
+	if err = writePrivateExclusive(tmp, payload); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("stage rewritten readiness receipt: %w", err)
+	}
+	if err = os.Rename(tmp, recordPath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("install rewritten readiness receipt: %w", err)
+	}
+	if err = maintenance.SyncDirectory(maintenance.Root(rootDir)); err != nil {
+		return err
+	}
+	fmt.Println("Readiness receipt re-signed with the live ready agent snapshot (no longer 'prepared').")
+	return nil
 }
 
 func sha256Sum(data []byte) string {

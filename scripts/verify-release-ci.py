@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 REQUIRED_JOBS = {
     "Go", "Frontend", "Integration (PostgreSQL)",
@@ -25,6 +26,14 @@ DEFAULT_POLL_INTERVAL_SECONDS = 15
 UNRECOVERABLE_CONCLUSIONS = {"failure", "cancelled", "timed_out", "action_required", "stale"}
 WAITING_STATUSES = {"queued", "in_progress", "waiting", "requested", "pending"}
 
+# CI_WAIVED exemption policy (PM decision 2026-11-06): a release may proceed on
+# a red/no CI run ONLY with a recorded waiver committed next to the release
+# commit, naming an approver from this whitelist and a concrete reason. A
+# waiver without a whitelisted approver is rejected (fail-closed), and any
+# waiver is superseded once CI passes on the same SHA.
+WAIVED_DIRECTORY = "release-waivers"
+APPROVED_WAIVER_APPROVERS = {"pm", "bushixiucai"}
+
 
 class VerificationTimeoutError(TimeoutError, ValueError):
     """Raised when release CI polling exceeds the strictly monotonic deadline."""
@@ -32,6 +41,56 @@ class VerificationTimeoutError(TimeoutError, ValueError):
 
 def valid_sha(value):
     return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{40}", value) is not None
+
+
+def waiver_path(sha):
+    """Waivers live in the release checkout itself, so the file travels with
+    the audited commit and cannot be injected from the release environment."""
+    root = Path(__file__).resolve().parent.parent
+    return root / WAIVED_DIRECTORY / f"{sha}.json"
+
+
+def load_waiver(sha):
+    """Return a validated CI_WAIVED waiver for sha, or None when none exists.
+
+    Raises ValueError for a present-but-invalid waiver: an unparsable or
+    unapproved waiver must never silently degrade into 'no waiver'.
+    """
+    path = waiver_path(sha)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"CI_WAIVED waiver {path.name} is unreadable: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError("CI_WAIVED waiver must be a JSON object")
+    if data.get("sha") != sha:
+        raise ValueError("CI_WAIVED waiver sha does not match the release commit")
+    approver = data.get("approver")
+    if not isinstance(approver, str) or approver.strip() == "":
+        raise ValueError("CI_WAIVED waiver is missing its approver; an unapproved waiver is refused")
+    if approver.strip().lower() not in APPROVED_WAIVER_APPROVERS:
+        raise ValueError(f"CI_WAIVED waiver approver '{approver}' is not on the approval whitelist")
+    reason = data.get("reason")
+    if not isinstance(reason, str) or reason.strip() == "":
+        raise ValueError("CI_WAIVED waiver requires a non-empty reason")
+    run_id = data.get("waived_run_id")
+    if run_id is not None and not isinstance(run_id, int):
+        raise ValueError("CI_WAIVED waiver waived_run_id must be an integer run id")
+    return data
+
+
+def waived_failure(waiver, why):
+    """Raise unless a validated waiver covers this deterministic CI failure."""
+    if waiver is None:
+        raise ValueError(why)
+    print(
+        f"CI_WAIVED: release authorized by '{waiver.get('approver')}' despite: {why}; "
+        f"reason: {waiver.get('reason')}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def trusted_source(run, sha, repo):
@@ -130,6 +189,7 @@ def tag_commit(repo, name):
 
 def verify_release(repo, sha, timeout_seconds=None, poll_interval=None, sleeper=time.sleep):
     require_main_ancestry(repo, sha)
+    waiver = load_waiver(sha)
 
     if timeout_seconds is None:
         timeout_seconds = int(os.environ.get("RELEASE_CI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
@@ -174,7 +234,8 @@ def verify_release(repo, sha, timeout_seconds=None, poll_interval=None, sleeper=
                 break
 
             if candidate_run is None:
-                raise ValueError("no trusted exact-SHA CI run passed every required job")
+                waived_failure(waiver, "no trusted exact-SHA CI run passed every required job")
+                return None
 
             bound_run_id = int(candidate_run["id"])
             bound_run_attempt = int(candidate_run.get("run_attempt", 1))
@@ -197,14 +258,18 @@ def verify_release(repo, sha, timeout_seconds=None, poll_interval=None, sleeper=
 
         # Check for unrecoverable failure conclusions immediately (fail-closed)
         if conclusion in UNRECOVERABLE_CONCLUSIONS:
-            raise ValueError(
-                f"CI run {bound_run_id} attempt {bound_run_attempt} failed with conclusion '{conclusion}'"
+            waived_failure(
+                waiver,
+                f"CI run {bound_run_id} attempt {bound_run_attempt} failed with conclusion '{conclusion}'",
             )
+            return bound_run_id
 
         if status == "completed" and conclusion != "success":
-            raise ValueError(
-                f"CI run {bound_run_id} attempt {bound_run_attempt} completed with non-success conclusion '{conclusion}'"
+            waived_failure(
+                waiver,
+                f"CI run {bound_run_id} attempt {bound_run_attempt} completed with non-success conclusion '{conclusion}'",
             )
+            return bound_run_id
 
         # Inspect jobs for the bound run and attempt
         try:
@@ -225,10 +290,12 @@ def verify_release(repo, sha, timeout_seconds=None, poll_interval=None, sleeper=
             if job.get("name") in REQUIRED_JOBS:
                 job_conclusion = job.get("conclusion")
                 if job_conclusion in UNRECOVERABLE_CONCLUSIONS:
-                    raise ValueError(
+                    waived_failure(
+                        waiver,
                         f"Required CI job '{job.get('name')}' in run {bound_run_id} "
-                        f"attempt {bound_run_attempt} failed with conclusion '{job_conclusion}'"
+                        f"attempt {bound_run_attempt} failed with conclusion '{job_conclusion}'",
                     )
+                    return bound_run_id
 
         if status in WAITING_STATUSES:
             now = time.monotonic()
@@ -247,10 +314,18 @@ def verify_release(repo, sha, timeout_seconds=None, poll_interval=None, sleeper=
 
         if status == "completed" and conclusion == "success":
             if verify_run(current_run, attempt_jobs, sha, repo, tag_sha):
+                if waiver is not None:
+                    print(
+                        f"CI_WAIVED: CI now passes on {sha}; the recorded waiver is superseded.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 return bound_run_id
-            raise ValueError(
-                f"CI run {bound_run_id} attempt {bound_run_attempt} completed with success but required jobs check failed"
+            waived_failure(
+                waiver,
+                f"CI run {bound_run_id} attempt {bound_run_attempt} completed with success but required jobs check failed",
             )
+            return bound_run_id
 
         raise ValueError(f"unexpected CI run status '{status}'")
 
@@ -261,7 +336,10 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or not valid_sha(sha):
         raise ValueError("an explicit repository and full commit SHA are required")
     run_id = verify_release(repo, sha)
-    print(f"Required CI and main ancestry verified for {sha}; run={run_id}")
+    if run_id is None:
+        print(f"Release authorized by recorded CI_WAIVED waiver for {sha}")
+    else:
+        print(f"Required CI and main ancestry verified for {sha}; run={run_id}")
 
 
 if __name__ == "__main__":

@@ -95,7 +95,16 @@ func TestDefaultReleaseLeavesNoBreakGlassAudit(t *testing.T) {
 	if err := runUpgrade(ctx, []string{"release", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir}); err != nil {
 		t.Fatalf("default release failed: %v", err)
 	}
-	if lines := auditLines(t, env.maintDir); lines != nil {
-		t.Fatalf("default release must not write break-glass audit lines, got: %v", lines)
+	// BK-03: the default path writes exactly one completed-release audit line
+	// and never a break-glass authorization line.
+	lines := auditLines(t, env.maintDir)
+	if len(lines) != 1 {
+		t.Fatalf("default release must write exactly one completed-release audit line, got: %v", lines)
+	}
+	if !strings.Contains(lines[0], `"action":"release-completed"`) || !strings.Contains(lines[0], `"mode":"default"`) {
+		t.Fatalf("default release audit line must record completion: %s", lines[0])
+	}
+	if strings.Contains(strings.Join(lines, "\n"), `"mode":"break-glass"`) {
+		t.Fatalf("default release must not write break-glass audit lines: %v", lines)
 	}
 }

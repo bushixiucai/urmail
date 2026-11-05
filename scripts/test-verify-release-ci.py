@@ -268,6 +268,102 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertIn("failed with conclusion 'failure'", str(ctx.exception))
         self.assertEqual(len(sleeps), 0)
 
+    def writeWaiver(self, sha, payload):
+        import json as real_json
+        import tempfile
+
+        directory = tempfile.mkdtemp(prefix="urmail-waiver-test-")
+        path = Path(directory) / f"{sha}.json"
+        if payload is not None:
+            path.write_text(real_json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_waiver_without_approver_is_refused_fail_closed(self):
+        """A CI_WAIVED record without a whitelisted approver never authorizes a red release."""
+        path = self.writeWaiver(SHA, {"sha": SHA, "approver": "", "reason": "tag CI shellcheck exit 123"})
+        previous = gate.waiver_path
+        gate.waiver_path = lambda target: path
+        try:
+            with patch.object(gate, "fetch", side_effect=self.failedRunFetch()):
+                with self.assertRaises(ValueError) as ctx:
+                    gate.verify_release(REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: None)
+        finally:
+            gate.waiver_path = previous
+        self.assertIn("missing its approver", str(ctx.exception))
+
+    def failedRunFetch(self):
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                return {"workflow_runs": [dict(candidate(), run_attempt=1, status="completed", conclusion="failure")]}
+            if "/runs/42/jobs?" in path:
+                return {"jobs": [dict(j, run_attempt=1, status="completed", conclusion="failure") for j in required_jobs()]}
+            self.fail(f"unexpected API request: {path}")
+        return fetch
+
+    def greenRunFetch(self):
+        def fetch(path):
+            if path.endswith("/git/ref/heads/main"):
+                return {"object": {"type": "commit", "sha": MAIN_SHA}}
+            if "/compare/" in path:
+                return comparison()
+            if "/workflows/ci.yaml/runs?" in path:
+                return {"workflow_runs": [dict(candidate())]}
+            if "/runs/42/jobs?" in path:
+                return {"jobs": required_jobs()}
+            self.fail(f"unexpected API request: {path}")
+        return fetch
+
+    def test_waiver_with_approved_approver_authorizes_deterministic_failure(self):
+        """A PM-approved waiver releases a deterministically red commit, with the approval on record."""
+        import io
+        from contextlib import redirect_stderr
+
+        path = self.writeWaiver(SHA, {
+            "sha": SHA,
+            "approver": "pm",
+            "reason": "tag CI run 41762547361 shellcheck exit 123",
+            "waived_run_id": 42,
+        })
+        previous = gate.waiver_path
+        gate.waiver_path = lambda target: path
+        try:
+            with patch.object(gate, "fetch", side_effect=self.failedRunFetch()):
+                buffer = io.StringIO()
+                with redirect_stderr(buffer):
+                    run_id = gate.verify_release(
+                        REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: None
+                    )
+        finally:
+            gate.waiver_path = previous
+        self.assertEqual(run_id, 42)
+        self.assertIn("CI_WAIVED", buffer.getvalue())
+        self.assertIn("pm", buffer.getvalue())
+        self.assertIn("shellcheck exit 123", buffer.getvalue())
+
+    def test_waiver_is_superseded_when_ci_passes_same_sha(self):
+        """Once CI is green on the same SHA the waiver is inert; release proceeds normally."""
+        import io
+        from contextlib import redirect_stderr
+
+        path = self.writeWaiver(SHA, {"sha": SHA, "approver": "bushixiucai", "reason": "earlier red run"})
+        previous = gate.waiver_path
+        gate.waiver_path = lambda target: path
+        try:
+            with patch.object(gate, "fetch", side_effect=self.greenRunFetch()):
+                buffer = io.StringIO()
+                with redirect_stderr(buffer):
+                    run_id = gate.verify_release(
+                        REPO, SHA, timeout_seconds=10, poll_interval=1, sleeper=lambda s: None
+                    )
+        finally:
+            gate.waiver_path = previous
+        self.assertEqual(run_id, 42)
+        self.assertIn("superseded", buffer.getvalue())
+
     def test_cross_attempt_stitching_forbidden_in_verify_run(self):
         req = required_jobs()
         attempt1_jobs = [dict(j, run_attempt=1) for j in req[:6]]

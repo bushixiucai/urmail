@@ -469,6 +469,17 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 
 	// 7. Remove drop-in guards FIRST: guards are verified cleared while the
 	// hold marker still exists, so any failure here restores a fully intact fence.
+	presentGuards, presentErr := maintenance.CheckDropInGuards(dropInDir, maintenance.DropInGuardedUnits)
+	if presentErr != nil {
+		return restoreFenceOnFailure(fmt.Errorf("inspect drop-in guards before removal: %w", presentErr), attemptedUnits)
+	}
+	guardedUnits := []string{}
+	for unit, present := range presentGuards {
+		if present {
+			guardedUnits = append(guardedUnits, unit)
+		}
+	}
+	sort.Strings(guardedUnits)
 	if err = maintenance.RemoveDropInGuards(dropInDir, maintenance.DropInGuardedUnits); err != nil {
 		return restoreFenceOnFailure(fmt.Errorf("remove drop-in guards: %w", err), attemptedUnits)
 	}
@@ -490,7 +501,13 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 		return restoreFenceOnFailure(fmt.Errorf("drop-in guards still present after removal: %s", strings.Join(remainingGuards, ", ")), attemptedUnits)
 	}
 
-	// 8. Only now remove the upgrade hold marker
+	// 8. Only now remove the upgrade hold marker. Capture the fence digests
+	// beforehand: the completed-release audit record binds exactly these bytes.
+	holdDigest, fenceReceiptDigest := "", ""
+	if rawHold, rawFenceReceipt, rawErr := maintenance.ReadUpgradeFenceRaw(rootDir); rawErr == nil {
+		holdDigest = sha256Sum(rawHold)
+		fenceReceiptDigest = sha256Sum(rawFenceReceipt)
+	}
 	if err = maintenance.RemoveUpgradeFence(rootDir); err != nil {
 		return restoreFenceOnFailure(fmt.Errorf("remove upgrade fence: %w", err), attemptedUnits)
 	}
@@ -532,6 +549,46 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 	}
 	fmt.Println("Upgrade fence released successfully.")
 	fmt.Println("Drop-in guards removed and services unlocked.")
+
+	// 10. Completed-release audit (all modes): one independent, durable record
+	// binding the released hold bytes, fence receipt bytes, signed readiness
+	// receipt and the guarded unit set. Fail-closed: if the record cannot be
+	// written the fence is restored and the release is reported as failed.
+	completedEntry := maintenance.UpgradeAuditEntry{
+		Operator:      fmt.Sprintf("uid-%d", os.Geteuid()),
+		Action:        "release-completed",
+		Mode:          map[bool]string{true: "break-glass", false: "default"}[glass],
+		SkipRestart:   skipRestart,
+		HoldSHA256:    holdDigest,
+		ReceiptSHA256: fenceReceiptDigest,
+		Guards:        guardedUnits,
+	}
+	if status.Meta != nil {
+		completedEntry.Generation = status.Meta.Generation
+		completedEntry.FenceReason = status.Meta.Reason
+	}
+	if readiness != nil {
+		if canonical, canonErr := canonicalJSON(*readiness); canonErr == nil {
+			completedEntry.ReadinessSHA256 = sha256Sum(canonical)
+		}
+	}
+	if auditErr := maintenance.AppendUpgradeAudit(rootDir, completedEntry); auditErr != nil {
+		return restoreFenceOnFailure(fmt.Errorf("cannot record completed-release audit: %w (fence restored)", auditErr), maintenance.DefaultWriterUnits)
+	}
+
+	// 11. Close the prepared-stuck receipt window: when the live agent already
+	// reports ready while the signed receipt still binds the offline prepared
+	// snapshot, re-sign it with the live state. The release itself already
+	// succeeded, so a rewrite failure is loud but not fatal (the audit record
+	// above plus `upgrade status` still show the true released state).
+	if readiness != nil && !glass {
+		if live, liveErr := activeLiveAgentStatus(ctx); liveErr != nil {
+			fmt.Fprintf(os.Stderr, "urmailctl: live agent status unavailable; receipt kept as signed: %v\n", liveErr)
+		} else if err = rewriteReadinessForRelease(rootDir, releaseSigningKeyPath, readiness, live); err != nil {
+			fmt.Fprintf(os.Stderr, "urmailctl: readiness receipt rewrite failed; receipt kept as signed: %v\n", err)
+		}
+	}
+
 	if glass {
 		recordUpgradeReleaseResult(rootDir, skipRestart, "released", "")
 	}

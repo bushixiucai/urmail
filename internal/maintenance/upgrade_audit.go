@@ -14,17 +14,21 @@ import (
 const DefaultUpgradeAuditFile = "upgrade-audit.jsonl"
 
 // UpgradeAuditEntry is one immutable audit record for a non-default release
-// authorization (break-glass). It never records credentials, only their shape.
+// authorization (break-glass) or a completed release of any mode. It never
+// records credentials, only their shape.
 type UpgradeAuditEntry struct {
-	Time          time.Time `json:"time"`
-	Operator      string    `json:"operator"`
-	Action        string    `json:"action"`
-	Mode          string    `json:"mode"`
-	SkipRestart   bool      `json:"skip_restart,omitempty"`
-	Generation    uint64    `json:"generation,omitempty"`
-	FenceReason   string    `json:"fence_reason,omitempty"`
-	ReceiptSHA256 string    `json:"receipt_sha256,omitempty"`
-	Detail        string    `json:"detail,omitempty"`
+	Time            time.Time `json:"time"`
+	Operator        string    `json:"operator"`
+	Action          string    `json:"action"`
+	Mode            string    `json:"mode"`
+	SkipRestart     bool      `json:"skip_restart,omitempty"`
+	Generation      uint64    `json:"generation,omitempty"`
+	FenceReason     string    `json:"fence_reason,omitempty"`
+	HoldSHA256      string    `json:"hold_sha256,omitempty"`
+	ReceiptSHA256   string    `json:"receipt_sha256,omitempty"`
+	ReadinessSHA256 string    `json:"readiness_sha256,omitempty"`
+	Guards          []string  `json:"guards,omitempty"`
+	Detail          string    `json:"detail,omitempty"`
 }
 
 // AppendUpgradeAudit appends one JSON line to the host-local upgrade audit
