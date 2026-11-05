@@ -150,6 +150,12 @@ func TestRollbackRequiresCheckpointIntegrityVerification(t *testing.T) {
 
 func allowUpgradeTestUser(t *testing.T) {
 	t.Helper()
+	// CI runners expose a real systemd but deny unprivileged daemon-reload;
+	// stub it so these tests exercise the same code path as a macOS dev box
+	// (where systemctl is absent and SystemctlReload is a no-op).
+	prevReload := maintenance.SystemctlReloadFunc
+	maintenance.SystemctlReloadFunc = func(context.Context) error { return nil }
+	t.Cleanup(func() { maintenance.SystemctlReloadFunc = prevReload })
 	old := upgradeEffectiveUID
 	upgradeEffectiveUID = func() int { return 0 }
 	t.Cleanup(func() { upgradeEffectiveUID = old })

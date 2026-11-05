@@ -661,9 +661,18 @@ func CheckDropInGuards(dropInBaseDir string, units []string) (map[string]bool, e
 	return result, nil
 }
 
+// SystemctlReloadFunc is the swappable implementation behind SystemctlReload.
+// Tests replace it to stay isolated from host systemd state; production always
+// uses systemctlReloadSystemd.
+var SystemctlReloadFunc = systemctlReloadSystemd
+
 // SystemctlReload triggers a systemd daemon-reload.
 // If systemctl is present, its return code must be checked.
 func SystemctlReload(ctx context.Context) error {
+	return SystemctlReloadFunc(ctx)
+}
+
+func systemctlReloadSystemd(ctx context.Context) error {
 	cmdPath, err := exec.LookPath("systemctl")
 	if err != nil {
 		return nil

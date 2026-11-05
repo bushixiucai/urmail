@@ -268,6 +268,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        # Request objects and authorization headers must never reach the log.
-        print(f"Release CI gate rejected the candidate: {type(error).__name__}", file=sys.stderr)
+        # Request objects and authorization headers must never reach the log;
+        # gate rejection messages are static operator-facing strings, so the
+        # reason itself is safe and necessary for release forensics.
+        print(f"Release CI gate rejected the candidate: {type(error).__name__}: {error}", file=sys.stderr)
         sys.exit(1)

@@ -10,6 +10,7 @@ RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
         dovecot-imapd \
         dovecot-lmtpd \
         dovecot-sieve \
+        opendkim \
         openssl \
         postfix \
         postgresql-14 \

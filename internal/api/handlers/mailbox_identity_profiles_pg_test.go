@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"net/mail"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +41,11 @@ func seedIdentityFixture(t *testing.T, f nativeAIHTTPFixture) (string, *identity
 	f.native.Submitter = submit
 	return "team@ai.example.test", submit
 }
+
+// identitySendCounter makes each send carry a fresh idempotency key so the
+// revoked-identity recheck in this fixture is exercised, not idempotent replay.
+var identitySendCounter atomic.Int64
+
 func identityJSON(t *testing.T, f nativeAIHTTPFixture, token, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(body)
@@ -48,6 +55,8 @@ func identityJSON(t *testing.T, f nativeAIHTTPFixture, token, method, path strin
 	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(string(raw)))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	// Sends require an idempotency key; other routes ignore the header.
+	req.Header.Set("Idempotency-Key", "identity-profiles-"+strconv.FormatInt(identitySendCounter.Add(1), 10))
 	rec := httptest.NewRecorder()
 	f.router.ServeHTTP(rec, req)
 	return rec

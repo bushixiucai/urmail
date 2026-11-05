@@ -328,7 +328,7 @@ func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
 	q := store.New(p)
 	sessions := StoreMailboxNative{Q: q}
 	vault := webmail.NewMemoryVault()
-	native := &MailboxNativeHandler{Enabled: true, Pool: p, Auth: sessions, Sessions: sessions, Vault: vault, Dialer: nativeAIFixtureDialer{mail}, SelfSettings: StoreMailboxSelfSettings{Pool: p}, Rules: StoreMailboxRules{Pool: p}, Sieve: &fakeActivator{}}
+	native := &MailboxNativeHandler{Enabled: true, Pool: p, Auth: sessions, Sessions: sessions, Vault: vault, Secrets: newTestSecrets(t), Dialer: nativeAIFixtureDialer{mail}, SelfSettings: StoreMailboxSelfSettings{Pool: p}, Rules: StoreMailboxRules{Pool: p}, Sieve: &fakeActivator{}}
 	model := &nativeAIFixtureModel{}
 	service := &MailboxAIService{Pool: p, Provider: func(store.AiProviderConfigs) (ai.Provider, error) { return model, nil }}
 	answer := &AISearchAsk{Pool: p, Dialer: native.Dialer, Vault: vault, Accounting: AISearchAskAccounting{Pool: p}, ModelFor: func(context.Context, int64) (aianswer.Model, error) {

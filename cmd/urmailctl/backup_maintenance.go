@@ -49,12 +49,33 @@ func backupWriterUnits() []string {
 	}
 	return units
 }
+
+// systemctlExecutable is the fixed systemctl path; tests replace it with a stub.
+var systemctlExecutable = "/usr/bin/systemctl"
+
 func systemBackupUnit(ctx context.Context, action, unit string) (bool, error) {
 	if action != "state" && action != "start" && action != "stop" {
 		return false, errors.New("invalid backup unit action")
 	}
 	if action == "state" {
-		output, err := exec.CommandContext(ctx, "/usr/bin/systemctl", "show", "--property=LoadState", "--property=ActiveState", unit).Output() // #nosec G204 -- fixed executable; unit comes from the fixed backup writer allowlist.
+		return backupUnitState(ctx, unit)
+	}
+	err := exec.CommandContext(ctx, systemctlExecutable, action, unit).Run() // #nosec G204 -- action and units are allowlisted, never shell text.
+	return false, err
+}
+
+// backupUnitStateSettleAttempts bounds how long a transitional unit state is
+// tolerated before failing closed; tests lower it to keep runs fast.
+var backupUnitStateSettleAttempts = 20
+
+// backupUnitState classifies a unit as active (true) or not active (false).
+// Transitional states such as deactivating are re-inspected with a bounded
+// settle window: they are normal during stop sequences and must neither be
+// treated as stopped nor fail the fence outright. Fail-closed is preserved —
+// a state that never settles is still an error.
+func backupUnitState(ctx context.Context, unit string) (bool, error) {
+	for attempt := 0; ; attempt++ {
+		output, err := exec.CommandContext(ctx, systemctlExecutable, "show", "--property=LoadState", "--property=ActiveState", unit).Output() // #nosec G204 -- fixed executable; unit comes from the fixed backup writer allowlist.
 		if err != nil {
 			return false, fmt.Errorf("inspect backup writer %s: %w", unit, err)
 		}
@@ -73,10 +94,15 @@ func systemBackupUnit(ctx context.Context, action, unit string) (bool, error) {
 		if strings.Contains(text, "ActiveState=inactive") || strings.Contains(text, "ActiveState=failed") {
 			return false, nil
 		}
-		return false, fmt.Errorf("backup writer %s has transitional state", unit)
+		if attempt >= backupUnitStateSettleAttempts {
+			return false, fmt.Errorf("backup writer %s has transitional state", unit)
+		}
+		select {
+		case <-ctx.Done():
+			return false, fmt.Errorf("inspect backup writer %s: %w", unit, ctx.Err())
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
-	err := exec.CommandContext(ctx, "/usr/bin/systemctl", action, unit).Run() // #nosec G204 -- action and units are allowlisted, never shell text.
-	return false, err
 }
 func prepareBackupMaintenanceRoot(directory string) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {

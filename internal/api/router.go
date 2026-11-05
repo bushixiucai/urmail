@@ -157,7 +157,14 @@ func New(opts Options) *gin.Engine {
 		opts.Recurring = &billingrenew.Dispatcher{Pool: opts.PlatformPool, Registry: registry, Secrets: opts.Secrets, Adapters: billingrenew.NewProductionAdapters(registry)}
 	}
 	engine := gin.New()
-	engine.Use(middleware.BrandHostBoundary(opts.PlatformPool, opts.MyHostname))
+	// Dev stacks listen on 127.0.0.1:<dev port>, which can never match the
+	// configured canonical mail host; pinning it there would 403 every
+	// platform-admin request. Production keeps the canonical pin.
+	devCanonical := opts.MyHostname
+	if opts.DevMode {
+		devCanonical = ""
+	}
+	engine.Use(middleware.BrandHostBoundary(opts.PlatformPool, devCanonical))
 	engine.Use(collaborationProtocolGate(opts))
 	clientConfig := autoconfig.Config{PrimaryMailHost: opts.MyHostname, POP3Enabled: true, CardDAVPath: "/api/v1/carddav/", CalDAVPath: "/caldav/", EASPath: "/Microsoft-Server-ActiveSync"}
 	if !protocolEnabled(opts.CardDAVEnabled) {

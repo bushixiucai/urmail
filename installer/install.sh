@@ -16,7 +16,6 @@ log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!!!\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31mxxx\033[0m %s\n' "$*" >&2; exit 1; }
 
-UPGRADE_SUCCESS=0
 cleanup_installer() {
 	if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
 		rm -rf "$TMP_DIR"
@@ -532,8 +531,6 @@ if [ "${IS_UPGRADE:-0}" -eq 1 ]; then
   # Exit 2 distinguishes prepared-but-held from a fully completed installation.
   exit 2
 fi
-
-UPGRADE_SUCCESS=1
 
 log "starting the services"
 rsyslogd -N1

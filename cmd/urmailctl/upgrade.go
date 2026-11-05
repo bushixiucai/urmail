@@ -389,10 +389,33 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 
 		// Only claim RESTORED if fence, guards, daemon reload and all unit stops completely succeeded with 0 additional errors
 		allJoined := errors.Join(restoreErrs...)
+		if glass {
+			recordUpgradeReleaseResult(rootDir, skipRestart, "aborted", cause.Error())
+		}
 		if len(restoreErrs) == 1 && maintenance.IsUpgradeHeld(rootDir) {
 			return fmt.Errorf("%w (protective fence and hold verified RESTORED)", allJoined)
 		}
 		return fmt.Errorf("%w (CRITICAL: protective fence RESTORATION INCOMPLETE)", allJoined)
+	}
+
+	// 5b. A non-default authorization (break-glass) MUST leave a durable audit
+	// record before any protective state changes. Auditing is fail-closed: an
+	// exception release that cannot be recorded is refused (fence retained).
+	if glass {
+		entry := maintenance.UpgradeAuditEntry{
+			Operator:    fmt.Sprintf("uid-%d", os.Geteuid()),
+			Action:      "release-authorized",
+			Mode:        "break-glass",
+			SkipRestart: skipRestart,
+		}
+		if status.Meta != nil {
+			entry.Generation = status.Meta.Generation
+			entry.FenceReason = status.Meta.Reason
+		}
+		if err = maintenance.AppendUpgradeAudit(rootDir, entry); err != nil {
+			return restoreFenceOnFailure(fmt.Errorf("cannot record break-glass release audit: %w (fence retained)", err), nil)
+		}
+		emitUpgradeReleaseAlert(ctx, migrateURL, entry)
 	}
 
 	// 6. Reload systemd daemon before tearing guards down
@@ -509,10 +532,64 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 	}
 	fmt.Println("Upgrade fence released successfully.")
 	fmt.Println("Drop-in guards removed and services unlocked.")
+	if glass {
+		recordUpgradeReleaseResult(rootDir, skipRestart, "released", "")
+	}
 	if len(resumedUnits) > 0 {
 		fmt.Printf("Restored units: %s\n", strings.Join(resumedUnits, ", "))
 	}
 	return nil
+}
+
+// recordUpgradeReleaseResult best-effort appends the outcome of a break-glass
+// release to the audit trail; the mandatory authorization line above is the
+// fail-closed record, so an outcome write failure must not mask the release.
+func recordUpgradeReleaseResult(rootDir string, skipRestart bool, outcome, detail string) {
+	entry := maintenance.UpgradeAuditEntry{
+		Operator:    fmt.Sprintf("uid-%d", os.Geteuid()),
+		Action:      "release-" + outcome,
+		Mode:        "break-glass",
+		SkipRestart: skipRestart,
+		Detail:      detail,
+	}
+	if err := maintenance.AppendUpgradeAudit(rootDir, entry); err != nil {
+		fmt.Fprintf(os.Stderr, "urmailctl: break-glass release outcome not audited: %v\n", err)
+	}
+}
+
+// emitUpgradeReleaseAlert best-effort enqueues one platform notification so a
+// break-glass release surfaces wherever operational alerts are delivered. The
+// host-local audit trail stays the durable record; delivery issues are printed
+// and never block or fail the release.
+func emitUpgradeReleaseAlert(ctx context.Context, migrateURL string, entry maintenance.UpgradeAuditEntry) {
+	if migrateURL == "" {
+		return
+	}
+	alertCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	params, err := json.Marshal(map[string]string{
+		"kind":   "upgrade_break_glass",
+		"source": "upgrade:fence",
+		"state":  "firing",
+	})
+	if err != nil {
+		return
+	}
+	dedupe := fmt.Sprintf("upgrade-break-glass:%d:%s", entry.Generation, entry.Time.UTC().Format(time.RFC3339))
+	statement := `INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
+		 VALUES('upgrade_break_glass','notification.operational_firing', :'kind_val'::jsonb, :'dedupe_val', 'in_app', 'delivered')
+		 ON CONFLICT(dedupe_key) DO NOTHING`
+	cmd, cmdErr := postgresCommand(alertCtx, "psql", migrateURL,
+		"--set", "kind_val="+string(params),
+		"--set", "dedupe_val="+dedupe,
+		"--command", statement)
+	if cmdErr != nil {
+		fmt.Fprintf(os.Stderr, "urmailctl: break-glass alert enqueue unavailable: %v\n", cmdErr)
+		return
+	}
+	if err = cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "urmailctl: break-glass alert enqueue failed (audit trail remains authoritative): %v\n", err)
+	}
 }
 
 func runUpgradeStatus(ctx context.Context, args []string) error {
@@ -582,6 +659,14 @@ func runUpgradeStatus(ctx context.Context, args []string) error {
 
 	if status.Receipt != nil && len(status.Receipt.Units) > 0 {
 		fmt.Printf("  Original Writers:   %s\n", strings.Join(status.Receipt.Units, ", "))
+	}
+
+	if entries, auditErr := maintenance.ReadUpgradeAuditTail(*rootDir, 5); auditErr == nil && len(entries) > 0 {
+		fmt.Println("Non-default Release Audit (latest 5):")
+		for _, entry := range entries {
+			fmt.Printf("  %s  %s  gen=%d  operator=%s  %s\n",
+				entry.Time.UTC().Format(time.RFC3339), entry.Action, entry.Generation, entry.Operator, entry.Detail)
+		}
 	}
 
 	return nil

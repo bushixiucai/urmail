@@ -25,15 +25,18 @@ func TestAIConsentHTTPRequiresTenantRoleExplicitConfirmationAndCurrentTarget(t *
 		t.Fatal(err)
 	}
 	defer app.Close()
-	h := &AIConfigurationHandler{Pool: p}
+	h := &AIConfigurationHandler{Pool: p, HealthRepository: NewAIHealthRepository(p)}
 	engine := func(role string) *gin.Engine {
 		r := gin.New()
 		r.Use(func(c *gin.Context) {
 			c.Set(middleware.ContextTenantID, principal.TenantID)
 			c.Set(middleware.ContextUserID, owner)
 			c.Set(middleware.ContextRole, role)
-		}, middleware.RequireTenantTx(app, zap.NewNop()))
-		r.POST("/consent", h.Consent)
+		})
+		txProtected := r.Group("", middleware.RequireTenantTx(app, zap.NewNop()))
+		txProtected.POST("/consent", h.Consent)
+		// /ai/health probes its own short repository transactions, mirroring the
+		// production route, so it must not run inside the request transaction.
 		r.POST("/health", h.Health)
 		return r
 	}

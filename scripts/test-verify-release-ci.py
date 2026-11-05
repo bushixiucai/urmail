@@ -328,5 +328,24 @@ class ReleaseGateTests(unittest.TestCase):
                     )
             self.assertEqual(len(sleeps), 0)
 
+    def test_rejection_log_reports_reason_without_secrets(self):
+        import subprocess
+        import sys as real_sys
+
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_REPOSITORY": REPO,
+            "RELEASE_SHA": "short",
+            "GH_TOKEN": "super-secret-token-value",
+        }
+        result = subprocess.run(
+            [real_sys.executable, str(Path(__file__).with_name("verify-release-ci.py"))],
+            env=environment, capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("an explicit repository and full commit SHA are required", result.stderr)
+        self.assertNotIn("super-secret-token-value", result.stderr)
+        self.assertNotIn("super-secret-token-value", result.stdout)
+
 if __name__ == "__main__":
     unittest.main()
