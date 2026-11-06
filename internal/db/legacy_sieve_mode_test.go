@@ -21,9 +21,6 @@ func TestLegacySieveBackendCannotBeForgedOrOverwritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := store.New(f.platform)
-	if _, err := q.PlatformGrantMigrationEntitlement(ctx, store.PlatformGrantMigrationEntitlementParams{TenantID: f.tenant, ActorID: f.user, ManifestSha256: strings.Repeat("e", 64), Reason: "Reviewed synthetic source Sieve preservation"}); err != nil {
-		t.Fatal(err)
-	}
 	var domain int64
 	if err := f.platform.QueryRow(ctx, "SELECT domain_id FROM mailboxes WHERE tenant_id=$1 AND id=$2", f.tenant, f.mailbox).Scan(&domain); err != nil {
 		t.Fatal(err)

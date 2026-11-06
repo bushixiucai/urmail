@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -11,7 +12,10 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
+
+func m8ID(value int64) string { return strconv.FormatInt(value, 10) }
 
 type legacyGateFixture struct {
 	dsn                   string
@@ -19,7 +23,7 @@ type legacyGateFixture struct {
 	tenant, actor, domain int64
 }
 
-func newLegacyGateFixture(t *testing.T, grant bool) legacyGateFixture {
+func newLegacyGateFixture(t *testing.T) legacyGateFixture {
 	t.Helper()
 	f := legacyGateFixture{dsn: testDatabaseURL(t)}
 	applyMigrations(t, f.dsn)
@@ -47,11 +51,6 @@ func newLegacyGateFixture(t *testing.T, grant bool) legacyGateFixture {
 		t.Fatal(err)
 	}
 	q := store.New(f.p.Pool)
-	if grant {
-		if _, err = q.PlatformGrantMigrationEntitlement(t.Context(), store.PlatformGrantMigrationEntitlementParams{TenantID: f.tenant, ActorID: f.actor, ManifestSha256: strings.Repeat("a", 64), Reason: "Reviewed source and explicitly authorized isolated migration"}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	f.domain, err = q.PlatformCreateLegacyDomain(t.Context(), store.PlatformCreateLegacyDomainParams{TenantID: f.tenant, Fqdn: "legacy-gate.example.test", VerificationToken: strings.Repeat("b", 64)})
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +72,7 @@ func legacyGateSQLState(t *testing.T, err error, code, message string) {
 }
 
 func TestLegacyMetadataGateIndependentTrustedOnlyAndNoActivation(t *testing.T) {
-	f := newLegacyGateFixture(t, true)
+	f := newLegacyGateFixture(t)
 	ctx := t.Context()
 	root, err := pgx.Connect(ctx, f.dsn)
 	if err != nil {
@@ -133,44 +132,43 @@ func TestLegacyMetadataGateIndependentTrustedOnlyAndNoActivation(t *testing.T) {
 	if !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("pending domain obtained authenticated mailbox session: %v", err)
 	}
-	m, err := db.NewMigrator(f.dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = m.Close() }()
-	legacyGateNormalize70(t, m)
-	if err = m.Down(ctx); err == nil || !strings.Contains(err.Error(), "LEGACY_PENDING_MAILBOXES_REQUIRE_CONTROLLED_ROLLBACK") {
-		t.Fatalf("dependent pending rows lost rollback gate: %v", err)
-	}
 	var n int
 	if err = f.p.QueryRow(ctx, "SELECT count(*) FROM mailboxes WHERE tenant_id=$1", f.tenant).Scan(&n); err != nil || n != 2 {
-		t.Fatalf("rejected rollback changed metadata rows=%d err=%v", n, err)
+		t.Fatalf("staged metadata rows=%d err=%v", n, err)
 	}
 }
 
 func TestLegacyMetadataGateIndependentNoGrantAndReversibleWithoutDependency(t *testing.T) {
-	f := newLegacyGateFixture(t, false)
-	legacyGateSQLState(t, legacyGateInsert(t.Context(), store.New(f.p.Pool), f, "operator"), "23514", "DOMAIN_NOT_PROVISIONED")
-	m, err := db.NewMigrator(f.dsn)
+	f := newLegacyGateFixture(t)
+	ctx := t.Context()
+	if err := legacyGateInsert(ctx, store.New(f.p.Pool), f, "operator"); err != nil {
+		t.Fatal("platform staging without a subscription grant denied", err)
+	}
+	var ready bool
+	if err := f.p.QueryRow(ctx, "SELECT urmail_domain_mail_ready($1,$2)", f.tenant, f.domain).Scan(&ready); err != nil || ready {
+		t.Fatalf("staging enabled domain ready=%t err=%v", ready, err)
+	}
+	root, err := pgx.Connect(ctx, f.dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = m.Close() }()
-	legacyGateNormalize70(t, m)
-	if err = m.Down(t.Context()); err != nil {
+	defer func() { _ = root.Close(context.Background()) }()
+	tx, err := root.Begin(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if v, dirty, e := m.Version(); e != nil || dirty || v != 69 {
-		t.Fatalf("down70 failed v=%d dirty=%t err=%v", v, dirty, e)
-	}
-	if err = m.Up(t.Context()); err != nil {
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err = tx.Exec(ctx, "SET LOCAL ROLE urmail_app"); err != nil {
 		t.Fatal(err)
 	}
-	legacyGateSQLState(t, legacyGateInsert(t.Context(), store.New(f.p.Pool), f, "still-denied"), "23514", "DOMAIN_NOT_PROVISIONED")
+	if _, err = tx.Exec(ctx, "SELECT set_config('urmail.tenant_id',$1,true),set_config('urmail.user_id',$2,true)", m8ID(f.tenant), m8ID(f.actor)); err != nil {
+		t.Fatal(err)
+	}
+	legacyGateSQLState(t, legacyGateInsert(ctx, store.New(tx), f, "app"), "23514", "DOMAIN_NOT_PROVISIONED")
 }
 
 func TestLegacyMetadataGateIndependentAuthorityRevocationSerialization(t *testing.T) {
-	f := newLegacyGateFixture(t, false)
+	f := newLegacyGateFixture(t)
 	ctx := t.Context()
 	importer, err := f.p.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -221,18 +219,80 @@ func TestLegacyMetadataGateIndependentAuthorityRevocationSerialization(t *testin
 	assertDenied()
 }
 
-func legacyGateNormalize70(t *testing.T, m *db.Migrator) {
+func TestLegacyMetadataGateVersion70ControlledRollback(t *testing.T) {
+	clean := testdb.New(t)
+	testdb.MigrateTo(t, clean, 70)
+	seedLegacyGateV70(t, clean, false)
+	migrator, err := db.NewMigrator(clean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrator.Close() }()
+	if err = migrator.Down(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if version, dirty, err := migrator.Version(); err != nil || dirty || version != 69 {
+		t.Fatalf("clean v70 down v=%d dirty=%t err=%v", version, dirty, err)
+	}
+
+	held := testdb.New(t)
+	testdb.MigrateTo(t, held, 70)
+	seedLegacyGateV70(t, held, true)
+	blocked, err := db.NewMigrator(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocked.Close() }()
+	if err = blocked.Down(t.Context()); err == nil || !strings.Contains(err.Error(), "LEGACY_PENDING_MAILBOXES_REQUIRE_CONTROLLED_ROLLBACK") {
+		t.Fatalf("v70 pending mailbox lost rollback gate: %v", err)
+	}
+	conn, err := pgx.Connect(t.Context(), held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	var n int
+	if err = conn.QueryRow(t.Context(), "SELECT count(*) FROM mailboxes").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("rejected v70 rollback changed mailboxes=%d err=%v", n, err)
+	}
+}
+
+func seedLegacyGateV70(t *testing.T, dsn string, withMailbox bool) {
 	t.Helper()
-	for {
-		version, dirty, err := m.Version()
-		if err != nil || dirty || version < 70 {
-			t.Fatalf("invalid gate fixture v=%d dirty=%t err=%v", version, dirty, err)
-		}
-		if version == 70 {
-			return
-		}
-		if err = m.Down(t.Context()); err != nil {
-			t.Fatal(err)
-		}
+	ctx := t.Context()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err = conn.Exec(ctx, "SET ROLE urmail_platform"); err != nil {
+		t.Fatal(err)
+	}
+	var brand, actor, tenant, domain int64
+	if err = conn.QueryRow(ctx, "INSERT INTO brands(slug,name) VALUES('legacy-v70','Legacy v70') RETURNING id").Scan(&brand); err != nil {
+		t.Fatal(err)
+	}
+	if err = conn.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('gate-v70@example.test','fixture') RETURNING id").Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = conn.Exec(ctx, "INSERT INTO platform_admins(user_id) VALUES($1)", actor); err != nil {
+		t.Fatal(err)
+	}
+	if err = conn.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status,owner_user_id) VALUES($1,'Legacy v70','legacy-v70','active',$2) RETURNING id", brand, actor).Scan(&tenant); err != nil {
+		t.Fatal(err)
+	}
+	if err = conn.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,mode,status,verification_token) VALUES($1,'legacy-v70.example.test','delegated','pending_dns',$2) RETURNING id", tenant, strings.Repeat("b", 64)).Scan(&domain); err != nil {
+		t.Fatal(err)
+	}
+	if !withMailbox {
+		return
+	}
+	// The v70 schema still owns the historical entitlement grant; this fixture
+	// is built straight to v70, so the retired-at-HEAD function exists here.
+	if _, err = conn.Exec(ctx, "SELECT urmail_grant_migration_entitlement($1,$2,$3,$4)", tenant, strings.Repeat("a", 64), actor, "Reviewed source and explicitly authorized isolated migration"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = conn.Exec(ctx, "INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash) VALUES($1,$2,'held','held@legacy-v70.example.test','fixture')", tenant, domain); err != nil {
+		t.Fatal(err)
 	}
 }

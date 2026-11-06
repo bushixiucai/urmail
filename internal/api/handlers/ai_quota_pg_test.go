@@ -47,10 +47,6 @@ func aiQuotaLegacyFixture(t *testing.T) (*db.Pool, store.PlatformConsumeMailboxT
 	t.Helper()
 	pool, principal, model, service, _, _ := providerBudgetFixtureUnseeded(t, "byo", "classify")
 	actor := providerBudgetAdmin(t, pool, principal.TenantID)
-	var subscription int64
-	if err := pool.QueryRow(t.Context(), "SELECT (urmail_grant_migration_entitlement($1,$2,$3,$4)).id", principal.TenantID, strings.Repeat("a", 64), actor, "Preserve independently verified legacy fixture mail service").Scan(&subscription); err != nil {
-		t.Fatal(err)
-	}
 	return pool, principal, model, service, actor
 }
 func aiQuotaUsage(t *testing.T, pool *db.Pool, principal store.PlatformConsumeMailboxTicketRow) store.PlatformAIQuotaUsageRow {

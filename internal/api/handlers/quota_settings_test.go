@@ -175,7 +175,6 @@ func TestTenantCurrentNoSettingsNoSubscriptionDefaultUnlimited(t *testing.T) {
 			ID: 1, BrandID: 2, Name: "NoSettingsTenant", Slug: "nosettings", Status: "active",
 		},
 		settings: []store.Settings{},
-		subErr:   errors.New("no subscription"),
 	}
 	h := NewTenantHandler(fake, nil)
 	r := newShapeRouter(1, func(g *gin.RouterGroup) { g.GET("/tenants/current", h.Current) })
@@ -208,7 +207,6 @@ func TestTenantCurrentPlatformDefaultAndTenantOverride(t *testing.T) {
 			{Scope: "platform", ScopeID: 0, Key: "mailbox_quota_bytes", Value: []byte(`1073741824`)},
 			{Scope: "tenant", ScopeID: 1, Key: "mailbox_domain_limit", Value: []byte(`10`)},
 		},
-		subErr: errors.New("no subscription"),
 	}
 	h := NewTenantHandler(fake, nil)
 	r := newShapeRouter(1, func(g *gin.RouterGroup) { g.GET("/tenants/current", h.Current) })

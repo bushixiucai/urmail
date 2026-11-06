@@ -11,33 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const platformCreateManagedInvoice = `-- name: PlatformCreateManagedInvoice :one
-INSERT INTO invoices(tenant_id,number,period_start,period_end,amount_cents,currency,status,issued_at) VALUES($1,$2,$3,$4,$5,$6,'issued',now()) RETURNING id
-`
-
-type PlatformCreateManagedInvoiceParams struct {
-	TenantID    int64              `json:"tenant_id"`
-	Number      string             `json:"number"`
-	PeriodStart pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd   pgtype.Timestamptz `json:"period_end"`
-	AmountCents int64              `json:"amount_cents"`
-	Currency    string             `json:"currency"`
-}
-
-func (q *Queries) PlatformCreateManagedInvoice(ctx context.Context, arg PlatformCreateManagedInvoiceParams) (int64, error) {
-	row := q.db.QueryRow(ctx, platformCreateManagedInvoice,
-		arg.TenantID,
-		arg.Number,
-		arg.PeriodStart,
-		arg.PeriodEnd,
-		arg.AmountCents,
-		arg.Currency,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const platformCreateManagedTenant = `-- name: PlatformCreateManagedTenant :one
 INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,$2,$3,$4) RETURNING id
 `
@@ -120,21 +93,6 @@ func (q *Queries) PlatformFindManagedUser(ctx context.Context, email string) (in
 	return id, err
 }
 
-const platformGrantManagedSubscription = `-- name: PlatformGrantManagedSubscription :exec
-INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end) VALUES($1,$2,'active',now(),$3)
-`
-
-type PlatformGrantManagedSubscriptionParams struct {
-	TenantID  int64              `json:"tenant_id"`
-	PlanID    string             `json:"plan_id"`
-	PeriodEnd pgtype.Timestamptz `json:"period_end"`
-}
-
-func (q *Queries) PlatformGrantManagedSubscription(ctx context.Context, arg PlatformGrantManagedSubscriptionParams) error {
-	_, err := q.db.Exec(ctx, platformGrantManagedSubscription, arg.TenantID, arg.PlanID, arg.PeriodEnd)
-	return err
-}
-
 const platformGrantTenantOwner = `-- name: PlatformGrantTenantOwner :exec
 INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner') ON CONFLICT(user_id,tenant_id) DO UPDATE SET role='owner'
 `
@@ -147,29 +105,6 @@ type PlatformGrantTenantOwnerParams struct {
 func (q *Queries) PlatformGrantTenantOwner(ctx context.Context, arg PlatformGrantTenantOwnerParams) error {
 	_, err := q.db.Exec(ctx, platformGrantTenantOwner, arg.UserID, arg.TenantID)
 	return err
-}
-
-const platformManagedPlanAvailable = `-- name: PlatformManagedPlanAvailable :one
-SELECT EXISTS(SELECT 1 FROM plans WHERE code=$1 AND active)::boolean AS available
-`
-
-func (q *Queries) PlatformManagedPlanAvailable(ctx context.Context, code string) (bool, error) {
-	row := q.db.QueryRow(ctx, platformManagedPlanAvailable, code)
-	var available bool
-	err := row.Scan(&available)
-	return available, err
-}
-
-const platformMarkManagedInvoicePaid = `-- name: PlatformMarkManagedInvoicePaid :execrows
-UPDATE invoices SET status='paid' WHERE id=$1 AND status IN('draft','issued')
-`
-
-func (q *Queries) PlatformMarkManagedInvoicePaid(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.Exec(ctx, platformMarkManagedInvoicePaid, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const platformRenameTenant = `-- name: PlatformRenameTenant :execrows
@@ -189,20 +124,6 @@ func (q *Queries) PlatformRenameTenant(ctx context.Context, arg PlatformRenameTe
 	return result.RowsAffected(), nil
 }
 
-const platformSetManagedFreeTerm = `-- name: PlatformSetManagedFreeTerm :exec
-UPDATE subscriptions SET period_start=now(),period_end=$2,status='active' WHERE tenant_id=$1 AND plan_id='free' AND status='active'
-`
-
-type PlatformSetManagedFreeTermParams struct {
-	TenantID  int64              `json:"tenant_id"`
-	PeriodEnd pgtype.Timestamptz `json:"period_end"`
-}
-
-func (q *Queries) PlatformSetManagedFreeTerm(ctx context.Context, arg PlatformSetManagedFreeTermParams) error {
-	_, err := q.db.Exec(ctx, platformSetManagedFreeTerm, arg.TenantID, arg.PeriodEnd)
-	return err
-}
-
 const platformSetTenantOwner = `-- name: PlatformSetTenantOwner :execrows
 UPDATE tenants SET owner_user_id=$2 WHERE id=$1
 `
@@ -214,18 +135,6 @@ type PlatformSetTenantOwnerParams struct {
 
 func (q *Queries) PlatformSetTenantOwner(ctx context.Context, arg PlatformSetTenantOwnerParams) (int64, error) {
 	result, err := q.db.Exec(ctx, platformSetTenantOwner, arg.ID, arg.OwnerUserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const platformVoidManagedInvoice = `-- name: PlatformVoidManagedInvoice :execrows
-UPDATE invoices SET status='void' WHERE id=$1 AND status IN('draft','issued')
-`
-
-func (q *Queries) PlatformVoidManagedInvoice(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.Exec(ctx, platformVoidManagedInvoice, id)
 	if err != nil {
 		return 0, err
 	}

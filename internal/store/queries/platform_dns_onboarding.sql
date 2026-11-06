@@ -30,7 +30,6 @@ SELECT z.domain_id,z.tenant_id,d.fqdn,z.records,z.updated_at FROM managed_dns_zo
 UPDATE onboarding_tasks t SET status='running',leased_by=$1,leased_until=now()+interval '2 minutes',fence=fence+1,attempts=attempts+1,updated_at=now()
 WHERE t.id=(SELECT task.id FROM onboarding_tasks task JOIN domains d ON d.id=task.domain_id AND d.tenant_id=task.tenant_id
 WHERE task.status IN('pending','running') AND task.next_attempt_at<=now() AND (task.leased_until IS NULL OR task.leased_until<now()) AND task.attempts<task.max_attempts AND d.status='active' AND d.verified_at<=now()
-AND EXISTS(SELECT 1 FROM subscriptions s WHERE s.tenant_id=task.tenant_id AND s.status IN('active','trialing','past_due') AND s.period_start<=now() AND (s.period_end>now() OR urmail_migration_entitlement_allowed(s.tenant_id)))
 AND NOT EXISTS(SELECT 1 FROM onboarding_tasks held WHERE held.tenant_id=task.tenant_id AND held.domain_id=task.domain_id AND held.status='blocked' AND (coalesce(held.last_error_code,'')||coalesce(held.last_error,'')) LIKE '%RESTORE_RECONCILIATION_REQUIRED%' AND NOT EXISTS(SELECT 1 FROM dns_change_plans reviewed WHERE reviewed.tenant_id=held.tenant_id AND reviewed.domain_id=held.domain_id AND reviewed.status='completed' AND reviewed.updated_at>held.updated_at))
 ORDER BY task.id FOR UPDATE OF task SKIP LOCKED LIMIT 1) RETURNING t.*;
 -- name: PlatformFenceOnboarding :one
@@ -38,7 +37,7 @@ SELECT * FROM onboarding_tasks WHERE id=$1 AND fence=$2 AND leased_by=$3 AND lea
 -- name: PlatformAdvanceOnboarding :execrows
 UPDATE onboarding_tasks SET attempts=CASE WHEN step<>$4 THEN 0 ELSE attempts END,step=$4,status=$5,last_error_code=$6,desired_generation=$7,next_attempt_at=now()+make_interval(secs=>sqlc.arg(backoff_seconds)::double precision),leased_by=NULL,leased_until=NULL,updated_at=now(),completed_at=CASE WHEN $5='completed' THEN now() ELSE completed_at END WHERE id=$1 AND fence=$2 AND leased_by=$3 AND leased_until>statement_timestamp() AND status='running';
 -- name: PlatformPrepareOnboardingTenant :exec
-UPDATE tenants SET status='active' WHERE tenants.id=$1 AND tenants.status='pending' AND EXISTS(SELECT 1 FROM subscriptions s WHERE s.tenant_id=tenants.id AND s.status IN('active','trialing','past_due') AND s.period_start<=now() AND (s.period_end>now() OR urmail_migration_entitlement_allowed(s.tenant_id)));
+UPDATE tenants SET status='active' WHERE tenants.id=$1 AND tenants.status='pending';
 -- name: PlatformMarkDomainReady :execrows
 UPDATE domains d SET provisioning_state='ready',updated_at=now() FROM onboarding_tasks task WHERE d.tenant_id=$1 AND d.id=$2 AND task.tenant_id=d.tenant_id AND task.domain_id=d.id AND task.id=$3 AND task.fence=$4 AND task.leased_by=$5 AND task.leased_until>statement_timestamp() AND task.status='running' AND task.step='protocol_readiness' AND d.status='active';
 -- name: PlatformProvisioningCertificateAllowed :one

@@ -145,10 +145,8 @@ func TestApplyCorePreserves43CredentialsAndExplicitSenderAuthority(t *testing.T)
 	checks := []string{
 		`SELECT count(*)=7 AND bool_and(status='pending_dns' AND verified_at IS NULL AND provisioning_state<>'ready') FROM domains WHERE tenant_id=$1`,
 		`SELECT bool_and(NOT urmail_domain_mail_ready(tenant_id,id)) FROM domains WHERE tenant_id=$1`,
-		`SELECT count(*)=1 AND bool_and(entitlement_source='migration_legacy' AND period_end IS NULL) FROM subscriptions WHERE tenant_id=$1 AND status='active'`,
 		`SELECT count(*)=2 FROM mailbox_aliases WHERE tenant_id=$1 AND cardinality(sender_logins)=1`,
 		`SELECT count(*)=21 FROM mailbox_aliases WHERE tenant_id=$1 AND cardinality(sender_logins)=0`,
-		`SELECT (SELECT count(*) FROM orders WHERE tenant_id=$1)+(SELECT count(*) FROM payments WHERE tenant_id=$1)+(SELECT count(*) FROM subscription_terms WHERE tenant_id=$1)+(SELECT count(*) FROM billing_calendars WHERE tenant_id=$1)+(SELECT count(*) FROM tenant_trials WHERE tenant_id=$1)=0`,
 		`SELECT count(*)=1 AND bool_and(detail->>'commit_outcome'='committed' AND (detail->>'core_only')::boolean AND NOT (detail->>'cutover_ready')::boolean) FROM audit_logs WHERE tenant_id=$1 AND action='IMPORT legacy.mail'`,
 	}
 	for index, query := range checks {
@@ -181,7 +179,7 @@ func TestApplyCoreAuditFailureRollsBackGrantAndEveryResource(t *testing.T) {
 		t.Fatal("audit failure ignored", err)
 	}
 	var n int
-	if err = f.pool.QueryRow(t.Context(), "SELECT (SELECT count(*) FROM domains WHERE tenant_id=$1)+(SELECT count(*) FROM mailboxes WHERE tenant_id=$1)+(SELECT count(*) FROM mailbox_aliases WHERE tenant_id=$1)+(SELECT count(*) FROM subscriptions WHERE tenant_id=$1 AND entitlement_source='migration_legacy')+(SELECT count(*) FROM audit_logs WHERE tenant_id=$1)", f.options.TenantID).Scan(&n); err != nil || n != 0 {
+	if err = f.pool.QueryRow(t.Context(), "SELECT (SELECT count(*) FROM domains WHERE tenant_id=$1)+(SELECT count(*) FROM mailboxes WHERE tenant_id=$1)+(SELECT count(*) FROM mailbox_aliases WHERE tenant_id=$1)+(SELECT count(*) FROM audit_logs WHERE tenant_id=$1)", f.options.TenantID).Scan(&n); err != nil || n != 0 {
 		t.Fatal("failed import left committed facts", err)
 	}
 }
@@ -258,14 +256,4 @@ func TestApplyRealPrivateCoreSourceRehearsal(t *testing.T) {
 		t.Fatal("private source changed")
 	}
 	t.Log("43 credentials and quotas preserved; seven unverified domains; core-only, activation false; owned fixture cleanup required")
-}
-
-func TestApplyCoreRefusesStandaloneInvoiceHistory(t *testing.T) {
-	f := newCoreFixture(t)
-	if _, err := f.pool.Exec(t.Context(), "INSERT INTO invoices(tenant_id,number,amount_cents,currency,status) VALUES($1,'LEGACY-IMPORT-FIXTURE',100,'USD','draft')", f.options.TenantID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyCore(t.Context(), f.pool, f.source, f.options); !errors.Is(err, ErrTarget) {
-		t.Fatal("standalone financial history was ignored", err)
-	}
 }

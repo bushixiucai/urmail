@@ -350,7 +350,7 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if _, err = q.PlatformLockRecurringAdminActor(c, actor); err != nil {
+	if _, err = q.PlatformLockPlatformAdmin(c, actor); err != nil {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}

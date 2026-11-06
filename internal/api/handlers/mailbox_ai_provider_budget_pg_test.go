@@ -39,17 +39,15 @@ func (m *providerBudgetModel) Complete(ctx context.Context, _ ai.CompletionReque
 func providerBudgetFixture(t *testing.T, mode, operation string) (*db.Pool, store.PlatformConsumeMailboxTicketRow, *providerBudgetModel, *MailboxAIService, string, ai.OperationInput) {
 	t.Helper()
 	pool, principal, model, service, target, input := providerBudgetFixtureUnseeded(t, mode, operation)
-	// The six budget windows under test are the token and cost columns, so the
-	// local call cap must stay far above the four reservations these tests make.
-	if _, err := pool.Exec(t.Context(), `INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'ai_default_call_limit','1000') ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value`, principal.TenantID); err != nil {
+	// The platform default quota must be a real bound for token/cost checks.
+	if _, err := pool.Exec(t.Context(), "INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'ai_default_call_limit',to_jsonb(30::bigint)) ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value"); err != nil {
 		t.Fatal(err)
 	}
 	return pool, principal, model, service, target, input
 }
 
-// providerBudgetFixtureUnseeded leaves the local call cap untouched: legacy
-// fixtures rely on the fail-closed unconfigured quota, and callers that need a
-// specific admission ceiling seed it themselves.
+// providerBudgetFixtureUnseeded leaves AI admission unconfigured so each test
+// decides its own quota facts (fail-closed cases stay genuinely unconfigured).
 func providerBudgetFixtureUnseeded(t *testing.T, mode, operation string) (*db.Pool, store.PlatformConsumeMailboxTicketRow, *providerBudgetModel, *MailboxAIService, string, ai.OperationInput) {
 	t.Helper()
 	pool, principal := mailboxAIFixture(t, 0)

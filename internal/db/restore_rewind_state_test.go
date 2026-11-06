@@ -28,7 +28,7 @@ func TestRestoreRewindHoldsNewSideEffectsAndInvalidatesDerivedState(t *testing.T
  INSERT INTO marketing_flows(tenant_id,name,status) VALUES(t,'restore flow','active') RETURNING id INTO f;
  INSERT INTO marketing_flow_steps(tenant_id,flow_id,step_key,kind,next_key,position) VALUES(t,f,'send','send','stop',0),(t,f,'stop','stop','',1);
  INSERT INTO marketing_flow_positions(tenant_id,flow_id,email,step_key,delivery_uncertain,lease_owner,lease_until,lease_fence) VALUES(t,f,'outside@example.test','send',false,'old-worker',now()+interval '1 hour',7);
- INSERT INTO subscription_renewal_attempts(tenant_id,subscription_id,period_end,state) VALUES(t,7001,now(),'pending'),(t,7002,now(),'succeeded');
+ INSERT INTO notification_outbox(tenant_id,kind,message_key,dedupe_key,channel,recipient,recipient_verified,state) VALUES(t,'notification.dns_requires_review','notification.dns_requires_review','rewind-pending','email','verified@example.test',true,'pending'),(t,'notification.dns_requires_review','notification.dns_requires_review','rewind-sent','email','verified@example.test',true,'delivered');
  END $$`)
 	if err != nil {
 		t.Fatal(err)
@@ -45,10 +45,10 @@ func TestRestoreRewindHoldsNewSideEffectsAndInvalidatesDerivedState(t *testing.T
 		t.Fatalf("new epoch=%d %v", epoch, err)
 	}
 	checks := map[string]string{
-		"renewal cannot re-charge":                        `SELECT state='canceled' AND last_error LIKE '%RESTORE_RECONCILIATION_REQUIRED%' FROM subscription_renewal_attempts WHERE subscription_id=7001`,
-		"successful payment preserved":                    `SELECT state='succeeded' FROM subscription_renewal_attempts WHERE subscription_id=7002`,
-		"flow paused":                                     `SELECT status='paused' FROM marketing_flows WHERE name='restore flow'`,
-		"flow fence invalidated":                          `SELECT delivery_uncertain AND lease_owner IS NULL AND lease_until IS NULL AND lease_fence>7 FROM marketing_flow_positions`,
+		"pending outbox held":    `SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE state='uncertain' AND kind='notification.dns_requires_review')`,
+		"delivered outbox preserved":  `SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE state='delivered' AND kind='notification.dns_requires_review')`,
+		"flow paused":            `SELECT status='paused' FROM marketing_flows WHERE name='restore flow'`,
+		"flow fence invalidated": `SELECT delivery_uncertain AND lease_owner IS NULL AND lease_until IS NULL AND lease_fence>7 FROM marketing_flow_positions`,
 		"flow position remains held on flow reactivation": `SELECT stopped_at IS NOT NULL AND last_error='RESTORE_RECONCILIATION_REQUIRED' FROM marketing_flow_positions`,
 		"pending invitation held":                         `SELECT status='uncertain' FROM mailbox_jobs WHERE idempotency_key='invite-pending'`,
 		"completed invitation preserved":                  `SELECT status='done' FROM mailbox_jobs WHERE idempotency_key='invite-done'`,

@@ -70,11 +70,7 @@ func marketingFixture(t *testing.T, limit int, recipients int) campaignFixture {
 	if _, err = p.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", f.owner, f.tenant); err != nil {
 		t.Fatal(err)
 	}
-	features := fmt.Sprintf(`{"marketing_daily_recipient_limit":%d,"marketing_rate_per_minute":600000}`, limit)
-	if _, err = p.Exec(ctx, "INSERT INTO plans(code,name,price_cents,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features) VALUES('marketing','{}',100,1073741824,5,2,1000,$1)", features); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = p.Exec(ctx, "UPDATE subscriptions SET plan_id='marketing' WHERE tenant_id=$1", f.tenant); err != nil {
+	if _, err = p.Exec(ctx, "INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'marketing_daily_recipient_limit',to_jsonb($2::bigint)),('tenant',$1,'marketing_rate_per_minute','600000')", f.tenant, limit); err != nil {
 		t.Fatal(err)
 	}
 	if err = p.QueryRow(ctx, "INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES($1,'marketing.example.test','active','proof',now()) RETURNING id", f.tenant).Scan(&domain); err != nil {
@@ -375,10 +371,7 @@ func TestCampaignConfirmAuthorizationSnapshotAndSuppression(t *testing.T) {
 	if _, err = p.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'member')", owner, tenant, member, tenant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.Exec(ctx, "INSERT INTO plans(code,name,price_cents,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features) VALUES('mkt-core','{}',100,1073741824,5,2,1000,'{\"marketing_daily_recipient_limit\":100,\"marketing_rate_per_minute\":600}') ON CONFLICT(code) DO UPDATE SET features=EXCLUDED.features"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = p.Exec(ctx, "UPDATE subscriptions SET plan_id='mkt-core' WHERE tenant_id=$1", tenant); err != nil {
+	if _, err = p.Exec(ctx, "INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'marketing_daily_recipient_limit','100'),('tenant',$1,'marketing_rate_per_minute','600')", tenant); err != nil {
 		t.Fatal(err)
 	}
 	var domain int64

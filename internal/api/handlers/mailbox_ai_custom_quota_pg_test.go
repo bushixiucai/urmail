@@ -92,6 +92,11 @@ func (m *blockedCustomQuotaModel) Complete(ctx context.Context, _ ai.CompletionR
 
 func TestMailboxCustomAIConcurrencyAndSettingsSnapshotPG(t *testing.T) {
 	pool, principal := mailboxAIFixture(t, 3)
+	// One concurrency slot: the settings default allows two parallel calls,
+	// which would let the second request reach the provider.
+	if _, err := pool.Exec(t.Context(), "UPDATE ai_provider_configs SET nonplatform_call_limit=3,nonplatform_mailbox_call_limit=3,nonplatform_concurrency_limit=1,quota_timezone='Asia/Shanghai' WHERE tenant_id=$1", principal.TenantID); err != nil {
+		t.Fatal(err)
+	}
 	target := customQuotaTarget(t, pool, principal, "ollama")
 	model := &blockedCustomQuotaModel{entered: make(chan struct{}), release: make(chan struct{})}
 	service := &MailboxAIService{Pool: pool, Provider: func(store.AiProviderConfigs) (ai.Provider, error) { return model, nil }}

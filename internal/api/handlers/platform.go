@@ -260,12 +260,7 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 	if freeEnd.Valid {
-		if supportError(c, q.PlatformSetManagedFreeTerm(c, store.PlatformSetManagedFreeTermParams{TenantID: tenantID, PeriodEnd: freeEnd})) {
-			return
-		}
 		middleware.SetPlatformAuditDetail(c, map[string]any{"free_until": freeEnd.Time.Format(time.RFC3339), "grant_reason": strings.TrimSpace(req.FreeReason)})
-	} else if supportError(c, q.PlatformRemoveRegistrationGift(c, tenantID)) {
-		return
 	}
 	middleware.SetPlatformAuditTenant(c, tenantID)
 	if supportError(c, finish()) {

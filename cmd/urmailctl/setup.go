@@ -134,15 +134,7 @@ func runSetup(ctx context.Context, args []string) error {
 		return err
 	}
 	if freeEnd.Valid {
-		changed, grantErr := q.PlatformGrantSetupFreeTerm(ctx, store.PlatformGrantSetupFreeTermParams{TenantID: tenantID, PeriodEnd: freeEnd})
-		if grantErr != nil {
-			return grantErr
-		}
-		if changed != 1 {
-			return errors.New("finite bootstrap gift would replace existing non-free rights; no changes committed")
-		}
-	} else if tenant.Created {
-		if err = q.PlatformRemoveRegistrationGift(ctx, tenantID); err != nil {
+		if _, err = tx.Exec(ctx, "UPDATE tenants SET status='active' WHERE id=$1", tenantID); err != nil {
 			return err
 		}
 	}

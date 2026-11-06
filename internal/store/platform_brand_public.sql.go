@@ -67,21 +67,6 @@ func (q *Queries) PlatformDeleteBrand(ctx context.Context, id int64) (int64, err
 	return result.RowsAffected(), nil
 }
 
-const platformDeleteUnusedPlan = `-- name: PlatformDeleteUnusedPlan :execrows
-DELETE FROM plans p WHERE p.code=$1 AND p.code<>'free'
-AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id=p.code)
-AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.plan_code=p.code)
-AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.plan_code=p.code)
-`
-
-func (q *Queries) PlatformDeleteUnusedPlan(ctx context.Context, code string) (int64, error) {
-	result, err := q.db.Exec(ctx, platformDeleteUnusedPlan, code)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const platformListBrandHosts = `-- name: PlatformListBrandHosts :many
 SELECT hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at FROM brand_hosts ORDER BY hostname
 `

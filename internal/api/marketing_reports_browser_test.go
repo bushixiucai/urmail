@@ -53,24 +53,7 @@ func TestMarketingReportsBrowserFixture(t *testing.T) {
 	}
 	actor := scalar("INSERT INTO users(email,password_hash) VALUES('outcomes-owner@fixture.test',$1) RETURNING id", hash)
 	exec("INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", actor, tenant)
-	exec(`INSERT INTO plans(code,name,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features) VALUES('outcomes-browser','{"en":"Isolated paid fixture","zh-CN":"隔离付费测试"}',100,'CNY',1073741824,5,2,1000,'{"marketing_daily_recipient_limit":1000,"marketing_rate_per_minute":60000}')`)
-	exec("UPDATE subscriptions SET status='canceled' WHERE tenant_id=$1", tenant)
-	exec("INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end,plan_snapshot) SELECT $1,code,'active',now(),now()+interval '1 month',to_jsonb(p) FROM plans p WHERE code='outcomes-browser'", tenant)
-	tx, e := platform.PlatformTx(ctx)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var start time.Time
-	if e = tx.QueryRow(ctx, "SELECT period_start FROM subscriptions WHERE tenant_id=$1", tenant).Scan(&start); e != nil {
-		t.Fatal(e)
-	}
-	_, e = tx.Exec(ctx, "INSERT INTO billing_calendars(tenant_id,timezone,first_paid_at,anchor_at,source,review_reason,created_by) VALUES($1,'Asia/Shanghai',$2,$2,'manual_legacy','Isolated browser fixture known paid instant and timezone',$3) ON CONFLICT (tenant_id) DO NOTHING", tenant, start, actor)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = tx.Commit(ctx); e != nil {
-		t.Fatal(e)
-	}
+	exec("INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'marketing_daily_recipient_limit','1000'),('tenant',$1,'marketing_rate_per_minute','60000')", tenant)
 	domain := scalar("INSERT INTO domains(tenant_id,fqdn,status,verified_at,verification_token) VALUES($1,'marketing-browser.example.test','active',now(),'fixture') RETURNING id", tenant)
 	exec("INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status,send_enabled) VALUES($1,$2,'sender','sender@marketing-browser.example.test','unused',268435456,'active',true)", tenant, domain)
 	box, e := secrets.New([]byte(strings.Repeat("b", 32)))

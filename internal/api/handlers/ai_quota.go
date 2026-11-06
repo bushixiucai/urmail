@@ -88,6 +88,10 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		result.Limits.AI.Concurrency = 2
 		result.Limits.AI.Tokens = math.MaxInt64
 		result.Limits.AI.Cost = math.MaxInt64
+		result.Limits.AI.Currency = cfg.CostCurrency
+		if result.Limits.AI.Currency == "" {
+			result.Limits.AI.Currency = "CNY"
+		}
 		return result, nil
 	}
 
@@ -231,7 +235,7 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 		return
 	}
 	if platform {
-		_, err = q.PlatformLockRecurringAdminActor(c, actor)
+		_, err = q.PlatformLockPlatformAdmin(c, actor)
 	} else {
 		_, err = q.PlatformLockAIQuotaTenantReader(c, store.PlatformLockAIQuotaTenantReaderParams{TenantID: tenant, ID: actor})
 	}

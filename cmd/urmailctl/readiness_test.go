@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -51,10 +52,17 @@ func newReadinessTestEnv(t *testing.T) *readinessTestEnv {
 	activeReleaseRuntimeVerifier = func(context.Context, *config.Config, string) error { return nil }
 	t.Cleanup(func() { activeReleaseRuntimeVerifier = prevRuntime })
 	prevAgent, prevVersion, prevNow, prevWindow, prevKey := activeAgentConfigStatus, activeMigrationVersion, readinessNow, readinessFreshnessWindow, releaseSigningKeyPath
-	activeAgentConfigStatus = func(_ context.Context) (*readinessAgentSnapshot, error) {
-		return &readinessAgentSnapshot{Ready: false, Desired: "gen-155", Applied: "old", Step: "prepared", ManifestSHA256: strings.Repeat("a", 64), AppliedAt: time.Now().UTC()}, nil
+	// Derive the fixture generation from the embedded migration set so adding
+	// migrations cannot break these assertions again.
+	fixtureGeneration, genErr := latestEmbeddedMigrationVersion()
+	if genErr != nil {
+		t.Fatal(genErr)
 	}
-	activeMigrationVersion = func(_ context.Context) (uint64, error) { return 155, nil }
+	fixtureDesired := fmt.Sprintf("gen-%d", fixtureGeneration)
+	activeAgentConfigStatus = func(_ context.Context) (*readinessAgentSnapshot, error) {
+		return &readinessAgentSnapshot{Ready: false, Desired: fixtureDesired, Applied: "old", Step: "prepared", ManifestSHA256: strings.Repeat("a", 64), AppliedAt: time.Now().UTC()}, nil
+	}
+	activeMigrationVersion = func(_ context.Context) (uint64, error) { return fixtureGeneration, nil }
 	readinessNow = func() time.Time { return time.Now().UTC() }
 	releaseSigningKeyPath = keyPath
 	t.Cleanup(func() {
@@ -71,7 +79,7 @@ func (e *readinessTestEnv) createV2Fence(t *testing.T, units []string) {
 		CreatedAt:  time.Now().UTC(),
 		Reason:     "readiness test fence",
 		Operator:   "test-operator",
-		Generation: 155,
+		Generation: readinessFixtureGeneration(t),
 		Units:      units,
 	}
 	if err := maintenance.CreateUpgradeFence(e.maintDir, meta); err != nil {
@@ -92,8 +100,8 @@ func (e *readinessTestEnv) writeReadiness(t *testing.T, key ed25519.PrivateKey, 
 		RecordedAt:    readinessNow().UTC(),
 		HoldSHA256:    sha256Sum(holdRaw),
 		ReceiptSHA256: sha256Sum(receiptRaw),
-		Generation:    155,
-		AgentStatus:   &readinessAgentSnapshot{Ready: false, Desired: "gen-155", Applied: "old", Step: "prepared", ManifestSHA256: strings.Repeat("a", 64)},
+		Generation:    readinessFixtureGeneration(t),
+		AgentStatus:   &readinessAgentSnapshot{Ready: false, Desired: fmt.Sprintf("gen-%d", readinessFixtureGeneration(t)), Applied: "old", Step: "prepared", ManifestSHA256: strings.Repeat("a", 64)},
 	}
 	if mutate != nil {
 		mutate(&doc)
@@ -173,8 +181,8 @@ func TestReadinessV2FenceBindsHoldDigestAndGeneration(t *testing.T) {
 	if err = json.Unmarshal(receiptRaw, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Version != 2 || receipt.Generation != 155 {
-		t.Fatalf("expected v2 receipt with generation 155, got %+v", receipt)
+	if receipt.Version != 2 || receipt.Generation != readinessFixtureGeneration(t) {
+		t.Fatalf("expected v2 receipt with generation %d, got %+v", readinessFixtureGeneration(t), receipt)
 	}
 	if receipt.HoldSHA256 != sha256Sum(holdRaw) {
 		t.Fatal("receipt hold_sha256 does not bind live hold bytes")
@@ -584,4 +592,15 @@ func TestReadinessResumeGuidanceUpdated(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "readiness-record") {
 		t.Fatalf("resume guidance must point at readiness-record, got: %v", err)
 	}
+}
+
+// readinessFixtureGeneration derives the fixture schema generation from the
+// embedded migration set instead of a hard-coded version.
+func readinessFixtureGeneration(t *testing.T) uint64 {
+	t.Helper()
+	version, err := latestEmbeddedMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version
 }

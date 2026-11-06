@@ -34,7 +34,6 @@ type BrandingStore interface {
 	PlatformUnbindBrandHost(context.Context, string) (int64, error)
 	PlatformSetBrandStatus(context.Context, store.PlatformSetBrandStatusParams) (int64, error)
 	PlatformDeleteBrand(context.Context, int64) (int64, error)
-	PlatformDeleteUnusedPlan(context.Context, string) (int64, error)
 	PlatformResetBrandTheme(context.Context, int64) (int64, error)
 }
 
@@ -367,15 +366,6 @@ func (h *BrandingHandler) ResetTheme(c *gin.Context) {
 	brandMutationResult(c, n, err)
 }
 
-// DeletePlan removes only an unused, non-default plan.
-func (h *BrandingHandler) DeletePlan(c *gin.Context) {
-	n, err := requestStore(c, h.Store).PlatformDeleteUnusedPlan(c, c.Param("code"))
-	if err == nil && n == 0 {
-		authError(c, http.StatusConflict, "CONFLICT")
-		return
-	}
-	brandMutationResult(c, n, err)
-}
 func brandMutationResult(c *gin.Context, n int64, err error) {
 	if err != nil {
 		var pgErr *pgconn.PgError

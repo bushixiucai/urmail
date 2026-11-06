@@ -23,20 +23,3 @@ UPDATE tenants SET owner_user_id=$2 WHERE id=$1;
 -- name: PlatformRenameTenant :execrows
 UPDATE tenants SET name=$2 WHERE id=$1;
 
--- name: PlatformManagedPlanAvailable :one
-SELECT EXISTS(SELECT 1 FROM plans WHERE code=$1 AND active)::boolean AS available;
-
--- name: PlatformGrantManagedSubscription :exec
-INSERT INTO subscriptions(tenant_id,plan_id,status,period_start,period_end) VALUES($1,$2,'active',now(),$3);
-
--- name: PlatformCreateManagedInvoice :one
-INSERT INTO invoices(tenant_id,number,period_start,period_end,amount_cents,currency,status,issued_at) VALUES($1,$2,$3,$4,$5,$6,'issued',now()) RETURNING id;
-
--- name: PlatformMarkManagedInvoicePaid :execrows
-UPDATE invoices SET status='paid' WHERE id=$1 AND status IN('draft','issued');
-
--- name: PlatformVoidManagedInvoice :execrows
-UPDATE invoices SET status='void' WHERE id=$1 AND status IN('draft','issued');
-
--- name: PlatformSetManagedFreeTerm :exec
-UPDATE subscriptions SET period_start=now(),period_end=$2,status='active' WHERE tenant_id=$1 AND plan_id='free' AND status='active';

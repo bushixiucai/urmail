@@ -51,17 +51,6 @@ func Seed(ctx context.Context, pool *db.Pool, scale Scale) (*Fixture, error) {
 	if err != nil {
 		return nil, fmt.Errorf("seed tenant: %w", err)
 	}
-	// Marketing authorization requires the effective plan snapshot to carry
-	// configured limits with an effectively unthrottled rate for this test.
-	keys := `{"marketing_daily_recipient_limit":"1000000","marketing_rate_per_minute":"999999"}`
-	_, err = q.Exec(ctx, `UPDATE subscription_terms SET plan_snapshot=plan_snapshot||$2::jsonb WHERE tenant_id=$1`, f.TenantID, keys)
-	if err != nil {
-		return nil, fmt.Errorf("seed term snapshot: %w", err)
-	}
-	_, err = q.Exec(ctx, `UPDATE subscriptions s SET plan_snapshot=COALESCE(s.plan_snapshot,to_jsonb(p.*))||jsonb_build_object('features',COALESCE(COALESCE(s.plan_snapshot,to_jsonb(p.*))->'features','{}'::jsonb)||$2::jsonb) FROM plans p WHERE p.code=s.plan_id AND s.tenant_id=$1`, f.TenantID, keys)
-	if err != nil {
-		return nil, fmt.Errorf("seed plan snapshot: %w", err)
-	}
 	err = q.QueryRow(ctx, `INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES($1,'loadbench.test','active','tok',now()) RETURNING id`, f.TenantID).Scan(&f.DomainID)
 	if err != nil {
 		return nil, fmt.Errorf("seed domain: %w", err)

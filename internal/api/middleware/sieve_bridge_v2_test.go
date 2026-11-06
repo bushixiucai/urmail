@@ -135,7 +135,7 @@ func TestSieveBridgeIsOneScopeIndependentMailboxIdentity(t *testing.T) {
 		t.Fatalf("concurrent editors lost an update: %d %d calls=%d", first, second, activation.calls)
 	}
 	panel := api.New(api.Options{AppPool: app, PlatformPool: p, DevMode: true, Logger: zap.NewNop()})
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/platform/plans", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/platform/overview", nil)
 	req.AddCookie(cookie)
 	denied := httptest.NewRecorder()
 	panel.ServeHTTP(denied, req)

@@ -17,3 +17,6 @@ SELECT (SELECT count(*) FROM window_usage)::bigint AS calls_used,
 -- name: PlatformLockAIQuotaTenantReader :one
 SELECT u.id FROM users u JOIN user_tenant_roles r ON r.user_id=u.id
 WHERE r.tenant_id=$1 AND u.id=$2 AND u.status='active' AND r.role IN('owner','admin') FOR SHARE OF u,r;
+
+-- name: PlatformLockPlatformAdmin :one
+SELECT u.id FROM users u JOIN platform_admins a ON a.user_id=u.id WHERE u.id=$1 AND u.status='active' FOR SHARE OF u,a;

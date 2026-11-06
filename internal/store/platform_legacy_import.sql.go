@@ -25,13 +25,6 @@ WHERE tenant_id=$1::bigint
  AND dkim_private_key IS NOT NULL
  AND dkim_private_key <> ''
  AND EXISTS(
-  SELECT 1 FROM subscriptions s
-  WHERE s.tenant_id=domains.tenant_id
-   AND s.status='active'
-   AND s.entitlement_source='migration_legacy'
-   AND s.migration_manifest_sha256=$2::text
- )
- AND EXISTS(
   SELECT 1 FROM audit_logs a
   WHERE a.tenant_id=domains.tenant_id
    AND a.action='IMPORT legacy.mail'
@@ -155,26 +148,14 @@ SELECT
  (SELECT count(*) FROM domains fact WHERE fact.tenant_id=$1::bigint)::bigint AS domains,
  (SELECT count(*) FROM mailboxes fact WHERE fact.tenant_id=$1::bigint)::bigint AS mailboxes,
  (SELECT count(*) FROM mailbox_aliases fact WHERE fact.tenant_id=$1::bigint)::bigint AS aliases,
- (SELECT count(*) FROM orders fact WHERE fact.tenant_id=$1::bigint)::bigint AS orders,
- (SELECT count(*) FROM payments fact WHERE fact.tenant_id=$1::bigint)::bigint AS payments,
- (SELECT count(*) FROM invoices fact WHERE fact.tenant_id=$1::bigint)::bigint AS invoices,
- (SELECT count(*) FROM subscription_terms fact WHERE fact.tenant_id=$1::bigint)::bigint AS paid_terms,
- (SELECT count(*) FROM billing_calendars fact WHERE fact.tenant_id=$1::bigint)::bigint AS billing_calendars,
- (SELECT count(*) FROM tenant_trials fact WHERE fact.tenant_id=$1::bigint)::bigint AS trials,
  (SELECT count(*) FROM audit_logs fact WHERE fact.tenant_id=$1::bigint AND fact.action='IMPORT legacy.mail')::bigint AS imports
 `
 
 type PlatformLegacyImportTargetFactsRow struct {
-	Domains          int64 `json:"domains"`
-	Mailboxes        int64 `json:"mailboxes"`
-	Aliases          int64 `json:"aliases"`
-	Orders           int64 `json:"orders"`
-	Payments         int64 `json:"payments"`
-	Invoices         int64 `json:"invoices"`
-	PaidTerms        int64 `json:"paid_terms"`
-	BillingCalendars int64 `json:"billing_calendars"`
-	Trials           int64 `json:"trials"`
-	Imports          int64 `json:"imports"`
+	Domains   int64 `json:"domains"`
+	Mailboxes int64 `json:"mailboxes"`
+	Aliases   int64 `json:"aliases"`
+	Imports   int64 `json:"imports"`
 }
 
 func (q *Queries) PlatformLegacyImportTargetFacts(ctx context.Context, tenantID int64) (PlatformLegacyImportTargetFactsRow, error) {
@@ -184,12 +165,6 @@ func (q *Queries) PlatformLegacyImportTargetFacts(ctx context.Context, tenantID 
 		&i.Domains,
 		&i.Mailboxes,
 		&i.Aliases,
-		&i.Orders,
-		&i.Payments,
-		&i.Invoices,
-		&i.PaidTerms,
-		&i.BillingCalendars,
-		&i.Trials,
 		&i.Imports,
 	)
 	return i, err
@@ -199,8 +174,6 @@ const platformLockLegacyDKIMDomains = `-- name: PlatformLockLegacyDKIMDomains :m
 SELECT d.id,d.fqdn,d.dkim_selector,d.dkim_private_key,d.status,d.provisioning_state
 FROM domains d
 WHERE d.tenant_id=$1::bigint AND d.fqdn=ANY($2::text[])
- AND EXISTS(SELECT 1 FROM subscriptions s WHERE s.tenant_id=d.tenant_id AND s.entitlement_source='migration_legacy'
-  AND s.status='active' AND s.migration_manifest_sha256=$3::text)
  AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=d.tenant_id AND a.action='IMPORT legacy.mail'
   AND a.detail->>'private_proof_sha256'=$3::text AND a.detail->>'commit_outcome'='committed')
 ORDER BY d.fqdn FOR UPDATE OF d

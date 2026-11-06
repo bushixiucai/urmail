@@ -55,12 +55,13 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
        m.id AS mailbox_id,
        m.tenant_id,
        COALESCE((
-           SELECT p.daily_send_limit
-           FROM subscriptions s
-           JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true
-           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND (s.period_end > now() OR urmail_migration_entitlement_allowed(s.tenant_id)) AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
+           SELECT (s.value #>> '{}')::int
+           FROM settings s
+           WHERE s.key = 'mailbox_daily_send_limit'
+             AND ((s.scope = 'tenant' AND s.scope_id = m.tenant_id) OR (s.scope = 'platform' AND s.scope_id = 0))
+           ORDER BY CASE WHEN s.scope = 'tenant' THEN 0 ELSE 1 END
            LIMIT 1
-       ), 0)::int AS daily_send_limit
+       ), -1)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
 WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)
@@ -96,12 +97,13 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
        m.id AS mailbox_id,
        m.tenant_id,
        COALESCE((
-           SELECT p.daily_send_limit
-           FROM subscriptions s
-           JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true
-           WHERE s.tenant_id = m.tenant_id AND s.status IN ('active', 'trialing', 'past_due') AND s.period_start <= now() AND (s.period_end > now() OR urmail_migration_entitlement_allowed(s.tenant_id)) AND (s.status <> 'trialing' OR s.trial_ends_at IS NULL OR s.trial_ends_at > now())
+           SELECT (s.value #>> '{}')::int
+           FROM settings s
+           WHERE s.key = 'mailbox_daily_send_limit'
+             AND ((s.scope = 'tenant' AND s.scope_id = m.tenant_id) OR (s.scope = 'platform' AND s.scope_id = 0))
+           ORDER BY CASE WHEN s.scope = 'tenant' THEN 0 ELSE 1 END
            LIMIT 1
-       ), 0)::int AS daily_send_limit
+       ), -1)::int AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
 WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)

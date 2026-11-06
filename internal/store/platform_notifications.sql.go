@@ -11,17 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const platformAdvanceScheduledPlanChanges = `-- name: PlatformAdvanceScheduledPlanChanges :exec
-UPDATE subscription_changes c SET status=CASE WHEN urmail_plan_snapshot_fits(c.tenant_id,t.plan_snapshot) THEN 'completed' ELSE 'blocked' END
-FROM subscription_terms t WHERE t.tenant_id=c.tenant_id AND t.period_start<=now() AND t.period_end>now() AND t.revoked_at IS NULL AND t.plan_snapshot->>'code'=c.target_plan_code
-AND c.effective_at<=now() AND c.status IN('scheduled','blocked')
-`
-
-func (q *Queries) PlatformAdvanceScheduledPlanChanges(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformAdvanceScheduledPlanChanges)
-	return err
-}
-
 const platformClaimEmailNotification = `-- name: PlatformClaimEmailNotification :one
 UPDATE notification_outbox n SET lease_until=now()+interval '2 minutes',fence=fence+1,attempts=attempts+1
 FROM (SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=now()
@@ -93,17 +82,6 @@ func (q *Queries) PlatformCountNewNotifications(ctx context.Context, afterID int
 	return items, nil
 }
 
-const platformCountOpenPaymentReviews = `-- name: PlatformCountOpenPaymentReviews :one
-SELECT count(*) FROM payment_manual_reviews WHERE status='open'
-`
-
-func (q *Queries) PlatformCountOpenPaymentReviews(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, platformCountOpenPaymentReviews)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const platformEnqueueAIAlerts = `-- name: PlatformEnqueueAIAlerts :exec
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)
 SELECT a.tenant_id,a.kind,'notification.'||a.kind,'{}'::jsonb,a.alert_key||':'||to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD-HH24'),'in_app','delivered'
@@ -147,115 +125,6 @@ func (q *Queries) PlatformEnqueueNotification(ctx context.Context, arg PlatformE
 		arg.Recipient,
 		arg.RecipientVerified,
 	)
-	return err
-}
-
-const platformEnqueuePaymentAlerts = `-- name: PlatformEnqueuePaymentAlerts :exec
-INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
-SELECT 'payment_manual_review','notification.payment_manual_review',jsonb_build_object('review_id',r.id,'order_id',r.order_id),'payment-review:'||r.id||':'||to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD-HH24'),'in_app','delivered'
-FROM payment_manual_reviews r WHERE r.status='open' ON CONFLICT(dedupe_key) DO NOTHING
-`
-
-func (q *Queries) PlatformEnqueuePaymentAlerts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformEnqueuePaymentAlerts)
-	return err
-}
-
-const platformEnqueueRefundAlerts = `-- name: PlatformEnqueueRefundAlerts :exec
-INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
-SELECT 'refund_requires_review','notification.refund_requires_review',jsonb_build_object('refund_id',r.id,'order_id',r.order_id),'refund-review:'||r.id||':'||to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD-HH24'),'in_app','delivered'
-FROM refunds r WHERE r.status='uncertain' OR (r.status='processing' AND r.request_started_at<now()-interval '2 minutes') OR (r.status='approved' AND r.last_error_code IS NOT NULL)
-ON CONFLICT(dedupe_key) DO NOTHING
-`
-
-func (q *Queries) PlatformEnqueueRefundAlerts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformEnqueueRefundAlerts)
-	return err
-}
-
-const platformEnqueueRefundResult = `-- name: PlatformEnqueueRefundResult :exec
-INSERT INTO notification_outbox(tenant_id,user_id,kind,message_key,params,dedupe_key,channel,state,recipient,recipient_verified)
-SELECT r.tenant_id,t.owner_user_id,'refund_result','notification.refund_'||r.status,jsonb_build_object('refund_id',r.id,'order_id',r.order_id,'amount_cents',r.amount_cents,'currency',r.currency),
- 'refund-result:'||r.id||':'||r.status||':'||ch.channel,ch.channel,CASE WHEN ch.channel='in_app' THEN 'delivered' ELSE 'pending' END,CASE WHEN ch.channel='email' THEN tc.email END,ch.channel='email'
-FROM refunds r JOIN tenants t ON t.id=r.tenant_id LEFT JOIN tenant_contacts tc ON tc.tenant_id=r.tenant_id CROSS JOIN(VALUES('in_app'),('email'))ch(channel)
-WHERE r.id=$1 AND r.status IN('completed','failed') AND ((ch.channel='in_app' AND t.owner_user_id IS NOT NULL) OR (ch.channel='email' AND tc.email IS NOT NULL))
-ON CONFLICT(dedupe_key) DO NOTHING
-`
-
-func (q *Queries) PlatformEnqueueRefundResult(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, platformEnqueueRefundResult, id)
-	return err
-}
-
-const platformEnqueueSubscriptionLifecycleNotices = `-- name: PlatformEnqueueSubscriptionLifecycleNotices :exec
-WITH sources AS (
- SELECT s.tenant_id,s.id AS subscription_id,s.plan_id,s.period_end,'grace'::text AS event
- FROM subscriptions s JOIN tenants t ON t.id=s.tenant_id
- WHERE s.status='past_due' AND t.status IN('active','pending')
- UNION ALL
- SELECT s.tenant_id,s.id,s.plan_id,s.period_end,'restored'
- FROM subscriptions s
- JOIN subscription_renewal_attempts a ON a.subscription_id=s.id AND a.tenant_id=s.tenant_id
-  AND a.state='succeeded' AND a.period_end<=a.updated_at
- WHERE s.status='active'
- UNION ALL
- SELECT t.id,NULL::bigint,s.plan_id,NULL::timestamptz,'suspended'
- FROM tenants t JOIN subscriptions s ON s.tenant_id=t.id
- WHERE t.status='suspended' AND s.status IN('past_due','active')
-)
-INSERT INTO notification_outbox(tenant_id,user_id,kind,message_key,params,dedupe_key,channel,state,recipient,recipient_verified)
-SELECT src.tenant_id,t.owner_user_id,'subscription_'||src.event,'notification.subscription_'||src.event,
- jsonb_build_object('plan',src.plan_id,'period_end',src.period_end),
- CASE src.event
-  WHEN 'suspended' THEN 'lifecycle:suspended:'||src.tenant_id
-  WHEN 'restored' THEN 'lifecycle:restored:'||src.subscription_id||':'||extract(epoch FROM src.period_end)::text
-  ELSE 'lifecycle:grace:'||src.subscription_id||':'||extract(epoch FROM src.period_end)::text END,
- ch.channel,
- CASE WHEN ch.channel='in_app' THEN 'delivered' ELSE 'pending' END,
- CASE WHEN ch.channel='email' THEN tc.email END,ch.channel='email'
-FROM sources src
-JOIN tenants t ON t.id=src.tenant_id
-LEFT JOIN tenant_contacts tc ON tc.tenant_id=src.tenant_id
-CROSS JOIN (VALUES('in_app'),('email')) ch(channel)
-WHERE (ch.channel='in_app' AND t.owner_user_id IS NOT NULL) OR (ch.channel='email' AND tc.email IS NOT NULL)
-ON CONFLICT(dedupe_key) DO NOTHING
-`
-
-// OPS-103 lifecycle gap closure: grace-period start (past_due), suspension
-// after the grace period ends (tenant suspended) and restoration after a late
-// settlement (a renewal attempt that succeeded only once its paid period had
-// already lapsed). Dedupe keys make every episode idempotent; in-app rows are
-// delivered atomically with the insert, email rows enter the retry queue.
-func (q *Queries) PlatformEnqueueSubscriptionLifecycleNotices(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformEnqueueSubscriptionLifecycleNotices)
-	return err
-}
-
-const platformEnqueueSubscriptionReminders = `-- name: PlatformEnqueueSubscriptionReminders :exec
-WITH configured_days AS (
- SELECT DISTINCT CASE WHEN raw~'^[0-9]{1,3}$' THEN raw::int END AS days
- FROM jsonb_array_elements_text(COALESCE((SELECT CASE WHEN jsonb_typeof(value)='array' THEN value ELSE '[]'::jsonb END FROM settings WHERE scope='platform' AND scope_id=0 AND key='subscription_notice_days'),'[7,3,1,0]'::jsonb)) raw
-), reminders AS (
- SELECT s.tenant_id,t.owner_user_id,tc.email,s.period_end,s.plan_id,d.days
- FROM subscriptions s JOIN tenants t ON t.id=s.tenant_id
- LEFT JOIN tenant_contacts tc ON tc.tenant_id=s.tenant_id
- CROSS JOIN configured_days d
- WHERE s.status IN('active','trialing','past_due') AND t.status IN('active','pending') AND d.days IS NOT NULL
- AND (s.period_end AT TIME ZONE urmail_business_timezone(s.tenant_id))::date
-     =(now() AT TIME ZONE urmail_business_timezone(s.tenant_id))::date+d.days
-)
-INSERT INTO notification_outbox(tenant_id,user_id,kind,message_key,params,dedupe_key,channel,state,recipient,recipient_verified)
-SELECT r.tenant_id,r.owner_user_id,'subscription_expiry','notification.subscription_expiry',jsonb_build_object('days',r.days,'plan',r.plan_id,'period_end',r.period_end),
- 'subscription-expiry:'||r.tenant_id||':'||extract(epoch FROM r.period_end)::text||':'||r.days||':'||ch.channel,ch.channel,
- CASE WHEN ch.channel='in_app' THEN 'delivered' ELSE 'pending' END,
- CASE WHEN ch.channel='email' THEN r.email END,ch.channel='email'
-FROM reminders r CROSS JOIN (VALUES('in_app'),('email'))ch(channel)
-WHERE ch.channel='in_app' OR r.email IS NOT NULL
-ON CONFLICT(dedupe_key) DO NOTHING
-`
-
-func (q *Queries) PlatformEnqueueSubscriptionReminders(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformEnqueueSubscriptionReminders)
 	return err
 }
 
@@ -394,9 +263,7 @@ func (q *Queries) PlatformNotificationOutboxCounts(ctx context.Context) ([]Platf
 }
 
 const platformOperationalStateCounts = `-- name: PlatformOperationalStateCounts :many
-SELECT 'refund'::text AS kind,status,count(*)::bigint AS count FROM refunds GROUP BY status
-UNION ALL SELECT 'checkout',state,count(*) FROM payment_checkout_intents GROUP BY state
-UNION ALL SELECT 'ai',status,count(*) FROM ai_usage_requests GROUP BY status
+SELECT 'ai'::text AS kind,status,count(*)::bigint AS count FROM ai_usage_requests GROUP BY status
 UNION ALL SELECT 'notification',state,count(*) FROM notification_outbox GROUP BY state
 UNION ALL SELECT 'marketing_recipient',status,count(*) FROM marketing_recipients GROUP BY status
 UNION ALL SELECT 'dns',status,count(*) FROM dns_change_plans GROUP BY status
@@ -445,19 +312,8 @@ func (q *Queries) PlatformQuarantinePoisonEmailNotifications(ctx context.Context
 }
 
 const platformRefreshAIAlerts = `-- name: PlatformRefreshAIAlerts :exec
-WITH usage AS (
- SELECT tenant_id,period_start,period_end,count(*) AS calls,
- sum(CASE WHEN mode='platform' THEN COALESCE(actual_tokens,reserved_tokens) ELSE 0 END) AS tokens,
- sum(CASE WHEN mode='platform' THEN COALESCE(actual_cost_micros,reserved_cost_micros) ELSE 0 END) AS cost
- FROM ai_usage_requests WHERE status<>'released' AND period_start<=now() AND period_end>now() GROUP BY tenant_id,period_start,period_end
-), sources AS (
+WITH sources AS (
  SELECT 'ai-uncertain:'||id AS key,tenant_id,'ai_requires_review'::text AS kind FROM ai_usage_requests WHERE status='uncertain' OR (status='reserved' AND updated_at<now()-interval '5 minutes')
- UNION ALL
- SELECT 'ai-budget:'||u.tenant_id||':'||extract(epoch FROM u.period_start),u.tenant_id,'ai_budget_exhausted'
- FROM usage u JOIN LATERAL urmail_effective_plan(u.tenant_id) p ON true
- WHERE (CASE WHEN p.features#>>'{ai,calls}' ~ '^[0-9]{1,16}$' THEN u.calls>=(p.features#>>'{ai,calls}')::numeric AND (p.features#>>'{ai,calls}')::numeric>0 ELSE false END)
- OR (CASE WHEN p.features#>>'{ai,tokens}' ~ '^[0-9]{1,16}$' THEN u.tokens>=(p.features#>>'{ai,tokens}')::numeric AND (p.features#>>'{ai,tokens}')::numeric>0 ELSE false END)
- OR (CASE WHEN p.features#>>'{ai,cost_micros}' ~ '^[0-9]{1,16}$' THEN u.cost>=(p.features#>>'{ai,cost_micros}')::numeric AND (p.features#>>'{ai,cost_micros}')::numeric>0 ELSE false END)
 ), firing AS (
  INSERT INTO operational_alerts(alert_key,tenant_id,kind,state) SELECT key,tenant_id,kind,'firing' FROM sources
  ON CONFLICT(alert_key) DO UPDATE SET state='firing',last_seen_at=now(),resolved_at=NULL RETURNING alert_key
@@ -468,77 +324,5 @@ WHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing'
 
 func (q *Queries) PlatformRefreshAIAlerts(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, platformRefreshAIAlerts)
-	return err
-}
-
-const platformRefreshPaymentAlerts = `-- name: PlatformRefreshPaymentAlerts :exec
-INSERT INTO operational_alerts(alert_key,tenant_id,kind,state)
-SELECT 'payment-review:'||id,tenant_id,'payment_manual_review','firing' FROM payment_manual_reviews WHERE status='open'
-ON CONFLICT(alert_key) DO UPDATE SET state='firing',last_seen_at=now(),resolved_at=NULL
-`
-
-func (q *Queries) PlatformRefreshPaymentAlerts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformRefreshPaymentAlerts)
-	return err
-}
-
-const platformRefreshRefundAlerts = `-- name: PlatformRefreshRefundAlerts :exec
-INSERT INTO operational_alerts(alert_key,tenant_id,kind,state)
-SELECT 'refund:'||id,tenant_id,'refund_requires_review','firing' FROM refunds WHERE status='uncertain' OR (status='processing' AND request_started_at<now()-interval '2 minutes') OR (status='approved' AND last_error_code IS NOT NULL)
-ON CONFLICT(alert_key) DO UPDATE SET state='firing',last_seen_at=now(),resolved_at=NULL
-`
-
-func (q *Queries) PlatformRefreshRefundAlerts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformRefreshRefundAlerts)
-	return err
-}
-
-const platformRefundStateCounts = `-- name: PlatformRefundStateCounts :many
-SELECT status,count(*)::bigint AS count FROM refunds GROUP BY status
-`
-
-type PlatformRefundStateCountsRow struct {
-	Status string `json:"status"`
-	Count  int64  `json:"count"`
-}
-
-func (q *Queries) PlatformRefundStateCounts(ctx context.Context) ([]PlatformRefundStateCountsRow, error) {
-	rows, err := q.db.Query(ctx, platformRefundStateCounts)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []PlatformRefundStateCountsRow{}
-	for rows.Next() {
-		var i PlatformRefundStateCountsRow
-		if err := rows.Scan(&i.Status, &i.Count); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const platformResolvePaymentAlerts = `-- name: PlatformResolvePaymentAlerts :exec
-UPDATE operational_alerts a SET state='resolved',resolved_at=now(),last_seen_at=now()
-WHERE a.kind='payment_manual_review' AND a.state='firing'
-AND NOT EXISTS(SELECT 1 FROM payment_manual_reviews r WHERE a.alert_key='payment-review:'||r.id AND r.status='open')
-`
-
-func (q *Queries) PlatformResolvePaymentAlerts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformResolvePaymentAlerts)
-	return err
-}
-
-const platformResolveRefundAlerts = `-- name: PlatformResolveRefundAlerts :exec
-UPDATE operational_alerts a SET state='resolved',resolved_at=now(),last_seen_at=now() WHERE a.kind='refund_requires_review' AND a.state='firing'
-AND NOT EXISTS(SELECT 1 FROM refunds r WHERE a.alert_key='refund:'||r.id AND (r.status='uncertain' OR (r.status='processing' AND r.request_started_at<now()-interval '2 minutes') OR (r.status='approved' AND r.last_error_code IS NOT NULL)))
-`
-
-func (q *Queries) PlatformResolveRefundAlerts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, platformResolveRefundAlerts)
 	return err
 }

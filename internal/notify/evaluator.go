@@ -52,37 +52,6 @@ func Evaluate(ctx context.Context, pool *db.Pool) error {
 	if err = q.PlatformEnqueueAIAlerts(ctx); err != nil {
 		return err
 	}
-	if err = q.PlatformAdvanceScheduledPlanChanges(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformRefreshRefundAlerts(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformResolveRefundAlerts(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformEnqueueRefundAlerts(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformEnqueueSubscriptionReminders(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformEnqueueSubscriptionLifecycleNotices(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformRefreshPaymentAlerts(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformResolvePaymentAlerts(ctx); err != nil {
-		return err
-	}
-	if err = q.PlatformEnqueuePaymentAlerts(ctx); err != nil {
-		return err
-	}
-	count, err := q.PlatformCountOpenPaymentReviews(ctx)
-	if err != nil {
-		return err
-	}
 	states, err := q.PlatformOperationalStateCounts(ctx)
 	if err != nil {
 		return err
@@ -90,7 +59,7 @@ func Evaluate(ctx context.Context, pool *db.Pool) error {
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	openAlerts.Set(float64(count))
+	openAlerts.Set(0)
 	workStates.Reset()
 	for _, row := range states {
 		workStates.WithLabelValues(row.Kind, row.Status).Set(float64(row.Count))

@@ -67,6 +67,16 @@ func (q *Queries) PlatformLockAIQuotaTenantReader(ctx context.Context, arg Platf
 	return id, err
 }
 
+const platformLockPlatformAdmin = `-- name: PlatformLockPlatformAdmin :one
+SELECT u.id FROM users u JOIN platform_admins a ON a.user_id=u.id WHERE u.id=$1 AND u.status='active' FOR SHARE OF u,a
+`
+
+func (q *Queries) PlatformLockPlatformAdmin(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, platformLockPlatformAdmin, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
 const platformSetNonplatformAIQuota = `-- name: PlatformSetNonplatformAIQuota :exec
 UPDATE ai_provider_configs SET nonplatform_call_limit=$2,nonplatform_mailbox_call_limit=$3,
  nonplatform_concurrency_limit=$4,quota_timezone=$5,updated_at=statement_timestamp()

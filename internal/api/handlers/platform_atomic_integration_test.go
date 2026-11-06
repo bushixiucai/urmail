@@ -102,14 +102,14 @@ func TestManualTenantCreationRequiresExplicitFiniteFreeGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	var oldBrand, oldTenant int64
-	var oldEnd time.Time
 	if err := p.QueryRow(ctx, "INSERT INTO brands(slug,name) VALUES('existing-free','Existing') RETURNING id").Scan(&oldBrand); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Existing','existing-free','active') RETURNING id", oldBrand).Scan(&oldTenant); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.QueryRow(ctx, "SELECT period_end FROM subscriptions WHERE tenant_id=$1 AND plan_id='free' AND status='active'", oldTenant).Scan(&oldEnd); err != nil {
+	var oldStatus string
+	if err := p.QueryRow(ctx, "SELECT status FROM tenants WHERE id=$1", oldTenant).Scan(&oldStatus); err != nil || oldStatus != "active" {
 		t.Fatal(err)
 	}
 	h := NewPlatformHandler(q)
@@ -135,9 +135,9 @@ func TestManualTenantCreationRequiresExplicitFiniteFreeGrant(t *testing.T) {
 	if err := json.Unmarshal(pending.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	var freeRows int
-	if err := p.QueryRow(ctx, "SELECT count(*) FROM subscriptions WHERE tenant_id=$1 AND status='active'", response.Tenant.ID).Scan(&freeRows); err != nil || freeRows != 0 || response.Tenant.Status != "pending" {
-		t.Fatalf("implicit free grant status%s rows%d err%v", response.Tenant.Status, freeRows, err)
+	var pendingStatus string
+	if err := p.QueryRow(ctx, "SELECT status FROM tenants WHERE id=$1", response.Tenant.ID).Scan(&pendingStatus); err != nil || pendingStatus != "pending" || response.Tenant.Status != "pending" {
+		t.Fatalf("implicit activation status=%s stored=%s err=%v", response.Tenant.Status, pendingStatus, err)
 	}
 	until := time.Now().UTC().Add(7 * 24 * time.Hour).Truncate(time.Second)
 	gift := create("gift", fmt.Sprintf(`,"free_until":%q,"free_reason":"Approved migration assistance"`, until.Format(time.RFC3339)))
@@ -147,21 +147,20 @@ func TestManualTenantCreationRequiresExplicitFiniteFreeGrant(t *testing.T) {
 	if err := json.Unmarshal(gift.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	var end time.Time
-	if err := p.QueryRow(ctx, "SELECT period_end FROM subscriptions WHERE tenant_id=$1 AND plan_id='free' AND status='active'", response.Tenant.ID).Scan(&end); err != nil || !end.Equal(until) || response.Tenant.Status != "active" {
-		t.Fatalf("finite grant end%s status%s err%v", end, response.Tenant.Status, err)
+	var giftedStatus string
+	if err := p.QueryRow(ctx, "SELECT status FROM tenants WHERE id=$1", response.Tenant.ID).Scan(&giftedStatus); err != nil || giftedStatus != "active" || response.Tenant.Status != "active" {
+		t.Fatalf("finite grant status=%s stored=%s err=%v", response.Tenant.Status, giftedStatus, err)
 	}
 	var audits int
-	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND detail->>'grant_reason'='Approved migration assistance' AND detail->>'phase'='transaction' AND detail->>'outcome'='succeeded'", response.Tenant.ID).Scan(&audits); err != nil || audits != 1 {
+	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND detail->>'grant_reason'='Approved migration assistance' AND detail->>'free_until'=$2 AND detail->>'phase'='transaction' AND detail->>'outcome'='succeeded'", response.Tenant.ID, until.Format(time.RFC3339)).Scan(&audits); err != nil || audits != 1 {
 		t.Fatalf("finite gift audit%d err%v", audits, err)
 	}
 	invalid := create("unbounded", `,"free_until":"infinity","free_reason":"Not allowed"`)
 	if invalid.Code != 400 {
 		t.Fatalf("infinite free grant accepted %d", invalid.Code)
 	}
-	var existingEnd time.Time
-	if err := p.QueryRow(ctx, "SELECT period_end FROM subscriptions WHERE tenant_id=$1 AND plan_id='free' AND status='active'", oldTenant).Scan(&existingEnd); err != nil || !existingEnd.Equal(oldEnd) {
-		t.Fatalf("existing free rights changed %s %s %v", existingEnd, oldEnd, err)
+	if err := p.QueryRow(ctx, "SELECT status FROM tenants WHERE id=$1", oldTenant).Scan(&oldStatus); err != nil || oldStatus != "active" {
+		t.Fatalf("existing tenant status changed %s %v", oldStatus, err)
 	}
 }
 
