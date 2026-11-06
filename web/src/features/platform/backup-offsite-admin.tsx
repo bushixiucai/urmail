@@ -78,8 +78,8 @@ const UNCONFIGURED_STATUS: BackupOffsiteStatus = {
 
 const selectClass = "h-10 rounded-md border bg-background px-3 text-sm";
 const hintClass = "text-xs leading-4 text-muted-foreground";
-// Host key fingerprints are pinned as SHA256:<44 base64 chars> per contract.
-const SHA256_FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}=?$/;
+// Host key fingerprints are pinned as SHA256:<43 unpadded base64 chars> (50 chars total) per contract.
+const SHA256_FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const ERROR_PREFIX = "platform_backup_offsite";
 
 type FormFields = {
