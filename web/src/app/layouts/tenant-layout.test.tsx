@@ -79,7 +79,7 @@ describe("TenantLayout Navigation Groups & Icons", () => {
     expect(screen.getAllByText("邮件资产").length).toBeGreaterThan(0);
     expect(screen.getAllByText("合规与外发").length).toBeGreaterThan(0);
     expect(screen.getAllByText("增值能力").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("组织与账单").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("组织").length).toBeGreaterThan(0);
 
     // Navigation items
     expect(screen.getAllByText("layout.dashboard").length).toBeGreaterThan(0);
@@ -94,7 +94,7 @@ describe("TenantLayout Navigation Groups & Icons", () => {
     expect(screen.getAllByText("nav.ai").length).toBeGreaterThan(0);
     expect(screen.getAllByText("nav.notifications").length).toBeGreaterThan(0);
     expect(screen.getAllByText("nav.support").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("nav.billing").length).toBeGreaterThan(0);
+    expect(screen.queryByText("nav.billing")).toBeNull();
     expect(screen.getAllByText("layout.settings").length).toBeGreaterThan(0);
     expect(screen.getAllByText("nav.platform").length).toBeGreaterThan(0);
   });

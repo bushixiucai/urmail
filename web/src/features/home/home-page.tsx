@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, Mail, Settings2, Tags } from "lucide-react";
+import { ArrowRight, Mail, Settings2 } from "lucide-react";
 import {
   BrandAppearance,
   safeBrandURL,
@@ -86,24 +86,12 @@ export function HomePage() {
           <span>{brandName}</span>
         </Link>
         <nav className="flex flex-wrap items-center gap-2 text-sm">
-          <Link
-            className="px-2 py-1 text-[var(--home-mute)] hover:text-[var(--home-ink)]"
-            to="/pricing"
-          >
-            {t("home.nav_pricing")}
-          </Link>
-          <Link
-            className="px-2 py-1 text-[var(--home-mute)] hover:text-[var(--home-ink)]"
-            to={consoleHref}
-          >
-            {t("home.nav_login")}
-          </Link>
           <Button
             asChild
             size="sm"
             className="bg-[var(--home-accent)] text-[var(--home-accent-fg)] hover:opacity-90"
           >
-            <Link to="/register">{t("home.cta_register")}</Link>
+            <Link to={consoleHref}>{t("home.nav_login")}</Link>
           </Button>
         </nav>
       </header>
@@ -127,8 +115,8 @@ export function HomePage() {
               size="lg"
               className="h-12 rounded-md bg-[var(--home-accent)] px-6 text-[var(--home-accent-fg)] hover:opacity-90"
             >
-              <Link to="/register">
-                {t("home.cta_register")}
+              <Link to={consoleHref}>
+                {t("home.nav_login")}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
@@ -151,7 +139,7 @@ export function HomePage() {
           </h2>
           <p className="text-[var(--home-mute)]">{t("home.entries_support")}</p>
         </div>
-        <div className="grid gap-0 border-y border-[var(--home-line)] md:grid-cols-3">
+        <div className="grid gap-0 border-y border-[var(--home-line)] md:grid-cols-2">
           {[
             {
               icon: Mail,
@@ -166,13 +154,6 @@ export function HomePage() {
               body: t("home.entry_console_body"),
               cta: t("home.entry_console_cta"),
               to: consoleHref,
-            },
-            {
-              icon: Tags,
-              title: t("home.entry_pricing_title"),
-              body: t("home.entry_pricing_body"),
-              cta: t("home.entry_pricing_cta"),
-              to: "/pricing",
             },
           ].map((entry, index) => {
             const Icon = entry.icon;
@@ -251,9 +232,6 @@ export function HomePage() {
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-10">
           <p className="home-display text-sm font-semibold">{brandName}</p>
           <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[var(--home-mute)]">
-            <Link to="/pricing" className="hover:text-[var(--home-ink)]">
-              {t("home.nav_pricing")}
-            </Link>
             <Link to="/login" className="hover:text-[var(--home-ink)]">
               {t("home.nav_login")}
             </Link>

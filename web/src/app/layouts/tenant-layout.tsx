@@ -11,7 +11,6 @@ import {
   AtSign,
   Bell,
   Building2,
-  CreditCard,
   Globe,
   Inbox,
   KeyRound,
@@ -143,9 +142,8 @@ export function TenantLayout({ children }: TenantLayoutProps) {
       ],
     },
     {
-      title: t("nav.group_organization", { defaultValue: "组织与账单" }),
+      title: t("nav.group_organization", { defaultValue: "组织" }),
       items: [
-        { name: t("nav.billing"), href: "/billing", icon: CreditCard },
         { name: t("layout.settings"), href: "/settings/mfa", icon: KeyRound },
         ...(isAdmin
           ? [{ name: t("nav.platform"), href: "/platform", icon: Building2 }]

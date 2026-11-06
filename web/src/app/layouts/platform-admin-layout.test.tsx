@@ -42,7 +42,7 @@ describe("PlatformAdminLayout", () => {
     cleanup();
   });
 
-  it("renders all 7 system-level navigation items and strips tenant items", () => {
+  it("renders system navigation without commercial items", () => {
     render(
       <MemoryRouter initialEntries={["/platform"]}>
         <PlatformAdminLayout>
@@ -51,11 +51,10 @@ describe("PlatformAdminLayout", () => {
       </MemoryRouter>,
     );
 
-    // 7 System Navigation items must be present
     expect(screen.getAllByText("平台概览").length).toBeGreaterThan(0);
     expect(screen.getAllByText("租户管理").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("套餐与计划").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("财务与结算").length).toBeGreaterThan(0);
+    expect(screen.queryByText("套餐与计划")).toBeNull();
+    expect(screen.queryByText("财务与结算")).toBeNull();
     expect(screen.getAllByText("品牌与主机").length).toBeGreaterThan(0);
     expect(screen.getAllByText("AI 与系统配置").length).toBeGreaterThan(0);
     expect(screen.getAllByText("平台工单").length).toBeGreaterThan(0);

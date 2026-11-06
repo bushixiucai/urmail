@@ -1,13 +1,8 @@
 import { BrandHostLifecycle } from "./brand-host-lifecycle";
 import { validNewPassword } from "@/lib/password-policy";
-import { BillingCalendarAdmin } from "./billing-calendar-admin";
 import { PlatformAIAdmin } from "./platform-ai-admin";
 import { BackupOffsiteAdmin } from "./backup-offsite-admin";
-import { CouponReissueAdmin } from "./coupon-reissue-admin";
-import { FinancialReviewAdmin } from "./financial-review-admin";
 import { NotificationAdmin } from "./notification-admin";
-import { DocumentProfile } from "@/features/billing/document-profile";
-import { PaymentMerchantAdmin } from "./payment-merchant-admin";
 import { SettingsEditor } from "@/features/auth/settings-editor";
 import { useCallback, useEffect, useState, useMemo, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,8 +11,6 @@ import {
   Globe,
   Mail,
   Users,
-  Layers,
-  Receipt,
   Cpu,
   DatabaseBackup,
   Headphones,
@@ -26,7 +19,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  CreditCard,
   Sparkles,
   ArrowRight,
   RefreshCw,
@@ -62,7 +54,6 @@ interface Overview {
   users: number;
   domains: number;
   mailboxes: number;
-  active_subscriptions: number;
 }
 
 interface ManagedBrand {
@@ -74,30 +65,6 @@ interface ManagedBrand {
   favicon_url?: string | null;
   primary_color?: string | null;
 }
-
-interface ManagedPlan {
-  code: string;
-  name: Record<string, string>;
-  price_cents: number;
-  currency: string;
-  quota_bytes: number;
-  mailbox_limit: number;
-  domain_limit: number;
-  daily_send_limit: number;
-  active: boolean;
-}
-
-const emptyPlan: ManagedPlan = {
-  code: "",
-  name: { en: "", "zh-CN": "" },
-  price_cents: 0,
-  currency: "CNY",
-  quota_bytes: 1073741824,
-  mailbox_limit: 5,
-  domain_limit: 1,
-  daily_send_limit: 100,
-  active: true,
-};
 
 interface Tenant {
   id: number;
@@ -121,15 +88,7 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
         const tab = new URLSearchParams(window.location.search).get("tab");
         if (
           tab &&
-          [
-            "overview",
-            "tenants",
-            "plans",
-            "finance",
-            "brands",
-            "settings",
-            "backup",
-          ].includes(tab)
+          ["overview", "tenants", "brands", "settings", "backup"].includes(tab)
         ) {
           return tab;
         }
@@ -149,15 +108,9 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
           const tab = new URLSearchParams(window.location.search).get("tab");
           if (
             tab &&
-            [
-              "overview",
-              "tenants",
-              "plans",
-              "finance",
-              "brands",
-              "settings",
-              "backup",
-            ].includes(tab)
+            ["overview", "tenants", "brands", "settings", "backup"].includes(
+              tab,
+            )
           ) {
             setActiveTab(tab);
           }
@@ -191,10 +144,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
     id: number;
     name: string;
   } | null>(null);
-  const [planItems, setPlanItems] = useState<ManagedPlan[]>([]);
-  const [planEdit, setPlanEdit] = useState<ManagedPlan>(emptyPlan);
-  const [plans, setPlans] = useState<string[]>([]);
-  const [coupons, setCoupons] = useState<string[]>([]);
   const [auditLogs, setAuditLogs] = useState<
     {
       id: number;
@@ -214,8 +163,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
   const [slug, setSlug] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
-  const [freeUntil, setFreeUntil] = useState("");
-  const [freeReason, setFreeReason] = useState("");
 
   // Tenant search, filter & pagination state
   const [searchQuery, setSearchQuery] = useState("");
@@ -243,8 +190,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       request<{ overview: Overview }>("/api/v1/platform/overview"),
       request<{ tenants: Tenant[] }>("/api/v1/platform/tenants"),
       request<{ brands: ManagedBrand[] }>("/api/v1/platform/brands"),
-      request<{ plans: ManagedPlan[] }>("/api/v1/platform/plans"),
-      request<{ coupons: { code: string }[] }>("/api/v1/platform/coupons"),
       request<{
         logs: {
           id: number;
@@ -257,15 +202,12 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
         "/api/v1/platform/brand-hosts",
       ),
     ])
-      .then(([o, ts, bs, ps, cs, logs, hs]) => {
+      .then(([o, ts, bs, logs, hs]) => {
         setOverview(o.overview);
         setHostItems(hs.hosts ?? []);
         setTenants(ts.tenants ?? []);
         setBrandItems(bs.brands ?? []);
-        setPlanItems(ps.plans ?? []);
         setBrands((bs.brands ?? []).map((b) => b.name));
-        setPlans((ps.plans ?? []).map((p) => p.code));
-        setCoupons((cs.coupons ?? []).map((c) => c.code));
         setAuditLogs(logs.logs ?? []);
       })
       .catch((err: unknown) =>
@@ -337,20 +279,12 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
           slug,
           owner_email: ownerEmail,
           owner_password: ownerPassword,
-          ...(freeUntil
-            ? {
-                free_until: new Date(freeUntil).toISOString(),
-                free_reason: freeReason.trim(),
-              }
-            : {}),
         },
       });
       setName("");
       setSlug("");
       setOwnerEmail("");
       setOwnerPassword("");
-      setFreeUntil("");
-      setFreeReason("");
       setCreateTenantOpen(false);
       load();
     } catch (err: unknown) {
@@ -430,14 +364,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       desc: "已分配工作邮箱",
     },
     {
-      label: t("page.platform.active_subscriptions", {
-        defaultValue: "有效订阅",
-      }),
-      value: overview?.active_subscriptions ?? 0,
-      icon: CreditCard,
-      desc: "进行中付费履约计划",
-    },
-    {
       label: t("page.platform.brands"),
       value: brandItems.length,
       icon: Sparkles,
@@ -455,16 +381,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       id: "tenants",
       label: t("page.platform.tab_tenants", { defaultValue: "租户管理" }),
       icon: Users,
-    },
-    {
-      id: "plans",
-      label: t("page.platform.tab_plans", { defaultValue: "套餐计划" }),
-      icon: Layers,
-    },
-    {
-      id: "finance",
-      label: t("page.platform.tab_finance", { defaultValue: "商业化与财务" }),
-      icon: Receipt,
     },
     {
       id: "brands",
@@ -598,52 +514,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                     </div>
                     <div className="text-xs text-muted-foreground">
                       租户管理与代入视察
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleTabChange("plans")}
-                className="flex items-center justify-between p-3.5 rounded-lg border bg-card hover:bg-muted/50 transition-colors text-left group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                    <Layers className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_plans", {
-                        defaultValue: "套餐计划定价",
-                      })}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      编辑套餐配额与促销
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleTabChange("finance")}
-                className="flex items-center justify-between p-3.5 rounded-lg border bg-card hover:bg-muted/50 transition-colors text-left group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                    <Receipt className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium group-hover:text-primary transition-colors">
-                      {t("page.platform.quick_finance", {
-                        defaultValue: "财务与结算",
-                      })}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      支付通道与账期日历
                     </div>
                   </div>
                 </div>
@@ -847,24 +717,16 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
         </div>
 
         {/* Resources Badges Summary */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          {[
-            { title: t("page.platform.brands"), items: brands },
-            { title: t("page.platform.plans"), items: plans },
-            { title: t("page.platform.coupons"), items: coupons },
-          ].map((group) => (
-            <Card key={group.title}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">
-                  {group.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-xs text-muted-foreground">
-                {group.items.length === 0 ? "-" : group.items.join(", ")}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">
+              {t("page.platform.brands")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-muted-foreground">
+            {brands.length === 0 ? "-" : brands.join(", ")}
+          </CardContent>
+        </Card>
       </div>
 
       {/* =========================================================================
@@ -947,31 +809,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
                     />
                   </label>
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 border-t pt-3">
-                  <label className="grid gap-1 text-xs font-medium">
-                    {t("page.platform.free_until")}
-                    <Input
-                      type="datetime-local"
-                      value={freeUntil}
-                      onChange={(e) => setFreeUntil(e.target.value)}
-                      required={freeReason.trim() !== ""}
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-medium">
-                    {t("page.platform.free_reason")}
-                    <Input
-                      value={freeReason}
-                      onChange={(e) => setFreeReason(e.target.value)}
-                      required={freeUntil !== ""}
-                      maxLength={2000}
-                    />
-                  </label>
-                </div>
-
-                <p className="text-[11px] text-muted-foreground">
-                  {t("page.platform.free_help")}
-                </p>
 
                 <div className="flex justify-end gap-2 pt-3 border-t">
                   <Button
@@ -1210,206 +1047,6 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
             </div>
           </CardContent>
         </Card>
-      </div>
-
-      {/* =========================================================================
-          Tab 3: 套餐计划 (Plans)
-          ========================================================================= */}
-      <div className={activeTab === "plans" ? "space-y-6" : "hidden"}>
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>{t("page.platform.plan_editor")}</CardTitle>
-                <CardDescription>
-                  管理全平台订阅套餐计划、功能配额上限与费率
-                </CardDescription>
-              </div>
-              {planEdit.code && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setPlanEdit(emptyPlan)}
-                  className="text-xs"
-                >
-                  {t("page.platform.cancel_edit", { defaultValue: "取消编辑" })}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <form
-              className="grid gap-3 sm:grid-cols-2 p-4 border rounded-lg bg-card/50"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void request("/api/v1/platform/plans", {
-                  method: "POST",
-                  body: planEdit,
-                })
-                  .then(() => {
-                    setPlanEdit(emptyPlan);
-                    load();
-                  })
-                  .catch((err: unknown) =>
-                    setNotice({
-                      variant: "error",
-                      message: errorMessage(err),
-                    }),
-                  );
-              }}
-            >
-              <label className="grid gap-1 text-xs font-medium">
-                {t("page.platform.plan_code")}
-                <Input
-                  value={planEdit.code}
-                  onChange={(e) =>
-                    setPlanEdit({ ...planEdit, code: e.target.value })
-                  }
-                  required
-                />
-              </label>
-              <label className="grid gap-1 text-xs font-medium">
-                {t("page.platform.name")}
-                <Input
-                  value={planEdit.name["zh-CN"] ?? planEdit.name.en ?? ""}
-                  onChange={(e) =>
-                    setPlanEdit({
-                      ...planEdit,
-                      name: { en: e.target.value, "zh-CN": e.target.value },
-                    })
-                  }
-                  required
-                />
-              </label>
-              {(
-                [
-                  "price_cents",
-                  "quota_bytes",
-                  "mailbox_limit",
-                  "domain_limit",
-                  "daily_send_limit",
-                ] as const
-              ).map((field) => (
-                <label key={field} className="grid gap-1 text-xs font-medium">
-                  {t(`page.platform.${field}`)}
-                  <Input
-                    type="number"
-                    min={field === "price_cents" ? 0 : -1}
-                    step="1"
-                    value={planEdit[field]}
-                    onChange={(e) =>
-                      setPlanEdit({
-                        ...planEdit,
-                        [field]: Number(e.target.value),
-                      })
-                    }
-                    required
-                  />
-                </label>
-              ))}
-              <div className="flex items-center gap-2 sm:col-span-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="plan-active-check"
-                  checked={planEdit.active}
-                  onChange={(e) =>
-                    setPlanEdit({ ...planEdit, active: e.target.checked })
-                  }
-                  className="rounded border-input text-primary"
-                />
-                <label
-                  htmlFor="plan-active-check"
-                  className="text-xs font-medium cursor-pointer"
-                >
-                  {t("state.active")}
-                </label>
-              </div>
-              <div className="sm:col-span-2 flex justify-end">
-                <Button type="submit">{t("action.save")}</Button>
-              </div>
-            </form>
-
-            <div className="border rounded-lg divide-y">
-              {planItems.map((plan) => (
-                <div
-                  key={plan.code}
-                  className="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
-                >
-                  <div>
-                    <div className="font-semibold flex items-center gap-2">
-                      <span>
-                        {plan.name["zh-CN"] || plan.name.en || plan.code}
-                      </span>
-                      <span className="text-xs font-mono px-2 py-0.5 rounded bg-muted">
-                        {plan.code}
-                      </span>
-                      {plan.active ? (
-                        <span className="text-[11px] text-emerald-600 font-medium">
-                          ● 在售
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground">
-                          ○ 下架
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      价格: ¥{(plan.price_cents / 100).toFixed(2)} / 月 ·
-                      邮箱上限:{" "}
-                      {plan.mailbox_limit === -1 ? "不限" : plan.mailbox_limit}{" "}
-                      · 域名:{" "}
-                      {plan.domain_limit === -1 ? "不限" : plan.domain_limit} ·
-                      每日发信:{" "}
-                      {plan.daily_send_limit === -1
-                        ? "不限"
-                        : plan.daily_send_limit}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setPlanEdit(plan)}
-                    >
-                      {t("action.edit")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={plan.code === "free"}
-                      onClick={() => {
-                        void request(
-                          `/api/v1/platform/plans/${encodeURIComponent(plan.code)}`,
-                          { method: "DELETE" },
-                        )
-                          .then(load)
-                          .catch((err: unknown) =>
-                            setNotice({
-                              variant: "error",
-                              message: errorMessage(err),
-                            }),
-                          );
-                      }}
-                    >
-                      {t("action.delete")}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* =========================================================================
-          Tab 4: 商业化与财务 (Finance & Commercial)
-          ========================================================================= */}
-      <div className={activeTab === "finance" ? "space-y-6" : "hidden"}>
-        <PaymentMerchantAdmin />
-        <FinancialReviewAdmin />
-        <CouponReissueAdmin />
-        <BillingCalendarAdmin tenants={tenants} />
-        <DocumentProfile platform />
       </div>
 
       {/* =========================================================================

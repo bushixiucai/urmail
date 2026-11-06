@@ -45,8 +45,6 @@ test("tenant and platform APIs are reachable", async () => {
     "/api/v1/auth/me",
     "/api/v1/auth/sessions",
     "/api/v1/auth/mfa/status",
-    "/api/v1/billing/plans",
-    "/api/v1/billing/subscription",
     "/api/v1/audit",
     "/api/v1/platform/overview",
     "/api/v1/platform/tenants",

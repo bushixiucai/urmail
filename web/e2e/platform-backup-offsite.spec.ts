@@ -53,17 +53,6 @@ async function setupAdminFixture(page: Page, handlers: Handlers = {}) {
     else if (path.endsWith("/platform/overview")) payload = { overview: {} };
     else if (path.endsWith("/platform/tenants")) payload = { tenants: [] };
     else if (path.endsWith("/platform/brands")) payload = { brands: [] };
-    else if (path.endsWith("/platform/plans")) payload = { plans: [] };
-    else if (path.endsWith("/platform/coupons")) payload = { coupons: [] };
-    else if (path.endsWith("/platform/payment-merchants"))
-      payload = { merchants: [] };
-    else if (path.endsWith("/platform/payment-reviews"))
-      payload = { reviews: [] };
-    else if (path.endsWith("/platform/refunds")) payload = { refunds: [] };
-    else if (path.endsWith("/platform/coupon-reissues"))
-      payload = { coupons: [] };
-    else if (path.endsWith("/platform/billing-document-profile"))
-      payload = { profile: { party: { name: "" }, locale: "zh-CN", tax: {} } };
     else if (path.endsWith("/platform/reminder-policy"))
       payload = { days: [7, 3, 1, 0] };
     else if (path.endsWith("/platform/alerts")) payload = { alerts: [] };
