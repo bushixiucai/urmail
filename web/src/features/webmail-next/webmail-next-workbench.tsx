@@ -1,18 +1,36 @@
-import { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { Palmtree } from "lucide-react";
 import { WebmailHeader } from "./components/webmail-header";
 import { WebmailNavigationRail } from "./components/webmail-navigation-rail";
 import { WebmailMessageList } from "./components/webmail-message-list";
 import { WebmailReadingPane } from "./components/webmail-reading-pane";
 import { WebmailComposeDock } from "./components/webmail-compose-dock";
+import {
+  WebmailSettingsDrawer,
+  type SettingsTab,
+} from "./components/settings/webmail-settings-drawer";
+import { REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT } from "./components/settings/remote-images-section";
+import type { AdvancedSearchParams } from "./components/search/webmail-advanced-search-popover";
+import { WebmailSearchFilterChips } from "./components/search/webmail-search-filter-chips";
+import { WebmailContactsModal } from "./components/contacts/webmail-contacts-modal";
+import { WebmailErrorBoundary } from "./components/webmail-error-boundary";
 import { useWebmailPreferences } from "./use-webmail-preferences";
 import {
   listFolders,
   listMessages,
+  crossFolderSearch,
   getMessage,
   flagMessages,
   deleteMessages,
+  getMailboxRules,
+  saveMailboxRules,
+  getMailboxSettings,
+  type MailboxSettingsView,
   type MessageDetail,
+  type MessageSummary,
+  type MailboxRulesView,
   type MailboxSortKey,
 } from "@/features/webmail/mailbox-api";
 import "./theme-vellum.css";
@@ -21,13 +39,57 @@ interface WebmailNextWorkbenchProps {
   initialFolder?: string;
 }
 
+// Pure search query builder function aligned with backend grammar (internal/webmail/search.go).
+// Supported tokens: from:, to:, subject:, body:, text:, has:attachment, since:, before:
+// Note: Backend parser does NOT support filename: token and rejects unknown key: with 400.
+// Filename extension constraints are mapped to has:attachment at query time.
+export function buildSearchQuery(
+  searchQuery: string,
+  searchParams: AdvancedSearchParams,
+): string {
+  const parts: string[] = [];
+  if (searchQuery.trim()) parts.push(searchQuery.trim());
+  if (searchParams.from?.trim()) parts.push(`from:${searchParams.from.trim()}`);
+  if (searchParams.to?.trim()) parts.push(`to:${searchParams.to.trim()}`);
+  if (searchParams.subject?.trim())
+    parts.push(`subject:${searchParams.subject.trim()}`);
+  if (searchParams.body?.trim()) parts.push(`body:${searchParams.body.trim()}`);
+  if (searchParams.hasAttachment || searchParams.filenameExt?.trim()) {
+    parts.push("has:attachment");
+  }
+  if (searchParams.dateRange === "7d") {
+    const d = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    parts.push(`since:${d}`);
+  } else if (searchParams.dateRange === "30d") {
+    const d = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    parts.push(`since:${d}`);
+  } else if (searchParams.dateRange === "1y") {
+    const d = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    parts.push(`since:${d}`);
+  } else if (searchParams.dateRange === "custom") {
+    if (searchParams.dateFrom?.trim())
+      parts.push(`since:${searchParams.dateFrom.trim()}`);
+    if (searchParams.dateTo?.trim())
+      parts.push(`before:${searchParams.dateTo.trim()}`);
+  }
+  return parts.join(" ");
+}
+
 export function WebmailNextWorkbench({
   initialFolder = "INBOX",
 }: WebmailNextWorkbenchProps) {
+  const { t } = useTranslation();
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
   const [activeFolder, setActiveFolder] = useState(initialFolder);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
+
+  // Search & Filter popover state
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
+  const [searchParams, setSearchParams] = useState<AdvancedSearchParams>({});
+
+  // Contacts modal state
+  const [isContactsOpen, setIsContactsOpen] = useState(false);
 
   // Sorting state
   const [sortKey, setSortKey] = useState<MailboxSortKey>("date");
@@ -37,11 +99,151 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
-  const [loadImagesForUid, setLoadImagesForUid] = useState<number | null>(null);
+
+  const queryClient = useQueryClient();
+
+  // Remote images dual authorization model:
+  // 1. Account-level confirmed global preference
+  // 2. Monotonic policy generation counter
+  // 3. Explicit per-message manual consent (cleared on UID change)
+  const [policyGeneration, setPolicyGeneration] = useState(1);
+  const [manualAuthorizedUid, setManualAuthorizedUid] = useState<number | null>(
+    null,
+  );
+  // Null until a successful preference event. The event value is applied
+  // synchronously; a later settings GET may confirm it only for this generation.
+  const [confirmedGlobalAllow, setConfirmedGlobalAllow] = useState<
+    boolean | null
+  >(null);
+  const settingsGenerationRef = useRef(0);
+  const policyGenerationRef = useRef(policyGeneration);
+  const globalAllowedRef = useRef(false);
+  policyGenerationRef.current = policyGeneration;
+
+  // Settings drawer state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("account");
 
   const { density, setDensity } = useWebmailPreferences();
 
-  // 1. Fetch folders
+  // 1a. Fetch mailbox settings for account preferences (allow_all_remote_images)
+  const { data: mailboxSettings, refetch: refetchSettings } = useQuery({
+    queryKey: ["webmail", "settings"],
+    queryFn: async () => {
+      const generation = settingsGenerationRef.current;
+      const data = await getMailboxSettings();
+      // An older GET must not replace a newer confirmed preference.
+      if (generation !== settingsGenerationRef.current) {
+        const cached = queryClient.getQueryData<MailboxSettingsView>([
+          "webmail",
+          "settings",
+        ]);
+        if (cached) return cached;
+      }
+      return data;
+    },
+    staleTime: 60_000,
+  });
+
+  const persistedGlobalAllow =
+    mailboxSettings?.preferences?.allow_all_remote_images === true;
+  const isGlobalImagesAllowed =
+    confirmedGlobalAllow !== null ? confirmedGlobalAllow : persistedGlobalAllow;
+  globalAllowedRef.current = isGlobalImagesAllowed;
+
+  const handleRemoteImagesPreferenceChanged = useCallback(
+    (allowAll?: boolean) => {
+      // PUT already succeeded. Revoke or grant before any settings refetch,
+      // so a stale allow=true cache cannot keep authSource=global.
+      const next = allowAll === true;
+      settingsGenerationRef.current += 1;
+      const generation = settingsGenerationRef.current;
+      const nextPolicyGeneration = policyGenerationRef.current + 1;
+      policyGenerationRef.current = nextPolicyGeneration;
+      globalAllowedRef.current = next;
+      setConfirmedGlobalAllow(next);
+      setPolicyGeneration(nextPolicyGeneration);
+      queryClient.setQueryData<MailboxSettingsView | undefined>(
+        ["webmail", "settings"],
+        (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            preferences: {
+              ...(current.preferences ?? {}),
+              allow_all_remote_images: next,
+            },
+          };
+        },
+      );
+      if (!next) {
+        queryClient.removeQueries({
+          predicate: (query) => {
+            const key = query.queryKey;
+            return (
+              Array.isArray(key) &&
+              key[0] === "webmail" &&
+              key[1] === "detail" &&
+              key[4] === "global"
+            );
+          },
+        });
+      }
+      void refetchSettings().then((result) => {
+        if (settingsGenerationRef.current !== generation) return;
+        const persisted =
+          result.data?.preferences?.allow_all_remote_images === true;
+        // Same-generation confirmation must not widen the event. A stale
+        // GET that still says true cannot reopen a grant this event closed.
+        // A true event stays true only when the GET is strictly true.
+        const confirmed = next && persisted;
+        globalAllowedRef.current = confirmed;
+        setConfirmedGlobalAllow(confirmed);
+        if (!confirmed) {
+          queryClient.setQueryData<MailboxSettingsView | undefined>(
+            ["webmail", "settings"],
+            (current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                preferences: {
+                  ...(current.preferences ?? {}),
+                  allow_all_remote_images: false,
+                },
+              };
+            },
+          );
+          queryClient.removeQueries({
+            predicate: (query) => {
+              const key = query.queryKey;
+              return (
+                Array.isArray(key) &&
+                key[0] === "webmail" &&
+                key[1] === "detail" &&
+                key[4] === "global"
+              );
+            },
+          });
+        }
+      });
+    },
+    [refetchSettings, queryClient],
+  );
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ allowAll: boolean }>;
+      handleRemoteImagesPreferenceChanged(customEvent.detail?.allowAll);
+    };
+    window.addEventListener(REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT, handler);
+    return () =>
+      window.removeEventListener(
+        REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT,
+        handler,
+      );
+  }, [handleRemoteImagesPreferenceChanged]);
+
+  // 1b. Fetch folders
   const { data: folderData, refetch: refetchFolders } = useQuery({
     queryKey: ["webmail", "folders"],
     queryFn: () => listFolders(),
@@ -52,28 +254,97 @@ export function WebmailNextWorkbench({
     { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
   ];
 
-  // 2. Fetch message list for active folder
+  // 2. Fetch rules for vacation autoresponder status
+  const { data: rulesData, refetch: refetchRules } = useQuery<MailboxRulesView>(
+    {
+      queryKey: ["webmail", "rules"],
+      queryFn: () => getMailboxRules(),
+      staleTime: 60_000,
+    },
+  );
+
+  const vacation = rulesData?.rules?.vacation;
+  const isVacationActive = Boolean(vacation?.enabled);
+  const vacationFromStr = vacation?.from ? vacation.from.slice(0, 10) : "";
+  const vacationUntilStr = vacation?.until ? vacation.until.slice(0, 10) : "";
+
+  const handleQuickDisableVacation = async () => {
+    if (!rulesData) return;
+    try {
+      await saveMailboxRules({
+        rules: {
+          ...rulesData.rules,
+          vacation: {
+            ...rulesData.rules.vacation,
+            enabled: false,
+          },
+        },
+        confirmed: true,
+        expected_version: rulesData.version,
+      });
+      refetchRules();
+    } catch {
+      // ignore
+    }
+  };
+
+  // Search query builder from simple search + advanced filter params
+  const compiledQuery = useMemo(
+    () => buildSearchQuery(searchQuery, searchParams),
+    [searchQuery, searchParams],
+  );
+
+  const handleRemoveFilterChip = (key: keyof AdvancedSearchParams) => {
+    setSearchParams((prev) => {
+      const copy = { ...prev };
+      delete copy[key];
+      if (key === "hasAttachment") {
+        delete copy.filenameExt;
+      }
+      return copy;
+    });
+  };
+
+  const handleClearAllFilters = () => {
+    setSearchParams({});
+    setSearchQuery("");
+  };
+
+  const handleApplyAdvancedSearch = (params: AdvancedSearchParams) => {
+    setSearchParams(params);
+    if (params.folder) {
+      setActiveFolder(params.folder);
+    }
+  };
+
+  // 3. Fetch message list (supports folder-scoped or cross-folder advanced search)
+  const isCrossFolder = Boolean(compiledQuery && !searchParams.folder);
+
   const {
     data: messageListData,
     isLoading: isListLoading,
     refetch: refetchMessages,
     isRefetching,
-  } = useQuery({
+  } = useQuery<{ messages: MessageSummary[]; total?: number }>({
     queryKey: [
       "webmail",
       "messages",
-      activeFolder,
+      isCrossFolder ? "cross-folder" : activeFolder,
       sortKey,
       sortOrder,
-      searchQuery,
+      compiledQuery,
     ],
-    queryFn: () =>
-      listMessages(activeFolder, {
+    queryFn: async () => {
+      if (isCrossFolder) {
+        return crossFolderSearch(compiledQuery, { limit: 100 });
+      }
+      return listMessages(activeFolder, {
         sort: sortKey,
         order: sortOrder,
-        q: searchQuery,
+        q: compiledQuery,
         thread: true,
-      }),
+      });
+    },
     staleTime: 10_000,
   });
 
@@ -82,30 +353,106 @@ export function WebmailNextWorkbench({
     [messageListData?.messages],
   );
 
-  // 3. Fetch selected message details
+  // Derive authorization source for currently selected message:
+  // Decoupled dual authorization model:
+  // - "manual" if user explicitly granted consent for this UID
+  // - "global" if account settings have allow_all_remote_images === true
+  // - "none" otherwise (fail-closed default)
+  const isCurrentManualGranted = Boolean(
+    selectedUid !== null && manualAuthorizedUid === selectedUid,
+  );
+
+  const authSource: "global" | "manual" | "none" = isCurrentManualGranted
+    ? "manual"
+    : isGlobalImagesAllowed
+      ? "global"
+      : "none";
+
+  const shouldRequestImages = authSource !== "none";
+
+  interface MessageDetailResult {
+    message: MessageDetail;
+    authSource: "global" | "manual" | "none";
+    policyGeneration: number;
+    uid: number;
+  }
+
+  // 3. Fetch selected message details with isolated cache key and generation tracking
   const {
-    data: messageDetail,
+    data: detailResult,
     isLoading: isDetailLoading,
     refetch: refetchDetail,
-  } = useQuery<MessageDetail | null>({
+  } = useQuery<MessageDetailResult | null>({
     queryKey: [
       "webmail",
       "detail",
       activeFolder,
       selectedUid,
-      loadImagesForUid === selectedUid,
+      authSource,
+      policyGeneration,
     ],
-    queryFn: () =>
-      selectedUid
-        ? getMessage(activeFolder, selectedUid, {
-            loadImages: loadImagesForUid === selectedUid,
-          })
-        : Promise.resolve(null),
+    queryFn: async () => {
+      if (selectedUid === null) return null;
+      const currentGen = policyGeneration;
+      const currentSource = authSource;
+      const currentUid = selectedUid;
+      const msg = await getMessage(activeFolder, currentUid, {
+        loadImages: shouldRequestImages,
+      });
+      // Drop a late response that missed a newer policy generation or a
+      // global grant that has already been revoked.
+      if (
+        currentGen !== policyGenerationRef.current ||
+        (currentSource === "global" && !globalAllowedRef.current)
+      ) {
+        return null;
+      }
+      return {
+        message: msg,
+        authSource: currentSource,
+        policyGeneration: currentGen,
+        uid: currentUid,
+      };
+    },
     enabled: selectedUid !== null,
+    staleTime: 5_000,
   });
 
+  // Stale response rejection: verify response generation and authorization source match current state
+  const messageDetail = useMemo<MessageDetail | null>(() => {
+    if (!detailResult || !detailResult.message) return null;
+    // A cached or late body may be shown only for the current UID, policy
+    // generation, and authorization source. A global/manual payload must not
+    // cross into a later "none" policy.
+    if (
+      detailResult.uid !== selectedUid ||
+      detailResult.policyGeneration !== policyGeneration ||
+      detailResult.authSource !== authSource
+    ) {
+      return null;
+    }
+    if (detailResult.authSource === "global" && !isGlobalImagesAllowed) {
+      return null;
+    }
+    if (
+      detailResult.authSource === "manual" &&
+      manualAuthorizedUid !== selectedUid
+    ) {
+      return null;
+    }
+    return detailResult.message;
+  }, [
+    detailResult,
+    selectedUid,
+    authSource,
+    isGlobalImagesAllowed,
+    policyGeneration,
+    manualAuthorizedUid,
+  ]);
+
+  // Reset manual authorization on UID change
   useEffect(() => {
-    setLoadImagesForUid(null);
+    setManualAuthorizedUid(null);
   }, [selectedUid]);
 
   // Automatically select the first message on wide screen if none selected
@@ -120,11 +467,18 @@ export function WebmailNextWorkbench({
   }, [messages, selectedUid]);
 
   const toggleRail = () => setIsRailCollapsed((prev) => !prev);
-  const toggleDensity = () =>
-    setDensity(density === "compact" ? "comfortable" : "compact");
+  const toggleDensity = () => {
+    setDensity(
+      density === "compact"
+        ? "comfortable"
+        : density === "comfortable"
+          ? "list_only"
+          : "compact",
+    );
+  };
 
   const handleToggleStar = async (uid: number) => {
-    const msg = messages.find((m) => m.uid === uid);
+    const msg = messages.find((m: MessageSummary) => m.uid === uid);
     if (!msg) return;
     const isStarred = msg.flags.includes("\\Flagged");
     await flagMessages(activeFolder, {
@@ -137,7 +491,7 @@ export function WebmailNextWorkbench({
   };
 
   const handleToggleRead = async (uid: number) => {
-    const msg = messages.find((m) => m.uid === uid);
+    const msg = messages.find((m: MessageSummary) => m.uid === uid);
     if (!msg) return;
     const isSeen = msg.flags.includes("\\Seen");
     await flagMessages(activeFolder, {
@@ -174,13 +528,65 @@ export function WebmailNextWorkbench({
         onRefresh={() => {
           refetchFolders();
           refetchMessages();
+          refetchRules();
         }}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         density={density}
         onToggleDensity={toggleDensity}
         isRefreshing={isRefetching}
+        onOpenSettings={() => {
+          setSettingsTab("account");
+          setIsSettingsOpen(true);
+        }}
+        onOpenContacts={() => setIsContactsOpen(true)}
+        isAdvancedSearchOpen={isAdvancedSearchOpen}
+        onOpenAdvancedSearch={() => setIsAdvancedSearchOpen((prev) => !prev)}
+        onCloseAdvancedSearch={() => setIsAdvancedSearchOpen(false)}
+        folders={folders}
+        searchParams={searchParams}
+        onApplyAdvancedSearch={handleApplyAdvancedSearch}
       />
+
+      {/* Vacation Active Top Banner */}
+      {isVacationActive && (
+        <div
+          data-testid="vacation-active-banner"
+          className="bg-[#FEF3C7] border-b border-[#FDE68A] text-[#92400E] px-4 py-2 text-xs flex items-center justify-between z-20 shrink-0"
+        >
+          <div
+            className="flex items-center gap-2 cursor-pointer hover:underline"
+            onClick={() => {
+              setSettingsTab("vacation");
+              setIsSettingsOpen(true);
+            }}
+          >
+            <Palmtree className="w-4 h-4 text-[#D97706] shrink-0" />
+            <span>
+              {t(
+                "webmail_next.vacation_banner_active",
+                "Vacation autoresponder is currently active ({{from}} to {{until}})",
+                {
+                  from:
+                    vacationFromStr ||
+                    t("webmail_next.vacation_from_default", "today"),
+                  until:
+                    vacationUntilStr ||
+                    t("webmail_next.vacation_until_default", "indefinite"),
+                },
+              )}
+            </span>
+          </div>
+          <button
+            data-testid="btn-quick-dismiss-vacation"
+            type="button"
+            onClick={handleQuickDisableVacation}
+            className="text-xs font-semibold text-[#B45309] hover:text-[#78350F] underline ml-4 shrink-0"
+          >
+            {t("webmail_next.vacation_quick_disable", "Turn off")}
+          </button>
+        </div>
+      )}
 
       {/* 2. Main Workbench Area: 3-pane responsive layout */}
       <div className="flex-1 flex overflow-hidden relative">
@@ -213,24 +619,33 @@ export function WebmailNextWorkbench({
               : "flex-1 md:w-[340px] lg:w-[380px]"
           }`}
         >
-          <WebmailMessageList
-            folderName={activeFolder}
-            messages={messages}
-            activeUid={selectedUid}
-            onSelectMessage={(uid) => setSelectedUid(uid)}
-            density={density}
-            sort={sortKey}
-            order={sortOrder}
-            onSortChange={(key, ord) => {
-              setSortKey(key);
-              setSortOrder(ord);
-            }}
-            onRefresh={() => refetchMessages()}
-            isRefreshing={isRefetching || isListLoading}
-            onToggleStar={handleToggleStar}
-            onDeleteMessage={handleDeleteMessage}
-            onToggleRead={handleToggleRead}
+          {/* Active Filter Chips Bar */}
+          <WebmailSearchFilterChips
+            params={searchParams}
+            onRemoveParam={handleRemoveFilterChip}
+            onClearAll={handleClearAllFilters}
           />
+
+          <WebmailErrorBoundary onReset={() => refetchMessages()}>
+            <WebmailMessageList
+              folderName={activeFolder}
+              messages={messages}
+              activeUid={selectedUid}
+              onSelectMessage={(uid) => setSelectedUid(uid)}
+              density={density}
+              sort={sortKey}
+              order={sortOrder}
+              onSortChange={(key, ord) => {
+                setSortKey(key);
+                setSortOrder(ord);
+              }}
+              onRefresh={() => refetchMessages()}
+              isRefreshing={isRefetching || isListLoading}
+              onToggleStar={handleToggleStar}
+              onDeleteMessage={handleDeleteMessage}
+              onToggleRead={handleToggleRead}
+            />
+          </WebmailErrorBoundary>
         </div>
 
         {/* Pane 3: Reading Pane (Adaptive flex-1; full width on mobile when selected) */}
@@ -240,16 +655,20 @@ export function WebmailNextWorkbench({
             selectedUid ? "flex" : "hidden md:flex"
           }`}
         >
-          <WebmailReadingPane
-            message={messageDetail || null}
-            folderEnc={activeFolder}
-            isLoading={isDetailLoading}
-            onBack={() => setSelectedUid(null)}
-            onReply={handleReply}
-            onDelete={handleDeleteMessage}
-            onToggleStar={handleToggleStar}
-            onLoadRemoteImages={() => setLoadImagesForUid(selectedUid)}
-          />
+          <WebmailErrorBoundary onReset={() => refetchDetail()}>
+            <WebmailReadingPane
+              message={messageDetail || null}
+              folderEnc={activeFolder}
+              isLoading={isDetailLoading}
+              isGlobalRemoteImagesAllowed={isGlobalImagesAllowed}
+              isManualRemoteImagesAllowed={isCurrentManualGranted}
+              onBack={() => setSelectedUid(null)}
+              onReply={handleReply}
+              onDelete={handleDeleteMessage}
+              onToggleStar={handleToggleStar}
+              onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
+            />
+          </WebmailErrorBoundary>
         </div>
       </div>
 
@@ -260,6 +679,28 @@ export function WebmailNextWorkbench({
         initialTo={composeTo}
         initialSubject={composeSubject}
       />
+
+      {/* 4. Immersive Settings Drawer (Layer 30, z-500) */}
+      <WebmailErrorBoundary>
+        <WebmailSettingsDrawer
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          initialTab={settingsTab}
+          onVacationUpdated={refetchRules}
+        />
+      </WebmailErrorBoundary>
+
+      {/* 5. Personal Contacts Modal */}
+      <WebmailErrorBoundary>
+        <WebmailContactsModal
+          isOpen={isContactsOpen}
+          onClose={() => setIsContactsOpen(false)}
+          onComposeTo={(email) => {
+            setComposeTo([email]);
+            setIsComposeOpen(true);
+          }}
+        />
+      </WebmailErrorBoundary>
     </div>
   );
 }

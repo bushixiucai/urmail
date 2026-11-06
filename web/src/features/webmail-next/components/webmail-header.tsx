@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { usePublicBrand } from "@/components/brand/public-brand";
 import {
@@ -6,8 +7,15 @@ import {
   SlidersHorizontal,
   RefreshCw,
   LayoutList,
+  Settings,
+  BookUser,
 } from "lucide-react";
 import type { DensityMode } from "../types";
+import {
+  WebmailAdvancedSearchPopover,
+  type AdvancedSearchParams,
+} from "./search/webmail-advanced-search-popover";
+import type { MailboxFolder } from "@/features/webmail/mailbox-api";
 
 interface WebmailHeaderProps {
   onToggleRail: () => void;
@@ -18,6 +26,13 @@ interface WebmailHeaderProps {
   density: DensityMode;
   onToggleDensity: () => void;
   isRefreshing?: boolean;
+  onOpenSettings?: () => void;
+  onOpenContacts?: () => void;
+  isAdvancedSearchOpen?: boolean;
+  onCloseAdvancedSearch?: () => void;
+  folders?: MailboxFolder[];
+  searchParams?: AdvancedSearchParams;
+  onApplyAdvancedSearch?: (params: AdvancedSearchParams) => void;
 }
 
 export function WebmailHeader({
@@ -29,9 +44,32 @@ export function WebmailHeader({
   density,
   onToggleDensity,
   isRefreshing = false,
+  onOpenSettings,
+  onOpenContacts,
+  isAdvancedSearchOpen = false,
+  onCloseAdvancedSearch,
+  folders = [],
+  searchParams,
+  onApplyAdvancedSearch,
 }: WebmailHeaderProps) {
   const { t } = useTranslation();
   const brand = usePublicBrand();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "/" &&
+        !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName) &&
+        !(e.target as HTMLElement)?.isContentEditable
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <header
@@ -58,15 +96,17 @@ export function WebmailHeader({
         <div className="relative w-full">
           <Search className="w-4 h-4 text-[#A1A1AA] absolute left-3 top-2.5 pointer-events-none" />
           <input
+            ref={searchInputRef}
             data-testid="webmail-search-input"
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search mail..."
+            placeholder="Search mail... (Press / to focus)"
             className="w-full h-8 pl-9 pr-16 bg-[#F6F4EE] rounded-full text-xs text-[#18181B] border border-transparent focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none transition-all"
           />
           {onOpenAdvancedSearch && (
             <button
+              data-testid="btn-open-advanced-search"
               type="button"
               onClick={onOpenAdvancedSearch}
               className="absolute right-2 top-1.5 p-1 text-[#71717A] hover:text-[#18181B] rounded"
@@ -75,6 +115,19 @@ export function WebmailHeader({
               <SlidersHorizontal className="w-3.5 h-3.5" />
             </button>
           )}
+
+          {/* Advanced Search Popover */}
+          {isAdvancedSearchOpen &&
+            onCloseAdvancedSearch &&
+            onApplyAdvancedSearch && (
+              <WebmailAdvancedSearchPopover
+                isOpen={isAdvancedSearchOpen}
+                onClose={onCloseAdvancedSearch}
+                folders={folders}
+                initialParams={searchParams}
+                onApplySearch={onApplyAdvancedSearch}
+              />
+            )}
         </div>
       </div>
 
@@ -103,6 +156,28 @@ export function WebmailHeader({
           <LayoutList className="w-3.5 h-3.5" />
           <span className="capitalize">{density}</span>
         </button>
+        {onOpenContacts && (
+          <button
+            data-testid="webmail-contacts-btn"
+            type="button"
+            onClick={onOpenContacts}
+            className="p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            title={t("contacts.title", "Contacts")}
+          >
+            <BookUser className="w-4 h-4" />
+          </button>
+        )}
+        {onOpenSettings && (
+          <button
+            data-testid="webmail-settings-btn"
+            type="button"
+            onClick={onOpenSettings}
+            className="p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            title={t("webmail_next.settings", "Settings")}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </header>
   );

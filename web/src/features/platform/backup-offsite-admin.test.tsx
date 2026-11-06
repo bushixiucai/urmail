@@ -540,7 +540,7 @@ it("buildDestinationInput validates per protocol (pure function tests)", () => {
       false,
     ).ok,
   ).toBe(false);
-  // fingerprint format enforced.
+  // fingerprint format enforced (exact 50 chars: SHA256: + 43 unpadded base64 chars).
   expect(
     buildDestinationInput(
       "sftp",
@@ -549,6 +549,22 @@ it("buildDestinationInput validates per protocol (pure function tests)", () => {
       false,
     ).ok,
   ).toBe(false);
+  expect(
+    buildDestinationInput(
+      "sftp",
+      fields({ endpoint: "h" }),
+      draft({ host_key_fingerprint: "SHA256:" + "A".repeat(43) + "=" }),
+      false,
+    ).ok,
+  ).toBe(false);
+  expect(
+    buildDestinationInput(
+      "sftp",
+      fields({ endpoint: "h" }),
+      draft({ host_key_fingerprint: "SHA256:" + "A".repeat(43) }),
+      false,
+    ).ok,
+  ).toBe(true);
   // stored credentials relax the inline requirement.
   const stored = buildDestinationInput(
     "webdav",

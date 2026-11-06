@@ -8,16 +8,23 @@ import {
   Star,
   ShieldAlert,
   ArrowLeft,
+  UserPlus,
+  Check,
 } from "lucide-react";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
 import { sanitizeHtmlMail } from "@/features/webmail/sanitize-html-mail";
-import type { MessageDetail } from "@/features/webmail/mailbox-api";
+import {
+  createContact,
+  type MessageDetail,
+} from "@/features/webmail/mailbox-api";
 
 interface WebmailReadingPaneProps {
   message: MessageDetail | null;
   folderEnc: string;
   isLoading?: boolean;
+  isGlobalRemoteImagesAllowed?: boolean;
+  isManualRemoteImagesAllowed?: boolean;
   onBack?: () => void;
   onReply?: (msg: MessageDetail) => void;
   onReplyAll?: (msg: MessageDetail) => void;
@@ -32,6 +39,8 @@ export function WebmailReadingPane({
   message,
   folderEnc,
   isLoading = false,
+  isGlobalRemoteImagesAllowed = false,
+  isManualRemoteImagesAllowed = false,
   onBack,
   onReply,
   onReplyAll,
@@ -42,10 +51,13 @@ export function WebmailReadingPane({
   onAlwaysTrustSender,
 }: WebmailReadingPaneProps) {
   const { t } = useTranslation();
-  const [imagesLoaded, setImagesLoaded] = useState(false);
+  const [localManualGranted, setLocalManualGranted] = useState(false);
+  const [isAddingContact, setIsAddingContact] = useState(false);
+  const [contactAdded, setContactAdded] = useState(false);
 
   useEffect(() => {
-    setImagesLoaded(false);
+    setLocalManualGranted(false);
+    setContactAdded(false);
   }, [message?.uid]);
 
   if (isLoading) {
@@ -76,27 +88,57 @@ export function WebmailReadingPane({
   const sender = message.from?.[0];
   const senderEmail = sender?.email || "";
   const senderName = sender?.name || senderEmail;
-  const isStarred = message.flags.includes("\\Flagged");
+  const isStarred = Boolean(
+    Array.isArray(message.flags) && message.flags.includes("\\Flagged"),
+  );
 
-  // Check if remote images were blocked by server notes or HTML markers, or if HTML contains remote images
+  // Authorization state: global account-level grant and manual per-message grant are independent.
+  const isManualAllowed = Boolean(
+    isManualRemoteImagesAllowed || localManualGranted,
+  );
+  const isGlobalAllowed = Boolean(isGlobalRemoteImagesAllowed);
+  const isImageAllowed = isGlobalAllowed || isManualAllowed;
+
+  // Server SanitizeHTML drops the <img> and emits note "remote_images_blocked".
+  // It does not leave a remote src or inject data-blocked-src. HTML markers
+  // remain only as a fallback if a body still contains them.
   const containsRemoteImages = Boolean(
     message.html &&
     (/<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i.test(message.html) ||
       message.html.includes("data-blocked-src")),
   );
+  const hasBlockedNote =
+    Array.isArray(message.notes) &&
+    message.notes.includes("remote_images_blocked");
   const hasBlockedImages =
-    !imagesLoaded &&
-    (message.notes?.some((n) => n.includes("blocked_remote_image")) ||
-      containsRemoteImages);
+    !isImageAllowed && (hasBlockedNote || containsRemoteImages);
 
   const handleShowImages = () => {
-    setImagesLoaded(true);
-    onLoadRemoteImages?.(message.uid);
+    setLocalManualGranted(true);
+    if (message.uid) {
+      onLoadRemoteImages?.(message.uid);
+    }
   };
 
   const handleAlwaysTrust = () => {
-    setImagesLoaded(true);
+    setLocalManualGranted(true);
+    if (message.uid) {
+      onLoadRemoteImages?.(message.uid);
+    }
     onAlwaysTrustSender?.(senderEmail);
+  };
+
+  const handleAddContact = async () => {
+    if (!senderEmail || contactAdded || isAddingContact) return;
+    try {
+      setIsAddingContact(true);
+      await createContact(senderName, senderEmail);
+      setContactAdded(true);
+    } catch {
+      // ignore
+    } finally {
+      setIsAddingContact(false);
+    }
   };
 
   return (
@@ -177,7 +219,7 @@ export function WebmailReadingPane({
           <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[#EBE8E0]">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-[var(--brand-primary,#2563eb)] text-white font-bold text-sm flex items-center justify-center shrink-0">
-                {senderName.charAt(0).toUpperCase()}
+                {(senderName || "?").charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -190,6 +232,32 @@ export function WebmailReadingPane({
                   <WebmailSecurityBadge
                     authentication={message.authentication}
                   />
+                  <button
+                    data-testid="btn-add-contact"
+                    type="button"
+                    onClick={handleAddContact}
+                    disabled={contactAdded || isAddingContact}
+                    className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+                      contactAdded
+                        ? "text-[#16A34A] bg-[#DCFCE7]"
+                        : "text-[#71717A] hover:text-[#18181B] hover:bg-[#EBE8E0]"
+                    }`}
+                    title={contactAdded ? "Contact added" : "Add to contacts"}
+                  >
+                    {contactAdded ? (
+                      <>
+                        <Check className="w-3 h-3" />
+                        <span>{t("webmail_next.contact_added", "Added")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-3 h-3" />
+                        <span>
+                          {t("webmail_next.add_contact", "+ Add Contact")}
+                        </span>
+                      </>
+                    )}
+                  </button>
                 </div>
                 <div className="text-[11px] text-[#52525B] mt-0.5">
                   {message.to && message.to.length > 0
@@ -253,7 +321,7 @@ export function WebmailReadingPane({
               referrerPolicy="no-referrer"
               className="w-full min-h-[420px] rounded border-0 bg-transparent"
               srcDoc={sanitizeHtmlMail(message.html, {
-                allowRemoteImages: imagesLoaded,
+                allowRemoteImages: isImageAllowed,
               })}
             />
           ) : (

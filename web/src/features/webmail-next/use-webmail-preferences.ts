@@ -40,6 +40,7 @@ export function useWebmailPreferences() {
     document.documentElement.classList.remove(
       "density-compact",
       "density-comfortable",
+      "density-list_only",
     );
     document.documentElement.classList.add(`density-${density}`);
   }, [density]);

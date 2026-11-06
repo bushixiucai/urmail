@@ -110,4 +110,24 @@ describe("WebmailMessageList", () => {
     fireEvent.click(sortBtn);
     expect(onSortChange).toHaveBeenCalledWith("date", "asc");
   });
+
+  it("renders in list_only single-line density mode", () => {
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="list_only"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+
+    const firstRow = screen.getByTestId("mail-row-102");
+    expect(firstRow.className).toContain("h-8");
+    expect(firstRow.className).toContain("px-2");
+    expect(screen.getByText("Re: Meeting Tomorrow")).toBeTruthy();
+  });
 });

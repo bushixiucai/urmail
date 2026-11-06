@@ -21,10 +21,13 @@ export function useMessageThreading(messages: MessageSummary[]) {
   }, []);
 
   const items = useMemo<WebmailItem[]>(() => {
+    if (!Array.isArray(messages)) return [];
+
     const threadGroups = new Map<number, MessageSummary[]>();
     const standalones: MessageSummary[] = [];
 
     for (const msg of messages) {
+      if (!msg) continue;
       if (msg.thread_id && msg.thread_count && msg.thread_count > 1) {
         const group = threadGroups.get(msg.thread_id) || [];
         group.push(msg);
@@ -41,8 +44,9 @@ export function useMessageThreading(messages: MessageSummary[]) {
       const senderObj = m.from?.[0];
       const senderName =
         senderObj?.name || senderObj?.email?.split("@")[0] || "Unknown";
-      const isUnread = !m.flags.includes("\\Seen");
-      const isStarred = m.flags.includes("\\Flagged");
+      const flags = Array.isArray(m.flags) ? m.flags : [];
+      const isUnread = !flags.includes("\\Seen");
+      const isStarred = flags.includes("\\Flagged");
 
       return {
         uid: m.uid,
@@ -67,7 +71,8 @@ export function useMessageThreading(messages: MessageSummary[]) {
     for (const [threadId, msgs] of threadGroups.entries()) {
       // Sort msgs newest first
       const sorted = [...msgs].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        (a, b) =>
+          new Date(b?.date || 0).getTime() - new Date(a?.date || 0).getTime(),
       );
       const root = sorted[0];
       const isExpanded = expandedThreadIds.has(threadId);

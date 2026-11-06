@@ -63,6 +63,11 @@ export function isRemoteUrl(value: string): boolean {
   return /^(?:https?:)?\/\//i.test(value.trim());
 }
 
+/** Explicit absolute http(s) URL (rejects protocol-relative and other schemes). */
+export function isAbsoluteHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
+
 /**
  * Drop remote http(s) tracking pixels / images from HTML mail.
  * Leaves cid: and data: images alone. Removes the entire tag so the
@@ -96,6 +101,7 @@ function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
   for (let i = 0; i < el.attributes.length; i++) {
     names.push(el.attributes[i].name);
   }
+  const isImg = el.tagName.toLowerCase() === "img";
   for (const name of names) {
     const lower = name.toLowerCase();
     if (!URL_ATTRS.has(lower) && lower !== "srcset") continue;
@@ -114,16 +120,24 @@ function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
       el.removeAttribute(name);
       continue;
     }
-    // Remote backgrounds / posters / etc. — strip for privacy parity with img.
+    // Remote poster, background, and data are always stripped (never allowed remotely)
     if (
-      !allowRemote &&
-      (lower === "src" ||
-        lower === "poster" ||
-        lower === "background" ||
-        lower === "data") &&
+      (lower === "poster" || lower === "background" || lower === "data") &&
       isRemoteUrl(value)
     ) {
       el.removeAttribute(name);
+      continue;
+    }
+    // Remote src on non-img elements is always stripped
+    if (lower === "src" && !isImg && isRemoteUrl(value)) {
+      el.removeAttribute(name);
+      continue;
+    }
+    // Remote src on img elements: only allowed if allowRemote is true AND it is an absolute http(s) URL
+    if (lower === "src" && isImg && isRemoteUrl(value)) {
+      if (!allowRemote || !isAbsoluteHttpUrl(value)) {
+        el.removeAttribute(name);
+      }
     }
   }
 }
@@ -141,14 +155,18 @@ function hardenAnchor(el: Element): void {
 function shouldStripImg(el: Element, allowRemote = false): boolean {
   const src = el.getAttribute("src");
   if (src != null && isDangerousUrl(src)) return true;
-  if (src != null && isRemoteUrl(src) && !allowRemote) return true;
-  const srcset = el.getAttribute("srcset");
-  if (srcset) {
-    const remote = srcset.split(",").some((part) => {
-      const url = part.trim().split(/\s+/)[0] ?? "";
-      return url && (isRemoteUrl(url) || isDangerousUrl(url));
-    });
-    if (remote) return true;
+  if (src != null && isRemoteUrl(src)) {
+    if (!allowRemote || !isAbsoluteHttpUrl(src)) return true;
+  }
+  if (src == null) {
+    const srcset = el.getAttribute("srcset");
+    if (srcset) {
+      const remote = srcset.split(",").some((part) => {
+        const url = part.trim().split(/\s+/)[0] ?? "";
+        return url && (isRemoteUrl(url) || isDangerousUrl(url));
+      });
+      if (remote) return true;
+    }
   }
   return false;
 }

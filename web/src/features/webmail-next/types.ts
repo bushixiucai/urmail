@@ -1,6 +1,6 @@
 // web/src/features/webmail-next/types.ts
 
-export type DensityMode = "comfortable" | "compact";
+export type DensityMode = "comfortable" | "compact" | "list_only";
 export type SplitViewMode = "vertical" | "horizontal" | "none";
 export type SortField = "date" | "subject" | "from" | "size";
 export type SortOrder = "asc" | "desc";
