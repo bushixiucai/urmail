@@ -279,8 +279,13 @@ func TestNetDialerFlagsMoveDelete(t *testing.T) {
 	if err := client.SetFlags(context.Background(), "INBOX", []uint32{3}, []string{`\Seen`}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.MoveMessages(context.Background(), "INBOX", []uint32{3}, "Archive"); err != nil {
+	destinations, err := client.MoveMessages(context.Background(), "INBOX", []uint32{3}, "Archive")
+	if err != nil {
 		t.Fatal(err)
+	}
+	// The fake server never emits COPYUID: move succeeds but the mapping is unknown.
+	if destinations != nil {
+		t.Fatalf("expected nil destinations without COPYUID, got %v", destinations)
 	}
 	if err := client.DeleteMessages(context.Background(), "INBOX", []uint32{3}, true); err != nil {
 		t.Fatal(err)

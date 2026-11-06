@@ -85,7 +85,7 @@ func (c *imapConn) MoveToTrash(ctx context.Context, folder string, uids []uint32
 	if err != nil {
 		return "", err
 	}
-	if err = c.MoveMessages(ctx, folder, uids, dest); err != nil {
+	if _, err = c.MoveMessages(ctx, folder, uids, dest); err != nil {
 		return dest, err
 	}
 	return dest, nil

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -123,10 +124,14 @@ func (f *fakeIMAPClient) SetFlags(_ context.Context, _ string, uids []uint32, _,
 	f.flagged = append([]uint32{}, uids...)
 	return nil
 }
-func (f *fakeIMAPClient) MoveMessages(_ context.Context, _ string, uids []uint32, dest string) error {
+func (f *fakeIMAPClient) MoveMessages(_ context.Context, _ string, uids []uint32, dest string) ([]uint32, error) {
 	f.moved = append([]uint32{}, uids...)
 	f.moveTo = dest
-	return nil
+	destinations := make([]uint32, 0, len(uids))
+	for _, uid := range uids {
+		destinations = append(destinations, uid+1000)
+	}
+	return destinations, nil
 }
 func (f *fakeIMAPClient) DeleteMessages(_ context.Context, _ string, uids []uint32, expunge bool) error {
 	f.deleted = append([]uint32{}, uids...)
@@ -432,6 +437,17 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	})
 	if w.Code != http.StatusOK || imap.moveTo != "Archive" {
 		t.Fatalf("move %d to=%q", w.Code, imap.moveTo)
+	}
+	var moveResp struct {
+		Moved           int      `json:"moved"`
+		To              string   `json:"to"`
+		DestinationUIDs []uint32 `json:"destination_uids"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &moveResp); err != nil {
+		t.Fatalf("move response %v: %s", err, w.Body.String())
+	}
+	if moveResp.Moved != 1 || !slices.Equal(moveResp.DestinationUIDs, []uint32{1007}) {
+		t.Fatalf("move response %#v", moveResp)
 	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/delete", map[string]any{
 		"uid_validity": 9, "uids": []int{7}, "expunge": true,

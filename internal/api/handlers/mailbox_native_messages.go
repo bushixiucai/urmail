@@ -376,11 +376,18 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 		return
 	}
 	defer release()
-	if err := client.MoveMessages(c.Request.Context(), folder, req.UIDs, dest); err != nil {
+	destinations, err := client.MoveMessages(c.Request.Context(), folder, req.UIDs, dest)
+	if err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"moved": len(req.UIDs), "to": dest})
+	// destination_uids enables exact undo on the client; a nil slice means the
+	// server omitted COPYUID and the UI must not pretend it can move back.
+	response := gin.H{"moved": len(req.UIDs), "to": dest}
+	if destinations != nil {
+		response["destination_uids"] = destinations
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 type mailboxDeleteRequest struct {

@@ -38,7 +38,10 @@ type Client interface {
 	GetMessage(ctx context.Context, folder string, uid uint32) (*Message, error)
 	GetAttachment(ctx context.Context, folder string, uid uint32, partID string) (filename, contentType string, data []byte, err error)
 	SetFlags(ctx context.Context, folder string, uids []uint32, add, remove []string) error
-	MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) error
+	// MoveMessages moves UIDs with UID MOVE and returns the destination UIDs
+	// from the UIDPLUS COPYUID acknowledgement, aligned with uids. A nil slice
+	// means the server did not acknowledge the mapping (move still succeeded).
+	MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) ([]uint32, error)
 	DeleteMessages(ctx context.Context, folder string, uids []uint32, expunge bool) error
 	// EnsureDraftsFolder resolves SPECIAL-USE \Drafts (or name Drafts), creating
 	// DraftsFolderName when missing. Returns the IMAP mailbox name.
@@ -170,10 +173,17 @@ func (c *imapConn) readGreeting() error {
 }
 
 func (c *imapConn) command(ctx context.Context, verb string, args ...string) error {
+	_, err := c.commandCaptureOK(ctx, verb, args...)
+	return err
+}
+
+// commandCaptureOK behaves like command but returns the tagged OK line so
+// callers can read response codes such as UIDPLUS COPYUID.
+func (c *imapConn) commandCaptureOK(ctx context.Context, verb string, args ...string) (string, error) {
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	tag := c.nextTag()
 	var b strings.Builder
@@ -186,22 +196,22 @@ func (c *imapConn) command(ctx context.Context, verb string, args ...string) err
 	}
 	b.WriteString("\r\n")
 	if _, err := io.WriteString(c.conn, b.String()); err != nil {
-		return err
+		return "", err
 	}
 	for {
 		line, err := c.r.ReadString('\n')
 		if err != nil {
-			return err
+			return "", err
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if strings.HasPrefix(line, "* ") {
 			continue
 		}
 		if strings.HasPrefix(line, tag+" OK") {
-			return nil
+			return line, nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return fmt.Errorf("%s", line)
+			return "", fmt.Errorf("%s", line)
 		}
 	}
 }
