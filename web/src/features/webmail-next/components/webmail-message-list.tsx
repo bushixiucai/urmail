@@ -328,7 +328,7 @@ export function WebmailMessageList({
             <span className="font-semibold text-[#18181B]">{folderName}</span>
             <span
               data-testid="loaded-range"
-              className="text-[11px] text-[var(--vellum-ink-secondary)]"
+              className="text-xs text-[var(--vellum-ink-secondary)]"
             >
               {loadedLabel}
             </span>
@@ -339,7 +339,7 @@ export function WebmailMessageList({
               data-testid="sort-toggle-button"
               type="button"
               onClick={handleSortClick}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] hover:bg-[#EBE8E0] hover:text-[#18181B]"
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[#EBE8E0] hover:text-[#18181B]"
               title={`Sort: ${sort || "date"} (${order})`}
             >
               <ArrowDownUp className="w-3 h-3" />

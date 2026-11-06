@@ -258,7 +258,7 @@ export function WebmailComposeDock({
                   onChange={(to) => updateDraft({ to })}
                   testId="compose-to-input"
                 />
-                <div className="absolute right-0 top-1.5 flex items-center gap-2 text-xs text-[#71717A]">
+                <div className="absolute right-0 top-1.5 flex items-center gap-2 text-xs text-[var(--vellum-ink-secondary)]">
                   {!showCc && (
                     <button
                       type="button"
@@ -329,7 +329,7 @@ export function WebmailComposeDock({
                     key={att.filename + idx}
                     className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#EBE8E0] rounded text-xs text-[#18181B]"
                   >
-                    <Paperclip className="w-3 h-3 text-[#71717A]" />
+                    <Paperclip className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />
                     <span className="truncate max-w-[140px]">
                       {att.filename}
                     </span>
@@ -368,7 +368,7 @@ export function WebmailComposeDock({
                 </button>
 
                 <label
-                  className="p-1.5 text-[#71717A] hover:text-[#18181B] hover:bg-[#EBE8E0] rounded cursor-pointer transition-colors"
+                  className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0] rounded cursor-pointer transition-colors"
                   title="Attach file (max 5MB single, 10MB total)"
                 >
                   <Paperclip className="w-4 h-4" />
@@ -397,7 +397,7 @@ export function WebmailComposeDock({
                     clearDraft();
                     onClose();
                   }}
-                  className="p-1.5 text-[#71717A] hover:text-[#DC2626] hover:bg-[#EBE8E0] rounded transition-colors"
+                  className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#EBE8E0] rounded transition-colors"
                   title="Discard Draft"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -412,7 +412,7 @@ export function WebmailComposeDock({
       {undoToast.visible && (
         <div
           data-testid="undo-send-toast"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 bg-[#18181B] text-white rounded-lg shadow-2xl flex items-center gap-4 text-xs font-medium animate-in fade-in slide-in-from-bottom-2"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 bg-[#18181B] text-white rounded-lg shadow-2xl flex items-center gap-4 text-xs font-medium animate-in fade-in slide-in-from-bottom-2"
         >
           <span>
             {t("webmail_next.mail_sent")} ({undoToast.countdown}s)

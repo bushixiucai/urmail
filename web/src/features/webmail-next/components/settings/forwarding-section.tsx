@@ -148,7 +148,7 @@ export function ForwardingSection() {
       </div>
 
       {loading ? (
-        <div className="p-6 text-center text-xs text-[#71717A]">
+        <div className="p-6 text-center text-xs text-[var(--vellum-ink-secondary)]">
           {t("common.loading", "Loading forwarding settings...")}
         </div>
       ) : (
@@ -181,7 +181,7 @@ export function ForwardingSection() {
                   "Enable Automatic Forwarding",
                 )}
               </span>
-              <p className="text-[11px] text-[#71717A] mt-0.5">
+              <p className="text-xs text-[var(--vellum-ink-secondary)] mt-0.5">
                 {enabled
                   ? t(
                       "settings.forwarding.status_active",
@@ -248,7 +248,7 @@ export function ForwardingSection() {
                     "Keep a copy in this mailbox",
                   )}
                 </span>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
+                <p className="text-xs text-[var(--vellum-ink-secondary)] mt-0.5">
                   {t(
                     "settings.forwarding.keep_copy_desc",
                     "A copy will remain in your Inbox when mail is forwarded to the remote address.",
@@ -281,7 +281,7 @@ export function ForwardingSection() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
         >
           <div className="bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center gap-2.5 text-[#DC2626]">
+            <div className="flex items-center gap-2 text-[#DC2626]">
               <ShieldAlert className="w-5 h-5" />
               <h4 className="text-sm font-bold text-[#18181B]">
                 {t(
@@ -303,7 +303,7 @@ export function ForwardingSection() {
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
-                className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] rounded border border-[#EBE8E0]"
+                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded border border-[#EBE8E0]"
               >
                 {t("common.cancel", "Cancel")}
               </button>

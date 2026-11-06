@@ -29,7 +29,7 @@ export function WebmailSecurityBadge({
         data-testid="security-badge-button"
         type="button"
         onClick={() => setShowDetails((p) => !p)}
-        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
           isPass
             ? "bg-[#DCFCE7] text-[#166534] hover:bg-[#BBF7D0]"
             : isFail
@@ -60,13 +60,13 @@ export function WebmailSecurityBadge({
           <div className="font-semibold text-[#18181B] pb-1 border-b border-[#F3F1EC]">
             Authentication Details
           </div>
-          <div className="flex justify-between text-[#71717A]">
+          <div className="flex justify-between text-[var(--vellum-ink-secondary)]">
             <span>Domain:</span>
             <span className="font-mono text-[#18181B]">
               {authentication.domain || "N/A"}
             </span>
           </div>
-          <div className="flex justify-between text-[#71717A]">
+          <div className="flex justify-between text-[var(--vellum-ink-secondary)]">
             <span>Status:</span>
             <span
               className={`font-semibold ${isPass ? "text-[#16A34A]" : "text-[#D97706]"}`}
@@ -75,7 +75,7 @@ export function WebmailSecurityBadge({
             </span>
           </div>
           {authentication.reason && (
-            <div className="text-[11px] text-[#52525B] pt-1">
+            <div className="text-xs text-[#52525B] pt-1">
               {authentication.reason}
             </div>
           )}

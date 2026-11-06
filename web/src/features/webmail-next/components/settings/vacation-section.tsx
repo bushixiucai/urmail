@@ -132,7 +132,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
       </div>
 
       {loading ? (
-        <div className="p-6 text-center text-xs text-[#71717A]">
+        <div className="p-6 text-center text-xs text-[var(--vellum-ink-secondary)]">
           {t("common.loading", "Loading autoresponder settings...")}
         </div>
       ) : (
@@ -165,7 +165,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                   "Enable Vacation Autoresponder",
                 )}
               </span>
-              <p className="text-[11px] text-[#71717A] mt-0.5">
+              <p className="text-xs text-[var(--vellum-ink-secondary)] mt-0.5">
                 {enabled
                   ? t(
                       "settings.vacation.status_active",
@@ -198,7 +198,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-[#71717A]" />
+                  <Calendar className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("settings.vacation.start_date", "Start Date")}</span>
                 </label>
                 <input
@@ -212,7 +212,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
 
               <div>
                 <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-[#71717A]" />
+                  <Calendar className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("settings.vacation.end_date", "End Date")}</span>
                 </label>
                 <input
@@ -264,7 +264,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
             {/* Response Frequency (days) */}
             <div>
               <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-[#71717A]" />
+                <Clock className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                 <span>
                   {t(
                     "settings.vacation.days_interval",
@@ -281,7 +281,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                 onChange={(e) => setDays(Number(e.target.value))}
                 className="w-24 h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
               />
-              <p className="text-[10px] text-[#71717A] mt-1">
+              <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
                 {t(
                   "settings.vacation.days_hint",
                   "Number of days before sending another auto-reply to the same sender.",

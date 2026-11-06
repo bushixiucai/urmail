@@ -51,16 +51,9 @@ function WebmailMessageRowView({
       data-active={isActive ? "true" : "false"}
       data-cursor={isCursor ? "true" : "false"}
       aria-current={isCursor ? "true" : undefined}
+      tabIndex={0}
       onClick={onSelect}
-      className={`mail-row-item group relative flex items-center border-b border-[#EBE8E0] transition-colors cursor-pointer select-none ${
-        isActive
-          ? "bg-[#EFF6FF]"
-          : isSelected
-            ? "bg-[#F8F7F2]"
-            : item.isUnread
-              ? "bg-[#FFFFFF]"
-              : "bg-[#FAF9F5]/40"
-      } hover:bg-[#F8F7F2]`}
+      className="mail-row-item group relative flex items-center border-b border-[#EBE8E0] cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB] focus-visible:-outline-offset-2"
     >
       {/* Active Left Indicator Bar */}
       {isActive && (
@@ -68,7 +61,7 @@ function WebmailMessageRowView({
       )}
 
       {/* Row Left: Unread dot / Checkbox / Star */}
-      <div className="flex items-center gap-2 shrink-0 mr-2.5">
+      <div className="flex items-center gap-2 shrink-0 mr-2">
         <div className="w-2 flex justify-center">
           {item.isUnread ? (
             <div
@@ -102,15 +95,15 @@ function WebmailMessageRowView({
         <button
           type="button"
           onClick={onToggleStar}
-          className={`p-0.5 rounded hover:text-[#F59E0B] transition-colors ${
+          className={`p-0.5 rounded hover:text-[var(--vellum-star)] transition-colors ${
             item.isStarred
-              ? "text-[#F59E0B]"
+              ? "text-[var(--vellum-star)]"
               : "text-[#D4D4D8] group-hover:text-[var(--vellum-ink-secondary)]"
           }`}
           title={item.isStarred ? "Starred" : "Not starred"}
         >
           <Star
-            className={`w-3.5 h-3.5 ${item.isStarred ? "fill-[#F59E0B]" : ""}`}
+            className={`w-4 h-4 ${item.isStarred ? "fill-[var(--vellum-star)]" : ""}`}
           />
         </button>
       </div>
@@ -120,9 +113,9 @@ function WebmailMessageRowView({
         <div className="flex-1 min-w-0 flex items-center justify-between gap-2 overflow-hidden">
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <span
-              className={`truncate text-xs shrink-0 max-w-[110px] ${
+              className={`truncate text-xs leading-4 shrink-0 max-w-[110px] ${
                 item.isUnread
-                  ? "font-bold text-[#18181B]"
+                  ? "font-[650] text-[#18181B]"
                   : "font-medium text-[#3F3F46]"
               }`}
             >
@@ -135,7 +128,7 @@ function WebmailMessageRowView({
                 data-testid={`thread-toggle-${item.threadId || item.uid}`}
                 type="button"
                 onClick={onToggleThread}
-                className="px-1 py-0.2 rounded-full text-[9px] bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5 shrink-0"
+                className="px-1 py-0.2 rounded-full text-xs bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5 shrink-0"
                 title={`${item.threadCount} messages in thread`}
               >
                 <span>{item.threadCount}</span>
@@ -148,10 +141,10 @@ function WebmailMessageRowView({
             )}
 
             <span
-              className={`truncate text-xs flex-1 ${
+              className={`truncate text-xs leading-4 flex-1 ${
                 item.isUnread
-                  ? "font-semibold text-[#18181B]"
-                  : "text-[var(--vellum-ink-secondary)]"
+                  ? "font-[650] text-[#18181B]"
+                  : "font-normal text-[#52525B]"
               }`}
             >
               {item.subject}
@@ -159,19 +152,19 @@ function WebmailMessageRowView({
             {item.folder ? (
               <span
                 data-testid={`mail-folder-${item.uid}`}
-                className="shrink-0 text-[10px] text-[var(--vellum-ink-secondary)]"
+                className="shrink-0 text-xs text-[var(--vellum-ink-secondary)]"
               >
                 {item.folder}
               </span>
             ) : null}
 
             {item.hasAttachments && (
-              <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
+              <Paperclip className="w-4 h-4 text-[var(--vellum-ink-secondary)] shrink-0" />
             )}
           </div>
 
           {/* Timestamp / Quick Action Hover Bar */}
-          <div className="shrink-0 flex items-center text-[11px] text-[#52525B]">
+          <div className="shrink-0 flex items-center text-xs text-[#52525B]">
             <span className="group-hover:hidden">
               {item.date
                 ? new Date(item.date).toLocaleDateString(undefined, {
@@ -213,9 +206,9 @@ function WebmailMessageRowView({
           <div className="flex items-center justify-between gap-1.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <span
-                className={`truncate text-xs ${
+                className={`truncate text-[13px] leading-5 ${
                   item.isUnread
-                    ? "font-bold text-[#18181B]"
+                    ? "font-[650] text-[#18181B]"
                     : "font-medium text-[#3F3F46]"
                 }`}
               >
@@ -228,7 +221,7 @@ function WebmailMessageRowView({
                   data-testid={`thread-toggle-${item.threadId || item.uid}`}
                   type="button"
                   onClick={onToggleThread}
-                  className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
+                  className="px-1.5 py-0.2 rounded-full text-xs bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
                   title={`${item.threadCount} messages in thread`}
                 >
                   <span>{item.threadCount}</span>
@@ -242,7 +235,7 @@ function WebmailMessageRowView({
             </div>
 
             {/* Timestamp / Quick Action Hover Bar */}
-            <div className="shrink-0 flex items-center text-[11px] text-[#52525B]">
+            <div className="shrink-0 flex items-center text-xs text-[#52525B]">
               {/* Standard date display (hidden on hover if actions available) */}
               <span className="group-hover:hidden">
                 {item.date
@@ -283,12 +276,12 @@ function WebmailMessageRowView({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 mt-0.5 text-xs">
+          <div className="flex items-center gap-2 min-w-0 text-[13px] leading-5">
             <span
               className={`truncate ${
                 item.isUnread
-                  ? "font-semibold text-[#18181B]"
-                  : "text-[var(--vellum-ink-secondary)]"
+                  ? "font-[650] text-[#18181B]"
+                  : "font-normal text-[#52525B]"
               }`}
             >
               {item.subject}
@@ -296,15 +289,21 @@ function WebmailMessageRowView({
             {item.folder ? (
               <span
                 data-testid={`mail-folder-${item.uid}`}
-                className="shrink-0 text-[10px] text-[var(--vellum-ink-secondary)]"
+                className="shrink-0 text-xs text-[var(--vellum-ink-secondary)]"
               >
                 {item.folder}
               </span>
             ) : null}
             {item.hasAttachments && (
-              <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
+              <Paperclip className="w-4 h-4 text-[var(--vellum-ink-secondary)] shrink-0" />
             )}
           </div>
+          <p
+            data-testid={`mail-snippet-${item.uid}`}
+            className="truncate text-[13px] leading-5 font-normal text-[var(--vellum-ink-secondary)]"
+          >
+            {item.snippet ?? ""}
+          </p>
         </div>
       )}
     </div>

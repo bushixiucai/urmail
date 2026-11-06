@@ -335,7 +335,7 @@ export function SieveRulesSection() {
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B]"
+              className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
             >
               {t("common.cancel", "Cancel")}
             </button>
@@ -345,11 +345,11 @@ export function SieveRulesSection() {
 
       {/* Rules List */}
       {loading ? (
-        <div className="p-6 text-center text-xs text-[#71717A]">
+        <div className="p-6 text-center text-xs text-[var(--vellum-ink-secondary)]">
           {t("common.loading", "Loading sieve rules...")}
         </div>
       ) : rules.length === 0 ? (
-        <div className="p-8 text-center bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl text-[#71717A] text-xs">
+        <div className="p-8 text-center bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl text-[var(--vellum-ink-secondary)] text-xs">
           <Filter className="w-8 h-8 text-[#D4D4D8] mx-auto mb-2" />
           <p>
             {t("settings.rules.no_rules", "No custom Sieve filters defined.")}
@@ -377,7 +377,7 @@ export function SieveRulesSection() {
                     type="button"
                     onClick={() => handleMoveRule(idx, "up")}
                     disabled={isFirst}
-                    className="p-1 text-[#71717A] hover:text-[#18181B] disabled:opacity-20"
+                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] disabled:opacity-20"
                     title="Move up"
                   >
                     <ArrowUp className="w-3.5 h-3.5" />
@@ -386,27 +386,27 @@ export function SieveRulesSection() {
                     type="button"
                     onClick={() => handleMoveRule(idx, "down")}
                     disabled={isLast}
-                    className="p-1 text-[#71717A] hover:text-[#18181B] disabled:opacity-20"
+                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] disabled:opacity-20"
                     title="Move down"
                   >
                     <ArrowDown className="w-3.5 h-3.5" />
                   </button>
-                  <span className="text-[10px] text-[#A1A1AA] w-4 text-center font-mono">
+                  <span className="text-xs text-[var(--vellum-ink-secondary)] w-4 text-center font-mono">
                     {idx + 1}
                   </span>
                 </div>
 
                 {/* Rule details summary */}
                 <div className="flex-1 min-w-0 flex items-center gap-2 text-xs">
-                  <span className="font-semibold text-[#18181B] uppercase text-[10px] bg-[#F6F4EE] px-1.5 py-0.5 rounded">
+                  <span className="font-semibold text-[#18181B] uppercase text-xs bg-[#F6F4EE] px-1.5 py-0.5 rounded">
                     {rule.header}
                   </span>
                   <span className="text-[#52525B]">{rule.match}:</span>
                   <span className="font-mono text-[#18181B] font-medium truncate max-w-xs">
                     "{rule.value}"
                   </span>
-                  <span className="text-[#A1A1AA]">➔</span>
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-[#2563EB]">
+                  <span className="text-[var(--vellum-ink-secondary)]">➔</span>
+                  <span className="flex items-center gap-1 text-xs font-semibold text-[#2563EB]">
                     {rule.action === "fileinto" ? (
                       <>
                         <FolderInput className="w-3.5 h-3.5" />
@@ -431,7 +431,7 @@ export function SieveRulesSection() {
                   <button
                     type="button"
                     onClick={() => handleToggleRule(idx)}
-                    className={`px-2 py-0.5 text-[10px] font-semibold rounded border transition-colors ${
+                    className={`px-2 py-0.5 text-xs font-semibold rounded border transition-colors ${
                       !rule.disabled
                         ? "bg-[#EFF6FF] border-[#BFDBFE] text-[#2563EB]"
                         : "bg-[#F3F4F6] border-[#E5E7EB] text-[#6B7280]"
@@ -442,7 +442,7 @@ export function SieveRulesSection() {
                   <button
                     type="button"
                     onClick={() => handleDeleteRule(idx)}
-                    className="p-1 text-[#71717A] hover:text-[#DC2626] rounded transition-colors"
+                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] rounded transition-colors"
                     title="Delete rule"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

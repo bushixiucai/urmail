@@ -134,7 +134,9 @@ export function WebmailRecipientChips({
       ref={containerRef}
       className="relative flex flex-wrap items-center gap-1.5 py-1 text-xs border-b border-[#F3F1EC]"
     >
-      <span className="w-12 text-[#71717A] shrink-0 font-medium">{label}:</span>
+      <span className="w-12 text-[var(--vellum-ink-secondary)] shrink-0 font-medium">
+        {label}:
+      </span>
       <div className="flex-1 flex flex-wrap items-center gap-1 relative">
         {recipients.map((email) => (
           <div
@@ -190,7 +192,7 @@ export function WebmailRecipientChips({
                   data-testid={`corporate-suggestion-${idx}`}
                   onClick={() => addRecipient(primaryEmail)}
                   onMouseEnter={() => setSelectedIndex(idx)}
-                  className={`px-3 py-2 cursor-pointer flex items-center gap-2.5 transition-colors ${
+                  className={`px-3 py-2 cursor-pointer flex items-center gap-2 transition-colors ${
                     isSelected
                       ? "bg-[#EFF6FF] text-[#1E40AF]"
                       : "hover:bg-[#FAF9F5] text-[#18181B]"
@@ -214,12 +216,12 @@ export function WebmailRecipientChips({
                           "Unknown"}
                       </span>
                       {deptOrTitle && (
-                        <span className="text-[10px] text-[#71717A] truncate">
+                        <span className="text-xs text-[var(--vellum-ink-secondary)] truncate">
                           · {deptOrTitle}
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-[#52525B] truncate font-mono">
+                    <div className="text-xs text-[#52525B] truncate font-mono">
                       {primaryEmail}
                     </div>
                   </div>

@@ -56,12 +56,12 @@ export function WebmailEditorTiptap({
           placeholder="Compose email in plain text..."
           className="flex-1 w-full p-3 text-sm text-[#18181B] outline-none resize-none font-mono"
         />
-        <div className="h-9 px-3 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between text-xs text-[#71717A]">
-          <span className="text-[11px]">Plain Text Mode</span>
+        <div className="h-9 px-3 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between text-xs text-[var(--vellum-ink-secondary)]">
+          <span className="text-xs">Plain Text Mode</span>
           <button
             type="button"
             onClick={onTogglePlainText}
-            className="text-[11px] text-[var(--brand-primary,#2563eb)] hover:underline"
+            className="text-xs text-[var(--brand-primary,#2563eb)] hover:underline"
           >
             Switch to Rich Text
           </button>
@@ -77,7 +77,7 @@ export function WebmailEditorTiptap({
       </div>
 
       {/* Modern Bottom Toolbar */}
-      <div className="h-9 px-2 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between text-[#71717A] text-xs shrink-0 select-none">
+      <div className="h-9 px-2 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between text-[var(--vellum-ink-secondary)] text-xs shrink-0 select-none">
         <div className="flex items-center gap-0.5">
           <button
             type="button"
@@ -164,7 +164,7 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={onTogglePlainText}
-            className="flex items-center gap-1 text-[11px] hover:text-[#18181B] px-1.5 py-0.5 rounded hover:bg-[#EBE8E0]"
+            className="flex items-center gap-1 text-xs hover:text-[#18181B] px-1.5 py-0.5 rounded hover:bg-[#EBE8E0]"
             title="Switch to Plain Text Mode"
           >
             <FileCode className="w-3.5 h-3.5" />

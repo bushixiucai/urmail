@@ -87,7 +87,7 @@ export function WebmailHeader({
           data-testid="rail-toggle-button"
           type="button"
           onClick={onToggleRail}
-          className="p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
           title="Toggle Navigation"
         >
           <PanelLeft className="w-5 h-5" />
@@ -121,10 +121,10 @@ export function WebmailHeader({
               data-testid="btn-open-advanced-search"
               type="button"
               onClick={onOpenAdvancedSearch}
-              className="absolute right-2 top-1.5 p-1 text-[#71717A] hover:text-[#18181B] rounded"
+              className="absolute right-1 top-1 flex h-6 w-6 min-h-6 min-w-6 items-center justify-center text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded"
               title="Advanced Filter"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <SlidersHorizontal className="w-4 h-4" />
             </button>
           )}
 
@@ -150,7 +150,7 @@ export function WebmailHeader({
             type="button"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className={`p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors ${
+            className={`p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors ${
               isRefreshing ? "animate-spin" : ""
             }`}
             title="Refresh"
@@ -165,7 +165,7 @@ export function WebmailHeader({
             aria-haspopup="menu"
             aria-expanded={densityOpen}
             onClick={() => setDensityOpen((open) => !open)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
             aria-label={t("webmail_next.density_menu")}
           >
             <LayoutList className="w-3.5 h-3.5" />
@@ -202,7 +202,7 @@ export function WebmailHeader({
             data-testid="webmail-contacts-btn"
             type="button"
             onClick={onOpenContacts}
-            className="p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
             title={t("contacts.title", "Contacts")}
           >
             <BookUser className="w-4 h-4" />
@@ -213,7 +213,7 @@ export function WebmailHeader({
             data-testid="webmail-settings-btn"
             type="button"
             onClick={onOpenSettings}
-            className="p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
             title={t("webmail_next.settings", "Settings")}
           >
             <Settings className="w-4 h-4" />

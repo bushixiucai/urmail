@@ -79,7 +79,7 @@ export function StorageQuotaSection() {
           type="button"
           onClick={fetchQuota}
           disabled={loading}
-          className="p-1.5 rounded text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
           title={t("common.refresh", "Refresh")}
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
@@ -91,7 +91,7 @@ export function StorageQuotaSection() {
           {error}
         </div>
       ) : loading ? (
-        <div className="p-6 text-center text-xs text-[#71717A]">
+        <div className="p-6 text-center text-xs text-[var(--vellum-ink-secondary)]">
           {t("common.loading", "Loading storage statistics...")}
         </div>
       ) : (
@@ -106,7 +106,7 @@ export function StorageQuotaSection() {
                 <span className="text-lg font-bold text-[#18181B]">
                   {percent}%
                 </span>
-                <span className="text-xs text-[#71717A] ml-2">
+                <span className="text-xs text-[var(--vellum-ink-secondary)] ml-2">
                   ({formatBytes(used)} /{" "}
                   {isUnlimited
                     ? t("settings.quota.unlimited", "Unlimited")
@@ -135,7 +135,7 @@ export function StorageQuotaSection() {
             {isAlert ? (
               <div
                 data-testid="quota-alert-callout"
-                className="p-3 bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg flex items-start gap-2.5 text-[#991B1B] text-xs"
+                className="p-3 bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg flex items-start gap-2 text-[#991B1B] text-xs"
               >
                 <AlertOctagon className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
                 <div>
@@ -145,7 +145,7 @@ export function StorageQuotaSection() {
                       "Critical Space Shortage",
                     )}
                   </span>
-                  <p className="mt-0.5 text-[11px] text-[#B91C1C]">
+                  <p className="mt-0.5 text-xs text-[#B91C1C]">
                     {t(
                       "settings.quota.alert_desc",
                       "Mailbox storage is critically low, which may lead to inbound message rejection. Please delete unnecessary messages or large attachments.",
@@ -156,7 +156,7 @@ export function StorageQuotaSection() {
             ) : isWarning ? (
               <div
                 data-testid="quota-warning-callout"
-                className="p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg flex items-start gap-2.5 text-[#92400E] text-xs"
+                className="p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg flex items-start gap-2 text-[#92400E] text-xs"
               >
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
                 <div>
@@ -166,7 +166,7 @@ export function StorageQuotaSection() {
                       "Approaching Storage Limit",
                     )}
                   </span>
-                  <p className="mt-0.5 text-[11px] text-[#B45309]">
+                  <p className="mt-0.5 text-xs text-[#B45309]">
                     {t(
                       "settings.quota.warning_desc",
                       "Your mailbox is running out of space. Consider archiving or deleting older messages with large attachments.",
@@ -187,7 +187,7 @@ export function StorageQuotaSection() {
           {/* Attachment and Send Limits Note */}
           <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl space-y-2">
             <h4 className="text-xs font-semibold text-[#18181B] flex items-center gap-1.5">
-              <Paperclip className="w-3.5 h-3.5 text-[#71717A]" />
+              <Paperclip className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t(
                   "settings.quota.attachment_limits_title",

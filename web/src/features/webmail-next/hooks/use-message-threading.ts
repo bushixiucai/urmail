@@ -55,7 +55,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
         sender: senderName,
         senderEmail: senderObj?.email || "",
         date: m.date,
-        snippet: m.subject,
+        snippet: m.preview && m.preview !== m.subject ? m.preview : undefined,
         isUnread,
         isStarred,
         hasAttachments: Boolean(m.has_attachments),

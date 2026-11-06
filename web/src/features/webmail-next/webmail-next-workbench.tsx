@@ -1043,7 +1043,7 @@ export function WebmailNextWorkbench({
           {searchCapped && (
             <div
               data-testid="webmail-search-capped"
-              className="px-3 py-1 text-[11px] text-[var(--vellum-ink-secondary)]"
+              className="px-3 py-1 text-xs text-[var(--vellum-ink-secondary)]"
             >
               {t("webmail_next.search_capped", { count: messages.length })}
             </div>

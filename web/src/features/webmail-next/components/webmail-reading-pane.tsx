@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   UserPlus,
   Check,
+  Mail,
 } from "lucide-react";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
@@ -86,10 +87,15 @@ export function WebmailReadingPane({
         data-testid="webmail-reading-pane"
         className="flex-1 h-full flex flex-col items-center justify-center bg-[#FAF9F5] text-xs text-[#52525B]"
       >
-        <div className="w-12 h-12 rounded-full bg-[#EBE8E0]/50 flex items-center justify-center mb-2">
-          📬
+        <div className="w-12 h-12 rounded-full bg-[#F3F1EC] flex items-center justify-center mb-2">
+          <Mail className="w-6 h-6 text-[var(--vellum-ink-secondary)]" />
         </div>
-        <span>Select an email to read</span>
+        <span className="text-sm font-semibold leading-[22px] text-[#18181B]">
+          {t("webmail_next.empty_reading_title")}
+        </span>
+        <span className="mt-1 text-xs leading-4 text-[var(--vellum-ink-secondary)]">
+          {t("webmail_next.empty_reading_body")}
+        </span>
       </div>
     );
   }
@@ -163,7 +169,7 @@ export function WebmailReadingPane({
               data-testid="reading-back-button"
               type="button"
               onClick={onBack}
-              className="md:hidden p-1.5 text-[#71717A] hover:text-[#18181B] rounded hover:bg-[#F3F1EC]"
+              className="md:hidden p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded hover:bg-[#F3F1EC]"
               title="Back to list"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -175,24 +181,24 @@ export function WebmailReadingPane({
             onClick={() => onReply?.(message)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#18181B] hover:bg-[#F3F1EC] transition-colors"
           >
-            <Reply className="w-3.5 h-3.5" />
-            <span>Reply</span>
+            <Reply className="w-4 h-4" />
+            <span>{t("webmail_next.reply")}</span>
           </button>
           <button
             type="button"
             onClick={() => onReplyAll?.(message)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#18181B] hover:bg-[#F3F1EC] transition-colors"
           >
-            <ReplyAll className="w-3.5 h-3.5" />
-            <span>Reply All</span>
+            <ReplyAll className="w-4 h-4" />
+            <span>{t("webmail_next.reply_all")}</span>
           </button>
           <button
             type="button"
             onClick={() => onForward?.(message)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#18181B] hover:bg-[#F3F1EC] transition-colors"
           >
-            <Forward className="w-3.5 h-3.5" />
-            <span>Forward</span>
+            <Forward className="w-4 h-4" />
+            <span>{t("webmail_next.forward")}</span>
           </button>
         </div>
 
@@ -201,16 +207,20 @@ export function WebmailReadingPane({
             type="button"
             onClick={() => onToggleStar?.(message.uid)}
             className={`p-1.5 rounded hover:bg-[#F3F1EC] transition-colors ${
-              isStarred ? "text-[#F59E0B]" : "text-[#A1A1AA]"
+              isStarred
+                ? "text-[var(--vellum-star)]"
+                : "text-[var(--vellum-ink-secondary)]"
             }`}
             title="Star"
           >
-            <Star className={`w-4 h-4 ${isStarred ? "fill-[#F59E0B]" : ""}`} />
+            <Star
+              className={`w-4 h-4 ${isStarred ? "fill-[var(--vellum-star)]" : ""}`}
+            />
           </button>
           <button
             type="button"
             onClick={() => onDelete?.(message.uid)}
-            className="p-1.5 rounded text-[#71717A] hover:text-[#DC2626] hover:bg-[#F3F1EC] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#F3F1EC] transition-colors"
             title="Delete"
           >
             <Trash2 className="w-4 h-4" />
@@ -222,7 +232,7 @@ export function WebmailReadingPane({
       <div className="p-6 max-w-4xl w-full mx-auto space-y-5">
         {/* Subject & Security */}
         <div>
-          <h1 className="text-xl font-bold text-[#18181B] tracking-tight leading-snug">
+          <h1 className="text-[20px] leading-7 font-[650] text-[#18181B] tracking-tight">
             {message.subject || "(No subject)"}
           </h1>
           <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[#EBE8E0]">
@@ -235,7 +245,7 @@ export function WebmailReadingPane({
                   <span className="text-xs font-semibold text-[#18181B]">
                     {senderName}
                   </span>
-                  <span className="text-xs text-[#71717A]">
+                  <span className="text-xs text-[var(--vellum-ink-secondary)]">
                     &lt;{senderEmail}&gt;
                   </span>
                   <WebmailSecurityBadge
@@ -246,10 +256,10 @@ export function WebmailReadingPane({
                     type="button"
                     onClick={handleAddContact}
                     disabled={contactAdded || isAddingContact}
-                    className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+                    className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
                       contactAdded
                         ? "text-[#16A34A] bg-[#DCFCE7]"
-                        : "text-[#71717A] hover:text-[#18181B] hover:bg-[#EBE8E0]"
+                        : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0]"
                     }`}
                     title={contactAdded ? "Contact added" : "Add to contacts"}
                   >
@@ -268,7 +278,7 @@ export function WebmailReadingPane({
                     )}
                   </button>
                 </div>
-                <div className="text-[11px] text-[#52525B] mt-0.5">
+                <div className="text-xs text-[#52525B] mt-0.5">
                   {message.to && message.to.length > 0
                     ? t("webmail_next.to_recipients", {
                         recipients: message.to
@@ -301,7 +311,7 @@ export function WebmailReadingPane({
                 data-testid="show-images-button"
                 type="button"
                 onClick={handleShowImages}
-                className="px-2.5 py-1 bg-white border border-[#D97706]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
+                className="px-2 py-1 bg-white border border-[#D97706]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
               >
                 {t("webmail_next.show_images")}
               </button>
@@ -309,7 +319,7 @@ export function WebmailReadingPane({
                 data-testid="always-trust-button"
                 type="button"
                 onClick={handleAlwaysTrust}
-                className="px-2.5 py-1 text-[#92400E] hover:underline transition-colors"
+                className="px-2 py-1 text-[#92400E] hover:underline transition-colors"
               >
                 {t("webmail_next.always_trust_images")}
               </button>
@@ -343,7 +353,7 @@ export function WebmailReadingPane({
         {/* Attachments Section */}
         {message.attachments && message.attachments.length > 0 && (
           <div data-testid="attachments-container" className="pt-2">
-            <div className="text-xs font-semibold text-[#71717A] mb-3">
+            <div className="text-xs font-semibold text-[var(--vellum-ink-secondary)] mb-3">
               Attachments ({message.attachments.length})
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
