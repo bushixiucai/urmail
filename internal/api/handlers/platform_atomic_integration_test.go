@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,8 +15,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
-	"github.com/bushixiucai/urmail/internal/payment"
-	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -43,17 +40,12 @@ func TestPlatformMutationAuditFailureRollsBackEveryBusinessEffect(t *testing.T) 
 	if err := p.QueryRow(ctx, "INSERT INTO tickets(tenant_id,opened_by,subject) VALUES($1,$2,'Audit rollback') RETURNING id", tenant, author).Scan(&ticket); err != nil {
 		t.Fatal(err)
 	}
-	box, err := secrets.New([]byte(strings.Repeat("a", 32)))
-	if err != nil {
-		t.Fatal(err)
-	}
 	platform := NewPlatformHandler(q)
 	platform.Pool = p
 	reconcile := &atomicReconcile{}
 	platform.Reconcile = reconcile
 	support := &SupportHandler{Store: q, Platform: q, PlatformPool: p}
-	gateway := &PaymentGatewayHandler{Platform: q, Pool: p, Secrets: box, Registry: &payment.Registry{Store: q, Secrets: box, BaseURL: "https://panel.example.test"}}
-	if _, err = p.Exec(ctx, `CREATE FUNCTION reject_successful_platform_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.detail->>'outcome'='succeeded' THEN RAISE EXCEPTION 'fixture successful audit unavailable'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_successful_platform_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_successful_platform_audit();`); err != nil {
+	if _, err := p.Exec(ctx, `CREATE FUNCTION reject_successful_platform_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.detail->>'outcome'='succeeded' THEN RAISE EXCEPTION 'fixture successful audit unavailable'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_successful_platform_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_successful_platform_audit();`); err != nil {
 		t.Fatal(err)
 	}
 	r := gin.New()
@@ -62,17 +54,14 @@ func TestPlatformMutationAuditFailureRollsBackEveryBusinessEffect(t *testing.T) 
 	r.PATCH("/api/v1/platform/tenants/:id", tx, platform.UpdateTenant)
 	r.POST("/api/v1/platform/tenants/:id/suspend", tx, platform.SuspendTenant)
 	r.POST("/api/v1/platform/tenants", tx, platform.CreateTenant)
-	r.POST("/api/v1/platform/plans", tx, platform.UpsertPlan)
 	r.POST("/api/v1/platform/support/tenants/:id/tickets/:ticket_id/messages", tx, support.PlatformReply)
-	r.POST("/api/v1/platform/payment-merchants", gateway.VerifyConfiguration, tx, gateway.SaveMerchant)
 	cases := []struct{ method, path, body, check string }{
 		{http.MethodPatch, fmt.Sprintf("/api/v1/platform/tenants/%d", tenant), `{"name":"Must roll back"}`, "SELECT count(*) FROM tenants WHERE name='Must roll back'"},
 		{http.MethodPost, fmt.Sprintf("/api/v1/platform/tenants/%d/suspend", tenant), "", fmt.Sprintf("SELECT count(*) FROM tenants WHERE id=%d AND status='suspended'", tenant)},
 		{http.MethodPost, "/api/v1/platform/tenants", `{"name":"Must roll back","slug":"new-atomic","brand_slug":"new-atomic","owner_email":"new@atomic.test","owner_password":"a-strong-atomic-test-password"}`, "SELECT count(*) FROM brands WHERE slug='new-atomic'"},
-		{http.MethodPost, "/api/v1/platform/plans", `{"code":"atomic-plan","name":{"en":"Atomic"},"price_cents":100,"currency":"CNY","quota_bytes":1073741824,"mailbox_limit":5,"domain_limit":2,"daily_send_limit":100,"features":{}}`, "SELECT count(*) FROM plans WHERE code='atomic-plan'"},
 		{http.MethodPost, fmt.Sprintf("/api/v1/platform/support/tenants/%d/tickets/%d/messages", tenant, ticket), `{"body":"Must roll back"}`, "SELECT count(*) FROM ticket_messages WHERE body='Must roll back'"},
-		{http.MethodPost, "/api/v1/platform/payment-merchants", `{"provider":"stripe","environment":"sandbox","account_id":"acct_atomic","name":"Atomic","enabled":false,"currencies":["CNY"],"entrypoint":"hosted","credentials":{"secret_key":"sk_test_atomic","webhook_secret":"whsec_atomic"}}`, "SELECT count(*) FROM payment_merchants WHERE account_id='acct_atomic'"},
 	}
+	var err error
 	for _, tc := range cases {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequestWithContext(ctx, tc.method, tc.path, strings.NewReader(tc.body))
@@ -173,91 +162,6 @@ func TestManualTenantCreationRequiresExplicitFiniteFreeGrant(t *testing.T) {
 	var existingEnd time.Time
 	if err := p.QueryRow(ctx, "SELECT period_end FROM subscriptions WHERE tenant_id=$1 AND plan_id='free' AND status='active'", oldTenant).Scan(&existingEnd); err != nil || !existingEnd.Equal(oldEnd) {
 		t.Fatalf("existing free rights changed %s %s %v", existingEnd, oldEnd, err)
-	}
-}
-
-func TestMerchantPreflightHoldsNoBusinessTransactionAndRejectsStaleProof(t *testing.T) {
-	p, _ := authIntegrationDatabase(t)
-	ctx := context.Background()
-	q := store.New(p.Pool)
-	box, err := secrets.New([]byte(strings.Repeat("v", 32)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldCipher, err := box.EncryptString(`{"secret_key":"sk_test_old","webhook_secret":"whsec_old"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	merchant, err := q.PlatformCreatePaymentMerchant(ctx, store.PlatformCreatePaymentMerchantParams{Provider: payment.ProviderStripe, Environment: "sandbox", AccountID: "acct_preflight", Name: "Original", Enabled: true, Currencies: []string{"CNY"}, Entrypoint: "hosted", EncryptedConfig: oldCipher})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var actor int64
-	if err = p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('proof@atomic.test','unused') RETURNING id").Scan(&actor); err != nil {
-		t.Fatal(err)
-	}
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	var writes atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writes.Add(1)
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		close(entered)
-		<-release
-		fmt.Fprint(w, `{"id":"acct_preflight"}`)
-	}))
-	defer server.Close()
-	target, _ := url.Parse(server.URL)
-	gateway := &PaymentGatewayHandler{Platform: q, Pool: p, Secrets: box, Registry: &payment.Registry{Store: q, Secrets: box, BaseURL: "https://panel.example.test", Client: &http.Client{Transport: merchantHTTPTransport{target: target}, Timeout: 5 * time.Second}}}
-	r := gin.New()
-	r.Use(middleware.AuditPlatform(q, zap.NewNop()), func(c *gin.Context) { c.Set(middleware.ContextUserID, actor) })
-	r.PATCH("/api/v1/platform/payment-merchants/:merchant_id", gateway.VerifyConfiguration, middleware.RequirePlatformTx(p, zap.NewNop()), gateway.SaveMerchant)
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		req := httptest.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("/api/v1/platform/payment-merchants/%d", merchant.ID), strings.NewReader(`{"provider":"stripe","environment":"sandbox","account_id":"acct_preflight","name":"Rotate","enabled":true,"currencies":["CNY"],"entrypoint":"hosted","credentials":{"secret_key":"sk_test_rotated","webhook_secret":"whsec_new"}}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		done <- w
-	}()
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		close(release)
-		t.Fatal("preflight not reached")
-	}
-	var transactions int
-	if err = p.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state='idle in transaction'").Scan(&transactions); err != nil {
-		close(release)
-		t.Fatal(err)
-	}
-	if transactions != 0 {
-		close(release)
-		t.Fatalf("business transaction held during provider preflight: %d", transactions)
-	}
-	concurrentCipher, err := box.EncryptString(`{"secret_key":"sk_test_concurrent","webhook_secret":"whsec_concurrent"}`)
-	if err != nil {
-		close(release)
-		t.Fatal(err)
-	}
-	_, err = p.Exec(ctx, "UPDATE payment_merchants SET encrypted_config=$2,name='Concurrent writer',updated_at=clock_timestamp() WHERE id=$1", merchant.ID, concurrentCipher)
-	close(release)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := <-done
-	if response.Code != 409 {
-		t.Fatalf("stale preflight applied %d %s", response.Code, response.Body)
-	}
-	saved, err := q.PlatformGetPaymentMerchant(ctx, merchant.ID)
-	if err != nil || saved.EncryptedConfig != concurrentCipher || saved.Name != "Concurrent writer" || !saved.Enabled {
-		t.Fatalf("stale rotation replaced current configuration name=%s enabled=%t err=%v", saved.Name, saved.Enabled, err)
-	}
-	if writes.Load() != 0 {
-		t.Fatal("identity preflight initiated a provider write")
 	}
 }
 

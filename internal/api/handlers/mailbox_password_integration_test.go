@@ -22,7 +22,7 @@ import (
 )
 
 func TestMailboxPasswordBridgeOldProofRevocationCASAndAudit(t *testing.T) {
-	s := newBillingScenario(t)
+	s := newMailboxTenant(t)
 	ctx := t.Context()
 	q := store.New(s.p)
 	oldPassword, newPassword := "Legacy-old-password-123", "Rotated-new-password-456"

@@ -45,16 +45,3 @@ func TestQuarantineHasRequestIdentityLogsAndHealthState(t *testing.T) {
 		}
 	}
 }
-
-func TestQuarantineReconciliationExceptionsAreStrictlyScoped(t *testing.T) {
-	for _, path := range []string{"/api/v1/platform/refunds/1/query", "/api/v1/platform/payment-merchants/1/orders/2/query", "/api/v1/platform/orders/1/query"} {
-		if !quarantineRefundQuery.MatchString(path) && !quarantinePaymentQuery.MatchString(path) && !quarantineLegacyQuery.MatchString(path) {
-			t.Fatalf("safe reconciliation path rejected: %s", path)
-		}
-	}
-	for _, path := range []string{"/api/v1/platform/orders/01/query", "/api/v1/platform/orders/0/query", "/api/v1/platform/orders/1/capture", "/api/v1/platform/refunds/0/query", "/api/v1/platform/refunds/-1/query", "/api/v1/platform/refunds/01/query", "/api/v1/platform/refunds/1/query/extra", "/api/v1/platform/refunds/1/approve", "/api/v1/platform/payment-merchants/1/orders/2/capture", "/api/v1/platform/payment-merchants/1/orders/2/query/extra"} {
-		if quarantineRefundQuery.MatchString(path) || quarantinePaymentQuery.MatchString(path) || quarantineLegacyQuery.MatchString(path) {
-			t.Fatalf("unsafe reconciliation path allowed: %s", path)
-		}
-	}
-}

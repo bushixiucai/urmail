@@ -19,9 +19,6 @@ func startBackgroundWorker(ctx context.Context, cfg *config.Config, run func(con
 	go run(ctx)
 	return true
 }
-func startRenewalWorker(ctx context.Context, cfg *config.Config, once func(context.Context) error, logger *zap.Logger) bool {
-	return startPeriodicWorker(ctx, cfg, time.Hour, "renewal attempt failed", once, logger)
-}
 
 func startPeriodicWorker(ctx context.Context, cfg *config.Config, interval time.Duration, warning string, once func(context.Context) error, logger *zap.Logger) bool {
 	return startBackgroundWorker(ctx, cfg, func(ctx context.Context) {

@@ -122,22 +122,3 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 	}
 	return true
 }
-
-// subscriptionPlan reads the frozen current entitlement rather than an editable catalog row.
-func subscriptionPlan(ctx context.Context, q interface {
-	GetPlanByCode(context.Context, string) (store.Plans, error)
-}, sub store.Subscriptions) (store.Plans, error) {
-	if effective, ok := q.(interface {
-		GetEffectivePlan(context.Context, int64) (store.Plans, error)
-	}); ok {
-		return effective.GetEffectivePlan(ctx, sub.TenantID)
-	}
-	if len(sub.PlanSnapshot) > 0 {
-		var frozen PlanResponse
-		if err := json.Unmarshal(sub.PlanSnapshot, &frozen); err != nil {
-			return store.Plans{}, err
-		}
-		return store.Plans{Code: frozen.Code, Name: frozen.Name, Description: frozen.Description, PriceCents: frozen.PriceCents, Currency: frozen.Currency, QuotaBytes: frozen.QuotaBytes, MailboxLimit: frozen.MailboxLimit, DomainLimit: frozen.DomainLimit, DailySendLimit: frozen.DailySendLimit, Features: frozen.Features, SortOrder: frozen.SortOrder, Active: frozen.Active}, nil
-	}
-	return q.GetPlanByCode(ctx, sub.PlanID)
-}

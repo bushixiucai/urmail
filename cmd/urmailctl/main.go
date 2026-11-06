@@ -34,7 +34,6 @@ Usage:
   urmailctl cert issue <domain>     obtain an ACME certificate via certbot
   urmailctl cert renew              renew ACME certificates and install them
   urmailctl usage sync             collect canonical Dovecot storage usage
-  urmailctl billing repair-legacy-period --tenant-id T --subscription-id S --paid-order-id O --expected-start RFC3339 --expected-end RFC3339 --nominal-basis-cents N --reason TEXT [--apply]
   urmailctl import-miadb --dry-run --config FILE --sqlite FILE [--mapping FILE]
   urmailctl import-legacy-core --apply --config FILE --sqlite FILE --mapping FILE --expected-snapshot SHA --tenant-id N --actor-id N --tenant-ref REF --reason TEXT
   urmailctl import-legacy-dkim --apply --config FILE --sqlite FILE --mapping FILE --clone-root DIR --expected-snapshot SHA --expected-private SHA --expected-keytable SHA --expected-signing SHA --tenant-id N --actor-id N --tenant-ref REF --reason TEXT
@@ -42,7 +41,6 @@ Usage:
   urmailctl data-check             report tenant reference/allocation problems
   urmailctl telemetry acknowledge-gap --stream NAME --generation N --reason TEXT
   urmailctl secrets migrate-totp [--apply] [--batch-size N]
-  urmailctl secrets compact-rejected-webhooks [--apply]
   urmailctl domain challenge --tenant-id T --domain-id D
   urmailctl domain verify --tenant-id T --domain-id D
   urmailctl backup-auto            run the configured root-only scheduled backup
@@ -110,8 +108,6 @@ func run(args []string) error {
 		return runSecrets(ctx, args[1:])
 	case "domain":
 		return runDomainRecovery(ctx, args[1:])
-	case "billing":
-		return runBillingRepair(ctx, args[1:])
 	case "import-miadb":
 		return runImportMIADB(ctx, args[1:])
 	case "import-legacy-core":

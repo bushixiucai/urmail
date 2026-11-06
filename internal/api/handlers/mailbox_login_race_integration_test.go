@@ -35,7 +35,7 @@ func (s *pausedNativeSessionStore) Create(ctx context.Context, token, address, e
 }
 
 func TestNativeLoginCannotIssueTokenAfterPasswordProofBecomesStale(t *testing.T) {
-	scenario := newBillingScenario(t)
+	scenario := newMailboxTenant(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	q := store.New(scenario.p)

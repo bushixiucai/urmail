@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/autoconfig"
-	"github.com/bushixiucai/urmail/internal/billingrenew"
 	"github.com/bushixiucai/urmail/internal/caldav"
 	"github.com/bushixiucai/urmail/internal/carddav"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
@@ -26,8 +23,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/onboarding"
-	"github.com/bushixiucai/urmail/internal/payment"
-	"github.com/bushixiucai/urmail/internal/refund"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -43,7 +38,6 @@ type Options struct {
 	Quarantined      bool
 	MarketingEnabled bool
 	WorkersHeld      bool
-	Recurring        *billingrenew.Dispatcher
 	SieveGateReady   func() bool
 	DNSPlans         *onboarding.Service
 	Logger           *zap.Logger
@@ -99,9 +93,7 @@ type Options struct {
 	// DNSManagedZones allow-lists the zones DNSProvider may write; a domain
 	// outside them verifies manually (M5 review 3.11).
 	DNSManagedZones []string
-	// Payment enables Stripe Checkout and webhook settlement when set.
-	Payment *payment.Stripe
-	// QuoteHMACKey signs client-visible billing quotes; empty disables issuance.
+	// QuoteHMACKey signs support diagnostics.
 	QuoteHMACKey string
 	// BaseURL is the public panel origin used for Stripe redirects.
 	BaseURL string
@@ -110,12 +102,6 @@ type Options struct {
 		VerifyUnsubscribeToken(string) (int64, string, bool)
 	}
 }
-
-var quarantineLegacyQuery = regexp.MustCompile(`^/api/v1/platform/orders/[1-9][0-9]{0,18}/query$`)
-
-var quarantineRefundQuery = regexp.MustCompile(`^/api/v1/platform/refunds/[1-9][0-9]{0,18}/query$`)
-
-var quarantinePaymentQuery = regexp.MustCompile(`^/api/v1/platform/payment-merchants/[1-9][0-9]{0,18}/orders/[1-9][0-9]{0,18}/query$`)
 
 // workloadPoolDefaults keeps existing embedders working while production supplies
 // explicit capacity-isolated pools.
@@ -152,10 +138,6 @@ func New(opts Options) *gin.Engine {
 	}
 	gin.SetMode(gin.ReleaseMode)
 
-	if opts.Recurring == nil && opts.PlatformPool != nil {
-		registry := &payment.Registry{Store: store.New(opts.PlatformPool), Secrets: opts.Secrets, BaseURL: opts.BaseURL}
-		opts.Recurring = &billingrenew.Dispatcher{Pool: opts.PlatformPool, Registry: registry, Secrets: opts.Secrets, Adapters: billingrenew.NewProductionAdapters(registry)}
-	}
 	engine := gin.New()
 	// Dev stacks listen on 127.0.0.1:<dev port>, which can never match the
 	// configured canonical mail host; pinning it there would 403 every
@@ -195,8 +177,7 @@ func New(opts Options) *gin.Engine {
 					authException = true
 				}
 			}
-			reconcilePayment := c.Request.Method == http.MethodPost && (quarantinePaymentQuery.MatchString(c.Request.URL.Path) || quarantineRefundQuery.MatchString(c.Request.URL.Path) || quarantineLegacyQuery.MatchString(c.Request.URL.Path))
-			if readOnly || authException || reconcilePayment {
+			if readOnly || authException {
 				c.Next()
 				return
 			}
@@ -259,8 +240,6 @@ func New(opts Options) *gin.Engine {
 	archiveHandler := handlers.NewArchiveHandler(appQueries)
 	archiveEvidence := handlers.ArchiveEvidence{Q: platformQueries}
 	archiveContent := &handlers.ArchiveContentHandler{Store: appQueries, Root: opts.ArchiveRoot}
-	refundAdmin := &handlers.RefundAdminHandler{Store: platformQueries}
-	invoiceProfile := &handlers.InvoiceProfileHandler{Store: appQueries, Platform: platformQueries}
 	transportHandler := handlers.NewTransportSecurityHandler(opts.PlatformPool, opts.AppPool, opts.MyHostname, opts.Reconcile)
 	engine.GET("/.well-known/mta-sts.txt", transportHandler.Policy)
 	engine.POST("/api/v1/tls-reports/:fqdn", middleware.RateLimitWindow(30, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP() + "/" + c.Param("fqdn"), true }), transportHandler.Intake)
@@ -268,11 +247,6 @@ func New(opts Options) *gin.Engine {
 	recallHandler := &handlers.RecallHandler{AppPool: opts.AppPool, Store: appQueries, Platform: platformQueries, Expunger: opts.Recall}
 	auditHandler := handlers.NewAuditHandler(appQueries)
 	complianceGrantHandler := &handlers.ComplianceGrantHandler{Store: appQueries}
-	billingHandler := handlers.NewBillingHandler(appQueries)
-	billingHandler.Pool = opts.PlatformPool
-	billingHandler.Stripe = opts.Payment
-	billingHandler.BaseURL = opts.BaseURL
-	billingHandler.QuoteHMACKey = []byte(opts.QuoteHMACKey)
 	brandingHandler := handlers.NewBrandingHandler(platformQueries)
 	brandingHandler.PrimaryHost = opts.MyHostname
 	brandingHandler.Reconcile = opts.Reconcile
@@ -294,8 +268,6 @@ func New(opts Options) *gin.Engine {
 		bridgeKey = nil
 	}
 	sieveBridge := &handlers.SieveBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, Activator: opts.SieveActivator}
-	paymentGateway := &handlers.PaymentGatewayHandler{Quarantined: opts.Quarantined, LegacyStripe: opts.Payment, Registry: &payment.Registry{Store: platformQueries, Secrets: opts.Secrets, BaseURL: opts.BaseURL}, Platform: platformQueries, Pool: opts.PlatformPool, Secrets: opts.Secrets}
-	billingHandler.Gateway = paymentGateway
 	mailboxAI := &handlers.MailboxAIService{Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
 	aiConfiguration := &handlers.AIConfigurationHandler{HealthRepository: handlers.NewAIHealthRepository(opts.AIPlatformPool), Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
 	mailboxBridge := &handlers.MailboxBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, AI: mailboxAI, Sieve: opts.SieveActivator}
@@ -527,18 +499,9 @@ func New(opts Options) *gin.Engine {
 		v1.GET("/mailbox/sieve/session", sieveBridge.Session)
 		v1.PUT("/mailbox/sieve/rules", sieveBridge.Save)
 		v1.POST("/mailbox/sieve/logout", sieveBridge.Logout)
-		v1.GET("/public/plans", (&handlers.PublicPricingHandler{Store: appQueries}).Plans)
 		v1.GET("/branding", brandingHandler.Public)
 		v1.GET("/i18n/:locale", i18nCatalog(opts))
 
-		v1.POST("/billing/webhook/stripe", billingHandler.StripeWebhook)
-		v1.POST("/payments/:merchant_id/webhook", middleware.RateLimitWindow(60, time.Minute, func(c *gin.Context) (string, bool) {
-			id, err := strconv.ParseInt(c.Param("merchant_id"), 10, 64)
-			if err != nil || id <= 0 {
-				return c.ClientIP() + "|invalid", true
-			}
-			return c.ClientIP() + "|" + strconv.FormatInt(id, 10), true
-		}), paymentGateway.Webhook)
 		v1.POST("/marketing/unsubscribe", marketingSuppressionHandler.OneClick)
 		v1.GET("/marketing/unsubscribe", marketingSuppressionHandler.Confirmation)
 		v1.POST("/marketing/channels/:channel_id/feedback", marketingHandler.Feedback)
@@ -589,24 +552,16 @@ func New(opts Options) *gin.Engine {
 			platform.Use(middleware.RequireAuth(authQueries))
 			platform.Use(middleware.RequirePlatformAdmin(authQueries))
 			platform.Use(middleware.RequireCSRF())
-			handlers.RegisterRecurringAdminRoutes(platform, opts.Recurring)
 			{
 				platform.GET("/overview", platformHandler.Overview)
 				platform.GET("/settings", platformHandler.Settings)
 				platform.PATCH("/settings", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpdateSettings)
 				platform.GET("/tenants", platformHandler.ListTenants)
 				platform.POST("/tenants", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.CreateTenant)
-				platform.GET("/tenants/:id/billing-calendar", (&handlers.BillingCalendarAdminHandler{Store: platformQueries}).Get)
-				platform.PUT("/tenants/:id/billing-calendar", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), (&handlers.BillingCalendarAdminHandler{Store: platformQueries}).Put)
-				platform.POST("/plans", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpsertPlan)
-				platform.POST("/plan-prices", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.SetPlanPrice)
-				platform.POST("/coupons", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpsertCoupon)
-				platform.POST("/coupons/:code/redeem", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.RedeemCoupon)
 				platform.GET("/brands/:id/settings", platformHandler.BrandSettings)
 				platform.PATCH("/brands/:id/settings", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpdateBrandSettings)
 				platform.GET("/brands", brandingHandler.List)
 				platform.POST("/brands", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.Save)
-				platform.GET("/plans", platformHandler.Plans)
 				platform.GET("/brand-hosts", brandingHandler.Hosts)
 				platform.GET("/brand-hosts/:hostname/lifecycle", (&handlers.BrandHostLifecycleHandler{Pool: opts.PlatformPool, Agent: opts.DNSAuthorityAgent}).Status)
 				platform.POST("/brand-hosts/:hostname/lifecycle", (&handlers.BrandHostLifecycleHandler{Pool: opts.PlatformPool, Agent: opts.DNSAuthorityAgent, Reconcile: opts.Reconcile, LookupTXT: opts.BrandHostTXTLookup}).Action)
@@ -615,10 +570,6 @@ func New(opts Options) *gin.Engine {
 				platform.PATCH("/brands/:id/status", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.SetStatus)
 				platform.DELETE("/brands/:id", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.Delete)
 				platform.POST("/brands/:id/reset-theme", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.ResetTheme)
-				platform.DELETE("/plans/:code", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), brandingHandler.DeletePlan)
-				platform.GET("/coupon-reissues", (&handlers.CouponReissueHandler{Store: platformQueries}).List)
-				platform.POST("/tenants/:id/coupon-reissues", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), (&handlers.CouponReissueHandler{Store: platformQueries}).Issue)
-				platform.GET("/coupons", platformHandler.Coupons)
 				platform.GET("/channels", platformHandler.Channels)
 				platform.GET("/audit", platformHandler.AuditLogs)
 				platform.GET("/support/tenants/:id/attachments/:attachment_id", supportHandler.PlatformAttachment)
@@ -631,17 +582,6 @@ func New(opts Options) *gin.Engine {
 				platform.PATCH("/support/announcements/:announcement_id", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), supportHandler.SaveAnnouncement)
 
 				platform.GET("/alerts", platformNotifications.Alerts)
-				platform.POST("/orders/:id/query", paymentGateway.QueryLegacy)
-				platform.GET("/financial-reconciliation", (&handlers.FinancialReconciliation{Pool: opts.PlatformPool, Platform: true}).Report)
-				platform.GET("/financial-reconciliation/export", (&handlers.FinancialReconciliation{Pool: opts.PlatformPool, Platform: true}).Report)
-				platform.POST("/payment-reviews/:id/preview", (&handlers.PaymentReviewHandler{Pool: opts.PlatformPool}).Preview)
-				platform.GET("/payment-reviews", (&handlers.PaymentReviewHandler{Pool: opts.PlatformPool}).List)
-				platform.POST("/payment-reviews/:id/resolve", (&handlers.PaymentReviewHandler{Pool: opts.PlatformPool}).Resolve)
-				platform.GET("/billing-document-profile", invoiceProfile.GetSeller)
-				platform.PUT("/billing-document-profile", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), invoiceProfile.PutSeller)
-				platform.POST("/refunds/:id/query", (&handlers.RefundQueryHandler{Service: &refund.Service{Pool: opts.PlatformPool, Registry: paymentGateway.Registry, LegacyStripe: opts.Payment}}).Query)
-				platform.GET("/refunds", refundAdmin.List)
-				platform.POST("/refunds/:id/approve", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), refundAdmin.Approve)
 				platform.GET("/tenants/:id/ai/configuration", aiConfiguration.PlatformGet)
 				platform.POST("/tenants/:id/ai/configuration", aiConfiguration.PlatformPut)
 				platform.GET("/tenants/:id/ai/usage", aiConfiguration.PlatformUsage)
@@ -659,25 +599,16 @@ func New(opts Options) *gin.Engine {
 				platform.PUT("/backup/offsite", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), offsiteBackup.Put)
 				platform.POST("/backup/offsite/test-connection", offsiteBackup.TestConnection)
 				platform.POST("/channels", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpsertChannel)
-				platform.POST("/payment-merchants/:merchant_id/orders/:order_id/query", paymentGateway.Query)
-				platform.GET("/payment-merchants", paymentGateway.ListMerchants)
-				platform.POST("/payment-merchants", paymentGateway.VerifyConfiguration, middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), paymentGateway.SaveMerchant)
-				platform.PATCH("/payment-merchants/:merchant_id", paymentGateway.VerifyConfiguration, middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), paymentGateway.SaveMerchant)
 				platform.POST("/tenants/:id/suspend", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.SuspendTenant)
 				platform.POST("/tenants/:id/activate", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.ActivateTenant)
 				platform.POST("/tenants/:id/close", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.CloseTenant)
 				platform.PATCH("/tenants/:id", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpdateTenant)
 				platform.POST("/tenants/:id/owner", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.TransferOwner)
-				platform.POST("/tenants/:id/subscription", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.AssignSubscription)
 				platform.POST("/tenants/:id/marketing/channel", middleware.RequirePlatformTx(opts.MarketingPlatformPool, opts.Logger), marketingHandler.ConfigureChannel)
 				platform.PATCH("/tenants/:id/marketing/channels/:channel_id", middleware.RequirePlatformTx(opts.MarketingPlatformPool, opts.Logger), marketingHandler.ConfigureChannel)
 				platform.POST("/tenants/:id/marketing/recipients/:recipient_id/resolve", middleware.RequirePlatformTx(opts.MarketingPlatformPool, opts.Logger), marketingHandler.ResolveAttempt)
 				platform.GET("/mail/queue", deliveryHandler.PlatformQueue)
 				platform.GET("/mail/collectors", deliveryHandler.CollectorHealth)
-				platform.POST("/tenants/:id/invoices", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.CreateInvoice)
-				platform.POST("/invoices/:id/paid", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.MarkInvoicePaid)
-				platform.POST("/orders/:id/paid", platformHandler.MarkOrderPaid)
-				platform.POST("/invoices/:id/void", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.VoidInvoice)
 			}
 		}
 
@@ -735,9 +666,6 @@ func New(opts Options) *gin.Engine {
 		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
 		handlers.RegisterArchiveCaseRoutes(protected, opts.AppPool, opts.PlatformPool, opts.ArchiveRoot)
-		renewalEnrollment := billingrenew.EnrollmentService{Dispatcher: opts.Recurring, QuoteKey: []byte(opts.QuoteHMACKey)}
-		handlers.RegisterRenewalRoutes(protected, renewalEnrollment)
-		handlers.RegisterHostedRenewalRoutes(protected, renewalEnrollment)
 		handlers.RegisterMarketingFlowRoutes(marketingProtected, marketingAppQueries, opts.MarketingEnabled && !opts.DevMode && !opts.Quarantined)
 		handlers.RegisterMarketingReportRoutes(marketingProtected, marketingAppQueries)
 		{
@@ -806,35 +734,6 @@ func New(opts Options) *gin.Engine {
 			marketingProtected.GET("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.List)
 			marketingProtected.POST("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Add)
 			marketingProtected.DELETE("/marketing/suppressions", middleware.RequireRole("owner", "admin"), marketingSuppressionHandler.Remove)
-
-			// Billing and distribution (tenant-scoped reads)
-			protected.GET("/billing/document-profile", middleware.RequireRole("owner", "admin", "billing"), invoiceProfile.GetBuyer)
-			protected.PUT("/billing/document-profile", middleware.RequireRole("owner", "admin", "billing"), invoiceProfile.PutBuyer)
-			protected.GET("/billing/plans", billingHandler.Plans)
-			protected.GET("/billing/payment-methods", paymentGateway.Methods)
-
-			// Quote and checkout are rate limited per tenant: without a budget a
-			// tenant could flood pending orders and, with a reserved coupon,
-			// burn global quota (M5 review 3.27).
-			protected.POST("/billing/quote", middleware.RequireRole("owner", "admin", "billing"),
-				middleware.RateLimitWindow(30, time.Minute, middleware.TenantRateKey), billingHandler.Quote)
-			protected.POST("/billing/checkout", middleware.RequireRole("owner", "admin", "billing"),
-				middleware.RateLimitWindow(20, time.Minute, middleware.TenantRateKey), billingHandler.Checkout)
-			protected.POST("/billing/orders/:id/cancel", middleware.RequireRole("owner", "admin", "billing"), billingHandler.CancelOrder)
-			protected.POST("/billing/refunds", middleware.RequireRole("owner", "admin", "billing"), billingHandler.CreateRefundRequest)
-			protected.GET("/billing/refunds", middleware.RequireRole("owner", "admin", "billing"), billingHandler.ListRefundRequests)
-			protected.GET("/billing/reconciliation", middleware.RequireRole("owner", "admin", "billing"), (&handlers.FinancialReconciliation{Pool: opts.AppPool}).Report)
-			protected.GET("/billing/reconciliation/export", middleware.RequireRole("owner", "admin", "billing"), (&handlers.FinancialReconciliation{Pool: opts.AppPool}).Report)
-			protected.GET("/billing/orders", middleware.RequireRole("owner", "admin", "billing"), billingHandler.Orders)
-			protected.GET("/billing/invoices/:id/pdf", middleware.RequireRole("owner", "admin", "billing"), billingHandler.InvoicePDF)
-			protected.GET("/billing/subscription", billingHandler.Subscription)
-			protected.POST("/billing/subscription/change", middleware.RequireRole("owner", "admin", "billing"), billingHandler.ScheduleChange)
-			protected.POST("/billing/subscription/change/cancel", middleware.RequireRole("owner", "admin", "billing"), billingHandler.CancelScheduledChange)
-			protected.POST("/billing/subscription/cancel", middleware.RequireRole("owner", "admin", "billing"), billingHandler.CancelSubscription)
-			protected.GET("/billing/invoices", middleware.RequireRole("owner", "admin", "billing"), billingHandler.Invoices)
-			protected.GET("/billing/distribution", middleware.RequireRole("owner", "admin", "billing"), billingHandler.Distribution)
-			protected.POST("/billing/coupons/validate", middleware.RequireRole("owner", "admin", "billing"), billingHandler.ValidateCoupon)
-			protected.POST("/billing/trial", middleware.RequireRole("owner", "admin", "billing"), middleware.RateLimitWindow(10, time.Minute, middleware.TenantRateKey), billingHandler.RedeemTrial)
 
 			// Archive / legal hold
 			protected.GET("/archive", archiveHandler.List)

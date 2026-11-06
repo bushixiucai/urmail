@@ -28,8 +28,6 @@ type MailboxStore interface {
 	UpdateMailboxSettings(ctx context.Context, arg store.UpdateMailboxSettingsParams) (store.UpdateMailboxSettingsRow, error)
 	DeleteMailbox(ctx context.Context, arg store.DeleteMailboxParams) error
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
-	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
-	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
 }
 

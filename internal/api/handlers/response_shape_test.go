@@ -607,8 +607,8 @@ func TestTenantCurrentResponseShape(t *testing.T) {
 	}
 	subscription := shapeObject(t, body, "subscription")
 	assertKeys(t, subscription, "plan_code", "plan_name", "status")
-	planName := shapeObject(t, subscription, "plan_name")
-	if planName["zh-CN"] != "专业版" || subscription["plan_code"] != "pro" {
+	if subscription["plan_code"] != "" || subscription["status"] != "" {
+		t.Fatalf("subscription must not come from plans: %v", subscription)
 		t.Fatalf("unexpected subscription payload: %v", subscription)
 	}
 }

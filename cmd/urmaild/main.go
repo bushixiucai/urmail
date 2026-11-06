@@ -22,7 +22,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	archiveStore "github.com/bushixiucai/urmail/internal/archive"
-	"github.com/bushixiucai/urmail/internal/billingrenew"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
@@ -39,9 +38,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/mailspam"
 	"github.com/bushixiucai/urmail/internal/marketing"
 	"github.com/bushixiucai/urmail/internal/notify"
-	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	refundService "github.com/bushixiucai/urmail/internal/refund"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -169,10 +166,6 @@ func run() error {
 			dnsProvider = dnsprovider.NewAliyun(cfg.AliyunAccessKeyID, cfg.AliyunAccessKeySecret)
 		}
 	}
-	var stripe *payment.Stripe
-	if cfg.StripeSecretKey != "" {
-		stripe = payment.NewStripe(cfg.StripeSecretKey, cfg.StripeWebhookSecret)
-	}
 	baseURL := "https://" + cfg.MyHostname
 	if cfg.MyHostname == "" {
 		baseURL = "https://box." + cfg.PrimaryDomain
@@ -184,14 +177,9 @@ func run() error {
 	// sessions (0008), so the platform pool performs the delete.
 	go purgeExpiredSessions(ctx, backgroundPool, logger)
 	go handlers.RunMFAReaper(ctx)
-	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { payment.RunWebhookMaintenance(ctx, backgroundPool, logger) })
 	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notify.Run(ctx, backgroundPool, logger) })
 	notificationWorker := &notify.Worker{Pool: backgroundPool, Secrets: secretBox, Messages: messages, FallbackLocale: cfg.Locale, BaseURL: baseURL, Enabled: cfg.NotificationsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
 	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { notificationWorker.Run(ctx, logger) })
-	renewalRegistry := &payment.Registry{Store: store.New(backgroundPool), Secrets: secretBox, BaseURL: baseURL}
-	renewalDispatcher := &billingrenew.Dispatcher{Pool: backgroundPool, Registry: renewalRegistry, Secrets: secretBox, Adapters: billingrenew.NewProductionAdapters(renewalRegistry)}
-	renewals := billingrenew.Worker{Store: store.New(backgroundPool), Chargers: renewalDispatcher, Coordinator: billingrenew.PoolCoordinator{Pool: backgroundPool}, Settlements: billingrenew.PoolSettlementStore{Pool: backgroundPool}}
-	startRenewalWorker(ctx, cfg, renewals.RunOnce, logger)
 	reminderWorker := appcollab.ReminderWorker{Pool: backgroundPool, Logger: logger}
 	startPeriodicWorker(ctx, cfg, time.Minute, "calendar reminder pass failed", reminderWorker.RunOnce, logger)
 
@@ -302,9 +290,6 @@ func run() error {
 	dnsPlans := startDomainOnboarding(ctx, cfg, platformPool, secretBox, reconcilePipeline, logger)
 	startMailTelemetry(ctx, cfg, backgroundPool, logger)
 	startMailObservability(ctx, cfg, backgroundPool, logger)
-	startPaymentRecovery(ctx, cfg, backgroundPool, secretBox, baseURL, stripe, logger)
-	refunds := &refundService.Service{Pool: backgroundPool, Registry: &payment.Registry{Store: store.New(backgroundPool), Secrets: secretBox, BaseURL: baseURL}, LegacyStripe: stripe, Enabled: cfg.RefundsEnabled, DevMode: cfg.DevMode, Quarantined: cfg.Quarantined}
-	startBackgroundWorker(ctx, cfg, func(ctx context.Context) { refunds.Run(ctx, logger) })
 	tokenVerifier := marketingTokenManager(cfg)
 	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
 	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: marketingPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
@@ -372,7 +357,6 @@ func run() error {
 		Quarantined:           cfg.Quarantined,
 		WorkersHeld:           cfg.WorkersHeld,
 		SieveGateReady:        sieveGateReady,
-		Recurring:             renewalDispatcher,
 		DNSAuthorityAgent:     agent.NewClient(cfg.AgentSocket),
 		Recall:                recallClient,
 		Queue:                 queueReader,
@@ -394,7 +378,6 @@ func run() error {
 		DNSProvider:           dnsProvider,
 		DNSManagedZones:       cfg.DNSManagedZones,
 		DNSPlans:              dnsPlans,
-		Payment:               stripe,
 		QuoteHMACKey:          cfg.QuoteHMACKey,
 		BaseURL:               baseURL,
 		MarketingTokens:       tokenVerifier,

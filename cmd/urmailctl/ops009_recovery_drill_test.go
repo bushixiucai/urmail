@@ -717,8 +717,6 @@ func TestOPS009RecoveryDrill(t *testing.T) {
 		t.Fatalf("source schema is dirty at version %d", sourceVersion)
 	}
 	ops009Seed(t, source, ops009EvidenceDigest)
-	ops009SeedCalendarRecurring(t, source)
-	ops009SeedRecurringSetups(t, source)
 	ops009SeedRecallTransport(t, source)
 	ops009SeedMailImports(t, source)
 	ops009SeedAIQuota(t, source)
@@ -774,8 +772,6 @@ func TestOPS009RecoveryDrill(t *testing.T) {
 	if !ops009Release(t, target) {
 		t.Fatal("explicit release refused")
 	}
-	ops009AssertCalendarRecurring(t, target)
-	ops009AssertRecurringSetups(t, target)
 	ops009AssertRecallTransport(t, target)
 	ops009AssertMailImports(t, target)
 	if _, err := targetConn.Exec(ctx, "INSERT INTO brands(slug,name) VALUES('ops009-post-release','After release')"); err != nil {

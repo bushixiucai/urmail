@@ -27,7 +27,7 @@ func TestPlatformTransactionAuditsCommitRollbackAndCallback(t *testing.T) {
 	r.POST("/api/v1/platform/tenants/:id/mutation", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
 		q := raw.(*store.Queries)
-		if _, err := q.PlatformSetPlanPrice(c, store.PlatformSetPlanPriceParams{PlanCode: "free", Currency: "CNY", BillingCycle: "monthly", AmountCents: 99}); err != nil {
+		if _, err := q.PlatformUpdateTenantStatus(c, store.PlatformUpdateTenantStatusParams{ID: tid, Status: "suspended"}); err != nil {
 			t.Fatal(err)
 		}
 		c.Status(201)
@@ -52,15 +52,15 @@ func TestPlatformTransactionAuditsCommitRollbackAndCallback(t *testing.T) {
 	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND detail->>'status'='201' AND detail->>'phase'='transaction'", tid).Scan(&success); err != nil || success != 1 {
 		t.Fatalf("success audit missing/duplicated: %d %v", success, err)
 	}
-	if _, err := p.Exec(ctx, "UPDATE plan_prices SET amount_cents=77 WHERE plan_code='free' AND currency='CNY' AND billing_cycle='monthly'"); err != nil {
+	if _, err := p.Exec(ctx, "UPDATE tenants SET status='active' WHERE id=$1", tid); err != nil {
 		t.Fatal(err)
 	}
 	if got := request("?case=aborted"); got.Code != 500 {
 		t.Fatalf("aborted commit %d %s", got.Code, got.Body)
 	}
-	var price int64
-	if err := p.QueryRow(ctx, "SELECT amount_cents FROM plan_prices WHERE plan_code='free' AND currency='CNY' AND billing_cycle='monthly'").Scan(&price); err != nil || price != 77 {
-		t.Fatalf("failed transaction retained mutation: %d %v", price, err)
+	var status string
+	if err := p.QueryRow(ctx, "SELECT status FROM tenants WHERE id=$1", tid).Scan(&status); err != nil || status != "active" {
+		t.Fatalf("failed transaction retained mutation: %s %v", status, err)
 	}
 	var failed int
 	if err := p.QueryRow(ctx, "SELECT count(*) FROM audit_logs WHERE tenant_id=$1 AND detail->>'status'='500'", tid).Scan(&failed); err != nil || failed != 1 {

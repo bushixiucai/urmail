@@ -20,8 +20,6 @@ type TenantStore interface {
 	ListSettingsByScopes(ctx context.Context, arg store.ListSettingsByScopesParams) ([]store.Settings, error)
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
-	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
-	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 }
 
 // TenantPlatformStore reads platform-scoped rows needed by the tenant view.
@@ -142,15 +140,9 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		}
 	}
 
-	// 2. Fetch resource usage and subscription
+	// 2. Fetch resource usage. Limits come only from settings, never plans.
 	domainCount, _ := q.CountDomainsByTenant(c, tenantID)
 	mailboxCount, _ := q.CountMailboxesByTenant(c, tenantID)
-	sub, subErr := q.GetActiveSubscriptionByTenant(c, tenantID)
-
-	var plan store.Plans
-	if subErr == nil {
-		plan, _ = subscriptionPlan(c, q, sub)
-	}
 
 	domainLimit := int32(-1)
 	mailboxLimit := int32(-1)
@@ -210,9 +202,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		Theme:    theme,
 		Usage:    usage,
 		Subscription: TenantSubscriptionResponse{
-			PlanCode: plan.Code,
-			PlanName: json.RawMessage(plan.Name),
-			Status:   sub.Status,
+			PlanName: json.RawMessage(`{}`),
 		},
 	})
 }

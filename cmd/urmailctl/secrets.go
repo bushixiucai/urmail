@@ -15,7 +15,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/payment"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -23,9 +22,6 @@ import (
 // runSecrets migrates at most one bounded batch. The default reports counts
 // only; neither mode prints secrets or silently creates a replacement key.
 func runSecrets(ctx context.Context, args []string) error {
-	if len(args) > 0 && args[0] == "compact-rejected-webhooks" {
-		return runRejectedWebhookMaintenance(ctx, args[1:])
-	}
 	if len(args) == 0 || args[0] != "migrate-totp" {
 		return errors.New("secrets requires migrate-totp [--apply] [--batch-size N]")
 	}
@@ -73,31 +69,6 @@ func runSecrets(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("encrypted_totp_seeds=%d remaining_legacy_totp_seeds=%d applied=true\n", changed, remaining)
 	return nil
-}
-
-func runRejectedWebhookMaintenance(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("secrets compact-rejected-webhooks", flag.ContinueOnError)
-	apply := fs.Bool("apply", false, "compact one bounded batch of unverified historical webhook bodies")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 || os.Geteuid() != 0 {
-		return errors.New("webhook diagnostics maintenance requires root and no positional arguments")
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-	counts, err := payment.MaintainWebhookDiagnostics(ctx, pool, *apply)
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(os.Stdout).Encode(counts)
 }
 
 func encryptLegacyTOTPBatch(ctx context.Context, pool *db.Pool, box *secrets.Box, batch int32) (int, error) {
