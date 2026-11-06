@@ -8,21 +8,28 @@
   --vellum-border: #ebe8e0;
   --vellum-border-subtle: #f3f1ec;
   --vellum-ink: #18181b;
-  --vellum-ink-secondary: #52525b; /* 4.6:1+ contrast on vellum */
-  --vellum-ink-tertiary: #52525b; /* WCAG AA 4.5:1+ compliance for metadata */
+  --vellum-ink-secondary: #52525b;
+  --vellum-ink-tertiary: #52525b;
+  --vellum-ink-read: #3f3f46;
   --vellum-row-hover: #f8f7f2;
+  --vellum-row-selected: #f3f1ec;
   --vellum-row-active: #eff6ff;
+  --vellum-star: #b45309;
 
   --vellum-radius-sm: 4px;
   --vellum-radius-md: 6px;
   --vellum-radius-lg: 8px;
 
+  --elev-menu: 0 8px 24px rgba(24, 24, 27, 0.12);
+  --elev-toast: 0 8px 20px rgba(24, 24, 27, 0.18);
+  --elev-dock: 0 12px 40px rgba(24, 24, 27, 0.16);
+
   /* 状态颜色 */
-  --vellum-color-success: #16a34a;
+  --vellum-color-success: #166534;
   --vellum-color-warning: #d97706;
   --vellum-color-danger: #dc2626;
   --vellum-color-info: #0284c7;
-  --vellum-color-starred: #f59e0b;
+  --vellum-color-starred: var(--vellum-star);
 }
 
 .webmail-vellum-root {
@@ -36,6 +43,10 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.webmail-vellum-root svg.lucide {
+  stroke-width: 1.75;
 }
 
 /* 列表紧凑、舒适与超紧凑清单模式行高 */
@@ -52,4 +63,62 @@
 .density-list_only .mail-row-item {
   height: 32px;
   padding: 4px 8px;
+}
+
+.mail-row-item {
+  overflow: hidden;
+  background-color: #ffffff;
+  transition: background-color 120ms ease-out;
+}
+
+.mail-row-item:hover {
+  background-color: var(--vellum-row-hover);
+}
+
+.mail-row-item[data-selected="true"],
+.mail-row-item[data-selected="true"]:hover {
+  background-color: var(--vellum-row-selected);
+}
+
+.mail-row-item[data-active="true"],
+.mail-row-item[data-active="true"]:hover {
+  background-color: var(--vellum-row-active);
+}
+
+.mail-row-item:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.webmail-settings-panel {
+  box-shadow: var(--elev-dock);
+  animation: webmail-drawer-in 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes webmail-drawer-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .webmail-vellum-root *,
+  .webmail-vellum-root *::before,
+  .webmail-vellum-root *::after {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+
+  .webmail-settings-panel {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
 }

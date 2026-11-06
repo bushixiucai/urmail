@@ -185,7 +185,7 @@ export function AccountSecuritySection() {
               <button
                 type="button"
                 onClick={() => setShowOldPassword((prev) => !prev)}
-                className="absolute right-2.5 top-2.5 text-[#71717A] hover:text-[#18181B]"
+                className="absolute right-2.5 top-2.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                 title="Toggle visibility"
               >
                 {showOldPassword ? (
@@ -214,7 +214,7 @@ export function AccountSecuritySection() {
               <button
                 type="button"
                 onClick={() => setShowNewPassword((prev) => !prev)}
-                className="absolute right-2.5 top-2.5 text-[#71717A] hover:text-[#18181B]"
+                className="absolute right-2.5 top-2.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                 title="Toggle visibility"
               >
                 {showNewPassword ? (
@@ -228,7 +228,7 @@ export function AccountSecuritySection() {
             {/* Password strength bar */}
             {newPassword && (
               <div className="mt-2 space-y-1">
-                <div className="flex justify-between items-center text-[10px] text-[#71717A]">
+                <div className="flex justify-between items-center text-xs text-[var(--vellum-ink-secondary)]">
                   <span>
                     {t("settings.security.strength", "Password strength")}:
                   </span>
@@ -251,7 +251,7 @@ export function AccountSecuritySection() {
                     }`}
                   />
                 </div>
-                <p className="text-[10px] text-[#71717A]">
+                <p className="text-xs text-[var(--vellum-ink-secondary)]">
                   {t(
                     "settings.security.requirements_hint",
                     "Requires at least 8 characters with uppercase, lowercase, and numbers.",

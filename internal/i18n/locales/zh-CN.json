@@ -2943,5 +2943,10 @@
   "webmail_next.error_boundary.reload": "刷新页面",
   "webmail.header.search_placeholder": "搜索邮件…（按 / 聚焦）",
   "compose.subject_placeholder": "主题",
-  "compose.recipient_placeholder": "添加收件人…"
+  "compose.recipient_placeholder": "添加收件人…",
+  "webmail_next.empty_reading_title": "选择一封邮件",
+  "webmail_next.empty_reading_body": "在左侧列表中打开",
+  "webmail_next.forward": "转发",
+  "webmail_next.reply": "回复",
+  "webmail_next.reply_all": "全部回复"
 }

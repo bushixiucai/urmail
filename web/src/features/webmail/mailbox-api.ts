@@ -28,6 +28,8 @@ export interface MessageSummary {
   uid_validity?: number;
   has_attachments?: boolean;
   subject: string;
+  /** One-line list preview when the server sends one. Not a copy of subject. */
+  preview?: string;
   from: MailboxAddress[];
   date: string;
   flags: string[];

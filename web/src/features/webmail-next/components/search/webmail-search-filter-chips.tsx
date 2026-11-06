@@ -86,7 +86,7 @@ export function WebmailSearchFilterChips({
       data-testid="search-filter-chips-bar"
       className="px-4 py-2 bg-[#F6F4EE]/80 border-b border-[#EBE8E0] flex flex-wrap items-center gap-1.5 text-xs z-10 shrink-0 select-none"
     >
-      <span className="text-[11px] text-[#71717A] font-semibold mr-1">
+      <span className="text-xs text-[var(--vellum-ink-secondary)] font-semibold mr-1">
         {t("search.active_filters", "Filters:")}
       </span>
 
@@ -114,7 +114,7 @@ export function WebmailSearchFilterChips({
         data-testid="btn-clear-all-chips"
         type="button"
         onClick={onClearAll}
-        className="text-[11px] text-[#71717A] hover:text-[#DC2626] underline ml-2 cursor-pointer"
+        className="text-xs text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] underline ml-2 cursor-pointer"
       >
         {t("search.clear_all", "Clear all")}
       </button>

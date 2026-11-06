@@ -195,7 +195,7 @@ export function IdentitiesSignaturesSection() {
       </div>
 
       {loading ? (
-        <div className="p-6 text-center text-xs text-[#71717A]">
+        <div className="p-6 text-center text-xs text-[var(--vellum-ink-secondary)]">
           {t("common.loading", "Loading identities...")}
         </div>
       ) : (
@@ -222,7 +222,7 @@ export function IdentitiesSignaturesSection() {
           {/* Identity Address Dropdown */}
           <div>
             <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5 text-[#71717A]" />
+              <Users className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t("settings.identities.select_identity", "Sending Identity")}
               </span>
@@ -265,14 +265,14 @@ export function IdentitiesSignaturesSection() {
               </label>
 
               {/* Editor Tabs: Visual / HTML Source */}
-              <div className="flex items-center gap-1 text-[11px] bg-[#EBE8E0] p-0.5 rounded">
+              <div className="flex items-center gap-1 text-xs bg-[#EBE8E0] p-0.5 rounded">
                 <button
                   type="button"
                   onClick={() => setEditorMode("visual")}
                   className={`px-2 py-0.5 rounded transition-colors ${
                     editorMode === "visual"
                       ? "bg-[#FFFFFF] text-[#18181B] font-semibold shadow-xs"
-                      : "text-[#71717A] hover:text-[#18181B]"
+                      : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                   }`}
                 >
                   <Type className="w-3 h-3 inline mr-1" />
@@ -284,7 +284,7 @@ export function IdentitiesSignaturesSection() {
                   className={`px-2 py-0.5 rounded transition-colors ${
                     editorMode === "html"
                       ? "bg-[#FFFFFF] text-[#18181B] font-semibold shadow-xs"
-                      : "text-[#71717A] hover:text-[#18181B]"
+                      : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                   }`}
                 >
                   <Code className="w-3 h-3 inline mr-1" />
@@ -298,7 +298,7 @@ export function IdentitiesSignaturesSection() {
               <button
                 type="button"
                 onClick={() => handleFormatText("<b>", "</b>")}
-                className="p-1 hover:bg-[#EBE8E0] rounded text-[#71717A] hover:text-[#18181B]"
+                className="p-1 hover:bg-[#EBE8E0] rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                 title="Bold"
               >
                 <Bold className="w-3.5 h-3.5" />
@@ -306,7 +306,7 @@ export function IdentitiesSignaturesSection() {
               <button
                 type="button"
                 onClick={() => handleFormatText("<i>", "</i>")}
-                className="p-1 hover:bg-[#EBE8E0] rounded text-[#71717A] hover:text-[#18181B]"
+                className="p-1 hover:bg-[#EBE8E0] rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                 title="Italic"
               >
                 <Italic className="w-3.5 h-3.5" />
@@ -314,7 +314,7 @@ export function IdentitiesSignaturesSection() {
               <button
                 type="button"
                 onClick={() => handleFormatText('<a href="https://">', "</a>")}
-                className="p-1 hover:bg-[#EBE8E0] rounded text-[#71717A] hover:text-[#18181B]"
+                className="p-1 hover:bg-[#EBE8E0] rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
                 title="Insert Link"
               >
                 <LinkIcon className="w-3.5 h-3.5" />
@@ -352,7 +352,7 @@ export function IdentitiesSignaturesSection() {
           {/* Live Signature Bottom Preview Box */}
           <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-[#3F3F46]">
-              <Eye className="w-3.5 h-3.5 text-[#71717A]" />
+              <Eye className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t(
                   "settings.identities.live_preview",
@@ -361,7 +361,7 @@ export function IdentitiesSignaturesSection() {
               </span>
             </div>
             <div className="p-3 bg-[#FFFFFF] border border-[#EBE8E0] rounded-lg text-xs">
-              <div className="text-[#A1A1AA] select-none text-[11px] mb-2">
+              <div className="text-[var(--vellum-ink-secondary)] select-none text-xs mb-2">
                 ---{" "}
                 {t(
                   "settings.identities.email_content_placeholder",
@@ -369,7 +369,7 @@ export function IdentitiesSignaturesSection() {
                 )}{" "}
                 ---
               </div>
-              <div className="text-[#71717A] text-[11px] mb-1.5 select-none">
+              <div className="text-[var(--vellum-ink-secondary)] text-xs mb-1.5 select-none">
                 --{" "}
               </div>
               {signatureHtml ? (
@@ -383,7 +383,7 @@ export function IdentitiesSignaturesSection() {
                   }}
                 />
               ) : (
-                <div className="text-xs text-[#A1A1AA] italic">
+                <div className="text-xs text-[var(--vellum-ink-secondary)] italic">
                   {t(
                     "settings.identities.no_signature",
                     "No signature configured for this identity.",

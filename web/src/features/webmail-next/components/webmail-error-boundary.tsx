@@ -87,7 +87,7 @@ class ErrorBoundaryClass extends Component<
               {desc}
             </p>
             {this.state.error && (
-              <p className="text-[11px] font-mono text-[#991B1B] bg-[#FEE2E2] px-2 py-1 rounded mt-2 inline-block max-w-full truncate">
+              <p className="text-xs font-mono text-[#991B1B] bg-[#FEE2E2] px-2 py-1 rounded mt-2 inline-block max-w-full truncate">
                 {this.state.error.message}
               </p>
             )}

@@ -140,7 +140,7 @@ export function WebmailNavigationRail({
           data-testid="webmail-compose-button"
           type="button"
           onClick={onCompose}
-          className={`w-full flex items-center justify-center gap-2 bg-[var(--brand-primary,#2563eb)] text-white font-medium rounded-lg shadow-sm hover:brightness-105 active:brightness-95 transition-all ${
+          className={`w-full flex items-center justify-center gap-2 bg-[var(--brand-primary,#2563eb)] text-white font-medium rounded-lg hover:brightness-105 active:brightness-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB] focus-visible:outline-offset-2 ${
             isCollapsed ? "h-10 px-0" : "h-10 px-4"
           }`}
           aria-label={t("webmail_next.compose")}
@@ -176,7 +176,7 @@ export function WebmailNavigationRail({
                     {unread > 0 && (
                       <span
                         data-testid="inbox-unread-badge"
-                        className="px-1.5 py-0.5 rounded-full text-[10px] bg-[#2563eb] text-white font-bold leading-none"
+                        className="px-1.5 py-0.5 rounded-full text-xs bg-[#2563eb] text-white font-bold leading-none"
                       >
                         {unread}
                       </span>
@@ -223,7 +223,7 @@ export function WebmailNavigationRail({
           data-testid="webmail-quota-bar"
           className="p-4 border-t border-[#EBE8E0] bg-[#FFFFFF]/60"
         >
-          <div className="flex justify-between items-center text-[11px] text-[var(--vellum-ink-secondary)] mb-1.5 font-medium">
+          <div className="flex justify-between items-center text-xs text-[var(--vellum-ink-secondary)] mb-1.5 font-medium">
             <span>{t("webmail_next.storage")}</span>
             <span>{quotaPercent}%</span>
           </div>
@@ -239,7 +239,7 @@ export function WebmailNavigationRail({
               style={{ width: `${Math.min(100, Math.max(0, quotaPercent))}%` }}
             />
           </div>
-          <div className="mt-1 text-[10px] text-[var(--vellum-ink-secondary)] truncate">
+          <div className="mt-1 text-xs text-[var(--vellum-ink-secondary)] truncate">
             {quotaText}
           </div>
         </div>

@@ -104,13 +104,13 @@ export function WebmailSettingsDrawer({
   return (
     <div
       data-testid="webmail-settings-drawer"
-      className="fixed inset-0 z-[500] flex justify-end bg-black/40 backdrop-blur-xs select-none transition-all duration-300"
+      className="fixed inset-0 z-[500] flex justify-end bg-black/40 select-none"
     >
       {/* Drawer Panel: Slide in from right (Desktop 760px, Mobile full) */}
-      <div className="w-full sm:max-w-3xl h-full bg-[#FFFFFF] shadow-2xl flex flex-col border-l border-[#EBE8E0] overflow-hidden">
+      <div className="webmail-settings-panel w-full sm:max-w-3xl h-full bg-[#FFFFFF] flex flex-col border-l border-[#EBE8E0] overflow-hidden">
         {/* Header */}
         <div className="h-14 px-6 border-b border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5 font-bold text-base text-[#18181B]">
+          <div className="flex items-center gap-2 font-bold text-base text-[#18181B]">
             <SettingsIcon className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
             <span>{t("settings.drawer_title", "Mailbox Settings")}</span>
           </div>
@@ -118,7 +118,7 @@ export function WebmailSettingsDrawer({
             data-testid="btn-close-settings-drawer"
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded text-[#71717A] hover:bg-[#EBE8E0] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#EBE8E0] hover:text-[#18181B] transition-colors"
             title="Close"
           >
             <X className="w-5 h-5" />
@@ -141,7 +141,7 @@ export function WebmailSettingsDrawer({
                   data-testid={`settings-nav-${item.key}`}
                   type="button"
                   onClick={() => setActiveTab(item.key)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs transition-colors shrink-0 ${
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-colors shrink-0 ${
                     isActive
                       ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold shadow-xs"
                       : "text-[#3F3F46] hover:bg-[#EBE8E0]/60 hover:text-[#18181B]"
@@ -151,7 +151,7 @@ export function WebmailSettingsDrawer({
                     className={`w-4 h-4 shrink-0 ${
                       isActive
                         ? "text-[var(--brand-primary,#2563eb)]"
-                        : "text-[#71717A]"
+                        : "text-[var(--vellum-ink-secondary)]"
                     }`}
                   />
                   <span className="truncate">{item.label}</span>

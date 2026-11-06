@@ -2943,5 +2943,10 @@
   "webmail_next.error_boundary.reload": "Reload Page",
   "webmail.header.search_placeholder": "Search mail... (Press / to focus)",
   "compose.subject_placeholder": "Subject",
-  "compose.recipient_placeholder": "Add recipient..."
+  "compose.recipient_placeholder": "Add recipient...",
+  "webmail_next.empty_reading_title": "Select an email",
+  "webmail_next.empty_reading_body": "Open one from the list",
+  "webmail_next.forward": "Forward",
+  "webmail_next.reply": "Reply",
+  "webmail_next.reply_all": "Reply all"
 }

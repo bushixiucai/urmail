@@ -153,7 +153,7 @@ export function RemoteImagesSection({
           <ShieldCheck className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
           <span>{t("settings.privacy.title", "Privacy & Remote Content")}</span>
         </h3>
-        <p className="text-xs text-[#71717A] mt-1">
+        <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
           {t(
             "settings.privacy.subtitle",
             "Manage loading policies for external images and remote tracking content.",
@@ -193,7 +193,7 @@ export function RemoteImagesSection({
                 "Automatically load remote images for all messages",
               )}
             </span>
-            <p className="text-xs text-[#71717A] leading-relaxed">
+            <p className="text-xs text-[var(--vellum-ink-secondary)] leading-relaxed">
               {t(
                 "settings.privacy.remote_images_desc",
                 "When enabled, remote images in opened emails will be loaded automatically. When disabled, you can manually load images per message.",
