@@ -117,7 +117,9 @@ func (*fakeIMAP) GetAttachment(context.Context, string, uint32, string) (string,
 	return "", "", nil, errors.New("no attachment")
 }
 func (*fakeIMAP) SetFlags(context.Context, string, []uint32, []string, []string) error { return nil }
-func (*fakeIMAP) MoveMessages(context.Context, string, []uint32, string) error         { return nil }
+func (*fakeIMAP) MoveMessages(context.Context, string, []uint32, string) ([]uint32, error) {
+	return nil, nil
+}
 func (f *fakeIMAP) DeleteMessages(context.Context, string, []uint32, bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

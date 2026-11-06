@@ -27,6 +27,7 @@ const (
 //
 //   - empty / whitespace → "ALL" (same as omitting q)
 //   - is:unseen | unseen → UNSEEN
+//   - is:flagged | flagged → FLAGGED
 //   - since:YYYY-MM-DD / before:YYYY-MM-DD → internal-date inclusive/exclusive
 //   - has:attachment → client BODYSTRUCTURE filtering before pagination
 //   - to:<text> / body:<text> → TO/BODY quoted search
@@ -75,6 +76,8 @@ func buildSearchPlan(q string) (string, bool, error) {
 		switch {
 		case lower == "unseen" || lower == "is:unseen":
 			parts = append(parts, "UNSEEN")
+		case lower == "flagged" || lower == "is:flagged":
+			parts = append(parts, "FLAGGED")
 		case lower == "has:attachment":
 			hasAttachment = true
 		case hasSearchField(tok, "since") || hasSearchField(tok, "before"):

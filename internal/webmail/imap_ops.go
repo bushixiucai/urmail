@@ -314,15 +314,47 @@ func (c *imapConn) SetFlags(ctx context.Context, folder string, uids []uint32, a
 	return nil
 }
 
-// MoveMessages uses UID MOVE when available.
-func (c *imapConn) MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) error {
+// MoveMessages uses UID MOVE when available and reports the destination UIDs
+// from the server's UIDPLUS COPYUID acknowledgement, aligned with uids.
+// A server that omits COPYUID returns a nil slice: the move still succeeded,
+// but the caller cannot offer an exact undo without the new UIDs.
+func (c *imapConn) MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) ([]uint32, error) {
 	if len(uids) == 0 || dest == "" {
-		return fmt.Errorf("move requires uids and destination")
+		return nil, fmt.Errorf("move requires uids and destination")
 	}
 	if err := c.selectFolder(ctx, folder); err != nil {
-		return err
+		return nil, err
 	}
-	return c.command(ctx, "UID MOVE", formatUIDSet(uids), quoteIMAP(encodeMailboxWire(dest)))
+	okLine, err := c.commandCaptureOK(ctx, "UID MOVE", formatUIDSet(uids), quoteIMAP(encodeMailboxWire(dest)))
+	if err != nil {
+		return nil, err
+	}
+	index := strings.Index(okLine, "[COPYUID ")
+	if index < 0 {
+		return nil, nil
+	}
+	fields := strings.Fields(strings.SplitN(okLine[index+9:], "]", 2)[0])
+	if len(fields) != 3 {
+		return nil, nil
+	}
+	src, srcErr := expandUIDPlusSet(fields[1])
+	dst, dstErr := expandUIDPlusSet(fields[2])
+	if srcErr != nil || dstErr != nil || len(src) != len(dst) {
+		return nil, fmt.Errorf("invalid UIDPLUS COPYUID acknowledgement")
+	}
+	acknowledged := map[uint32]uint32{}
+	for i, uid := range src {
+		acknowledged[uid] = dst[i]
+	}
+	destinations := make([]uint32, 0, len(uids))
+	for _, uid := range uids {
+		target, ok := acknowledged[uid]
+		if !ok {
+			return nil, fmt.Errorf("COPYUID did not confirm uid %d", uid)
+		}
+		destinations = append(destinations, target)
+	}
+	return destinations, nil
 }
 
 // DeleteMessages marks the given UIDs \Deleted and, when expunge is set,

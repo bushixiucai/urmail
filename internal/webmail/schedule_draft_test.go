@@ -44,7 +44,9 @@ func (f *fakeDraftClient) SaveSentCopy(context.Context, []byte) (DraftSaveResult
 func (f *fakeDraftClient) MoveToTrash(context.Context, string, []uint32) (string, error) {
 	return "Trash", nil
 }
-func (f *fakeDraftClient) MoveMessages(context.Context, string, []uint32, string) error { return nil }
+func (f *fakeDraftClient) MoveMessages(context.Context, string, []uint32, string) ([]uint32, error) {
+	return nil, nil
+}
 func (f *fakeDraftClient) DeleteMessages(context.Context, string, []uint32, bool) error {
 	return nil
 }

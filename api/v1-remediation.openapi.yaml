@@ -3980,7 +3980,7 @@ paths:
       - name: q
         in: query
         schema: {type: string}
-        description: 'Optional IMAP search: subject:, from:, text:, is:unseen, or bare text matching subject/from. Invalid search returns INVALID_SEARCH_QUERY.'
+        description: 'Optional IMAP search: subject:, from:, text:, is:unseen, is:flagged, or bare text matching subject/from. Invalid search returns INVALID_SEARCH_QUERY. total counts the whole filtered UID set, independent of limit/offset.'
       responses:
         '200': {description: 'Newest-first messages and total hit count, limit, offset and q. UID values are scoped to this folder and its UIDVALIDITY.'}
         '400': {$ref: '#/components/responses/Error'}
@@ -3998,6 +3998,69 @@ paths:
         '200': {description: 'Message includes uid_validity, To/Cc/Bcc, plain/HTML bodies and attachment metadata. Untrusted HTML requires isolated rendering with remote resources blocked.'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '502': {$ref: '#/components/responses/Error'}
+  /mailbox/folders/{name}/messages/move:
+    post:
+      tags: [Native mailbox]
+      summary: Move selected message UIDs to another folder (IMAP UID MOVE)
+      security: [{MailboxBearer: []}]
+      parameters:
+      - {name: name, in: path, required: true, schema: {type: string}, description: URL-safe encoded folder name returned by the folders endpoint.}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uid_validity:
+                  type: integer
+                  minimum: 1
+                  maximum: 4294967295
+                uids:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 1
+                    maximum: 4294967295
+                  minItems: 1
+                  maxItems: 100
+                  uniqueItems: true
+                to:
+                  type: string
+                  description: Destination folder name or URL-safe encoded form.
+              required:
+              - uids
+              - to
+      responses:
+        '200':
+          description: |
+            moved equals the count of requested UIDs and to is the resolved destination folder.
+            destination_uids is the COPYUID acknowledgement: the new UIDs in the destination folder,
+            positionally aligned with the requested uids order. It is omitted when the server does not
+            advertise UIDPLUS COPYUID — the move still succeeded but exact undo is impossible, and the
+            client must not offer it.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [moved, to]
+                properties:
+                  moved:
+                    type: integer
+                    minimum: 1
+                  to:
+                    type: string
+                  destination_uids:
+                    type: array
+                    description: New destination UIDs aligned with the request uids; absent when COPYUID was not acknowledged.
+                    items:
+                      type: integer
+                      minimum: 1
+                      maximum: 4294967295
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
   /mailbox/folders/{name}/messages/{uid}/attachments/{part_id}:
     get:
