@@ -148,7 +148,7 @@ def main():
                                ("bad-hash", "Package checksum mismatch"),
                                ("wrong-arch", "Invalid release manifest"),
                                ("missing-manifest", "404"), ("missing-package", "Release download failed"),
-                               ("latest", None), ("fixed", None)]:
+                               ("latest", None), ("fixed", "prepared-held")]:
             state["mode"] = mode
             env = dict(os.environ)
             env.pop("URMAIL_PACKAGE", None)
@@ -157,13 +157,35 @@ def main():
             result = subprocess.run(["bash", str(installer)], env=env, capture_output=True, timeout=900)
             output = result.stdout + result.stderr
             Path(logs, mode + ".log").write_bytes(output)
-            if ((expected is None and result.returncode != 0)
-                    or (expected is not None and (result.returncode == 0 or expected.encode() not in output))):
-                print_failure_output(output, env)
-            if expected is None:
-                assert result.returncode == 0, f"{mode}: installer failed (exit {result.returncode})"
+            if expected == "prepared-held":
+                # The managed upgrade deliberately stops after preparation:
+                # fence held, migrations applied, exit 2 distinguishes it from
+                # a completed installation. Phase B release is then the
+                # documented operator sequence with the signed readiness
+                # receipt, never an automatic release.
+                banner = b"UPGRADE PREPARATION & MIGRATIONS APPLIED"
+                if result.returncode != 2 or banner not in output:
+                    print_failure_output(output, env)
+                assert result.returncode == 2, f"{mode}: installer did not stop prepared-held (exit {result.returncode})"
+                assert banner in output, f"{mode}: prepared-held banner missing"
+                for command in (["urmailctl", "upgrade", "readiness-record"],
+                                ["urmailctl", "upgrade", "release"]):
+                    phase = subprocess.run(command, env=env, capture_output=True, timeout=900)
+                    output = phase.stdout + phase.stderr
+                    Path(logs, mode + "-" + command[-1] + ".log").write_bytes(output)
+                    if phase.returncode != 0:
+                        print_failure_output(output, env)
+                    assert phase.returncode == 0, f"{mode}: {command[-1]} failed (exit {phase.returncode})"
+                hold = "/var/lib/urmail-backup/upgrade.hold"
+                assert not os.path.lexists(hold), f"{mode}: upgrade fence retained after release"
             else:
-                assert result.returncode != 0 and expected.encode() in output, f"{mode}: unexpected result"
+                if ((expected is None and result.returncode != 0)
+                        or (expected is not None and (result.returncode == 0 or expected.encode() not in output))):
+                    print_failure_output(output, env)
+                if expected is None:
+                    assert result.returncode == 0, f"{mode}: installer failed (exit {result.returncode})"
+                else:
+                    assert result.returncode != 0 and expected.encode() in output, f"{mode}: unexpected result"
             print(f"PASS: release installer {mode}", flush=True)
         shutil.rmtree(logs)
     finally:
