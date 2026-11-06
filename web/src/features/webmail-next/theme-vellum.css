@@ -38,7 +38,7 @@
   flex-direction: column;
 }
 
-/* 列表紧凑与舒适模式行高 */
+/* 列表紧凑、舒适与超紧凑清单模式行高 */
 .density-comfortable .mail-row-item {
   height: 52px;
   padding: 8px 16px;
@@ -47,4 +47,9 @@
 .density-compact .mail-row-item {
   height: 40px;
   padding: 6px 12px;
+}
+
+.density-list_only .mail-row-item {
+  height: 32px;
+  padding: 4px 8px;
 }

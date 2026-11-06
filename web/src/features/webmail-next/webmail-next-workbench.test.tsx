@@ -45,7 +45,7 @@ describe("WebmailNextWorkbench Layout", () => {
     expect(rail.getAttribute("data-collapsed")).toBe("true");
   });
 
-  it("toggles density mode", () => {
+  it("toggles density mode through 3 tiers (compact -> comfortable -> list_only -> compact)", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -57,5 +57,9 @@ describe("WebmailNextWorkbench Layout", () => {
     expect(densityBtn.textContent).toMatch(/compact/i);
     fireEvent.click(densityBtn);
     expect(densityBtn.textContent).toMatch(/comfortable/i);
+    fireEvent.click(densityBtn);
+    expect(densityBtn.textContent).toMatch(/list_only/i);
+    fireEvent.click(densityBtn);
+    expect(densityBtn.textContent).toMatch(/compact/i);
   });
 });

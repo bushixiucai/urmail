@@ -33,6 +33,7 @@ export function WebmailMessageRow({
   onDelete,
   onToggleRead,
 }: WebmailMessageRowProps) {
+  const isListOnly = density === "list_only";
   const isCompact = density === "compact";
 
   return (
@@ -42,7 +43,7 @@ export function WebmailMessageRow({
       data-active={isActive ? "true" : "false"}
       onClick={onSelect}
       className={`group relative flex items-center border-b border-[#EBE8E0] transition-colors cursor-pointer select-none ${
-        isCompact ? "h-10 px-3" : "h-13 px-4"
+        isListOnly ? "h-8 px-2" : isCompact ? "h-10 px-3" : "h-13 px-4"
       } ${
         isActive
           ? "bg-[#EFF6FF]"
@@ -88,11 +89,11 @@ export function WebmailMessageRow({
       </div>
 
       {/* Row Center: Sender, Subject, Snippet */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden">
-        <div className="flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1.5 min-w-0">
+      {isListOnly ? (
+        <div className="flex-1 min-w-0 flex items-center justify-between gap-2 overflow-hidden">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <span
-              className={`truncate text-xs ${
+              className={`truncate text-xs shrink-0 max-w-[110px] ${
                 item.isUnread
                   ? "font-bold text-[#18181B]"
                   : "font-medium text-[#3F3F46]"
@@ -107,22 +108,35 @@ export function WebmailMessageRow({
                 data-testid={`thread-toggle-${item.threadId || item.uid}`}
                 type="button"
                 onClick={onToggleThread}
-                className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#EBE8E0] text-[#71717A] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
+                className="px-1 py-0.2 rounded-full text-[9px] bg-[#EBE8E0] text-[#71717A] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5 shrink-0"
                 title={`${item.threadCount} messages in thread`}
               >
                 <span>{item.threadCount}</span>
                 {item.isThreadExpanded ? (
-                  <ChevronDown className="w-2.5 h-2.5" />
+                  <ChevronDown className="w-2 h-2" />
                 ) : (
-                  <ChevronRight className="w-2.5 h-2.5" />
+                  <ChevronRight className="w-2 h-2" />
                 )}
               </button>
+            )}
+
+            <span
+              className={`truncate text-xs flex-1 ${
+                item.isUnread
+                  ? "font-semibold text-[#18181B]"
+                  : "text-[#71717A]"
+              }`}
+            >
+              {item.subject}
+            </span>
+
+            {item.hasAttachments && (
+              <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
             )}
           </div>
 
           {/* Timestamp / Quick Action Hover Bar */}
           <div className="shrink-0 flex items-center text-[11px] text-[#52525B]">
-            {/* Standard date display (hidden on hover if actions available) */}
             <span className="group-hover:hidden">
               {item.date
                 ? new Date(item.date).toLocaleDateString(undefined, {
@@ -131,20 +145,18 @@ export function WebmailMessageRow({
                   })
                 : ""}
             </span>
-
-            {/* Hover quick action buttons */}
             <div className="hidden group-hover:flex items-center gap-1">
               {onToggleRead && (
                 <button
                   type="button"
                   onClick={onToggleRead}
-                  className="p-1 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
+                  className="p-0.5 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
                   title={item.isUnread ? "Mark as read" : "Mark as unread"}
                 >
                   {item.isUnread ? (
-                    <MailOpen className="w-3.5 h-3.5" />
+                    <MailOpen className="w-3 h-3" />
                   ) : (
-                    <Mail className="w-3.5 h-3.5" />
+                    <Mail className="w-3 h-3" />
                   )}
                 </button>
               )}
@@ -152,29 +164,106 @@ export function WebmailMessageRow({
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="p-1 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
+                  className="p-0.5 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
                   title="Delete"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3 h-3" />
                 </button>
               )}
             </div>
           </div>
         </div>
+      ) : (
+        <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden">
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span
+                className={`truncate text-xs ${
+                  item.isUnread
+                    ? "font-bold text-[#18181B]"
+                    : "font-medium text-[#3F3F46]"
+                }`}
+              >
+                {item.sender}
+              </span>
 
-        <div className="flex items-center gap-1.5 mt-0.5 text-xs">
-          <span
-            className={`truncate ${
-              item.isUnread ? "font-semibold text-[#18181B]" : "text-[#71717A]"
-            }`}
-          >
-            {item.subject}
-          </span>
-          {item.hasAttachments && (
-            <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
-          )}
+              {/* Thread count badge pill */}
+              {item.threadCount && item.threadCount > 1 && (
+                <button
+                  data-testid={`thread-toggle-${item.threadId || item.uid}`}
+                  type="button"
+                  onClick={onToggleThread}
+                  className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#EBE8E0] text-[#71717A] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
+                  title={`${item.threadCount} messages in thread`}
+                >
+                  <span>{item.threadCount}</span>
+                  {item.isThreadExpanded ? (
+                    <ChevronDown className="w-2.5 h-2.5" />
+                  ) : (
+                    <ChevronRight className="w-2.5 h-2.5" />
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Timestamp / Quick Action Hover Bar */}
+            <div className="shrink-0 flex items-center text-[11px] text-[#52525B]">
+              {/* Standard date display (hidden on hover if actions available) */}
+              <span className="group-hover:hidden">
+                {item.date
+                  ? new Date(item.date).toLocaleDateString(undefined, {
+                      month: "numeric",
+                      day: "numeric",
+                    })
+                  : ""}
+              </span>
+
+              {/* Hover quick action buttons */}
+              <div className="hidden group-hover:flex items-center gap-1">
+                {onToggleRead && (
+                  <button
+                    type="button"
+                    onClick={onToggleRead}
+                    className="p-1 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
+                    title={item.isUnread ? "Mark as read" : "Mark as unread"}
+                  >
+                    {item.isUnread ? (
+                      <MailOpen className="w-3.5 h-3.5" />
+                    ) : (
+                      <Mail className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={onDelete}
+                    className="p-1 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 mt-0.5 text-xs">
+            <span
+              className={`truncate ${
+                item.isUnread
+                  ? "font-semibold text-[#18181B]"
+                  : "text-[#71717A]"
+              }`}
+            >
+              {item.subject}
+            </span>
+            {item.hasAttachments && (
+              <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

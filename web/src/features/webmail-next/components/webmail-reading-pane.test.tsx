@@ -72,4 +72,26 @@ describe("WebmailReadingPane", () => {
     const downloadLink = screen.getByTestId("download-attachment-2");
     expect(downloadLink.getAttribute("href")).toContain("/attachments/2");
   });
+
+  it("handles instant add sender to contacts", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "createContact").mockResolvedValue({
+      id: 99,
+      version: 1,
+      display_name: "Finance Director",
+      emails: [{ address: "finance@company.com" }],
+    });
+
+    render(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+
+    const addContactBtn = screen.getByTestId("btn-add-contact");
+    expect(addContactBtn).toBeTruthy();
+
+    fireEvent.click(addContactBtn);
+
+    expect(mailboxApi.createContact).toHaveBeenCalledWith(
+      "Finance Director",
+      "finance@company.com",
+    );
+  });
 });

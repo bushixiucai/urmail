@@ -8,11 +8,16 @@ import {
   Star,
   ShieldAlert,
   ArrowLeft,
+  UserPlus,
+  Check,
 } from "lucide-react";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
 import { sanitizeHtmlMail } from "@/features/webmail/sanitize-html-mail";
-import type { MessageDetail } from "@/features/webmail/mailbox-api";
+import {
+  createContact,
+  type MessageDetail,
+} from "@/features/webmail/mailbox-api";
 
 interface WebmailReadingPaneProps {
   message: MessageDetail | null;
@@ -43,9 +48,12 @@ export function WebmailReadingPane({
 }: WebmailReadingPaneProps) {
   const { t } = useTranslation();
   const [imagesLoaded, setImagesLoaded] = useState(false);
+  const [isAddingContact, setIsAddingContact] = useState(false);
+  const [contactAdded, setContactAdded] = useState(false);
 
   useEffect(() => {
     setImagesLoaded(false);
+    setContactAdded(false);
   }, [message?.uid]);
 
   if (isLoading) {
@@ -97,6 +105,19 @@ export function WebmailReadingPane({
   const handleAlwaysTrust = () => {
     setImagesLoaded(true);
     onAlwaysTrustSender?.(senderEmail);
+  };
+
+  const handleAddContact = async () => {
+    if (!senderEmail || contactAdded || isAddingContact) return;
+    try {
+      setIsAddingContact(true);
+      await createContact(senderName, senderEmail);
+      setContactAdded(true);
+    } catch {
+      // ignore
+    } finally {
+      setIsAddingContact(false);
+    }
   };
 
   return (
@@ -190,6 +211,32 @@ export function WebmailReadingPane({
                   <WebmailSecurityBadge
                     authentication={message.authentication}
                   />
+                  <button
+                    data-testid="btn-add-contact"
+                    type="button"
+                    onClick={handleAddContact}
+                    disabled={contactAdded || isAddingContact}
+                    className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+                      contactAdded
+                        ? "text-[#16A34A] bg-[#DCFCE7]"
+                        : "text-[#71717A] hover:text-[#18181B] hover:bg-[#EBE8E0]"
+                    }`}
+                    title={contactAdded ? "Contact added" : "Add to contacts"}
+                  >
+                    {contactAdded ? (
+                      <>
+                        <Check className="w-3 h-3" />
+                        <span>{t("webmail_next.contact_added", "Added")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-3 h-3" />
+                        <span>
+                          {t("webmail_next.add_contact", "+ Add Contact")}
+                        </span>
+                      </>
+                    )}
+                  </button>
                 </div>
                 <div className="text-[11px] text-[#52525B] mt-0.5">
                   {message.to && message.to.length > 0
