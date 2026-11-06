@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   apiErrorSchema,
   ApiRequestError,
-  checkoutDestination,
   clearAuth,
   getCSRFToken,
   getSessionToken,
@@ -49,20 +48,6 @@ describe("API error contracts", () => {
       status: 502,
     });
   });
-  it("rejects injected or unrelated checkout destinations", () => {
-    for (const value of [
-      "javascript:alert(1)",
-      "https://checkout.stripe.com.evil.test/x",
-      "https://user@checkout.stripe.com/x",
-      "http://checkout.stripe.com/x",
-    ]) {
-      expect(() => checkoutDestination(value)).toThrow();
-    }
-    expect(checkoutDestination("https://checkout.stripe.com/c/pay/test")).toBe(
-      "https://checkout.stripe.com/c/pay/test",
-    );
-  });
-
   describe("credential storage and unified logout", () => {
     it("stores tokens in localStorage by default and prefers localStorage over sessionStorage", () => {
       setSessionToken("tok-local");

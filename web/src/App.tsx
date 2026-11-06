@@ -9,18 +9,8 @@ import { PlatformAdminLayout } from "@/app/layouts/platform-admin-layout";
 import { hasMailboxSession } from "@/features/webmail/mailbox-api";
 import { isWebmailNextEnabled } from "@/features/webmail-next/feature-flag";
 
-const PricingPage = lazy(() =>
-  import("@/features/billing/pricing-page").then((m) => ({
-    default: m.PricingPage,
-  })),
-);
 const LoginPage = lazy(() =>
   import("@/features/auth/login-page").then((m) => ({ default: m.LoginPage })),
-);
-const RegisterPage = lazy(() =>
-  import("@/features/auth/register-page").then((m) => ({
-    default: m.RegisterPage,
-  })),
 );
 const DashboardPage = lazy(() =>
   import("@/features/dashboard/dashboard-page").then((m) => ({
@@ -60,11 +50,6 @@ const ArchivePage = lazy(() =>
 const DeliveryPage = lazy(() =>
   import("@/features/delivery/delivery-page").then((m) => ({
     default: m.DeliveryPage,
-  })),
-);
-const BillingPage = lazy(() =>
-  import("@/features/billing/billing-page").then((m) => ({
-    default: m.BillingPage,
   })),
 );
 const PlatformPage = lazy(() =>
@@ -254,22 +239,6 @@ export function App() {
                 }
               />
               <Route
-                path="/register"
-                element={
-                  <LazyPage>
-                    <RegisterPage />
-                  </LazyPage>
-                }
-              />
-              <Route
-                path="/register/verify"
-                element={
-                  <LazyPage>
-                    <RegisterPage />
-                  </LazyPage>
-                }
-              />
-              <Route
                 path="/mailbox/sieve"
                 element={
                   <LazyPage>
@@ -358,14 +327,6 @@ export function App() {
                     <main className="mx-auto max-w-3xl px-4 py-10">
                       <ClientGuidesPage />
                     </main>
-                  </LazyPage>
-                }
-              />
-              <Route
-                path="/pricing"
-                element={
-                  <LazyPage>
-                    <PricingPage />
                   </LazyPage>
                 }
               />
@@ -491,16 +452,6 @@ export function App() {
                   <ProtectedRoute>
                     <LazyPage>
                       <AuditPage />
-                    </LazyPage>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/billing"
-                element={
-                  <ProtectedRoute>
-                    <LazyPage>
-                      <BillingPage />
                     </LazyPage>
                   </ProtectedRoute>
                 }

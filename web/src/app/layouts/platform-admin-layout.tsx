@@ -4,8 +4,6 @@ import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   Building2,
-  Layers,
-  Receipt,
   Globe,
   Cpu,
   Headphones,
@@ -59,20 +57,6 @@ export function PlatformAdminLayout({ children }: PlatformAdminLayoutProps) {
       href: "/platform?tab=tenants",
       icon: Building2,
       active: !isSupportPage && currentTab === "tenants",
-    },
-    {
-      id: "plans",
-      name: t("page.platform.tab_plans", { defaultValue: "套餐与计划" }),
-      href: "/platform?tab=plans",
-      icon: Layers,
-      active: !isSupportPage && currentTab === "plans",
-    },
-    {
-      id: "finance",
-      name: t("page.platform.tab_finance", { defaultValue: "财务与结算" }),
-      href: "/platform?tab=finance",
-      icon: Receipt,
-      active: !isSupportPage && currentTab === "finance",
     },
     {
       id: "brands",

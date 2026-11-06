@@ -29,34 +29,36 @@ afterEach(() => {
   cleanup();
   state.request.mockReset();
 });
-it("requires both explicit registration capability and non-quarantined health before enabling", async () => {
-  state.request.mockImplementation(async (path: string) =>
-    path.includes("registration-status")
-      ? { enabled: true }
-      : { quarantined: true },
-  );
+it("reads quarantine from healthz and does not call registration-status", async () => {
+  state.request.mockImplementation(async (path: string) => {
+    if (String(path).includes("registration-status")) {
+      throw Error("registration must not be called");
+    }
+    return { quarantined: true };
+  });
   const hook = renderHook(() => usePublicStatus());
-  expect(hook.result.current.registration).toBe(false);
+  expect(hook.result.current.quarantined).toBe(false);
   await settle();
   expect(hook.result.current).toMatchObject({
-    registration: false,
     quarantined: true,
     loaded: true,
   });
+  expect(state.request.mock.calls.map(([path]) => path)).toEqual([
+    "/api/v1/healthz",
+  ]);
   expect(
     state.request.mock.calls.every(([, options]) => !options?.method),
   ).toBe(true);
 });
-it("retains the quarantine banner when registration status is unavailable", async () => {
-  state.request.mockImplementation(async (path: string) => {
-    if (path.includes("registration-status")) throw Error("unavailable");
-    return { quarantined: true };
+it("stays out of quarantine when healthz is unavailable", async () => {
+  state.request.mockImplementation(async () => {
+    throw Error("unavailable");
   });
   const hook = renderHook(() => usePublicStatus());
   await settle();
   expect(hook.result.current).toMatchObject({
-    registration: false,
-    quarantined: true,
+    quarantined: false,
+    loaded: true,
   });
 });
 it("saves only the explicitly edited IANA business timezone", async () => {

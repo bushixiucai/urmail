@@ -32,15 +32,16 @@ afterEach(() => {
 });
 
 describe("HomePage", () => {
-  it("renders public CTAs to register and webmail", () => {
+  it("renders public CTAs to login and webmail", () => {
     render(
       <MemoryRouter>
         <HomePage />
       </MemoryRouter>,
     );
-    expect(hrefs("/register").length).toBeGreaterThan(0);
+    expect(hrefs("/register")).toEqual([]);
+    expect(hrefs("/pricing")).toEqual([]);
+    expect(hrefs("/login").length).toBeGreaterThan(0);
     expect(hrefs("/webmail").length).toBeGreaterThan(0);
-    expect(hrefs("/pricing").length).toBeGreaterThan(0);
     expect(screen.getByText("home.headline")).toBeTruthy();
   });
 

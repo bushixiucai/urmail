@@ -139,49 +139,6 @@ export interface RequestOptions {
   idempotencyKey?: string;
 }
 
-/** Download a protected PDF without putting a session token in its URL. */
-export async function downloadInvoice(id: number): Promise<void> {
-  const token = getSessionToken();
-  const response = await fetch(`/api/v1/billing/invoices/${id}/pdf`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    credentials: "same-origin",
-  });
-  if (!response.ok) {
-    const body = apiErrorSchema.safeParse(
-      await response.json().catch(() => null),
-    );
-    throw new ApiRequestError(
-      response.status,
-      body.success
-        ? body.data
-        : {
-            error: { code: "REQUEST_FAILED" },
-          },
-    );
-  }
-  const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `invoice-${id}.pdf`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-export function checkoutDestination(value: string): string {
-  const url = new URL(value);
-  if (
-    url.protocol !== "https:" ||
-    url.hostname !== "checkout.stripe.com" ||
-    url.username ||
-    url.password
-  ) {
-    throw new ApiRequestError(502, {
-      error: { code: "PAYMENT_PROVIDER_ERROR" },
-    });
-  }
-  return url.href;
-}
-
 export async function request<T>(
   path: string,
   options: RequestOptions = {},

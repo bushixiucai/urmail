@@ -28,7 +28,7 @@ test("login and navigate the management pages", async ({ page }) => {
   });
   await expect(page.locator("h2").first()).toBeVisible();
 
-  for (const path of ["/billing", "/audit", "/domains", "/mailboxes"]) {
+  for (const path of ["/audit", "/domains", "/mailboxes"]) {
     await page.goto(path);
     await expect(page.locator("h2").first()).toBeVisible();
   }

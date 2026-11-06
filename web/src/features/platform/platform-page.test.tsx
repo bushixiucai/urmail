@@ -127,7 +127,7 @@ describe("PlatformPage with Tabs", () => {
     });
   });
 
-  it("renders all 6 tab navigation buttons in Platform Tabs bar", async () => {
+  it("renders tenant, brand, and AI tabs without commercial tabs", async () => {
     render(<PlatformPage />);
     await act(async () => {
       for (let i = 0; i < 12; i++) await Promise.resolve();
@@ -136,10 +136,21 @@ describe("PlatformPage with Tabs", () => {
     const tabNav = screen.getByRole("navigation", { name: "Platform Tabs" });
     expect(within(tabNav).getByText("平台概览")).not.toBeNull();
     expect(within(tabNav).getByText("租户管理")).not.toBeNull();
-    expect(within(tabNav).getByText("套餐计划")).not.toBeNull();
-    expect(within(tabNav).getByText("商业化与财务")).not.toBeNull();
+    expect(within(tabNav).queryByText("套餐计划")).toBeNull();
+    expect(within(tabNav).queryByText("商业化与财务")).toBeNull();
     expect(within(tabNav).getByText("品牌与主机")).not.toBeNull();
     expect(within(tabNav).getByText("AI与系统规则")).not.toBeNull();
+    expect(within(tabNav).getByText("异地备份")).not.toBeNull();
+    expect(
+      state.request.mock.calls.some(([path]) =>
+        String(path).includes("/platform/plans"),
+      ),
+    ).toBe(false);
+    expect(
+      state.request.mock.calls.some(([path]) =>
+        String(path).includes("/platform/coupons"),
+      ),
+    ).toBe(false);
   });
 
   it("filters tenants by search query in Tab 2", async () => {

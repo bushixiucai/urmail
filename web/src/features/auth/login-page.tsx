@@ -268,16 +268,6 @@ export function LoginPage() {
               <Mail className="h-4 w-4" />
               {t("login.switch_to_webmail", { defaultValue: "员工邮箱登录" })}
             </Link>
-            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground pt-1">
-              <Link className="hover:underline" to="/pricing">
-                {t("pricing.title")}
-              </Link>
-              {publicStatus.registration && (
-                <Link className="hover:underline" to="/register">
-                  {t("registration.action")}
-                </Link>
-              )}
-            </div>
           </div>
         </CardContent>
       </Card>
