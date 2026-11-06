@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +51,7 @@ func TestBreakGlassReleaseAlwaysLeavesAuditTrail(t *testing.T) {
 	if !strings.Contains(lines[0], `"action":"release-authorized"`) || !strings.Contains(lines[0], `"mode":"break-glass"`) {
 		t.Fatalf("first audit line must authorize the break-glass release: %s", lines[0])
 	}
-	if !strings.Contains(lines[0], `"generation":155`) {
+	if !strings.Contains(lines[0], fmt.Sprintf(`"generation":%d`, readinessFixtureGeneration(t))) {
 		t.Fatalf("authorization line must bind the fence generation: %s", lines[0])
 	}
 	if !strings.Contains(lines[len(lines)-1], `"action":"release-released"`) {

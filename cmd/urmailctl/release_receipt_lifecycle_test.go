@@ -179,7 +179,7 @@ func TestReleaseAuditFileBindsReleasedState(t *testing.T) {
 	if len(entry.Guards) != 1 || entry.Guards[0] != "postfix.service" {
 		t.Fatalf("audit must record the guarded unit set, got: %v", entry.Guards)
 	}
-	if entry.Generation != 155 {
+	if entry.Generation != readinessFixtureGeneration(t) {
 		t.Fatalf("audit must bind the fence generation, got: %d", entry.Generation)
 	}
 }

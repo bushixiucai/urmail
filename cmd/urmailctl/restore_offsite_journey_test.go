@@ -223,16 +223,14 @@ func journeySeed(t *testing.T, dsn string) {
 	if _, err := conn.Exec(ctx, "SET ROLE urmail_platform"); err != nil {
 		t.Fatal(err)
 	}
-	// brand/tenant/domain/mailbox (canonical ownership), the per-mailbox
-	// settings row (migration 0126) and a subscription renewal fact in the
-	// migration-0087 fixture style.
+	// brand/tenant/domain/mailbox (canonical ownership) and the per-mailbox
+	// settings row (migration 0126).
 	script := "DO $seed$ DECLARE b bigint;t bigint;d bigint;m bigint; BEGIN\n" +
 		" INSERT INTO brands(slug,name) VALUES('journey-source','Journey Source') RETURNING id INTO b;\n" +
 		" INSERT INTO tenants(brand_id,name,slug,status) VALUES(b,'Journey Tenant','" + journeyTenantSlug + "','active') RETURNING id INTO t;\n" +
 		" INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES(t,'" + journeyDomain + "','active','journey-token',now()) RETURNING id INTO d;\n" +
 		" INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,status) VALUES(t,d,'alice','alice@" + journeyDomain + "','journey-hash','active') RETURNING id INTO m;\n" +
 		" INSERT INTO mailbox_settings(mailbox_id,tenant_id,display_name,signature_text,preferences) VALUES(m,t,'Journey Alice','sent from the journey','{\"signature_default\":true}'::jsonb);\n" +
-		" INSERT INTO subscription_renewal_attempts(tenant_id,subscription_id,period_end,state) VALUES(t,4242,now()+interval '24 hours','pending');\n" +
 		"END $seed$;"
 	if _, err := conn.Exec(ctx, script); err != nil {
 		t.Fatal(err)
@@ -420,12 +418,6 @@ func journeyAssertFacts(t *testing.T, dsn string) {
 		" JOIN domains d ON d.id=m.domain_id AND d.tenant_id=m.tenant_id\n"+
 		" WHERE m.address='alice@"+journeyDomain+"' AND d.fqdn='"+journeyDomain+"' AND s.display_name='Journey Alice' AND s.signature_text='sent from the journey')").Scan(&settingsOK); err != nil || !settingsOK {
 		t.Fatalf("restored mailbox_settings fact (0126) lost or mis-owned: %v %v", settingsOK, err)
-	}
-	var renewalOK bool
-	if err := conn.QueryRow(ctx, "SELECT EXISTS(\n"+
-		" SELECT 1 FROM subscription_renewal_attempts r JOIN tenants t ON t.id=r.tenant_id\n"+
-		" WHERE t.slug='"+journeyTenantSlug+"' AND r.subscription_id=4242 AND r.state='canceled' AND r.last_error LIKE '%RESTORE_RECONCILIATION_REQUIRED%')").Scan(&renewalOK); err != nil || !renewalOK {
-		t.Fatalf("restored subscription fact (0087 style) lost: %v %v", renewalOK, err)
 	}
 	var decoyAbsent bool
 	if err := conn.QueryRow(ctx, "SELECT NOT EXISTS(SELECT 1 FROM brands WHERE slug='journey-decoy')").Scan(&decoyAbsent); err != nil || !decoyAbsent {

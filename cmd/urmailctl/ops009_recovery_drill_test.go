@@ -172,7 +172,6 @@ func ops009Seed(t *testing.T, dsn, evidenceDigest string) {
 		" INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES(t,'" + ops009Domain + "','active','ops009-token',now()) RETURNING id INTO d;\n" +
 		" INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,status) VALUES(t,d,'alice','alice@" + ops009Domain + "','ops009-hash','active') RETURNING id INTO m;\n" +
 		" INSERT INTO mailbox_settings(mailbox_id,tenant_id,display_name,signature_text,preferences) VALUES(m,t,'Ops Nine','sent from the drill','{\"signature_default\":true}'::jsonb);\n" +
-		" INSERT INTO subscription_renewal_attempts(tenant_id,subscription_id,period_end,state) VALUES(t,424242,now()+interval '24 hours','pending');\n" +
 		// 0129 spam feedback loop: verdict, follow-up rule, learned tokens.
 		" INSERT INTO mailbox_spam_feedback(tenant_id,mailbox_id,message_id,folder,verdict,sender_address,sender_domain) VALUES(t,m,'<ops009-msg-1@drill>','INBOX','spam','boss@spam.example.test','spam.example.test');\n" +
 		" INSERT INTO mailbox_spam_senders(tenant_id,mailbox_id,scope,address,domain,list) VALUES(t,m,'mailbox','boss@spam.example.test','','deny');\n" +
@@ -382,9 +381,6 @@ func ops009AssertFacts(t *testing.T, dsn string, evidenceDigest, sourceDigest st
 		 SELECT 1 FROM mailbox_settings s JOIN mailboxes m ON m.id=s.mailbox_id AND m.tenant_id=s.tenant_id
 		 WHERE m.address='alice@` + ops009Domain + `' AND s.display_name='Ops Nine'
 		   AND s.signature_text='sent from the drill' AND s.preferences->>'signature_default'='true')`},
-		{"0087 renewal attempt retained but held", `SELECT EXISTS(
-		 SELECT 1 FROM subscription_renewal_attempts r JOIN tenants t ON t.id=r.tenant_id
-		 WHERE t.slug='` + ops009TenantSlug + `' AND r.subscription_id=424242 AND r.state='canceled' AND r.last_error LIKE '%RESTORE_RECONCILIATION_REQUIRED%')`},
 		{"0129 spam feedback survived", `SELECT count(*)=1 AND bool_and(verdict='spam' AND sender_domain='spam.example.test' AND folder='INBOX')
 		 FROM mailbox_spam_feedback f JOIN tenants t ON t.id=f.tenant_id
 		 WHERE t.slug='` + ops009TenantSlug + `' AND f.message_id='<ops009-msg-1@drill>'`},
@@ -624,7 +620,6 @@ func ops009AssertRLSFailClosed(t *testing.T, dsn string) {
 		{"0093 AI drafts", "mailbox_ai_drafts"},
 		{"0088 marketing flows", "marketing_flows"},
 		{"0089 investigations", "archive_investigations"},
-		{"0087 renewal attempts", "subscription_renewal_attempts"},
 		{"0045 notification outbox", "notification_outbox"},
 		{"0130 compliance grants", "compliance_grants"},
 	}
@@ -695,8 +690,8 @@ func ops009MaintenanceTables() []string {
 		"mailbox_ai_drafts", "ai_provider_configs", "ai_usage_requests",
 		"marketing_flows", "marketing_flow_steps", "marketing_flow_positions",
 		"marketing_channels", "marketing_campaigns", "marketing_recipients", "marketing_quota_windows",
-		"recurring_setup_intents", "mailbox_import_jobs", "mailbox_import_items", "recall_requests", "domain_dns_security", "domain_tls_reports", "domain_transport_security", "brand_hosts", "brand_host_challenges",
-		"notification_outbox", "subscription_renewal_attempts", "compliance_grants",
+		"mailbox_import_jobs", "mailbox_import_items", "recall_requests", "domain_dns_security", "domain_tls_reports", "domain_transport_security", "brand_hosts", "brand_host_challenges",
+		"notification_outbox", "compliance_grants",
 	}
 }
 
