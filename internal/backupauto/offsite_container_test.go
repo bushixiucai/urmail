@@ -103,17 +103,18 @@ func minioCreateBucket(t *testing.T, hostBase, bucket string) {
 }
 
 // s3TestImage is the S3-compatible server image for the container roundtrip.
-// URMAIL_S3_TEST_IMAGE overrides it where docker hub pulls are unavailable;
-// any S3-compatible server works because the test exercises the wire
-// protocol, not MinIO specifics.
+// Default is rustfs because MinIO's community images are no longer published
+// to Docker Hub and anonymous pulls are denied in CI and several networks;
+// URMAIL_S3_TEST_IMAGE overrides it. Any S3-compatible server works because
+// the test exercises the wire protocol, not server specifics.
 func s3TestImage() string {
 	if image := os.Getenv("URMAIL_S3_TEST_IMAGE"); image != "" {
 		return image
 	}
-	return "minio/minio:latest"
+	return "rustfs/rustfs:latest"
 }
 
-func TestMinIOContainerRoundtrip(t *testing.T) {
+func TestS3ContainerRoundtrip(t *testing.T) {
 	dockerAvailable(t)
 	const hostPort = 39011
 	hostBase := "127.0.0.1:" + strconv.Itoa(hostPort)
