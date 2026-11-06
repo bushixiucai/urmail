@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -11,13 +11,41 @@ import {
   Shield,
   Settings as SettingsIcon,
 } from "lucide-react";
-import { AccountSecuritySection } from "./account-security-section";
-import { StorageQuotaSection } from "./storage-quota-section";
-import { IdentitiesSignaturesSection } from "./identities-signatures-section";
-import { SieveRulesSection } from "./sieve-rules-section";
-import { VacationSection } from "./vacation-section";
-import { ForwardingSection } from "./forwarding-section";
-import { RemoteImagesSection } from "./remote-images-section";
+const AccountSecuritySection = lazy(() =>
+  import("./account-security-section").then((module) => ({
+    default: module.AccountSecuritySection,
+  })),
+);
+const StorageQuotaSection = lazy(() =>
+  import("./storage-quota-section").then((module) => ({
+    default: module.StorageQuotaSection,
+  })),
+);
+const IdentitiesSignaturesSection = lazy(() =>
+  import("./identities-signatures-section").then((module) => ({
+    default: module.IdentitiesSignaturesSection,
+  })),
+);
+const SieveRulesSection = lazy(() =>
+  import("./sieve-rules-section").then((module) => ({
+    default: module.SieveRulesSection,
+  })),
+);
+const VacationSection = lazy(() =>
+  import("./vacation-section").then((module) => ({
+    default: module.VacationSection,
+  })),
+);
+const ForwardingSection = lazy(() =>
+  import("./forwarding-section").then((module) => ({
+    default: module.ForwardingSection,
+  })),
+);
+const RemoteImagesSection = lazy(() =>
+  import("./remote-images-section").then((module) => ({
+    default: module.RemoteImagesSection,
+  })),
+);
 
 export type SettingsTab =
   | "account"
@@ -165,19 +193,32 @@ export function WebmailSettingsDrawer({
             data-testid="settings-tab-content"
             className="flex-1 p-6 overflow-y-auto bg-[#FFFFFF]"
           >
-            {activeTab === "account" && <AccountSecuritySection />}
-            {activeTab === "privacy" && (
-              <RemoteImagesSection
-                onPreferenceChanged={onRemoteImagesPreferenceChanged}
-              />
-            )}
-            {activeTab === "quota" && <StorageQuotaSection />}
-            {activeTab === "signatures" && <IdentitiesSignaturesSection />}
-            {activeTab === "rules" && <SieveRulesSection />}
-            {activeTab === "vacation" && (
-              <VacationSection onVacationUpdated={onVacationUpdated} />
-            )}
-            {activeTab === "forwarding" && <ForwardingSection />}
+            <Suspense
+              fallback={
+                <div
+                  data-testid="settings-tab-skeleton"
+                  aria-busy="true"
+                  className="animate-pulse space-y-3"
+                >
+                  <div className="h-4 w-1/3 rounded bg-[#EBE8E0]" />
+                  <div className="h-24 w-full rounded bg-[#EBE8E0]" />
+                </div>
+              }
+            >
+              {activeTab === "account" && <AccountSecuritySection />}
+              {activeTab === "privacy" && (
+                <RemoteImagesSection
+                  onPreferenceChanged={onRemoteImagesPreferenceChanged}
+                />
+              )}
+              {activeTab === "quota" && <StorageQuotaSection />}
+              {activeTab === "signatures" && <IdentitiesSignaturesSection />}
+              {activeTab === "rules" && <SieveRulesSection />}
+              {activeTab === "vacation" && (
+                <VacationSection onVacationUpdated={onVacationUpdated} />
+              )}
+              {activeTab === "forwarding" && <ForwardingSection />}
+            </Suspense>
           </div>
         </div>
       </div>

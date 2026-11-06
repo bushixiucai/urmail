@@ -154,4 +154,38 @@ describe("WebmailMessageList", () => {
     expect(firstRow.className).not.toContain("h-8");
     expect(screen.getByText("Re: Meeting Tomorrow")).toBeTruthy();
   });
+
+  it("uses the latest select handler after a pagination rerender", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const view = render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={first}
+        density="compact"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+        viewportHeight={640}
+      />,
+    );
+    view.rerender(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages.map((message) => ({ ...message }))}
+        activeUid={null}
+        onSelectMessage={second}
+        density="compact"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+        viewportHeight={640}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("mail-row-103"));
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith(103);
+  });
 });

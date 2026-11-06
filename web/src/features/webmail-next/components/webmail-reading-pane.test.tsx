@@ -2,12 +2,14 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailReadingPane } from "./webmail-reading-pane";
 import type { MessageDetail } from "@/features/webmail/mailbox-api";
+import { resetSanitizeWorkerForTests } from "@/features/webmail/sanitize-html-mail-async";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
 afterEach(() => {
+  resetSanitizeWorkerForTests(null);
   cleanup();
 });
 
@@ -206,5 +208,37 @@ describe("WebmailReadingPane", () => {
 
     // Banner must reappear for the new message
     expect(screen.getByTestId("remote-images-banner")).toBeTruthy();
+  });
+
+  it("does not put raw html into srcdoc before the worker replies", async () => {
+    const worker = {
+      onmessage: null as
+        ((event: MessageEvent<{ id: number; html: string }>) => void) | null,
+      onerror: null as ((event: Event) => void) | null,
+      postMessage(data: { id: number }) {
+        setTimeout(() => {
+          worker.onmessage?.({
+            data: { id: data.id, html: "<p>worker-safe</p>" },
+          } as MessageEvent<{ id: number; html: string }>);
+        }, 0);
+      },
+    };
+    resetSanitizeWorkerForTests(() => worker as never);
+    render(
+      <WebmailReadingPane
+        message={{
+          ...mockMessage,
+          html: "<p>raw body</p><script>alert(1)</script>",
+        }}
+        folderEnc="INBOX"
+      />,
+    );
+
+    expect(screen.getByTestId("mail-html-skeleton")).toBeTruthy();
+    expect(screen.queryByTestId("mail-html-frame")).toBeNull();
+    expect(document.body.innerHTML).not.toContain("alert(1)");
+
+    const frame = await screen.findByTestId("mail-html-frame");
+    expect(frame.getAttribute("srcDoc")).toBe("<p>worker-safe</p>");
   });
 });
