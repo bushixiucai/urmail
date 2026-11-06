@@ -310,4 +310,33 @@ function WebmailMessageRowView({
   );
 }
 
-export const WebmailMessageRow = React.memo(WebmailMessageRowView);
+export function webmailMessageRowPropsAreEqual(
+  prev: WebmailMessageRowProps,
+  next: WebmailMessageRowProps,
+): boolean {
+  const a = prev.item;
+  const b = next.item;
+  return (
+    a.uid === b.uid &&
+    a.subject === b.subject &&
+    a.sender === b.sender &&
+    a.date === b.date &&
+    a.snippet === b.snippet &&
+    a.isUnread === b.isUnread &&
+    a.isStarred === b.isStarred &&
+    a.hasAttachments === b.hasAttachments &&
+    a.threadId === b.threadId &&
+    a.threadCount === b.threadCount &&
+    a.isThreadExpanded === b.isThreadExpanded &&
+    a.folder === b.folder &&
+    prev.isSelected === next.isSelected &&
+    prev.isActive === next.isActive &&
+    Boolean(prev.isCursor) === Boolean(next.isCursor) &&
+    prev.density === next.density
+  );
+}
+
+export const WebmailMessageRow = React.memo(
+  WebmailMessageRowView,
+  webmailMessageRowPropsAreEqual,
+);

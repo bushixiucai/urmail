@@ -16,6 +16,10 @@ import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
 import { sanitizeHtmlMail } from "@/features/webmail/sanitize-html-mail";
 import {
+  sanitizeHtmlMailAsync,
+  sanitizeWorkerAvailable,
+} from "@/features/webmail/sanitize-html-mail-async";
+import {
   createContact,
   type MessageDetail,
 } from "@/features/webmail/mailbox-api";
@@ -34,6 +38,38 @@ interface WebmailReadingPaneProps {
   onToggleStar?: (uid: number) => void;
   onLoadRemoteImages?: (uid: number) => void;
   onAlwaysTrustSender?: (senderEmail: string) => void;
+}
+
+function SanitizedHtmlFrame({
+  title,
+  html,
+}: {
+  title: string;
+  html: string | null;
+}) {
+  if (html == null) {
+    return (
+      <div
+        data-testid="mail-html-skeleton"
+        aria-busy="true"
+        className="animate-pulse space-y-3"
+      >
+        <div className="h-3 w-2/3 rounded bg-[#EBE8E0]" />
+        <div className="h-3 w-1/2 rounded bg-[#EBE8E0]" />
+        <div className="h-24 w-full rounded bg-[#EBE8E0]" />
+      </div>
+    );
+  }
+  return (
+    <iframe
+      data-testid="mail-html-frame"
+      title={title}
+      sandbox=""
+      referrerPolicy="no-referrer"
+      className="w-full min-h-[420px] rounded border-0 bg-transparent"
+      srcDoc={html}
+    />
+  );
 }
 
 export function WebmailReadingPane({
@@ -56,10 +92,35 @@ export function WebmailReadingPane({
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [contactAdded, setContactAdded] = useState(false);
 
+  const isImageAllowed = Boolean(
+    isGlobalRemoteImagesAllowed ||
+    isManualRemoteImagesAllowed ||
+    localManualGranted,
+  );
+  const useWorker = sanitizeWorkerAvailable();
+  const [workerHtml, setWorkerHtml] = useState<string | null>(null);
+
   useEffect(() => {
     setLocalManualGranted(false);
     setContactAdded(false);
   }, [message?.uid]);
+
+  useEffect(() => {
+    if (!useWorker || !message?.html) {
+      setWorkerHtml(null);
+      return;
+    }
+    let cancelled = false;
+    setWorkerHtml(null);
+    void sanitizeHtmlMailAsync(message.html, {
+      allowRemoteImages: isImageAllowed,
+    }).then((html) => {
+      if (!cancelled) setWorkerHtml(html);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [useWorker, message?.html, message?.uid, isImageAllowed]);
 
   if (isLoading) {
     return (
@@ -106,13 +167,6 @@ export function WebmailReadingPane({
   const isStarred = Boolean(
     Array.isArray(message.flags) && message.flags.includes("\\Flagged"),
   );
-
-  // Authorization state: global account-level grant and manual per-message grant are independent.
-  const isManualAllowed = Boolean(
-    isManualRemoteImagesAllowed || localManualGranted,
-  );
-  const isGlobalAllowed = Boolean(isGlobalRemoteImagesAllowed);
-  const isImageAllowed = isGlobalAllowed || isManualAllowed;
 
   // Server SanitizeHTML drops the <img> and emits note "remote_images_blocked".
   // It does not leave a remote src or inject data-blocked-src. HTML markers
@@ -333,15 +387,15 @@ export function WebmailReadingPane({
           className="bg-white p-6 rounded-xl border border-[#EBE8E0] shadow-sm text-sm text-[#18181B] leading-relaxed min-h-[220px]"
         >
           {message.html ? (
-            <iframe
-              data-testid="mail-html-frame"
+            <SanitizedHtmlFrame
               title={message.subject || "Email Content"}
-              sandbox=""
-              referrerPolicy="no-referrer"
-              className="w-full min-h-[420px] rounded border-0 bg-transparent"
-              srcDoc={sanitizeHtmlMail(message.html, {
-                allowRemoteImages: isImageAllowed,
-              })}
+              html={
+                useWorker
+                  ? workerHtml
+                  : sanitizeHtmlMail(message.html, {
+                      allowRemoteImages: isImageAllowed,
+                    })
+              }
             />
           ) : (
             <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B]">

@@ -129,8 +129,11 @@ describe("WebmailSettingsDrawer", () => {
       />,
     );
 
-    // Default account security section
-    expect(screen.getByTestId("account-security-section")).toBeTruthy();
+    // Default account security section. Other tabs stay unmounted.
+    expect(await screen.findByTestId("account-security-section")).toBeTruthy();
+    expect(screen.queryByTestId("storage-quota-section")).toBeNull();
+    expect(screen.queryByTestId("sieve-rules-section")).toBeNull();
+    expect(screen.queryByTestId("vacation-section")).toBeNull();
 
     // Click privacy tab
     fireEvent.click(screen.getByTestId("settings-nav-privacy"));
@@ -183,7 +186,7 @@ describe("WebmailSettingsDrawer", () => {
       />,
     );
 
-    const oldPwdInput = screen.getByTestId("input-old-password");
+    const oldPwdInput = await screen.findByTestId("input-old-password");
     const newPwdInput = screen.getByTestId("input-new-password");
     const confirmPwdInput = screen.getByTestId("input-confirm-password");
     const submitBtn = screen.getByTestId("btn-change-password");

@@ -20,7 +20,7 @@ import type {
   MessageSummary,
   MailboxSortKey,
 } from "@/features/webmail/mailbox-api";
-import type { DensityMode } from "../types";
+import type { DensityMode, WebmailItem } from "../types";
 
 export interface SelectionApi {
   toggle: (uid: number, shift: boolean, meta: boolean) => void;
@@ -189,6 +189,59 @@ export function WebmailMessageList({
     clearSelection();
     setMoveOpen(false);
   };
+
+  const rowActionsRef = useRef({
+    onSelectMessage,
+    toggleSelect,
+    onToggleStar,
+    toggleThreadExpand,
+    onDeleteMessage,
+    onToggleRead,
+  });
+  rowActionsRef.current = {
+    onSelectMessage,
+    toggleSelect,
+    onToggleStar,
+    toggleThreadExpand,
+    onDeleteMessage,
+    onToggleRead,
+  };
+
+  const renderMessageRow = (item: WebmailItem) => (
+    <WebmailMessageRow
+      item={item}
+      isSelected={selectedUids.has(item.uid)}
+      isActive={activeUid === item.uid}
+      isCursor={cursorUid === item.uid}
+      density={density}
+      onSelect={() => rowActionsRef.current.onSelectMessage(item.uid)}
+      onToggleCheck={(event) => {
+        rowActionsRef.current.toggleSelect(
+          item.uid,
+          event.shiftKey,
+          event.metaKey || event.ctrlKey,
+        );
+      }}
+      onToggleStar={(event) => {
+        event.stopPropagation();
+        rowActionsRef.current.onToggleStar?.(item.uid);
+      }}
+      onToggleThread={(event) => {
+        event.stopPropagation();
+        if (item.threadId) {
+          rowActionsRef.current.toggleThreadExpand(item.threadId);
+        }
+      }}
+      onDelete={(event) => {
+        event.stopPropagation();
+        rowActionsRef.current.onDeleteMessage?.(item.uid);
+      }}
+      onToggleRead={(event) => {
+        event.stopPropagation();
+        rowActionsRef.current.onToggleRead?.(item.uid);
+      }}
+    />
+  );
 
   return (
     <div
@@ -409,75 +462,16 @@ export function WebmailMessageList({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <WebmailMessageRow
-                    item={item}
-                    isSelected={selectedUids.has(item.uid)}
-                    isActive={activeUid === item.uid}
-                    isCursor={cursorUid === item.uid}
-                    density={density}
-                    onSelect={() => onSelectMessage(item.uid)}
-                    onToggleCheck={(event) => {
-                      toggleSelect(
-                        item.uid,
-                        event.shiftKey,
-                        event.metaKey || event.ctrlKey,
-                      );
-                    }}
-                    onToggleStar={(event) => {
-                      event.stopPropagation();
-                      onToggleStar?.(item.uid);
-                    }}
-                    onToggleThread={(event) => {
-                      event.stopPropagation();
-                      if (item.threadId) toggleThreadExpand(item.threadId);
-                    }}
-                    onDelete={(event) => {
-                      event.stopPropagation();
-                      onDeleteMessage?.(item.uid);
-                    }}
-                    onToggleRead={(event) => {
-                      event.stopPropagation();
-                      onToggleRead?.(item.uid);
-                    }}
-                  />
+                  {renderMessageRow(item)}
                 </div>
               );
             })}
           </div>
         ) : (
           items.map((item) => (
-            <WebmailMessageRow
-              key={item.uid}
-              item={item}
-              isSelected={selectedUids.has(item.uid)}
-              isActive={activeUid === item.uid}
-              isCursor={cursorUid === item.uid}
-              density={density}
-              onSelect={() => onSelectMessage(item.uid)}
-              onToggleCheck={(event) => {
-                toggleSelect(
-                  item.uid,
-                  event.shiftKey,
-                  event.metaKey || event.ctrlKey,
-                );
-              }}
-              onToggleStar={(event) => {
-                event.stopPropagation();
-                onToggleStar?.(item.uid);
-              }}
-              onToggleThread={(event) => {
-                event.stopPropagation();
-                if (item.threadId) toggleThreadExpand(item.threadId);
-              }}
-              onDelete={(event) => {
-                event.stopPropagation();
-                onDeleteMessage?.(item.uid);
-              }}
-              onToggleRead={(event) => {
-                event.stopPropagation();
-                onToggleRead?.(item.uid);
-              }}
-            />
+            <div key={item.uid} className="contents">
+              {renderMessageRow(item)}
+            </div>
           ))
         )}
         {isLoadingMore && (
