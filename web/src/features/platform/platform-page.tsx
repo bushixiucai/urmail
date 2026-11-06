@@ -1745,7 +1745,10 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       </div>
 
       <div className={activeTab === "backup" ? "space-y-6" : "hidden"}>
-        <BackupOffsiteAdmin />
+        {/* Mount only when active: the offsite backup endpoint may not exist
+            on deployments whose backend predates the BE-04 contract, and a
+            404 on page load would surface as a console error. */}
+        {activeTab === "backup" && <BackupOffsiteAdmin />}
       </div>
 
       {/* Global Notice Alert Dialog */}
