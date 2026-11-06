@@ -81,28 +81,43 @@ export function WebmailContactsModal({
   // Group contacts by initial
   const filteredContacts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    if (!contacts || !Array.isArray(contacts)) return [];
     if (!q) return contacts;
-    return contacts.filter(
-      (c) =>
-        c.display_name.toLowerCase().includes(q) ||
-        c.emails.some((e) => e.address.toLowerCase().includes(q)),
-    );
+    return contacts.filter((c) => {
+      if (!c) return false;
+      const name = (c.display_name || "").toLowerCase();
+      const hasEmailMatch =
+        Array.isArray(c.emails) &&
+        c.emails.some((e) => (e?.address || "").toLowerCase().includes(q));
+      return name.includes(q) || hasEmailMatch;
+    });
   }, [contacts, searchQuery]);
 
   const groupedContacts = useMemo(() => {
     const map: Record<string, MailboxContact[]> = {};
     for (const contact of filteredContacts) {
-      const first = (contact.display_name.charAt(0) || "#").toUpperCase();
+      if (!contact) continue;
+      const name =
+        contact.display_name?.trim() ||
+        contact.emails?.[0]?.address?.trim() ||
+        t("contacts.unnamed", "Unnamed Contact");
+      const first = (name.charAt(0) || "#").toUpperCase();
       const key = /[A-Z]/.test(first) ? first : "#";
       if (!map[key]) map[key] = [];
       map[key].push(contact);
     }
     // Sort contacts within group
     for (const key of Object.keys(map)) {
-      map[key].sort((a, b) => a.display_name.localeCompare(b.display_name));
+      map[key].sort((a, b) => {
+        const nameA =
+          a?.display_name?.trim() || a?.emails?.[0]?.address?.trim() || "";
+        const nameB =
+          b?.display_name?.trim() || b?.emails?.[0]?.address?.trim() || "";
+        return nameA.localeCompare(nameB);
+      });
     }
     return map;
-  }, [filteredContacts]);
+  }, [filteredContacts, t]);
 
   if (!isOpen) return null;
 
@@ -246,7 +261,14 @@ export function WebmailContactsModal({
                     </div>
                     <div className="space-y-1">
                       {groupedContacts[letter].map((c) => {
-                        const email = c.emails?.[0]?.address || "";
+                        const email = c?.emails?.[0]?.address || "";
+                        const displayName =
+                          c?.display_name?.trim() ||
+                          email ||
+                          t("contacts.unnamed", "Unnamed Contact");
+                        const initial = (
+                          displayName.charAt(0) || "?"
+                        ).toUpperCase();
                         return (
                           <div
                             key={c.id}
@@ -255,11 +277,11 @@ export function WebmailContactsModal({
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <div className="w-8 h-8 rounded-full bg-[#E0E7FF] text-[#3730A3] font-bold text-xs flex items-center justify-center shrink-0">
-                                {c.display_name.charAt(0).toUpperCase()}
+                                {initial}
                               </div>
                               <div className="min-w-0">
                                 <div className="font-semibold text-xs text-[#18181B] truncate">
-                                  {c.display_name}
+                                  {displayName}
                                 </div>
                                 <div className="text-[11px] text-[#52525B] truncate font-mono">
                                   {email}

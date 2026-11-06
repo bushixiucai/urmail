@@ -14,6 +14,7 @@ import {
 import type { AdvancedSearchParams } from "./components/search/webmail-advanced-search-popover";
 import { WebmailSearchFilterChips } from "./components/search/webmail-search-filter-chips";
 import { WebmailContactsModal } from "./components/contacts/webmail-contacts-modal";
+import { WebmailErrorBoundary } from "./components/webmail-error-boundary";
 import { useWebmailPreferences } from "./use-webmail-preferences";
 import {
   listFolders,
@@ -33,6 +34,42 @@ import "./theme-vellum.css";
 
 interface WebmailNextWorkbenchProps {
   initialFolder?: string;
+}
+
+// Pure search query builder function aligned with backend grammar (internal/webmail/search.go).
+// Supported tokens: from:, to:, subject:, body:, text:, has:attachment, since:, before:
+// Note: Backend parser does NOT support filename: token and rejects unknown key: with 400.
+// Filename extension constraints are mapped to has:attachment at query time.
+export function buildSearchQuery(
+  searchQuery: string,
+  searchParams: AdvancedSearchParams,
+): string {
+  const parts: string[] = [];
+  if (searchQuery.trim()) parts.push(searchQuery.trim());
+  if (searchParams.from?.trim()) parts.push(`from:${searchParams.from.trim()}`);
+  if (searchParams.to?.trim()) parts.push(`to:${searchParams.to.trim()}`);
+  if (searchParams.subject?.trim())
+    parts.push(`subject:${searchParams.subject.trim()}`);
+  if (searchParams.body?.trim()) parts.push(`body:${searchParams.body.trim()}`);
+  if (searchParams.hasAttachment || searchParams.filenameExt?.trim()) {
+    parts.push("has:attachment");
+  }
+  if (searchParams.dateRange === "7d") {
+    const d = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    parts.push(`since:${d}`);
+  } else if (searchParams.dateRange === "30d") {
+    const d = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    parts.push(`since:${d}`);
+  } else if (searchParams.dateRange === "1y") {
+    const d = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    parts.push(`since:${d}`);
+  } else if (searchParams.dateRange === "custom") {
+    if (searchParams.dateFrom?.trim())
+      parts.push(`since:${searchParams.dateFrom.trim()}`);
+    if (searchParams.dateTo?.trim())
+      parts.push(`before:${searchParams.dateTo.trim()}`);
+  }
+  return parts.join(" ");
 }
 
 export function WebmailNextWorkbench({
@@ -113,23 +150,18 @@ export function WebmailNextWorkbench({
   };
 
   // Search query builder from simple search + advanced filter params
-  const compiledQuery = useMemo(() => {
-    const parts: string[] = [];
-    if (searchQuery.trim()) parts.push(searchQuery.trim());
-    if (searchParams.from) parts.push(`from:${searchParams.from}`);
-    if (searchParams.to) parts.push(`to:${searchParams.to}`);
-    if (searchParams.subject) parts.push(`subject:${searchParams.subject}`);
-    if (searchParams.body) parts.push(`body:${searchParams.body}`);
-    if (searchParams.hasAttachment) parts.push("has:attachment");
-    if (searchParams.filenameExt)
-      parts.push(`filename:${searchParams.filenameExt}`);
-    return parts.join(" ");
-  }, [searchQuery, searchParams]);
+  const compiledQuery = useMemo(
+    () => buildSearchQuery(searchQuery, searchParams),
+    [searchQuery, searchParams],
+  );
 
   const handleRemoveFilterChip = (key: keyof AdvancedSearchParams) => {
     setSearchParams((prev) => {
       const copy = { ...prev };
       delete copy[key];
+      if (key === "hasAttachment") {
+        delete copy.filenameExt;
+      }
       return copy;
     });
   };
@@ -318,10 +350,14 @@ export function WebmailNextWorkbench({
             <span>
               {t(
                 "webmail_next.vacation_banner_active",
-                "休假自动回复当前开启中 ({{from}} 至 {{until}})",
+                "Vacation autoresponder is currently active ({{from}} to {{until}})",
                 {
-                  from: vacationFromStr || "即日起",
-                  until: vacationUntilStr || "长期",
+                  from:
+                    vacationFromStr ||
+                    t("webmail_next.vacation_from_default", "today"),
+                  until:
+                    vacationUntilStr ||
+                    t("webmail_next.vacation_until_default", "indefinite"),
                 },
               )}
             </span>
@@ -332,7 +368,7 @@ export function WebmailNextWorkbench({
             onClick={handleQuickDisableVacation}
             className="text-xs font-semibold text-[#B45309] hover:text-[#78350F] underline ml-4 shrink-0"
           >
-            {t("webmail_next.vacation_quick_disable", "点击快速关闭")}
+            {t("webmail_next.vacation_quick_disable", "Turn off")}
           </button>
         </div>
       )}
@@ -375,24 +411,26 @@ export function WebmailNextWorkbench({
             onClearAll={handleClearAllFilters}
           />
 
-          <WebmailMessageList
-            folderName={activeFolder}
-            messages={messages}
-            activeUid={selectedUid}
-            onSelectMessage={(uid) => setSelectedUid(uid)}
-            density={density}
-            sort={sortKey}
-            order={sortOrder}
-            onSortChange={(key, ord) => {
-              setSortKey(key);
-              setSortOrder(ord);
-            }}
-            onRefresh={() => refetchMessages()}
-            isRefreshing={isRefetching || isListLoading}
-            onToggleStar={handleToggleStar}
-            onDeleteMessage={handleDeleteMessage}
-            onToggleRead={handleToggleRead}
-          />
+          <WebmailErrorBoundary onReset={() => refetchMessages()}>
+            <WebmailMessageList
+              folderName={activeFolder}
+              messages={messages}
+              activeUid={selectedUid}
+              onSelectMessage={(uid) => setSelectedUid(uid)}
+              density={density}
+              sort={sortKey}
+              order={sortOrder}
+              onSortChange={(key, ord) => {
+                setSortKey(key);
+                setSortOrder(ord);
+              }}
+              onRefresh={() => refetchMessages()}
+              isRefreshing={isRefetching || isListLoading}
+              onToggleStar={handleToggleStar}
+              onDeleteMessage={handleDeleteMessage}
+              onToggleRead={handleToggleRead}
+            />
+          </WebmailErrorBoundary>
         </div>
 
         {/* Pane 3: Reading Pane (Adaptive flex-1; full width on mobile when selected) */}
@@ -402,16 +440,18 @@ export function WebmailNextWorkbench({
             selectedUid ? "flex" : "hidden md:flex"
           }`}
         >
-          <WebmailReadingPane
-            message={messageDetail || null}
-            folderEnc={activeFolder}
-            isLoading={isDetailLoading}
-            onBack={() => setSelectedUid(null)}
-            onReply={handleReply}
-            onDelete={handleDeleteMessage}
-            onToggleStar={handleToggleStar}
-            onLoadRemoteImages={() => setLoadImagesForUid(selectedUid)}
-          />
+          <WebmailErrorBoundary onReset={() => refetchDetail()}>
+            <WebmailReadingPane
+              message={messageDetail || null}
+              folderEnc={activeFolder}
+              isLoading={isDetailLoading}
+              onBack={() => setSelectedUid(null)}
+              onReply={handleReply}
+              onDelete={handleDeleteMessage}
+              onToggleStar={handleToggleStar}
+              onLoadRemoteImages={() => setLoadImagesForUid(selectedUid)}
+            />
+          </WebmailErrorBoundary>
         </div>
       </div>
 
@@ -424,22 +464,26 @@ export function WebmailNextWorkbench({
       />
 
       {/* 4. Immersive Settings Drawer (Layer 30, z-500) */}
-      <WebmailSettingsDrawer
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        initialTab={settingsTab}
-        onVacationUpdated={refetchRules}
-      />
+      <WebmailErrorBoundary>
+        <WebmailSettingsDrawer
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          initialTab={settingsTab}
+          onVacationUpdated={refetchRules}
+        />
+      </WebmailErrorBoundary>
 
       {/* 5. Personal Contacts Modal */}
-      <WebmailContactsModal
-        isOpen={isContactsOpen}
-        onClose={() => setIsContactsOpen(false)}
-        onComposeTo={(email) => {
-          setComposeTo([email]);
-          setIsComposeOpen(true);
-        }}
-      />
+      <WebmailErrorBoundary>
+        <WebmailContactsModal
+          isOpen={isContactsOpen}
+          onClose={() => setIsContactsOpen(false)}
+          onComposeTo={(email) => {
+            setComposeTo([email]);
+            setIsComposeOpen(true);
+          }}
+        />
+      </WebmailErrorBoundary>
     </div>
   );
 }

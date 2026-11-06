@@ -84,7 +84,9 @@ export function WebmailReadingPane({
   const sender = message.from?.[0];
   const senderEmail = sender?.email || "";
   const senderName = sender?.name || senderEmail;
-  const isStarred = message.flags.includes("\\Flagged");
+  const isStarred = Boolean(
+    Array.isArray(message.flags) && message.flags.includes("\\Flagged"),
+  );
 
   // Check if remote images were blocked by server notes or HTML markers, or if HTML contains remote images
   const containsRemoteImages = Boolean(
@@ -94,7 +96,8 @@ export function WebmailReadingPane({
   );
   const hasBlockedImages =
     !imagesLoaded &&
-    (message.notes?.some((n) => n.includes("blocked_remote_image")) ||
+    ((Array.isArray(message.notes) &&
+      message.notes.some((n) => n?.includes("blocked_remote_image"))) ||
       containsRemoteImages);
 
   const handleShowImages = () => {
@@ -198,7 +201,7 @@ export function WebmailReadingPane({
           <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[#EBE8E0]">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-[var(--brand-primary,#2563eb)] text-white font-bold text-sm flex items-center justify-center shrink-0">
-                {senderName.charAt(0).toUpperCase()}
+                {(senderName || "?").charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">

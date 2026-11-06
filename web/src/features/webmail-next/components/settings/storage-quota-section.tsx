@@ -148,7 +148,7 @@ export function StorageQuotaSection() {
                   <p className="mt-0.5 text-[11px] text-[#B91C1C]">
                     {t(
                       "settings.quota.alert_desc",
-                      "邮箱空间严重不足，可能导致新邮件拒收。请及时清理不需要的邮件或附件。",
+                      "Mailbox storage is critically low, which may lead to inbound message rejection. Please delete unnecessary messages or large attachments.",
                     )}
                   </p>
                 </div>
@@ -169,7 +169,7 @@ export function StorageQuotaSection() {
                   <p className="mt-0.5 text-[11px] text-[#B45309]">
                     {t(
                       "settings.quota.warning_desc",
-                      "您的邮箱空间即将用尽。建议归档或删除较旧的带有大型附件的邮件。",
+                      "Your mailbox is running out of space. Consider archiving or deleting older messages with large attachments.",
                     )}
                   </p>
                 </div>
@@ -199,19 +199,19 @@ export function StorageQuotaSection() {
               <li>
                 {t(
                   "settings.quota.limit_total_attachment",
-                  "单封邮件总附件上限：10 MB (MAX_SEND_TOTAL_ATTACHMENT_BYTES)",
+                  "Total attachments per message limit: 10 MB (MAX_SEND_TOTAL_ATTACHMENT_BYTES)",
                 )}
               </li>
               <li>
                 {t(
                   "settings.quota.limit_single_attachment",
-                  "单文件附件大小上限：5 MB",
+                  "Single attachment file limit: 5 MB",
                 )}
               </li>
               <li>
                 {t(
                   "settings.quota.limit_auto_compress",
-                  "上传大型图片时系统将提供无损压缩提示以保障送达率",
+                  "Lossless compression prompt will be provided when uploading large images to ensure deliverability",
                 )}
               </li>
             </ul>

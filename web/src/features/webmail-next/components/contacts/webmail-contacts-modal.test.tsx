@@ -136,4 +136,32 @@ describe("WebmailContactsModal", () => {
     expect(onCompose).toHaveBeenCalledWith("alice@example.com");
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("handles malformed/corrupted contacts safely without crashing", async () => {
+    vi.mocked(mailboxApi.listContacts).mockResolvedValueOnce({
+      contacts: [
+        null as unknown as mailboxApi.MailboxContact,
+        {
+          id: 99,
+          version: 1,
+          // display_name missing, emails undefined
+        } as unknown as mailboxApi.MailboxContact,
+        {
+          id: 100,
+          version: 1,
+          display_name: "",
+          emails: [{ address: "orphan@example.com" }],
+        },
+      ],
+    });
+
+    render(<WebmailContactsModal isOpen={true} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("webmail-contacts-modal")).toBeTruthy();
+      expect(
+        screen.getAllByText("orphan@example.com").length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

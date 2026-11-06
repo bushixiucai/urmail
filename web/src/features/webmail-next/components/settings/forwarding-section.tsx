@@ -294,7 +294,7 @@ export function ForwardingSection() {
             <p className="text-xs text-[#52525B] leading-relaxed">
               {t(
                 "settings.forwarding.security_alert_text",
-                "系统将自动转发所有来信至指定邮箱（{{target}}），请确认该地址完全受您信任并由您合法授权。",
+                "All inbound messages will be automatically forwarded to the specified destination ({{target}}). Please confirm that this address is fully trusted and authorized by you.",
                 { target },
               )}
             </p>

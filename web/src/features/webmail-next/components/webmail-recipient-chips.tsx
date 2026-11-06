@@ -99,7 +99,7 @@ export function WebmailRecipientChips({
       ) {
         e.preventDefault();
         const contact = suggestions[selectedIndex];
-        const email = contact.emails?.[0]?.address;
+        const email = contact?.emails?.[0]?.address;
         if (email) {
           addRecipient(email);
           return;
@@ -170,17 +170,17 @@ export function WebmailRecipientChips({
             className="absolute left-0 top-full mt-1 w-80 max-h-56 overflow-y-auto bg-[#FFFFFF] border border-[#EBE8E0] rounded-lg shadow-xl z-50 py-1"
           >
             {suggestions.map((contact, idx) => {
-              const primaryEmail = contact.emails?.[0]?.address || "";
+              const primaryEmail = contact?.emails?.[0]?.address || "";
               const deptOrTitle =
-                contact.department ||
-                contact.job_title ||
-                contact.organization ||
+                contact?.department ||
+                contact?.job_title ||
+                contact?.organization ||
                 "";
               const isSelected = idx === selectedIndex;
 
               return (
                 <div
-                  key={contact.id || idx}
+                  key={contact?.id || idx}
                   data-testid={`corporate-suggestion-${idx}`}
                   onClick={() => addRecipient(primaryEmail)}
                   onMouseEnter={() => setSelectedIndex(idx)}
@@ -192,8 +192,8 @@ export function WebmailRecipientChips({
                 >
                   {/* Avatar badge */}
                   <div className="w-7 h-7 rounded-full bg-[#E0E7FF] text-[#3730A3] font-bold text-xs flex items-center justify-center shrink-0">
-                    {contact.display_name ? (
-                      contact.display_name.charAt(0).toUpperCase()
+                    {contact?.display_name?.trim() ? (
+                      contact.display_name.trim().charAt(0).toUpperCase()
                     ) : (
                       <User className="w-3.5 h-3.5" />
                     )}
@@ -203,7 +203,9 @@ export function WebmailRecipientChips({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-semibold text-xs truncate">
-                        {contact.display_name}
+                        {contact?.display_name?.trim() ||
+                          primaryEmail ||
+                          "Unknown"}
                       </span>
                       {deptOrTitle && (
                         <span className="text-[10px] text-[#71717A] truncate">

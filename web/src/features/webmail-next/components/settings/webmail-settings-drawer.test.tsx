@@ -221,6 +221,53 @@ describe("WebmailSettingsDrawer", () => {
     expect(nameInput.getAttribute("value")).toBe("Tiger W.");
   });
 
+  it("sanitizes malicious script and onerror injections in signature HTML preview (D3)", async () => {
+    vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValueOnce({
+      display_name: "Tiger Wang",
+      signature_text: "Malicious",
+      signature_html: `<p>Hello</p><script>alert('xss')</script><img src="x" onerror="alert(1)"/><a href="javascript:alert(2)">click</a>`,
+      preferences: {},
+      version: 1,
+      updated_at: "2026-11-06T00:00:00Z",
+      address: "tiger@urmail.cn",
+      identity_profiles: {
+        "tiger@urmail.cn": {
+          display_name: "Tiger Wang",
+          signature_text: "Malicious",
+          signature_html: `<p>Hello</p><script>alert('xss')</script><img src="x" onerror="alert(1)"/><a href="javascript:alert(2)">click</a>`,
+        },
+      },
+    });
+
+    render(
+      <WebmailSettingsDrawer
+        isOpen={true}
+        onClose={vi.fn()}
+        initialTab="signatures"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("signature-rendered-preview")).toBeTruthy();
+    });
+
+    const preview = screen.getByTestId("signature-rendered-preview");
+    const html = preview.innerHTML;
+
+    // Must strip active script tags
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("alert('xss')");
+
+    // Must strip onerror handler
+    expect(html).not.toContain("onerror");
+
+    // Must neutralize javascript: URLs
+    expect(html).not.toContain("javascript:");
+
+    // Legitimate content is preserved
+    expect(html).toContain("Hello");
+  });
+
   it("toggles and deletes sieve rules", async () => {
     render(
       <WebmailSettingsDrawer

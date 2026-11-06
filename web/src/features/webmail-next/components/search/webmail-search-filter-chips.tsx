@@ -46,11 +46,11 @@ export function WebmailSearchFilterChips({
     });
   }
 
-  if (params.hasAttachment) {
+  if (params.hasAttachment || params.filenameExt) {
     chips.push({
       key: "hasAttachment",
       label: params.filenameExt
-        ? `Attachment: *${params.filenameExt}`
+        ? `${t("search.chip_attachment", "Attachment")}: *${params.filenameExt}`
         : t("search.chip_has_attachment", "Has attachment"),
       icon: <Paperclip className="w-3 h-3 text-[#2563EB]" />,
     });

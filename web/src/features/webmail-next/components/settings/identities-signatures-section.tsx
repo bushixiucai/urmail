@@ -8,6 +8,7 @@ import {
   type MailboxIdentityProfile,
   type MailboxSettingsView,
 } from "@/features/webmail/mailbox-api";
+import { sanitizeHtmlMail } from "@/features/webmail/sanitize-html-mail";
 import {
   Users,
   PenTool,
@@ -375,7 +376,11 @@ export function IdentitiesSignaturesSection() {
                 <div
                   data-testid="signature-rendered-preview"
                   className="text-xs text-[#18181B]"
-                  dangerouslySetInnerHTML={{ __html: signatureHtml }}
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeHtmlMail(signatureHtml, {
+                      allowRemoteImages: true,
+                    }),
+                  }}
                 />
               ) : (
                 <div className="text-xs text-[#A1A1AA] italic">

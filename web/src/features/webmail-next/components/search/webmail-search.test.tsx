@@ -114,4 +114,59 @@ describe("WebmailAdvancedSearch", () => {
     );
     expect(screen.queryByTestId("search-filter-chips-bar")).toBeNull();
   });
+
+  describe("buildSearchQuery regression tests (D1 - no unsupported filename: token)", () => {
+    it("maps filenameExt to has:attachment and never emits filename: token", async () => {
+      const { buildSearchQuery } = await import("../../webmail-next-workbench");
+      const query = buildSearchQuery("invoice", {
+        from: "boss@corp.test",
+        subject: "report",
+        hasAttachment: true,
+        filenameExt: "pdf",
+      });
+
+      // Must include valid tokens
+      expect(query).toContain("invoice");
+      expect(query).toContain("from:boss@corp.test");
+      expect(query).toContain("subject:report");
+      expect(query).toContain("has:attachment");
+
+      // Critical D1 regression check: MUST NOT contain unsupported "filename:"
+      expect(query).not.toContain("filename:");
+      expect(query).not.toContain("filename:pdf");
+
+      // Only tokens containing colon must be one of backend supported prefixes
+      const tokens = query.split(/\s+/).filter((t) => t.includes(":"));
+      const allowedPrefixes = [
+        "from:",
+        "to:",
+        "subject:",
+        "body:",
+        "has:attachment",
+        "since:",
+        "before:",
+      ];
+      for (const tok of tokens) {
+        expect(
+          allowedPrefixes.some(
+            (p) => tok.startsWith(p) || tok === "has:attachment",
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it("handles date ranges into since: and before: without emitting unknown tokens", async () => {
+      const { buildSearchQuery } = await import("../../webmail-next-workbench");
+      const query7d = buildSearchQuery("", { dateRange: "7d" });
+      expect(query7d).toMatch(/^since:\d{4}-\d{2}-\d{2}$/);
+
+      const queryCustom = buildSearchQuery("", {
+        dateRange: "custom",
+        dateFrom: "2026-11-01",
+        dateTo: "2026-11-10",
+      });
+      expect(queryCustom).toContain("since:2026-11-01");
+      expect(queryCustom).toContain("before:2026-11-10");
+    });
+  });
 });

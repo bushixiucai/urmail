@@ -94,4 +94,17 @@ describe("WebmailReadingPane", () => {
       "finance@company.com",
     );
   });
+
+  it("handles malformed/corrupted message objects safely without crashing", () => {
+    // Malformed message with missing flags, notes, from, date, subject
+    const malformedMessage = {
+      uid: 999,
+      size: 0,
+    } as unknown as MessageDetail;
+
+    render(<WebmailReadingPane message={malformedMessage} folderEnc="INBOX" />);
+
+    expect(screen.getByTestId("webmail-reading-pane")).toBeTruthy();
+    expect(screen.getByText("(No subject)")).toBeTruthy();
+  });
 });
