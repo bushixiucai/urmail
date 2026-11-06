@@ -64,9 +64,18 @@ export function WebmailReadingPane({
     return (
       <div
         data-testid="webmail-reading-pane"
-        className="flex-1 h-full flex items-center justify-center bg-[#FAF9F5] text-xs text-[#52525B]"
+        className="flex-1 h-full bg-[#FAF9F5] p-6"
       >
-        Loading message...
+        <div
+          data-testid="reading-skeleton"
+          aria-busy="true"
+          aria-label={t("webmail_next.loading_message")}
+          className="animate-pulse space-y-3"
+        >
+          <div className="h-4 w-2/3 rounded bg-[#EBE8E0]" />
+          <div className="h-3 w-1/3 rounded bg-[#EBE8E0]" />
+          <div className="h-24 w-full rounded bg-[#EBE8E0]" />
+        </div>
       </div>
     );
   }

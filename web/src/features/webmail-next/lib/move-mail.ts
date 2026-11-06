@@ -6,13 +6,50 @@ export interface MoveDeps {
   move: (
     sourceEnc: string,
     body: { uids: number[]; to: string; uid_validity?: number },
-  ) => Promise<unknown>;
+  ) => Promise<{ destination_uids?: number[] }>;
   reloadFolders: () => Promise<MailboxFolder[]>;
+}
+
+export interface MoveUndo {
+  sourceEnc: string;
+  destinationEnc: string;
+  destinationUids: number[];
+}
+
+/** Undo only when COPYUID destination_uids align 1:1 with the requested UIDs. */
+export function moveUndoFromResponse(
+  sourceEnc: string,
+  destinationEnc: string,
+  requestedUids: number[],
+  response: { destination_uids?: number[] } | null | undefined,
+): MoveUndo | null {
+  const destinationUids = response?.destination_uids;
+  if (
+    !sourceEnc ||
+    !destinationEnc ||
+    requestedUids.length === 0 ||
+    !destinationUids ||
+    destinationUids.length !== requestedUids.length
+  ) {
+    return null;
+  }
+  return {
+    sourceEnc,
+    destinationEnc,
+    destinationUids: [...destinationUids],
+  };
+}
+
+export interface SpecialMoveResult {
+  name: string;
+  nameEnc: string;
+  undo: MoveUndo | null;
 }
 
 /**
  * Move UIDs to Archive or Trash. Creates the real mailbox name when missing.
- * Never calls delete, and never offers undo: the move response has no new UIDs.
+ * Never calls delete. Undo is available only when the response includes a
+ * destination_uids list the same length as the request.
  */
 export async function moveToSpecialFolder(
   folders: MailboxFolder[],
@@ -22,7 +59,7 @@ export async function moveToSpecialFolder(
   flag: "\\Archive" | "\\Trash",
   fallbackName: string,
   deps: MoveDeps,
-): Promise<string | null> {
+): Promise<SpecialMoveResult | null> {
   if (uids.length === 0 || !uidValidity) return null;
   let destination = resolveSpecialFolder(folders, flag, fallbackName);
   if (!destination) {
@@ -34,10 +71,14 @@ export async function moveToSpecialFolder(
     }
   }
   if (!destination) return null;
-  await deps.move(sourceEnc, {
+  const response = await deps.move(sourceEnc, {
     uids,
     to: destination.name,
     uid_validity: uidValidity,
   });
-  return destination.name;
+  return {
+    name: destination.name,
+    nameEnc: destination.name_enc,
+    undo: moveUndoFromResponse(sourceEnc, destination.name_enc, uids, response),
+  };
 }
