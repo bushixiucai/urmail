@@ -59,6 +59,15 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 	}
 
 	defaultLimit := resolveAIDefaultCallLimit(ctx, q, tenant)
+	if cfg.Mode == "platform" && defaultLimit > 0 {
+		if cfg.CostCurrency != "" && cfg.CostCurrency != "CNY" && cfg.CostCurrency != "USD" {
+			return result, errAIBudget
+		}
+		result.Limits.AI.Currency = cfg.CostCurrency
+		if result.Limits.AI.Currency == "" {
+			result.Limits.AI.Currency = "CNY"
+		}
+	}
 	if defaultLimit > 0 {
 		loc, locErr := aiQuotaLocation(ctx, q, cfg, tenant)
 		if locErr != nil {
@@ -69,7 +78,9 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 			return result, err
 		}
 		result.Source = "configured_nonplatform"
-		result.Independent = true
+		// The durable ledger only tracks platform-mode spend inside the shared
+		// window; BYO/local calls keep their independent per-mode calendar.
+		result.Independent = cfg.Mode != "platform"
 		result.Timezone = loc.String()
 		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
 		result.End = pgtype.Timestamptz{Time: end, Valid: true}

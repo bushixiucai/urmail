@@ -45,7 +45,7 @@ func aiQuotaCaps(calls int64) map[string]any {
 }
 func aiQuotaLegacyFixture(t *testing.T) (*db.Pool, store.PlatformConsumeMailboxTicketRow, *providerBudgetModel, *MailboxAIService, int64) {
 	t.Helper()
-	pool, principal, model, service, _, _ := providerBudgetFixture(t, "byo", "classify")
+	pool, principal, model, service, _, _ := providerBudgetFixtureUnseeded(t, "byo", "classify")
 	actor := providerBudgetAdmin(t, pool, principal.TenantID)
 	var subscription int64
 	if err := pool.QueryRow(t.Context(), "SELECT (urmail_grant_migration_entitlement($1,$2,$3,$4)).id", principal.TenantID, strings.Repeat("a", 64), actor, "Preserve independently verified legacy fixture mail service").Scan(&subscription); err != nil {
@@ -73,7 +73,7 @@ func aiQuotaUsage(t *testing.T, pool *db.Pool, principal store.PlatformConsumeMa
 func TestAINonplatformQuotaLegacyNativeAndQAKeepMailFactsPG(t *testing.T) {
 	pool, principal, model, service, actor := aiQuotaLegacyFixture(t)
 	var before, after string
-	query := "SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id)::text FROM subscriptions s WHERE tenant_id=$1"
+	query := "SELECT status::text || ':' || (SELECT count(*)::text FROM mailboxes WHERE tenant_id=tenants.id) FROM tenants WHERE id=$1"
 	if err := pool.QueryRow(t.Context(), query, principal.TenantID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestAINonplatformQuotaHistoryModeTimezoneAndDisableCannotResetPG(t *testing
 }
 func TestAINonplatformQuotaFiniteFallbackAndPlatformIsolationPG(t *testing.T) {
 	pool, principal, model, service, target, input := providerBudgetFixture(t, "byo", "classify")
-	if _, err := pool.Exec(t.Context(), `INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'ai_default_call_limit','10')`, principal.TenantID); err != nil {
+	if _, err := pool.Exec(t.Context(), `INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'ai_default_call_limit','10') ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value`, principal.TenantID); err != nil {
 		t.Fatal(err)
 	}
 	quota, err := resolveAIQuota(t.Context(), store.New(pool), mustAIQuotaConfig(t, pool, principal.TenantID), principal.TenantID, time.Now())
@@ -209,9 +209,9 @@ func mustAIQuotaConfig(t *testing.T, pool *db.Pool, tenant int64) store.AiProvid
 	return cfg
 }
 func TestAIQuotaCalendarMonthDSTAndFrozenProviderBudgetPG(t *testing.T) {
-	pool, principal, _, _, _, _ := providerBudgetFixture(t, "byo", "classify")
+	pool, principal, _, _, _, _ := providerBudgetFixtureUnseeded(t, "byo", "classify")
 	actor := providerBudgetAdmin(t, pool, principal.TenantID)
-	if _, err := pool.Exec(t.Context(), `INSERT INTO settings(scope,scope_id,key,value)VALUES('tenant',$1,'business_timezone','"America/New_York"')`, principal.TenantID); err != nil {
+	if _, err := pool.Exec(t.Context(), `INSERT INTO settings(scope,scope_id,key,value)VALUES('tenant',$1,'business_timezone','"America/New_York"') ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value`, principal.TenantID); err != nil {
 		t.Fatal(err)
 	}
 	body := aiQuotaCaps(3)

@@ -96,8 +96,19 @@ func askPG(t *testing.T, pool *db.Pool, principal store.PlatformConsumeMailboxTi
 	return askOnce(t, r, native, "invoice")
 }
 
+// seatAIPlatformBudget leaves the local call cap unconfigured and sets token or
+// cost columns as the binding platform budget, matching production admission
+// where the settings default only caps unconfigured tenants.
+func seatAIPlatformBudget(t *testing.T, pool *db.Pool, tenant int64) {
+	t.Helper()
+	if _, err := pool.Exec(t.Context(), `UPDATE ai_provider_configs SET daily_token_limit=9007199254740991,monthly_token_limit=9007199254740991,daily_cost_micros=9007199254740991,monthly_cost_micros=9007199254740991 WHERE tenant_id=$1`, tenant); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAISearchAskWritesReservationRowPerAskPG(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	rec := askPG(t, p, principal)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
@@ -116,6 +127,7 @@ func TestAISearchAskWritesReservationRowPerAskPG(t *testing.T) {
 
 func TestAISearchAskBudgetEnforcedAcrossTwoRequestsPG(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	// A daily token budget that only the first worst-case reservation fits:
 	// question + bounded excerpt context and output tokens are reserved per ask.
 	if _, err := p.Exec(context.Background(), "UPDATE ai_provider_configs SET daily_token_limit=$1 WHERE tenant_id=$2", 16500, principal.TenantID); err != nil {
@@ -138,6 +150,7 @@ func TestAISearchAskBudgetEnforcedAcrossTwoRequestsPG(t *testing.T) {
 
 func TestAISearchAskAnswerSurvivesAccountingPG(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	rec := askPG(t, p, principal)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "\"grounded\":true") {
 		t.Fatalf("answer failed: %d %s", rec.Code, rec.Body.String())
@@ -147,6 +160,7 @@ func TestAISearchAskAnswerSurvivesAccountingPG(t *testing.T) {
 
 func TestAISearchAskAccountingReserveAndSettlePG(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	accounting := AISearchAskAccounting{Pool: p}
 	reservation, err := accounting.Reserve(context.Background(), principal.TenantID, principal.MailboxID, "invoice")
 	if err != nil || reservation == nil {
@@ -187,6 +201,7 @@ func waitAskUsageStatus(t *testing.T, pool *db.Pool, tenant int64, want string) 
 
 func TestAISearchAskBYOKUnknownUsageCompletesWithoutPlatformSpend(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	if _, err := p.Exec(t.Context(), "UPDATE ai_provider_configs SET mode='byo' WHERE tenant_id=$1", principal.TenantID); err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 
 func TestAIUsageOrphanReservationCanBeReviewedWithoutAnotherMailboxCall(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	ctx := t.Context()
 	var id, owner int64
 	if err := p.QueryRow(ctx, "SELECT user_id FROM user_tenant_roles WHERE tenant_id=$1 AND role='owner'", principal.TenantID).Scan(&owner); err != nil {
@@ -52,6 +53,7 @@ func TestAIUsageOrphanReservationCanBeReviewedWithoutAnotherMailboxCall(t *testi
 
 func TestAIUsageMetadataDoesNotRoundLargeObservedTokens(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 10)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	ctx := t.Context()
 	if _, err := p.Exec(ctx, "INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,status,reserved_tokens,reserved_cost_micros,actual_tokens,provider,model,cost_currency,input_rate,output_rate) VALUES($1,$2,'huge-observed-token-count',repeat('b',64),now(),now()+interval '1 month','platform','uncertain',100,100,9007199254740993,'openai','fixture','CNY',1000000,1000000)", principal.TenantID, principal.MailboxID); err != nil {
 		t.Fatal(err)

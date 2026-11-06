@@ -11,6 +11,7 @@ import (
 // The new paid-term capacity gate must not revoke its existing mail authority.
 func TestLegacyFreeCapacityMigrationPreservesMailAuthority(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 1)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	ctx := context.Background()
 	if _, err := p.Exec(ctx, "UPDATE plans SET quota_bytes=1 WHERE code='free'"); err != nil {
 		t.Fatal(err)

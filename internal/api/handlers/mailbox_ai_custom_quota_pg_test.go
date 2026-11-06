@@ -127,6 +127,7 @@ func TestMailboxCustomAIConcurrencyAndSettingsSnapshotPG(t *testing.T) {
 
 func TestMailboxCustomAskReservationSharesBudgetWithoutPlatformChargePG(t *testing.T) {
 	pool, principal := mailboxAIFixture(t, 1)
+	seatAIPlatformBudget(t, pool, principal.TenantID)
 	target := customQuotaTarget(t, pool, principal, "ollama")
 	account := AISearchAskAccounting{Pool: pool}
 	reservation, err := account.ReserveCustom(t.Context(), principal.TenantID, principal.MailboxID, "Confirmed source question", target)
