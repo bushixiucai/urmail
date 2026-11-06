@@ -25,13 +25,10 @@ func seedRestoreExternalWork(t *testing.T, dsn string, latest bool) {
 	if _, err = conn.Exec(ctx, "SET ROLE urmail_platform"); err != nil {
 		t.Fatal(err)
 	}
-	query := `DO $$ DECLARE b bigint;t bigint;o bigint;p bigint; BEGIN
+	query := `DO $$ DECLARE b bigint;t bigint; BEGIN
  INSERT INTO brands(slug,name) VALUES('restore-replay','Restore') RETURNING id INTO b;
  INSERT INTO tenants(brand_id,name,slug,status) VALUES(b,'Restore','restore-replay','active') RETURNING id INTO t;
- INSERT INTO orders(tenant_id,order_no,kind,status,amount_cents,currency) VALUES(t,'restore-order','new','paid',1000,'CNY') RETURNING id INTO o;
- INSERT INTO payments(tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status) VALUES(t,o,'manual','stable-payment',1000,'CNY','succeeded') RETURNING id INTO p;
- INSERT INTO refunds(tenant_id,order_id,payment_id,refund_no,amount_cents,currency,status) VALUES(t,o,p,'stable-refund',100,'CNY','pending');
- INSERT INTO onboarding_tasks(tenant_id,order_id,status,leased_by,leased_until) VALUES(t,o,'running','old-source',now()+interval '1 hour');
+ INSERT INTO onboarding_tasks(tenant_id,status,leased_by,leased_until) VALUES(t,'running','old-source',now()+interval '1 hour');
  END $$;`
 	if _, err = conn.Exec(ctx, query); err != nil {
 		t.Fatal(err)
@@ -39,8 +36,8 @@ func seedRestoreExternalWork(t *testing.T, dsn string, latest bool) {
 	if !latest {
 		return
 	}
-	query = `DO $$ DECLARE t bigint;o bigint;d bigint;m bigint;c bigint;tpl bigint;l bigint;camp bigint;w bigint;u bigint; BEGIN
- SELECT id INTO t FROM tenants WHERE slug='restore-replay'; SELECT id INTO o FROM orders WHERE order_no='restore-order';
+	query = `DO $$ DECLARE t bigint;d bigint;m bigint;c bigint;tpl bigint;l bigint;camp bigint;w bigint;u bigint; BEGIN
+ SELECT id INTO t FROM tenants WHERE slug='restore-replay';
  INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES(t,'restore.example.test','active','fixture',now()) RETURNING id INTO d;
  INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes) VALUES(t,d,'alice','alice@restore.example.test','unused',1024) RETURNING id INTO m;
  INSERT INTO mailbox_scheduled_sends(tenant_id,mailbox_id,draft_folder,draft_uid,draft_uidvalidity,send_at,status,smtp_secret,claim_token,lease_until)
@@ -53,14 +50,11 @@ func seedRestoreExternalWork(t *testing.T, dsn string, latest bool) {
  INSERT INTO marketing_quota_windows(tenant_id,starts_at,ends_at,timezone,used_count) VALUES(t,now()-interval '1 hour',now()+interval '23 hours','Asia/Shanghai',3) RETURNING id INTO w;
  INSERT INTO marketing_recipients(tenant_id,campaign_id,email,status,lease_owner,lease_until,fence,window_id,reserved) VALUES(t,camp,'queued@example.test','queued',NULL,NULL,1,w,true),(t,camp,'leased@example.test','leased','old-source',now()+interval '1 hour',3,w,true),(t,camp,'sent@example.test','sent',NULL,NULL,5,w,true);
  INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,provider,model,cost_currency,input_rate,output_rate,reserved_tokens,reserved_cost_micros) VALUES(t,m,'stable-ai-request',repeat('a',64),now()-interval '1 hour',now()+interval '1 hour','platform','openai','fixture','CNY',1,1,100,75);
- INSERT INTO payment_checkout_intents(order_id,tenant_id,provider,account_scope,session_id,state) VALUES(o,t,'manual','stable-account','stable-session','ready');
  INSERT INTO notification_outbox(tenant_id,kind,message_key,dedupe_key,channel,recipient,recipient_verified) VALUES(t,'restore','fixture','stable-notification','email','verified@example.test',true);
  INSERT INTO notification_outbox(tenant_id,kind,message_key,dedupe_key,channel) VALUES(t,'restore','fixture','stable-inapp','in_app');
  INSERT INTO users(email,password_hash) VALUES('restore-user@example.test','unused') RETURNING id INTO u;
  INSERT INTO sessions(id,user_id,tenant_id,csrf_token,expires_at) VALUES('restore-session',u,t,'fixture',now()+interval '1 day');
  INSERT INTO platform_admins(user_id) VALUES(u);
- INSERT INTO refunds(tenant_id,order_id,payment_id,refund_no,amount_cents,currency,status,approved_by,approval_reason,provider_refund_no) SELECT t,o,id,'approved-stable-refund',200,'CNY','approved',u,'Approved before snapshot','upstream-stable-refund' FROM payments WHERE order_id=o;
- INSERT INTO refunds(tenant_id,order_id,payment_id,refund_no,amount_cents,currency,status,approved_by,approval_reason) SELECT t,o,id,'completed-stable-refund',300,'CNY','completed',u,'Completed before snapshot' FROM payments WHERE order_id=o;
  END $$;`
 	if _, err = conn.Exec(ctx, query); err != nil {
 		t.Fatal(err)
@@ -155,21 +149,9 @@ func assertRestoredRefundHeld(t *testing.T, dsn string) {
 		t.Fatal(err)
 	}
 	defer conn.Close(ctx)
-	var state, no, code string
-	var approved *int64
-	var reason *string
-	var amount int64
-	err = conn.QueryRow(ctx, `SELECT status,refund_no,last_error_code,approved_by,approval_reason,amount_cents FROM refunds WHERE refund_no='stable-refund'`).Scan(&state, &no, &code, &approved, &reason, &amount)
-	if err != nil || state != "uncertain" || no != "stable-refund" || amount != 100 || approved != nil || reason != nil || !strings.Contains(code, "RESTORE_RECONCILIATION_REQUIRED") {
-		t.Fatalf("refund fact was lost or replayable: state=%s no=%s amount=%d approved=%v reason=%v code=%s err=%v", state, no, amount, approved, reason, code, err)
-	}
-	var enabled string
-	if err = conn.QueryRow(ctx, `SELECT tgenabled::text FROM pg_trigger WHERE tgname='refund_approval_guard'`).Scan(&enabled); err != nil || enabled != "O" {
-		t.Fatalf("approval guard not restored: %s %v", enabled, err)
-	}
 	var task string
 	var owner *string
-	err = conn.QueryRow(ctx, `SELECT status,leased_by FROM onboarding_tasks WHERE order_id=(SELECT id FROM orders WHERE order_no='restore-order')`).Scan(&task, &owner)
+	err = conn.QueryRow(ctx, `SELECT ot.status,ot.leased_by FROM onboarding_tasks ot JOIN tenants tn ON tn.id=ot.tenant_id WHERE tn.slug='restore-replay'`).Scan(&task, &owner)
 	if err != nil || task != "blocked" || owner != nil {
 		t.Fatalf("onboarding replayable: %s %v %v", task, owner, err)
 	}

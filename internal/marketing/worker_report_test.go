@@ -78,14 +78,7 @@ func TestQuotaReservationRaceBetweenTwoWorkers(t *testing.T) {
 // a recorded reason instead of lingering past the grace window.
 func TestExecutionTimeEntitlementLossSkipsRecipient(t *testing.T) {
 	f := marketingFixture(t, 5, 1)
-	// The effective plan prefers subscription term snapshots over the plan row.
-	if _, err := f.platform.Exec(context.Background(), "UPDATE plans SET features='{}' WHERE code='marketing'"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.platform.Exec(context.Background(), "UPDATE subscription_terms SET plan_snapshot=plan_snapshot-'marketing_daily_recipient_limit'-'marketing_rate_per_minute' WHERE tenant_id=$1", f.tenant); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.platform.Exec(context.Background(), "UPDATE subscriptions SET plan_snapshot=NULL WHERE tenant_id=$1", f.tenant); err != nil {
+	if _, err := f.platform.Exec(context.Background(), "DELETE FROM settings WHERE scope='tenant' AND scope_id=$1 AND key IN('marketing_daily_recipient_limit','marketing_rate_per_minute')", f.tenant); err != nil {
 		t.Fatal(err)
 	}
 	sends := 0

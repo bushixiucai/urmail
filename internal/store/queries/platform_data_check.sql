@@ -1,29 +1,5 @@
 -- name: PlatformDataIssues :many
 SELECT 'archive_mailbox_tenant'::text AS issue,c.id::text AS row_id,c.tenant_id,p.tenant_id AS referenced_tenant_id FROM archive_entries c JOIN mailboxes p ON p.id=c.mailbox_id WHERE c.tenant_id<>p.tenant_id
 UNION ALL SELECT 'usage_mailbox_tenant',c.mailbox_id::text,c.tenant_id,p.tenant_id FROM mailbox_usage c JOIN mailboxes p ON p.id=c.mailbox_id WHERE c.tenant_id<>p.tenant_id
-UNION ALL SELECT 'item_order_tenant',c.id::text,c.tenant_id,p.tenant_id FROM order_items c JOIN orders p ON p.id=c.order_id WHERE c.tenant_id<>p.tenant_id
-UNION ALL SELECT 'payment_order_tenant',c.id::text,c.tenant_id,p.tenant_id FROM payments c JOIN orders p ON p.id=c.order_id WHERE c.tenant_id<>p.tenant_id
-UNION ALL SELECT 'redemption_order_tenant',c.coupon_code,c.tenant_id,p.tenant_id FROM coupon_redemptions c JOIN orders p ON p.id=c.order_id WHERE c.tenant_id<>p.tenant_id
-UNION ALL SELECT 'commission_order_tenant',c.id::text,c.tenant_id,p.tenant_id FROM commissions c JOIN orders p ON p.id=c.order_id WHERE c.tenant_id<>p.tenant_id
-UNION ALL SELECT 'unbounded_mailbox_in_finite_plan',m.id::text,m.tenant_id,m.tenant_id FROM mailboxes m JOIN subscriptions s ON s.tenant_id=m.tenant_id AND s.status IN('active','trialing','past_due') JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true WHERE p.quota_bytes>=0 AND m.quota_bytes<=0
-UNION ALL SELECT 'storage_overallocated',s.id::text,s.tenant_id,s.tenant_id FROM subscriptions s JOIN LATERAL urmail_effective_plan(s.tenant_id) p ON true WHERE s.status IN('active','trialing','past_due') AND p.quota_bytes>=0 AND (SELECT COALESCE(sum(m.quota_bytes),0) FROM mailboxes m WHERE m.tenant_id=s.tenant_id)>p.quota_bytes
-UNION ALL SELECT 'subscription_missing',t.id::text,t.id,t.id FROM tenants t WHERE NOT EXISTS(SELECT 1 FROM subscriptions s WHERE s.tenant_id=t.id AND s.status IN('active','trialing','past_due'))
 UNION ALL SELECT 'unsafe_mailbox_identity',m.id::text,m.tenant_id,m.tenant_id FROM mailboxes m JOIN domains d ON d.id=m.domain_id WHERE m.local_part IN('.','..') OR m.local_part ~ '[/\\]' OR m.address<>m.local_part||'@'||d.fqdn
-ORDER BY issue,tenant_id,row_id;
-
--- name: PlatformBillingLegacyIssues :many
-SELECT 'future_period_without_paid_terms'::text AS issue,s.tenant_id,s.id::text AS row_id,
-jsonb_build_object('plan_code',s.plan_id,'period_start',s.period_start,'period_end',s.period_end,'paid_order_count',(SELECT count(*) FROM orders o WHERE o.tenant_id=s.tenant_id AND o.status IN('paid','partially_refunded','refunded'))) AS detail
-FROM subscriptions s WHERE s.status IN('active','trialing','past_due') AND s.plan_id<>'free' AND s.period_start>now()
-AND NOT EXISTS(SELECT 1 FROM subscription_terms t WHERE t.tenant_id=s.tenant_id)
-UNION ALL
-SELECT 'trial_coupon_without_trial_entitlement',r.tenant_id,r.coupon_code,
-jsonb_build_object('coupon_code',r.coupon_code,'redeemed_at',r.created_at,'order_id',r.order_id)
-FROM coupon_redemptions r JOIN coupons c ON c.code=r.coupon_code WHERE c.kind='trial_days'
-AND NOT EXISTS(SELECT 1 FROM tenant_trials t WHERE t.tenant_id=r.tenant_id AND t.coupon_code=r.coupon_code)
-UNION ALL
-SELECT 'zero_order_with_cash_receipt',o.tenant_id,o.id::text,
-jsonb_build_object('order_no',o.order_no,'receipt_count',count(p.id))
-FROM orders o JOIN payments p ON p.tenant_id=o.tenant_id AND p.order_id=o.id
-WHERE o.amount_cents=0 GROUP BY o.tenant_id,o.id,o.order_no
 ORDER BY issue,tenant_id,row_id;

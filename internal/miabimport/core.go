@@ -117,12 +117,8 @@ func ApplyCore(ctx context.Context, pool *db.Pool, source *miadbinventory.Review
 	if err != nil {
 		return result, ErrRejected
 	}
-	if facts.Domains != 0 || facts.Mailboxes != 0 || facts.Aliases != 0 || facts.Orders != 0 || facts.Payments != 0 || facts.Invoices != 0 || facts.PaidTerms != 0 || facts.BillingCalendars != 0 || facts.Trials != 0 || facts.Imports != 0 {
+	if facts.Domains != 0 || facts.Mailboxes != 0 || facts.Aliases != 0 || facts.Imports != 0 {
 		return result, ErrTarget
-	}
-	result.Phase = "grant_legacy_service"
-	if _, err = q.PlatformGrantMigrationEntitlement(ctx, store.PlatformGrantMigrationEntitlementParams{TenantID: options.TenantID, ManifestSha256: result.PrivateProofSHA256, ActorID: options.ActorID, Reason: reason}); err != nil {
-		return result, ErrRejected
 	}
 	result.Phase = "domains"
 	domainIDs := make(map[string]int64, len(domains))

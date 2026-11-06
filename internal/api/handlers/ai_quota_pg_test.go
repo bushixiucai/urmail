@@ -45,12 +45,8 @@ func aiQuotaCaps(calls int64) map[string]any {
 }
 func aiQuotaLegacyFixture(t *testing.T) (*db.Pool, store.PlatformConsumeMailboxTicketRow, *providerBudgetModel, *MailboxAIService, int64) {
 	t.Helper()
-	pool, principal, model, service, _, _ := providerBudgetFixture(t, "byo", "classify")
+	pool, principal, model, service, _, _ := providerBudgetFixtureUnseeded(t, "byo", "classify")
 	actor := providerBudgetAdmin(t, pool, principal.TenantID)
-	var subscription int64
-	if err := pool.QueryRow(t.Context(), "SELECT (urmail_grant_migration_entitlement($1,$2,$3,$4)).id", principal.TenantID, strings.Repeat("a", 64), actor, "Preserve independently verified legacy fixture mail service").Scan(&subscription); err != nil {
-		t.Fatal(err)
-	}
 	return pool, principal, model, service, actor
 }
 func aiQuotaUsage(t *testing.T, pool *db.Pool, principal store.PlatformConsumeMailboxTicketRow) store.PlatformAIQuotaUsageRow {
@@ -73,7 +69,7 @@ func aiQuotaUsage(t *testing.T, pool *db.Pool, principal store.PlatformConsumeMa
 func TestAINonplatformQuotaLegacyNativeAndQAKeepMailFactsPG(t *testing.T) {
 	pool, principal, model, service, actor := aiQuotaLegacyFixture(t)
 	var before, after string
-	query := "SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id)::text FROM subscriptions s WHERE tenant_id=$1"
+	query := "SELECT status::text || ':' || (SELECT count(*)::text FROM mailboxes WHERE tenant_id=tenants.id) FROM tenants WHERE id=$1"
 	if err := pool.QueryRow(t.Context(), query, principal.TenantID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}

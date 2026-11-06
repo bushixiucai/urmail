@@ -13,12 +13,6 @@ SELECT
  (SELECT count(*) FROM domains fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS domains,
  (SELECT count(*) FROM mailboxes fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS mailboxes,
  (SELECT count(*) FROM mailbox_aliases fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS aliases,
- (SELECT count(*) FROM orders fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS orders,
- (SELECT count(*) FROM payments fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS payments,
- (SELECT count(*) FROM invoices fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS invoices,
- (SELECT count(*) FROM subscription_terms fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS paid_terms,
- (SELECT count(*) FROM billing_calendars fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS billing_calendars,
- (SELECT count(*) FROM tenant_trials fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint)::bigint AS trials,
  (SELECT count(*) FROM audit_logs fact WHERE fact.tenant_id=sqlc.arg(tenant_id)::bigint AND fact.action='IMPORT legacy.mail')::bigint AS imports;
 
 -- name: PlatformCreateLegacyAlias :one
@@ -43,8 +37,6 @@ RETURNING id;
 SELECT d.id,d.fqdn,d.dkim_selector,d.dkim_private_key,d.status,d.provisioning_state
 FROM domains d
 WHERE d.tenant_id=sqlc.arg(tenant_id)::bigint AND d.fqdn=ANY(sqlc.arg(domain_names)::text[])
- AND EXISTS(SELECT 1 FROM subscriptions s WHERE s.tenant_id=d.tenant_id AND s.entitlement_source='migration_legacy'
-  AND s.status='active' AND s.migration_manifest_sha256=sqlc.arg(core_proof_sha256)::text)
  AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=d.tenant_id AND a.action='IMPORT legacy.mail'
   AND a.detail->>'private_proof_sha256'=sqlc.arg(core_proof_sha256)::text AND a.detail->>'commit_outcome'='committed')
 ORDER BY d.fqdn FOR UPDATE OF d;
@@ -69,13 +61,6 @@ WHERE tenant_id=sqlc.arg(tenant_id)::bigint
  AND dns_explicit=false
  AND dkim_private_key IS NOT NULL
  AND dkim_private_key <> ''
- AND EXISTS(
-  SELECT 1 FROM subscriptions s
-  WHERE s.tenant_id=domains.tenant_id
-   AND s.status='active'
-   AND s.entitlement_source='migration_legacy'
-   AND s.migration_manifest_sha256=sqlc.arg(core_proof_sha256)::text
- )
  AND EXISTS(
   SELECT 1 FROM audit_logs a
   WHERE a.tenant_id=domains.tenant_id

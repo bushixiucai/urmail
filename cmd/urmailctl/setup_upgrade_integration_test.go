@@ -24,10 +24,6 @@ func TestSelfhostUpgradePreservesIdentityAndDevices(t *testing.T) {
 			testdb.MigrateTo(t, dsn, version)
 			conn, tenant, mailbox := seedSelfhostUpgrade(t, dsn)
 			ctx := t.Context()
-			var entitlement string
-			if err := conn.QueryRow(ctx, `SELECT jsonb_build_object('status',status,'source',entitlement_source,'end',period_end)::text FROM subscriptions WHERE tenant_id=$1`, tenant).Scan(&entitlement); err != nil {
-				t.Fatal(err)
-			}
 			if version >= 118 {
 				var book, calendar int64
 				if err := conn.QueryRow(ctx, `INSERT INTO mailbox_addressbooks(tenant_id,mailbox_id,name) VALUES($1,$2,'Personal') RETURNING id`, tenant, mailbox).Scan(&book); err != nil {
@@ -64,12 +60,9 @@ func TestSelfhostUpgradePreservesIdentityAndDevices(t *testing.T) {
 			if err = migrator.Up(ctx); err != nil {
 				t.Fatalf("repeat upgrade: %v", err)
 			}
-			var address, password, after string
+			var address, password string
 			if err = conn.QueryRow(ctx, `SELECT address,password_hash FROM mailboxes WHERE id=$1 AND tenant_id=$2`, mailbox, tenant).Scan(&address, &password); err != nil || address != "preserved@upgrade.example.test" || password != "{PLAIN}fixture-preserved-password" {
 				t.Fatalf("identity changed %q %q %v", address, password, err)
-			}
-			if err = conn.QueryRow(ctx, `SELECT jsonb_build_object('status',status,'source',entitlement_source,'end',period_end)::text FROM subscriptions WHERE tenant_id=$1`, tenant).Scan(&after); err != nil || after != entitlement {
-				t.Fatalf("entitlement changed: %s != %s (%v)", after, entitlement, err)
 			}
 			if version >= 118 {
 				var count int

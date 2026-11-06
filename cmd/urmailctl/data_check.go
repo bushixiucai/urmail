@@ -39,19 +39,11 @@ func writeDataCheck(ctx context.Context, pool *db.Pool, output io.Writer) error 
 	if err != nil {
 		return err
 	}
-	billingIssues, err := q.PlatformBillingLegacyIssues(ctx)
-	if err != nil {
+	if err = json.NewEncoder(output).Encode(map[string]any{"reference_and_allocation_issues": rows, "changed": false}); err != nil {
 		return err
 	}
-	billingReport := make([]map[string]any, 0, len(billingIssues))
-	for _, issue := range billingIssues {
-		billingReport = append(billingReport, map[string]any{"issue": issue.Issue, "tenant_id": issue.TenantID, "row_id": issue.RowID, "detail": json.RawMessage(issue.Detail)})
-	}
-	if err = json.NewEncoder(output).Encode(map[string]any{"reference_and_allocation_issues": rows, "legacy_billing_issues": billingReport, "changed": false}); err != nil {
-		return err
-	}
-	if len(rows)+len(billingIssues) > 0 {
-		return fmt.Errorf("%d reference/allocation and legacy billing issues; no data changed", len(rows)+len(billingIssues))
+	if len(rows) > 0 {
+		return fmt.Errorf("%d reference/allocation issues; no data changed", len(rows))
 	}
 	return nil
 }

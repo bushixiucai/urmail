@@ -38,10 +38,19 @@ func (m *providerBudgetModel) Complete(ctx context.Context, _ ai.CompletionReque
 }
 func providerBudgetFixture(t *testing.T, mode, operation string) (*db.Pool, store.PlatformConsumeMailboxTicketRow, *providerBudgetModel, *MailboxAIService, string, ai.OperationInput) {
 	t.Helper()
-	pool, principal := mailboxAIFixture(t, 30)
-	if _, err := pool.Exec(t.Context(), `UPDATE plans SET features=jsonb_set(features,'{ai,concurrency}','8') WHERE code='free';UPDATE subscriptions SET plan_snapshot=jsonb_set(plan_snapshot,'{features,ai,concurrency}','8')`); err != nil {
+	pool, principal, model, service, target, input := providerBudgetFixtureUnseeded(t, mode, operation)
+	// The platform default quota must be a real bound for token/cost checks.
+	if _, err := pool.Exec(t.Context(), "INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'ai_default_call_limit',to_jsonb(30::bigint)) ON CONFLICT(scope,scope_id,key) DO UPDATE SET value=EXCLUDED.value"); err != nil {
 		t.Fatal(err)
 	}
+	return pool, principal, model, service, target, input
+}
+
+// providerBudgetFixtureUnseeded leaves AI admission unconfigured so each test
+// decides its own quota facts (fail-closed cases stay genuinely unconfigured).
+func providerBudgetFixtureUnseeded(t *testing.T, mode, operation string) (*db.Pool, store.PlatformConsumeMailboxTicketRow, *providerBudgetModel, *MailboxAIService, string, ai.OperationInput) {
+	t.Helper()
+	pool, principal := mailboxAIFixture(t, 0)
 	if mode == "byo" {
 		if _, err := pool.Exec(t.Context(), "UPDATE ai_provider_configs SET mode='byo' WHERE tenant_id=$1", principal.TenantID); err != nil {
 			t.Fatal(err)

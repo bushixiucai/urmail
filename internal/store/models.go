@@ -237,39 +237,6 @@ type BackupRuns struct {
 	RetentionDeleted int32              `json:"retention_deleted"`
 }
 
-type BillingCalendars struct {
-	TenantID        int64              `json:"tenant_id"`
-	Timezone        string             `json:"timezone"`
-	FirstPaidAt     pgtype.Timestamptz `json:"first_paid_at"`
-	AnchorAt        pgtype.Timestamptz `json:"anchor_at"`
-	AnchorWall      []byte             `json:"anchor_wall"`
-	FirstAnchorWall []byte             `json:"first_anchor_wall"`
-	Version         int64              `json:"version"`
-	Source          string             `json:"source"`
-	ReviewReason    string             `json:"review_reason"`
-	CreatedBy       pgtype.Int8        `json:"created_by"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-}
-
-type BillingOrderAuthorizations struct {
-	OrderID         int64              `json:"order_id"`
-	TenantID        int64              `json:"tenant_id"`
-	AuthorityDigest string             `json:"authority_digest"`
-	AuthorizedBy    pgtype.Int8        `json:"authorized_by"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-}
-
-type BillingQuotes struct {
-	Digest           string             `json:"digest"`
-	TenantID         int64              `json:"tenant_id"`
-	Payload          []byte             `json:"payload"`
-	PlanSnapshot     []byte             `json:"plan_snapshot"`
-	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	DocumentSnapshot []byte             `json:"document_snapshot"`
-}
-
 type BrandHostChallenges struct {
 	Hostname    string             `json:"hostname"`
 	TokenDigest string             `json:"token_digest"`
@@ -334,13 +301,6 @@ type CollectorCheckpoints struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
-type CommissionRefundAdjustments struct {
-	RefundID     int64              `json:"refund_id"`
-	CommissionID int64              `json:"commission_id"`
-	AmountCents  int64              `json:"amount_cents"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-}
-
 type Commissions struct {
 	ID              int64              `json:"id"`
 	ChannelID       int64              `json:"channel_id"`
@@ -367,31 +327,6 @@ type ComplianceGrants struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	OwnerConfirmedAt pgtype.Timestamptz `json:"owner_confirmed_at"`
-}
-
-type CouponRedemptions struct {
-	CouponCode string             `json:"coupon_code"`
-	TenantID   int64              `json:"tenant_id"`
-	OrderID    pgtype.Int8        `json:"order_id"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-}
-
-type Coupons struct {
-	Code             string             `json:"code"`
-	Kind             string             `json:"kind"`
-	Value            int64              `json:"value"`
-	MaxRedemptions   pgtype.Int4        `json:"max_redemptions"`
-	RedeemedCount    int32              `json:"redeemed_count"`
-	ValidFrom        pgtype.Timestamptz `json:"valid_from"`
-	ValidTo          pgtype.Timestamptz `json:"valid_to"`
-	Active           bool               `json:"active"`
-	Currency         pgtype.Text        `json:"currency"`
-	BoundTenantID    pgtype.Int8        `json:"bound_tenant_id"`
-	SourceCouponCode pgtype.Text        `json:"source_coupon_code"`
-	SourceTenantID   pgtype.Int8        `json:"source_tenant_id"`
-	ReissueReason    pgtype.Text        `json:"reissue_reason"`
-	ReissuedBy       pgtype.Int8        `json:"reissued_by"`
-	ReissuedAt       pgtype.Timestamptz `json:"reissued_at"`
 }
 
 type DeliveryEvents struct {
@@ -563,23 +498,6 @@ type Domains struct {
 	ProvisioningState     string             `json:"provisioning_state"`
 	DnsExplicit           bool               `json:"dns_explicit"`
 	CustomWebEnabled      bool               `json:"custom_web_enabled"`
-}
-
-type Invoices struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	Number           string             `json:"number"`
-	PeriodStart      pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd        pgtype.Timestamptz `json:"period_end"`
-	AmountCents      int64              `json:"amount_cents"`
-	Currency         string             `json:"currency"`
-	Status           string             `json:"status"`
-	PdfPath          pgtype.Text        `json:"pdf_path"`
-	IssuedAt         pgtype.Timestamptz `json:"issued_at"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	OrderID          pgtype.Int8        `json:"order_id"`
-	DocumentSnapshot []byte             `json:"document_snapshot"`
-	SourcePaymentID  pgtype.Int8        `json:"source_payment_id"`
 }
 
 type MailboxAddressbooks struct {
@@ -1293,167 +1211,6 @@ type OperationalAlerts struct {
 	ResolvedAt  pgtype.Timestamptz `json:"resolved_at"`
 }
 
-type OrderItems struct {
-	ID             int64       `json:"id"`
-	OrderID        int64       `json:"order_id"`
-	TenantID       int64       `json:"tenant_id"`
-	Kind           string      `json:"kind"`
-	PlanCode       pgtype.Text `json:"plan_code"`
-	Quantity       int32       `json:"quantity"`
-	UnitPriceCents int64       `json:"unit_price_cents"`
-	AmountCents    int64       `json:"amount_cents"`
-	Meta           []byte      `json:"meta"`
-}
-
-type Orders struct {
-	ID             int64              `json:"id"`
-	TenantID       int64              `json:"tenant_id"`
-	OrderNo        string             `json:"order_no"`
-	Kind           string             `json:"kind"`
-	Status         string             `json:"status"`
-	AmountCents    int64              `json:"amount_cents"`
-	Currency       string             `json:"currency"`
-	PlanCode       pgtype.Text        `json:"plan_code"`
-	ChannelID      pgtype.Int8        `json:"channel_id"`
-	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	PaidAt         pgtype.Timestamptz `json:"paid_at"`
-	BillingCycle   string             `json:"billing_cycle"`
-	QuoteDigest    pgtype.Text        `json:"quote_digest"`
-}
-
-type PaymentCheckoutIntents struct {
-	OrderID      int64              `json:"order_id"`
-	TenantID     int64              `json:"tenant_id"`
-	Provider     string             `json:"provider"`
-	AccountScope string             `json:"account_scope"`
-	SessionID    pgtype.Text        `json:"session_id"`
-	CheckoutUrl  pgtype.Text        `json:"checkout_url"`
-	QrCode       pgtype.Text        `json:"qr_code"`
-	State        string             `json:"state"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	// Restored side-effect uncertainty requires an explicit platform receipt review even after instance quarantine is released
-	RestoreHold bool `json:"restore_hold"`
-}
-
-type PaymentEvents struct {
-	ID              int64              `json:"id"`
-	Provider        string             `json:"provider"`
-	ProviderEventID string             `json:"provider_event_id"`
-	Payload         []byte             `json:"payload"`
-	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
-	AccountScope    string             `json:"account_scope"`
-}
-
-type PaymentManualReviews struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	OrderID          int64              `json:"order_id"`
-	PaymentID        int64              `json:"payment_id"`
-	Reason           string             `json:"reason"`
-	Status           string             `json:"status"`
-	ResolutionReason pgtype.Text        `json:"resolution_reason"`
-	ResolvedBy       pgtype.Int8        `json:"resolved_by"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ResolvedAt       pgtype.Timestamptz `json:"resolved_at"`
-}
-
-type PaymentMerchants struct {
-	ID              int64              `json:"id"`
-	Provider        string             `json:"provider"`
-	Environment     string             `json:"environment"`
-	AccountID       string             `json:"account_id"`
-	Name            string             `json:"name"`
-	Enabled         bool               `json:"enabled"`
-	Currencies      []string           `json:"currencies"`
-	Entrypoint      string             `json:"entrypoint"`
-	EncryptedConfig string             `json:"encrypted_config"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	// Explicit per-currency merchant/API checkout bounds; empty means unavailable for new payments, historical fact reconciliation remains enabled
-	CheckoutLimits []byte `json:"checkout_limits"`
-}
-
-type PaymentRecurringCapabilities struct {
-	MerchantID        int64              `json:"merchant_id"`
-	AdapterKey        string             `json:"adapter_key"`
-	MerchantApproved  bool               `json:"merchant_approved"`
-	RuntimeAvailable  bool               `json:"runtime_available"`
-	EvidenceAt        pgtype.Timestamptz `json:"evidence_at"`
-	EvidenceExpiresAt pgtype.Timestamptz `json:"evidence_expires_at"`
-	EvidenceKind      string             `json:"evidence_kind"`
-	MerchantConfigAt  pgtype.Timestamptz `json:"merchant_config_at"`
-	EvidenceReference string             `json:"evidence_reference"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-}
-
-type PaymentWebhookInbox struct {
-	MerchantID      int64              `json:"merchant_id"`
-	EventID         string             `json:"event_id"`
-	PayloadHash     string             `json:"payload_hash"`
-	Payload         []byte             `json:"payload"`
-	State           string             `json:"state"`
-	ProcessingUntil pgtype.Timestamptz `json:"processing_until"`
-	ResultCode      pgtype.Text        `json:"result_code"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-}
-
-type PaymentWebhookRejectionBudget struct {
-	Singleton   bool               `json:"singleton"`
-	MinuteStart pgtype.Timestamptz `json:"minute_start"`
-	Writes      int32              `json:"writes"`
-}
-
-type PaymentWebhookRejections struct {
-	MerchantID       int64              `json:"merchant_id"`
-	BucketStart      pgtype.Timestamptz `json:"bucket_start"`
-	Reason           string             `json:"reason"`
-	Occurrences      int64              `json:"occurrences"`
-	LastPayloadHash  string             `json:"last_payload_hash"`
-	LastPayloadBytes int32              `json:"last_payload_bytes"`
-	LastSeenAt       pgtype.Timestamptz `json:"last_seen_at"`
-}
-
-type Payments struct {
-	ID            int64              `json:"id"`
-	TenantID      int64              `json:"tenant_id"`
-	OrderID       pgtype.Int8        `json:"order_id"`
-	Provider      string             `json:"provider"`
-	ProviderTxnID pgtype.Text        `json:"provider_txn_id"`
-	AmountCents   int64              `json:"amount_cents"`
-	Currency      string             `json:"currency"`
-	Status        string             `json:"status"`
-	Raw           []byte             `json:"raw"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	PaidAt        pgtype.Timestamptz `json:"paid_at"`
-	AccountScope  string             `json:"account_scope"`
-}
-
-type PlanPrices struct {
-	PlanCode     string             `json:"plan_code"`
-	Currency     string             `json:"currency"`
-	BillingCycle string             `json:"billing_cycle"`
-	AmountCents  int64              `json:"amount_cents"`
-	Version      int64              `json:"version"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-}
-
-type Plans struct {
-	Code           string `json:"code"`
-	Name           []byte `json:"name"`
-	Description    []byte `json:"description"`
-	PriceCents     int64  `json:"price_cents"`
-	Currency       string `json:"currency"`
-	QuotaBytes     int64  `json:"quota_bytes"`
-	MailboxLimit   int32  `json:"mailbox_limit"`
-	DomainLimit    int32  `json:"domain_limit"`
-	DailySendLimit int32  `json:"daily_send_limit"`
-	Features       []byte `json:"features"`
-	SortOrder      int32  `json:"sort_order"`
-	Active         bool   `json:"active"`
-}
-
 type PlatformAdmins struct {
 	UserID    int64              `json:"user_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
@@ -1485,69 +1242,6 @@ type RecallRequests struct {
 	AttemptEpoch     int64              `json:"attempt_epoch"`
 	LocalResult      []byte             `json:"local_result"`
 	ResultHistory    []byte             `json:"result_history"`
-}
-
-type RecurringSetupIntents struct {
-	ID                int64              `json:"id"`
-	TenantID          int64              `json:"tenant_id"`
-	SubscriptionID    int64              `json:"subscription_id"`
-	ActorID           int64              `json:"actor_id"`
-	MerchantID        int64              `json:"merchant_id"`
-	RequestKey        string             `json:"request_key"`
-	RequestID         string             `json:"request_id"`
-	QuoteDigest       string             `json:"quote_digest"`
-	Currency          string             `json:"currency"`
-	ExpectedPeriodEnd pgtype.Timestamptz `json:"expected_period_end"`
-	MerchantConfigAt  pgtype.Timestamptz `json:"merchant_config_at"`
-	State             string             `json:"state"`
-	Version           int64              `json:"version"`
-	ProviderReference string             `json:"provider_reference"`
-	HostedUrl         string             `json:"hosted_url"`
-	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
-	BindingID         pgtype.Int8        `json:"binding_id"`
-	LastError         string             `json:"last_error"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-}
-
-type Refunds struct {
-	ID                       int64              `json:"id"`
-	TenantID                 int64              `json:"tenant_id"`
-	OrderID                  int64              `json:"order_id"`
-	PaymentID                pgtype.Int8        `json:"payment_id"`
-	RefundNo                 string             `json:"refund_no"`
-	AmountCents              int64              `json:"amount_cents"`
-	Currency                 string             `json:"currency"`
-	Reason                   string             `json:"reason"`
-	Status                   string             `json:"status"`
-	ProviderRefundNo         pgtype.Text        `json:"provider_refund_no"`
-	CreatedAt                pgtype.Timestamptz `json:"created_at"`
-	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
-	RequestedAmountCents     int64              `json:"requested_amount_cents"`
-	ApprovedBy               pgtype.Int8        `json:"approved_by"`
-	ApprovedAt               pgtype.Timestamptz `json:"approved_at"`
-	ApprovalReason           pgtype.Text        `json:"approval_reason"`
-	EntitlementAction        string             `json:"entitlement_action"`
-	EntitlementEffectiveAt   pgtype.Timestamptz `json:"entitlement_effective_at"`
-	TargetTermOrderID        pgtype.Int8        `json:"target_term_order_id"`
-	EntitlementAppliedAt     pgtype.Timestamptz `json:"entitlement_applied_at"`
-	LastErrorCode            pgtype.Text        `json:"last_error_code"`
-	RequestStartedAt         pgtype.Timestamptz `json:"request_started_at"`
-	NextAttemptAt            pgtype.Timestamptz `json:"next_attempt_at"`
-	DispatchAttempts         int32              `json:"dispatch_attempts"`
-	NextReconcileAt          pgtype.Timestamptz `json:"next_reconcile_at"`
-	NextEntitlementAttemptAt pgtype.Timestamptz `json:"next_entitlement_attempt_at"`
-}
-
-type RegistrationRequests struct {
-	TokenHash    string             `json:"token_hash"`
-	Email        string             `json:"email"`
-	PasswordHash string             `json:"password_hash"`
-	TenantName   string             `json:"tenant_name"`
-	BrandID      int64              `json:"brand_id"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
-	ConsumedAt   pgtype.Timestamptz `json:"consumed_at"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
 type RestoreQuarantine struct {
@@ -1611,126 +1305,6 @@ type Settings struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
-type SubscriptionChanges struct {
-	TenantID       int64              `json:"tenant_id"`
-	TargetPlanCode string             `json:"target_plan_code"`
-	EffectiveAt    pgtype.Timestamptz `json:"effective_at"`
-	Status         string             `json:"status"`
-	RequestedBy    int64              `json:"requested_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-}
-
-type SubscriptionRenewalAttempts struct {
-	ID                 int64              `json:"id"`
-	TenantID           int64              `json:"tenant_id"`
-	SubscriptionID     int64              `json:"subscription_id"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	State              string             `json:"state"`
-	Attempts           int32              `json:"attempts"`
-	NextAttemptAt      pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError          string             `json:"last_error"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	DedupeKey          string             `json:"dedupe_key"`
-	EnrollmentID       pgtype.Int8        `json:"enrollment_id"`
-	BindingID          pgtype.Int8        `json:"binding_id"`
-	MerchantID         pgtype.Int8        `json:"merchant_id"`
-	MerchantScope      string             `json:"merchant_scope"`
-	AmountCents        pgtype.Int8        `json:"amount_cents"`
-	Currency           pgtype.Text        `json:"currency"`
-	PlanSnapshot       []byte             `json:"plan_snapshot"`
-	PlanSnapshotDigest string             `json:"plan_snapshot_digest"`
-	BillingCycle       pgtype.Text        `json:"billing_cycle"`
-	ClaimToken         int64              `json:"claim_token"`
-	ChargeCount        int32              `json:"charge_count"`
-	ChargeHistory      []byte             `json:"charge_history"`
-	LeaseUntil         pgtype.Timestamptz `json:"lease_until"`
-	SideEffectIntentAt pgtype.Timestamptz `json:"side_effect_intent_at"`
-	ProviderRequestID  string             `json:"provider_request_id"`
-	RenewalPeriodEnd   pgtype.Timestamptz `json:"renewal_period_end"`
-	CalendarSnapshot   []byte             `json:"calendar_snapshot"`
-}
-
-type SubscriptionRenewalAuthorizations struct {
-	ID                      int64              `json:"id"`
-	TenantID                int64              `json:"tenant_id"`
-	SubscriptionID          int64              `json:"subscription_id"`
-	MerchantID              int64              `json:"merchant_id"`
-	AuthorizationCiphertext string             `json:"authorization_ciphertext"`
-	AuthorizationHash       string             `json:"authorization_hash"`
-	Label                   string             `json:"label"`
-	Currency                string             `json:"currency"`
-	VerifiedAt              pgtype.Timestamptz `json:"verified_at"`
-	ExpiresAt               pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt               pgtype.Timestamptz `json:"revoked_at"`
-	MerchantConfigAt        pgtype.Timestamptz `json:"merchant_config_at"`
-	CreatedAt               pgtype.Timestamptz `json:"created_at"`
-}
-
-type SubscriptionRenewalEnrollments struct {
-	ID                 int64              `json:"id"`
-	TenantID           int64              `json:"tenant_id"`
-	SubscriptionID     int64              `json:"subscription_id"`
-	BindingID          int64              `json:"binding_id"`
-	State              string             `json:"state"`
-	Version            int64              `json:"version"`
-	ConsentVersion     string             `json:"consent_version"`
-	ConsentedBy        int64              `json:"consented_by"`
-	ConsentedAt        pgtype.Timestamptz `json:"consented_at"`
-	RevokedAt          pgtype.Timestamptz `json:"revoked_at"`
-	ConsentQuoteDigest string             `json:"consent_quote_digest"`
-	AmountCents        int64              `json:"amount_cents"`
-	Currency           string             `json:"currency"`
-	BillingCycle       string             `json:"billing_cycle"`
-	PlanID             string             `json:"plan_id"`
-	PlanSnapshot       []byte             `json:"plan_snapshot"`
-	PlanSnapshotDigest string             `json:"plan_snapshot_digest"`
-	ExpectedPeriodEnd  pgtype.Timestamptz `json:"expected_period_end"`
-	RenewalPeriodEnd   pgtype.Timestamptz `json:"renewal_period_end"`
-	CalendarSnapshot   []byte             `json:"calendar_snapshot"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-}
-
-type SubscriptionTerms struct {
-	OrderID            int64              `json:"order_id"`
-	TenantID           int64              `json:"tenant_id"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	BillingPeriodStart pgtype.Timestamptz `json:"billing_period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	PlanSnapshot       []byte             `json:"plan_snapshot"`
-	BaseAmountCents    int64              `json:"base_amount_cents"`
-	Currency           string             `json:"currency"`
-	BillingCycle       string             `json:"billing_cycle"`
-	BasisOrderID       pgtype.Int8        `json:"basis_order_id"`
-	RevokedAt          pgtype.Timestamptz `json:"revoked_at"`
-	RevokedByRefund    pgtype.Int8        `json:"revoked_by_refund"`
-	CalendarSnapshot   []byte             `json:"calendar_snapshot"`
-}
-
-type Subscriptions struct {
-	ID                      int64              `json:"id"`
-	TenantID                int64              `json:"tenant_id"`
-	PlanID                  string             `json:"plan_id"`
-	Status                  string             `json:"status"`
-	PeriodStart             pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd               pgtype.Timestamptz `json:"period_end"`
-	CancelAtPeriodEnd       bool               `json:"cancel_at_period_end"`
-	TrialEndsAt             pgtype.Timestamptz `json:"trial_ends_at"`
-	CreatedAt               pgtype.Timestamptz `json:"created_at"`
-	BillingCycle            string             `json:"billing_cycle"`
-	PlanSnapshot            []byte             `json:"plan_snapshot"`
-	EntitlementSource       string             `json:"entitlement_source"`
-	MigrationManifestSha256 pgtype.Text        `json:"migration_manifest_sha256"`
-}
-
-type TenantContacts struct {
-	TenantID           int64              `json:"tenant_id"`
-	Email              string             `json:"email"`
-	VerifiedAt         pgtype.Timestamptz `json:"verified_at"`
-	RegistrationSource string             `json:"registration_source"`
-}
-
 type TenantDirectoryContacts struct {
 	ID           int64              `json:"id"`
 	TenantID     int64              `json:"tenant_id"`
@@ -1752,25 +1326,6 @@ type TenantDirectorySettings struct {
 	TenantID  int64              `json:"tenant_id"`
 	Enabled   bool               `json:"enabled"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-}
-
-type TenantQuotaCalendar struct {
-	TenantID int64              `json:"tenant_id"`
-	UsageDay pgtype.Date        `json:"usage_day"`
-	Timezone string             `json:"timezone"`
-	StartsAt pgtype.Timestamptz `json:"starts_at"`
-	EndsAt   pgtype.Timestamptz `json:"ends_at"`
-}
-
-type TenantTrials struct {
-	TenantID     int64              `json:"tenant_id"`
-	DomainID     int64              `json:"domain_id"`
-	CouponCode   string             `json:"coupon_code"`
-	PlanCode     string             `json:"plan_code"`
-	PlanSnapshot []byte             `json:"plan_snapshot"`
-	StartedAt    pgtype.Timestamptz `json:"started_at"`
-	EndsAt       pgtype.Timestamptz `json:"ends_at"`
-	RedeemedBy   int64              `json:"redeemed_by"`
 }
 
 type Tenants struct {

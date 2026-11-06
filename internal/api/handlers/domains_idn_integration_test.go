@@ -27,7 +27,7 @@ type idnDBHarness struct {
 	router   *gin.Engine
 }
 
-// newIDNDBHarness seeds one tenant with an active subscription and runs the
+// newIDNDBHarness seeds one active tenant and runs the
 // real handlers inside the same RLS tenant transaction production uses.
 func newIDNDBHarness(t *testing.T) *idnDBHarness {
 	t.Helper()
@@ -38,14 +38,6 @@ func newIDNDBHarness(t *testing.T) *idnDBHarness {
 	h.tenant = h.scalar("INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'IDN','idn','active') RETURNING id", brand)
 	h.user = h.scalar("INSERT INTO users(email,password_hash) VALUES('idn@example.test','unused') RETURNING id")
 	h.exec("INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner')", h.user, h.tenant)
-	h.exec(`INSERT INTO plans(code,name,price_cents,currency,quota_bytes,mailbox_limit,domain_limit,daily_send_limit,features)
-		VALUES('idn','{"en":"IDN"}',10000,'CNY',1073741824,5,20,100,'{}')`)
-	// Migration 0015 auto-provisions one active 'free' subscription per new
-	// tenant; the one-active-per-tenant index forbids a second INSERT, so the
-	// seeded plan is applied by updating that row.
-	h.exec(`UPDATE subscriptions SET plan_id='idn', billing_cycle='monthly',
-		plan_snapshot=(SELECT to_jsonb(p) FROM plans p WHERE code='idn')
-		WHERE tenant_id=$1`, h.tenant)
 
 	domain := NewDomainHandler(store.New(app.Pool), nil)
 	alias := NewAliasHandler(store.New(app.Pool), nil)

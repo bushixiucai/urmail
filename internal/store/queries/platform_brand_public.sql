@@ -30,12 +30,6 @@ UPDATE brands SET status=$2 WHERE id=$1 AND slug<>'default';
 -- name: PlatformDeleteBrand :execrows
 DELETE FROM brands WHERE id=$1 AND slug<>'default';
 
--- name: PlatformDeleteUnusedPlan :execrows
-DELETE FROM plans p WHERE p.code=$1 AND p.code<>'free'
-AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id=p.code)
-AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.plan_code=p.code)
-AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.plan_code=p.code);
-
 -- name: PlatformManagedBrands :many
 SELECT id,slug,name,theme,logo_url,favicon_url,primary_color,status,created_at
 FROM brands ORDER BY id;

@@ -87,7 +87,9 @@ func assertSenderGrantViolation(t *testing.T, err error) {
 }
 
 func TestAliasSenderIndependentLiveFiltersRoutingResetAndDown(t *testing.T) {
-	f := newMailboxPasswordFixture(t)
+	// The downgrade gate is asserted on a fixture built straight to v69:
+	// walking down from HEAD would cross irreversible commercial-table drops.
+	f := newMailboxPasswordFixtureAt(t, 69)
 	ctx := t.Context()
 	var domain, alias int64
 	if err := f.platform.QueryRow(ctx, "SELECT domain_id FROM mailboxes WHERE tenant_id=$1 AND id=$2", f.tenant, f.mailbox).Scan(&domain); err != nil {
@@ -127,17 +129,8 @@ func TestAliasSenderIndependentLiveFiltersRoutingResetAndDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = m.Close() }()
-	for {
-		version, dirty, e := m.Version()
-		if e != nil || dirty || version < 69 {
-			t.Fatalf("invalid migration fixture v%d dirty=%t err=%v", version, dirty, e)
-		}
-		if version == 69 {
-			break
-		}
-		if e = m.Down(ctx); e != nil {
-			t.Fatal(e)
-		}
+	if version, dirty, e := m.Version(); e != nil || dirty || version != 69 {
+		t.Fatalf("invalid migration fixture v%d dirty=%t err=%v", version, dirty, e)
 	}
 	if err = m.Down(ctx); err == nil || !strings.Contains(err.Error(), "ALIAS_SENDER_LOGIN_DOWNGRADE_REQUIRES_REVIEW") {
 		t.Fatalf("inactive grant silently dropped on down69: %v", err)

@@ -158,14 +158,6 @@ func (f *shapeFakeDomainStore) CountDomainsByTenant(_ context.Context, _ int64) 
 	return 0, errors.New("no subscription")
 }
 
-func (f *shapeFakeDomainStore) GetActiveSubscriptionByTenant(_ context.Context, _ int64) (store.Subscriptions, error) {
-	return store.Subscriptions{}, errors.New("no subscription")
-}
-
-func (f *shapeFakeDomainStore) GetPlanByCode(_ context.Context, _ string) (store.Plans, error) {
-	return store.Plans{}, errors.New("no plan")
-}
-
 func (f *shapeFakeDomainStore) CreateOrderOnboardingTask(_ context.Context, _ store.CreateOrderOnboardingTaskParams) (store.OnboardingTasks, error) {
 	return store.OnboardingTasks{}, errors.New("not implemented")
 }
@@ -238,14 +230,6 @@ func (f *shapeFakeMailboxStore) CountMailboxesByTenant(_ context.Context, _ int6
 	return 0, errors.New("no subscription")
 }
 
-func (f *shapeFakeMailboxStore) GetActiveSubscriptionByTenant(_ context.Context, _ int64) (store.Subscriptions, error) {
-	return store.Subscriptions{}, errors.New("no subscription")
-}
-
-func (f *shapeFakeMailboxStore) GetPlanByCode(_ context.Context, _ string) (store.Plans, error) {
-	return store.Plans{}, errors.New("no plan")
-}
-
 func (f *shapeFakeMailboxStore) ListMailboxesWithLegalHold(_ context.Context, _ int64) ([]pgtype.Int8, error) {
 	return nil, nil
 }
@@ -293,12 +277,8 @@ func (f *shapeFakeAliasStore) AliasWouldCycle(_ context.Context, _ store.AliasWo
 type shapeFakeTenantStore struct {
 	tenant       store.Tenants
 	settings     []store.Settings
-	sub          store.Subscriptions
-	plan         store.Plans
 	tenantErr    error
 	settingsErr  error
-	subErr       error
-	planErr      error
 	domainCount  int64
 	mailboxCount int64
 }
@@ -317,14 +297,6 @@ func (f *shapeFakeTenantStore) CountDomainsByTenant(_ context.Context, _ int64) 
 
 func (f *shapeFakeTenantStore) CountMailboxesByTenant(_ context.Context, _ int64) (int64, error) {
 	return f.mailboxCount, nil
-}
-
-func (f *shapeFakeTenantStore) GetActiveSubscriptionByTenant(_ context.Context, _ int64) (store.Subscriptions, error) {
-	return f.sub, f.subErr
-}
-
-func (f *shapeFakeTenantStore) GetPlanByCode(_ context.Context, _ string) (store.Plans, error) {
-	return f.plan, f.planErr
 }
 
 // --- tests ---
@@ -576,8 +548,6 @@ func TestTenantCurrentResponseShape(t *testing.T) {
 			{Scope: "tenant", ScopeID: 1, Key: "mailbox_limit", Value: []byte(`50`)},
 			{Scope: "tenant", ScopeID: 1, Key: "mailbox_quota_bytes", Value: []byte(`1073741824`)},
 		},
-		sub:          store.Subscriptions{PlanID: "pro", Status: "active"},
-		plan:         store.Plans{Code: "pro", Name: []byte(`{"zh-CN":"专业版","en":"Pro"}`), DomainLimit: 5, MailboxLimit: 50, QuotaBytes: 1 << 30},
 		domainCount:  2,
 		mailboxCount: 3,
 	}

@@ -61,7 +61,7 @@ func TestAtomicRestoreFailureKeepsTargetFactsAndPrivateSessions(t *testing.T) {
 		t.Fatal("injected restore failure was ignored")
 	}
 	var intact bool
-	if err = conn.QueryRow(ctx, `SELECT (SELECT count(*)=1 FROM refunds WHERE refund_no='stable-refund' AND status='pending') AND (SELECT count(*)=1 FROM roundcube.session) AND EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm')`).Scan(&intact); err != nil || !intact {
+	if err = conn.QueryRow(ctx, `SELECT (SELECT count(*)=1 FROM onboarding_tasks ot JOIN tenants t ON t.id=ot.tenant_id WHERE t.slug='restore-replay' AND ot.status='running' AND ot.leased_by='old-source') AND (SELECT count(*)=1 FROM roundcube.session) AND EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_trgm')`).Scan(&intact); err != nil || !intact {
 		t.Fatalf("failed restore changed target facts: %v %v", intact, err)
 	}
 }

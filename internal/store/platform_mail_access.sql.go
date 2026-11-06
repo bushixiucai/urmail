@@ -54,12 +54,10 @@ func (q *Queries) PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMa
 }
 
 const platformNextMailAccessBoundary = `-- name: PlatformNextMailAccessBoundary :one
-SELECT min(boundary)::timestamptz AS next_boundary FROM (
- SELECT period_end AS boundary FROM subscriptions WHERE period_end>now() AND status IN('active','trialing','past_due')
- UNION ALL SELECT trial_ends_at FROM subscriptions WHERE trial_ends_at>now() AND status='trialing'
-) boundaries
+SELECT NULL::timestamptz AS next_boundary
 `
 
+// Sending no longer expires with a subscription. There is no planned boundary.
 func (q *Queries) PlatformNextMailAccessBoundary(ctx context.Context) (pgtype.Timestamptz, error) {
 	row := q.db.QueryRow(ctx, platformNextMailAccessBoundary)
 	var next_boundary pgtype.Timestamptz

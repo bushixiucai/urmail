@@ -78,10 +78,7 @@ func TestDurableNotificationDedupAndUnknownDelivery(t *testing.T) {
 	if err = p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Notice','notice','active') RETURNING id", brand).Scan(&tenant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.Exec(ctx, "INSERT INTO tenant_contacts(tenant_id,email,verified_at) VALUES($1,'verified@example.test',now())", tenant); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = p.Exec(ctx, "UPDATE subscriptions SET period_end=now()+interval '3 days' WHERE tenant_id=$1 AND status='active'", tenant); err != nil {
+	if _, err = p.Exec(ctx, "INSERT INTO notification_outbox(tenant_id,kind,message_key,dedupe_key,channel,state,recipient,recipient_verified) VALUES($1,'dns_requires_review','notification.dns_requires_review','dns-fixture','email','pending','verified@example.test',true)", tenant); err != nil {
 		t.Fatal(err)
 	}
 	if err = Evaluate(ctx, p); err != nil {
@@ -91,13 +88,13 @@ func TestDurableNotificationDedupAndUnknownDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	var notices int
-	if err = p.QueryRow(ctx, "SELECT count(*) FROM notification_outbox WHERE tenant_id=$1", tenant).Scan(&notices); err != nil || notices != 2 {
+	if err = p.QueryRow(ctx, "SELECT count(*) FROM notification_outbox WHERE tenant_id=$1", tenant).Scan(&notices); err != nil || notices != 1 {
 		t.Fatalf("duplicate/missing reminders: %d %v", notices, err)
 	}
 	calls := 0
 	worker := Worker{Pool: p, Secrets: box, Messages: messages, BaseURL: "https://panel.example.test", Enabled: true, Send: func(_ context.Context, _ SMTPConfig, m Message) error {
 		calls++
-		if !strings.Contains(m.Body, "free") {
+		if !strings.Contains(m.Body, "DNS") {
 			t.Fatal("missing template parameters")
 		}
 		return ErrSubmissionUnknown
@@ -284,9 +281,6 @@ func TestNotificationDuplicateEnqueueDeliversOnce(t *testing.T) {
 	if err = p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status,owner_user_id) VALUES($1,'Dup','dup','active',NULL) RETURNING id", brand).Scan(&tenant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.Exec(ctx, "INSERT INTO tenant_contacts(tenant_id,email,verified_at) VALUES($1,'verified@example.test',now())", tenant); err != nil {
-		t.Fatal(err)
-	}
 	enqueueLifecycleRow(ctx, t, q, tenant, "ops103-duplicate")
 	enqueueLifecycleRow(ctx, t, q, tenant, "ops103-duplicate")
 	var rows int
@@ -331,9 +325,6 @@ func TestNotificationLeaseRecoveryAfterCrashedWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Lease','lease','active') RETURNING id", brand).Scan(&tenant); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = p.Exec(ctx, "INSERT INTO tenant_contacts(tenant_id,email,verified_at) VALUES($1,'verified@example.test',now())", tenant); err != nil {
 		t.Fatal(err)
 	}
 	enqueueLifecycleRow(ctx, t, q, tenant, "ops103-lease")
@@ -392,9 +383,6 @@ func TestNotificationBackoffScheduleAndPoisonCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Backoff','backoff','active') RETURNING id", brand).Scan(&tenant); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = p.Exec(ctx, "INSERT INTO tenant_contacts(tenant_id,email,verified_at) VALUES($1,'verified@example.test',now())", tenant); err != nil {
 		t.Fatal(err)
 	}
 	enqueueLifecycleRow(ctx, t, q, tenant, "ops103-backoff")
@@ -467,10 +455,11 @@ func TestNotificationTelemetryCountersTrackEnqueueAndDelivery(t *testing.T) {
 	if err = p.QueryRow(ctx, "INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Counter','counter','active') RETURNING id", brand).Scan(&tenant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.Exec(ctx, "INSERT INTO tenant_contacts(tenant_id,email,verified_at) VALUES($1,'verified@example.test',now())", tenant); err != nil {
-		t.Fatal(err)
-	}
 	sentBefore := counterValue(t, "urmail_notifications_delivery_total", "email", "subscription_expiry", "sent")
+	// The outbox watermark is process-global while every test builds a fresh
+	// database whose ids restart below it; reset it so this database's new row
+	// is what the counter observes.
+	lastEnqueuedID = 0
 	enqueueLifecycleRow(ctx, t, q, tenant, "ops103-counter")
 	// The watermark-based enqueue counter must count the new row exactly once.
 	if err = observeNotifications(ctx, p); err != nil {

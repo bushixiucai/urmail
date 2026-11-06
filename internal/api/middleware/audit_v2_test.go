@@ -98,20 +98,16 @@ func TestTenantAuditIncludesCSRFFailureAndNeverTrustsUnauthenticatedTenant(t *te
 func TestPlatformAuditResolvesResourceTenantAndKeepsBrandsGlobal(t *testing.T) {
 	_, p, tid, uid := transactionV3Fixture(t)
 	ctx := context.Background()
-	var orderID int64
-	if err := p.QueryRow(ctx, "INSERT INTO orders(tenant_id,order_no,kind,status,amount_cents,currency) VALUES($1,'audit-order','new','pending',100,'CNY') RETURNING id", tid).Scan(&orderID); err != nil {
-		t.Fatal(err)
-	}
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) { c.Set(middleware.ContextUserID, uid) })
 	engine.Use(middleware.AuditPlatform(store.New(p.Pool), zap.NewNop()))
-	engine.POST("/api/v1/platform/orders/:id/paid", func(c *gin.Context) { c.Status(409) })
+	engine.POST("/api/v1/platform/tenants/:id/status", func(c *gin.Context) { c.Status(409) })
 	engine.PATCH("/api/v1/platform/brands/:id/settings", func(c *gin.Context) { c.Status(200) })
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/platform/orders/"+intString(orderID)+"/paid", nil))
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/platform/tenants/"+intString(tid)+"/status", nil))
 	var got pgtype.Int8
-	if err := p.QueryRow(ctx, "SELECT tenant_id FROM audit_logs WHERE action='POST /api/v1/platform/orders/:id/paid'").Scan(&got); err != nil || !got.Valid || got.Int64 != tid {
-		t.Fatalf("wrong order tenant: %v %v", got, err)
+	if err := p.QueryRow(ctx, "SELECT tenant_id FROM audit_logs WHERE action='POST /api/v1/platform/tenants/:id/status'").Scan(&got); err != nil || !got.Valid || got.Int64 != tid {
+		t.Fatalf("wrong tenant: %v %v", got, err)
 	}
 	response = httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodPatch, "/api/v1/platform/brands/"+intString(tid)+"/settings", nil))

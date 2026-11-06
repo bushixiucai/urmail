@@ -502,8 +502,7 @@ func TestDovecotRolePermissions(t *testing.T) {
 // TestTightenedRLSGrants proves the P0 security fixes from migration 0004:
 // 1. The app role can read its own tenant's audit_logs but can never write them.
 // 2. The app role cannot see another tenant's audit_logs rows.
-// 3. coupons and plans are read-only for the app role (REVOKE INSERT/UPDATE/DELETE).
-// 4. channels and announcements are read-only for the app role (WITH CHECK (false)).
+// 3. channels and announcements are read-only for the app role (WITH CHECK (false)).
 func TestTightenedRLSGrants(t *testing.T) {
 	url := testDatabaseURL(t)
 	ctx := context.Background()
@@ -553,14 +552,6 @@ func TestTightenedRLSGrants(t *testing.T) {
 	if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (tenant_id, action) VALUES ($1, 'test.other')", otherTenantID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("insert other audit log: %v", err)
-	}
-	if _, err := tx.Exec(ctx, "INSERT INTO coupons (code, kind, value) VALUES ('RLSTEST', 'percent', 10) ON CONFLICT (code) DO NOTHING"); err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("insert coupon: %v", err)
-	}
-	if _, err := tx.Exec(ctx, "INSERT INTO plans (code, name, price_cents, quota_bytes, mailbox_limit, domain_limit, daily_send_limit) VALUES ('rls-test', '{\"en\":\"RLS\"}', 0, 1, 1, 1, 1) ON CONFLICT (code) DO NOTHING"); err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("insert plan: %v", err)
 	}
 	if _, err := tx.Exec(ctx, "INSERT INTO channels (brand_id, code, name) VALUES ($1, 'rls-channel', 'RLS Channel') ON CONFLICT (code) DO NOTHING", brandID); err != nil {
 		_ = tx.Rollback(ctx)
@@ -622,44 +613,6 @@ func TestTightenedRLSGrants(t *testing.T) {
 	if count != 0 {
 		_ = tenantTx.Rollback(ctx)
 		t.Fatalf("cross-tenant audit log must be invisible, saw %d", count)
-	}
-	_ = tenantTx.Rollback(ctx)
-
-	// 4. coupons and plans are read-only for the app role.
-	tenantTx, err = app.TenantTx(ctx, tenantID)
-	if err != nil {
-		t.Fatalf("begin tenant transaction: %v", err)
-	}
-	if _, err := tenantTx.Exec(ctx, "INSERT INTO coupons (code, kind, value) VALUES ('EVIL', 'percent', 100)"); err == nil {
-		_ = tenantTx.Rollback(ctx)
-		t.Fatal("tenant MUST NOT be able to insert coupons")
-	}
-	if _, err := tenantTx.Exec(ctx, "UPDATE coupons SET active = false WHERE code = 'RLSTEST'"); err == nil {
-		_ = tenantTx.Rollback(ctx)
-		t.Fatal("tenant MUST NOT be able to update coupons")
-	}
-	if _, err := tenantTx.Exec(ctx, "DELETE FROM coupons WHERE code = 'RLSTEST'"); err == nil {
-		_ = tenantTx.Rollback(ctx)
-		t.Fatal("tenant MUST NOT be able to delete coupons")
-	}
-	if _, err := tenantTx.Exec(ctx, "UPDATE plans SET active = false WHERE code = 'rls-test'"); err == nil {
-		_ = tenantTx.Rollback(ctx)
-		t.Fatal("tenant MUST NOT be able to update plans")
-	}
-	_ = tenantTx.Rollback(ctx)
-
-	// SELECT on coupons and plans must still work.
-	tenantTx, err = app.TenantTx(ctx, tenantID)
-	if err != nil {
-		t.Fatalf("begin tenant transaction: %v", err)
-	}
-	if err := tenantTx.QueryRow(ctx, "SELECT count(*) FROM coupons").Scan(&count); err != nil {
-		_ = tenantTx.Rollback(ctx)
-		t.Fatalf("tenant read coupons: %v", err)
-	}
-	if err := tenantTx.QueryRow(ctx, "SELECT count(*) FROM plans").Scan(&count); err != nil {
-		_ = tenantTx.Rollback(ctx)
-		t.Fatalf("tenant read plans: %v", err)
 	}
 	_ = tenantTx.Rollback(ctx)
 

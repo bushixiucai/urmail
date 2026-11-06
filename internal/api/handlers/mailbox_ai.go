@@ -205,7 +205,12 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	tokenLimit, costLimit := limits.AI.Tokens, limits.AI.Cost
 	reservedCost := int64(0)
 	if cfg.Mode == "platform" {
-		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != cfg.CostCurrency || (cfg.CostCurrency != "CNY" && cfg.CostCurrency != "USD") || (cfg.InputMicrosPerMillion == 0 && cfg.OutputMicrosPerMillion == 0) {
+		// A tenant without a configured currency bills in the platform default.
+		currency := cfg.CostCurrency
+		if currency == "" {
+			currency = "CNY"
+		}
+		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != currency || (currency != "CNY" && currency != "USD") || (cfg.InputMicrosPerMillion == 0 && cfg.OutputMicrosPerMillion == 0) {
 			return nil, errAIBudget
 		}
 		reservedCost, err = aiCost(reservedTokens, 2048, cfg.InputMicrosPerMillion, cfg.OutputMicrosPerMillion)

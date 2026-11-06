@@ -216,7 +216,12 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 	start, end := quota.Start, quota.End
 	tokenLimit, costLimit := limits.AI.Tokens, limits.AI.Cost
 	if cfg.Mode == "platform" {
-		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != cfg.CostCurrency {
+		// A tenant without a configured currency bills in the platform default.
+		currency := cfg.CostCurrency
+		if currency == "" {
+			currency = "CNY"
+		}
+		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != currency {
 			return nil, ErrAIBudgetExceeded
 		}
 	} else {
@@ -345,7 +350,7 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if _, err = q.PlatformLockRecurringAdminActor(c, actor); err != nil {
+	if _, err = q.PlatformLockPlatformAdmin(c, actor); err != nil {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}

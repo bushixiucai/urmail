@@ -66,7 +66,7 @@ func TestMarketingFlowStopsWhenSendingStops(t *testing.T) {
 	if err = tx.QueryRow(ctx, "SELECT urmail_marketing_flow_may_advance($1,$2,'a@example.test')", tenant, flow).Scan(&allowed); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, "UPDATE subscriptions SET period_start=now()-interval '40 days', period_end=now()-interval '8 days' WHERE tenant_id=$1", tenant); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE tenants SET status='suspended' WHERE id=$1", tenant); err != nil {
 		t.Fatal(err)
 	}
 	var after bool
@@ -96,7 +96,7 @@ func TestBlockedMarketingStepStaysPut(t *testing.T) {
 	if _, err = tx.Exec(ctx, "INSERT INTO marketing_flow_positions(tenant_id,flow_id,email,step_key) VALUES($1,$2,'a@example.test','welcome')", tenant, flow); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, "UPDATE subscriptions SET period_start=now()-interval '40 days', period_end=now()-interval '8 days' WHERE tenant_id=$1", tenant); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE tenants SET status='suspended' WHERE id=$1", tenant); err != nil {
 		t.Fatal(err)
 	}
 	// 0101 semantics: a gate-blocked commit is definitive ('blocked'), and the

@@ -57,9 +57,12 @@ func mailboxAIFixture(t *testing.T, calls int64, consentOption ...bool) (*db.Poo
 		t.Fatal(err)
 	}
 	t.Cleanup(p.Close)
-	features := fmt.Sprintf(`{"ai":{"calls":%d,"mailbox_calls":%d,"tokens":1000000,"cost_micros":1000000,"cost_currency":"CNY","concurrency":1}}`, calls, calls)
-	if _, err = p.Exec(ctx, "UPDATE plans SET features=$1 WHERE code='free'", []byte(features)); err != nil {
-		t.Fatal(err)
+	// calls==0 means unconfigured: no host caps and no settings quota, so AI
+	// must fail closed instead of receiving a zero-sized window.
+	if calls > 0 {
+		if _, err = p.Exec(ctx, "INSERT INTO settings(scope,scope_id,key,value) VALUES('platform',0,'ai_default_call_limit',to_jsonb($1::bigint))", calls); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var brand, tenant, domain, mailbox int64
 	for _, seed := range []struct {

@@ -68,7 +68,9 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 			return result, err
 		}
 		result.Source = "configured_nonplatform"
-		result.Independent = true
+		// The durable ledger only tracks platform-mode spend inside the shared
+		// window; BYO/local calls keep their independent per-mode calendar.
+		result.Independent = cfg.Mode != "platform"
 		result.Timezone = loc.String()
 		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
 		result.End = pgtype.Timestamptz{Time: end, Valid: true}
@@ -77,6 +79,10 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		result.Limits.AI.Concurrency = 2
 		result.Limits.AI.Tokens = math.MaxInt64
 		result.Limits.AI.Cost = math.MaxInt64
+		result.Limits.AI.Currency = cfg.CostCurrency
+		if result.Limits.AI.Currency == "" {
+			result.Limits.AI.Currency = "CNY"
+		}
 		return result, nil
 	}
 
@@ -220,7 +226,7 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 		return
 	}
 	if platform {
-		_, err = q.PlatformLockRecurringAdminActor(c, actor)
+		_, err = q.PlatformLockPlatformAdmin(c, actor)
 	} else {
 		_, err = q.PlatformLockAIQuotaTenantReader(c, store.PlatformLockAIQuotaTenantReaderParams{TenantID: tenant, ID: actor})
 	}

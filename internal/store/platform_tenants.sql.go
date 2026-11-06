@@ -178,140 +178,6 @@ func (q *Queries) PlatformFailOnboardingTask(ctx context.Context, arg PlatformFa
 	return result.RowsAffected(), nil
 }
 
-const platformGetOrderForSettlement = `-- name: PlatformGetOrderForSettlement :one
-SELECT id, tenant_id, order_no, kind, status, amount_cents, currency, plan_code, channel_id, billing_cycle
-FROM orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE
-`
-
-type PlatformGetOrderForSettlementParams struct {
-	TenantID int64 `json:"tenant_id"`
-	ID       int64 `json:"id"`
-}
-
-type PlatformGetOrderForSettlementRow struct {
-	ID           int64       `json:"id"`
-	TenantID     int64       `json:"tenant_id"`
-	OrderNo      string      `json:"order_no"`
-	Kind         string      `json:"kind"`
-	Status       string      `json:"status"`
-	AmountCents  int64       `json:"amount_cents"`
-	Currency     string      `json:"currency"`
-	PlanCode     pgtype.Text `json:"plan_code"`
-	ChannelID    pgtype.Int8 `json:"channel_id"`
-	BillingCycle string      `json:"billing_cycle"`
-}
-
-func (q *Queries) PlatformGetOrderForSettlement(ctx context.Context, arg PlatformGetOrderForSettlementParams) (PlatformGetOrderForSettlementRow, error) {
-	row := q.db.QueryRow(ctx, platformGetOrderForSettlement, arg.TenantID, arg.ID)
-	var i PlatformGetOrderForSettlementRow
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.OrderNo,
-		&i.Kind,
-		&i.Status,
-		&i.AmountCents,
-		&i.Currency,
-		&i.PlanCode,
-		&i.ChannelID,
-		&i.BillingCycle,
-	)
-	return i, err
-}
-
-const platformGetPaymentByProviderTransaction = `-- name: PlatformGetPaymentByProviderTransaction :one
-SELECT id,tenant_id,order_id,provider,provider_txn_id,amount_cents,currency,status,raw,created_at,paid_at,account_scope
-FROM payments WHERE provider=$1 AND provider_txn_id=$2 AND account_scope=COALESCE(NULLIF($3::text,''),'legacy')
-`
-
-type PlatformGetPaymentByProviderTransactionParams struct {
-	Provider      string      `json:"provider"`
-	ProviderTxnID pgtype.Text `json:"provider_txn_id"`
-	AccountScope  string      `json:"account_scope"`
-}
-
-func (q *Queries) PlatformGetPaymentByProviderTransaction(ctx context.Context, arg PlatformGetPaymentByProviderTransactionParams) (Payments, error) {
-	row := q.db.QueryRow(ctx, platformGetPaymentByProviderTransaction, arg.Provider, arg.ProviderTxnID, arg.AccountScope)
-	var i Payments
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.OrderID,
-		&i.Provider,
-		&i.ProviderTxnID,
-		&i.AmountCents,
-		&i.Currency,
-		&i.Status,
-		&i.Raw,
-		&i.CreatedAt,
-		&i.PaidAt,
-		&i.AccountScope,
-	)
-	return i, err
-}
-
-const platformGetPaymentEventByProviderAndID = `-- name: PlatformGetPaymentEventByProviderAndID :one
-SELECT id,provider,provider_event_id,payload,processed_at,account_scope
-FROM payment_events WHERE provider=$1 AND provider_event_id=$2 AND account_scope=COALESCE(NULLIF($3::text,''),'legacy')
-`
-
-type PlatformGetPaymentEventByProviderAndIDParams struct {
-	Provider        string `json:"provider"`
-	ProviderEventID string `json:"provider_event_id"`
-	AccountScope    string `json:"account_scope"`
-}
-
-func (q *Queries) PlatformGetPaymentEventByProviderAndID(ctx context.Context, arg PlatformGetPaymentEventByProviderAndIDParams) (PaymentEvents, error) {
-	row := q.db.QueryRow(ctx, platformGetPaymentEventByProviderAndID, arg.Provider, arg.ProviderEventID, arg.AccountScope)
-	var i PaymentEvents
-	err := row.Scan(
-		&i.ID,
-		&i.Provider,
-		&i.ProviderEventID,
-		&i.Payload,
-		&i.ProcessedAt,
-		&i.AccountScope,
-	)
-	return i, err
-}
-
-const platformInsertPaymentEventPlaceholder = `-- name: PlatformInsertPaymentEventPlaceholder :one
-INSERT INTO payment_events(provider,provider_event_id,payload,account_scope) VALUES($1,$2,$3,COALESCE(NULLIF($4::text,''),'legacy'))
-ON CONFLICT(provider,account_scope,provider_event_id) DO NOTHING
-RETURNING id,provider,provider_event_id,processed_at
-`
-
-type PlatformInsertPaymentEventPlaceholderParams struct {
-	Provider        string `json:"provider"`
-	ProviderEventID string `json:"provider_event_id"`
-	Payload         []byte `json:"payload"`
-	AccountScope    string `json:"account_scope"`
-}
-
-type PlatformInsertPaymentEventPlaceholderRow struct {
-	ID              int64              `json:"id"`
-	Provider        string             `json:"provider"`
-	ProviderEventID string             `json:"provider_event_id"`
-	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
-}
-
-func (q *Queries) PlatformInsertPaymentEventPlaceholder(ctx context.Context, arg PlatformInsertPaymentEventPlaceholderParams) (PlatformInsertPaymentEventPlaceholderRow, error) {
-	row := q.db.QueryRow(ctx, platformInsertPaymentEventPlaceholder,
-		arg.Provider,
-		arg.ProviderEventID,
-		arg.Payload,
-		arg.AccountScope,
-	)
-	var i PlatformInsertPaymentEventPlaceholderRow
-	err := row.Scan(
-		&i.ID,
-		&i.Provider,
-		&i.ProviderEventID,
-		&i.ProcessedAt,
-	)
-	return i, err
-}
-
 const platformListAuditLogs = `-- name: PlatformListAuditLogs :many
 SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
 FROM audit_logs
@@ -432,88 +298,6 @@ func (q *Queries) PlatformListChannels(ctx context.Context) ([]Channels, error) 
 	return items, nil
 }
 
-const platformListCoupons = `-- name: PlatformListCoupons :many
-SELECT code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active, currency, bound_tenant_id, source_coupon_code, source_tenant_id, reissue_reason, reissued_by, reissued_at
-FROM coupons
-ORDER BY code ASC
-`
-
-func (q *Queries) PlatformListCoupons(ctx context.Context) ([]Coupons, error) {
-	rows, err := q.db.Query(ctx, platformListCoupons)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Coupons{}
-	for rows.Next() {
-		var i Coupons
-		if err := rows.Scan(
-			&i.Code,
-			&i.Kind,
-			&i.Value,
-			&i.MaxRedemptions,
-			&i.RedeemedCount,
-			&i.ValidFrom,
-			&i.ValidTo,
-			&i.Active,
-			&i.Currency,
-			&i.BoundTenantID,
-			&i.SourceCouponCode,
-			&i.SourceTenantID,
-			&i.ReissueReason,
-			&i.ReissuedBy,
-			&i.ReissuedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const platformListPlans = `-- name: PlatformListPlans :many
-SELECT code, name, description, price_cents, currency, quota_bytes,
-       mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
-FROM plans
-ORDER BY sort_order ASC, price_cents ASC
-`
-
-func (q *Queries) PlatformListPlans(ctx context.Context) ([]Plans, error) {
-	rows, err := q.db.Query(ctx, platformListPlans)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Plans{}
-	for rows.Next() {
-		var i Plans
-		if err := rows.Scan(
-			&i.Code,
-			&i.Name,
-			&i.Description,
-			&i.PriceCents,
-			&i.Currency,
-			&i.QuotaBytes,
-			&i.MailboxLimit,
-			&i.DomainLimit,
-			&i.DailySendLimit,
-			&i.Features,
-			&i.SortOrder,
-			&i.Active,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const platformListTenants = `-- name: PlatformListTenants :many
 SELECT t.id,
        t.brand_id,
@@ -577,17 +361,15 @@ SELECT
     (SELECT count(*) FROM tenants WHERE status = 'active') AS active_tenants,
     (SELECT count(*) FROM users) AS users,
     (SELECT count(*) FROM domains) AS domains,
-    (SELECT count(*) FROM mailboxes) AS mailboxes,
-    (SELECT count(*) FROM subscriptions WHERE status IN ('active', 'trialing')) AS active_subscriptions
+    (SELECT count(*) FROM mailboxes) AS mailboxes
 `
 
 type PlatformOverviewRow struct {
-	Tenants             int64 `json:"tenants"`
-	ActiveTenants       int64 `json:"active_tenants"`
-	Users               int64 `json:"users"`
-	Domains             int64 `json:"domains"`
-	Mailboxes           int64 `json:"mailboxes"`
-	ActiveSubscriptions int64 `json:"active_subscriptions"`
+	Tenants       int64 `json:"tenants"`
+	ActiveTenants int64 `json:"active_tenants"`
+	Users         int64 `json:"users"`
+	Domains       int64 `json:"domains"`
+	Mailboxes     int64 `json:"mailboxes"`
 }
 
 // Platform administration queries (no tenant scope; platform role only).
@@ -600,52 +382,8 @@ func (q *Queries) PlatformOverview(ctx context.Context) (PlatformOverviewRow, er
 		&i.Users,
 		&i.Domains,
 		&i.Mailboxes,
-		&i.ActiveSubscriptions,
 	)
 	return i, err
-}
-
-const platformRedeemCoupon = `-- name: PlatformRedeemCoupon :one
-SELECT urmail_redeem_coupon_for_tenant($1::text, $2::bigint, $3::bigint)::text AS result
-`
-
-type PlatformRedeemCouponParams struct {
-	Code     string      `json:"code"`
-	TenantID int64       `json:"tenant_id"`
-	OrderID  pgtype.Int8 `json:"order_id"`
-}
-
-func (q *Queries) PlatformRedeemCoupon(ctx context.Context, arg PlatformRedeemCouponParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformRedeemCoupon, arg.Code, arg.TenantID, arg.OrderID)
-	var result string
-	err := row.Scan(&result)
-	return result, err
-}
-
-const platformRemoveRegistrationGift = `-- name: PlatformRemoveRegistrationGift :exec
-UPDATE subscriptions SET status='canceled' WHERE tenant_id=$1 AND plan_id='free' AND status='active'
-`
-
-func (q *Queries) PlatformRemoveRegistrationGift(ctx context.Context, tenantID int64) error {
-	_, err := q.db.Exec(ctx, platformRemoveRegistrationGift, tenantID)
-	return err
-}
-
-const platformUpdateOrderPaid = `-- name: PlatformUpdateOrderPaid :execrows
-UPDATE orders SET status='paid', paid_at=now() WHERE tenant_id=$1 AND id=$2 AND status='pending'
-`
-
-type PlatformUpdateOrderPaidParams struct {
-	TenantID int64 `json:"tenant_id"`
-	ID       int64 `json:"id"`
-}
-
-func (q *Queries) PlatformUpdateOrderPaid(ctx context.Context, arg PlatformUpdateOrderPaidParams) (int64, error) {
-	result, err := q.db.Exec(ctx, platformUpdateOrderPaid, arg.TenantID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const platformUpdateTenantStatus = `-- name: PlatformUpdateTenantStatus :one
@@ -789,134 +527,6 @@ func (q *Queries) PlatformUpsertChannel(ctx context.Context, arg PlatformUpsertC
 		&i.Contact,
 		&i.Active,
 		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const platformUpsertCoupon = `-- name: PlatformUpsertCoupon :one
-INSERT INTO coupons (code, kind, value, max_redemptions, valid_from, valid_to, active,currency)
-VALUES ($1, $2, $3, $4, $5, $6, $7,$8)
-ON CONFLICT (code) DO UPDATE SET
-    kind = EXCLUDED.kind,
-    value = EXCLUDED.value,
-    max_redemptions = EXCLUDED.max_redemptions,
-    valid_from = EXCLUDED.valid_from,
-    valid_to = EXCLUDED.valid_to,
-    active = EXCLUDED.active,
- currency=EXCLUDED.currency
-RETURNING code, kind, value, max_redemptions, redeemed_count, valid_from, valid_to, active, currency, bound_tenant_id, source_coupon_code, source_tenant_id, reissue_reason, reissued_by, reissued_at
-`
-
-type PlatformUpsertCouponParams struct {
-	Code           string             `json:"code"`
-	Kind           string             `json:"kind"`
-	Value          int64              `json:"value"`
-	MaxRedemptions pgtype.Int4        `json:"max_redemptions"`
-	ValidFrom      pgtype.Timestamptz `json:"valid_from"`
-	ValidTo        pgtype.Timestamptz `json:"valid_to"`
-	Active         bool               `json:"active"`
-	Currency       pgtype.Text        `json:"currency"`
-}
-
-func (q *Queries) PlatformUpsertCoupon(ctx context.Context, arg PlatformUpsertCouponParams) (Coupons, error) {
-	row := q.db.QueryRow(ctx, platformUpsertCoupon,
-		arg.Code,
-		arg.Kind,
-		arg.Value,
-		arg.MaxRedemptions,
-		arg.ValidFrom,
-		arg.ValidTo,
-		arg.Active,
-		arg.Currency,
-	)
-	var i Coupons
-	err := row.Scan(
-		&i.Code,
-		&i.Kind,
-		&i.Value,
-		&i.MaxRedemptions,
-		&i.RedeemedCount,
-		&i.ValidFrom,
-		&i.ValidTo,
-		&i.Active,
-		&i.Currency,
-		&i.BoundTenantID,
-		&i.SourceCouponCode,
-		&i.SourceTenantID,
-		&i.ReissueReason,
-		&i.ReissuedBy,
-		&i.ReissuedAt,
-	)
-	return i, err
-}
-
-const platformUpsertPlan = `-- name: PlatformUpsertPlan :one
-INSERT INTO plans (
-    code, name, description, price_cents, currency, quota_bytes,
-    mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-)
-ON CONFLICT (code) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    price_cents = EXCLUDED.price_cents,
-    currency = EXCLUDED.currency,
-    quota_bytes = EXCLUDED.quota_bytes,
-    mailbox_limit = EXCLUDED.mailbox_limit,
-    domain_limit = EXCLUDED.domain_limit,
-    daily_send_limit = EXCLUDED.daily_send_limit,
-    features = EXCLUDED.features,
-    sort_order = EXCLUDED.sort_order,
-    active = EXCLUDED.active
-RETURNING code, name, description, price_cents, currency, quota_bytes,
-          mailbox_limit, domain_limit, daily_send_limit, features, sort_order, active
-`
-
-type PlatformUpsertPlanParams struct {
-	Code           string `json:"code"`
-	Name           []byte `json:"name"`
-	Description    []byte `json:"description"`
-	PriceCents     int64  `json:"price_cents"`
-	Currency       string `json:"currency"`
-	QuotaBytes     int64  `json:"quota_bytes"`
-	MailboxLimit   int32  `json:"mailbox_limit"`
-	DomainLimit    int32  `json:"domain_limit"`
-	DailySendLimit int32  `json:"daily_send_limit"`
-	Features       []byte `json:"features"`
-	SortOrder      int32  `json:"sort_order"`
-	Active         bool   `json:"active"`
-}
-
-func (q *Queries) PlatformUpsertPlan(ctx context.Context, arg PlatformUpsertPlanParams) (Plans, error) {
-	row := q.db.QueryRow(ctx, platformUpsertPlan,
-		arg.Code,
-		arg.Name,
-		arg.Description,
-		arg.PriceCents,
-		arg.Currency,
-		arg.QuotaBytes,
-		arg.MailboxLimit,
-		arg.DomainLimit,
-		arg.DailySendLimit,
-		arg.Features,
-		arg.SortOrder,
-		arg.Active,
-	)
-	var i Plans
-	err := row.Scan(
-		&i.Code,
-		&i.Name,
-		&i.Description,
-		&i.PriceCents,
-		&i.Currency,
-		&i.QuotaBytes,
-		&i.MailboxLimit,
-		&i.DomainLimit,
-		&i.DailySendLimit,
-		&i.Features,
-		&i.SortOrder,
-		&i.Active,
 	)
 	return i, err
 }

@@ -1,5 +1,5 @@
 -- name: PlatformListSettings :many
-SELECT key,value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND key IN('locale','theme','mailbox_default_quota_bytes','business_timezone','mailbox_domain_limit','mailbox_limit','mailbox_quota_bytes','ai_default_call_limit') ORDER BY key;
+SELECT key,value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND key IN('locale','theme','mailbox_default_quota_bytes','business_timezone','mailbox_domain_limit','mailbox_limit','mailbox_quota_bytes','mailbox_daily_send_limit','ai_default_call_limit') ORDER BY key;
 
 -- name: PlatformGetSetting :one
 SELECT value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND key=$1;

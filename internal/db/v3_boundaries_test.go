@@ -120,10 +120,7 @@ func TestV3HoldProtectsSoftDeleteAndCascades(t *testing.T) {
 func TestV3AllocationConcurrencyAndPastDue(t *testing.T) {
 	p, _, tid, did := v3Seed(t)
 	ctx := context.Background()
-	if _, err := p.Exec(ctx, `INSERT INTO plans(code,name,price_cents,quota_bytes,mailbox_limit,domain_limit,daily_send_limit) VALUES('v3-limit','{}',0,1024,1,1,1) ON CONFLICT(code) DO UPDATE SET quota_bytes=1024,mailbox_limit=1,domain_limit=1,daily_send_limit=1`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.Exec(ctx, "UPDATE subscriptions SET plan_id='v3-limit' WHERE tenant_id=$1", tid); err != nil {
+	if _, err := p.Exec(ctx, "INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'mailbox_limit','1')", tid); err != nil {
 		t.Fatal(err)
 	}
 	for round := 0; round < 20; round++ {
@@ -160,97 +157,14 @@ func TestV3AllocationConcurrencyAndPastDue(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := p.Exec(ctx, "INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash,quota_bytes) VALUES($1,$2,'due','due@v3.example.test','x',512)", tid, did); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.Exec(ctx, "UPDATE subscriptions SET status='past_due' WHERE tenant_id=$1", tid); err != nil {
-		t.Fatal(err)
-	}
-	_, err := p.Exec(ctx, "UPDATE mailboxes SET quota_bytes=1024 WHERE tenant_id=$1", tid)
-	v3Code(t, err, "SUBSCRIPTION_PAST_DUE")
-	if _, err = p.Exec(ctx, "UPDATE subscriptions SET period_start=now()-interval '2 days',period_end=now()-interval '1 day' WHERE tenant_id=$1", tid); err != nil {
-		t.Fatal(err)
-	}
-	_, err = p.Exec(ctx, "INSERT INTO domains(tenant_id,fqdn,verification_token) VALUES($1,'expired.example.test','x')", tid)
-	v3Code(t, err, "SUBSCRIPTION_EXPIRED")
-	// BILL-005 (0086): inbound mail keeps working during the confirmed
-	// 7-day delinquency grace; only the send/marketing gates close.
-	var allowed bool
-	if err = p.QueryRow(ctx, "SELECT urmail_mail_allowed($1)", tid).Scan(&allowed); err != nil || !allowed {
-		t.Fatalf("mail within the 7-day grace must stay allowed: allowed=%v err=%v", allowed, err)
-	}
-	// Beyond the grace window the mail gate closes as well.
-	if _, err = p.Exec(ctx, "UPDATE subscriptions SET period_start=now()-interval '30 days',period_end=now()-interval '9 days' WHERE tenant_id=$1", tid); err != nil {
-		t.Fatal(err)
-	}
-	if err = p.QueryRow(ctx, "SELECT urmail_mail_allowed($1)", tid).Scan(&allowed); err != nil || allowed {
-		t.Fatalf("expired mail beyond the grace window allowed=%v err=%v", allowed, err)
-	}
 }
 
 func TestV3BillingAndRecallModels(t *testing.T) {
 	p, _, tid, _ := v3Seed(t)
 	ctx := context.Background()
-	var user, order, channel int64
+	var user int64
 	if err := p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('model@example.test','x') RETURNING id").Scan(&user); err != nil {
 		t.Fatal(err)
-	}
-	if err := p.QueryRow(ctx, "INSERT INTO orders(tenant_id,order_no,kind,status,amount_cents,currency) VALUES($1,'V3-MODEL','new','paid',100,'CNY') RETURNING id", tid).Scan(&order); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.QueryRow(ctx, "INSERT INTO channels(code,name) VALUES('v3-model','Model') ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name RETURNING id").Scan(&channel); err != nil {
-		t.Fatal(err)
-	}
-	for attempt := 0; attempt < 2; attempt++ {
-		_, err := p.Exec(ctx, "INSERT INTO commissions(channel_id,tenant_id,order_id,amount_cents,bps) VALUES($1,$2,$3,10,1000)", channel, tid, order)
-		if attempt == 0 && err != nil {
-			t.Fatal(err)
-		}
-		if attempt == 1 && err == nil {
-			t.Fatal("duplicate commission accepted")
-		}
-	}
-	if _, err := p.Exec(ctx, "INSERT INTO coupons(code,kind,value,max_redemptions) VALUES('V3-MODEL','fixed',1,1) ON CONFLICT(code) DO UPDATE SET redeemed_count=0"); err != nil {
-		t.Fatal(err)
-	}
-	var successes atomic.Int32
-	var group sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			tx, err := p.PlatformTx(ctx)
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			defer func() { _ = tx.Rollback(ctx) }()
-			var available bool
-			if err = tx.QueryRow(ctx, "SELECT redeemed_count<max_redemptions FROM coupons WHERE code='V3-MODEL' FOR UPDATE").Scan(&available); err != nil {
-				t.Error(err)
-				return
-			}
-			if !available {
-				return
-			}
-			if _, err = tx.Exec(ctx, "INSERT INTO coupon_redemptions(coupon_code,tenant_id,order_id) VALUES('V3-MODEL',$1,$2)", tid, order); err != nil {
-				t.Error(err)
-				return
-			}
-			if err = tx.Commit(ctx); err != nil {
-				t.Error(err)
-				return
-			}
-			successes.Add(1)
-		}()
-	}
-	group.Wait()
-	if successes.Load() != 1 {
-		t.Fatalf("coupon successes=%d", successes.Load())
-	}
-	var redeemed, rows int
-	if err := p.QueryRow(ctx, "SELECT redeemed_count,(SELECT count(*) FROM coupon_redemptions WHERE coupon_code='V3-MODEL') FROM coupons WHERE code='V3-MODEL'").Scan(&redeemed, &rows); err != nil || redeemed != 1 || rows != 1 {
-		t.Fatalf("coupon counter diverged: redeemed=%d rows=%d err=%v", redeemed, rows, err)
 	}
 	var recall int64
 	if err := p.QueryRow(ctx, "INSERT INTO recall_requests(tenant_id,message_id,requested_by) VALUES($1,'remote', $2) RETURNING id", tid, user).Scan(&recall); err != nil {

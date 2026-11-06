@@ -65,7 +65,7 @@ func validateSettings(values map[string]json.RawMessage) bool {
 			if json.Unmarshal(value, &n) != nil || n < -1 {
 				return false
 			}
-		case "mailbox_quota_bytes":
+		case "mailbox_quota_bytes", "mailbox_daily_send_limit":
 			var n int64
 			if json.Unmarshal(value, &n) != nil || n < -1 {
 				return false
@@ -254,7 +254,7 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 func publicSettingKey(key string) bool {
 	switch key {
 	case "locale", "theme", "mailbox_default_quota_bytes", "business_timezone",
-		"mailbox_domain_limit", "mailbox_limit", "mailbox_quota_bytes", "ai_default_call_limit":
+		"mailbox_domain_limit", "mailbox_limit", "mailbox_quota_bytes", "mailbox_daily_send_limit", "ai_default_call_limit":
 		return true
 	default:
 		return false

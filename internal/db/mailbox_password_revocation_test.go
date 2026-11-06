@@ -12,6 +12,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
 type mailboxPasswordFixture struct {
@@ -23,8 +24,21 @@ type mailboxPasswordFixture struct {
 
 func newMailboxPasswordFixture(t *testing.T) mailboxPasswordFixture {
 	t.Helper()
+	return newMailboxPasswordFixtureAt(t, 0)
+}
+
+// newMailboxPasswordFixtureAt seeds the fixture on a historical schema.
+// version 0 migrates to HEAD; otherwise the database is built straight to
+// that version so rollback tests never walk down through irreversible
+// commercial-table drops.
+func newMailboxPasswordFixtureAt(t *testing.T, version uint) mailboxPasswordFixture {
+	t.Helper()
 	dsn := testDatabaseURL(t)
-	applyMigrations(t, dsn)
+	if version == 0 {
+		applyMigrations(t, dsn)
+	} else {
+		testdb.MigrateTo(t, dsn, version)
+	}
 	p, err := db.OpenPlatform(t.Context(), dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -257,23 +271,14 @@ func TestMailboxPasswordForSessionBindsIdentityAndLocksMailbox(t *testing.T) {
 func TestMailboxPasswordVersionMigrationRollbackProtectsHistory(t *testing.T) {
 	for _, kind := range []string{"pending-only", "acknowledged-history", "pristine"} {
 		t.Run(kind, func(t *testing.T) {
-			f := newMailboxPasswordFixture(t)
+			f := newMailboxPasswordFixtureAt(t, 67)
 			m, err := db.NewMigrator(f.dsn)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer func() { _ = m.Close() }()
-			for {
-				version, dirty, e := m.Version()
-				if e != nil || dirty || version < 67 {
-					t.Fatalf("invalid rollback fixture version=%d dirty=%t err=%v", version, dirty, e)
-				}
-				if version == 67 {
-					break
-				}
-				if e = m.Down(t.Context()); e != nil {
-					t.Fatal(e)
-				}
+			if version, dirty, e := m.Version(); e != nil || dirty || version != 67 {
+				t.Fatalf("invalid rollback fixture version=%d dirty=%t err=%v", version, dirty, e)
 			}
 			if kind == "pending-only" {
 				_, err = f.platform.Exec(t.Context(), "UPDATE mailboxes SET password_revoke_pending=true WHERE tenant_id=$1 AND id=$2", f.tenant, f.mailbox)
