@@ -2893,5 +2893,8 @@
   "webmail_next.error_boundary.title": "Something went wrong",
   "webmail_next.error_boundary.description": "An unexpected error occurred while rendering this section. Your data is safe.",
   "webmail_next.error_boundary.retry": "Try Again",
-  "webmail_next.error_boundary.reload": "Reload Page"
+  "webmail_next.error_boundary.reload": "Reload Page",
+  "webmail.header.search_placeholder": "Search mail... (Press / to focus)",
+  "compose.subject_placeholder": "Subject",
+  "compose.recipient_placeholder": "Add recipient..."
 }

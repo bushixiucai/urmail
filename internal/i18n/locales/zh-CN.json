@@ -2893,5 +2893,8 @@
   "webmail_next.error_boundary.title": "模块遇到渲染异常",
   "webmail_next.error_boundary.description": "此区域在渲染过程中遇到了意外错误，未影响您的数据安全。",
   "webmail_next.error_boundary.retry": "重试",
-  "webmail_next.error_boundary.reload": "刷新页面"
+  "webmail_next.error_boundary.reload": "刷新页面",
+  "webmail.header.search_placeholder": "搜索邮件…（按 / 聚焦）",
+  "compose.subject_placeholder": "主题",
+  "compose.recipient_placeholder": "添加收件人…"
 }

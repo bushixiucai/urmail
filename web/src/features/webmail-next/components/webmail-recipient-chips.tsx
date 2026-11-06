@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { X, User } from "lucide-react";
 import {
   searchCorporateContacts,
@@ -17,9 +18,10 @@ export function WebmailRecipientChips({
   label,
   recipients,
   onChange,
-  placeholder = "Add recipient...",
+  placeholder,
   testId = "recipient-input",
 }: WebmailRecipientChipsProps) {
+  const { t } = useTranslation();
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<CorporateContact[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
@@ -159,7 +161,7 @@ export function WebmailRecipientChips({
           onFocus={() => {
             if (suggestions.length > 0) setIsDropdownOpen(true);
           }}
-          placeholder={recipients.length === 0 ? placeholder : ""}
+          placeholder={recipients.length === 0 ? (placeholder ?? t("compose.recipient_placeholder")) : ""}
           className="flex-1 min-w-[120px] bg-transparent outline-none text-xs text-[#18181B] py-0.5"
         />
 
