@@ -20,6 +20,22 @@ func (q *Queries) PlatformDeleteSetting(ctx context.Context, key string) error {
 	return err
 }
 
+const platformGetSetting = `-- name: PlatformGetSetting :one
+SELECT value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND key=$1
+`
+
+type PlatformGetSettingRow struct {
+	Value     []byte             `json:"value"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) PlatformGetSetting(ctx context.Context, key string) (PlatformGetSettingRow, error) {
+	row := q.db.QueryRow(ctx, platformGetSetting, key)
+	var i PlatformGetSettingRow
+	err := row.Scan(&i.Value, &i.UpdatedAt)
+	return i, err
+}
+
 const platformListSettings = `-- name: PlatformListSettings :many
 SELECT key,value,updated_at FROM settings WHERE scope='platform' AND scope_id=0 AND key IN('locale','theme','mailbox_default_quota_bytes','business_timezone') ORDER BY key
 `

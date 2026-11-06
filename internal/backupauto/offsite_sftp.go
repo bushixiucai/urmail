@@ -18,15 +18,15 @@ import (
 // SFTPCredentials authenticate one generic SFTP endpoint.
 type SFTPCredentials struct {
 	// Password is used when PrivateKeyPath is empty.
-	Password string
+	Password string `json:"password,omitempty"`
 	// PrivateKeyPath is a PEM private key readable by the daemon.
-	PrivateKeyPath string
+	PrivateKeyPath string `json:"private_key_path,omitempty"`
 	// HostKeyFingerprint, when set, pins the expected SHA256 host key
 	// fingerprint (base64, without padding). Empty accepts any host key and
 	// is only acceptable for development.
-	HostKeyFingerprint string
+	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
 	// ConnectTimeout bounds the TCP+SSH handshake. Zero defaults to 30s.
-	ConnectTimeout time.Duration
+	ConnectTimeout time.Duration `json:"connect_timeout,omitempty"`
 }
 
 // sftpStore implements OffsiteStore over a generic SSH File Transfer
@@ -141,7 +141,11 @@ func (s *sftpStore) Upload(ctx context.Context, name string, r io.Reader, _ int6
 	tmp := target + ".part"
 	f, err := client.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if err != nil {
-		return fmt.Errorf("sftp create %s: %w", tmp, err)
+		// MkdirAll above is best-effort (the directory may already exist but
+		// stat as inaccessible), so surface its failure here: the misleading
+		// "file does not exist" almost always means dir could not be created
+		// (e.g. root-owned chroot root) and the operator must provision it.
+		return fmt.Errorf("sftp create %s (destination directory %s must exist and be writable): %w", tmp, path.Dir(target), err)
 	}
 	if _, err := io.Copy(f, r); err != nil {
 		_ = f.Close()

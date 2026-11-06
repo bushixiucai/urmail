@@ -70,6 +70,7 @@ type Worker struct {
 	manifestRaw      string
 	retentionDeleted int
 	retentionNote    string
+	offsiteNote      string
 }
 
 func (w *Worker) now() time.Time {
@@ -165,6 +166,7 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	w.manifestRaw = ""
 	w.retentionDeleted = 0
 	w.retentionNote = ""
+	w.offsiteNote = ""
 	start := w.now()
 	runUID, startErr := recorder.StartRun(ctx, ScopeComplete)
 	if startErr != nil {
@@ -173,8 +175,17 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	defer func() {
 		success := returnErr == nil
 		finishReason := returnErr
-		if success && w.retentionNote != "" {
-			finishReason = errors.New(w.retentionNote)
+		if success {
+			reasons := make([]string, 0, 2)
+			if w.offsiteNote != "" {
+				reasons = append(reasons, w.offsiteNote)
+			}
+			if w.retentionNote != "" {
+				reasons = append(reasons, w.retentionNote)
+			}
+			if len(reasons) > 0 {
+				finishReason = errors.New(strings.Join(reasons, "; "))
+			}
 		}
 		finishErr := recorder.FinishRun(ctx, runUID, success, finishReason, w.totalBytes, w.now().Sub(start), w.manifestName, w.OffsiteURI, w.retentionDeleted)
 		if returnErr == nil && finishErr != nil {
@@ -212,14 +223,51 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	if err = completeLocalArtifacts(stamp, artifacts); err != nil {
 		return err
 	}
+	if _, offsiteErr := w.runOffsitePhase(ctx, stamp, artifacts, sourceManifest, scope, consistent); offsiteErr != nil {
+		// BE-04: the local generation is complete on disk, so the run keeps
+		// its success semantics. Retention is refused fail-closed (the new
+		// generation is not verified offsite, so nothing may be deleted)
+		// and the operator is alerted via the existing outbox channel.
+		w.offsiteNote = fmt.Sprintf("offsite skipped: %v", offsiteErr)
+		w.retentionNote = "retention skipped: offsite copy failed"
+		_ = w.notifyOffsiteFailure(ctx, runUID, offsiteErr)
+		return nil
+	}
+
+	if err := recorder.MarkVerifying(ctx, runUID); err != nil {
+		return err
+	}
+
+	// Retention runs last and refuses whenever the planner is not certain.
+	deleted, plan, err := w.applyRetention(ctx)
+	w.retentionDeleted = deleted
+	switch {
+	case err != nil:
+		// Retention failure must not fail the backup: the new generation is
+		// verified and stored. Record the refusal in the run row via error-
+		// free return and surface it in logs.
+		w.retentionNote = fmt.Sprintf("retention skipped: %v", err)
+	case len(plan.Refusals) > 0:
+		w.retentionNote = "retention refused: " + strings.Join(plan.Refusals, "; ")
+	default:
+		w.retentionDeleted = deleted
+	}
+	return nil
+}
+
+// runOffsitePhase encrypts and uploads every local artifact, writes the
+// run manifest and verifies the new generation offsite before the caller
+// may record success or authorize retention. The returned manifest is nil
+// whenever the phase fails; local artifacts are untouched.
+func (w *Worker) runOffsitePhase(ctx context.Context, stamp string, artifacts []LocalArtifact, sourceManifest *Manifest, scope string, consistent bool) (*Manifest, error) {
 	entries := make([]Artifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact.SHA256 == "" || artifact.Size < 0 {
-			return fmt.Errorf("artifact %s lacks plaintext hash recorded by the runner", artifact.Name)
+			return nil, fmt.Errorf("artifact %s lacks plaintext hash recorded by the runner", artifact.Name)
 		}
 		entry, err := EncryptAndUpload(ctx, w.Store, artifact, w.Recipient)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		entry.Mode = 0o600
 		entries = append(entries, entry)
@@ -240,49 +288,31 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		LayoutVersion: layoutVersion,
 		Scope:         scope,
 		Consistent:    consistent,
-		CreatedAt:     start.UTC(),
+		CreatedAt:     w.now().UTC(),
 		Artifacts:     entries,
 		Encryption:    &EncryptionInfo{Algorithm: EncryptionAlgorithmAge, Recipient: w.Recipient},
 		Slots:         slots,
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err = retentionManifest(raw, stamp, w.now()); err != nil {
-		return fmt.Errorf("new backup manifest is incomplete: %w", err)
+		return nil, fmt.Errorf("new backup manifest is incomplete: %w", err)
 	}
 	w.manifestName = ManifestName(stamp)
 	w.manifestRaw = string(raw) + "\n"
 	if err := w.Store.Upload(ctx, w.manifestName, strings.NewReader(w.manifestRaw), int64(len(w.manifestRaw))); err != nil {
-		return fmt.Errorf("upload manifest: %w", err)
+		return nil, fmt.Errorf("upload manifest: %w", err)
 	}
 
 	// Verify BEFORE recording success: download every object of THIS run
 	// and re-checksum the ciphertext. The worker never holds the age private
 	// key, so plaintext verification is the operator verify-offsite duty.
 	if err := w.verifyCurrentRun(ctx, manifest); err != nil {
-		return err
+		return nil, err
 	}
-	if err := recorder.MarkVerifying(ctx, runUID); err != nil {
-		return err
-	}
-
-	// Retention runs last and refuses whenever the planner is not certain.
-	deleted, plan, err := w.applyRetention(ctx)
-	w.retentionDeleted = deleted
-	switch {
-	case err != nil:
-		// Retention failure must not fail the backup: the new generation is
-		// verified and stored. Record the refusal in the run row via error-
-		// free return and surface it in logs.
-		w.retentionNote = fmt.Sprintf("retention skipped: %v", err)
-	case len(plan.Refusals) > 0:
-		w.retentionNote = "retention refused: " + strings.Join(plan.Refusals, "; ")
-	default:
-		w.retentionDeleted = deleted
-	}
-	return nil
+	return manifest, nil
 }
 
 // verifyCurrentRun re-downloads and checksums the objects this run uploaded.
@@ -319,6 +349,23 @@ func (w *Worker) notifyFailure(ctx context.Context, runUID string, _ error) erro
 		 VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(dedupe_key) DO NOTHING`,
 		"backup_failed", "notification.operational_firing", params,
 		"backup:"+runUID+":failed", "in_app", "delivered")
+	return err
+}
+
+// notifyOffsiteFailure inserts one platform-scoped outbox row when the
+// offsite copy of an otherwise successful local backup fails (BE-04): the
+// run stays a success, the operator still sees the degraded state.
+func (w *Worker) notifyOffsiteFailure(ctx context.Context, runUID string, _ error) error {
+	params, _ := json.Marshal(map[string]string{
+		"kind":   "backup_offsite_failed",
+		"source": "backup:" + runUID,
+		"state":  "firing",
+	})
+	_, err := w.Pool.Exec(ctx,
+		`INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
+		 VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(dedupe_key) DO NOTHING`,
+		"backup_offsite_failed", "notification.operational_firing", params,
+		"backup:"+runUID+":offsite-failed", "in_app", "delivered")
 	return err
 }
 

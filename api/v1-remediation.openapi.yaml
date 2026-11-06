@@ -9621,6 +9621,72 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
+  /platform/backup/offsite:
+    get:
+      summary: Read the optional offsite backup destination status
+      description: Platform administrators only. An unconfigured destination is reported as configured=false with
+        enabled=false; that is the explicit disabled state, never an error. Credential material is never returned,
+        only presence flags (has_credentials plus credential_summary booleans).
+      responses:
+        '200':
+          description: Destination status; credential-free.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupOffsiteStatus'
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      summary: Replace the optional offsite backup destination
+      description: Platform administrators only. Persists non-secret fields as plaintext JSON and seals the nested
+        credentials object with the master key (enc:v1:) inside the audited request transaction; credentials are never
+        logged, audited or returned. Setting type to the empty string clears the destination (explicit disable). A
+        disabled update without a credentials object preserves the stored ciphertext so re-enabling does not require
+        re-entering secrets. Enabling without credentials is rejected (400 INVALID_PARAMS).
+      security: [{Bearer: []}, {CSRF: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupOffsiteDestinationInput'
+      responses:
+        '200':
+          description: Redacted destination status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupOffsiteStatus'
+        '400': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/backup/offsite/test-connection:
+    post:
+      summary: Run one upload/download/delete probe against the destination
+      description: Platform administrators only. The body is either the full destination (with an inline credentials
+        object, for testing before save) or empty (test the saved destination). The probe uploads a uniquely named
+        small object, downloads and byte-compares it, then deletes it; the response carries ok plus at most endpoint-level
+        error detail and never credential values.
+      security: [{Bearer: []}, {CSRF: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupOffsiteDestinationInput'
+      responses:
+        '200':
+          description: Probe outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: {type: boolean}
+                  error: {type: string, description: Present only when ok is false; endpoint-level detail without credential values.}
+        '400': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     MailboxBearer:
@@ -9645,6 +9711,32 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    BackupOffsiteDestinationInput:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [s3, sftp, webdav], description: The empty string clears the stored destination.}
+        endpoint: {type: string, maxLength: 300, description: 's3: optional custom endpoint (empty = AWS, http(s) URL); sftp: host[:port] without scheme or path; webdav: http(s)://host[:port]. Credentials embedded in a webdav endpoint are rejected.'}
+        bucket: {type: string, maxLength: 255, description: s3 only.}
+        prefix: {type: string, maxLength: 300, description: Optional remote directory or object prefix.}
+        enabled: {type: boolean, description: 'false (or unconfigured) is the explicit disabled state.'}
+        age_recipient: {type: string, maxLength: 200, description: Optional age public key so the automatic backup worker can run without environment configuration. A public key, never a secret.}
+        credentials: {type: object, writeOnly: true, description: Nested object matching the type; encrypted with the master key on receipt and never persisted, logged or returned in plaintext. s3 requires access_key_id and secret_key; sftp requires sftp_user, authentication (password or private_key_path) and a pinned host_key_fingerprint; webdav accepts username and password (anonymous only sensible for development).}
+    BackupOffsiteStatus:
+      type: object
+      properties:
+        configured: {type: boolean}
+        enabled: {type: boolean}
+        type: {type: string, enum: [s3, sftp, webdav]}
+        endpoint: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        age_recipient: {type: string}
+        has_credentials: {type: boolean}
+        credential_summary:
+          type: object
+          description: Presence booleans per credential kind (access_key, secret_key, username, password, private_key, host_key_pinned) or {unreadable:true} when decryption fails. Values are never included.
+          additionalProperties: {type: boolean}
     MailboxAIAssistPreview:
       type: object
       required: [content_digest, messages, provider, model, endpoint]

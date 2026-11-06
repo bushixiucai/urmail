@@ -33,7 +33,9 @@ type OffsiteStore interface {
 }
 
 // ParseDestination builds the matching store from an offsite URI:
-// s3://bucket/prefix (AWS or S3-compatible) or sftp://user@host[:port]/path.
+// s3://bucket/prefix (AWS or S3-compatible), sftp://user@host[:port]/path
+// or webdav(s)://host[:port]/path (BE-04). WebDAV URIs must not embed
+// credentials; they belong in the encrypted credential store.
 func ParseDestination(uri string, creds Credentials) (OffsiteStore, error) {
 	parsed, err := url.Parse(uri)
 	if err != nil {
@@ -48,25 +50,28 @@ func ParseDestination(uri string, creds Credentials) (OffsiteStore, error) {
 			host += ":22"
 		}
 		return NewSFTPStore(parsed.User.Username(), host, strings.TrimPrefix(parsed.Path, "/"), creds.SFTP)
+	case "webdav", "webdavs":
+		return NewWebDAVStore(parsed, creds.WebDAV)
 	default:
-		return nil, fmt.Errorf("unsupported offsite scheme %q (want s3:// or sftp://)", parsed.Scheme)
+		return nil, fmt.Errorf("unsupported offsite scheme %q (want s3://, sftp:// or webdavs://)", parsed.Scheme)
 	}
 }
 
 // Credentials bundles per-scheme credentials; unused members stay empty.
 type Credentials struct {
-	S3   S3Credentials
-	SFTP SFTPCredentials
+	S3     S3Credentials
+	SFTP   SFTPCredentials
+	WebDAV WebDAVCredentials
 }
 
 // S3Credentials authenticate one S3-compatible endpoint.
 type S3Credentials struct {
-	AccessKeyID string
-	SecretKey   string
-	Region      string
+	AccessKeyID string `json:"access_key_id,omitempty"`
+	SecretKey   string `json:"secret_key,omitempty"`
+	Region      string `json:"region,omitempty"`
 	// Endpoint overrides the AWS virtual-hosted URL for S3-compatible
 	// object stores (MinIO, Ceph, provider object storage). Empty means AWS.
-	Endpoint string
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // s3Store is a minimal S3-compatible client signed with SigV4, implemented

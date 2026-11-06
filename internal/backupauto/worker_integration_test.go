@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,6 +196,113 @@ func TestWorkerFullPipelineRecordsSuccess(t *testing.T) {
 }
 
 type failingRunner struct{}
+
+// failingStore injects an offsite transport outage: every write fails.
+type failingStore struct{}
+
+func (failingStore) Upload(context.Context, string, io.Reader, int64) error {
+	return fmt.Errorf("offsite unreachable (injected)")
+}
+
+func (failingStore) List(context.Context) ([]RemoteObject, error) {
+	return nil, fmt.Errorf("offsite unreachable (injected)")
+}
+
+func (failingStore) Download(context.Context, string, io.Writer) error {
+	return fmt.Errorf("offsite unreachable (injected)")
+}
+
+func (failingStore) Delete(context.Context, string) error {
+	return fmt.Errorf("offsite unreachable (injected)")
+}
+
+// TestWorkerOffsiteFailureKeepsLocalSuccess is the BE-04 degradation
+// contract: the local generation is complete, so the run records success,
+// retention is refused (fail-closed: nothing may be deleted when the new
+// generation is not verified offsite) and the operator is alerted through
+// the backup_offsite_failed outbox row instead of backup_failed.
+func TestWorkerOffsiteFailureKeepsLocalSuccess(t *testing.T) {
+	platform, _ := testdb.OpenMigrated(t)
+	ctx := context.Background()
+
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := &Worker{
+		Pool:       platform,
+		Runner:     fakeRunner{Dir: t.TempDir()},
+		Store:      failingStore{},
+		Recipient:  identity.Recipient().String(),
+		OffsiteURI: "s3://test-bucket/backups",
+		Interval:   time.Hour,
+		Now:        time.Now,
+	}
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("offsite failure must not fail the local run: %v", err)
+	}
+	var state, note string
+	if err := platform.Pool.QueryRow(ctx,
+		"SELECT state,error FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&state, &note); err != nil {
+		t.Fatal(err)
+	}
+	if state != StateSuccess {
+		t.Fatalf("local success must be recorded despite offsite failure, got %q", state)
+	}
+	if !strings.Contains(note, "offsite skipped") || !strings.Contains(note, "retention skipped") {
+		t.Fatalf("run note must explain the degraded state, got %q", note)
+	}
+	var offsiteNotices int
+	if err := platform.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM notification_outbox WHERE kind=$1", "backup_offsite_failed").Scan(&offsiteNotices); err != nil {
+		t.Fatal(err)
+	}
+	if offsiteNotices != 1 {
+		t.Fatalf("expected one backup_offsite_failed alert, got %d", offsiteNotices)
+	}
+	var failedNotices int
+	if err := platform.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM notification_outbox WHERE kind=$1", "backup_failed").Scan(&failedNotices); err != nil {
+		t.Fatal(err)
+	}
+	if failedNotices != 0 {
+		t.Fatal("degraded runs must not raise backup_failed")
+	}
+
+	// The next run must be allowed: an unverified offsite copy cannot be
+	// counted as a completed generation, so the interval guard must not
+	// suppress the retry.
+	worker.Interval = time.Nanosecond
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var runs int
+	if err := platform.Pool.QueryRow(ctx, "SELECT count(*) FROM backup_runs").Scan(&runs); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 2 {
+		t.Fatalf("degraded run must not suppress the retry, got %d runs", runs)
+	}
+
+	// Recovery: with a healthy store the run verifies and completes fully.
+	worker.Store = newMemoryStore()
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := platform.Pool.QueryRow(ctx, "SELECT state FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != StateSuccess {
+		t.Fatalf("recovered run must record success, got %q", state)
+	}
+	if err := platform.Pool.QueryRow(ctx,
+		"SELECT error FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&note); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(note, "offsite skipped") {
+		t.Fatalf("recovered run must not carry the degraded note, got %q", note)
+	}
+}
 
 func (failingRunner) RunBackup(context.Context, string) ([]LocalArtifact, string, bool, error) {
 	return nil, "", false, errFailingRunner

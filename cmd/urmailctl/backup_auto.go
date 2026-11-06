@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,9 +19,55 @@ import (
 	"github.com/bushixiucai/urmail/internal/backupauto"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/secrets"
 )
 
 const automaticBackupSpool = "/var/backups/urmail"
+
+// offsiteDestinationFromSettings resolves the platform-admin-configured
+// offsite destination (BE-04) from the settings table. The returned
+// disabled flag reports "no enabled destination configured". The age
+// recipient comes from the row when the caller passes an empty one; it is
+// a public key and never secret.
+func offsiteDestinationFromSettings(ctx context.Context, cfg *config.Config, recipient string) (resolvedRecipient, uri string, creds backupauto.Credentials, disabled bool, err error) {
+	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	if err != nil {
+		return "", "", backupauto.Credentials{}, false, err
+	}
+	defer pool.Close()
+	var value []byte
+	queryErr := pool.QueryRow(ctx,
+		`SELECT value FROM settings WHERE scope='platform' AND scope_id=0 AND key=$1`,
+		backupauto.DestinationSettingsKey).Scan(&value)
+	if errors.Is(queryErr, sql.ErrNoRows) {
+		return "", "", backupauto.Credentials{}, true, nil
+	}
+	if queryErr != nil {
+		return "", "", backupauto.Credentials{}, false, queryErr
+	}
+	var destination backupauto.Destination
+	if err := json.Unmarshal(value, &destination); err != nil {
+		return "", "", backupauto.Credentials{}, false, fmt.Errorf("decode configured backup destination: %w", err)
+	}
+	if !destination.Enabled {
+		return "", "", backupauto.Credentials{}, true, nil
+	}
+	if recipient == "" {
+		recipient = destination.AgeRecipient
+	}
+	if recipient == "" {
+		return "", "", backupauto.Credentials{}, true, nil
+	}
+	box, err := secrets.Load(cfg.MasterKeyPath)
+	if err != nil {
+		return "", "", backupauto.Credentials{}, false, err
+	}
+	uri, creds, err = destination.Resolve(box)
+	if err != nil {
+		return "", "", backupauto.Credentials{}, false, fmt.Errorf("resolve configured backup destination: %w", err)
+	}
+	return recipient, uri, creds, false, nil
+}
 
 type rootBackupRunner struct{}
 
@@ -75,13 +123,6 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		}
 	}
 	recipient, uri := get("URMAIL_BACKUP_AGE_RECIPIENT"), get("URMAIL_BACKUP_OFFSITE_URI")
-	if recipient == "" && uri == "" {
-		fmt.Println("automatic backup disabled: recipient and offsite destination are not configured")
-		return nil
-	}
-	if recipient == "" || uri == "" {
-		return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -90,12 +131,37 @@ func runBackupAuto(ctx context.Context, args []string) error {
 		fmt.Println("automatic backup disabled in development, maintenance hold or restore quarantine")
 		return nil
 	}
+	var creds backupauto.Credentials
+	if uri != "" {
+		creds = backupauto.Credentials{
+			S3:   backupauto.S3Credentials{AccessKeyID: get("URMAIL_BACKUP_S3_ACCESS_KEY_ID"), SecretKey: get("URMAIL_BACKUP_S3_SECRET_KEY"), Region: get("URMAIL_BACKUP_S3_REGION"), Endpoint: get("URMAIL_BACKUP_S3_ENDPOINT")},
+			SFTP: backupauto.SFTPCredentials{Password: get("URMAIL_BACKUP_SFTP_PASSWORD"), PrivateKeyPath: get("URMAIL_BACKUP_SFTP_KEY"), HostKeyFingerprint: get("URMAIL_BACKUP_SFTP_HOST_KEY")},
+		}
+	} else {
+		// BE-04: no environment destination; fall back to the platform
+		// admin's configured destination row. Environment configuration
+		// keeps priority so existing deployments are untouched.
+		resolvedRecipient, resolvedURI, resolvedCreds, disabled, err := offsiteDestinationFromSettings(ctx, cfg, recipient)
+		if err != nil {
+			return err
+		}
+		if disabled {
+			if recipient == "" {
+				fmt.Println("automatic backup disabled: recipient and offsite destination are not configured")
+				return nil
+			}
+			return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
+		}
+		if recipient == "" {
+			recipient = resolvedRecipient
+		}
+		uri, creds = resolvedURI, resolvedCreds
+	}
+	if recipient == "" {
+		return errors.New("automatic backup requires both age recipient and offsite destination; no writers stopped")
+	}
 	if _, err = backupauto.ParseRecipient(recipient); err != nil {
 		return errors.New("invalid automatic backup age public recipient")
-	}
-	creds := backupauto.Credentials{
-		S3:   backupauto.S3Credentials{AccessKeyID: get("URMAIL_BACKUP_S3_ACCESS_KEY_ID"), SecretKey: get("URMAIL_BACKUP_S3_SECRET_KEY"), Region: get("URMAIL_BACKUP_S3_REGION"), Endpoint: get("URMAIL_BACKUP_S3_ENDPOINT")},
-		SFTP: backupauto.SFTPCredentials{Password: get("URMAIL_BACKUP_SFTP_PASSWORD"), PrivateKeyPath: get("URMAIL_BACKUP_SFTP_KEY"), HostKeyFingerprint: get("URMAIL_BACKUP_SFTP_HOST_KEY")},
 	}
 	if strings.HasPrefix(uri, "sftp://") && (creds.SFTP.HostKeyFingerprint == "" || (creds.SFTP.Password == "" && creds.SFTP.PrivateKeyPath == "")) {
 		return errors.New("automatic SFTP backup requires authentication and a pinned SSH host fingerprint")

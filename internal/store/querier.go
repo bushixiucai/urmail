@@ -693,6 +693,7 @@ type Querier interface {
 	PlatformGetSendReceipt(ctx context.Context, arg PlatformGetSendReceiptParams) (MailboxSendReceipts, error)
 	PlatformGetSendReceiptByKey(ctx context.Context, arg PlatformGetSendReceiptByKeyParams) (MailboxSendReceipts, error)
 	PlatformGetSendReceiptsForDraft(ctx context.Context, arg PlatformGetSendReceiptsForDraftParams) ([]MailboxSendReceipts, error)
+	PlatformGetSetting(ctx context.Context, key string) (PlatformGetSettingRow, error)
 	PlatformGetSieveActivationTarget(ctx context.Context, arg PlatformGetSieveActivationTargetParams) (PlatformGetSieveActivationTargetRow, error)
 	PlatformGetSieveBridge(ctx context.Context, tokenHash string) (PlatformGetSieveBridgeRow, error)
 	PlatformGetSubscriptionForSettlement(ctx context.Context, tenantID int64) (PlatformGetSubscriptionForSettlementRow, error)

@@ -106,3 +106,46 @@ container ID before fixed `pg_dump` execution. It does not create another
 database or expose a caller-controlled shell command. Standalone manual backup
 commands may pass that same nonsecret container selector in their environment.
 Default native installations continue using the managed local peer connection.
+## Optional offsite backups (admin-configured)
+
+Automatic backups can additionally be configured from the platform admin
+console instead of the root-only env file. Offsite upload is optional: an
+unconfigured destination means the offsite copy is disabled, and a reachable
+but failing destination never changes a completed local backup into a
+failure — the run stays successful, retention is refused until the next
+verified copy, and the operator receives a `backup_offsite_failed` in-app
+alert. Unsupported states fail closed: nothing at the offsite location is
+ever deleted unless the newest generation was verified there.
+
+Platform admin API (`/api/v1/platform/backup/offsite`):
+
+- `GET` — destination status with presence flags only (`has_credentials`,
+  `credential_summary`); credential values are never returned.
+- `PUT` — replace the destination. Non-secret fields (`type`, `endpoint`,
+  `bucket`, `prefix`, `enabled`, optional `age_recipient`) persist as JSON;
+  the nested `credentials` object is immediately encrypted with the master
+  key (`enc:v1:`) and never appears in logs or audit records. `{"type":""}`
+  clears the destination. Disabling without a credentials object preserves
+  the stored ciphertext.
+- `POST /test-connection` — one full upload/download/delete probe. Accepts
+  the full destination (test before save) or an empty body (test saved).
+
+Supported destination types and configuration examples:
+
+- S3 / S3-compatible (MinIO, Ceph, provider object storage):
+  `{"type":"s3","bucket":"urmail-backups","prefix":"gen","endpoint":"https://s3.example.internal:9000","enabled":true,"credentials":{"s3":{"access_key_id":"…","secret_key":"…","region":"us-east-1"}}}`
+  (omit `endpoint` for AWS).
+- SFTP: `{"type":"sftp","endpoint":"backuphost.example.com:22","prefix":"urmail","enabled":true,"credentials":{"sftp_user":"ops","sftp":{"password":"…","host_key_fingerprint":"SHA256:…"}}}`
+  (or `private_key_path` instead of `password`; the pinned SHA256 host key
+  fingerprint is required). The fingerprint is the verbatim output of
+  `ssh-keygen -lf key.pub` on modern OpenSSH: `SHA256:` prefix + unpadded
+  base64 (43 chars), 50 chars total.
+- WebDAV: `{"type":"webdav","endpoint":"https://dav.example.com:8443","prefix":"urmail","enabled":true,"credentials":{"webdav":{"username":"…","password":"…"}}}`
+  (`https` endpoints map to `webdavs`; `http` is accepted for LAN servers).
+
+When `URMAIL_BACKUP_OFFSITE_URI` is set in `/etc/urmail/agent.env`, that
+environment configuration keeps priority. Without it, the automatic backup
+worker falls back to this platform-configured destination: `age_recipient`
+may come from the row (it is a public key, not a secret), while credentials
+are decrypted from the master-key-sealed blob at run time. The `PUT` payload
+is accepted only over the authenticated, CSRF-guarded platform-admin session.

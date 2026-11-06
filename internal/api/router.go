@@ -654,6 +654,10 @@ func New(opts Options) *gin.Engine {
 				platform.GET("/reminder-policy", (&handlers.NotificationConfigHandler{Store: platformQueries, Secrets: opts.Secrets}).ReminderPolicy)
 				platform.PUT("/reminder-policy", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), (&handlers.NotificationConfigHandler{Store: platformQueries, Secrets: opts.Secrets}).SaveReminderPolicy)
 				platform.PUT("/notification-channel", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), (&handlers.NotificationConfigHandler{Store: platformQueries, Secrets: opts.Secrets}).Save)
+				offsiteBackup := &handlers.BackupOffsiteAdminHandler{Store: platformQueries, Secrets: opts.Secrets}
+				platform.GET("/backup/offsite", offsiteBackup.Get)
+				platform.PUT("/backup/offsite", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), offsiteBackup.Put)
+				platform.POST("/backup/offsite/test-connection", offsiteBackup.TestConnection)
 				platform.POST("/channels", middleware.RequirePlatformTx(opts.PlatformPool, opts.Logger), platformHandler.UpsertChannel)
 				platform.POST("/payment-merchants/:merchant_id/orders/:order_id/query", paymentGateway.Query)
 				platform.GET("/payment-merchants", paymentGateway.ListMerchants)
