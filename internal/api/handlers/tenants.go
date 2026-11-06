@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -119,9 +120,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	}
 	mergedSettings, _ := domainSettings.Merge3Layers(entries)
 	for key := range mergedSettings {
-		switch key {
-		case "locale", "theme", "mailbox_default_quota_bytes", "business_timezone":
-		default:
+		if !publicSettingKey(key) {
 			delete(mergedSettings, key)
 		}
 	}
@@ -153,7 +152,29 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		plan, _ = subscriptionPlan(c, q, sub)
 	}
 
-	usage := TenantUsageResponse{DomainsUsed: domainCount, DomainsLimit: plan.DomainLimit, MailboxesUsed: mailboxCount, MailboxesLimit: plan.MailboxLimit, StorageBytesLimit: plan.QuotaBytes, StorageStatus: "unknown"}
+	domainLimit := int32(-1)
+	mailboxLimit := int32(-1)
+	quotaBytes := int64(-1)
+	if v, ok := mergedSettings["mailbox_domain_limit"]; ok {
+		var n int64
+		if json.Unmarshal(v, &n) == nil && n >= -1 && n <= math.MaxInt32 {
+			domainLimit = int32(n)
+		}
+	}
+	if v, ok := mergedSettings["mailbox_limit"]; ok {
+		var n int64
+		if json.Unmarshal(v, &n) == nil && n >= -1 && n <= math.MaxInt32 {
+			mailboxLimit = int32(n)
+		}
+	}
+	if v, ok := mergedSettings["mailbox_quota_bytes"]; ok {
+		var n int64
+		if json.Unmarshal(v, &n) == nil && n >= -1 {
+			quotaBytes = n
+		}
+	}
+
+	usage := TenantUsageResponse{DomainsUsed: domainCount, DomainsLimit: domainLimit, MailboxesUsed: mailboxCount, MailboxesLimit: mailboxLimit, StorageBytesLimit: quotaBytes, StorageStatus: "unknown"}
 	if usageStore := requestStore[interface {
 		GetTenantStorageUsage(context.Context, int64) (store.GetTenantStorageUsageRow, error)
 	}](c, nil); usageStore != nil {

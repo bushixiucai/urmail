@@ -15,6 +15,7 @@ import (
 
 func TestAIConsentHTTPRequiresTenantRoleExplicitConfirmationAndCurrentTarget(t *testing.T) {
 	p, principal := mailboxAIFixture(t, 2, false)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	ctx := t.Context()
 	var owner int64
 	if err := p.QueryRow(ctx, "SELECT user_id FROM user_tenant_roles WHERE tenant_id=$1 AND role='owner'", principal.TenantID).Scan(&owner); err != nil {

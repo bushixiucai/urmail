@@ -316,6 +316,7 @@ type nativeAIHTTPFixture struct {
 
 func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
 	p, principal := mailboxAIFixture(t, 1000)
+	seatAIPlatformBudget(t, p, principal.TenantID)
 	password := "native-ai-fixture-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	hash, err := domainMail.HashPassword(password)
 	if err != nil {

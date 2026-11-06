@@ -570,9 +570,12 @@ func TestTenantCurrentResponseShape(t *testing.T) {
 			Settings:    []byte(`{"tenant-secret":"do-not-leak"}`),
 			CreatedAt:   shapeTime(),
 		},
-		settings: []store.Settings{{
-			Scope: "tenant", ScopeID: 1, Key: "locale", Value: []byte(`"zh-CN"`),
-		}},
+		settings: []store.Settings{
+			{Scope: "tenant", ScopeID: 1, Key: "locale", Value: []byte(`"zh-CN"`)},
+			{Scope: "tenant", ScopeID: 1, Key: "mailbox_domain_limit", Value: []byte(`5`)},
+			{Scope: "tenant", ScopeID: 1, Key: "mailbox_limit", Value: []byte(`50`)},
+			{Scope: "tenant", ScopeID: 1, Key: "mailbox_quota_bytes", Value: []byte(`1073741824`)},
+		},
 		sub:          store.Subscriptions{PlanID: "pro", Status: "active"},
 		plan:         store.Plans{Code: "pro", Name: []byte(`{"zh-CN":"专业版","en":"Pro"}`), DomainLimit: 5, MailboxLimit: 50, QuotaBytes: 1 << 30},
 		domainCount:  2,

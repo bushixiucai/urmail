@@ -217,7 +217,12 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 	start, end := quota.Start, quota.End
 	tokenLimit, costLimit := limits.AI.Tokens, limits.AI.Cost
 	if cfg.Mode == "platform" {
-		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != cfg.CostCurrency {
+		// A tenant without a configured currency bills in the platform default.
+		currency := cfg.CostCurrency
+		if currency == "" {
+			currency = "CNY"
+		}
+		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != currency {
 			return nil, ErrAIBudgetExceeded
 		}
 	} else {

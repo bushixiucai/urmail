@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,8 +37,8 @@ func aiQuotaMonth(now time.Time, zone string) (time.Time, time.Time, error) {
 }
 
 // resolveAIQuota never rewrites mail entitlement or billing facts. Explicit
-// host caps cover BYO/local usage by a frozen calendar window; an unchanged
-// finite-plan quota remains the compatibility path when no caps are configured.
+// host caps cover BYO/local usage by a frozen calendar window; when no caps
+// are configured, settings key ai_default_call_limit defines local quota.
 func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderConfigs, tenant int64, now time.Time) (aiQuotaResolution, error) {
 	result := aiQuotaResolution{Source: "unconfigured", Timezone: cfg.QuotaTimezone}
 	if cfg.Mode != "platform" && cfg.NonplatformCallLimit > 0 && cfg.NonplatformMailboxCallLimit > 0 && cfg.NonplatformConcurrencyLimit > 0 {
@@ -56,28 +57,71 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		result.Limits.AI.Cost = math.MaxInt64
 		return result, nil
 	}
-	plan, err := q.GetEffectivePlan(ctx, tenant)
-	if err != nil {
-		return result, errAIBudget
+
+	defaultLimit := resolveAIDefaultCallLimit(ctx, q, tenant)
+	if cfg.Mode == "platform" && defaultLimit > 0 {
+		if cfg.CostCurrency != "" && cfg.CostCurrency != "CNY" && cfg.CostCurrency != "USD" {
+			return result, errAIBudget
+		}
+		result.Limits.AI.Currency = cfg.CostCurrency
+		if result.Limits.AI.Currency == "" {
+			result.Limits.AI.Currency = "CNY"
+		}
 	}
-	if json.Unmarshal(plan.Features, &result.Limits) != nil || result.Limits.AI.Calls <= 0 || result.Limits.AI.Concurrency <= 0 {
-		return result, errAIBudget
+	if defaultLimit > 0 {
+		loc, locErr := aiQuotaLocation(ctx, q, cfg, tenant)
+		if locErr != nil {
+			return result, locErr
+		}
+		start, end, err := aiQuotaMonth(now, loc.String())
+		if err != nil {
+			return result, err
+		}
+		result.Source = "configured_nonplatform"
+		// The durable ledger only tracks platform-mode spend inside the shared
+		// window; BYO/local calls keep their independent per-mode calendar.
+		result.Independent = cfg.Mode != "platform"
+		result.Timezone = loc.String()
+		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
+		result.End = pgtype.Timestamptz{Time: end, Valid: true}
+		result.Limits.AI.Calls = defaultLimit
+		result.Limits.AI.MailboxCalls = defaultLimit
+		result.Limits.AI.Concurrency = 2
+		result.Limits.AI.Tokens = math.MaxInt64
+		result.Limits.AI.Cost = math.MaxInt64
+		return result, nil
 	}
-	if result.Limits.AI.MailboxCalls <= 0 {
-		result.Limits.AI.MailboxCalls = result.Limits.AI.Calls
+
+	return result, errAIBudget
+}
+
+// resolveAIDefaultCallLimit reads ai_default_call_limit following precedence:
+// Tenant scope override > Platform scope default > fallback (0 = unconfigured).
+func resolveAIDefaultCallLimit(ctx context.Context, q *store.Queries, tenant int64) int64 {
+	if q == nil {
+		return 0
 	}
-	sub, err := q.GetActiveSubscriptionByTenant(ctx, tenant)
-	if err != nil || !sub.PeriodStart.Valid || !sub.PeriodEnd.Valid || !sub.PeriodEnd.Time.After(now) {
-		return result, errAIBudget
+	// 1. Tenant-level override takes precedence
+	if row, err := q.GetTenantSetting(ctx, store.GetTenantSettingParams{ScopeID: tenant, Key: "ai_default_call_limit"}); err == nil && len(row.Value) > 0 {
+		trimmed := bytes.TrimSpace(row.Value)
+		if !bytes.Equal(trimmed, []byte("null")) {
+			var n int64
+			if json.Unmarshal(trimmed, &n) == nil && n >= 0 {
+				return n
+			}
+		}
 	}
-	result.Start, result.End = sub.PeriodStart, sub.PeriodEnd
-	if term, e := q.GetCurrentSubscriptionTerm(ctx, tenant); e == nil {
-		result.Start, result.End = term.BillingPeriodStart, term.PeriodEnd
-	} else if !errors.Is(e, pgx.ErrNoRows) {
-		return result, e
+	// 2. Platform-level default
+	if row, err := q.PlatformGetSetting(ctx, "ai_default_call_limit"); err == nil && len(row.Value) > 0 {
+		trimmed := bytes.TrimSpace(row.Value)
+		if !bytes.Equal(trimmed, []byte("null")) {
+			var n int64
+			if json.Unmarshal(trimmed, &n) == nil && n >= 0 {
+				return n
+			}
+		}
 	}
-	result.Source = "plan"
-	return result, nil
+	return 0
 }
 func aiQuotaLocation(ctx context.Context, q *store.Queries, cfg store.AiProviderConfigs, tenant int64) (*time.Location, error) {
 	zone := cfg.QuotaTimezone
