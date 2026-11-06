@@ -82,12 +82,6 @@ def main():
             parser.error("supply test admin token/CSRF or email/password through the documented environment variables")
         admin.login(email, password, os.environ.get("URMAIL_ACCEPTANCE_MFA_CODE"))
     suffix = uuid.uuid4().hex[:12]
-    code = "smoke-" + suffix
-    plan = {"code": code, "name": {"en": "Smoke plan", "zh-CN": "验收套餐"},
-            "price_cents": 100, "currency": "CNY", "quota_bytes": 1073741824,
-            "mailbox_limit": 5, "domain_limit": 2, "daily_send_limit": 100,
-            "features": {}, "active": True}
-    admin.call("POST", "/api/v1/platform/plans", plan)
     accounts = []
     panels = []
     for index in range(2):
@@ -107,25 +101,12 @@ def main():
     owner.call("POST", "/api/v1/platform/brand-hosts", {
         "hostname": f"unauthorized-{suffix}.example.test", "brand_id": 1,
     }, expected=403)
-    # A newly created tenant has neither a gifted plan nor ownership proof.
-    # The public API must not bypass that prerequisite through legacy checkout.
-    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=409, key=code)
-    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=409, key=code)
-    if owner.call("GET", "/api/v1/billing/orders")["orders"]:
-        raise RuntimeError("unverified checkout created an order")
-    if owner.call("GET", "/api/v1/billing/invoices")["invoices"]:
-        raise RuntimeError("unverified checkout created an invoice")
-    plan["active"] = False
-    admin.call("POST", "/api/v1/platform/plans", plan)
-    if any(item["code"] == code for item in owner.call("GET", "/api/v1/billing/plans")["plans"]):
-        raise RuntimeError("inactive plan remained publicly purchasable")
-    owner.call("POST", "/api/v1/billing/checkout", {"plan_code": code}, expected=409, key=code + "-disabled")
     if args.fixture_out:
-        raw = json.dumps({"base_url": args.base_url, "accounts": accounts, "plan_code": code}, indent=2).encode()
+        raw = json.dumps({"base_url": args.base_url, "accounts": accounts}, indent=2).encode()
         fd = os.open(args.fixture_out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as output:
             output.write(raw)
-    print("PASS: real HTTP settings, restricted new-tenant checkout, inactive plan and role boundaries")
+    print("PASS: real HTTP settings, admin-created tenant and role boundaries")
     if args.fixture_out:
         print("Generated browser accounts saved to the requested private fixture file")
 

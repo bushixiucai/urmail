@@ -49,7 +49,6 @@ type Querier interface {
 	ArchiveRetentionCandidateDigest(ctx context.Context, arg ArchiveRetentionCandidateDigestParams) (ArchiveRetentionCandidateDigestRow, error)
 	AuditLegacyCredentialUse(ctx context.Context, arg AuditLegacyCredentialUseParams) error
 	AuthenticateApplicationCredential(ctx context.Context, arg AuthenticateApplicationCredentialParams) (AuthenticateApplicationCredentialRow, error)
-	CanCreatePendingDomain(ctx context.Context, tenantID int64) (bool, error)
 	CancelDNSPlan(ctx context.Context, arg CancelDNSPlanParams) error
 	CancelQueuedMarketingRecipients(ctx context.Context, arg CancelQueuedMarketingRecipientsParams) (int64, error)
 	ChangeMarketingCampaignState(ctx context.Context, arg ChangeMarketingCampaignStateParams) (MarketingCampaigns, error)
@@ -202,7 +201,6 @@ type Querier interface {
 	// without any queries; writes are wired by the platform side later.
 	InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntryParams) (ArchiveEntries, error)
 	InsertMailboxAIChunk(ctx context.Context, arg InsertMailboxAIChunkParams) (int64, error)
-	IsSelfServiceTenant(ctx context.Context, tenantID int64) (bool, error)
 	ListAliasesByTenant(ctx context.Context, tenantID int64) ([]ListAliasesByTenantRow, error)
 	ListApplicationCredentials(ctx context.Context, userID int64) ([]ListApplicationCredentialsRow, error)
 	ListArchiveEntriesByTenant(ctx context.Context, arg ListArchiveEntriesByTenantParams) ([]ArchiveEntries, error)
@@ -332,7 +330,6 @@ type Querier interface {
 	PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (PlatformBindBrandHostRow, error)
 	PlatformBindOnboardingDomain(ctx context.Context, arg PlatformBindOnboardingDomainParams) (int64, error)
 	PlatformBindOwnedCalendarOrganizer(ctx context.Context, arg PlatformBindOwnedCalendarOrganizerParams) (int64, error)
-	PlatformBindRegisteredOwner(ctx context.Context, arg PlatformBindRegisteredOwnerParams) error
 	PlatformBindRenewalPaymentOrder(ctx context.Context, arg PlatformBindRenewalPaymentOrderParams) error
 	PlatformBindSchedulingEvent(ctx context.Context, arg PlatformBindSchedulingEventParams) (int64, error)
 	PlatformBrandHostCertEligible(ctx context.Context, hostname string) (bool, error)
@@ -396,7 +393,6 @@ type Querier interface {
 	PlatformConfirmDomainRecovery(ctx context.Context, arg PlatformConfirmDomainRecoveryParams) (int64, error)
 	PlatformConsumeBrandHostChallenge(ctx context.Context, hostname string) (int64, error)
 	PlatformConsumeMailboxTicket(ctx context.Context, arg PlatformConsumeMailboxTicketParams) (PlatformConsumeMailboxTicketRow, error)
-	PlatformConsumeRegistrationRequest(ctx context.Context, tokenHash string) error
 	PlatformContactImportDuplicate(ctx context.Context, arg PlatformContactImportDuplicateParams) (bool, error)
 	PlatformConvergeRecurringRuntime(ctx context.Context, arg PlatformConvergeRecurringRuntimeParams) error
 	PlatformCountLegacyMFASecrets(ctx context.Context) (int64, error)
@@ -420,9 +416,6 @@ type Querier interface {
 	PlatformCreateManagedUser(ctx context.Context, arg PlatformCreateManagedUserParams) (int64, error)
 	PlatformCreateMarketingChannel(ctx context.Context, arg PlatformCreateMarketingChannelParams) (PlatformCreateMarketingChannelRow, error)
 	PlatformCreateRecurringSetup(ctx context.Context, arg PlatformCreateRecurringSetupParams) (RecurringSetupIntents, error)
-	PlatformCreateRegisteredTenant(ctx context.Context, arg PlatformCreateRegisteredTenantParams) (int64, error)
-	PlatformCreateRegisteredUser(ctx context.Context, arg PlatformCreateRegisteredUserParams) (int64, error)
-	PlatformCreateRegistrationRequest(ctx context.Context, arg PlatformCreateRegistrationRequestParams) error
 	PlatformCreateRenewalOrder(ctx context.Context, arg PlatformCreateRenewalOrderParams) (Orders, error)
 	PlatformCreateSendReceipt(ctx context.Context, arg PlatformCreateSendReceiptParams) (MailboxSendReceipts, error)
 	PlatformCreateSieveBridge(ctx context.Context, arg PlatformCreateSieveBridgeParams) error
@@ -450,7 +443,6 @@ type Querier interface {
 	PlatformDraftSendLocked(ctx context.Context, arg PlatformDraftSendLockedParams) (pgtype.Bool, error)
 	PlatformEncryptLegacyMFASecret(ctx context.Context, arg PlatformEncryptLegacyMFASecretParams) (int64, error)
 	PlatformEnqueueAIAlerts(ctx context.Context) error
-	PlatformEnqueueContactVerification(ctx context.Context, arg PlatformEnqueueContactVerificationParams) error
 	PlatformEnqueueDNSOnboardingAlerts(ctx context.Context) error
 	PlatformEnqueueNotification(ctx context.Context, arg PlatformEnqueueNotificationParams) error
 	PlatformEnqueueObservabilityAlerts(ctx context.Context) error
@@ -486,7 +478,6 @@ type Querier interface {
 	PlatformFinancialReadBudget(ctx context.Context) error
 	PlatformFinancialTenantOrderFacts(ctx context.Context, arg PlatformFinancialTenantOrderFactsParams) ([][]byte, error)
 	PlatformFindManagedUser(ctx context.Context, email string) (int64, error)
-	PlatformFindRegistrationRequest(ctx context.Context, tokenHash string) (RegistrationRequests, error)
 	PlatformFindSchedulingEvent(ctx context.Context, arg PlatformFindSchedulingEventParams) (MailboxEvents, error)
 	PlatformFindTLSReportFingerprint(ctx context.Context, arg PlatformFindTLSReportFingerprintParams) (string, error)
 	PlatformFinishAIRequest(ctx context.Context, arg PlatformFinishAIRequestParams) (int64, error)
@@ -702,7 +693,6 @@ type Querier interface {
 	PlatformLockRecurringSetupActor(ctx context.Context, arg PlatformLockRecurringSetupActorParams) (string, error)
 	PlatformLockRecurringSetupCapability(ctx context.Context, merchantID int64) (int64, error)
 	PlatformLockRecurringSetupMerchant(ctx context.Context, id int64) (PaymentMerchants, error)
-	PlatformLockRegistrationEmail(ctx context.Context, dollar_1 string) error
 	PlatformLockRetentionPurgePolicy(ctx context.Context, arg PlatformLockRetentionPurgePolicyParams) (bool, error)
 	PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error
 	PlatformMailboxAccessStates(ctx context.Context) ([]PlatformMailboxAccessStatesRow, error)
@@ -792,8 +782,6 @@ type Querier interface {
 	PlatformRefreshRecurringEvidence(ctx context.Context, arg PlatformRefreshRecurringEvidenceParams) (int64, error)
 	PlatformRefreshRefundAlerts(ctx context.Context) error
 	PlatformRefundStateCounts(ctx context.Context) ([]PlatformRefundStateCountsRow, error)
-	PlatformRegistrationEmailExists(ctx context.Context, email string) (bool, error)
-	PlatformRegistrationTokenEmail(ctx context.Context, tokenHash string) (string, error)
 	PlatformRehashPanelPassword(ctx context.Context, arg PlatformRehashPanelPasswordParams) (int64, error)
 	PlatformReleaseDraftSessionLock(ctx context.Context, arg PlatformReleaseDraftSessionLockParams) (bool, error)
 	PlatformReleaseMarketingClaim(ctx context.Context, arg PlatformReleaseMarketingClaimParams) (int64, error)
@@ -824,14 +812,12 @@ type Querier interface {
 	PlatformRevokeInvestigation(ctx context.Context, arg PlatformRevokeInvestigationParams) error
 	PlatformRevokeMailboxCredentials(ctx context.Context, arg PlatformRevokeMailboxCredentialsParams) error
 	PlatformRevokeMailboxSession(ctx context.Context, tokenHash string) error
-	PlatformRevokeRegistrationRequests(ctx context.Context, email string) error
 	PlatformRevokeRenewalEnrollment(ctx context.Context, arg PlatformRevokeRenewalEnrollmentParams) error
 	PlatformRevokeSieveBridge(ctx context.Context, tokenHash string) error
 	PlatformRotateDomainRecoveryToken(ctx context.Context, arg PlatformRotateDomainRecoveryTokenParams) (int64, error)
 	PlatformRotatePanelPassword(ctx context.Context, arg PlatformRotatePanelPasswordParams) (int64, error)
 	PlatformSaveBrand(ctx context.Context, arg PlatformSaveBrandParams) (PlatformSaveBrandRow, error)
 	PlatformSaveMarketingFlowPosition(ctx context.Context, arg PlatformSaveMarketingFlowPositionParams) error
-	PlatformSaveVerifiedContact(ctx context.Context, arg PlatformSaveVerifiedContactParams) error
 	PlatformScheduleCalendarReminder(ctx context.Context, arg PlatformScheduleCalendarReminderParams) error
 	PlatformSealLegacyScheduledCopy(ctx context.Context, arg PlatformSealLegacyScheduledCopyParams) error
 	PlatformSearchContacts(ctx context.Context, arg PlatformSearchContactsParams) ([]MailboxContacts, error)
@@ -911,7 +897,6 @@ type Querier interface {
 	RequestDNSRollback(ctx context.Context, arg RequestDNSRollbackParams) error
 	RequestOnboardingRetry(ctx context.Context, arg RequestOnboardingRetryParams) error
 	ReserveDNSZoneVersion(ctx context.Context, arg ReserveDNSZoneVersionParams) (int64, error)
-	ResolvePurchaseDomain(ctx context.Context, arg ResolvePurchaseDomainParams) (int64, error)
 	RestoreArchiveCopy(ctx context.Context, arg RestoreArchiveCopyParams) (int64, error)
 	RetryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error)
 	ReviewDNSPlan(ctx context.Context, arg ReviewDNSPlanParams) error
@@ -924,7 +909,6 @@ type Querier interface {
 	SearchArchiveContent(ctx context.Context, arg SearchArchiveContentParams) ([]SearchArchiveContentRow, error)
 	SearchMailboxAIChunks(ctx context.Context, arg SearchMailboxAIChunksParams) ([]SearchMailboxAIChunksRow, error)
 	SearchMailboxAIChunksInScope(ctx context.Context, arg SearchMailboxAIChunksInScopeParams) ([]SearchMailboxAIChunksInScopeRow, error)
-	SelfServicePurchaseAllowed(ctx context.Context, arg SelfServicePurchaseAllowedParams) (pgtype.Bool, error)
 	SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEntryLegalHoldParams) (ArchiveEntries, error)
 	SetMFASecret(ctx context.Context, arg SetMFASecretParams) error
 	SetMailboxEASPingConfig(ctx context.Context, arg SetMailboxEASPingConfigParams) (int64, error)

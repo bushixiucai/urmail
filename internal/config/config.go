@@ -28,7 +28,6 @@ type Config struct {
 	DNSListenAddresses   []string
 	DevMode              bool
 	MarketingEnabled     bool
-	RegistrationEnabled  bool
 	NotificationsEnabled bool
 	RefundsEnabled       bool
 	Quarantined          bool
@@ -268,7 +267,6 @@ func Load() (*Config, error) {
 		WorkersHeld:                 workersHeld,
 		DNSSecondaryOnly:            dnsSecondaryOnly,
 		MarketingEnabled:            parseBool(values["URMAIL_MARKETING_ENABLED"]),
-		RegistrationEnabled:         parseBool(values["URMAIL_REGISTRATION_ENABLED"]),
 		NotificationsEnabled:        parseBool(values["URMAIL_NOTIFICATIONS_ENABLED"]),
 		RefundsEnabled:              parseBool(values["URMAIL_REFUNDS_ENABLED"]),
 		Quarantined:                 parseBool(values["URMAIL_QUARANTINED"]) || restoreQuarantinePresent(RestoreQuarantineMarker),

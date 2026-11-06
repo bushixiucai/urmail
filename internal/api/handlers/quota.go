@@ -75,20 +75,6 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		// Unit tests without a database: no enforcement possible.
 		return true
 	}
-	if kind == "domain" {
-		if pending, ok := q.(interface {
-			CanCreatePendingDomain(context.Context, int64) (bool, error)
-		}); ok {
-			allowed, err := pending.CanCreatePendingDomain(c, tenantID)
-			if err != nil {
-				authError(c, 500, "DB_ERROR")
-				return false
-			}
-			if allowed {
-				return true
-			}
-		}
-	}
 	var used int64
 	var limit int64
 	var exceededCode string

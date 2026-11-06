@@ -11,7 +11,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
-	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -44,17 +43,10 @@ func TestBrandHostLoginMePlatformAndRegistrationBoundaryPG(t *testing.T) {
 	exec("INSERT INTO user_tenant_roles(tenant_id,user_id,role)VALUES($1,$3,'owner'),($2,$3,'owner')", ta, tb, user)
 	exec("INSERT INTO platform_admins(user_id)VALUES($1)", user)
 	exec("INSERT INTO brand_hosts(hostname,brand_id,status,verified_at,cert_issued_at,activated_at)VALUES('a.example.test',$1,'active',now(),now(),now()),('b.example.test',$2,'active',now(),now(),now())", a, b)
-	box, err := secrets.New([]byte("01234567890123456789012345678901"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	auth := NewAuthHandler(store.New(platform))
-	registration := RegistrationHandler{Pool: platform, Secrets: box, Enabled: true, BaseURL: "https://panel.example.test"}
 	router := gin.New()
 	router.Use(middleware.BrandHostBoundary(platform, "panel.example.test"))
 	router.POST("/login", auth.Login)
-	router.POST("/register", registration.Register)
-	router.POST("/verify", registration.Verify)
 	router.GET("/me", middleware.RequireAuth(store.New(platform)), auth.Me)
 	router.GET("/platform", middleware.RequireAuth(store.New(platform)), middleware.RequirePlatformAdmin(store.New(platform)), func(c *gin.Context) { c.Status(204) })
 	request := func(host, method, path string, body any, token string) (int, map[string]any) {
@@ -98,31 +90,6 @@ func TestBrandHostLoginMePlatformAndRegistrationBoundaryPG(t *testing.T) {
 	}
 	if status, _ = request("unknown.example.test", http.MethodGet, "/me", nil, token); status != 401 {
 		t.Fatal("legacy session accepted arbitrary host")
-	}
-	registrationBody := map[string]string{"email": "brand-registration@example.test", "password": password, "name": "Brand registration", "brand": "review-b"}
-	if status, _ = request("a.example.test", http.MethodPost, "/register", registrationBody, ""); status != 403 {
-		t.Fatal("body brand bypassed actual registration host")
-	}
-	delete(registrationBody, "brand")
-	if status, out = request("a.example.test", http.MethodPost, "/register", registrationBody, ""); status != 202 {
-		t.Fatalf("own brand default registration rejected %d %v", status, out)
-	}
-	var encrypted string
-	if e := platform.QueryRow(t.Context(), "SELECT secret_payload FROM notification_outbox WHERE recipient='brand-registration@example.test'").Scan(&encrypted); e != nil {
-		t.Fatal(e)
-	}
-	proof, err := box.DecryptString(encrypted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status, _ = request("b.example.test", http.MethodPost, "/verify", map[string]string{"token": proof}, ""); status != 403 {
-		t.Fatal("registration proof replayed to another brand")
-	}
-	if status, out = request("a.example.test", http.MethodPost, "/verify", map[string]string{"token": proof}, ""); status != 201 {
-		t.Fatalf("wrong-brand attempt consumed original registration: %d %v", status, out)
-	}
-	if got := scalar("SELECT brand_id FROM tenants WHERE id=$1", int64(out["tenant_id"].(float64))); got != a {
-		t.Fatal("registered tenant used another brand")
 	}
 }
 

@@ -181,3 +181,5 @@ FROM audit_logs
 ORDER BY created_at DESC, id DESC
 LIMIT $1;
 
+-- name: PlatformRemoveRegistrationGift :exec
+UPDATE subscriptions SET status='canceled' WHERE tenant_id=$1 AND plan_id='free' AND status='active';
