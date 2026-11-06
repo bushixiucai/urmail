@@ -5512,7 +5512,12 @@ paths:
       summary: Save mailbox settings with optimistic version
       description: Requires the independent mailbox Bearer token. Panel sessions and tenant roles do not grant mailbox-content
         access; tenant/mailbox identities come from the live session, never request IDs. Only currently authorized
-        identities may be configured; settings never grant alias send authority. Refresh on version conflict.
+        identities may be configured; settings never grant alias send authority. Clients submit the complete settings
+        snapshot from their latest GET together with that snapshot's expected_version; on 409
+        MAILBOX_SETTINGS_VERSION_CONFLICT they must GET the fresh snapshot and rebase their edits onto it before
+        retrying — never blindly replay a stale snapshot. Preferences
+        are saved as a whole object, but keys omitted by clients that predate them (including allow_all_remote_images)
+        keep their stored values; a mailbox with no stored value keeps the default.
       security:
       - MailboxBearer: []
       requestBody:
@@ -5534,6 +5539,13 @@ paths:
                   type: object
                   properties:
                     ai: {$ref: '#/components/schemas/MailboxUserAIConfiguration'}
+                    allow_all_remote_images:
+                      type: boolean
+                      description: Mailbox-level opt-in for loading remote images in every message render
+                        without per-message consent. Defaults to false (absent reads as false); only the strict
+                        boolean true/false is accepted, all other types are rejected with
+                        MAILBOX_SETTINGS_PREFERENCES_INVALID.
+                      default: false
                 expected_version:
                   type: integer
                   minimum: 0

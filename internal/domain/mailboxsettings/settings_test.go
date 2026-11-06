@@ -60,3 +60,27 @@ func TestPreferences(t *testing.T) {
 		t.Fatalf("nested object accepted: %v", err)
 	}
 }
+
+func TestAllowAllRemoteImagesValidation(t *testing.T) {
+	for _, good := range []string{
+		`{}`,
+		`{"allow_all_remote_images":true}`,
+		`{"allow_all_remote_images":false}`,
+		`{"thread":true,"allow_all_remote_images":false}`,
+	} {
+		if _, err := Preferences(json.RawMessage(good)); err != nil {
+			t.Fatalf("prefs %q: %v", good, err)
+		}
+	}
+	for _, bad := range []string{
+		`{"allow_all_remote_images":null}`,
+		`{"allow_all_remote_images":"true"}`,
+		`{"allow_all_remote_images":1}`,
+		`{"allow_all_remote_images":{}}`,
+		`{"allow_all_remote_images":[]}`,
+	} {
+		if _, err := Preferences(json.RawMessage(bad)); !errors.Is(err, ErrPreferences) {
+			t.Fatalf("prefs %q: got %v, want ErrPreferences", bad, err)
+		}
+	}
+}

@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Palmtree } from "lucide-react";
 import { WebmailHeader } from "./components/webmail-header";
@@ -11,6 +11,7 @@ import {
   WebmailSettingsDrawer,
   type SettingsTab,
 } from "./components/settings/webmail-settings-drawer";
+import { REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT } from "./components/settings/remote-images-section";
 import type { AdvancedSearchParams } from "./components/search/webmail-advanced-search-popover";
 import { WebmailSearchFilterChips } from "./components/search/webmail-search-filter-chips";
 import { WebmailContactsModal } from "./components/contacts/webmail-contacts-modal";
@@ -25,6 +26,8 @@ import {
   deleteMessages,
   getMailboxRules,
   saveMailboxRules,
+  getMailboxSettings,
+  type MailboxSettingsView,
   type MessageDetail,
   type MessageSummary,
   type MailboxRulesView,
@@ -96,7 +99,26 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
-  const [loadImagesForUid, setLoadImagesForUid] = useState<number | null>(null);
+
+  const queryClient = useQueryClient();
+
+  // Remote images dual authorization model:
+  // 1. Account-level confirmed global preference
+  // 2. Monotonic policy generation counter
+  // 3. Explicit per-message manual consent (cleared on UID change)
+  const [policyGeneration, setPolicyGeneration] = useState(1);
+  const [manualAuthorizedUid, setManualAuthorizedUid] = useState<number | null>(
+    null,
+  );
+  // Null until a successful preference event. The event value is applied
+  // synchronously; a later settings GET may confirm it only for this generation.
+  const [confirmedGlobalAllow, setConfirmedGlobalAllow] = useState<
+    boolean | null
+  >(null);
+  const settingsGenerationRef = useRef(0);
+  const policyGenerationRef = useRef(policyGeneration);
+  const globalAllowedRef = useRef(false);
+  policyGenerationRef.current = policyGeneration;
 
   // Settings drawer state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -104,7 +126,124 @@ export function WebmailNextWorkbench({
 
   const { density, setDensity } = useWebmailPreferences();
 
-  // 1. Fetch folders
+  // 1a. Fetch mailbox settings for account preferences (allow_all_remote_images)
+  const { data: mailboxSettings, refetch: refetchSettings } = useQuery({
+    queryKey: ["webmail", "settings"],
+    queryFn: async () => {
+      const generation = settingsGenerationRef.current;
+      const data = await getMailboxSettings();
+      // An older GET must not replace a newer confirmed preference.
+      if (generation !== settingsGenerationRef.current) {
+        const cached = queryClient.getQueryData<MailboxSettingsView>([
+          "webmail",
+          "settings",
+        ]);
+        if (cached) return cached;
+      }
+      return data;
+    },
+    staleTime: 60_000,
+  });
+
+  const persistedGlobalAllow =
+    mailboxSettings?.preferences?.allow_all_remote_images === true;
+  const isGlobalImagesAllowed =
+    confirmedGlobalAllow !== null ? confirmedGlobalAllow : persistedGlobalAllow;
+  globalAllowedRef.current = isGlobalImagesAllowed;
+
+  const handleRemoteImagesPreferenceChanged = useCallback(
+    (allowAll?: boolean) => {
+      // PUT already succeeded. Revoke or grant before any settings refetch,
+      // so a stale allow=true cache cannot keep authSource=global.
+      const next = allowAll === true;
+      settingsGenerationRef.current += 1;
+      const generation = settingsGenerationRef.current;
+      const nextPolicyGeneration = policyGenerationRef.current + 1;
+      policyGenerationRef.current = nextPolicyGeneration;
+      globalAllowedRef.current = next;
+      setConfirmedGlobalAllow(next);
+      setPolicyGeneration(nextPolicyGeneration);
+      queryClient.setQueryData<MailboxSettingsView | undefined>(
+        ["webmail", "settings"],
+        (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            preferences: {
+              ...(current.preferences ?? {}),
+              allow_all_remote_images: next,
+            },
+          };
+        },
+      );
+      if (!next) {
+        queryClient.removeQueries({
+          predicate: (query) => {
+            const key = query.queryKey;
+            return (
+              Array.isArray(key) &&
+              key[0] === "webmail" &&
+              key[1] === "detail" &&
+              key[4] === "global"
+            );
+          },
+        });
+      }
+      void refetchSettings().then((result) => {
+        if (settingsGenerationRef.current !== generation) return;
+        const persisted =
+          result.data?.preferences?.allow_all_remote_images === true;
+        // Same-generation confirmation must not widen the event. A stale
+        // GET that still says true cannot reopen a grant this event closed.
+        // A true event stays true only when the GET is strictly true.
+        const confirmed = next && persisted;
+        globalAllowedRef.current = confirmed;
+        setConfirmedGlobalAllow(confirmed);
+        if (!confirmed) {
+          queryClient.setQueryData<MailboxSettingsView | undefined>(
+            ["webmail", "settings"],
+            (current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                preferences: {
+                  ...(current.preferences ?? {}),
+                  allow_all_remote_images: false,
+                },
+              };
+            },
+          );
+          queryClient.removeQueries({
+            predicate: (query) => {
+              const key = query.queryKey;
+              return (
+                Array.isArray(key) &&
+                key[0] === "webmail" &&
+                key[1] === "detail" &&
+                key[4] === "global"
+              );
+            },
+          });
+        }
+      });
+    },
+    [refetchSettings, queryClient],
+  );
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<{ allowAll: boolean }>;
+      handleRemoteImagesPreferenceChanged(customEvent.detail?.allowAll);
+    };
+    window.addEventListener(REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT, handler);
+    return () =>
+      window.removeEventListener(
+        REMOTE_IMAGES_PREFERENCE_CHANGED_EVENT,
+        handler,
+      );
+  }, [handleRemoteImagesPreferenceChanged]);
+
+  // 1b. Fetch folders
   const { data: folderData, refetch: refetchFolders } = useQuery({
     queryKey: ["webmail", "folders"],
     queryFn: () => listFolders(),
@@ -214,30 +353,106 @@ export function WebmailNextWorkbench({
     [messageListData?.messages],
   );
 
-  // 3. Fetch selected message details
+  // Derive authorization source for currently selected message:
+  // Decoupled dual authorization model:
+  // - "manual" if user explicitly granted consent for this UID
+  // - "global" if account settings have allow_all_remote_images === true
+  // - "none" otherwise (fail-closed default)
+  const isCurrentManualGranted = Boolean(
+    selectedUid !== null && manualAuthorizedUid === selectedUid,
+  );
+
+  const authSource: "global" | "manual" | "none" = isCurrentManualGranted
+    ? "manual"
+    : isGlobalImagesAllowed
+      ? "global"
+      : "none";
+
+  const shouldRequestImages = authSource !== "none";
+
+  interface MessageDetailResult {
+    message: MessageDetail;
+    authSource: "global" | "manual" | "none";
+    policyGeneration: number;
+    uid: number;
+  }
+
+  // 3. Fetch selected message details with isolated cache key and generation tracking
   const {
-    data: messageDetail,
+    data: detailResult,
     isLoading: isDetailLoading,
     refetch: refetchDetail,
-  } = useQuery<MessageDetail | null>({
+  } = useQuery<MessageDetailResult | null>({
     queryKey: [
       "webmail",
       "detail",
       activeFolder,
       selectedUid,
-      loadImagesForUid === selectedUid,
+      authSource,
+      policyGeneration,
     ],
-    queryFn: () =>
-      selectedUid
-        ? getMessage(activeFolder, selectedUid, {
-            loadImages: loadImagesForUid === selectedUid,
-          })
-        : Promise.resolve(null),
+    queryFn: async () => {
+      if (selectedUid === null) return null;
+      const currentGen = policyGeneration;
+      const currentSource = authSource;
+      const currentUid = selectedUid;
+      const msg = await getMessage(activeFolder, currentUid, {
+        loadImages: shouldRequestImages,
+      });
+      // Drop a late response that missed a newer policy generation or a
+      // global grant that has already been revoked.
+      if (
+        currentGen !== policyGenerationRef.current ||
+        (currentSource === "global" && !globalAllowedRef.current)
+      ) {
+        return null;
+      }
+      return {
+        message: msg,
+        authSource: currentSource,
+        policyGeneration: currentGen,
+        uid: currentUid,
+      };
+    },
     enabled: selectedUid !== null,
+    staleTime: 5_000,
   });
 
+  // Stale response rejection: verify response generation and authorization source match current state
+  const messageDetail = useMemo<MessageDetail | null>(() => {
+    if (!detailResult || !detailResult.message) return null;
+    // A cached or late body may be shown only for the current UID, policy
+    // generation, and authorization source. A global/manual payload must not
+    // cross into a later "none" policy.
+    if (
+      detailResult.uid !== selectedUid ||
+      detailResult.policyGeneration !== policyGeneration ||
+      detailResult.authSource !== authSource
+    ) {
+      return null;
+    }
+    if (detailResult.authSource === "global" && !isGlobalImagesAllowed) {
+      return null;
+    }
+    if (
+      detailResult.authSource === "manual" &&
+      manualAuthorizedUid !== selectedUid
+    ) {
+      return null;
+    }
+    return detailResult.message;
+  }, [
+    detailResult,
+    selectedUid,
+    authSource,
+    isGlobalImagesAllowed,
+    policyGeneration,
+    manualAuthorizedUid,
+  ]);
+
+  // Reset manual authorization on UID change
   useEffect(() => {
-    setLoadImagesForUid(null);
+    setManualAuthorizedUid(null);
   }, [selectedUid]);
 
   // Automatically select the first message on wide screen if none selected
@@ -445,11 +660,13 @@ export function WebmailNextWorkbench({
               message={messageDetail || null}
               folderEnc={activeFolder}
               isLoading={isDetailLoading}
+              isGlobalRemoteImagesAllowed={isGlobalImagesAllowed}
+              isManualRemoteImagesAllowed={isCurrentManualGranted}
               onBack={() => setSelectedUid(null)}
               onReply={handleReply}
               onDelete={handleDeleteMessage}
               onToggleStar={handleToggleStar}
-              onLoadRemoteImages={() => setLoadImagesForUid(selectedUid)}
+              onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
             />
           </WebmailErrorBoundary>
         </div>

@@ -8,6 +8,7 @@ import {
   Filter,
   Palmtree,
   Forward,
+  Shield,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { AccountSecuritySection } from "./account-security-section";
@@ -16,15 +17,23 @@ import { IdentitiesSignaturesSection } from "./identities-signatures-section";
 import { SieveRulesSection } from "./sieve-rules-section";
 import { VacationSection } from "./vacation-section";
 import { ForwardingSection } from "./forwarding-section";
+import { RemoteImagesSection } from "./remote-images-section";
 
 export type SettingsTab =
-  "account" | "quota" | "signatures" | "rules" | "vacation" | "forwarding";
+  | "account"
+  | "quota"
+  | "signatures"
+  | "rules"
+  | "vacation"
+  | "forwarding"
+  | "privacy";
 
 interface WebmailSettingsDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: SettingsTab;
   onVacationUpdated?: () => void;
+  onRemoteImagesPreferenceChanged?: (allowAll: boolean) => void;
 }
 
 export function WebmailSettingsDrawer({
@@ -32,6 +41,7 @@ export function WebmailSettingsDrawer({
   onClose,
   initialTab = "account",
   onVacationUpdated,
+  onRemoteImagesPreferenceChanged,
 }: WebmailSettingsDrawerProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
@@ -58,6 +68,11 @@ export function WebmailSettingsDrawer({
         key: "account",
         label: t("settings.nav.account", "Security"),
         icon: KeyRound,
+      },
+      {
+        key: "privacy",
+        label: t("settings.nav.privacy", "Privacy & Security"),
+        icon: Shield,
       },
       {
         key: "quota",
@@ -151,6 +166,11 @@ export function WebmailSettingsDrawer({
             className="flex-1 p-6 overflow-y-auto bg-[#FFFFFF]"
           >
             {activeTab === "account" && <AccountSecuritySection />}
+            {activeTab === "privacy" && (
+              <RemoteImagesSection
+                onPreferenceChanged={onRemoteImagesPreferenceChanged}
+              />
+            )}
             {activeTab === "quota" && <StorageQuotaSection />}
             {activeTab === "signatures" && <IdentitiesSignaturesSection />}
             {activeTab === "rules" && <SieveRulesSection />}

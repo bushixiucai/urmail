@@ -315,6 +315,14 @@ func (h *MailboxNativeHandler) PutSettings(c *gin.Context) {
 		}
 		return
 	}
+	// Legacy clients omit keys they have never heard of: restore them from
+	// the stored preferences so a full-object PUT cannot silently reset
+	// newer preferences such as allow_all_remote_images.
+	prefs, err = mergeMailboxPreferences(prefs, previous.Preferences)
+	if err != nil {
+		authError(c, http.StatusBadRequest, mailboxsettings.ErrPreferences.Error())
+		return
+	}
 	profiles, ok := h.normalizeIdentityProfiles(c, session, req.IdentityProfiles)
 	if !ok {
 		return

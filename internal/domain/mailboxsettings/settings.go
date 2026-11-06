@@ -33,6 +33,10 @@ const (
 	MaxPreferencesBytes = 8192
 	// MaxPreferenceKeys bounds the number of preference entries.
 	MaxPreferenceKeys = 64
+	// PreferenceAllowAllRemoteImages is the mailbox-level key that opts every
+	// message render into remote images without per-message consent. It is
+	// strict boolean: absent reads as false (fail closed).
+	PreferenceAllowAllRemoteImages = "allow_all_remote_images"
 )
 
 func noControl(s string) bool {
@@ -84,6 +88,18 @@ func Preferences(raw json.RawMessage) (json.RawMessage, error) {
 		if key == "ai" {
 			if _, err := ParseAI(value); err != nil {
 				return nil, err
+			}
+			continue
+		}
+		if key == PreferenceAllowAllRemoteImages {
+			// Strict boolean: null and every non-boolean type are rejected,
+			// so json.Unmarshal(null, &bool)'s silent no-op cannot slip in.
+			var enabled any
+			if json.Unmarshal(value, &enabled) != nil {
+				return nil, ErrPreferences
+			}
+			if _, ok := enabled.(bool); !ok {
+				return nil, ErrPreferences
 			}
 			continue
 		}

@@ -20,7 +20,7 @@ const mockMessage: MessageDetail = {
   flags: ["\\Seen"],
   size: 4096,
   html: "<p>Here is the quarterly summary <img data-blocked-src='https://tracker.com/pixel.png'/></p>",
-  notes: ["blocked_remote_image"],
+  notes: ["remote_images_blocked"],
   authentication: {
     status: "pass",
     domain: "company.com",
@@ -106,5 +106,105 @@ describe("WebmailReadingPane", () => {
 
     expect(screen.getByTestId("webmail-reading-pane")).toBeTruthy();
     expect(screen.getByText("(No subject)")).toBeTruthy();
+  });
+
+  it("shows the manual load bar for server note remote_images_blocked when the image was removed", () => {
+    const serverMessage: MessageDetail = {
+      ...mockMessage,
+      html: "<p>Here is the quarterly summary</p>",
+      notes: ["remote_images_blocked"],
+    };
+
+    render(<WebmailReadingPane message={serverMessage} folderEnc="INBOX" />);
+
+    expect(screen.getByTestId("remote-images-banner")).toBeTruthy();
+    expect(screen.getByTestId("show-images-button")).toBeTruthy();
+    const frame = screen.getByTestId("mail-html-frame");
+    const srcDoc = frame.getAttribute("srcDoc") ?? "";
+    expect(srcDoc).not.toContain("tracker.com");
+    expect(srcDoc).not.toContain("data-blocked-src");
+    expect(srcDoc).toContain("quarterly summary");
+  });
+
+  it("does not show remote images banner when isGlobalRemoteImagesAllowed is true", () => {
+    render(
+      <WebmailReadingPane
+        message={mockMessage}
+        folderEnc="INBOX"
+        isGlobalRemoteImagesAllowed={true}
+      />,
+    );
+
+    expect(screen.queryByTestId("remote-images-banner")).toBeNull();
+    const frame = screen.getByTestId("mail-html-frame");
+    // iframe srcDoc should allow remote image
+    expect(frame.getAttribute("srcDoc")).toContain(
+      "https://tracker.com/pixel.png",
+    );
+  });
+
+  it("preserves manual consent even when isGlobalRemoteImagesAllowed is false (turning off global does not revoke manual)", () => {
+    const { rerender } = render(
+      <WebmailReadingPane
+        message={mockMessage}
+        folderEnc="INBOX"
+        isGlobalRemoteImagesAllowed={true}
+        isManualRemoteImagesAllowed={true}
+      />,
+    );
+
+    expect(screen.queryByTestId("remote-images-banner")).toBeNull();
+
+    // Rerender with global turned off, but manual remains true
+    rerender(
+      <WebmailReadingPane
+        message={mockMessage}
+        folderEnc="INBOX"
+        isGlobalRemoteImagesAllowed={false}
+        isManualRemoteImagesAllowed={true}
+      />,
+    );
+
+    // Banner remains hidden, image remains allowed
+    expect(screen.queryByTestId("remote-images-banner")).toBeNull();
+    const frame = screen.getByTestId("mail-html-frame");
+    expect(frame.getAttribute("srcDoc")).toContain(
+      "https://tracker.com/pixel.png",
+    );
+  });
+
+  it("resets local manual grant when message changes", () => {
+    const { rerender } = render(
+      <WebmailReadingPane
+        message={mockMessage}
+        folderEnc="INBOX"
+        isGlobalRemoteImagesAllowed={false}
+        isManualRemoteImagesAllowed={false}
+      />,
+    );
+
+    expect(screen.getByTestId("remote-images-banner")).toBeTruthy();
+
+    // Click show images to grant local manual permission
+    fireEvent.click(screen.getByTestId("show-images-button"));
+    expect(screen.queryByTestId("remote-images-banner")).toBeNull();
+
+    // Switch to another message
+    const anotherMessage: MessageDetail = {
+      ...mockMessage,
+      uid: 102,
+      subject: "Second message",
+    };
+    rerender(
+      <WebmailReadingPane
+        message={anotherMessage}
+        folderEnc="INBOX"
+        isGlobalRemoteImagesAllowed={false}
+        isManualRemoteImagesAllowed={false}
+      />,
+    );
+
+    // Banner must reappear for the new message
+    expect(screen.getByTestId("remote-images-banner")).toBeTruthy();
   });
 });

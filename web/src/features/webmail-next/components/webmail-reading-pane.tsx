@@ -23,6 +23,8 @@ interface WebmailReadingPaneProps {
   message: MessageDetail | null;
   folderEnc: string;
   isLoading?: boolean;
+  isGlobalRemoteImagesAllowed?: boolean;
+  isManualRemoteImagesAllowed?: boolean;
   onBack?: () => void;
   onReply?: (msg: MessageDetail) => void;
   onReplyAll?: (msg: MessageDetail) => void;
@@ -37,6 +39,8 @@ export function WebmailReadingPane({
   message,
   folderEnc,
   isLoading = false,
+  isGlobalRemoteImagesAllowed = false,
+  isManualRemoteImagesAllowed = false,
   onBack,
   onReply,
   onReplyAll,
@@ -47,12 +51,12 @@ export function WebmailReadingPane({
   onAlwaysTrustSender,
 }: WebmailReadingPaneProps) {
   const { t } = useTranslation();
-  const [imagesLoaded, setImagesLoaded] = useState(false);
+  const [localManualGranted, setLocalManualGranted] = useState(false);
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [contactAdded, setContactAdded] = useState(false);
 
   useEffect(() => {
-    setImagesLoaded(false);
+    setLocalManualGranted(false);
     setContactAdded(false);
   }, [message?.uid]);
 
@@ -88,25 +92,39 @@ export function WebmailReadingPane({
     Array.isArray(message.flags) && message.flags.includes("\\Flagged"),
   );
 
-  // Check if remote images were blocked by server notes or HTML markers, or if HTML contains remote images
+  // Authorization state: global account-level grant and manual per-message grant are independent.
+  const isManualAllowed = Boolean(
+    isManualRemoteImagesAllowed || localManualGranted,
+  );
+  const isGlobalAllowed = Boolean(isGlobalRemoteImagesAllowed);
+  const isImageAllowed = isGlobalAllowed || isManualAllowed;
+
+  // Server SanitizeHTML drops the <img> and emits note "remote_images_blocked".
+  // It does not leave a remote src or inject data-blocked-src. HTML markers
+  // remain only as a fallback if a body still contains them.
   const containsRemoteImages = Boolean(
     message.html &&
     (/<img\b[^>]*\bsrc\s*=\s*["']?https?:\/\//i.test(message.html) ||
       message.html.includes("data-blocked-src")),
   );
+  const hasBlockedNote =
+    Array.isArray(message.notes) &&
+    message.notes.includes("remote_images_blocked");
   const hasBlockedImages =
-    !imagesLoaded &&
-    ((Array.isArray(message.notes) &&
-      message.notes.some((n) => n?.includes("blocked_remote_image"))) ||
-      containsRemoteImages);
+    !isImageAllowed && (hasBlockedNote || containsRemoteImages);
 
   const handleShowImages = () => {
-    setImagesLoaded(true);
-    onLoadRemoteImages?.(message.uid);
+    setLocalManualGranted(true);
+    if (message.uid) {
+      onLoadRemoteImages?.(message.uid);
+    }
   };
 
   const handleAlwaysTrust = () => {
-    setImagesLoaded(true);
+    setLocalManualGranted(true);
+    if (message.uid) {
+      onLoadRemoteImages?.(message.uid);
+    }
     onAlwaysTrustSender?.(senderEmail);
   };
 
@@ -303,7 +321,7 @@ export function WebmailReadingPane({
               referrerPolicy="no-referrer"
               className="w-full min-h-[420px] rounded border-0 bg-transparent"
               srcDoc={sanitizeHtmlMail(message.html, {
-                allowRemoteImages: imagesLoaded,
+                allowRemoteImages: isImageAllowed,
               })}
             />
           ) : (

@@ -132,6 +132,12 @@ describe("WebmailSettingsDrawer", () => {
     // Default account security section
     expect(screen.getByTestId("account-security-section")).toBeTruthy();
 
+    // Click privacy tab
+    fireEvent.click(screen.getByTestId("settings-nav-privacy"));
+    await waitFor(() => {
+      expect(screen.getByTestId("remote-images-section")).toBeTruthy();
+    });
+
     // Click storage tab
     fireEvent.click(screen.getByTestId("settings-nav-quota"));
     await waitFor(() => {
