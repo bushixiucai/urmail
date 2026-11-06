@@ -1,28 +1,21 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
-	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
-// QuotaStore reads the counters and plan limits needed to enforce
-// subscription quotas on create endpoints.
+// QuotaStore reads the counters needed to enforce resource quotas on create endpoints.
 type QuotaStore interface {
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
 	CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error)
-	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
-	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 }
 
 // mailboxUnderLegalHold reports whether any live archive entry of the
@@ -42,9 +35,41 @@ func mailboxUnderLegalHold(c *gin.Context, q interface {
 	return false, nil
 }
 
+// resolveMailboxResourceLimit reads a quota limit from settings following precedence:
+// Tenant scope override > Platform scope base default > fallback (-1 = unlimited).
+func resolveMailboxResourceLimit(ctx context.Context, q QuotaStore, tenantID int64, key string) int64 {
+	reader, ok := q.(interface {
+		GetTenantSetting(context.Context, store.GetTenantSettingParams) (store.Settings, error)
+		PlatformGetSetting(context.Context, string) (store.PlatformGetSettingRow, error)
+	})
+	if !ok {
+		return -1
+	}
+	// 1. Tenant-level override takes precedence ("tenant_quota 优先")
+	if row, err := reader.GetTenantSetting(ctx, store.GetTenantSettingParams{ScopeID: tenantID, Key: key}); err == nil && len(row.Value) > 0 {
+		trimmed := bytes.TrimSpace(row.Value)
+		if !bytes.Equal(trimmed, []byte("null")) {
+			var n int64
+			if json.Unmarshal(trimmed, &n) == nil {
+				return n
+			}
+		}
+	}
+	// 2. Platform-level default
+	if row, err := reader.PlatformGetSetting(ctx, key); err == nil && len(row.Value) > 0 {
+		trimmed := bytes.TrimSpace(row.Value)
+		if !bytes.Equal(trimmed, []byte("null")) {
+			var n int64
+			if json.Unmarshal(trimmed, &n) == nil {
+				return n
+			}
+		}
+	}
+	return -1
+}
+
 // quotaCheck verifies that creating one more resource of kind stays within
-// the tenant's current effective plan. Missing and expired subscriptions fail
-// closed; restricted onboarding may separately allow a pending domain.
+// the tenant's current limits configured in settings.
 func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool {
 	if q == nil {
 		// Unit tests without a database: no enforcement possible.
@@ -65,48 +90,18 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		}
 	}
 	var used int64
-	var limit int32
+	var limit int64
 	var exceededCode string
-
-	sub, err := q.GetActiveSubscriptionByTenant(c, tenantID)
-	if err != nil {
-		code := "DB_ERROR"
-		if errors.Is(err, pgx.ErrNoRows) {
-			code = "SUBSCRIPTION_REQUIRED"
-		}
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": code}})
-		return false
-	}
-	now := time.Now()
-	if !serviceEntitlement(sub).CurrentAt(now) {
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "SUBSCRIPTION_EXPIRED"}})
-		return false
-	}
-	if queries, ok := q.(*store.Queries); ok {
-		allowed, lookupErr := queries.CurrentPaidEntitlementAllowed(c, tenantID)
-		if lookupErr != nil {
-			authError(c, 500, "DB_ERROR")
-			return false
-		}
-		if !allowed.Valid || !allowed.Bool {
-			authError(c, 409, "SUBSCRIPTION_EXPIRED")
-			return false
-		}
-	}
-	plan, err := subscriptionPlan(c, q, sub)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
-		return false
-	}
+	var err error
 
 	switch kind {
 	case "domain":
 		used, err = q.CountDomainsByTenant(c, tenantID)
-		limit = plan.DomainLimit
+		limit = resolveMailboxResourceLimit(c, q, tenantID, "mailbox_domain_limit")
 		exceededCode = "DOMAIN_QUOTA_EXCEEDED"
 	case "mailbox":
 		used, err = q.CountMailboxesByTenant(c, tenantID)
-		limit = plan.MailboxLimit
+		limit = resolveMailboxResourceLimit(c, q, tenantID, "mailbox_limit")
 		exceededCode = "MAILBOX_LIMIT_EXCEEDED"
 	default:
 		return true
@@ -116,7 +111,7 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 		return false
 	}
 
-	if limit >= 0 && used >= int64(limit) {
+	if limit >= 0 && used >= limit {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": gin.H{
 				"code":    exceededCode,
@@ -145,30 +140,4 @@ func subscriptionPlan(ctx context.Context, q interface {
 		return store.Plans{Code: frozen.Code, Name: frozen.Name, Description: frozen.Description, PriceCents: frozen.PriceCents, Currency: frozen.Currency, QuotaBytes: frozen.QuotaBytes, MailboxLimit: frozen.MailboxLimit, DomainLimit: frozen.DomainLimit, DailySendLimit: frozen.DailySendLimit, Features: frozen.Features, SortOrder: frozen.SortOrder, Active: frozen.Active}, nil
 	}
 	return q.GetPlanByCode(ctx, sub.PlanID)
-}
-
-// serviceEntitlement preserves SQL NULL without accepting PostgreSQL infinity as an end.
-func serviceEntitlement(sub store.Subscriptions) billing.ServiceEntitlement {
-	e := billing.ServiceEntitlement{Source: sub.EntitlementSource, Status: sub.Status}
-	if sub.MigrationManifestSha256.Valid {
-		e.ManifestSHA256 = sub.MigrationManifestSha256.String
-	}
-	if sub.PeriodStart.Valid && sub.PeriodStart.InfinityModifier == pgtype.Finite {
-		e.PeriodStart = sub.PeriodStart.Time
-	}
-	if sub.PeriodEnd.Valid {
-		end := time.Time{}
-		if sub.PeriodEnd.InfinityModifier == pgtype.Finite {
-			end = sub.PeriodEnd.Time
-		}
-		e.PeriodEnd = &end
-	}
-	if sub.TrialEndsAt.Valid {
-		end := time.Time{}
-		if sub.TrialEndsAt.InfinityModifier == pgtype.Finite {
-			end = sub.TrialEndsAt.Time
-		}
-		e.TrialEndsAt = &end
-	}
-	return e
 }

@@ -10237,6 +10237,29 @@ components:
               nullable: true
               required:
               - primary
+            business_timezone:
+              type: string
+              nullable: true
+            mailbox_domain_limit:
+              type: integer
+              format: int64
+              minimum: -1
+              nullable: true
+            mailbox_limit:
+              type: integer
+              format: int64
+              minimum: -1
+              nullable: true
+            mailbox_quota_bytes:
+              type: integer
+              format: int64
+              minimum: -1
+              nullable: true
+            ai_default_call_limit:
+              type: integer
+              format: int64
+              minimum: 0
+              nullable: true
           additionalProperties: false
       required:
       - settings

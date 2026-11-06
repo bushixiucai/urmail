@@ -26,7 +26,7 @@ type settingsPatch struct {
 var settingColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func validateSettings(values map[string]json.RawMessage) bool {
-	if len(values) > 4 {
+	if len(values) > 16 {
 		return false
 	}
 	for key, value := range values {
@@ -58,6 +58,21 @@ func validateSettings(values map[string]json.RawMessage) bool {
 		case "theme":
 			var theme map[string]string
 			if json.Unmarshal(value, &theme) != nil || len(theme) != 1 || !settingColor.MatchString(theme["primary"]) {
+				return false
+			}
+		case "mailbox_domain_limit", "mailbox_limit":
+			var n int64
+			if json.Unmarshal(value, &n) != nil || n < -1 {
+				return false
+			}
+		case "mailbox_quota_bytes":
+			var n int64
+			if json.Unmarshal(value, &n) != nil || n < -1 {
+				return false
+			}
+		case "ai_default_call_limit":
+			var n int64
+			if json.Unmarshal(value, &n) != nil || n < 0 {
 				return false
 			}
 		default:
@@ -238,7 +253,8 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 // publicSettingKey is the public DTO boundary shared by settings surfaces.
 func publicSettingKey(key string) bool {
 	switch key {
-	case "locale", "theme", "mailbox_default_quota_bytes", "business_timezone":
+	case "locale", "theme", "mailbox_default_quota_bytes", "business_timezone",
+		"mailbox_domain_limit", "mailbox_limit", "mailbox_quota_bytes", "ai_default_call_limit":
 		return true
 	default:
 		return false

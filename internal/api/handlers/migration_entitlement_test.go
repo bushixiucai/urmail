@@ -27,3 +27,29 @@ func TestServiceEntitlementDistinguishesNullAndInfinity(t *testing.T) {
 		t.Fatal("infinite start accepted as finite proof")
 	}
 }
+
+// serviceEntitlement preserves SQL NULL without accepting PostgreSQL infinity as an end.
+func serviceEntitlement(sub store.Subscriptions) billing.ServiceEntitlement {
+	e := billing.ServiceEntitlement{Source: sub.EntitlementSource, Status: sub.Status}
+	if sub.MigrationManifestSha256.Valid {
+		e.ManifestSHA256 = sub.MigrationManifestSha256.String
+	}
+	if sub.PeriodStart.Valid && sub.PeriodStart.InfinityModifier == pgtype.Finite {
+		e.PeriodStart = sub.PeriodStart.Time
+	}
+	if sub.PeriodEnd.Valid {
+		end := time.Time{}
+		if sub.PeriodEnd.InfinityModifier == pgtype.Finite {
+			end = sub.PeriodEnd.Time
+		}
+		e.PeriodEnd = &end
+	}
+	if sub.TrialEndsAt.Valid {
+		end := time.Time{}
+		if sub.TrialEndsAt.InfinityModifier == pgtype.Finite {
+			end = sub.TrialEndsAt.Time
+		}
+		e.TrialEndsAt = &end
+	}
+	return e
+}

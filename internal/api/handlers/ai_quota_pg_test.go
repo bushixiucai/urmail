@@ -175,9 +175,12 @@ func TestAINonplatformQuotaHistoryModeTimezoneAndDisableCannotResetPG(t *testing
 }
 func TestAINonplatformQuotaFiniteFallbackAndPlatformIsolationPG(t *testing.T) {
 	pool, principal, model, service, target, input := providerBudgetFixture(t, "byo", "classify")
+	if _, err := pool.Exec(t.Context(), `INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'ai_default_call_limit','10')`, principal.TenantID); err != nil {
+		t.Fatal(err)
+	}
 	quota, err := resolveAIQuota(t.Context(), store.New(pool), mustAIQuotaConfig(t, pool, principal.TenantID), principal.TenantID, time.Now())
-	if err != nil || quota.Source != "plan" || quota.Independent {
-		t.Fatal("upgrade disabled valid finite-plan BYO", quota.Source, err)
+	if err != nil || quota.Source != "configured_nonplatform" || !quota.Independent || quota.Limits.AI.Calls != 10 {
+		t.Fatal("settings ai_default_call_limit fallback refused", quota.Source, err)
 	}
 	if _, err = service.Run(t.Context(), principal, "finite-byo-compatible-key", input, target); err != nil {
 		t.Fatal(err)
