@@ -353,7 +353,6 @@ func run() error {
 		SieveActivator:        sieveActivator,
 		AICloudEndpoints:      cfg.AICloudEndpoints,
 		AILocalEndpoints:      cfg.AILocalEndpoints,
-		RegistrationEnabled:   cfg.RegistrationEnabled,
 		Quarantined:           cfg.Quarantined,
 		WorkersHeld:           cfg.WorkersHeld,
 		SieveGateReady:        sieveGateReady,

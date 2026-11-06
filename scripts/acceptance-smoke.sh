@@ -24,7 +24,7 @@ check() {
 }
 
 check /api/v1/healthz
-check /api/v1/billing/plans 401
+check /api/v1/auth/me 401
 check /admin/system/status 401
 check /admin/does-not-exist 404
 
@@ -46,8 +46,6 @@ auth_check() {
 auth_check /api/v1/auth/me
 auth_check /api/v1/auth/sessions
 auth_check /api/v1/auth/mfa/status
-auth_check /api/v1/billing/subscription
-auth_check /api/v1/billing/invoices
 auth_check /api/v1/audit
 auth_check /api/v1/platform/overview
 auth_check /api/v1/platform/tenants

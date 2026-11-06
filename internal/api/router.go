@@ -72,12 +72,11 @@ type Options struct {
 	IMAPAddr       string
 	// SMTPAddr is the loopback submission endpoint for native webmail send.
 	// Empty defaults to 127.0.0.1:587.
-	SMTPAddr            string
-	RegistrationEnabled bool
-	AICloudEndpoints    []string
-	AILocalEndpoints    []string
-	SieveActivator      handlers.SieveActivator
-	MetricsToken        string
+	SMTPAddr         string
+	AICloudEndpoints []string
+	AILocalEndpoints []string
+	SieveActivator   handlers.SieveActivator
+	MetricsToken     string
 	// WebmailVault holds IMAP passwords for live native sessions (process memory).
 	WebmailVault webmail.CredentialVault
 	// WebmailSubmitter is the loopback submission endpoint for mailbox-originated
@@ -262,7 +261,6 @@ func New(opts Options) *gin.Engine {
 	legacyHandler := handlers.NewLegacyHandler(authQueries, platformQueries, legacyTenantID, opts.Version)
 	notificationHandler := &handlers.NotificationHandler{Store: appQueries}
 	platformNotifications := &handlers.NotificationHandler{Store: platformQueries}
-	registrationHandler := &handlers.RegistrationHandler{Pool: opts.PlatformPool, Secrets: opts.Secrets, BaseURL: opts.BaseURL, Enabled: opts.RegistrationEnabled}
 	bridgeKey := []byte(opts.RoundcubeBridgeKey)
 	if !opts.RoundcubeEnabled {
 		bridgeKey = nil
@@ -509,10 +507,7 @@ func New(opts Options) *gin.Engine {
 		// Public Auth
 		authGroup := v1.Group("/auth")
 		{
-			authGroup.GET("/registration-status", registrationHandler.Status)
 			authGroup.POST("/login", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), authHandler.Login)
-			authGroup.POST("/register", middleware.RateLimitWindow(3, time.Hour, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), registrationHandler.Register)
-			authGroup.POST("/register/verify", middleware.RateLimitWindow(10, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), registrationHandler.Verify)
 			// Second MFA login leg: authenticated by the short-lived
 			// one-time mfa_token, not a session.
 			authGroup.POST("/mfa/verify", authHandler.MFAVerify)

@@ -622,6 +622,15 @@ func (q *Queries) PlatformRedeemCoupon(ctx context.Context, arg PlatformRedeemCo
 	return result, err
 }
 
+const platformRemoveRegistrationGift = `-- name: PlatformRemoveRegistrationGift :exec
+UPDATE subscriptions SET status='canceled' WHERE tenant_id=$1 AND plan_id='free' AND status='active'
+`
+
+func (q *Queries) PlatformRemoveRegistrationGift(ctx context.Context, tenantID int64) error {
+	_, err := q.db.Exec(ctx, platformRemoveRegistrationGift, tenantID)
+	return err
+}
+
 const platformUpdateOrderPaid = `-- name: PlatformUpdateOrderPaid :execrows
 UPDATE orders SET status='paid', paid_at=now() WHERE tenant_id=$1 AND id=$2 AND status='pending'
 `

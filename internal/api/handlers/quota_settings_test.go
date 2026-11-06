@@ -18,7 +18,6 @@ type mockQuotaSettingsStore struct {
 	mailboxes        int64
 	tenantSettings   map[string]json.RawMessage
 	platformSettings map[string]json.RawMessage
-	canPending       bool
 }
 
 func (m *mockQuotaSettingsStore) CountDomainsByTenant(_ context.Context, _ int64) (int64, error) {
@@ -41,10 +40,6 @@ func (m *mockQuotaSettingsStore) PlatformGetSetting(_ context.Context, key strin
 		return store.PlatformGetSettingRow{Value: v}, nil
 	}
 	return store.PlatformGetSettingRow{}, errors.New("not found")
-}
-
-func (m *mockQuotaSettingsStore) CanCreatePendingDomain(_ context.Context, _ int64) (bool, error) {
-	return m.canPending, nil
 }
 
 func TestQuotaCheckDomainDefaultUnlimited(t *testing.T) {
@@ -137,21 +132,6 @@ func TestQuotaCheckMailboxLimit(t *testing.T) {
 	cUnder, _ := gin.CreateTestContext(wUnder)
 	if !quotaCheck(cUnder, store, 1, "mailbox") {
 		t.Fatal("expected quotaCheck to pass when mailboxes < limit")
-	}
-}
-
-func TestQuotaCheckPendingDomainExemption(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	store := &mockQuotaSettingsStore{
-		domains:          10,
-		platformSettings: map[string]json.RawMessage{"mailbox_domain_limit": json.RawMessage("5")},
-		canPending:       true,
-	}
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	if !quotaCheck(c, store, 1, "domain") {
-		t.Fatal("expected pending domain exemption to bypass quota check")
 	}
 }
 
