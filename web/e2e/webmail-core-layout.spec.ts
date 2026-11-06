@@ -97,17 +97,19 @@ test.describe("Webmail Core Layout & Responsiveness", () => {
       "true",
     );
 
-    // Verify density toggle
+    // Verify density menu changes the document density class
     const densityBtn = page.getByTestId("webmail-density-toggle");
     await expect(densityBtn).toBeVisible();
     const initialDensityClass = await page.evaluate(
       () => document.documentElement.className,
     );
     await densityBtn.click();
+    await page.getByTestId("webmail-density-comfortable").click();
     const newDensityClass = await page.evaluate(
       () => document.documentElement.className,
     );
     expect(newDensityClass).not.toEqual(initialDensityClass);
+    expect(newDensityClass).toContain("density-comfortable");
 
     // Verify zero horizontal scrollbar
     const scrollWidth = await page.evaluate(

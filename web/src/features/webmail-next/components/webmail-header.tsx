@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePublicBrand } from "@/components/brand/public-brand";
 import {
@@ -9,6 +9,7 @@ import {
   LayoutList,
   Settings,
   BookUser,
+  Check,
 } from "lucide-react";
 import type { DensityMode } from "../types";
 import {
@@ -24,7 +25,7 @@ interface WebmailHeaderProps {
   onSearchChange: (q: string) => void;
   onOpenAdvancedSearch?: () => void;
   density: DensityMode;
-  onToggleDensity: () => void;
+  onSetDensity: (mode: DensityMode) => void;
   isRefreshing?: boolean;
   onOpenSettings?: () => void;
   onOpenContacts?: () => void;
@@ -42,7 +43,7 @@ export function WebmailHeader({
   onSearchChange,
   onOpenAdvancedSearch,
   density,
-  onToggleDensity,
+  onSetDensity,
   isRefreshing = false,
   onOpenSettings,
   onOpenContacts,
@@ -55,21 +56,24 @@ export function WebmailHeader({
   const { t } = useTranslation();
   const brand = usePublicBrand();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const densityRef = useRef<HTMLDivElement>(null);
+  const [densityOpen, setDensityOpen] = useState(false);
+  const densityLabel: Record<DensityMode, string> = {
+    comfortable: t("webmail_next.density_comfortable"),
+    compact: t("webmail_next.density_compact"),
+    list_only: t("webmail_next.density_list_only"),
+  };
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "/" &&
-        !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName) &&
-        !(e.target as HTMLElement)?.isContentEditable
-      ) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
+    if (!densityOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!densityRef.current?.contains(event.target as Node)) {
+        setDensityOpen(false);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [densityOpen]);
 
   return (
     <header
@@ -94,7 +98,7 @@ export function WebmailHeader({
 
       <div className="flex-1 max-w-xl mx-4 relative">
         <div className="relative w-full">
-          <Search className="w-4 h-4 text-[#A1A1AA] absolute left-3 top-2.5 pointer-events-none" />
+          <Search className="w-4 h-4 text-[var(--vellum-ink-secondary)] absolute left-3 top-2.5 pointer-events-none" />
           <input
             ref={searchInputRef}
             data-testid="webmail-search-input"
@@ -146,16 +150,45 @@ export function WebmailHeader({
             <RefreshCw className="w-4 h-4" />
           </button>
         )}
-        <button
-          data-testid="webmail-density-toggle"
-          type="button"
-          onClick={onToggleDensity}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[#EBE8E0] text-[#71717A] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
-          title={`Switch density (currently ${density})`}
-        >
-          <LayoutList className="w-3.5 h-3.5" />
-          <span className="capitalize">{density}</span>
-        </button>
+        <div className="relative" ref={densityRef}>
+          <button
+            data-testid="webmail-density-toggle"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={densityOpen}
+            onClick={() => setDensityOpen((open) => !open)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            aria-label={t("webmail_next.density_menu")}
+          >
+            <LayoutList className="w-3.5 h-3.5" />
+            <span>{densityLabel[density]}</span>
+          </button>
+          {densityOpen && (
+            <div
+              role="menu"
+              data-testid="webmail-density-menu"
+              className="absolute right-0 top-8 z-40 min-w-36 bg-white border border-[#EBE8E0] rounded-md shadow-lg py-1"
+            >
+              {(Object.keys(densityLabel) as DensityMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={density === mode}
+                  data-testid={`webmail-density-${mode}`}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-[#18181B] hover:bg-[#F6F4EE]"
+                  onClick={() => {
+                    onSetDensity(mode);
+                    setDensityOpen(false);
+                  }}
+                >
+                  <span>{densityLabel[mode]}</span>
+                  {density === mode && <Check className="w-3.5 h-3.5" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {onOpenContacts && (
           <button
             data-testid="webmail-contacts-btn"

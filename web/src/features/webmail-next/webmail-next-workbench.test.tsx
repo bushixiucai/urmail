@@ -26,6 +26,12 @@ vi.mock("@/features/webmail/mailbox-api", async (importOriginal) => {
     getMessage: vi.fn(),
     getMailboxSettings: vi.fn(),
     getMailboxRules: vi.fn(),
+    getMailboxQuota: vi.fn(),
+    moveMessages: vi.fn(),
+    deleteMessages: vi.fn(),
+    createMailboxFolder: vi.fn(),
+    flagMessages: vi.fn(),
+    listScheduledSends: vi.fn(),
   };
 });
 
@@ -68,7 +74,24 @@ describe("WebmailNextWorkbench Layout", () => {
       total: 2,
       limit: 100,
       offset: 0,
+      uid_validity: 7,
     });
+    vi.mocked(mailboxApi.getMailboxQuota).mockRejectedValue(new Error("quota"));
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValue({
+      moved: 1,
+      to: "Trash",
+    });
+    vi.mocked(mailboxApi.deleteMessages).mockResolvedValue({
+      deleted: 1,
+      expunged: false,
+    });
+    vi.mocked(mailboxApi.createMailboxFolder).mockImplementation(
+      async (name) => ({
+        folder: { name, name_enc: name, delimiter: "/" },
+      }),
+    );
+    vi.mocked(mailboxApi.flagMessages).mockResolvedValue({ updated: 1 });
+    vi.mocked(mailboxApi.listScheduledSends).mockResolvedValue({ items: [] });
     vi.mocked(mailboxApi.getMessage).mockImplementation((_folder, uid, opts) =>
       Promise.resolve({
         uid,
@@ -139,7 +162,7 @@ describe("WebmailNextWorkbench Layout", () => {
     expect(rail.getAttribute("data-collapsed")).toBe("true");
   });
 
-  it("toggles density mode through 3 tiers (compact -> comfortable -> list_only -> compact)", () => {
+  it("sets density from a checked menu instead of cycling an enum", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -150,11 +173,18 @@ describe("WebmailNextWorkbench Layout", () => {
     const densityBtn = screen.getByTestId("webmail-density-toggle");
     expect(densityBtn.textContent).toMatch(/compact/i);
     fireEvent.click(densityBtn);
-    expect(densityBtn.textContent).toMatch(/comfortable/i);
+    const comfortable = screen.getByTestId("webmail-density-comfortable");
+    expect(comfortable.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(comfortable);
+    expect(document.documentElement.className).toContain("density-comfortable");
     fireEvent.click(densityBtn);
-    expect(densityBtn.textContent).toMatch(/list_only/i);
-    fireEvent.click(densityBtn);
-    expect(densityBtn.textContent).toMatch(/compact/i);
+    expect(
+      screen
+        .getByTestId("webmail-density-comfortable")
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    fireEvent.click(screen.getByTestId("webmail-density-list_only"));
+    expect(document.documentElement.className).toContain("density-list_only");
   });
 
   it("requests message with loadImages: false by default when global setting is off", async () => {
@@ -487,5 +517,143 @@ describe("WebmailNextWorkbench Layout", () => {
         .mock.calls.slice(callsAtGrant);
       expect(later.some((call) => call[2]?.loadImages === false)).toBe(false);
     });
+  });
+
+  it("moves the cursor with j and opens only with o", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Message 1")).toBeTruthy();
+    });
+    fireEvent.keyDown(window, { key: "j" });
+    expect(screen.getByTestId("mail-row-102").getAttribute("data-cursor")).toBe(
+      "true",
+    );
+    const opened = vi
+      .mocked(mailboxApi.getMessage)
+      .mock.calls.map((call) => call[1]);
+    expect(opened).not.toContain(102);
+    fireEvent.keyDown(window, { key: "o" });
+    await waitFor(() => {
+      expect(
+        vi.mocked(mailboxApi.getMessage).mock.calls.map((call) => call[1]),
+      ).toContain(102);
+    });
+  });
+
+  it("archives with e and moves to Trash with # without deleting", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    fireEvent.keyDown(window, { key: "e" });
+    await waitFor(() => {
+      expect(mailboxApi.createMailboxFolder).toHaveBeenCalledWith("Archive");
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith(
+        "INBOX",
+        expect.objectContaining({ to: "Archive", uid_validity: 7 }),
+      );
+    });
+    expect(mailboxApi.deleteMessages).not.toHaveBeenCalled();
+    const notice = screen.getByTestId("webmail-move-notice");
+    expect(notice.querySelector("button")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "#" });
+    await waitFor(() => {
+      expect(mailboxApi.createMailboxFolder).toHaveBeenCalledWith("Trash");
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith(
+        "INBOX",
+        expect.objectContaining({ to: "Trash" }),
+      );
+    });
+    expect(mailboxApi.deleteMessages).not.toHaveBeenCalled();
+  });
+
+  it("keeps the open message when a loaded selection is archived", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("mail-check-101"));
+    fireEvent.click(screen.getByTestId("mail-check-102"), { shiftKey: true });
+    expect(screen.getByTestId("bulk-selected-label").textContent).toContain(
+      "webmail_next.selected_loaded",
+    );
+    fireEvent.click(screen.getByTestId("bulk-archive"));
+    await waitFor(() => {
+      const body = vi.mocked(mailboxApi.moveMessages).mock.calls.at(-1)?.[1];
+      expect(body?.uids).toEqual(expect.arrayContaining([101, 102]));
+    });
+    expect(screen.getByTestId("mail-row-101").getAttribute("data-active")).toBe(
+      "true",
+    );
+  });
+
+  it("hides the quota bar when quota is unavailable and shows a real total", async () => {
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    expect(screen.queryByTestId("webmail-quota-bar")).toBeNull();
+    expect(screen.queryByText("1.2 GB / 5.0 GB")).toBeNull();
+    expect(screen.queryByTestId("nav-folder-Starred")).toBeNull();
+    view.unmount();
+
+    vi.mocked(mailboxApi.getMailboxQuota).mockResolvedValue({
+      used_bytes: 100,
+      quota_bytes: 1000,
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("webmail-quota-bar").textContent).toContain(
+        "10%",
+      );
+    });
+    expect(screen.getByTestId("webmail-quota-bar").textContent).not.toContain(
+      "1.2 GB",
+    );
+  });
+
+  it("loads scheduled mail from listScheduledSends", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("nav-folder-scheduled"));
+    await waitFor(() => {
+      expect(mailboxApi.listScheduledSends).toHaveBeenCalled();
+    });
+    const folders = vi
+      .mocked(mailboxApi.listMessages)
+      .mock.calls.map((call) => call[0]);
+    expect(folders).not.toContain("Scheduled");
+    expect(screen.getByTestId("webmail-scheduled-list")).toBeTruthy();
   });
 });

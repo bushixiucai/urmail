@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Star,
   Paperclip,
@@ -7,6 +8,8 @@ import {
   Trash2,
   MailOpen,
   Mail,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import type { WebmailItem, DensityMode } from "../types";
 
@@ -15,7 +18,9 @@ interface WebmailMessageRowProps {
   isSelected: boolean;
   isActive: boolean;
   density: DensityMode;
+  isCursor?: boolean;
   onSelect: (e: React.MouseEvent) => void;
+  onToggleCheck: (e: React.MouseEvent) => void;
   onToggleStar: (e: React.MouseEvent) => void;
   onToggleThread?: (e: React.MouseEvent) => void;
   onDelete?: (e: React.MouseEvent) => void;
@@ -27,24 +32,27 @@ export function WebmailMessageRow({
   isSelected,
   isActive,
   density,
+  isCursor = false,
   onSelect,
+  onToggleCheck,
   onToggleStar,
   onToggleThread,
   onDelete,
   onToggleRead,
 }: WebmailMessageRowProps) {
+  const { t } = useTranslation();
   const isListOnly = density === "list_only";
-  const isCompact = density === "compact";
 
   return (
     <div
       data-testid={`mail-row-${item.uid}`}
+      data-density={density}
       data-selected={isSelected ? "true" : "false"}
       data-active={isActive ? "true" : "false"}
+      data-cursor={isCursor ? "true" : "false"}
+      aria-current={isCursor ? "true" : undefined}
       onClick={onSelect}
-      className={`group relative flex items-center border-b border-[#EBE8E0] transition-colors cursor-pointer select-none ${
-        isListOnly ? "h-8 px-2" : isCompact ? "h-10 px-3" : "h-13 px-4"
-      } ${
+      className={`mail-row-item group relative flex items-center border-b border-[#EBE8E0] transition-colors cursor-pointer select-none ${
         isActive
           ? "bg-[#EFF6FF]"
           : isSelected
@@ -66,6 +74,7 @@ export function WebmailMessageRow({
             <div
               data-testid={`unread-dot-${item.uid}`}
               className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary,#2563eb)]"
+              aria-label={t("webmail_next.row_unread")}
             />
           ) : (
             <div className="w-1.5 h-1.5" />
@@ -74,11 +83,29 @@ export function WebmailMessageRow({
 
         <button
           type="button"
+          data-testid={`mail-check-${item.uid}`}
+          aria-pressed={isSelected}
+          aria-label={t("webmail_next.row_check")}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleCheck(event);
+          }}
+          className="p-0.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+        >
+          {isSelected ? (
+            <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary,#2563eb)]" />
+          ) : (
+            <Square className="w-3.5 h-3.5" />
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={onToggleStar}
           className={`p-0.5 rounded hover:text-[#F59E0B] transition-colors ${
             item.isStarred
               ? "text-[#F59E0B]"
-              : "text-[#D4D4D8] group-hover:text-[#A1A1AA]"
+              : "text-[#D4D4D8] group-hover:text-[var(--vellum-ink-secondary)]"
           }`}
           title={item.isStarred ? "Starred" : "Not starred"}
         >
@@ -108,7 +135,7 @@ export function WebmailMessageRow({
                 data-testid={`thread-toggle-${item.threadId || item.uid}`}
                 type="button"
                 onClick={onToggleThread}
-                className="px-1 py-0.2 rounded-full text-[9px] bg-[#EBE8E0] text-[#71717A] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5 shrink-0"
+                className="px-1 py-0.2 rounded-full text-[9px] bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5 shrink-0"
                 title={`${item.threadCount} messages in thread`}
               >
                 <span>{item.threadCount}</span>
@@ -124,7 +151,7 @@ export function WebmailMessageRow({
               className={`truncate text-xs flex-1 ${
                 item.isUnread
                   ? "font-semibold text-[#18181B]"
-                  : "text-[#71717A]"
+                  : "text-[var(--vellum-ink-secondary)]"
               }`}
             >
               {item.subject}
@@ -193,7 +220,7 @@ export function WebmailMessageRow({
                   data-testid={`thread-toggle-${item.threadId || item.uid}`}
                   type="button"
                   onClick={onToggleThread}
-                  className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#EBE8E0] text-[#71717A] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
+                  className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
                   title={`${item.threadCount} messages in thread`}
                 >
                   <span>{item.threadCount}</span>
@@ -253,7 +280,7 @@ export function WebmailMessageRow({
               className={`truncate ${
                 item.isUnread
                   ? "font-semibold text-[#18181B]"
-                  : "text-[#71717A]"
+                  : "text-[var(--vellum-ink-secondary)]"
               }`}
             >
               {item.subject}
