@@ -327,10 +327,14 @@ export function moveMessages(
   nameEnc: string,
   body: { uids: number[]; to: string; uid_validity?: number },
 ) {
-  return mailboxRequest<{ moved: number; to: string }>(
-    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/move`,
-    { method: "POST", body },
-  );
+  return mailboxRequest<{
+    moved: number;
+    to: string;
+    destination_uids?: number[];
+  }>(`/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/move`, {
+    method: "POST",
+    body,
+  });
 }
 
 export function deleteMessages(

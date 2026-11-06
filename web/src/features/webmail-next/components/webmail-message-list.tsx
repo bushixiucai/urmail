@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   CheckSquare,
   Square,
@@ -55,6 +56,13 @@ interface WebmailMessageListProps {
   onBulkStar?: (uids: number[]) => void;
   onBulkMove?: (uids: number[], folderName: string) => void;
   onBindSelection?: (api: SelectionApi) => void;
+  totalCount?: number;
+  isLoadingMore?: boolean;
+  isInitialLoading?: boolean;
+  onNearEnd?: () => void;
+  onLoadedUids?: (uids: number[]) => void;
+  /** Test and embedding override. Production measures the scroller. */
+  viewportHeight?: number;
 }
 
 export function WebmailMessageList({
@@ -80,6 +88,12 @@ export function WebmailMessageList({
   onBulkStar,
   onBulkMove,
   onBindSelection,
+  totalCount,
+  isLoadingMore = false,
+  isInitialLoading = false,
+  onNearEnd,
+  onLoadedUids,
+  viewportHeight,
 }: WebmailMessageListProps) {
   const { t } = useTranslation();
   const { items, toggleThreadExpand } = useMessageThreading(messages);
@@ -89,6 +103,64 @@ export function WebmailMessageList({
 
   const isAllSelected = items.length > 0 && selectedUids.size === items.length;
   const selectedList = [...selectedUids];
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowHeight =
+    density === "comfortable" ? 52 : density === "list_only" ? 32 : 40;
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 8,
+    initialRect: { width: 380, height: viewportHeight ?? 640 },
+    ...(viewportHeight
+      ? {
+          observeElementRect: (
+            _instance: unknown,
+            cb: (rect: { width: number; height: number }) => void,
+          ) => {
+            cb({ width: 380, height: viewportHeight });
+            return () => {};
+          },
+        }
+      : {}),
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
+  useEffect(() => {
+    onLoadedUids?.(items.map((item) => item.uid));
+  }, [items, onLoadedUids]);
+
+  useEffect(() => {
+    if (cursorUid == null) return;
+    const index = items.findIndex((item) => item.uid === cursorUid);
+    if (index >= 0) {
+      virtualizerRef.current.scrollToIndex(index, { align: "auto" });
+    }
+  }, [cursorUid, items]);
+
+  useEffect(() => {
+    const element = parentRef.current;
+    if (!element || !onNearEnd) return;
+    const onScroll = () => {
+      if (element.clientHeight <= 0) return;
+      const remaining =
+        element.scrollHeight - element.scrollTop - element.clientHeight;
+      if (remaining <= 240) onNearEnd();
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => element.removeEventListener("scroll", onScroll);
+  }, [onNearEnd, items.length]);
+
+  const loadedLabel =
+    messages.length > 0
+      ? t("webmail_next.loaded_range", {
+          from: 1,
+          to: messages.length,
+          total: totalCount ?? messages.length,
+        })
+      : "";
 
   useEffect(() => {
     onBindSelection?.({
@@ -128,8 +200,30 @@ export function WebmailMessageList({
           data-testid="webmail-bulk-bar"
           className="h-10 px-3 border-b border-[#EBE8E0] bg-[#18181B] text-white flex items-center justify-between text-xs shrink-0"
         >
-          <span data-testid="bulk-selected-label">
-            {t("webmail_next.selected_loaded", { count: selectedUids.size })}
+          <div className="flex items-center gap-2">
+            <button
+              data-testid="select-all-button"
+              type="button"
+              onClick={handleToggleSelectAll}
+              className="p-1 rounded hover:bg-white/10"
+              aria-label={
+                isAllSelected
+                  ? t("webmail_next.deselect_all")
+                  : t("webmail_next.select_loaded")
+              }
+            >
+              {isAllSelected ? (
+                <CheckSquare className="w-3.5 h-3.5" />
+              ) : (
+                <Square className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <span data-testid="bulk-selected-label">
+              {t("webmail_next.selected_loaded", { count: selectedUids.size })}
+            </span>
+          </div>
+          <span data-testid="loaded-range" className="sr-only">
+            {loadedLabel}
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -232,8 +326,11 @@ export function WebmailMessageList({
               )}
             </button>
             <span className="font-semibold text-[#18181B]">{folderName}</span>
-            <span className="text-[11px] text-[var(--vellum-ink-secondary)]">
-              ({messages.length})
+            <span
+              data-testid="loaded-range"
+              className="text-[11px] text-[var(--vellum-ink-secondary)]"
+            >
+              {loadedLabel}
             </span>
           </div>
 
@@ -269,13 +366,83 @@ export function WebmailMessageList({
       )}
 
       <div
+        ref={parentRef}
         data-testid="message-rows-container"
         className="flex-1 overflow-y-auto contain-strict will-change-scroll"
         style={{ contain: "layout paint" }}
       >
         {items.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-xs text-[var(--vellum-ink-secondary)]">
-            {t("webmail_next.no_messages")}
+          isInitialLoading ? (
+            <div data-testid="list-initial-skeleton" aria-busy="true">
+              {Array.from({ length: 6 }, (_, index) => (
+                <div
+                  key={index}
+                  className="mail-row-item border-b border-[#EBE8E0] bg-[#F6F4EE] animate-pulse"
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center text-xs text-[var(--vellum-ink-secondary)]">
+              {t("webmail_next.no_messages")}
+            </div>
+          )
+        ) : virtualItems.length > 0 ? (
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              position: "relative",
+              width: "100%",
+            }}
+          >
+            {virtualItems.map((virtualRow) => {
+              const item = items[virtualRow.index];
+              if (!item) return null;
+              return (
+                <div
+                  key={item.uid}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: rowHeight,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <WebmailMessageRow
+                    item={item}
+                    isSelected={selectedUids.has(item.uid)}
+                    isActive={activeUid === item.uid}
+                    isCursor={cursorUid === item.uid}
+                    density={density}
+                    onSelect={() => onSelectMessage(item.uid)}
+                    onToggleCheck={(event) => {
+                      toggleSelect(
+                        item.uid,
+                        event.shiftKey,
+                        event.metaKey || event.ctrlKey,
+                      );
+                    }}
+                    onToggleStar={(event) => {
+                      event.stopPropagation();
+                      onToggleStar?.(item.uid);
+                    }}
+                    onToggleThread={(event) => {
+                      event.stopPropagation();
+                      if (item.threadId) toggleThreadExpand(item.threadId);
+                    }}
+                    onDelete={(event) => {
+                      event.stopPropagation();
+                      onDeleteMessage?.(item.uid);
+                    }}
+                    onToggleRead={(event) => {
+                      event.stopPropagation();
+                      onToggleRead?.(item.uid);
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
         ) : (
           items.map((item) => (
@@ -312,6 +479,13 @@ export function WebmailMessageList({
               }}
             />
           ))
+        )}
+        {isLoadingMore && (
+          <div
+            data-testid="list-page-skeleton"
+            aria-busy="true"
+            className="mail-row-item border-b border-[#EBE8E0] bg-[#F6F4EE] animate-pulse"
+          />
         )}
       </div>
     </div>

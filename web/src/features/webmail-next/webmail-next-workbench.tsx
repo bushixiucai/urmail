@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Palmtree } from "lucide-react";
 import { WebmailHeader } from "./components/webmail-header";
@@ -11,7 +15,11 @@ import { WebmailShortcutHelp } from "./components/webmail-shortcut-help";
 import { WebmailMoveNotice } from "./components/webmail-move-notice";
 import { useMailboxShortcuts } from "./hooks/use-mailbox-shortcuts";
 import type { SelectionApi } from "./components/webmail-message-list";
-import { moveToSpecialFolder } from "./lib/move-mail";
+import {
+  moveToSpecialFolder,
+  moveUndoFromResponse,
+  type MoveUndo,
+} from "./lib/move-mail";
 import {
   isTrashMailbox,
   resolveSpecialFolder,
@@ -97,12 +105,24 @@ export function WebmailNextWorkbench({
   const { t } = useTranslation();
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
   const [activeFolder, setActiveFolder] = useState(initialFolder);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [debouncedText, setDebouncedText] = useState("");
+  const [debouncedParams, setDebouncedParams] = useState<AdvancedSearchParams>(
+    {},
+  );
+  const [searchPhase, setSearchPhase] = useState<"idle" | "pending" | "slow">(
+    "idle",
+  );
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
+  const [readingFolder, setReadingFolder] = useState(initialFolder);
+  const loadedUidsRef = useRef<number[]>([]);
   const [cursorUid, setCursorUid] = useState<number | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [moveNoticeToken, setMoveNoticeToken] = useState(0);
+  const [moveUndo, setMoveUndo] = useState<MoveUndo | null>(null);
+  const moveTokenRef = useRef(0);
   const [sendNonce, setSendNonce] = useState(0);
   const [minimizeNonce, setMinimizeNonce] = useState(0);
   const [composeCc, setComposeCc] = useState<string[]>([]);
@@ -110,7 +130,10 @@ export function WebmailNextWorkbench({
     number[] | null
   >(null);
   const selectionRef = useRef<SelectionApi | null>(null);
-  const clearMoveNotice = useCallback(() => setMoveNotice(null), []);
+  const clearMoveNotice = useCallback(() => {
+    setMoveNotice(null);
+    setMoveUndo(null);
+  }, []);
 
   // Search & Filter popover state
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
@@ -357,11 +380,40 @@ export function WebmailNextWorkbench({
     }
   };
 
-  // Search query builder from simple search + advanced filter params
-  const compiledQuery = useMemo(
-    () => buildSearchQuery(searchQuery, searchParams),
-    [searchQuery, searchParams],
+  const committedQuery = useMemo(
+    () => buildSearchQuery(searchText, searchParams),
+    [searchText, searchParams],
   );
+  const activeQuery = useMemo(
+    () => buildSearchQuery(debouncedText, debouncedParams),
+    [debouncedText, debouncedParams],
+  );
+
+  useEffect(() => {
+    if (!committedQuery) {
+      setDebouncedText(searchText);
+      setDebouncedParams(searchParams);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedText(searchText);
+      setDebouncedParams(searchParams);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [committedQuery, searchText, searchParams]);
+
+  useEffect(() => {
+    if (searchPhase !== "pending") return;
+    const timer = window.setTimeout(() => setSearchPhase("slow"), 3000);
+    return () => window.clearTimeout(timer);
+  }, [searchPhase, searchText, searchParams]);
+
+  const submitSearch = () => {
+    const text = searchDraft.trim();
+    setSearchText(text);
+    if (buildSearchQuery(text, searchParams)) setSearchPhase("pending");
+    else setSearchPhase("idle");
+  };
 
   const handleRemoveFilterChip = (key: keyof AdvancedSearchParams) => {
     setSearchParams((prev) => {
@@ -372,11 +424,14 @@ export function WebmailNextWorkbench({
       }
       return copy;
     });
+    setSearchPhase("pending");
   };
 
   const handleClearAllFilters = () => {
     setSearchParams({});
-    setSearchQuery("");
+    setSearchDraft("");
+    setSearchText("");
+    setSearchPhase("idle");
   };
 
   const handleApplyAdvancedSearch = (params: AdvancedSearchParams) => {
@@ -384,48 +439,107 @@ export function WebmailNextWorkbench({
     if (params.folder) {
       setActiveFolder(params.folder);
     }
+    if (buildSearchQuery(searchText, params)) setSearchPhase("pending");
   };
 
-  // 3. Fetch message list (supports folder-scoped or cross-folder advanced search)
-  const isCrossFolder = Boolean(compiledQuery && !searchParams.folder);
+  const isCrossFolder = Boolean(activeQuery && !debouncedParams.folder);
 
   const {
-    data: messageListData,
+    data: messagePages,
     isLoading: isListLoading,
+    isFetching: isListFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
     refetch: refetchMessages,
     isRefetching,
-  } = useQuery<{
-    messages: MessageSummary[];
-    total?: number;
-    uid_validity?: number;
-  }>({
+  } = useInfiniteQuery({
     queryKey: [
       "webmail",
       "messages",
       isCrossFolder ? "cross-folder" : activeFolder,
       sortKey,
       sortOrder,
-      compiledQuery,
+      activeQuery,
     ],
-    queryFn: async () => {
-      if (isCrossFolder) {
-        return crossFolderSearch(compiledQuery, { limit: 100 });
-      }
-      return listMessages(activeFolder, {
-        sort: sortKey,
-        order: sortOrder,
-        q: compiledQuery,
-        thread: true,
-      });
-    },
+    initialPageParam: 0,
     enabled: !isScheduledView,
     staleTime: 10_000,
+    queryFn: async ({ pageParam, signal }) => {
+      if (isCrossFolder) {
+        const page = await crossFolderSearch(
+          activeQuery,
+          { limit: 100 },
+          signal,
+        );
+        return {
+          messages: page.messages,
+          total: page.total,
+          uid_validity: undefined as number | undefined,
+          next_cursor: 0,
+        };
+      }
+      return listMessages(
+        activeFolder,
+        {
+          limit: 50,
+          cursor: pageParam > 0 ? pageParam : undefined,
+          sort: sortKey,
+          order: sortOrder,
+          q: activeQuery,
+          thread: true,
+        },
+        signal,
+      );
+    },
+    getNextPageParam: (last) =>
+      last.next_cursor && last.next_cursor > 0 ? last.next_cursor : undefined,
   });
 
-  const messages = useMemo(
-    () => messageListData?.messages || [],
-    [messageListData?.messages],
-  );
+  const messageListData = messagePages?.pages[0];
+  const messages = useMemo(() => {
+    const seen = new Set<number>();
+    const out: MessageSummary[] = [];
+    for (const page of messagePages?.pages ?? []) {
+      for (const message of page.messages ?? []) {
+        if (seen.has(message.uid)) continue;
+        seen.add(message.uid);
+        out.push(message);
+      }
+    }
+    return out;
+  }, [messagePages]);
+  const messageTotal = messageListData?.total ?? messages.length;
+  const searchCapped =
+    isCrossFolder && messageTotal > messages.length && !hasNextPage;
+
+  useEffect(() => {
+    if (searchPhase === "idle") return;
+    if (committedQuery !== activeQuery) return;
+    if (isListFetching) return;
+    setSearchPhase("idle");
+  }, [searchPhase, committedQuery, activeQuery, isListFetching]);
+
+  const loadMore = useCallback(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const rememberLoadedUids = useCallback((uids: number[]) => {
+    loadedUidsRef.current = uids;
+  }, []);
+
+  const cancelSearch = () => {
+    void queryClient.cancelQueries({ queryKey: ["webmail", "messages"] });
+    setSearchPhase("idle");
+  };
+
+  const openMessage = (uid: number) => {
+    const message = messages.find((item) => item.uid === uid);
+    setCursorUid(uid);
+    setReadingFolder(message?.folder_enc || activeFolder);
+    setSelectedUid(uid);
+  };
 
   // Derive authorization source for currently selected message:
   // Decoupled dual authorization model:
@@ -460,7 +574,7 @@ export function WebmailNextWorkbench({
     queryKey: [
       "webmail",
       "detail",
-      activeFolder,
+      readingFolder,
       selectedUid,
       authSource,
       policyGeneration,
@@ -470,7 +584,8 @@ export function WebmailNextWorkbench({
       const currentGen = policyGeneration;
       const currentSource = authSource;
       const currentUid = selectedUid;
-      const msg = await getMessage(activeFolder, currentUid, {
+      const folder = readingFolder;
+      const msg = await getMessage(folder, currentUid, {
         loadImages: shouldRequestImages,
       });
       // Drop a late response that missed a newer policy generation or a
@@ -536,9 +651,10 @@ export function WebmailNextWorkbench({
       selectedUid === null &&
       window.innerWidth >= 1024
     ) {
+      setReadingFolder(messages[0].folder_enc || activeFolder);
       setSelectedUid(messages[0].uid);
     }
-  }, [messages, selectedUid]);
+  }, [messages, selectedUid, activeFolder]);
 
   const toggleRail = () => setIsRailCollapsed((prev) => !prev);
   const listValidity = messageListData?.uid_validity;
@@ -551,9 +667,31 @@ export function WebmailNextWorkbench({
     setIsComposeOpen(true);
   };
 
-  const showMoved = (folderLabel: string) => {
+  const showMoved = (folderLabel: string, undo: MoveUndo | null = null) => {
+    moveTokenRef.current += 1;
+    setMoveUndo(undo);
     setMoveNotice(t("webmail_next.moved_to", { folder: folderLabel }));
-    setMoveNoticeToken((token) => token + 1);
+    setMoveNoticeToken(moveTokenRef.current);
+  };
+
+  const undoMove = () => {
+    const pending = moveUndo;
+    if (!pending) return;
+    const token = moveTokenRef.current;
+    setMoveUndo(null);
+    void moveMessages(pending.destinationEnc, {
+      uids: pending.destinationUids,
+      to: pending.sourceEnc,
+    })
+      .then(() => {
+        if (moveTokenRef.current !== token) return;
+        setMoveNotice(null);
+        refetchMessages();
+      })
+      .catch(() => {
+        if (moveTokenRef.current !== token) return;
+        setMoveUndo(pending);
+      });
   };
 
   const flagUids = async (uids: number[], add: string[], remove: string[]) => {
@@ -607,7 +745,7 @@ export function WebmailNextWorkbench({
       setPendingPermanentUids(uids);
       return;
     }
-    const destination = await moveToSpecialFolder(
+    const moved = await moveToSpecialFolder(
       folders,
       activeFolder,
       uids,
@@ -623,10 +761,10 @@ export function WebmailNextWorkbench({
         },
       },
     );
-    if (!destination) return;
+    if (!moved) return;
     selectionRef.current?.clear();
     refetchMessages();
-    showMoved(t(labelKey));
+    showMoved(t(labelKey), moved.undo);
   };
 
   const confirmPermanentDelete = async () => {
@@ -682,21 +820,18 @@ export function WebmailNextWorkbench({
     openCompose([], subject);
   };
 
-  const visibleRowUids = () =>
-    [...document.querySelectorAll<HTMLElement>("[data-testid^='mail-row-']")]
-      .map((node) => Number(node.getAttribute("data-testid")?.slice(9)))
-      .filter((uid) => Number.isFinite(uid));
+  const loadedUids = () =>
+    loadedUidsRef.current.length > 0
+      ? loadedUidsRef.current
+      : messages.map((message) => message.uid);
 
   const moveCursor = (delta: number) => {
-    const uids = visibleRowUids();
+    const uids = loadedUids();
     if (uids.length === 0) return;
     const current = cursorUid ?? uids[0];
     const index = Math.max(0, uids.indexOf(current));
     const next = uids[Math.min(uids.length - 1, Math.max(0, index + delta))];
     setCursorUid(next);
-    document
-      .querySelector<HTMLElement>(`[data-testid="mail-row-${next}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
   };
 
   const focusSearch = () => {
@@ -710,10 +845,10 @@ export function WebmailNextWorkbench({
       if (action === "cursor-next") moveCursor(1);
       else if (action === "cursor-prev") moveCursor(-1);
       else if (action === "open") {
-        const uid = cursorUid ?? visibleRowUids()[0];
-        if (uid != null) setSelectedUid(uid);
+        const uid = cursorUid ?? loadedUids()[0];
+        if (uid != null) openMessage(uid);
       } else if (action === "toggle-check") {
-        const uid = cursorUid ?? visibleRowUids()[0];
+        const uid = cursorUid ?? loadedUids()[0];
         if (uid != null) selectionRef.current?.toggle(uid, false, false);
       } else if (action === "archive") {
         void handleMoveSpecial(
@@ -786,8 +921,9 @@ export function WebmailNextWorkbench({
           refetchMessages();
           refetchRules();
         }}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        searchQuery={searchDraft}
+        onSearchChange={setSearchDraft}
+        onSubmitSearch={submitSearch}
         density={density}
         onSetDensity={setDensity}
         isRefreshing={isRefetching}
@@ -881,6 +1017,38 @@ export function WebmailNextWorkbench({
             onClearAll={handleClearAllFilters}
           />
 
+          {searchPhase !== "idle" && (
+            <div
+              data-testid="webmail-search-status"
+              role="status"
+              className="px-3 py-1.5 text-xs border-b border-[#EBE8E0] bg-[#F6F4EE] text-[#18181B] flex items-center justify-between"
+            >
+              <span>
+                {searchPhase === "slow"
+                  ? t("webmail_next.still_searching")
+                  : t("webmail_next.searching")}
+              </span>
+              {searchPhase === "slow" && (
+                <button
+                  type="button"
+                  data-testid="webmail-search-cancel"
+                  className="underline"
+                  onClick={cancelSearch}
+                >
+                  {t("webmail_next.cancel_search")}
+                </button>
+              )}
+            </div>
+          )}
+          {searchCapped && (
+            <div
+              data-testid="webmail-search-capped"
+              className="px-3 py-1 text-[11px] text-[var(--vellum-ink-secondary)]"
+            >
+              {t("webmail_next.search_capped", { count: messages.length })}
+            </div>
+          )}
+
           <WebmailErrorBoundary onReset={() => refetchMessages()}>
             {isScheduledView ? (
               <div
@@ -904,10 +1072,12 @@ export function WebmailNextWorkbench({
                 messages={messages}
                 activeUid={selectedUid}
                 cursorUid={cursorUid}
-                onSelectMessage={(uid) => {
-                  setCursorUid(uid);
-                  setSelectedUid(uid);
-                }}
+                onSelectMessage={(uid) => openMessage(uid)}
+                totalCount={messageTotal}
+                isLoadingMore={isFetchingNextPage}
+                isInitialLoading={isListLoading}
+                onNearEnd={loadMore}
+                onLoadedUids={rememberLoadedUids}
                 density={density}
                 sort={sortKey}
                 order={sortOrder}
@@ -916,7 +1086,9 @@ export function WebmailNextWorkbench({
                   setSortOrder(ord);
                 }}
                 onRefresh={() => refetchMessages()}
-                isRefreshing={isRefetching || isListLoading}
+                isRefreshing={
+                  (isRefetching && !isFetchingNextPage) || isListLoading
+                }
                 onToggleStar={handleToggleStar}
                 onDeleteMessage={handleDeleteMessage}
                 onToggleRead={handleToggleRead}
@@ -945,14 +1117,25 @@ export function WebmailNextWorkbench({
                 onBulkStar={(uids) => void flagUids(uids, ["\\Flagged"], [])}
                 onBulkMove={(uids, folderName) => {
                   if (!listValidity) return;
+                  const destination = folders.find(
+                    (folder) => folder.name === folderName,
+                  );
                   void moveMessages(activeFolder, {
                     uids,
                     to: folderName,
                     uid_validity: listValidity,
-                  }).then(() => {
+                  }).then((response) => {
                     selectionRef.current?.clear();
                     refetchMessages();
-                    showMoved(folderName);
+                    showMoved(
+                      folderName,
+                      moveUndoFromResponse(
+                        activeFolder,
+                        destination?.name_enc ?? "",
+                        uids,
+                        response,
+                      ),
+                    );
                   });
                 }}
                 onBindSelection={(api) => {
@@ -973,7 +1156,7 @@ export function WebmailNextWorkbench({
           <WebmailErrorBoundary onReset={() => refetchDetail()}>
             <WebmailReadingPane
               message={messageDetail || null}
-              folderEnc={activeFolder}
+              folderEnc={readingFolder}
               isLoading={isDetailLoading}
               isGlobalRemoteImagesAllowed={isGlobalImagesAllowed}
               isManualRemoteImagesAllowed={isCurrentManualGranted}
@@ -1008,6 +1191,7 @@ export function WebmailNextWorkbench({
         message={moveNotice}
         token={moveNoticeToken}
         onDone={clearMoveNotice}
+        onUndo={moveUndo ? undoMove : undefined}
       />
       {pendingPermanentUids && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30">

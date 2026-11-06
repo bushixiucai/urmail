@@ -120,7 +120,7 @@ test("checkbox selection archives loaded rows without changing the open message"
 }) => {
   const fixture = await setupBulkFixture(page);
   await page.goto("/webmail/inbox");
-  await expect(page.getByText("Loaded 21")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Loaded 21" })).toBeVisible();
   await expect(page.getByTestId("mail-row-21")).toHaveAttribute(
     "data-active",
     "true",

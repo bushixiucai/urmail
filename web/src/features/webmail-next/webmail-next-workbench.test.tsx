@@ -32,6 +32,7 @@ vi.mock("@/features/webmail/mailbox-api", async (importOriginal) => {
     createMailboxFolder: vi.fn(),
     flagMessages: vi.fn(),
     listScheduledSends: vi.fn(),
+    crossFolderSearch: vi.fn(),
   };
 });
 
@@ -92,6 +93,11 @@ describe("WebmailNextWorkbench Layout", () => {
     );
     vi.mocked(mailboxApi.flagMessages).mockResolvedValue({ updated: 1 });
     vi.mocked(mailboxApi.listScheduledSends).mockResolvedValue({ items: [] });
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [],
+      total: 0,
+      q: "",
+    });
     vi.mocked(mailboxApi.getMessage).mockImplementation((_folder, uid, opts) =>
       Promise.resolve({
         uid,
@@ -655,5 +661,153 @@ describe("WebmailNextWorkbench Layout", () => {
       .mock.calls.map((call) => call[0]);
     expect(folders).not.toContain("Scheduled");
     expect(screen.getByTestId("webmail-scheduled-list")).toBeTruthy();
+  });
+
+  it("searches on enter, shows the search state immediately, and opens the source folder", async () => {
+    vi.mocked(mailboxApi.crossFolderSearch).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                messages: [
+                  {
+                    uid: 501,
+                    subject: "Found note",
+                    from: [{ name: "Ann", email: "ann@example.test" }],
+                    date: "2026-11-06T12:00:00Z",
+                    flags: ["\\Seen"],
+                    size: 10,
+                    folder: "Archive",
+                    folder_enc: "ARCHIVE",
+                  },
+                ],
+                total: 1,
+                q: "hello",
+              }),
+            400,
+          );
+        }),
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    const input = screen.getByTestId("webmail-search-input");
+    fireEvent.change(input, { target: { value: "hello" } });
+    expect(mailboxApi.crossFolderSearch).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByTestId("webmail-search-status")).toBeTruthy();
+    expect(mailboxApi.crossFolderSearch).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mailboxApi.crossFolderSearch).toHaveBeenCalledWith(
+        "hello",
+        { limit: 100 },
+        expect.anything(),
+      );
+    });
+    await waitFor(() => expect(screen.getByText("Found note")).toBeTruthy());
+    expect(screen.getByTestId("mail-folder-501").textContent).toBe("Archive");
+    fireEvent.click(screen.getByTestId("mail-row-501"));
+    await waitFor(() => {
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "ARCHIVE",
+        501,
+        expect.anything(),
+      );
+    });
+  });
+
+  it("shows a reading skeleton as soon as a message is opened", async () => {
+    const detail: mailboxApi.MessageDetail = {
+      uid: 101,
+      subject: "Message 101",
+      from: [{ name: "Sender", email: "sender@example.com" }],
+      to: [{ name: "Recipient", email: "me@example.com" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: ["\\Seen"],
+      size: 1024,
+      html: "<p>Hello</p>",
+      notes: ["remote_images_blocked"],
+      attachments: [],
+    };
+    let settled: mailboxApi.MessageDetail | null = null;
+    const waiters: Array<(value: mailboxApi.MessageDetail) => void> = [];
+    vi.mocked(mailboxApi.getMessage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          if (settled) resolve(settled);
+          else waiters.push(resolve);
+        }),
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("reading-skeleton")).toBeTruthy();
+    });
+    settled = detail;
+    await act(async () => {
+      waiters.splice(0).forEach((resolve) => resolve(detail));
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("reading-skeleton")).toBeNull();
+    });
+  });
+
+  it("undoes a move only when destination_uids align with the request", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValue({
+      moved: 1,
+      to: "Archive",
+      destination_uids: [880],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    fireEvent.keyDown(window, { key: "e" });
+    await waitFor(() => {
+      expect(screen.getByTestId("webmail-move-undo")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("webmail-move-undo"));
+    await waitFor(() => {
+      expect(mailboxApi.moveMessages).toHaveBeenLastCalledWith("Archive", {
+        uids: [880],
+        to: "INBOX",
+      });
+    });
+  });
+
+  it("omits undo when destination_uids are missing or a different length", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValue({
+      moved: 1,
+      to: "Archive",
+      destination_uids: [880, 881],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    fireEvent.keyDown(window, { key: "e" });
+    await waitFor(() => {
+      expect(screen.getByTestId("webmail-move-notice")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("webmail-move-undo")).toBeNull();
   });
 });

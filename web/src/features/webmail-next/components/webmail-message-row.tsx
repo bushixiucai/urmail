@@ -27,7 +27,7 @@ interface WebmailMessageRowProps {
   onToggleRead?: (e: React.MouseEvent) => void;
 }
 
-export function WebmailMessageRow({
+function WebmailMessageRowView({
   item,
   isSelected,
   isActive,
@@ -156,6 +156,14 @@ export function WebmailMessageRow({
             >
               {item.subject}
             </span>
+            {item.folder ? (
+              <span
+                data-testid={`mail-folder-${item.uid}`}
+                className="shrink-0 text-[10px] text-[var(--vellum-ink-secondary)]"
+              >
+                {item.folder}
+              </span>
+            ) : null}
 
             {item.hasAttachments && (
               <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
@@ -285,6 +293,14 @@ export function WebmailMessageRow({
             >
               {item.subject}
             </span>
+            {item.folder ? (
+              <span
+                data-testid={`mail-folder-${item.uid}`}
+                className="shrink-0 text-[10px] text-[var(--vellum-ink-secondary)]"
+              >
+                {item.folder}
+              </span>
+            ) : null}
             {item.hasAttachments && (
               <Paperclip className="w-3 h-3 text-[#52525B] shrink-0" />
             )}
@@ -294,3 +310,5 @@ export function WebmailMessageRow({
     </div>
   );
 }
+
+export const WebmailMessageRow = React.memo(WebmailMessageRowView);

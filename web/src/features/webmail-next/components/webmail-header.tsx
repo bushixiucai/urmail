@@ -23,6 +23,7 @@ interface WebmailHeaderProps {
   onRefresh?: () => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  onSubmitSearch?: () => void;
   onOpenAdvancedSearch?: () => void;
   density: DensityMode;
   onSetDensity: (mode: DensityMode) => void;
@@ -41,6 +42,7 @@ export function WebmailHeader({
   onRefresh,
   searchQuery,
   onSearchChange,
+  onSubmitSearch,
   onOpenAdvancedSearch,
   density,
   onSetDensity,
@@ -105,6 +107,12 @@ export function WebmailHeader({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSubmitSearch?.();
+              }
+            }}
             placeholder={t("webmail.header.search_placeholder")}
             className="w-full h-8 pl-9 pr-16 bg-[#F6F4EE] rounded-full text-xs text-[#18181B] border border-transparent focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none transition-all"
           />
