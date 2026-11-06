@@ -57,10 +57,6 @@ func mailboxAIFixture(t *testing.T, calls int64, consentOption ...bool) (*db.Poo
 		t.Fatal(err)
 	}
 	t.Cleanup(p.Close)
-	features := fmt.Sprintf(`{"ai":{"calls":%d,"mailbox_calls":%d,"tokens":1000000,"cost_micros":1000000,"cost_currency":"CNY","concurrency":1}}`, calls, calls)
-	if _, err = p.Exec(ctx, "UPDATE plans SET features=$1 WHERE code='free'", []byte(features)); err != nil {
-		t.Fatal(err)
-	}
 	var brand, tenant, domain, mailbox int64
 	for _, seed := range []struct {
 		sql    string
@@ -93,6 +89,16 @@ func mailboxAIFixture(t *testing.T, calls int64, consentOption ...bool) (*db.Poo
 	}
 	if _, err = q.PlatformSetAIProvider(ctx, store.PlatformSetAIProviderParams{TenantID: tenant, Mode: "platform", Provider: "openai", Endpoint: "https://offline.invalid/v1", Model: "offline", Enabled: true, InputMicrosPerMillion: 1000000, OutputMicrosPerMillion: 1000000}); err != nil {
 		t.Fatal(err)
+	}
+	// Local quota only. Zero calls stays unconfigured so admission stays fail-closed
+	// instead of inheriting a plan feature or a limit above the fixture.
+	if calls > 0 {
+		if _, err = p.Exec(ctx, "INSERT INTO settings(scope,scope_id,key,value) VALUES('tenant',$1,'ai_default_call_limit',$2::jsonb)", tenant, fmt.Sprintf("%d", calls)); err != nil {
+			t.Fatal(err)
+		}
+		if err = q.PlatformSetNonplatformAIQuota(ctx, store.PlatformSetNonplatformAIQuotaParams{TenantID: tenant, NonplatformCallLimit: calls, NonplatformMailboxCallLimit: calls, NonplatformConcurrencyLimit: 1, QuotaTimezone: "Asia/Shanghai"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var owner int64
 	if err = p.QueryRow(ctx, "INSERT INTO users(email,password_hash) VALUES('ai-owner@example.test','test') RETURNING id").Scan(&owner); err != nil {
