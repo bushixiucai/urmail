@@ -2,6 +2,7 @@ import { BrandHostLifecycle } from "./brand-host-lifecycle";
 import { validNewPassword } from "@/lib/password-policy";
 import { BillingCalendarAdmin } from "./billing-calendar-admin";
 import { PlatformAIAdmin } from "./platform-ai-admin";
+import { BackupOffsiteAdmin } from "./backup-offsite-admin";
 import { CouponReissueAdmin } from "./coupon-reissue-admin";
 import { FinancialReviewAdmin } from "./financial-review-admin";
 import { NotificationAdmin } from "./notification-admin";
@@ -18,6 +19,7 @@ import {
   Layers,
   Receipt,
   Cpu,
+  DatabaseBackup,
   Headphones,
   Search,
   Plus,
@@ -126,6 +128,7 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
             "finance",
             "brands",
             "settings",
+            "backup",
           ].includes(tab)
         ) {
           return tab;
@@ -153,6 +156,7 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
               "finance",
               "brands",
               "settings",
+              "backup",
             ].includes(tab)
           ) {
             setActiveTab(tab);
@@ -471,6 +475,11 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
       id: "settings",
       label: t("page.platform.tab_settings", { defaultValue: "AI与系统规则" }),
       icon: Cpu,
+    },
+    {
+      id: "backup",
+      label: t("page.platform.tab_backup", { defaultValue: "异地备份" }),
+      icon: DatabaseBackup,
     },
   ];
 
@@ -1733,6 +1742,10 @@ export function PlatformPage({ defaultTab }: { defaultTab?: string } = {}) {
         <PlatformAIAdmin tenants={tenants} />
         <NotificationAdmin />
         <SettingsEditor platform />
+      </div>
+
+      <div className={activeTab === "backup" ? "space-y-6" : "hidden"}>
+        <BackupOffsiteAdmin />
       </div>
 
       {/* Global Notice Alert Dialog */}
