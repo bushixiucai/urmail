@@ -17,12 +17,8 @@ func TestSideEffectWorkersDoNotStartInMaintenanceRestoreOrDevelopment(t *testing
 			if startBackgroundWorker(t.Context(), cfg, func(context.Context) { called <- struct{}{} }) {
 				t.Fatal("side-effect worker started")
 			}
-			if startRenewalWorker(t.Context(), cfg, func(context.Context) error { called <- struct{}{}; return nil }, zap.NewNop()) {
-				t.Fatal("renewal started")
-			}
 			// Exercise the actual helper entry points with unavailable dependencies:
-			// none may open a lease, DNS/SMTP/payment request or privileged operation.
-			startPaymentRecovery(t.Context(), cfg, nil, nil, "", nil, zap.NewNop())
+			// none may open a lease, DNS/SMTP request or privileged operation.
 			startMailTelemetry(t.Context(), cfg, nil, zap.NewNop())
 			startMailObservability(t.Context(), cfg, nil, zap.NewNop())
 			service := startDomainOnboarding(t.Context(), cfg, nil, nil, nil, zap.NewNop())
@@ -36,19 +32,5 @@ func TestSideEffectWorkersDoNotStartInMaintenanceRestoreOrDevelopment(t *testing
 			case <-time.After(20 * time.Millisecond):
 			}
 		})
-	}
-}
-func TestRenewalWorkerStartsOnlyAfterOriginalModeRestored(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	called := make(chan struct{}, 1)
-	if !startRenewalWorker(ctx, &config.Config{}, func(context.Context) error { called <- struct{}{}; return nil }, zap.NewNop()) {
-		t.Fatal("normal worker did not start")
-	}
-	select {
-	case <-called:
-		cancel()
-	case <-time.After(time.Second):
-		t.Fatal("normal renewal never ran")
 	}
 }

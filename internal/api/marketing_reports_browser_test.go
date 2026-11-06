@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/api"
@@ -65,7 +64,7 @@ func TestMarketingReportsBrowserFixture(t *testing.T) {
 	if e = tx.QueryRow(ctx, "SELECT period_start FROM subscriptions WHERE tenant_id=$1", tenant).Scan(&start); e != nil {
 		t.Fatal(e)
 	}
-	_, e = store.New(tx).PlatformInitializeBillingCalendar(ctx, store.PlatformInitializeBillingCalendarParams{TenantID: tenant, Timezone: "Asia/Shanghai", FirstPaidAt: pgtype.Timestamptz{Time: start, Valid: true}, AnchorAt: pgtype.Timestamptz{Time: start, Valid: true}, Source: "manual_legacy", ReviewReason: "Isolated browser fixture known paid instant and timezone", CreatedBy: pgtype.Int8{Int64: actor, Valid: true}})
+	_, e = tx.Exec(ctx, "INSERT INTO billing_calendars(tenant_id,timezone,first_paid_at,anchor_at,source,review_reason,created_by) VALUES($1,'Asia/Shanghai',$2,$2,'manual_legacy','Isolated browser fixture known paid instant and timezone',$3) ON CONFLICT (tenant_id) DO NOTHING", tenant, start, actor)
 	if e != nil {
 		t.Fatal(e)
 	}

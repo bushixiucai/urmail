@@ -32,8 +32,6 @@ type DomainStore interface {
 	UpdateDomainStatus(ctx context.Context, arg store.UpdateDomainStatusParams) (store.UpdateDomainStatusRow, error)
 	DeleteDomain(ctx context.Context, arg store.DeleteDomainParams) error
 	CountDomainsByTenant(ctx context.Context, tenantID int64) (int64, error)
-	GetActiveSubscriptionByTenant(ctx context.Context, tenantID int64) (store.Subscriptions, error)
-	GetPlanByCode(ctx context.Context, code string) (store.Plans, error)
 	UpdateDomainModeStatus(ctx context.Context, arg store.UpdateDomainModeStatusParams) (store.UpdateDomainModeStatusRow, error)
 }
 

@@ -16,7 +16,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/domain/billing"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -29,7 +28,7 @@ type aiQuotaResolution struct {
 }
 
 func aiQuotaMonth(now time.Time, zone string) (time.Time, time.Time, error) {
-	_, start, end, err := billing.CalendarBudgetBounds(now, zone)
+	_, start, end, err := calendarBudgetBounds(now, zone)
 	if err != nil {
 		return time.Time{}, time.Time{}, errAIBudget
 	}
@@ -147,7 +146,7 @@ func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderCo
 	if err != nil {
 		return err
 	}
-	day, month, _, err := billing.CalendarBudgetBounds(now, location.String())
+	day, month, _, err := calendarBudgetBounds(now, location.String())
 	if err != nil {
 		return err
 	}
