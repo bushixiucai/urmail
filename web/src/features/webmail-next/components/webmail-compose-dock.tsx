@@ -266,7 +266,7 @@ export function WebmailComposeDock({
                   type="text"
                   value={draft.subject}
                   onChange={(e) => updateDraft({ subject: e.target.value })}
-                  placeholder="Subject"
+                  placeholder={t("compose.subject_placeholder")}
                   className="w-full text-xs text-[#18181B] font-medium outline-none py-1"
                 />
               </div>
