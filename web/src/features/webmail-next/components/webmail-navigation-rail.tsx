@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import {
   Inbox,
-  Star,
   FileText,
   Send,
   Clock,
@@ -10,18 +9,83 @@ import {
   Archive,
   SquarePen,
   Folder,
+  type LucideIcon,
 } from "lucide-react";
 import type { MailboxFolder } from "@/features/webmail/mailbox-api";
+import { resolveSpecialFolder, SCHEDULED_VIEW } from "../lib/special-folders";
 
 interface WebmailNavigationRailProps {
   isCollapsed: boolean;
   activeFolder: string;
   onSelectFolder: (folderEnc: string) => void;
   folders: MailboxFolder[];
-  unreadCounts?: Record<string, number>;
   onCompose: () => void;
-  quotaPercent?: number;
-  quotaText?: string;
+  inboxUnread?: number;
+  quota?: { used_bytes: number; quota_bytes: number } | null;
+}
+
+const SYSTEM: Array<{
+  flag: string;
+  fallback: string;
+  labelKey: string;
+  icon: LucideIcon;
+  testId: string;
+}> = [
+  {
+    flag: "\\Inbox",
+    fallback: "INBOX",
+    labelKey: "webmail_next.inbox",
+    icon: Inbox,
+    testId: "inbox",
+  },
+  {
+    flag: "\\Drafts",
+    fallback: "Drafts",
+    labelKey: "webmail_next.drafts",
+    icon: FileText,
+    testId: "drafts",
+  },
+  {
+    flag: "\\Sent",
+    fallback: "Sent",
+    labelKey: "webmail_next.sent",
+    icon: Send,
+    testId: "sent",
+  },
+  {
+    flag: "\\Junk",
+    fallback: "Junk",
+    labelKey: "webmail_next.junk",
+    icon: AlertOctagon,
+    testId: "junk",
+  },
+  {
+    flag: "\\Trash",
+    fallback: "Trash",
+    labelKey: "webmail_next.trash",
+    icon: Trash2,
+    testId: "trash",
+  },
+  {
+    flag: "\\Archive",
+    fallback: "Archive",
+    labelKey: "webmail_next.archive",
+    icon: Archive,
+    testId: "archive",
+  },
+];
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  const digits = unit === 0 ? 0 : 1;
+  return `${size.toFixed(digits)} ${units[unit]}`;
 }
 
 export function WebmailNavigationRail({
@@ -29,53 +93,39 @@ export function WebmailNavigationRail({
   activeFolder,
   onSelectFolder,
   folders,
-  unreadCounts = {},
   onCompose,
-  quotaPercent = 25,
-  quotaText = "1.2 GB / 5.0 GB",
+  inboxUnread = 0,
+  quota = null,
 }: WebmailNavigationRailProps) {
   const { t } = useTranslation();
+  const resolved = SYSTEM.map((item) => ({
+    ...item,
+    folder: resolveSpecialFolder(folders, item.flag, item.fallback),
+  })).filter((item) => item.folder);
+  const systemEnc = new Set(
+    resolved.map((item) => item.folder?.name_enc.toLowerCase()),
+  );
+  const custom = folders.filter(
+    (folder) => !systemEnc.has(folder.name_enc.toLowerCase()),
+  );
+  const showQuota =
+    quota != null &&
+    Number.isFinite(quota.used_bytes) &&
+    Number.isFinite(quota.quota_bytes) &&
+    quota.quota_bytes > 0;
+  const quotaPercent = showQuota
+    ? Math.round((quota.used_bytes / quota.quota_bytes) * 100)
+    : 0;
+  const quotaText = showQuota
+    ? `${formatBytes(quota.used_bytes)} / ${formatBytes(quota.quota_bytes)}`
+    : "";
 
-  const standardNavItems = [
-    { key: "INBOX", label: t("webmail_next.inbox"), icon: Inbox, enc: "INBOX" },
-    {
-      key: "Starred",
-      label: t("webmail_next.starred"),
-      icon: Star,
-      enc: "Starred",
-    },
-    {
-      key: "Drafts",
-      label: t("webmail_next.drafts"),
-      icon: FileText,
-      enc: "Drafts",
-    },
-    { key: "Sent", label: t("webmail_next.sent"), icon: Send, enc: "Sent" },
-    {
-      key: "Scheduled",
-      label: t("webmail_next.scheduled"),
-      icon: Clock,
-      enc: "Scheduled",
-    },
-    {
-      key: "Junk",
-      label: t("webmail_next.junk"),
-      icon: AlertOctagon,
-      enc: "Junk",
-    },
-    {
-      key: "Trash",
-      label: t("webmail_next.trash"),
-      icon: Trash2,
-      enc: "Trash",
-    },
-    {
-      key: "Archive",
-      label: t("webmail_next.archive"),
-      icon: Archive,
-      enc: "Archive",
-    },
-  ];
+  const itemClass = (active: boolean) =>
+    `w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors ${
+      active
+        ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold"
+        : "text-[#18181B] hover:bg-[#F3F1EC]"
+    }`;
 
   return (
     <aside
@@ -86,7 +136,6 @@ export function WebmailNavigationRail({
       }`}
     >
       <div className="p-3 w-full">
-        {/* Compose Button */}
         <button
           data-testid="webmail-compose-button"
           type="button"
@@ -94,7 +143,7 @@ export function WebmailNavigationRail({
           className={`w-full flex items-center justify-center gap-2 bg-[var(--brand-primary,#2563eb)] text-white font-medium rounded-lg shadow-sm hover:brightness-105 active:brightness-95 transition-all ${
             isCollapsed ? "h-10 px-0" : "h-10 px-4"
           }`}
-          title={t("webmail_next.compose")}
+          aria-label={t("webmail_next.compose")}
         >
           <SquarePen className="w-4 h-4 shrink-0" />
           {!isCollapsed && (
@@ -104,35 +153,31 @@ export function WebmailNavigationRail({
           )}
         </button>
 
-        {/* Standard Folder List */}
         <nav className="mt-4 space-y-0.5 w-full">
-          {standardNavItems.map((item) => {
+          {resolved.map((item) => {
+            const folder = item.folder;
+            if (!folder) return null;
             const Icon = item.icon;
-            const isActive =
-              activeFolder.toLowerCase() === item.enc.toLowerCase();
-            const unread = unreadCounts[item.enc] || 0;
-
+            const isActive = activeFolder === folder.name_enc;
+            const unread = item.flag === "\\Inbox" ? inboxUnread : 0;
             return (
               <button
-                key={item.key}
-                data-testid={`nav-folder-${item.enc}`}
+                key={item.testId}
+                data-testid={`nav-folder-${item.testId}`}
                 type="button"
-                onClick={() => onSelectFolder(item.enc)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors ${
-                  isActive
-                    ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold"
-                    : "text-[#18181B] hover:bg-[#F3F1EC]"
-                }`}
-                title={item.label}
+                onClick={() => onSelectFolder(folder.name_enc)}
+                className={itemClass(isActive)}
+                title={t(item.labelKey)}
               >
-                <Icon
-                  className={`w-4 h-4 shrink-0 ${isActive ? "text-[var(--brand-primary,#2563eb)]" : "text-[#71717A]"}`}
-                />
+                <Icon className="w-4 h-4 shrink-0" />
                 {!isCollapsed && (
                   <div className="flex-1 flex items-center justify-between overflow-hidden">
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate">{t(item.labelKey)}</span>
                     {unread > 0 && (
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-[#2563eb] text-white font-bold leading-none">
+                      <span
+                        data-testid="inbox-unread-badge"
+                        className="px-1.5 py-0.5 rounded-full text-[10px] bg-[#2563eb] text-white font-bold leading-none"
+                      >
                         {unread}
                       </span>
                     )}
@@ -142,48 +187,44 @@ export function WebmailNavigationRail({
             );
           })}
 
-          {/* Custom Folders */}
-          {folders
-            .filter(
-              (f) =>
-                !standardNavItems.some(
-                  (s) => s.enc.toLowerCase() === f.name_enc.toLowerCase(),
-                ),
-            )
-            .map((cf) => {
-              const isActive =
-                activeFolder.toLowerCase() === cf.name_enc.toLowerCase();
-              return (
-                <button
-                  key={cf.name_enc}
-                  data-testid={`nav-folder-${cf.name_enc}`}
-                  type="button"
-                  onClick={() => onSelectFolder(cf.name_enc)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors ${
-                    isActive
-                      ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold"
-                      : "text-[#18181B] hover:bg-[#F3F1EC]"
-                  }`}
-                  title={cf.name}
-                >
-                  <Folder className="w-4 h-4 shrink-0 text-[#71717A]" />
-                  {!isCollapsed && (
-                    <span className="truncate flex-1 text-left">{cf.name}</span>
-                  )}
-                </button>
-              );
-            })}
+          <button
+            data-testid="nav-folder-scheduled"
+            type="button"
+            onClick={() => onSelectFolder(SCHEDULED_VIEW)}
+            className={itemClass(activeFolder === SCHEDULED_VIEW)}
+            title={t("webmail_next.scheduled")}
+          >
+            <Clock className="w-4 h-4 shrink-0" />
+            {!isCollapsed && (
+              <span className="truncate">{t("webmail_next.scheduled")}</span>
+            )}
+          </button>
+
+          {custom.map((folder) => (
+            <button
+              key={folder.name_enc}
+              data-testid={`nav-folder-${folder.name_enc}`}
+              type="button"
+              onClick={() => onSelectFolder(folder.name_enc)}
+              className={itemClass(activeFolder === folder.name_enc)}
+              title={folder.name}
+            >
+              <Folder className="w-4 h-4 shrink-0" />
+              {!isCollapsed && (
+                <span className="truncate flex-1 text-left">{folder.name}</span>
+              )}
+            </button>
+          ))}
         </nav>
       </div>
 
-      {/* Quota Gauge Indicator at bottom */}
-      {!isCollapsed ? (
+      {showQuota && !isCollapsed && (
         <div
           data-testid="webmail-quota-bar"
           className="p-4 border-t border-[#EBE8E0] bg-[#FFFFFF]/60"
         >
-          <div className="flex justify-between items-center text-[11px] text-[#71717A] mb-1.5 font-medium">
-            <span>Storage</span>
+          <div className="flex justify-between items-center text-[11px] text-[var(--vellum-ink-secondary)] mb-1.5 font-medium">
+            <span>{t("webmail_next.storage")}</span>
             <span>{quotaPercent}%</span>
           </div>
           <div className="w-full h-1.5 bg-[#EBE8E0] rounded-full overflow-hidden">
@@ -198,27 +239,18 @@ export function WebmailNavigationRail({
               style={{ width: `${Math.min(100, Math.max(0, quotaPercent))}%` }}
             />
           </div>
-          <div className="mt-1 text-[10px] text-[#52525B] truncate">
+          <div className="mt-1 text-[10px] text-[var(--vellum-ink-secondary)] truncate">
             {quotaText}
           </div>
         </div>
-      ) : (
+      )}
+      {showQuota && isCollapsed && (
         <div
           data-testid="webmail-quota-bar-mini"
           className="p-3 border-t border-[#EBE8E0] flex justify-center"
+          title={quotaText}
         >
-          <div
-            className="w-2.5 h-2.5 rounded-full"
-            style={{
-              backgroundColor:
-                quotaPercent > 95
-                  ? "#DC2626"
-                  : quotaPercent > 80
-                    ? "#D97706"
-                    : "var(--brand-primary,#2563eb)",
-            }}
-            title={quotaText}
-          />
+          <div className="w-2.5 h-2.5 rounded-full bg-[var(--brand-primary,#2563eb)]" />
         </div>
       )}
     </aside>

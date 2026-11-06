@@ -78,17 +78,40 @@ describe("WebmailMessageList", () => {
       />,
     );
 
+    const firstCheck = screen.getByTestId("mail-check-102");
+    const secondCheck = screen.getByTestId("mail-check-103");
     const firstRow = screen.getByTestId("mail-row-102");
     const secondRow = screen.getByTestId("mail-row-103");
 
-    // Click first item
-    fireEvent.click(firstRow);
+    fireEvent.click(firstCheck);
     expect(firstRow.getAttribute("data-selected")).toBe("true");
+    expect(onSelect).not.toHaveBeenCalled();
 
-    // Shift click second item
-    fireEvent.click(secondRow, { shiftKey: true });
+    fireEvent.click(secondCheck, { shiftKey: true });
     expect(firstRow.getAttribute("data-selected")).toBe("true");
     expect(secondRow.getAttribute("data-selected")).toBe("true");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("opens a message from the row without selecting it", () => {
+    const onSelect = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={onSelect}
+        density="compact"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("mail-row-103"));
+    expect(onSelect).toHaveBeenCalledWith(103);
+    expect(
+      screen.getByTestId("mail-row-103").getAttribute("data-selected"),
+    ).toBe("false");
   });
 
   it("cycles sorting on sort button click", () => {
@@ -126,8 +149,9 @@ describe("WebmailMessageList", () => {
     );
 
     const firstRow = screen.getByTestId("mail-row-102");
-    expect(firstRow.className).toContain("h-8");
-    expect(firstRow.className).toContain("px-2");
+    expect(firstRow.className).toContain("mail-row-item");
+    expect(firstRow.getAttribute("data-density")).toBe("list_only");
+    expect(firstRow.className).not.toContain("h-8");
     expect(screen.getByText("Re: Meeting Tomorrow")).toBeTruthy();
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Minus,
@@ -25,14 +25,20 @@ interface WebmailComposeDockProps {
   isOpen: boolean;
   onClose: () => void;
   initialTo?: string[];
+  initialCc?: string[];
   initialSubject?: string;
+  sendNonce?: number;
+  minimizeNonce?: number;
 }
 
 export function WebmailComposeDock({
   isOpen,
   onClose,
   initialTo = [],
+  initialCc = [],
   initialSubject = "",
+  sendNonce = 0,
+  minimizeNonce = 0,
 }: WebmailComposeDockProps) {
   const { t } = useTranslation();
   const [isMinimized, setIsMinimized] = useState(false);
@@ -52,12 +58,39 @@ export function WebmailComposeDock({
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const initialDraftProp =
-    initialTo.length > 0 || Boolean(initialSubject)
-      ? { to: initialTo, subject: initialSubject }
+    initialTo.length > 0 || initialCc.length > 0 || Boolean(initialSubject)
+      ? { to: initialTo, cc: initialCc, subject: initialSubject }
       : undefined;
 
   const { draft, updateDraft, clearDraft, isSaving, lastSavedAt } =
     useDebouncedDraft(initialDraftProp);
+  const sendAction = useRef<() => void>(() => {});
+  const seenSend = useRef(0);
+  const seenMinimize = useRef(0);
+
+  useEffect(() => {
+    if (!isOpen || !sendNonce || sendNonce === seenSend.current) return;
+    seenSend.current = sendNonce;
+    sendAction.current();
+  }, [sendNonce, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !minimizeNonce || minimizeNonce === seenMinimize.current) {
+      return;
+    }
+    seenMinimize.current = minimizeNonce;
+    setIsMinimized(true);
+  }, [minimizeNonce, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || isMinimized) return;
+    const frame = requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLInputElement>('[data-testid="recipient-input"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, isMinimized]);
 
   if (!isOpen) return null;
 
@@ -148,6 +181,9 @@ export function WebmailComposeDock({
       }
     }, 1000);
   };
+  sendAction.current = () => {
+    void handleSend();
+  };
 
   const handleUndo = () => {
     if (undoTimerRef.current) {
@@ -162,6 +198,8 @@ export function WebmailComposeDock({
       {/* 1. Floating Docked Compose Window */}
       <div
         data-testid="webmail-compose-dock"
+        data-compose-dock="true"
+        data-minimized={isMinimized ? "true" : "false"}
         className={`fixed z-50 transition-all duration-200 bg-white border border-[#EBE8E0] shadow-2xl flex flex-col ${
           isMaximized
             ? "inset-4 rounded-xl"

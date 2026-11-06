@@ -7,6 +7,17 @@ import { WebmailNavigationRail } from "./components/webmail-navigation-rail";
 import { WebmailMessageList } from "./components/webmail-message-list";
 import { WebmailReadingPane } from "./components/webmail-reading-pane";
 import { WebmailComposeDock } from "./components/webmail-compose-dock";
+import { WebmailShortcutHelp } from "./components/webmail-shortcut-help";
+import { WebmailMoveNotice } from "./components/webmail-move-notice";
+import { useMailboxShortcuts } from "./hooks/use-mailbox-shortcuts";
+import type { SelectionApi } from "./components/webmail-message-list";
+import { moveToSpecialFolder } from "./lib/move-mail";
+import {
+  isTrashMailbox,
+  resolveSpecialFolder,
+  SCHEDULED_VIEW,
+} from "./lib/special-folders";
+import type { ShortcutAction } from "./lib/mailbox-shortcuts";
 import {
   WebmailSettingsDrawer,
   type SettingsTab,
@@ -24,6 +35,11 @@ import {
   getMessage,
   flagMessages,
   deleteMessages,
+  moveMessages,
+  createMailboxFolder,
+  getMailboxQuota,
+  listScheduledSends,
+  getMailboxAddress,
   getMailboxRules,
   saveMailboxRules,
   getMailboxSettings,
@@ -83,6 +99,18 @@ export function WebmailNextWorkbench({
   const [activeFolder, setActiveFolder] = useState(initialFolder);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
+  const [cursorUid, setCursorUid] = useState<number | null>(null);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [moveNotice, setMoveNotice] = useState<string | null>(null);
+  const [moveNoticeToken, setMoveNoticeToken] = useState(0);
+  const [sendNonce, setSendNonce] = useState(0);
+  const [minimizeNonce, setMinimizeNonce] = useState(0);
+  const [composeCc, setComposeCc] = useState<string[]>([]);
+  const [pendingPermanentUids, setPendingPermanentUids] = useState<
+    number[] | null
+  >(null);
+  const selectionRef = useRef<SelectionApi | null>(null);
+  const clearMoveNotice = useCallback(() => setMoveNotice(null), []);
 
   // Search & Filter popover state
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
@@ -99,6 +127,7 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
+  const [composeKey, setComposeKey] = useState(0);
 
   const queryClient = useQueryClient();
 
@@ -253,6 +282,46 @@ export function WebmailNextWorkbench({
   const folders = folderData?.folders || [
     { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
   ];
+  const inboxFolder = resolveSpecialFolder(folders, "\\Inbox", "INBOX");
+  const inboxEnc = inboxFolder?.name_enc ?? "INBOX";
+  const isScheduledView = activeFolder === SCHEDULED_VIEW;
+
+  const { data: quotaData } = useQuery({
+    queryKey: ["webmail", "quota"],
+    queryFn: () => getMailboxQuota(),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const quota =
+    typeof quotaData?.used_bytes === "number" &&
+    typeof quotaData?.quota_bytes === "number"
+      ? { used_bytes: quotaData.used_bytes, quota_bytes: quotaData.quota_bytes }
+      : null;
+
+  const { data: inboxUnseen = 0 } = useQuery({
+    queryKey: ["webmail", "unseen", inboxEnc],
+    queryFn: async () => {
+      const page = await listMessages(inboxEnc, { q: "is:unseen", limit: 1 });
+      return page.total ?? 0;
+    },
+    enabled: Boolean(inboxEnc),
+    staleTime: 15_000,
+  });
+
+  useEffect(() => {
+    const title =
+      inboxUnseen > 0
+        ? `(${inboxUnseen}) ${t("webmail_next.inbox")}`
+        : t("webmail_next.inbox");
+    document.title = title;
+  }, [inboxUnseen, t]);
+
+  const { data: scheduledData } = useQuery({
+    queryKey: ["webmail", "scheduled"],
+    queryFn: () => listScheduledSends(),
+    enabled: isScheduledView,
+    staleTime: 10_000,
+  });
 
   // 2. Fetch rules for vacation autoresponder status
   const { data: rulesData, refetch: refetchRules } = useQuery<MailboxRulesView>(
@@ -325,7 +394,11 @@ export function WebmailNextWorkbench({
     isLoading: isListLoading,
     refetch: refetchMessages,
     isRefetching,
-  } = useQuery<{ messages: MessageSummary[]; total?: number }>({
+  } = useQuery<{
+    messages: MessageSummary[];
+    total?: number;
+    uid_validity?: number;
+  }>({
     queryKey: [
       "webmail",
       "messages",
@@ -345,6 +418,7 @@ export function WebmailNextWorkbench({
         thread: true,
       });
     },
+    enabled: !isScheduledView,
     staleTime: 10_000,
   });
 
@@ -467,58 +541,240 @@ export function WebmailNextWorkbench({
   }, [messages, selectedUid]);
 
   const toggleRail = () => setIsRailCollapsed((prev) => !prev);
-  const toggleDensity = () => {
-    setDensity(
-      density === "compact"
-        ? "comfortable"
-        : density === "comfortable"
-          ? "list_only"
-          : "compact",
-    );
+  const listValidity = messageListData?.uid_validity;
+
+  const openCompose = (to: string[], subject: string, cc: string[] = []) => {
+    setComposeTo(to);
+    setComposeCc(cc);
+    setComposeSubject(subject);
+    setComposeKey((key) => key + 1);
+    setIsComposeOpen(true);
+  };
+
+  const showMoved = (folderLabel: string) => {
+    setMoveNotice(t("webmail_next.moved_to", { folder: folderLabel }));
+    setMoveNoticeToken((token) => token + 1);
+  };
+
+  const flagUids = async (uids: number[], add: string[], remove: string[]) => {
+    if (uids.length === 0 || isScheduledView) return;
+    await flagMessages(activeFolder, {
+      uids,
+      add,
+      remove,
+      uid_validity: listValidity,
+    });
+    refetchMessages();
+    if (selectedUid !== null && uids.includes(selectedUid)) refetchDetail();
   };
 
   const handleToggleStar = async (uid: number) => {
     const msg = messages.find((m: MessageSummary) => m.uid === uid);
     if (!msg) return;
     const isStarred = msg.flags.includes("\\Flagged");
-    await flagMessages(activeFolder, {
-      uids: [uid],
-      add: isStarred ? [] : ["\\Flagged"],
-      remove: isStarred ? ["\\Flagged"] : [],
-    });
-    refetchMessages();
-    if (selectedUid === uid) refetchDetail();
+    await flagUids(
+      [uid],
+      isStarred ? [] : ["\\Flagged"],
+      isStarred ? ["\\Flagged"] : [],
+    );
   };
 
   const handleToggleRead = async (uid: number) => {
     const msg = messages.find((m: MessageSummary) => m.uid === uid);
     if (!msg) return;
     const isSeen = msg.flags.includes("\\Seen");
-    await flagMessages(activeFolder, {
-      uids: [uid],
-      add: isSeen ? [] : ["\\Seen"],
-      remove: isSeen ? ["\\Seen"] : [],
-    });
-    refetchMessages();
-    if (selectedUid === uid) refetchDetail();
+    await flagUids([uid], isSeen ? [] : ["\\Seen"], isSeen ? ["\\Seen"] : []);
   };
 
-  const handleDeleteMessage = async (uid: number) => {
-    await deleteMessages(activeFolder, { uids: [uid] });
-    refetchMessages();
-    if (selectedUid === uid) setSelectedUid(null);
+  const targetUids = (explicit?: number[]) => {
+    if (explicit && explicit.length > 0) return explicit;
+    const checked = selectionRef.current?.selected() ?? [];
+    if (checked.length > 0) return checked;
+    if (cursorUid !== null) return [cursorUid];
+    if (selectedUid !== null) return [selectedUid];
+    return [];
   };
+
+  const handleMoveSpecial = async (
+    flag: "\\Archive" | "\\Trash",
+    fallbackName: string,
+    labelKey: string,
+    explicit?: number[],
+  ) => {
+    const uids = targetUids(explicit);
+    if (uids.length === 0 || isScheduledView) return;
+    if (flag === "\\Trash" && isTrashMailbox(folders, activeFolder)) {
+      setPendingPermanentUids(uids);
+      return;
+    }
+    const destination = await moveToSpecialFolder(
+      folders,
+      activeFolder,
+      uids,
+      listValidity,
+      flag,
+      fallbackName,
+      {
+        createFolder: (name) => createMailboxFolder(name),
+        move: (source, body) => moveMessages(source, body),
+        reloadFolders: async () => {
+          const result = await refetchFolders();
+          return result.data?.folders ?? folders;
+        },
+      },
+    );
+    if (!destination) return;
+    selectionRef.current?.clear();
+    refetchMessages();
+    showMoved(t(labelKey));
+  };
+
+  const confirmPermanentDelete = async () => {
+    const uids = pendingPermanentUids ?? [];
+    setPendingPermanentUids(null);
+    if (uids.length === 0) return;
+    await deleteMessages(activeFolder, {
+      uids,
+      uid_validity: listValidity,
+    });
+    selectionRef.current?.clear();
+    refetchMessages();
+    if (selectedUid !== null && uids.includes(selectedUid)) {
+      setSelectedUid(null);
+    }
+  };
+
+  const handleDeleteMessage = (uid: number) => {
+    void handleMoveSpecial("\\Trash", "Trash", "webmail_next.folder_trash", [
+      uid,
+    ]);
+  };
+
+  const replySubject = (subject: string) =>
+    subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 
   const handleReply = (msg: MessageDetail) => {
     const sender = msg.from?.[0]?.email;
-    if (sender) setComposeTo([sender]);
-    setComposeSubject(
-      msg.subject.toLowerCase().startsWith("re:")
-        ? msg.subject
-        : `Re: ${msg.subject}`,
-    );
-    setIsComposeOpen(true);
+    openCompose(sender ? [sender] : [], replySubject(msg.subject));
   };
+
+  const handleReplyAll = (msg: MessageDetail) => {
+    const me = (getMailboxAddress() ?? "").toLowerCase();
+    const to = (msg.from ?? [])
+      .map((item) => item.email)
+      .filter((email) => email && email.toLowerCase() !== me);
+    const seen = new Set(to.map((email) => email.toLowerCase()));
+    const cc = [...(msg.to ?? []), ...(msg.cc ?? [])]
+      .map((item) => item.email)
+      .filter((email) => {
+        const key = email.toLowerCase();
+        if (!email || key === me || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    openCompose(to, replySubject(msg.subject), cc);
+  };
+
+  const handleForward = (msg: MessageDetail) => {
+    const subject = msg.subject.toLowerCase().startsWith("fwd:")
+      ? msg.subject
+      : `Fwd: ${msg.subject}`;
+    openCompose([], subject);
+  };
+
+  const visibleRowUids = () =>
+    [...document.querySelectorAll<HTMLElement>("[data-testid^='mail-row-']")]
+      .map((node) => Number(node.getAttribute("data-testid")?.slice(9)))
+      .filter((uid) => Number.isFinite(uid));
+
+  const moveCursor = (delta: number) => {
+    const uids = visibleRowUids();
+    if (uids.length === 0) return;
+    const current = cursorUid ?? uids[0];
+    const index = Math.max(0, uids.indexOf(current));
+    const next = uids[Math.min(uids.length - 1, Math.max(0, index + delta))];
+    setCursorUid(next);
+    document
+      .querySelector<HTMLElement>(`[data-testid="mail-row-${next}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  };
+
+  const focusSearch = () => {
+    document
+      .querySelector<HTMLInputElement>('[data-testid="webmail-search-input"]')
+      ?.focus();
+  };
+
+  const onShortcut = useCallback(
+    (action: ShortcutAction) => {
+      if (action === "cursor-next") moveCursor(1);
+      else if (action === "cursor-prev") moveCursor(-1);
+      else if (action === "open") {
+        const uid = cursorUid ?? visibleRowUids()[0];
+        if (uid != null) setSelectedUid(uid);
+      } else if (action === "toggle-check") {
+        const uid = cursorUid ?? visibleRowUids()[0];
+        if (uid != null) selectionRef.current?.toggle(uid, false, false);
+      } else if (action === "archive") {
+        void handleMoveSpecial(
+          "\\Archive",
+          "Archive",
+          "webmail_next.folder_archive",
+        );
+      } else if (action === "trash") {
+        void handleMoveSpecial("\\Trash", "Trash", "webmail_next.folder_trash");
+      } else if (action === "toggle-star") {
+        const uids = targetUids();
+        if (uids.length === 1) void handleToggleStar(uids[0]);
+        else void flagUids(uids, ["\\Flagged"], []);
+      } else if (action === "mark-read") {
+        void flagUids(targetUids(), ["\\Seen"], []);
+      } else if (action === "mark-unread") {
+        void flagUids(targetUids(), [], ["\\Seen"]);
+      } else if (action === "reply" && messageDetail)
+        handleReply(messageDetail);
+      else if (action === "reply-all" && messageDetail)
+        handleReplyAll(messageDetail);
+      else if (action === "forward" && messageDetail)
+        handleForward(messageDetail);
+      else if (action === "compose") openCompose([], "");
+      else if (action === "focus-search") focusSearch();
+      else if (action === "help") setIsHelpOpen(true);
+      else if (action === "go-inbox") {
+        setActiveFolder(inboxEnc);
+        setSelectedUid(null);
+      } else if (action === "send") setSendNonce((nonce) => nonce + 1);
+      else if (action === "minimize-compose")
+        setMinimizeNonce((nonce) => nonce + 1);
+      else if (action === "close-overlay") {
+        if (isHelpOpen) setIsHelpOpen(false);
+        else if (isSettingsOpen) setIsSettingsOpen(false);
+        else if (isContactsOpen) setIsContactsOpen(false);
+      }
+    },
+    // Handlers close over the latest list snapshot. Recreating the callback
+    // is safe: the shortcut hook reads it from a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      cursorUid,
+      messageDetail,
+      inboxEnc,
+      isHelpOpen,
+      isSettingsOpen,
+      isContactsOpen,
+      activeFolder,
+      folders,
+      listValidity,
+      messages,
+      selectedUid,
+    ],
+  );
+
+  useMailboxShortcuts({
+    composeOpen: isComposeOpen,
+    overlayOpen: isHelpOpen || isSettingsOpen || isContactsOpen,
+    onAction: onShortcut,
+  });
 
   return (
     <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[#FAF9F5] text-[#18181B] overflow-hidden select-none">
@@ -533,7 +789,7 @@ export function WebmailNextWorkbench({
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         density={density}
-        onToggleDensity={toggleDensity}
+        onSetDensity={setDensity}
         isRefreshing={isRefetching}
         onOpenSettings={() => {
           setSettingsTab("account");
@@ -600,13 +856,12 @@ export function WebmailNextWorkbench({
             onSelectFolder={(f) => {
               setActiveFolder(f);
               setSelectedUid(null);
+              setCursorUid(null);
             }}
             folders={folders}
-            onCompose={() => {
-              setComposeTo([]);
-              setComposeSubject("");
-              setIsComposeOpen(true);
-            }}
+            inboxUnread={inboxUnseen}
+            quota={quota}
+            onCompose={() => openCompose([], "")}
           />
         </div>
 
@@ -627,24 +882,84 @@ export function WebmailNextWorkbench({
           />
 
           <WebmailErrorBoundary onReset={() => refetchMessages()}>
-            <WebmailMessageList
-              folderName={activeFolder}
-              messages={messages}
-              activeUid={selectedUid}
-              onSelectMessage={(uid) => setSelectedUid(uid)}
-              density={density}
-              sort={sortKey}
-              order={sortOrder}
-              onSortChange={(key, ord) => {
-                setSortKey(key);
-                setSortOrder(ord);
-              }}
-              onRefresh={() => refetchMessages()}
-              isRefreshing={isRefetching || isListLoading}
-              onToggleStar={handleToggleStar}
-              onDeleteMessage={handleDeleteMessage}
-              onToggleRead={handleToggleRead}
-            />
+            {isScheduledView ? (
+              <div
+                data-testid="webmail-scheduled-list"
+                className="p-4 text-xs text-[var(--vellum-ink-secondary)]"
+              >
+                {(scheduledData?.items ?? []).length === 0
+                  ? t("webmail_next.scheduled_empty")
+                  : (scheduledData?.items ?? []).map((item) => (
+                      <div
+                        key={item.id}
+                        className="py-2 border-b border-[#EBE8E0]"
+                      >
+                        {item.send_at}
+                      </div>
+                    ))}
+              </div>
+            ) : (
+              <WebmailMessageList
+                folderName={activeFolder}
+                messages={messages}
+                activeUid={selectedUid}
+                cursorUid={cursorUid}
+                onSelectMessage={(uid) => {
+                  setCursorUid(uid);
+                  setSelectedUid(uid);
+                }}
+                density={density}
+                sort={sortKey}
+                order={sortOrder}
+                onSortChange={(key, ord) => {
+                  setSortKey(key);
+                  setSortOrder(ord);
+                }}
+                onRefresh={() => refetchMessages()}
+                isRefreshing={isRefetching || isListLoading}
+                onToggleStar={handleToggleStar}
+                onDeleteMessage={handleDeleteMessage}
+                onToggleRead={handleToggleRead}
+                moveFolders={folders.map((folder) => ({
+                  name: folder.name,
+                  name_enc: folder.name_enc,
+                }))}
+                onBulkArchive={(uids) =>
+                  void handleMoveSpecial(
+                    "\\Archive",
+                    "Archive",
+                    "webmail_next.folder_archive",
+                    uids,
+                  )
+                }
+                onBulkTrash={(uids) =>
+                  void handleMoveSpecial(
+                    "\\Trash",
+                    "Trash",
+                    "webmail_next.folder_trash",
+                    uids,
+                  )
+                }
+                onBulkRead={(uids) => void flagUids(uids, ["\\Seen"], [])}
+                onBulkUnread={(uids) => void flagUids(uids, [], ["\\Seen"])}
+                onBulkStar={(uids) => void flagUids(uids, ["\\Flagged"], [])}
+                onBulkMove={(uids, folderName) => {
+                  if (!listValidity) return;
+                  void moveMessages(activeFolder, {
+                    uids,
+                    to: folderName,
+                    uid_validity: listValidity,
+                  }).then(() => {
+                    selectionRef.current?.clear();
+                    refetchMessages();
+                    showMoved(folderName);
+                  });
+                }}
+                onBindSelection={(api) => {
+                  selectionRef.current = api;
+                }}
+              />
+            )}
           </WebmailErrorBoundary>
         </div>
 
@@ -664,6 +979,8 @@ export function WebmailNextWorkbench({
               isManualRemoteImagesAllowed={isCurrentManualGranted}
               onBack={() => setSelectedUid(null)}
               onReply={handleReply}
+              onReplyAll={handleReplyAll}
+              onForward={handleForward}
               onDelete={handleDeleteMessage}
               onToggleStar={handleToggleStar}
               onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
@@ -674,11 +991,55 @@ export function WebmailNextWorkbench({
 
       {/* 3. Floating Compose Dock */}
       <WebmailComposeDock
+        key={composeKey}
         isOpen={isComposeOpen}
         onClose={() => setIsComposeOpen(false)}
         initialTo={composeTo}
+        initialCc={composeCc}
         initialSubject={composeSubject}
+        sendNonce={sendNonce}
+        minimizeNonce={minimizeNonce}
       />
+      <WebmailShortcutHelp
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
+      />
+      <WebmailMoveNotice
+        message={moveNotice}
+        token={moveNoticeToken}
+        onDone={clearMoveNotice}
+      />
+      {pendingPermanentUids && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30">
+          <div
+            role="dialog"
+            data-testid="permanent-delete-dialog"
+            className="bg-white border border-[#EBE8E0] rounded-lg p-4 w-80"
+          >
+            <p className="text-sm text-[#18181B]">
+              {t("webmail_next.permanent_delete_body")}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                data-testid="permanent-delete-cancel"
+                className="text-xs px-3 py-1.5"
+                onClick={() => setPendingPermanentUids(null)}
+              >
+                {t("webmail_next.permanent_delete_cancel")}
+              </button>
+              <button
+                type="button"
+                data-testid="permanent-delete-confirm"
+                className="text-xs px-3 py-1.5 bg-[#18181B] text-white rounded"
+                onClick={() => void confirmPermanentDelete()}
+              >
+                {t("webmail_next.permanent_delete_confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4. Immersive Settings Drawer (Layer 30, z-500) */}
       <WebmailErrorBoundary>
