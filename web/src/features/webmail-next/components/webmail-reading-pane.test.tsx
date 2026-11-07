@@ -261,3 +261,95 @@ it("renders the reading view full width without the centered paper card", () => 
   const frame = screen.getByTestId("mail-html-frame");
   expect(frame.className).toContain("w-full");
 });
+
+describe("SanitizedHtmlFrame auto height", () => {
+  it("starts at the minimum height and keeps the measurer-safe sandbox", () => {
+    render(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+    const frame = screen.getByTestId("mail-html-frame") as HTMLIFrameElement;
+    // allow-same-origin alone (never with allow-scripts) so the parent can
+    // measure the srcdoc body; the injected CSP keeps it script-inert.
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin");
+    expect(frame.style.height).toBe("420px");
+    expect(frame.style.minHeight).toBe("420px");
+  });
+
+  it("grows past the minimum when the measured content is taller", () => {
+    const { rerender } = render(
+      <WebmailReadingPane message={mockMessage} folderEnc="INBOX" />,
+    );
+    const frame = screen.getByTestId("mail-html-frame") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: {
+        body: { scrollHeight: 2200, offsetHeight: 2200 },
+        documentElement: { scrollHeight: 2200 },
+        images: [],
+      },
+    });
+    frame.dispatchEvent(new Event("load"));
+    rerender(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+    expect(frame.style.height).toBe("2200px");
+  });
+
+  it("clamps pathological measurements to the 10000px ceiling", () => {
+    const { rerender } = render(
+      <WebmailReadingPane message={mockMessage} folderEnc="INBOX" />,
+    );
+    const frame = screen.getByTestId("mail-html-frame") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: {
+        body: { scrollHeight: 999999, offsetHeight: 999999 },
+        documentElement: { scrollHeight: 999999 },
+        images: [],
+      },
+    });
+    frame.dispatchEvent(new Event("load"));
+    rerender(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+    expect(frame.style.height).toBe("10000px");
+  });
+
+  it("resets to the minimum height when switching to another message", () => {
+    const { rerender } = render(
+      <WebmailReadingPane message={mockMessage} folderEnc="INBOX" />,
+    );
+    const frame = screen.getByTestId("mail-html-frame") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: {
+        body: { scrollHeight: 3000, offsetHeight: 3000 },
+        documentElement: { scrollHeight: 3000 },
+        images: [],
+      },
+    });
+    frame.dispatchEvent(new Event("load"));
+    rerender(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+    expect(frame.style.height).toBe("3000px");
+
+    rerender(
+      <WebmailReadingPane
+        message={{
+          ...mockMessage,
+          uid: 202,
+          subject: "Short note",
+          html: "<p>tiny</p>",
+        }}
+        folderEnc="INBOX"
+      />,
+    );
+    // New srcdoc must not inherit the previous mail's height.
+    expect(frame.style.height).toBe("420px");
+  });
+
+  it("keeps the frame height when the measurement surface is inaccessible", () => {
+    render(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+    const frame = screen.getByTestId("mail-html-frame") as HTMLIFrameElement;
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true,
+      value: null,
+    });
+    frame.dispatchEvent(new Event("load"));
+    // Falls back to the minimum; no crash, no zero-height clip.
+    expect(frame.style.height).toBe("420px");
+  });
+});

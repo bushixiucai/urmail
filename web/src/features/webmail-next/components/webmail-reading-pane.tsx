@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Reply,
@@ -40,6 +40,34 @@ interface WebmailReadingPaneProps {
   onAlwaysTrustSender?: (senderEmail: string) => void;
 }
 
+const FRAME_MIN_HEIGHT = 420;
+// Generous ceiling against runaway measurement on pathological bodies;
+// taller mail simply scrolls the pane instead of being clipped.
+const FRAME_MAX_HEIGHT = 10000;
+
+/**
+ * Height of the frame's srcdoc content, measured from the parent side.
+ * Requires sandbox="allow-same-origin" (no allow-scripts — the CSP meta
+ * injected by the sanitizer keeps the body inert, so script execution is
+ * impossible even though the document is same-origin).
+ */
+function measureFrameHeight(frame: HTMLIFrameElement): number {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc || !doc.body) return 0;
+    const body = doc.body;
+    const docEl = doc.documentElement;
+    return Math.max(
+      body ? body.scrollHeight : 0,
+      docEl ? docEl.scrollHeight : 0,
+      body ? body.offsetHeight : 0,
+    );
+  } catch {
+    // Cross-origin or not yet loaded — keep the current height.
+    return 0;
+  }
+}
+
 function SanitizedHtmlFrame({
   title,
   html,
@@ -47,6 +75,76 @@ function SanitizedHtmlFrame({
   title: string;
   html: string | null;
 }) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [frameHeight, setFrameHeight] = useState(FRAME_MIN_HEIGHT);
+  const resizeDebounce = useRef<number | null>(null);
+
+  const remeasure = useCallback(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const height = measureFrameHeight(frame);
+    if (height > 0) {
+      setFrameHeight(
+        Math.min(
+          FRAME_MAX_HEIGHT,
+          Math.max(FRAME_MIN_HEIGHT, Math.ceil(height)),
+        ),
+      );
+    }
+  }, []);
+
+  // Re-measure once the srcdoc has parsed and again after its images
+  // load — an <img> without intrinsic size collapses to ~0px, so the
+  // first pass can undershoot.
+  const handleLoad = useCallback(() => {
+    remeasure();
+    const doc = frameRef.current?.contentDocument;
+    if (!doc) return;
+    const pendingImages = Array.from(doc.images).filter((img) => !img.complete);
+    for (const img of pendingImages) {
+      img.addEventListener("load", remeasure, { once: true });
+      img.addEventListener("error", remeasure, { once: true });
+    }
+  }, [remeasure]);
+
+  // Body content that resizes without a load event (fonts, reflow after
+  // webfont swap) — watch it from the parent while the document persists.
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    let observer: ResizeObserver | null = null;
+    const attach = () => {
+      const body = frame.contentDocument?.body;
+      if (body && typeof ResizeObserver !== "undefined") {
+        observer?.disconnect();
+        observer = new ResizeObserver(() => {
+          if (resizeDebounce.current != null) {
+            window.clearTimeout(resizeDebounce.current);
+          }
+          resizeDebounce.current = window.setTimeout(remeasure, 80);
+        });
+        observer.observe(body);
+      }
+    };
+    if (frame.contentDocument?.body) {
+      attach();
+    } else {
+      frame.addEventListener("load", attach, { once: true });
+    }
+    return () => {
+      observer?.disconnect();
+      if (resizeDebounce.current != null) {
+        window.clearTimeout(resizeDebounce.current);
+        resizeDebounce.current = null;
+      }
+    };
+  }, [html, remeasure]);
+
+  // A new message must not inherit the previous mail's height.
+  useEffect(() => {
+    setFrameHeight(FRAME_MIN_HEIGHT);
+  }, [html]);
+
   if (html == null) {
     return (
       <div
@@ -62,11 +160,21 @@ function SanitizedHtmlFrame({
   }
   return (
     <iframe
+      ref={frameRef}
       data-testid="mail-html-frame"
       title={title}
-      sandbox=""
+      // allow-same-origin (alone, never with allow-scripts) so the parent
+      // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
+      // the document inert, preserving the XSS defense line.
+      sandbox="allow-same-origin"
       referrerPolicy="no-referrer"
-      className="w-full min-h-[420px] rounded border-0 bg-transparent"
+      className="w-full rounded border-0 bg-transparent"
+      style={{
+        height: frameHeight,
+        minHeight: FRAME_MIN_HEIGHT,
+        transition: "height 160ms ease-out",
+      }}
+      onLoad={handleLoad}
       srcDoc={html}
     />
   );

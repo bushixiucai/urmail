@@ -129,10 +129,12 @@ test.describe("Webmail Safe Reading & Image Neutralization", () => {
     const row = page.getByTestId("mail-row-301");
     await row.click();
 
-    // Verify sandboxed iframe attributes (P0 #2 regression assertion)
+    // Verify sandboxed iframe attributes (P0 #2 regression assertion).
+    // allow-same-origin (alone, never with allow-scripts) lets the parent
+    // measure content height; the injected CSP keeps the doc script-inert.
     const frame = page.getByTestId("mail-html-frame");
     await expect(frame).toBeVisible();
-    await expect(frame).toHaveAttribute("sandbox", "");
+    await expect(frame).toHaveAttribute("sandbox", "allow-same-origin");
     await expect(frame).toHaveAttribute("referrerPolicy", "no-referrer");
 
     // Allow any async style/image fetches to attempt network contact
@@ -319,4 +321,86 @@ test("dark-themed HTML mail keeps background and text colors after sanitization"
   expect(result).toMatch(/color:\s*#ffffff/i);
   expect(result).toContain('bgcolor="#101018"');
   expect(result).toContain("Weekly usage");
+});
+
+test("tall dark MJML mail renders without clipping — frame height tracks content", async ({
+  page,
+}) => {
+  await setupReadFixture(page);
+  // Prod Infura shape: dark canvas painted via the background shorthand,
+  // white text, many stacked sections. Tall enough to overflow 420px.
+  const sections = Array.from(
+    { length: 24 },
+    (_, i) =>
+      `<div style="background:#121212;color:#ffffff;padding:24px 32px"><h2 style="color:#ffffff">Section ${i + 1}</h2><p style="color:#e5e5e5;margin:0 0 16px">Quarterly usage digest paragraph with enough copy to occupy real vertical space in the reading pane.</p></div>`,
+  ).join("");
+  const longDarkHtml = `<body style="background:#121212;color:#ffffff"><div style="background:#121212;color:#ffffff">${sections}<div id="upgrade-block" style="padding:32px"><a href="https://example.test/upgrade" style="color:#f59e0b">Upgrade plan</a></div></div></body>`;
+
+  await page.route("**/api/v1/mailbox/**/messages/301*", async (route) => {
+    const payload = {
+      uid: 301,
+      subject: "Infura quarterly digest",
+      from: [{ name: "Infura", email: "no-reply@example.test" }],
+      date: "2026-11-08T10:00:00Z",
+      flags: ["\\Seen"],
+      size: 40960,
+      html: longDarkHtml,
+      notes: [],
+      authentication: {
+        status: "pass",
+        domain: "example.test",
+        reason: "DKIM",
+      },
+      attachments: [],
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+
+  await page.goto("/webmail/inbox");
+  await page.getByTestId("mail-row-301").click();
+  const frame = page.getByTestId("mail-html-frame");
+  await expect(frame).toBeVisible();
+  // Wait for the load-driven measurement to settle.
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector<HTMLElement>(
+        "[data-testid=mail-html-frame]",
+      );
+      return el != null && parseInt(el.style.height || "0", 10) > 420;
+    },
+    undefined,
+    { timeout: 5000 },
+  );
+
+  const metrics = await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>(
+      "[data-testid=mail-html-frame]",
+    )!;
+    const doc = (el as HTMLIFrameElement).contentDocument!;
+    const tail = doc.querySelector("#upgrade-block")!.getBoundingClientRect();
+    return {
+      frameHeight: parseInt(el.style.height, 10),
+      contentHeight: Math.max(
+        doc.body.scrollHeight,
+        doc.documentElement.scrollHeight,
+      ),
+      tailBottomInFrame: tail.bottom,
+      frameViewportHeight: (el as HTMLIFrameElement).clientHeight,
+      sandbox: el.getAttribute("sandbox"),
+    };
+  });
+  expect(metrics.sandbox).toBe("allow-same-origin");
+  // No clipping: the styled height covers the whole content.
+  expect(metrics.frameHeight).toBeGreaterThanOrEqual(metrics.contentHeight);
+  // The last block (Upgrade) sits fully inside the visible frame viewport.
+  expect(metrics.tailBottomInFrame).toBeLessThanOrEqual(
+    metrics.frameViewportHeight + 1,
+  );
+  // Sanity: content actually exceeds the old fixed height, so this test
+  // exercises the defect scenario.
+  expect(metrics.contentHeight).toBeGreaterThan(420);
 });
