@@ -201,7 +201,7 @@ async function aiBrowserFixture(page: Page) {
     });
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/webmail/inbox");
+  await page.goto("/webmail/inbox?v=legacy");
   const list = page.getByRole("list", {
     name: t["page.webmail.message_list"],
     exact: true,

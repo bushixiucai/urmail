@@ -60,6 +60,8 @@ func summaryDate(m MessageSummary) time.Time {
 	return *m.Date
 }
 
+// SortSummaries orders message summaries in place by the requested key
+// (date, subject, size, arrival) with UID tie-breaking.
 func SortSummaries(msgs []MessageSummary, key string, desc bool) {
 	if key == "" {
 		// Arrival order: UID descending, newest first.
