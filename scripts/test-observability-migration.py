@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise deb package upgrade preservation and Alertmanager pre-check guard for observability."""
 import os
+import shutil
+import sys
 from pathlib import Path
 import re
 import stat
@@ -24,6 +26,9 @@ def extract_exec_start_pre(service_text: str) -> str:
         if line.startswith("ExecStartPre="):
             return line.split("ExecStartPre=", 1)[1].strip()
     raise ValueError("ExecStartPre not found in service definition")
+
+
+GNU_STAT_LINE = 'stat -c \'%a %U %G\' "$OBS_DIR"'
 
 
 class ObservabilityPackagingTests(unittest.TestCase):
@@ -56,6 +61,9 @@ class ObservabilityPackagingTests(unittest.TestCase):
             base = Path(temp_dir)
             obs_dir = base / "etc/urmail/observability"
             obs_dir.mkdir(parents=True)
+            # Mirror the production layout: alertmanager runs with 0750
+            # root:urmail-monitor on /etc/urmail/observability.
+            os.chmod(obs_dir, 0o750)
             custom_cfg = "route:\n  receiver: external-webhook\nreceivers:\n  - name: external-webhook\n"
             (obs_dir / "alertmanager.yml").write_text(custom_cfg)
             (obs_dir / "receiver.enabled").write_text("")
@@ -65,6 +73,9 @@ class ObservabilityPackagingTests(unittest.TestCase):
             token_file.chmod(0o640)
 
             script = self._adapt_script(preinst, base)
+            if sys.platform == "darwin":
+                # macOS stat lacks -c; CI and production run GNU stat.
+                script = script.replace(GNU_STAT_LINE, "printf '750 root wheel\\n'")
             result = subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -72,7 +83,12 @@ class ObservabilityPackagingTests(unittest.TestCase):
             self.assertTrue(migration_dir.is_dir())
             migration_base = base / "var/lib/urmail-config-migration"
             self.assertEqual(stat.S_IMODE(migration_base.stat().st_mode), 0o700)
-            self.assertEqual(stat.S_IMODE(migration_dir.stat().st_mode), 0o700)
+            # The snapshot mirrors the live directory mode instead of a
+            # hardcoded 0700, so restoring it cannot downgrade the target.
+            self.assertEqual(
+                stat.S_IMODE(migration_dir.stat().st_mode),
+                stat.S_IMODE(obs_dir.stat().st_mode),
+            )
 
             self.assertEqual((migration_dir / "alertmanager.yml").read_text(), custom_cfg)
             self.assertTrue((migration_dir / "receiver.enabled").exists())
@@ -176,6 +192,44 @@ class ObservabilityPackagingTests(unittest.TestCase):
             stripped = line.strip()
             if stripped.startswith("install -d") and "/etc/" in stripped:
                 self.fail(f"unconditional install -d on system path: {stripped}")
+
+    def test_upgrade_preserves_operator_directory_permissions_end_to_end(self):
+        """preinst snapshot + postinst restore must round-trip 0750 root-group mode.
+
+        This is the v0.6.6 acceptance case: alertmanager requires 0750
+        root:urmail-monitor on /etc/urmail/observability and the upgrade used
+        to reset it to 0700 via the migration snapshot's chmod stamp.
+        """
+        preinst = extract_embedded_script(self.build_source, "preinst")
+        postinst = extract_embedded_script(self.build_source, "postinst")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            obs_dir = base / "etc/urmail/observability"
+            obs_dir.mkdir(parents=True)
+            (obs_dir / "alertmanager.yml").write_text("operator-managed-config")
+            os.chmod(obs_dir, 0o750)
+            live_mode = stat.S_IMODE(obs_dir.stat().st_mode)
+
+            # Upgrade step 1: preinst snapshots the live directory.
+            script = self._adapt_script(preinst, base)
+            if sys.platform == "darwin":
+                script = script.replace(GNU_STAT_LINE, "printf '750 root wheel\\n'")
+            result = subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            # The unpack in between could wipe the directory; emulate it.
+            shutil.rmtree(obs_dir)
+            obs_dir.mkdir(parents=True)
+            os.chmod(obs_dir, 0o700)  # worst case: unpack leaves 0700 behind
+
+            # Upgrade step 2: postinst restores snapshot and directory mode.
+            script = self._adapt_script(postinst, base, stub_systemctl=True)
+            result = subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            # Config survived and the operator's mode was restored, not reset.
+            self.assertEqual((obs_dir / "alertmanager.yml").read_text(), "operator-managed-config")
+            self.assertEqual(stat.S_IMODE(obs_dir.stat().st_mode), live_mode)
 
     def test_alertmanager_exec_start_pre_blocks_placeholder_receiver(self):
         """Alertmanager ExecStartPre must abort when receiver.enabled points to 127.0.0.1 placeholder."""
