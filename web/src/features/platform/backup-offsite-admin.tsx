@@ -11,7 +11,7 @@ import "@/features/webmail-next/theme-vellum.css";
 /**
  * FE-03: platform admin form for offsite backup destinations.
  *
- * API contract (frozen): /Users/tiger/OpenBot/Shared/be04-api-contract-draft.md
+ * API contract (frozen): Shared/be04-api-contract-draft.md (internal design doc)
  * - GET/PUT /api/v1/platform/backup/offsite, POST .../test-connection.
  * - Credentials are write-only: responses only carry has_credentials /
  *   credential_summary presence booleans, so the form never back-fills or
