@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.5] - 2026-11-07
+
+生产会话体验修复（401 实拍反馈批次）。无数据库迁移（schema 158 不变）。
+
+### 修复
+- **「记住我」真正生效**：登录勾选后邮箱会话 TTL 从 30 分钟延长至 30 天（服务端 `mailbox_sessions` 按 remember 参数化；仍绑定 password_version，改密码即失效）；未勾选保持 30 分钟
+- **会话过期统一拦截**：mailbox API 层收到 401/REAUTH → 清理本地会话 + 单飞跳转登录页（并发请求只跳一次，附件请求同样接入），不再出现满屏 401 与「没有邮件」假空态
+- **死 token 预检**：`hasMailboxSession` 检查 expires_at，过期会话进入页面即被识别并清理，不再发出必败请求
+- **列表失败态**：邮件列表加载失败显示「加载失败 + 重试」，与空邮箱「没有邮件」区分（中英双语）
+
 ## [0.6.4] - 2026-11-07
 
 真实数据穿帮修复 + webmail-next 默认化 + 全量安全深审。无数据库迁移（schema 158 不变）。
