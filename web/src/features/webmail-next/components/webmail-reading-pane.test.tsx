@@ -242,3 +242,22 @@ describe("WebmailReadingPane", () => {
     expect(frame.getAttribute("srcDoc")).toBe("<p>worker-safe</p>");
   });
 });
+
+it("renders the reading view full width without the centered paper card", () => {
+  render(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+
+  const pane = screen.getByTestId("webmail-reading-pane");
+  // No centering: the pane must not rely on mx-auto/max-w-* on the detail
+  // column (Gmail/Outlook style full-width reading).
+  const centered = pane.querySelector(".mx-auto.max-w-4xl, .max-w-4xl.mx-auto");
+  expect(centered).toBeNull();
+
+  const body = screen.getByTestId("mail-body-container");
+  // The body container is not boxed into a white card with its own padding;
+  // it spans the pane width.
+  expect(body.className).not.toContain("bg-white");
+  expect(body.className).not.toContain("rounded-xl");
+  expect(body.className).not.toContain("shadow-sm");
+  const frame = screen.getByTestId("mail-html-frame");
+  expect(frame.className).toContain("w-full");
+});

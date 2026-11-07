@@ -285,8 +285,10 @@ export function WebmailReadingPane({
         </div>
       </div>
 
-      {/* 2. Message Detail Content */}
-      <div className="p-6 max-w-4xl w-full mx-auto space-y-5">
+      {/* 2. Message Detail Content — full width like Gmail/Outlook; the
+          readable-measure cap applies to plain-text paragraphs only, never
+          to the body container itself. */}
+      <div className="px-6 py-4 w-full space-y-4">
         {/* Subject & Security */}
         <div>
           <h1 className="text-[20px] leading-7 font-[650] text-[#18181B] tracking-tight">
@@ -393,10 +395,11 @@ export function WebmailReadingPane({
           </div>
         )}
 
-        {/* Sandboxed Body Rendering */}
+        {/* Sandboxed Body Rendering — spans the pane width for HTML; the
+            card chrome is gone so the body is not boxed into a strip. */}
         <div
           data-testid="mail-body-container"
-          className="bg-white p-6 rounded-xl border border-[#EBE8E0] shadow-sm text-sm text-[#18181B] leading-relaxed min-h-[220px]"
+          className="text-sm text-[#18181B] leading-relaxed min-h-[220px]"
         >
           {message.html ? (
             <SanitizedHtmlFrame
@@ -410,7 +413,7 @@ export function WebmailReadingPane({
               }
             />
           ) : (
-            <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B]">
+            <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B] max-w-[65ch]">
               {message.text || "(Empty message)"}
             </pre>
           )}
