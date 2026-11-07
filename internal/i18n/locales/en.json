@@ -2955,5 +2955,11 @@
   "webmail_next.minimize": "Minimize",
   "webmail_next.expand": "Expand",
   "webmail_next.maximize": "Maximize",
-  "webmail_next.restore": "Restore"
+  "webmail_next.restore": "Restore",
+  "webmail_next.not_starred": "Not starred",
+  "webmail_next.mark_read": "Mark as read",
+  "webmail_next.mark_unread": "Mark as unread",
+  "webmail_next.delete": "Delete",
+  "webmail_next.back_to_list": "Back to list",
+  "webmail_next.star": "Star"
 }

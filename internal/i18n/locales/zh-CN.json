@@ -2955,5 +2955,11 @@
   "webmail_next.minimize": "最小化",
   "webmail_next.expand": "展开",
   "webmail_next.maximize": "最大化",
-  "webmail_next.restore": "还原"
+  "webmail_next.restore": "还原",
+  "webmail_next.not_starred": "未加星标",
+  "webmail_next.mark_read": "标为已读",
+  "webmail_next.mark_unread": "标为未读",
+  "webmail_next.delete": "删除",
+  "webmail_next.back_to_list": "返回列表",
+  "webmail_next.star": "加星标"
 }

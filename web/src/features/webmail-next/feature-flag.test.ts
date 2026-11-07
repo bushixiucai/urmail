@@ -5,9 +5,16 @@ describe("Webmail Next Feature Flag", () => {
   beforeEach(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/");
   });
 
-  it("defaults to false when no flag or preference is set", () => {
+  it("defaults to true when no query, storage, or preference is set", () => {
+    expect(isWebmailNextEnabled()).toBe(true);
+    expect(isWebmailNextEnabled(null)).toBe(true);
+  });
+
+  it("disables when the query asks for the legacy client", () => {
+    window.history.replaceState({}, "", "/webmail/inbox?v=legacy");
     expect(isWebmailNextEnabled()).toBe(false);
   });
 
