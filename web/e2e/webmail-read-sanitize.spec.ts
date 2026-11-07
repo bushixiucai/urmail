@@ -298,6 +298,8 @@ test("reading view spans the pane width without a centered paper card", async ({
   expect(widths!.centered).toBe(false);
   expect(widths!.gapLeft).toBeLessThan(60);
   expect(widths!.gapRight).toBeLessThan(60);
+});
+
 test("dark-themed HTML mail keeps background and text colors after sanitization", async ({
   page,
 }) => {
