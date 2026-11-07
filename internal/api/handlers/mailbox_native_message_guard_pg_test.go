@@ -24,7 +24,7 @@ func TestGenericDraftMutationsRespectSubmissionReceiptPG(t *testing.T) {
 	session := webmail.Session{TenantID: fixture.principal.TenantID, MailboxID: fixture.principal.MailboxID, Address: fixture.principal.Address}
 	imap := &managedFolderFixture{fakeIMAPClient: &fakeIMAPClient{folders: []webmail.Folder{{Name: "INBOX"}, {Name: "Drafts", Flags: []string{`\Drafts`}}, {Name: "Archive"}, {Name: "Trash", Flags: []string{`\Trash`}}}}}
 	vault := webmail.NewMemoryVault()
-	vault.Put("token", "password")
+	vault.Put("token", "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	h := &MailboxNativeHandler{Enabled: true, Pool: fixture.pool, Auth: fakeMailboxAuth{}, Sessions: &fakeMailboxSessions{}, Vault: vault, Dialer: &fakeDialer{wantAddress: session.Address, client: imap}}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {

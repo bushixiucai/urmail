@@ -159,7 +159,7 @@ func TestMailboxFromIdentityAuthorization(t *testing.T) {
 	hash := mailboxprincipal.HashToken(token)
 	sessions := &fakeMailboxSessions{byHash: map[string]webmail.Session{hash: {TokenHash: hash, TenantID: 7, MailboxID: 9, Address: "alice@example.test", ExpiresAt: time.Now().Add(time.Hour)}}}
 	vault := webmail.NewMemoryVault()
-	vault.Put(hash, "pw")
+	vault.Put(hash, "pw") //nolint:staticcheck // test adapter seeding, Put exists for this
 	submit := &fakeSubmitter{}
 	store := &fakeSelfSettings{allowedFrom: map[string]bool{"team@example.test": true}}
 	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{}, Sessions: sessions, Vault: vault, Submitter: submit, SelfSettings: store}

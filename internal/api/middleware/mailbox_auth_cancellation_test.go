@@ -23,7 +23,7 @@ func TestCanceledMailboxLookupDoesNotEraseCredential(t *testing.T) {
 		t.Run(lookupErr.Error(), func(t *testing.T) {
 			vault := webmail.NewMemoryVault()
 			hash := mailboxprincipal.HashToken("test-native-bearer")
-			vault.Put(hash, "test-vault-secret")
+			vault.Put(hash, "test-vault-secret") //nolint:staticcheck // test adapter seeding, Put exists for this
 			router := gin.New()
 			router.GET("/", RequireMailboxAuth(cancelMailboxLookup{lookupErr}, vault), func(c *gin.Context) { c.Status(200) })
 			req := httptest.NewRequestWithContext(t.Context(), "GET", "/", nil)

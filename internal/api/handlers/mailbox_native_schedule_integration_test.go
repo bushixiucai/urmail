@@ -51,7 +51,7 @@ func TestScheduleHTTPIdempotencyCancellationAndIsolation(t *testing.T) {
 	hash := mailboxprincipal.HashToken(token)
 	sessions := &fakeMailboxSessions{byHash: map[string]webmail.Session{hash: {TokenHash: hash, TenantID: tenant, MailboxID: mailbox, Address: "alice@schedule.example.test", ExpiresAt: time.Now().Add(time.Hour)}}}
 	vault := webmail.NewMemoryVault()
-	vault.Put(hash, "fixture-password")
+	vault.Put(hash, "fixture-password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	box, err := secrets.New(make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)

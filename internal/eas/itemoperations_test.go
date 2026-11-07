@@ -38,7 +38,7 @@ func TestItemOperationsFullBodyAttachmentsAndIsolation(t *testing.T) {
 	sess := webmail.Session{TenantID: f.tenant, MailboxID: f.mailboxA, Address: "a@eas.test", TokenHash: "fetch"}
 	r, s := newEASRouter(t, f, sess)
 	vault := webmail.NewMemoryVault()
-	vault.Put(sess.TokenHash, "password")
+	vault.Put(sess.TokenHash, "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	s.Vault = vault
 	original := &webmail.Message{MessageSummary: webmail.MessageSummary{UID: 42, MessageID: "<original@eas.test>", Subject: "full"}, UIDValidity: 99, Text: strings.Repeat("complete body ", 200), HTML: "<p>complete html</p>", Attachments: []webmail.AttachmentMeta{{PartID: "2", Filename: "original.bin", Size: 3, ContentType: "application/octet-stream"}}}
 	client := &sentFake{original: original, uidv: 99}
