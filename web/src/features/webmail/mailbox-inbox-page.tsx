@@ -188,6 +188,8 @@ export function MailboxInboxPage() {
 
   useEffect(() => {
     let active = true;
+    // 401s funnel through mailbox-api (session cleared + one redirect), so the
+    // promise never settles in that case; other failures still render partial.
     Promise.all([
       getMailboxSettings().catch(() => null),
       listMailboxIdentities().catch(() => ({ identities: [] })),

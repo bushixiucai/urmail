@@ -2627,6 +2627,7 @@
   "webmail_next.inbox": "Inbox",
   "webmail_next.junk": "Junk",
   "webmail_next.loaded_range": "Loaded {{from}}–{{to}} / {{total}}",
+  "webmail_next.list_load_failed": "Couldn't load messages.",
   "webmail_next.loading_message": "Loading message",
   "webmail_next.mail_sent": "Message sent",
   "webmail_next.moved_to": "Moved to {{folder}}",

@@ -452,6 +452,7 @@ export function WebmailNextWorkbench({
     fetchNextPage,
     refetch: refetchMessages,
     isRefetching,
+    error: listError,
   } = useInfiniteQuery({
     queryKey: [
       "webmail",
@@ -1074,6 +1075,7 @@ export function WebmailNextWorkbench({
                 totalCount={messageTotal}
                 isLoadingMore={isFetchingNextPage}
                 isInitialLoading={isListLoading}
+                loadError={listError instanceof Error ? listError : null}
                 onNearEnd={loadMore}
                 onLoadedUids={rememberLoadedUids}
                 density={density}
