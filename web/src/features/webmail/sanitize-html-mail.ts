@@ -181,6 +181,11 @@ function isMetaRefresh(el: Element): boolean {
 // CSSStyleDeclaration resolves property escapes before this allowlist is read.
 const SAFE_STYLES = new Set([
   "color",
+  // Dark-themed mail paints white text on a dark canvas; stripping the
+  // background collapses it into white-on-white (prod: Infura mail).
+  // Plain colors carry no fetch/decode surface — the value filter below
+  // still rejects url()/var()/escapes.
+  "background-color",
   "font-family",
   "font-size",
   "font-style",

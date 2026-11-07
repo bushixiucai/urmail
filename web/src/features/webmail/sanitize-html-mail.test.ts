@@ -167,3 +167,24 @@ it("renders only verified CID mappings and drops protected URLs without bearer a
   expect(result).not.toContain('src="/api/v1/mailbox/');
   expect(result).toContain("connect-src 'none'");
 });
+
+it("keeps paired foreground/background colors so dark-themed mail stays legible", () => {
+  // Dark marketing mail: white text over a dark canvas. Stripping
+  // background-color collapses it into white-on-white (prod: Infura mail).
+  const darkMail =
+    '<body style="background-color:#0b0b0f;color:#ffffff"><div style="background-color:#1a1a22;color:#f5f5f5">Weekly stats</div><table><td bgcolor="#101018" style="color:#e5e5e5">Cell copy</td></table></body>';
+  const out = sanitizeHtmlMail(darkMail);
+  expect(out).toContain("background-color:#0b0b0f");
+  expect(out).toMatch(/background-color:\s*#1a1a22/i);
+  expect(out).toMatch(/color:\s*#ffffff/i);
+  // The HTML bgcolor attribute survives for table-driven layouts.
+  expect(out).toContain('bgcolor="#101018"');
+});
+
+it("still strips background-color payloads that try to fetch resources", () => {
+  const hostile =
+    '<div style="background-color: url(https://tracker.test/x.png)">p</div><div style="background-color:expression(alert(1))">q</div>';
+  const out = sanitizeHtmlMail(hostile);
+  expect(out).not.toContain("tracker.test");
+  expect(out).not.toContain("expression");
+});
