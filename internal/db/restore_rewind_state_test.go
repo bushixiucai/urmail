@@ -45,10 +45,10 @@ func TestRestoreRewindHoldsNewSideEffectsAndInvalidatesDerivedState(t *testing.T
 		t.Fatalf("new epoch=%d %v", epoch, err)
 	}
 	checks := map[string]string{
-		"pending outbox held":    `SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE state='uncertain' AND kind='notification.dns_requires_review')`,
-		"delivered outbox preserved":  `SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE state='delivered' AND kind='notification.dns_requires_review')`,
-		"flow paused":            `SELECT status='paused' FROM marketing_flows WHERE name='restore flow'`,
-		"flow fence invalidated": `SELECT delivery_uncertain AND lease_owner IS NULL AND lease_until IS NULL AND lease_fence>7 FROM marketing_flow_positions`,
+		"pending outbox held":                             `SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE state='uncertain' AND kind='notification.dns_requires_review')`,
+		"delivered outbox preserved":                      `SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE state='delivered' AND kind='notification.dns_requires_review')`,
+		"flow paused":                                     `SELECT status='paused' FROM marketing_flows WHERE name='restore flow'`,
+		"flow fence invalidated":                          `SELECT delivery_uncertain AND lease_owner IS NULL AND lease_until IS NULL AND lease_fence>7 FROM marketing_flow_positions`,
 		"flow position remains held on flow reactivation": `SELECT stopped_at IS NOT NULL AND last_error='RESTORE_RECONCILIATION_REQUIRED' FROM marketing_flow_positions`,
 		"pending invitation held":                         `SELECT status='uncertain' FROM mailbox_jobs WHERE idempotency_key='invite-pending'`,
 		"completed invitation preserved":                  `SELECT status='done' FROM mailbox_jobs WHERE idempotency_key='invite-done'`,
