@@ -81,8 +81,9 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	}
 	for i := range result.Messages {
 		result.Messages[i].UIDValidity = result.UIDValidity
-		result.Messages[i].Folder = folder
-		result.Messages[i].FolderEnc = webmail.EncodeFolderName(folder)
+		// Folder/FolderEnc stay empty here: they tag cross-folder search
+		// results only. A single-folder list showing "INBOX" on every row
+		// contradicts the webmail UX spec (audit P0-7).
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"messages":      result.Messages,
