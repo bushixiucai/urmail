@@ -2,6 +2,24 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.6] - 2026-11-07
+
+Webmail P1 波1（右键/拖拽/文件夹管理）+ 部署链路根修。无数据库迁移（schema 158 不变）。
+
+### 新增（Webmail P1 波1）
+- **右键菜单**：列表行右键（或 Shift+F10/菜单键）打开：打开、回复、转发、归档、删除、已读/未读、移动到（子菜单）。动作全部复用既有处理函数；Esc/点击外部关闭并归还焦点
+- **拖拽移动**：拖单行或一组已选行到左栏文件夹移动；落点夹高亮；与批量「移动到」同一 MOVE + COPYUID 撤销链路，失败保持原状
+- **文件夹管理**：侧栏底部新建文件夹；自定义夹右键改名/删除；special-use 系统夹不提供删除/改名；删除前确认（当前后端契约仅允许删除空文件夹）
+
+### 加固（安全审计 run-1 遗留项）
+- 新邮箱密码拒绝控制字符（`passwordwork.ValidateNew`，与自助改密策略统一）
+- MoveMessages 目标夹补 `ValidManagedFolder` 校验 + 同夹拒绝（对齐 transferMessages）
+- `MemoryVault.Put` 标记 Deprecated；协议认证对未实现 SessionVault 的 vault fail-closed
+
+### 修复（部署链路）
+- **deb postinst 幂等化**：全部 `install -d` 收敛为「已存在目录不动权限」——根修 v0.6.4/v0.6.5 连续两版 observability 目录权限被重置致 alertmanager 起不来的扰动（同类 10+ 处一并收敛）
+- E2E 修复：webmail-navigation 等 legacy 契约 spec 显式固定 `?v=legacy`（PR #16 默认翻转后的基线遗漏）
+
 ## [0.6.5] - 2026-11-07
 
 生产会话体验修复（401 实拍反馈批次）。无数据库迁移（schema 158 不变）。
