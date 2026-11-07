@@ -2,6 +2,15 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.9] - 2026-11-08
+
+阅读区 iframe 高度自适应（QA 生产目检发现的长邮件裁断缺陷）。无数据库迁移（schema 158 不变）。
+
+### 修复（Webmail）
+- **正文 iframe 高度自适应**：`SanitizedHtmlFrame` 高度由固定 420px 改为测量 srcdoc 内容实际高度（clamp 420–10000px），load 后与图片 load/error 后重测 + ResizeObserver 防抖，切换邮件重置高度防残留——长邮件（如深色 MJML 营销邮件）正文不再被 420px 裁断（QA 生产目检：Infura 邮件「Hello Developer」段以下不可见）
+- sandbox 改 `allow-same-origin` **单独使用**（绝不与 allow-scripts 同开）：父页面读 contentDocument 测高，净化器注入的 CSP 保持文档脚本惰性，XSS 防线不变；测量不可达时回退 420px
+- E2E 主路径：24 段深色 MJML 长内容断言 iframe 高度 ≥ 内容 scrollHeight、尾部块完整可见（`contentHeight > 420` 防恒真）；高度单测 5 条（起点/增长/上限/切信重置/不可达回退）
+
 ## [0.6.8] - 2026-11-08
 
 深色邮件简写颜色恢复（真实邮件验证的 #31 漏修点）+ 构建链防旧产物嵌入。无数据库迁移（schema 158 不变）。
