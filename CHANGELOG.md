@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.7] - 2026-11-08
+
+生产实拍反馈修复（深色邮件不可读 + 阅读区布局）+ postinst 快照恢复链二次根修。无数据库迁移（schema 158 不变）。
+
+### 修复（Webmail）
+- **深色主题邮件白底白字**：HTML 邮件净化白名单补 `background-color`（含 table `bgcolor` 属性）——深色营销邮件（白字深底）净化后不再塌成不可见；值过滤继续拦截 `url()/expression()` 等资源载荷，XSS 防护不放松（净化器与 Web Worker 单点同步）
+- **阅读区满宽布局**：正文容器去掉居中 `max-w-4xl` 纸面卡片，对齐 Gmail/Outlook 常规逻辑贴满窗格；纯文本保留 65ch 可读行宽；顶部动作条不变
+
+### 修复（部署链路，v0.6.6 根修的遗漏点）
+- **preinst/postinst 快照恢复链**：v0.6.6 的 `ensure_dir` 幂等化生效，但 preinst 给 migration 快照目录硬编码 `chmod 0700`，postinst `cp -a` 恢复时把该属性拷回 `/etc/urmail/observability`，权限仍被重置致 alertmanager 起不来（v0.6.6 生产实测复现）。现改为：快照用 `cp -a` 镜像线上目录自身权限、postinst 恢复后按记录的 `mode/user/group` 显式还原；新增端到端 round-trip 测试（0750 → 模拟解包破坏 → 恢复后保持 0750）
+
 ## [0.6.6] - 2026-11-07
 
 Webmail P1 波1（右键/拖拽/文件夹管理）+ 部署链路根修。无数据库迁移（schema 158 不变）。
