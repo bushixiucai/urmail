@@ -86,13 +86,17 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 			protocolUnauthorized(c)
 			return
 		}
-		if bounded, ok := h.Vault.(webmail.SessionVault); ok {
-			if bounded.PutSession(session, password) != nil {
-				c.AbortWithStatus(http.StatusTooManyRequests)
-				return
-			}
-		} else {
-			h.Vault.Put(tokenHash, password)
+		// Fail closed: a vault without SessionVault cannot track the real
+		// session expiry, so storing the password there would outlive the
+		// session it belongs to. There is no Put fallback in production.
+		bounded, ok := h.Vault.(webmail.SessionVault)
+		if !ok {
+			c.AbortWithStatus(http.StatusServiceUnavailable)
+			return
+		}
+		if bounded.PutSession(session, password) != nil {
+			c.AbortWithStatus(http.StatusTooManyRequests)
+			return
 		}
 		reservation.CompleteSuccess()
 		// Only the in-process request sees the token. It is never returned to

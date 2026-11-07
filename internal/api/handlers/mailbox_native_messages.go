@@ -364,6 +364,12 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 	if decoded, err := webmail.DecodeFolderName(dest); err == nil {
 		dest = decoded
 	}
+	// Same guard as transferMessages: move targets must be managed folders and
+	// different from the source, so IMAP-internal or protected names are rejected.
+	if !webmail.ValidManagedFolder(dest) || dest == folder {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
 	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return

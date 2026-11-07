@@ -449,6 +449,18 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 	if moveResp.Moved != 1 || !slices.Equal(moveResp.DestinationUIDs, []uint32{1007}) {
 		t.Fatalf("move response %#v", moveResp)
 	}
+	// Move targets must be managed folders and differ from the source
+	// (same guard as transferMessages).
+	// " trailing-space" is intentionally absent: move trims the destination
+	// before validating (pre-existing leniency over transferMessages).
+	for _, badDest := range []string{"../escape", "INBOX"} {
+		rejected := auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/move", map[string]any{
+			"uid_validity": 9, "uids": []int{7}, "to": badDest,
+		})
+		if rejected.Code != http.StatusBadRequest {
+			t.Fatalf("move to %q: %d %s", badDest, rejected.Code, rejected.Body.String())
+		}
+	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/delete", map[string]any{
 		"uid_validity": 9, "uids": []int{7}, "expunge": true,
 	})
