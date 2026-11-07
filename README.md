@@ -23,13 +23,14 @@ urMail 把「域名邮箱」做成开箱即用、可自托管、免费开源的�
 
 ## 版本记录
 
+- **v0.6.4（2026-11-07）**：真实数据穿帮修复——gb2312 等 legacy 字符集主题乱码、无日期邮件显示 1/1/1、列表行误标 INBOX 三连修；**webmail-next 成为默认界面**（`?v=legacy` 三层逃生门保留）；远程图片默认阻止、可按账户允许；发版前完成 cloudflare security-audit-skill 六阶段安全深审（45 单元、0 confirmed 漏洞）。无数据库迁移。
 - **v0.6.3（2026-11-07）**：Webmail 商业化打磨（阶段 1-3）——快捷键全套、归档/废纸篓语义与精确撤销、批量操作栏、虚拟列表（1000 封 DOM 恒 29 行）、2MB 邮件净化进 Web Worker（687ms→53ms）、设置抽屉懒加载（1131ms→90ms）、Vellum & Ink 视觉体系 38 项验收全过、无障碍（aria-label i18n、焦点管理）。无数据库迁移。
 - **v0.6.2（2026-11-07）**：商业化完全移除——34 张计费相关表 DROP（迁移 0156-0158，schema 158），AI 配额本地化 settings 键，自助注册接口下线。
 - **v0.6.1**：异地备份（BE-04）、平台管理台改进。
 
 ## 实施与验收状态
 
-原生网页邮箱入口为 `/webmail`，邮箱身份独立登录，通过 Go API 使用 IMAP/SMTP。当前 Webmail 为重写版 `webmail-next`（`?v=next` 进入，验收后将设为默认）：三栏工作台、Gmail 式快捷键、归档/废纸篓语义、批量操作、虚拟列表、中英双语。阶段 3 性能与视觉验收记录见仓库 `web/src/features/webmail-next/` 配套测试与本机 `Shared/webmail-redesign/qa/`。PHP、Roundcube 和 Nextcloud 已退出当前产品栈。历史修复记录（schema 77 定时任务幂等等）见下方历史段落。
+原生网页邮箱入口为 `/webmail`，邮箱身份独立登录，通过 Go API 使用 IMAP/SMTP。当前默认 Webmail 为重写版 `webmail-next`（旧版经 `?v=legacy` 仍可进入）：三栏工作台、Gmail 式快捷键、归档/废纸篓语义、批量操作、虚拟列表、中英双语、远程图片默认阻止（可在设置中按账户允许）。阶段 3 性能与视觉验收记录见仓库 `web/src/features/webmail-next/` 配套测试与本机 `Shared/webmail-redesign/qa/`。PHP、Roundcube 和 Nextcloud 已退出当前产品栈。历史修复记录（schema 77 定时任务幂等等）见下方历史段落。
 
 第三轮修复覆盖权限、认证、事务、配置应用、配额、管理面和交付工具。当前验证记录见本机 `docs/acceptance/m1-m4-v3.md`；正式发布版本须在验收后确定，源码实现和本地测试不等于生产上线。新增的 v1 接口子集契约在 `api/v1-remediation.openapi.yaml`。
 

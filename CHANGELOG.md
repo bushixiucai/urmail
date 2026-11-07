@@ -2,6 +2,28 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.4] - 2026-11-07
+
+真实数据穿帮修复 + webmail-next 默认化 + 全量安全深审。无数据库迁移（schema 158 不变）。
+
+### 修复（生产实拍穿帮三连）
+- **MIME 字符集解码**：非 UTF-8 编码主题/发件人（如 gb2312）不再乱码——`mime.WordDecoder` 接入 `charset.NewReaderLabel`（golang.org/x/net/html/charset），覆盖 legacy 编码标签
+- **日期零值**：无 Date 头/解析失败的邮件不再显示「1/1/1」——`MessageSummary.Date` 改 `*time.Time`（omitempty），nil 时客户端渲染 em dash；排序对 nil 取信封/内投递时间兜底
+- **列表行 INBOX 标签**：单文件夹列表不再给每行盖 Folder 章（跨夹搜索结果仍保留来源夹标签）；`uid_validity` 盖章保留（move 守卫依赖）
+
+### 变更
+- **webmail-next 成为默认界面**：`/webmail` 直接进入新 Webmail；旧版保留三层逃生门：URL `?v=legacy`、偏好设置 `preferences.webmail_version=legacy`、本地存储 `storage=legacy`；`isWebmailNextEnabled` 服务端渲染恒为 next
+- 设置抽屉新增「隐私与安全→远程图片」：默认阻止，可按账户允许全部远程加载（fail-closed，AES-256-GCM 加密存储）——旧版与新版均可配置
+- 旧版专属 E2E（浏览器身份/跨标签草稿冲突等 4 处）显式固定 `?v=legacy`
+
+### 安全（v0.6.4 发版门：cloudflare security-audit-skill 六阶段深审）
+- 45 覆盖单元、3 波独立猎捕、9 候选全部经独立证伪代理验证：**0 confirmed 漏洞**（8 rejected 附反证、1 needs_validation 为生命周期设计问题非漏洞）
+- 侦察两大头部假设被证伪：/admin 双挂载 21 个 handler 全部先鉴权；文件夹名 IMAP 注入被 mUTF-7 折叠消除
+- hardening 备注（不阻塞发版，排 v0.6.5）：legacy Basic-auth CSRF 守卫改白名单式、密码策略统一拒绝控制字符、MoveMessages 目标夹校验统一、MemoryVault.Put 标记 Deprecated
+
+### 其他
+- CI 修复：go.mod tidy、3 处 golangci-lint 遗留（gofmt/unreachable/exported 注释）、public 仓库后 GitHub Actions 全量恢复
+
 ## [0.6.3] - 2026-11-07
 
 Webmail 商业化打磨（阶段 1-3）。无数据库迁移（schema 158 不变）。
