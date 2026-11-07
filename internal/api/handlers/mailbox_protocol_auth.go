@@ -71,7 +71,7 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 		}
 		// The verified-session insert compares the live hash and account state,
 		// closing the password-change race after the initial lookup.
-		session, err := h.Sessions.Create(c.Request.Context(), tokenHash, canonical, hash)
+		session, err := h.Sessions.Create(c.Request.Context(), tokenHash, canonical, hash, false)
 		if err != nil || session.TenantID <= 0 || session.MailboxID <= 0 || session.Address == "" {
 			protocolUnauthorized(c)
 			return

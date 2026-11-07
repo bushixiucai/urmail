@@ -23,7 +23,7 @@ type pausedNativeSessionStore struct {
 	resume  chan struct{}
 }
 
-func (s *pausedNativeSessionStore) Create(ctx context.Context, token, address, expected string) (webmail.Session, error) {
+func (s *pausedNativeSessionStore) Create(ctx context.Context, token, address, expected string, remember bool) (webmail.Session, error) {
 	s.once.Do(func() {
 		close(s.entered)
 		select {
@@ -31,7 +31,7 @@ func (s *pausedNativeSessionStore) Create(ctx context.Context, token, address, e
 		case <-ctx.Done():
 		}
 	})
-	return s.StoreMailboxNative.Create(ctx, token, address, expected)
+	return s.StoreMailboxNative.Create(ctx, token, address, expected, remember)
 }
 
 func TestNativeLoginCannotIssueTokenAfterPasswordProofBecomesStale(t *testing.T) {

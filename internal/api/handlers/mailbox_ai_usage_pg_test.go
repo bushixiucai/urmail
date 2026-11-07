@@ -33,8 +33,8 @@ func (f *fixturePrincipalSessions) rewrite(session webmail.Session) webmail.Sess
 	return session
 }
 
-func (f *fixturePrincipalSessions) Create(ctx context.Context, tokenHash, address, ip string) (webmail.Session, error) {
-	session, err := f.inner.Create(ctx, tokenHash, address, ip)
+func (f *fixturePrincipalSessions) Create(ctx context.Context, tokenHash, address, ip string, remember bool) (webmail.Session, error) {
+	session, err := f.inner.Create(ctx, tokenHash, address, ip, remember)
 	return f.rewrite(session), err
 }
 
