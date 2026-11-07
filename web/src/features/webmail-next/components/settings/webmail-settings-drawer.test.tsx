@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   render,
   screen,
@@ -340,5 +341,33 @@ describe("WebmailSettingsDrawer", () => {
     await waitFor(() => {
       expect(mailboxApi.saveMailboxRules).toHaveBeenCalled();
     });
+  });
+
+  it("closes on Escape and returns focus to the trigger", () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            data-testid="webmail-settings-btn"
+            onClick={() => setOpen(true)}
+          >
+            Settings
+          </button>
+          <WebmailSettingsDrawer isOpen={open} onClose={() => setOpen(false)} />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByTestId("webmail-settings-btn");
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("webmail-settings-drawer")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("webmail-settings-drawer")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });

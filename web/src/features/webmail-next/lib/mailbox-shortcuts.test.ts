@@ -66,7 +66,7 @@ describe("resolveMailboxShortcut", () => {
     ).toBe("none");
   });
 
-  it("sends with cmd/ctrl enter and minimizes compose on escape", () => {
+  it("sends with cmd/ctrl enter and closes compose on escape", () => {
     expect(
       resolveMailboxShortcut({
         ...idle,
@@ -83,7 +83,15 @@ describe("resolveMailboxShortcut", () => {
         composeOpen: true,
         textEntry: true,
       }).action,
-    ).toBe("minimize-compose");
+    ).toBe("close-compose");
+    expect(
+      resolveMailboxShortcut({
+        ...idle,
+        key: "Escape",
+        composeOpen: true,
+        overlayOpen: true,
+      }).action,
+    ).toBe("close-overlay");
   });
 
   it("opens help on question mark and focuses search on slash", () => {

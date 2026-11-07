@@ -2948,5 +2948,12 @@
   "webmail_next.empty_reading_body": "Open one from the list",
   "webmail_next.forward": "Forward",
   "webmail_next.reply": "Reply",
-  "webmail_next.reply_all": "Reply all"
+  "webmail_next.reply_all": "Reply all",
+  "webmail_next.toggle_navigation": "Toggle navigation",
+  "webmail_next.advanced_filter": "Advanced filter",
+  "webmail_next.close": "Close",
+  "webmail_next.minimize": "Minimize",
+  "webmail_next.expand": "Expand",
+  "webmail_next.maximize": "Maximize",
+  "webmail_next.restore": "Restore"
 }

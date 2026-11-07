@@ -88,7 +88,8 @@ export function WebmailHeader({
           type="button"
           onClick={onToggleRail}
           className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
-          title="Toggle Navigation"
+          aria-label={t("webmail_next.toggle_navigation")}
+          title={t("webmail_next.toggle_navigation")}
         >
           <PanelLeft className="w-5 h-5" />
         </button>
@@ -122,7 +123,8 @@ export function WebmailHeader({
               type="button"
               onClick={onOpenAdvancedSearch}
               className="absolute right-1 top-1 flex h-6 w-6 min-h-6 min-w-6 items-center justify-center text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded"
-              title="Advanced Filter"
+              aria-label={t("webmail_next.advanced_filter")}
+              title={t("webmail_next.advanced_filter")}
             >
               <SlidersHorizontal className="w-4 h-4" />
             </button>
@@ -153,7 +155,8 @@ export function WebmailHeader({
             className={`p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors ${
               isRefreshing ? "animate-spin" : ""
             }`}
-            title="Refresh"
+            aria-label={t("webmail_next.refresh")}
+            title={t("webmail_next.refresh")}
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -203,7 +206,8 @@ export function WebmailHeader({
             type="button"
             onClick={onOpenContacts}
             className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
-            title={t("contacts.title", "Contacts")}
+            aria-label={t("contacts.title")}
+            title={t("contacts.title")}
           >
             <BookUser className="w-4 h-4" />
           </button>
@@ -214,7 +218,8 @@ export function WebmailHeader({
             type="button"
             onClick={onOpenSettings}
             className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
-            title={t("webmail_next.settings", "Settings")}
+            aria-label={t("webmail_next.settings")}
+            title={t("webmail_next.settings")}
           >
             <Settings className="w-4 h-4" />
           </button>

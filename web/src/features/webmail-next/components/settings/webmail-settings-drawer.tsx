@@ -1,4 +1,11 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -78,6 +85,33 @@ export function WebmailSettingsDrawer({
     setActiveTab(initialTab);
   }, [initialTab]);
 
+  const openerRef = useRef<HTMLElement | null>(null);
+  const openerRecordedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (isOpen) {
+      if (!openerRecordedRef.current) {
+        const opener = document.activeElement;
+        openerRef.current =
+          opener instanceof HTMLElement && opener !== document.body
+            ? opener
+            : null;
+        openerRecordedRef.current = true;
+      }
+      return;
+    }
+    if (!openerRecordedRef.current) return;
+    openerRecordedRef.current = false;
+    const opener = openerRef.current;
+    openerRef.current = null;
+    if (opener && document.contains(opener)) {
+      opener.focus();
+      return;
+    }
+    document
+      .querySelector<HTMLElement>('[data-testid="webmail-settings-btn"]')
+      ?.focus();
+  }, [isOpen]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {
@@ -147,7 +181,8 @@ export function WebmailSettingsDrawer({
             type="button"
             onClick={onClose}
             className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#EBE8E0] hover:text-[#18181B] transition-colors"
-            title="Close"
+            aria-label={t("webmail_next.close")}
+            title={t("webmail_next.close")}
           >
             <X className="w-5 h-5" />
           </button>
