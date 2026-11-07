@@ -224,7 +224,8 @@ export function WebmailReadingPane({
               type="button"
               onClick={onBack}
               className="md:hidden p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded hover:bg-[#F3F1EC]"
-              title="Back to list"
+              aria-label={t("webmail_next.back_to_list")}
+              title={t("webmail_next.back_to_list")}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -265,7 +266,8 @@ export function WebmailReadingPane({
                 ? "text-[var(--vellum-star)]"
                 : "text-[var(--vellum-ink-secondary)]"
             }`}
-            title="Star"
+            aria-label={t("webmail_next.star")}
+            title={t("webmail_next.star")}
           >
             <Star
               className={`w-4 h-4 ${isStarred ? "fill-[var(--vellum-star)]" : ""}`}
@@ -275,7 +277,8 @@ export function WebmailReadingPane({
             type="button"
             onClick={() => onDelete?.(message.uid)}
             className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#F3F1EC] transition-colors"
-            title="Delete"
+            aria-label={t("webmail_next.delete")}
+            title={t("webmail_next.delete")}
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -315,7 +318,16 @@ export function WebmailReadingPane({
                         ? "text-[#16A34A] bg-[#DCFCE7]"
                         : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0]"
                     }`}
-                    title={contactAdded ? "Contact added" : "Add to contacts"}
+                    aria-label={
+                      contactAdded
+                        ? t("webmail_next.contact_added")
+                        : t("webmail_next.add_contact")
+                    }
+                    title={
+                      contactAdded
+                        ? t("webmail_next.contact_added")
+                        : t("webmail_next.add_contact")
+                    }
                   >
                     {contactAdded ? (
                       <>

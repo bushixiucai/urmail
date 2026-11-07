@@ -42,6 +42,13 @@ function WebmailMessageRowView({
 }: WebmailMessageRowProps) {
   const { t } = useTranslation();
   const isListOnly = density === "list_only";
+  const starLabel = item.isStarred
+    ? t("webmail_next.starred")
+    : t("webmail_next.not_starred");
+  const readLabel = item.isUnread
+    ? t("webmail_next.mark_read")
+    : t("webmail_next.mark_unread");
+  const deleteLabel = t("webmail_next.delete");
 
   return (
     <div
@@ -100,7 +107,8 @@ function WebmailMessageRowView({
               ? "text-[var(--vellum-star)]"
               : "text-[#D4D4D8] group-hover:text-[var(--vellum-ink-secondary)]"
           }`}
-          title={item.isStarred ? "Starred" : "Not starred"}
+          aria-label={starLabel}
+          title={starLabel}
         >
           <Star
             className={`w-4 h-4 ${item.isStarred ? "fill-[var(--vellum-star)]" : ""}`}
@@ -179,7 +187,8 @@ function WebmailMessageRowView({
                   type="button"
                   onClick={onToggleRead}
                   className="p-0.5 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
-                  title={item.isUnread ? "Mark as read" : "Mark as unread"}
+                  aria-label={readLabel}
+                  title={readLabel}
                 >
                   {item.isUnread ? (
                     <MailOpen className="w-3 h-3" />
@@ -193,7 +202,8 @@ function WebmailMessageRowView({
                   type="button"
                   onClick={onDelete}
                   className="p-0.5 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
-                  title="Delete"
+                  aria-label={deleteLabel}
+                  title={deleteLabel}
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -253,7 +263,8 @@ function WebmailMessageRowView({
                     type="button"
                     onClick={onToggleRead}
                     className="p-1 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
-                    title={item.isUnread ? "Mark as read" : "Mark as unread"}
+                    aria-label={readLabel}
+                    title={readLabel}
                   >
                     {item.isUnread ? (
                       <MailOpen className="w-3.5 h-3.5" />
@@ -267,7 +278,8 @@ function WebmailMessageRowView({
                     type="button"
                     onClick={onDelete}
                     className="p-1 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
-                    title="Delete"
+                    aria-label={deleteLabel}
+                    title={deleteLabel}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
