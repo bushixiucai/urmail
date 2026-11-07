@@ -2627,6 +2627,7 @@
   "webmail_next.inbox": "收件箱",
   "webmail_next.junk": "垃圾邮件",
   "webmail_next.loaded_range": "已加载 {{from}}–{{to}} / 共 {{total}}",
+  "webmail_next.list_load_failed": "邮件加载失败",
   "webmail_next.loading_message": "正在打开邮件",
   "webmail_next.mail_sent": "邮件已发送",
   "webmail_next.moved_to": "已移动到{{folder}}",

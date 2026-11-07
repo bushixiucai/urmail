@@ -215,6 +215,11 @@ function WebmailRoute() {
 }
 
 function WebmailInboxRoute() {
+  // Session check includes expires_at: a dead token is cleared here, so the
+  // inbox never mounts to fire a burst of doomed 401s.
+  if (!hasMailboxSession()) {
+    return <Navigate to="/webmail/login" replace />;
+  }
   if (isWebmailNextEnabled()) {
     return <WebmailNextEntry />;
   }

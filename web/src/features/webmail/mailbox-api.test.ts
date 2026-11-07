@@ -8,8 +8,11 @@ import {
   getMailboxExpiresAt,
   getMailboxToken,
   hasMailboxSession,
+  listFolders,
   MAILBOX_AI_CONFIGURATION_CHANGED,
+  mailboxRequest,
   saveMailboxSettings,
+  setMailboxLoginRedirectHandler,
   MAX_SEND_ATTACHMENT_BYTES,
   MAX_SEND_TOTAL_ATTACHMENT_BYTES,
   saveDraft,
@@ -20,6 +23,8 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  window.localStorage.clear();
   window.sessionStorage.clear();
 });
 it("binds schedule retries to the idempotency header and exact UIDVALIDITY", async () => {
@@ -220,5 +225,122 @@ it("does not announce a failed AI settings write or an update without AI configu
     expect(changed).not.toHaveBeenCalled();
   } finally {
     window.removeEventListener(MAILBOX_AI_CONFIGURATION_CHANGED, changed);
+  }
+});
+
+it("treats an expired session as absent and clears the dead token", () => {
+  setMailboxSession({
+    token: "expired-token",
+    address: "user@domain.test",
+    expires_at: new Date(Date.now() - 1000).toISOString(),
+  });
+  expect(getMailboxToken()).toBe("expired-token");
+  expect(hasMailboxSession()).toBe(false);
+  // Storage is purged: no doomed requests fire after route guards.
+  expect(getMailboxToken()).toBeNull();
+  expect(getMailboxExpiresAt()).toBeNull();
+  expect(window.localStorage.getItem("urmail.mailbox-token")).toBeNull();
+  expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBeNull();
+});
+
+it("keeps a live session and a session without an expires_at", () => {
+  setMailboxSession({
+    token: "live-token",
+    address: "user@domain.test",
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  });
+  expect(hasMailboxSession()).toBe(true);
+  expect(getMailboxToken()).toBe("live-token");
+
+  // Legacy or malformed storage without an expiry still counts as a session;
+  // the request-level 401 funnel remains the backstop for those.
+  window.localStorage.setItem("urmail.mailbox-token", "no-expiry-token");
+  window.localStorage.setItem("urmail.mailbox-address", "user@domain.test");
+  window.localStorage.removeItem("urmail.mailbox-expires");
+  expect(hasMailboxSession()).toBe(true);
+});
+
+it("redirects once on 401 and clears the session (single flight)", async () => {
+  setMailboxSession({
+    token: "dying-token",
+    address: "user@domain.test",
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  });
+  const assign = vi.fn();
+  setMailboxLoginRedirectHandler(assign);
+  const fetcher = vi.fn().mockResolvedValue({
+    ok: false,
+    status: 401,
+    json: async () => ({
+      error: {
+        code: "MAILBOX_UNAUTHORIZED",
+        message: "error.MAILBOX_UNAUTHORIZED",
+      },
+    }),
+  });
+  vi.stubGlobal("fetch", fetcher);
+  try {
+    // Five concurrent authenticated requests race with one dead token.
+    await Promise.allSettled([
+      listFolders(),
+      listFolders(),
+      listFolders(),
+      listFolders(),
+      listFolders(),
+    ]);
+    expect(assign).toHaveBeenCalledTimes(1);
+    expect(assign).toHaveBeenCalledWith("/webmail/login");
+    expect(getMailboxToken()).toBeNull();
+  } finally {
+    setMailboxLoginRedirectHandler(null);
+  }
+});
+
+it("does not redirect for non-auth errors or unauthenticated requests", async () => {
+  const assign = vi.fn();
+  setMailboxLoginRedirectHandler(assign);
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      }),
+    })
+    .mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ native: true }),
+    });
+  vi.stubGlobal("fetch", fetcher);
+  try {
+    await expect(listFolders()).rejects.toMatchObject({ status: 500 });
+    expect(assign).not.toHaveBeenCalled();
+    expect(getMailboxToken()).toBeNull();
+    // An unauthenticated call (login/status) must never trigger the funnel,
+    // even when the endpoint itself answers 401.
+    setMailboxSession({
+      token: "t",
+      address: "a@b.test",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    fetcher.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: {
+          code: "MAILBOX_UNAUTHORIZED",
+          message: "error.MAILBOX_UNAUTHORIZED",
+        },
+      }),
+    });
+    await expect(
+      mailboxRequest("/api/v1/mailbox/status", { auth: false }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(assign).not.toHaveBeenCalled();
+    expect(getMailboxToken()).toBe("t");
+  } finally {
+    setMailboxLoginRedirectHandler(null);
   }
 });
