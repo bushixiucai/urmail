@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Minus,
@@ -81,6 +81,42 @@ export function WebmailComposeDock({
     seenMinimize.current = minimizeNonce;
     setIsMinimized(true);
   }, [minimizeNonce, isOpen]);
+
+  const openerRef = useRef<HTMLElement | null>(null);
+  const openerRecordedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (isOpen) {
+      if (!openerRecordedRef.current) {
+        const opener = document.activeElement;
+        openerRef.current =
+          opener instanceof HTMLElement && opener !== document.body
+            ? opener
+            : null;
+        openerRecordedRef.current = true;
+      }
+      return;
+    }
+    if (!openerRecordedRef.current) return;
+    openerRecordedRef.current = false;
+    const opener = openerRef.current;
+    openerRef.current = null;
+    if (opener && document.contains(opener)) {
+      opener.focus();
+      return;
+    }
+    document
+      .querySelector<HTMLElement>('[data-testid="webmail-compose-button"]')
+      ?.focus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen || isMinimized) return;
@@ -218,7 +254,16 @@ export function WebmailComposeDock({
               type="button"
               onClick={() => setIsMinimized((p) => !p)}
               className="p-1 hover:bg-white/20 rounded text-white"
-              title={isMinimized ? "Expand" : "Minimize"}
+              aria-label={
+                isMinimized
+                  ? t("webmail_next.expand")
+                  : t("webmail_next.minimize")
+              }
+              title={
+                isMinimized
+                  ? t("webmail_next.expand")
+                  : t("webmail_next.minimize")
+              }
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
@@ -226,7 +271,16 @@ export function WebmailComposeDock({
               type="button"
               onClick={() => setIsMaximized((p) => !p)}
               className="p-1 hover:bg-white/20 rounded text-white"
-              title={isMaximized ? "Restore" : "Maximize"}
+              aria-label={
+                isMaximized
+                  ? t("webmail_next.restore")
+                  : t("webmail_next.maximize")
+              }
+              title={
+                isMaximized
+                  ? t("webmail_next.restore")
+                  : t("webmail_next.maximize")
+              }
             >
               {isMaximized ? (
                 <Minimize2 className="w-3.5 h-3.5" />
@@ -239,7 +293,8 @@ export function WebmailComposeDock({
               type="button"
               onClick={onClose}
               className="p-1 hover:bg-white/20 rounded text-white"
-              title="Close"
+              aria-label={t("webmail_next.close")}
+              title={t("webmail_next.close")}
             >
               <X className="w-3.5 h-3.5" />
             </button>

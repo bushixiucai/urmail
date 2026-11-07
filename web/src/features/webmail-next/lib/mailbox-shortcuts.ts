@@ -17,7 +17,7 @@ export type ShortcutAction =
   | "help"
   | "go-inbox"
   | "send"
-  | "minimize-compose"
+  | "close-compose"
   | "close-overlay";
 
 export interface ShortcutInput {
@@ -65,16 +65,16 @@ export function resolveMailboxShortcut(input: ShortcutInput): ShortcutDecision {
   const key = input.key;
   const letter = key.length === 1 ? key.toLowerCase() : key;
 
+  if (input.overlayOpen) {
+    if (key === "Escape") return decide("close-overlay");
+    return none();
+  }
+
   if (input.composeOpen) {
     if ((input.meta || input.ctrl) && key === "Enter" && !input.alt) {
       return decide("send");
     }
-    if (key === "Escape") return decide("minimize-compose");
-    return none();
-  }
-
-  if (input.overlayOpen) {
-    if (key === "Escape") return decide("close-overlay");
+    if (key === "Escape") return decide("close-compose");
     return none();
   }
 

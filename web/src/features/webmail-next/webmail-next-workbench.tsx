@@ -124,7 +124,6 @@ export function WebmailNextWorkbench({
   const [moveUndo, setMoveUndo] = useState<MoveUndo | null>(null);
   const moveTokenRef = useRef(0);
   const [sendNonce, setSendNonce] = useState(0);
-  const [minimizeNonce, setMinimizeNonce] = useState(0);
   const [composeCc, setComposeCc] = useState<string[]>([]);
   const [pendingPermanentUids, setPendingPermanentUids] = useState<
     number[] | null
@@ -879,8 +878,7 @@ export function WebmailNextWorkbench({
         setActiveFolder(inboxEnc);
         setSelectedUid(null);
       } else if (action === "send") setSendNonce((nonce) => nonce + 1);
-      else if (action === "minimize-compose")
-        setMinimizeNonce((nonce) => nonce + 1);
+      else if (action === "close-compose") setIsComposeOpen(false);
       else if (action === "close-overlay") {
         if (isHelpOpen) setIsHelpOpen(false);
         else if (isSettingsOpen) setIsSettingsOpen(false);
@@ -1181,7 +1179,6 @@ export function WebmailNextWorkbench({
         initialCc={composeCc}
         initialSubject={composeSubject}
         sendNonce={sendNonce}
-        minimizeNonce={minimizeNonce}
       />
       <WebmailShortcutHelp
         isOpen={isHelpOpen}

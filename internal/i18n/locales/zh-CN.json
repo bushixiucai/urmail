@@ -2948,5 +2948,12 @@
   "webmail_next.empty_reading_body": "在左侧列表中打开",
   "webmail_next.forward": "转发",
   "webmail_next.reply": "回复",
-  "webmail_next.reply_all": "全部回复"
+  "webmail_next.reply_all": "全部回复",
+  "webmail_next.toggle_navigation": "切换导航",
+  "webmail_next.advanced_filter": "高级筛选",
+  "webmail_next.close": "关闭",
+  "webmail_next.minimize": "最小化",
+  "webmail_next.expand": "展开",
+  "webmail_next.maximize": "最大化",
+  "webmail_next.restore": "还原"
 }
