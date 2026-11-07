@@ -400,6 +400,9 @@ type Querier interface {
 	PlatformCreateMarketingChannel(ctx context.Context, arg PlatformCreateMarketingChannelParams) (PlatformCreateMarketingChannelRow, error)
 	PlatformCreateSendReceipt(ctx context.Context, arg PlatformCreateSendReceiptParams) (MailboxSendReceipts, error)
 	PlatformCreateSieveBridge(ctx context.Context, arg PlatformCreateSieveBridgeParams) error
+	// ttl is the Postgres interval literal for the session lifetime: '30 minutes'
+	// by default or '30 days' when the login requested a remembered session.
+	// Both values are caller constants, never raw user input.
 	PlatformCreateVerifiedMailboxSession(ctx context.Context, arg PlatformCreateVerifiedMailboxSessionParams) (MailboxSessions, error)
 	PlatformCurrentManagedDNS(ctx context.Context, arg PlatformCurrentManagedDNSParams) (ManagedDnsZones, error)
 	PlatformCustomWebEnabled(ctx context.Context, fqdn string) (bool, error)

@@ -64,7 +64,9 @@ type MailboxNativeAuth interface {
 
 // MailboxNativeSessions persists short-lived mailbox bearer tokens.
 type MailboxNativeSessions interface {
-	Create(ctx context.Context, tokenHash, address, expectedHash string) (webmail.Session, error)
+	// Create inserts a session; remember extends its TTL from 30 minutes to
+	// 30 days. Password-version binding and every other check are unchanged.
+	Create(ctx context.Context, tokenHash, address, expectedHash string, remember bool) (webmail.Session, error)
 	Get(ctx context.Context, tokenHash string) (webmail.Session, error)
 	Revoke(ctx context.Context, tokenHash string) error
 }
@@ -86,13 +88,25 @@ func (s StoreMailboxNative) Lookup(ctx context.Context, address string) (int64, 
 	return row.TenantID, row.MailboxID, row.Address, row.PasswordHash, nil
 }
 
+// Session TTLs passed to the parameterized interval column: 30 minutes by
+// default, 30 days when the login asked to remember the session. Both are
+// caller constants, never raw user input. The session stays bound to
+// password_version in either case.
+func mailboxSessionTTL(remember bool) pgtype.Interval {
+	if remember {
+		return pgtype.Interval{Days: 30, Valid: true}
+	}
+	return pgtype.Interval{Microseconds: 30 * 60 * 1_000_000, Valid: true}
+}
+
 // Create inserts a mailbox_sessions row (same principal table as Roundcube bridge).
-func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expectedHash string) (webmail.Session, error) {
+func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expectedHash string, remember bool) (webmail.Session, error) {
 	if s.Q == nil {
 		return webmail.Session{}, pgx.ErrNoRows
 	}
 	row, err := s.Q.PlatformCreateVerifiedMailboxSession(ctx, store.PlatformCreateVerifiedMailboxSessionParams{
 		TokenHash:    tokenHash,
+		Ttl:          mailboxSessionTTL(remember),
 		ExpectedHash: expectedHash,
 		OriginHost:   webmail.OriginHost(ctx),
 		Address:      address,
@@ -147,6 +161,9 @@ func (s StoreMailboxNative) GetMailboxSession(ctx context.Context, tokenHash str
 type mailboxNativeLoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Remember extends the session TTL from 30 minutes to 30 days. The session
+	// stays bound to password_version, so a password change still revokes it.
+	Remember bool `json:"remember"`
 }
 
 // Status reports whether the native webmail API is enabled.
@@ -231,7 +248,7 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 		authError(c, http.StatusInternalServerError, "INTERNAL_ERROR")
 		return
 	}
-	session, err := h.Sessions.Create(c.Request.Context(), tokenHash, canonical, hash)
+	session, err := h.Sessions.Create(c.Request.Context(), tokenHash, canonical, hash, req.Remember)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")

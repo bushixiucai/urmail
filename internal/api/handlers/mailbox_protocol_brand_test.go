@@ -21,8 +21,8 @@ func (protocolBrandAuth) BrandTenantMatches(_ context.Context, tenant, brand int
 
 type protocolOriginSessions struct{ fakeMailboxSessions }
 
-func (s *protocolOriginSessions) Create(ctx context.Context, hash, address, expected string) (webmail.Session, error) {
-	session, err := s.fakeMailboxSessions.Create(ctx, hash, address, expected)
+func (s *protocolOriginSessions) Create(ctx context.Context, hash, address, expected string, remember bool) (webmail.Session, error) {
+	session, err := s.fakeMailboxSessions.Create(ctx, hash, address, expected, remember)
 	session.OriginHost = webmail.OriginHost(ctx)
 	s.byHash[hash] = session
 	return session, err

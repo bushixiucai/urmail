@@ -71,8 +71,11 @@ UPDATE mailbox_operation_tickets SET consumed_at=now() WHERE token_hash=$1 AND k
 SELECT token_hash,tenant_id,mailbox_id FROM mailbox_sessions WHERE token_hash=$1;
 
 -- name: PlatformCreateVerifiedMailboxSession :one
+-- ttl is the Postgres interval literal for the session lifetime: '30 minutes'
+-- by default or '30 days' when the login requested a remembered session.
+-- Both values are caller constants, never raw user input.
 INSERT INTO mailbox_sessions(token_hash,tenant_id,mailbox_id,password_version,expires_at,origin_host)
-SELECT sqlc.arg(token_hash),m.tenant_id,m.id,md5(m.password_hash),now()+interval '30 minutes',sqlc.arg(origin_host)::text
+SELECT sqlc.arg(token_hash),m.tenant_id,m.id,md5(m.password_hash),now()+sqlc.arg(ttl)::interval,sqlc.arg(origin_host)::text
 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.address=sqlc.arg(address) AND m.password_hash=sqlc.arg(expected_hash)
 AND m.status='active' AND t.status='active' AND d.status='active'

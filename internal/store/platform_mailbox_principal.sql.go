@@ -167,24 +167,29 @@ func (q *Queries) PlatformCreateSieveBridge(ctx context.Context, arg PlatformCre
 
 const platformCreateVerifiedMailboxSession = `-- name: PlatformCreateVerifiedMailboxSession :one
 INSERT INTO mailbox_sessions(token_hash,tenant_id,mailbox_id,password_version,expires_at,origin_host)
-SELECT $1,m.tenant_id,m.id,md5(m.password_hash),now()+interval '30 minutes',$2::text
+SELECT $1,m.tenant_id,m.id,md5(m.password_hash),now()+$2::interval,$3::text
 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
-WHERE m.address=$3 AND m.password_hash=$4
+WHERE m.address=$4 AND m.password_hash=$5
 AND m.status='active' AND t.status='active' AND d.status='active'
 FOR UPDATE OF m
 RETURNING token_hash,tenant_id,mailbox_id,password_version,expires_at,revoked_at,created_at,origin_host
 `
 
 type PlatformCreateVerifiedMailboxSessionParams struct {
-	TokenHash    string `json:"token_hash"`
-	OriginHost   string `json:"origin_host"`
-	Address      string `json:"address"`
-	ExpectedHash string `json:"expected_hash"`
+	TokenHash    string          `json:"token_hash"`
+	Ttl          pgtype.Interval `json:"ttl"`
+	OriginHost   string          `json:"origin_host"`
+	Address      string          `json:"address"`
+	ExpectedHash string          `json:"expected_hash"`
 }
 
+// ttl is the Postgres interval literal for the session lifetime: '30 minutes'
+// by default or '30 days' when the login requested a remembered session.
+// Both values are caller constants, never raw user input.
 func (q *Queries) PlatformCreateVerifiedMailboxSession(ctx context.Context, arg PlatformCreateVerifiedMailboxSessionParams) (MailboxSessions, error) {
 	row := q.db.QueryRow(ctx, platformCreateVerifiedMailboxSession,
 		arg.TokenHash,
+		arg.Ttl,
 		arg.OriginHost,
 		arg.Address,
 		arg.ExpectedHash,
