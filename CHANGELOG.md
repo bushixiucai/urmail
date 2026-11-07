@@ -2,6 +2,18 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.8] - 2026-11-08
+
+深色邮件简写颜色恢复（真实邮件验证的 #31 漏修点）+ 构建链防旧产物嵌入。无数据库迁移（schema 158 不变）。
+
+### 修复（Webmail）
+- **`background:` 简写颜色恢复**：MJML 模板常用 `background:#121212` 简写画深底（枚举名不在白名单仍被剥）——净化器删除前从 CSSOM 读出颜色成分恢复为 `background-color` 长写（`url()/var()` 值过滤照旧），真实 Infura 邮件颜色声明存活 16/18 → 18/18（经生产原始 .eml 验证）
+- MSO 条件注释（含 `<style>` 残留）有意保留：删除会误吞注释围栏内可见内容（实测），sandbox+CSP 下惰性
+- 深色邮件回归 fixture 3 条（简写恢复/MJML 共存+hostile 邻居/条件注释）
+
+### 加固（构建链）
+- **防旧前端静默嵌入**：v0.6.7 部署事故根修——直接 `go build` 会把残留旧 `internal/web/dist` 嵌入二进制（首个 v0.6.7 deb 的前端修复因此未生效）。新校验器三重防线（bundle 存在性/源码新鲜度/git stamp 祖先判定），`make build-go` 与 deb 打包双重接线，旧 dist + 新源码确定性构建失败并指引 `make frontend`；fixture 测试 6 项含事故形态复现
+
 ## [0.6.7] - 2026-11-08
 
 生产实拍反馈修复（深色邮件不可读 + 阅读区布局）+ postinst 快照恢复链二次根修。无数据库迁移（schema 158 不变）。
