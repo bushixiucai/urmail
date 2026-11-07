@@ -18,6 +18,9 @@ if [ ! -x "$BIN_DIR/urmaild" ]; then
 	echo "bin/urmaild is missing; run 'make build' first." >&2
 	exit 1
 fi
+# The deb ships whatever is embedded in bin/urmaild; refuse to package when
+# the embedded frontend is stale or missing (see scripts/check-frontend-dist.sh).
+bash "$ROOT/scripts/check-frontend-dist.sh"
 
 # The package metadata must describe the executable architecture, not the host.
 for binary in urmaild urmaild-agent urmailctl urmail-archive; do

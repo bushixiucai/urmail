@@ -36,7 +36,7 @@ help: ## 显示可用命令
 build: frontend build-go ## 构建前端并打包进 Go 二进制
 
 .PHONY: build-go
-build-go: ## 只构建 Go 二进制（前端资源需已存在）
+build-go: frontend-check ## 只构建 Go 二进制（前端资源需已存在且新鲜）
 	@mkdir -p $(DIST)
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/urmaild ./cmd/urmaild
 	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/urmaild-agent ./cmd/urmaild-agent
@@ -50,6 +50,10 @@ frontend: ## 构建前端并拷贝到 embed 目录
 	cp -R $(WEB)/dist $(EMBED_DIR)
 	@# keep the tracked placeholder so `go:embed` keeps working
 	touch $(EMBED_DIR)/.gitkeep
+
+.PHONY: frontend-check
+frontend-check: ## 拒绝过期的 embed 前端产物（旧 dist 静默嵌入防线）
+	@bash scripts/check-frontend-dist.sh
 
 # ---------------------------------------------------------------------------
 # Test and lint
