@@ -294,7 +294,7 @@ test("browser reply-all uses granted identity and every Reply-To without self al
   context,
 }) => {
   const fixture = await composeBrowserFixture(context);
-  await page.goto("/webmail/inbox");
+  await page.goto("/webmail/inbox?v=legacy");
   await page
     .getByRole("button")
     .filter({ hasText: "Reply browser source" })
@@ -344,7 +344,7 @@ test("browser inline expansion and pending attachment preserve one draft through
         pending.splice(0).forEach((finish) => finish()),
     });
   });
-  await page.goto("/webmail/inbox");
+  await page.goto("/webmail/inbox?v=legacy");
   await page
     .getByRole("button")
     .filter({ hasText: "Reply browser source" })
@@ -436,7 +436,7 @@ test("browser stale tab cannot replace a draft saved by another tab", async ({
     to: ["recipient@example.test"],
   });
   async function resume(tab: Page) {
-    await tab.goto("/webmail/inbox");
+    await tab.goto("/webmail/inbox?v=legacy");
     await tab.getByRole("button", { name: "Drafts", exact: true }).click();
     await tab
       .getByRole("button")
