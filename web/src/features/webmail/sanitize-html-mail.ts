@@ -240,6 +240,11 @@ function sanitizeStyles(el: Element): void {
     el.removeAttribute("style");
     return;
   }
+  // `background:#121212` (shorthand, ubiquitous in MJML mail) enumerates as
+  // "background" which is not allowlisted — but its color component is safe
+  // and CSSOM exposes it as background-color. Recover that color before the
+  // shorthand is dropped, or dark canvases collapse to white-on-white.
+  const bgColor = declaration.getPropertyValue("background-color");
   const names = Array.from(declaration);
   for (const property of names) {
     const value = declaration.getPropertyValue(property);
@@ -248,6 +253,15 @@ function sanitizeStyles(el: Element): void {
       /(?:url|var)\s*\(|\\/i.test(value)
     )
       declaration.removeProperty(property);
+  }
+  if (
+    bgColor &&
+    !/(?:url|var)\s*\(|\\/i.test(bgColor) &&
+    !Array.from(declaration).some((p) => p.toLowerCase() === "background-color")
+  ) {
+    // The color came solely from the shorthand (it enumerates as
+    // "background", which the allowlist drops) — restore it as a longhand.
+    declaration.setProperty("background-color", bgColor);
   }
   if (!declaration.length) el.removeAttribute("style");
   el.removeAttribute("background");
@@ -310,6 +324,12 @@ export function sanitizeHtmlMail(
     }
   }
   if (doc.documentElement) {
+    // NOTE: comment nodes (incl. MSO conditional comments, often carrying
+    // <style> blocks in real mail) are intentionally left in place —
+    // dropping them in jsdom swallows content that the HTML parser scopes
+    // between conditional-comment fences (observed: a bgcolor'd table
+    // inside `<!--[if !mso]><!-->` vanished). Sandbox+CSP keeps any such
+    // residue inert for modern engines.
     sanitizeElement(doc.documentElement, allowRemote);
   }
   // This policy is independent of the host page: CSS backgrounds, imports,
