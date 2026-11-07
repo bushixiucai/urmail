@@ -140,10 +140,11 @@ func (f *searchAllClient) ListMessages(_ context.Context, folder string, _ webma
 
 func TestCrossFolderSearchFanoutMerge(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sentDate := base.Add(time.Hour)
 	client := &searchAllClient{
 		byFolder: map[string]webmail.ListResult{
-			"INBOX": {Messages: []webmail.MessageSummary{{UID: 1, Subject: "match", Date: base}}},
-			"Sent":  {Messages: []webmail.MessageSummary{{UID: 2, Subject: "match sent", Date: base.Add(time.Hour)}}},
+			"INBOX": {Messages: []webmail.MessageSummary{{UID: 1, Subject: "match", Date: &base}}},
+			"Sent":  {Messages: []webmail.MessageSummary{{UID: 2, Subject: "match sent", Date: &sentDate}}},
 		},
 		errs: map[string]error{"Broken": context.DeadlineExceeded},
 	}
@@ -162,7 +163,7 @@ func TestCrossFolderSearchFanoutMerge(t *testing.T) {
 	if body.Total != 2 || len(body.Messages) != 2 {
 		t.Fatalf("merge wrong: %+v", body)
 	}
-	if body.Messages[0].Folder != "Sent" || !body.Messages[0].Date.After(body.Messages[1].Date) {
+	if body.Messages[0].Folder != "Sent" || body.Messages[0].Date == nil || body.Messages[1].Date == nil || !body.Messages[0].Date.After(*body.Messages[1].Date) {
 		t.Fatalf("date merge wrong: %+v %+v", body.Messages[0], body.Messages[1])
 	}
 	if body.Messages[0].FolderEnc == "" || body.Messages[1].FolderEnc == "" {

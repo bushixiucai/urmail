@@ -67,7 +67,7 @@ func SearchAll(ctx context.Context, client FolderLister, q string, folders []str
 			merged = append(merged, m)
 		}
 	}
-	sort.SliceStable(merged, func(i, j int) bool { return merged[i].Date.After(merged[j].Date) })
+	sort.SliceStable(merged, func(i, j int) bool { return summaryDate(merged[i]).After(summaryDate(merged[j])) })
 	if len(merged) > MaxSearchTotal {
 		merged = merged[:MaxSearchTotal]
 	}

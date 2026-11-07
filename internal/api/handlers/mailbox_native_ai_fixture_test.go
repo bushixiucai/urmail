@@ -103,7 +103,7 @@ func (f *nativeAIFixtureMail) SaveDraft(_ context.Context, from string, msg webm
 	if err != nil {
 		identity = &netmail.Address{Address: from}
 	}
-	f.messages["Drafts"][uid] = &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: msg.Subject, InReplyTo: msg.InReplyTo, From: []webmail.Address{{Name: identity.Name, Email: identity.Address}}, Flags: []string{`\Draft`}, Date: time.Now()}, UIDValidity: 9, To: addrs(msg.To), Cc: addrs(msg.Cc), Bcc: addrs(msg.Bcc), Text: msg.Text, HTML: msg.HTML, Attachments: []webmail.AttachmentMeta{}}
+	f.messages["Drafts"][uid] = &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: msg.Subject, InReplyTo: msg.InReplyTo, From: []webmail.Address{{Name: identity.Name, Email: identity.Address}}, Flags: []string{`\Draft`}, Date: fixtureNow()}, UIDValidity: 9, To: addrs(msg.To), Cc: addrs(msg.Cc), Bcc: addrs(msg.Bcc), Text: msg.Text, HTML: msg.HTML, Attachments: []webmail.AttachmentMeta{}}
 	return webmail.DraftSaveResult{Folder: "Drafts", NameEnc: webmail.EncodeFolderName("Drafts"), UID: uid, UIDValidity: 9}, nil
 }
 func (f *nativeAIFixtureMail) EnsureDraftsFolder(context.Context) (string, error) {
@@ -325,7 +325,7 @@ func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
 	if _, err = p.Exec(t.Context(), "UPDATE mailboxes SET password_hash=$1 WHERE tenant_id=$2 AND id=$3", hash, principal.TenantID, principal.MailboxID); err != nil {
 		t.Fatal(err)
 	}
-	mail := &nativeAIFixtureMail{next: 1000, messages: map[string]map[uint32]*webmail.Message{"INBOX": {5: {MessageSummary: webmail.MessageSummary{UID: 5, MessageID: "<invoice@ai.example.test>", Subject: "Invoice for October — 42 euros", From: []webmail.Address{{Name: "Billing team", Email: "billing@example.test"}}, Flags: []string{`\Seen`}, Date: time.Now(), Size: 120}, UIDValidity: 9, To: []webmail.Address{{Email: principal.Address}}, Text: "The October invoice total is 42 euros. Payment is due on Friday. Please confirm the bank details independently.", Attachments: []webmail.AttachmentMeta{}}}, "Drafts": {}}}
+	mail := &nativeAIFixtureMail{next: 1000, messages: map[string]map[uint32]*webmail.Message{"INBOX": {5: {MessageSummary: webmail.MessageSummary{UID: 5, MessageID: "<invoice@ai.example.test>", Subject: "Invoice for October — 42 euros", From: []webmail.Address{{Name: "Billing team", Email: "billing@example.test"}}, Flags: []string{`\Seen`}, Date: fixtureNow(), Size: 120}, UIDValidity: 9, To: []webmail.Address{{Email: principal.Address}}, Text: "The October invoice total is 42 euros. Payment is due on Friday. Please confirm the bank details independently.", Attachments: []webmail.AttachmentMeta{}}}, "Drafts": {}}}
 	q := store.New(p)
 	sessions := StoreMailboxNative{Q: q}
 	vault := webmail.NewMemoryVault()
@@ -376,4 +376,10 @@ func newNativeAIHTTPFixture(t *testing.T) nativeAIHTTPFixture {
 	authed.DELETE("/ai/index", answer.Clear)
 	authed.GET("/ai/budget", (&AISearchAskAccounting{Pool: p}).BudgetStatus)
 	return nativeAIHTTPFixture{router: r, pool: p, principal: principal, password: password, mail: mail, model: model, native: native, aiService: service, search: answer}
+}
+
+// fixtureNow returns a pointer date for MessageSummary fixtures.
+func fixtureNow() *time.Time {
+	t := time.Now()
+	return &t
 }

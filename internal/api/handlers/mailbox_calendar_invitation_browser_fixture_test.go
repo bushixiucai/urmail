@@ -63,7 +63,7 @@ func TestCalendarInvitationBrowserFixturePG(t *testing.T) {
 			raw = []byte(strings.Replace(string(raw), "SUMMARY:Unverified browser copy", "SUMMARY:Unverified browser copy (modified)", 1))
 		}
 		f.mail.raw[uid] = raw
-		f.base.mail.messages["INBOX"][uid] = &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: title, From: []webmail.Address{{Email: current.Organizer}}, Date: time.Now(), Size: int64(len(raw))}, UIDValidity: 9, To: []webmail.Address{{Email: f.base.principal.Address}}, Text: "Synthetic scheduling mail for isolated browser acceptance.", Attachments: []webmail.AttachmentMeta{{PartID: "1", Filename: "invitation.ics", ContentType: "text/calendar", Size: int64(len(body))}}}
+		f.base.mail.messages["INBOX"][uid] = &webmail.Message{MessageSummary: webmail.MessageSummary{UID: uid, Subject: title, From: []webmail.Address{{Email: current.Organizer}}, Date: fixtureNow(), Size: int64(len(raw))}, UIDValidity: 9, To: []webmail.Address{{Email: f.base.principal.Address}}, Text: "Synthetic scheduling mail for isolated browser acceptance.", Attachments: []webmail.AttachmentMeta{{PartID: "1", Filename: "invitation.ics", ContentType: "text/calendar", Size: int64(len(body))}}}
 	}
 	group := f.base.router.Group("/api/v1/mailbox", middleware.RequireMailboxAuth(StoreMailboxNative{Q: store.New(f.base.pool)}, f.base.native.Vault))
 	RegisterCalendarIncomingRoutes(group, f.handler)

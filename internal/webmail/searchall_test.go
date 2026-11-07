@@ -39,8 +39,8 @@ func TestSearchAllFanoutMerge(t *testing.T) {
 			{Name: "Junk", Delimiter: "/", Flags: []string{"\\Noselect"}}, // skipped
 		},
 		messages: map[string][]MessageSummary{
-			"INBOX": {{UID: 1, Subject: "hi", Date: mid, From: []Address{{Email: "a@x"}}}},
-			"Sent":  {{UID: 2, Subject: "hi sent", Date: newVal, From: []Address{{Email: "b@x"}}}, {UID: 3, Subject: "old", Date: old}},
+			"INBOX": {{UID: 1, Subject: "hi", Date: envelopeDate(mid), From: []Address{{Email: "a@x"}}}},
+			"Sent":  {{UID: 2, Subject: "hi sent", Date: envelopeDate(newVal), From: []Address{{Email: "b@x"}}}, {UID: 3, Subject: "old", Date: envelopeDate(old)}},
 		},
 		errFor: map[string]error{"Junk": errors.New("broken"), "INBOX/Archive": errors.New("should not be queried")},
 	}
