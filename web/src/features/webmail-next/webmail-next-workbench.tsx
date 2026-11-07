@@ -45,6 +45,8 @@ import {
   deleteMessages,
   moveMessages,
   createMailboxFolder,
+  renameMailboxFolder,
+  deleteMailboxFolder,
   getMailboxQuota,
   listScheduledSends,
   getMailboxAddress,
@@ -57,6 +59,10 @@ import {
   type MailboxRulesView,
   type MailboxSortKey,
 } from "@/features/webmail/mailbox-api";
+import type {
+  RowContextMenuActionHandlers,
+  ContextMenuFolder,
+} from "./components/webmail-row-context-menu";
 import "./theme-vellum.css";
 
 interface WebmailNextWorkbenchProps {
@@ -788,6 +794,198 @@ export function WebmailNextWorkbench({
     ]);
   };
 
+  // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
+  const contextRow = (uid: number) =>
+    messages.find((m: MessageSummary) => m.uid === uid);
+
+  const contextHandlers: RowContextMenuActionHandlers = {
+    onOpen: (uid) => {
+      const msg = contextRow(uid);
+      if (!msg) return;
+      openMessage(uid);
+    },
+    onReply: (uid) => {
+      const msg = contextRow(uid);
+      if (msg)
+        handleReply({ from: msg.from, subject: msg.subject } as MessageDetail);
+    },
+    onForward: (uid) => {
+      const msg = contextRow(uid);
+      if (msg) handleForward({ subject: msg.subject } as MessageDetail);
+    },
+    onArchive: (uids) =>
+      void handleMoveSpecial(
+        "\\Archive",
+        "Archive",
+        "webmail_next.folder_archive",
+        uids,
+      ),
+    onDelete: (uids) =>
+      void handleMoveSpecial(
+        "\\Trash",
+        "Trash",
+        "webmail_next.folder_trash",
+        uids,
+      ),
+    onToggleRead: (uid) => void handleToggleRead(uid),
+    onMoveTo: (uids, folder) => void handleMoveToFolder(folder, uids),
+  };
+
+  /** Move UIDs to an arbitrary folder by enc; same pipeline as bulk move. */
+  const handleMoveToFolder = async (
+    folder: ContextMenuFolder | { name: string; name_enc: string },
+    uids?: number[],
+  ) => {
+    const targets = targetUids(uids);
+    if (targets.length === 0 || isScheduledView || !listValidity) return;
+    const source = activeFolder;
+    if (source === folder.name_enc) return;
+    if (
+      isTrashMailbox(folders, source) &&
+      isTrashMailbox(folders, folder.name_enc)
+    )
+      return;
+    try {
+      const response = await moveMessages(source, {
+        uids: targets,
+        to: folder.name,
+        uid_validity: listValidity,
+      });
+      const undo = moveUndoFromResponse(
+        source,
+        folder.name_enc,
+        targets,
+        response,
+      );
+      selectionRef.current?.clear();
+      refetchMessages();
+      if (selectedUid !== null && targets.includes(selectedUid)) {
+        setSelectedUid(null);
+      }
+      showMoved(folder.name, undo);
+    } catch {
+      // Failure keeps the list untouched (rows return to their original place).
+      refetchMessages();
+    }
+  };
+
+  // --- P1-2: drop UIDs from the list onto a rail folder. ---
+  const handleDropUids = async (folderEnc: string, uids: number[]) => {
+    const folder = folders.find((f) => f.name_enc === folderEnc);
+    if (!folder || uids.length === 0) return false;
+    await handleMoveToFolder(folder, uids);
+    return true;
+  };
+
+  // --- P1-7: folder management. ---
+  const [folderActionError, setFolderActionError] = useState(false);
+
+  const noteFolderActionError = () => {
+    setFolderActionError(true);
+    window.setTimeout(() => setFolderActionError(false), 4000);
+  };
+
+  const handleCreateFolder = async (name: string) => {
+    try {
+      const created = await createMailboxFolder(name);
+      const refreshed = await refetchFolders();
+      const list = refreshed.data?.folders ?? [];
+      return (
+        list.find((f) => f.name_enc === created.name_enc) ??
+        list.find((f) => f.name === (created.name ?? name)) ??
+        null
+      );
+    } catch {
+      noteFolderActionError();
+      return null;
+    }
+  };
+
+  /** Rename/delete require the folder's uid_validity, which LIST does not
+   * carry; a one-message probe retrieves the authoritative generation. */
+  const probeFolderValidity = async (nameEnc: string): Promise<number> => {
+    const page = await listMessages(nameEnc, { limit: 1 });
+    return page.uid_validity ?? 0;
+  };
+
+  const handleRenameFolder = async (nameEnc: string, name: string) => {
+    try {
+      const validity = await probeFolderValidity(nameEnc);
+      if (!validity) throw new Error("NO_VALIDITY");
+      await renameMailboxFolder(nameEnc, name, validity);
+      await refetchFolders();
+      return true;
+    } catch {
+      noteFolderActionError();
+      return false;
+    }
+  };
+
+  const handleDeleteFolder = async (nameEnc: string) => {
+    try {
+      const validity = await probeFolderValidity(nameEnc);
+      if (!validity) throw new Error("NO_VALIDITY");
+      await deleteMailboxFolder(nameEnc, validity);
+      await refetchFolders();
+      if (activeFolder === nameEnc) setActiveFolder(inboxEnc);
+      return true;
+    } catch {
+      noteFolderActionError();
+      return false;
+    }
+  };
+
+  /** Delete confirmation: states the server contract — the folder moves to a
+   * recoverable namespace and must be empty (FOLDER_NOT_EMPTY otherwise). */
+  const renderFolderDeleteConfirm = ({
+    open,
+    folderName,
+    onCancel,
+    onConfirm,
+  }: {
+    open: boolean;
+    folderName: string;
+    onCancel: () => void;
+    onConfirm: () => void;
+  }) => {
+    if (!open) return null;
+    return (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30">
+        <div
+          role="dialog"
+          aria-modal="true"
+          data-testid="folder-delete-dialog"
+          className="bg-[var(--vellum-surface,#ffffff)] border border-[var(--vellum-border,#EBE8E0)] rounded-lg p-4 w-80"
+        >
+          <p className="text-sm text-[#18181B]">
+            {t("webmail_next.folder_delete_body", { folder: folderName })}
+          </p>
+          <p className="mt-2 text-xs text-[var(--vellum-ink-secondary)]">
+            {t("webmail_next.folder_delete_note")}
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              data-testid="folder-delete-cancel"
+              className="text-xs px-3 py-1.5 rounded border border-[var(--vellum-border,#EBE8E0)]"
+              onClick={onCancel}
+            >
+              {t("webmail_next.permanent_delete_cancel")}
+            </button>
+            <button
+              type="button"
+              data-testid="folder-delete-confirm"
+              className="text-xs px-3 py-1.5 bg-[#DC2626] text-white rounded"
+              onClick={onConfirm}
+            >
+              {t("webmail_next.delete_folder")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const replySubject = (subject: string) =>
     subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 
@@ -997,6 +1195,11 @@ export function WebmailNextWorkbench({
             inboxUnread={inboxUnseen}
             quota={quota}
             onCompose={() => openCompose([], "")}
+            onDropUids={handleDropUids}
+            onCreateFolder={handleCreateFolder}
+            onRenameFolder={handleRenameFolder}
+            onDeleteFolder={handleDeleteFolder}
+            deleteConfirmSlot={renderFolderDeleteConfirm}
           />
         </div>
 
@@ -1141,6 +1344,11 @@ export function WebmailNextWorkbench({
                 onBindSelection={(api) => {
                   selectionRef.current = api;
                 }}
+                contextFolders={folders.map((folder) => ({
+                  name: folder.name,
+                  name_enc: folder.name_enc,
+                }))}
+                contextHandlers={contextHandlers}
               />
             )}
           </WebmailErrorBoundary>
@@ -1192,6 +1400,15 @@ export function WebmailNextWorkbench({
         onDone={clearMoveNotice}
         onUndo={moveUndo ? undoMove : undefined}
       />
+      {folderActionError && (
+        <div
+          role="alert"
+          data-testid="folder-action-error"
+          className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#DC2626] text-white text-xs shadow-lg"
+        >
+          {t("webmail_next.folder_action_failed")}
+        </div>
+      )}
       {pendingPermanentUids && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30">
           <div

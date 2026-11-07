@@ -14,6 +14,12 @@ import {
   FolderInput,
 } from "lucide-react";
 import { WebmailMessageRow } from "./webmail-message-row";
+import {
+  WebmailRowContextMenu,
+  type RowContextMenuState,
+  type RowContextMenuActionHandlers,
+  type ContextMenuFolder,
+} from "./webmail-row-context-menu";
 import { useMessageThreading } from "../hooks/use-message-threading";
 import { useRangeSelection } from "../hooks/use-range-selection";
 import type {
@@ -21,6 +27,9 @@ import type {
   MailboxSortKey,
 } from "@/features/webmail/mailbox-api";
 import type { DensityMode, WebmailItem } from "../types";
+
+/** Payload type for dragging UIDs from the list onto a folder. */
+export const MAILBOX_DRAG_TYPE = "application/x-urmail-mailbox-uids";
 
 export interface SelectionApi {
   toggle: (uid: number, shift: boolean, meta: boolean) => void;
@@ -56,6 +65,10 @@ interface WebmailMessageListProps {
   onBulkStar?: (uids: number[]) => void;
   onBulkMove?: (uids: number[], folderName: string) => void;
   onBindSelection?: (api: SelectionApi) => void;
+  /** Row context menu (P1-1): folders for the move submenu. */
+  contextFolders?: ContextMenuFolder[];
+  /** Row context menu (P1-1): reuse the P0 semantic handlers. */
+  contextHandlers?: RowContextMenuActionHandlers;
   totalCount?: number;
   isLoadingMore?: boolean;
   isInitialLoading?: boolean;
@@ -90,6 +103,8 @@ export function WebmailMessageList({
   onBulkStar,
   onBulkMove,
   onBindSelection,
+  contextFolders = [],
+  contextHandlers,
   totalCount,
   isLoadingMore = false,
   isInitialLoading = false,
@@ -103,6 +118,46 @@ export function WebmailMessageList({
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
     useRangeSelection(items);
   const [moveOpen, setMoveOpen] = useState(false);
+  // P1-1: one row context menu instance for the whole list.
+  const [menuState, setMenuState] = useState<RowContextMenuState | null>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  const openContextMenu = (uid: number, x: number, y: number) => {
+    const target = itemsRef.current.find((item) => item.uid === uid);
+    if (!target) return;
+    setMenuState({ uid, x, y, isUnread: target.isUnread });
+  };
+
+  // P1-1 keyboard parity: Shift+F10 or the Menu key opens the menu on the
+  // focused (or cursor) row, anchored near that row.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "ContextMenu" &&
+        !(event.shiftKey && event.key === "F10")
+      )
+        return;
+      const row = document.activeElement?.closest?.(
+        "[data-testid^='mail-row-']",
+      ) as HTMLElement | null;
+      const uid = row
+        ? Number(row.dataset.testid?.replace("mail-row-", ""))
+        : Number.NaN;
+      const resolved = Number.isFinite(uid)
+        ? uid
+        : (cursorUid ?? itemsRef.current[0]?.uid);
+      if (resolved == null || !contextHandlers) return;
+      const anchor = document.querySelector<HTMLElement>(
+        `[data-testid='mail-row-${resolved}']`,
+      );
+      const rect = anchor?.getBoundingClientRect();
+      event.preventDefault();
+      openContextMenu(resolved, rect?.left ?? 80, (rect?.bottom ?? 80) + 4);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cursorUid, contextHandlers]);
 
   const isAllSelected = items.length > 0 && selectedUids.size === items.length;
   const selectedList = [...selectedUids];
@@ -200,6 +255,7 @@ export function WebmailMessageList({
     toggleThreadExpand,
     onDeleteMessage,
     onToggleRead,
+    openContextMenu,
   });
   rowActionsRef.current = {
     onSelectMessage,
@@ -208,6 +264,7 @@ export function WebmailMessageList({
     toggleThreadExpand,
     onDeleteMessage,
     onToggleRead,
+    openContextMenu,
   };
 
   const renderMessageRow = (item: WebmailItem) => (
@@ -242,6 +299,17 @@ export function WebmailMessageList({
       onToggleRead={(event) => {
         event.stopPropagation();
         rowActionsRef.current.onToggleRead?.(item.uid);
+      }}
+      onContextMenu={(x, y) =>
+        rowActionsRef.current.openContextMenu(item.uid, x, y)
+      }
+      onDragStartUids={(fallbackUids) => {
+        // Dragging a member of the selection carries the whole selection;
+        // otherwise it carries just this row.
+        const uids = selectedUids.has(item.uid)
+          ? [...selectedUids]
+          : fallbackUids;
+        return uids;
       }}
     />
   );
@@ -507,6 +575,14 @@ export function WebmailMessageList({
           />
         )}
       </div>
+      {contextHandlers && (
+        <WebmailRowContextMenu
+          state={menuState}
+          folders={contextFolders}
+          handlers={contextHandlers}
+          onClose={() => setMenuState(null)}
+        />
+      )}
     </div>
   );
 }

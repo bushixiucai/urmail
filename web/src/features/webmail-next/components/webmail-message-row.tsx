@@ -25,6 +25,10 @@ interface WebmailMessageRowProps {
   onToggleThread?: (e: React.MouseEvent) => void;
   onDelete?: (e: React.MouseEvent) => void;
   onToggleRead?: (e: React.MouseEvent) => void;
+  /** P1-1: open the row context menu at viewport coordinates. */
+  onContextMenu?: (x: number, y: number) => void;
+  /** P1-2: begin a drag carrying the dragged (or selected) UIDs. */
+  onDragStartUids?: (uids: number[]) => number[];
 }
 
 function WebmailMessageRowView({
@@ -39,6 +43,8 @@ function WebmailMessageRowView({
   onToggleThread,
   onDelete,
   onToggleRead,
+  onContextMenu,
+  onDragStartUids,
 }: WebmailMessageRowProps) {
   const { t } = useTranslation();
   const isListOnly = density === "list_only";
@@ -60,6 +66,23 @@ function WebmailMessageRowView({
       aria-current={isCursor ? "true" : undefined}
       tabIndex={0}
       onClick={onSelect}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContextMenu?.(event.clientX, event.clientY);
+      }}
+      draggable={Boolean(onDragStartUids)}
+      onDragStart={
+        onDragStartUids
+          ? (event) => {
+              const uids = onDragStartUids([item.uid]);
+              event.dataTransfer.setData(
+                "application/x-urmail-mailbox-uids",
+                JSON.stringify(uids),
+              );
+              event.dataTransfer.effectAllowed = "move";
+            }
+          : undefined
+      }
       className="mail-row-item group relative flex items-center border-b border-[#EBE8E0] cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB] focus-visible:-outline-offset-2"
     >
       {/* Active Left Indicator Bar */}
@@ -344,7 +367,9 @@ export function webmailMessageRowPropsAreEqual(
     prev.isSelected === next.isSelected &&
     prev.isActive === next.isActive &&
     Boolean(prev.isCursor) === Boolean(next.isCursor) &&
-    prev.density === next.density
+    prev.density === next.density &&
+    prev.onContextMenu === next.onContextMenu &&
+    prev.onDragStartUids === next.onDragStartUids
   );
 }
 

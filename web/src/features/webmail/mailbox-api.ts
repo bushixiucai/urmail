@@ -1178,26 +1178,38 @@ export interface MailboxMutationResult {
   atomic?: boolean;
 }
 export function createMailboxFolder(name: string) {
-  return mailboxRequest<{ folder?: MailboxFolder; name_enc?: string }>(
-    "/api/v1/mailbox/folders",
-    { method: "POST", body: { name } },
-  );
+  return mailboxRequest<{
+    /** Legacy alias kept for existing dialog consumers. */
+    folder?: MailboxFolder;
+    name?: string;
+    name_enc?: string;
+    uid_validity?: number;
+  }>("/api/v1/mailbox/folders", { method: "POST", body: { name } });
 }
 export function renameMailboxFolder(
   nameEnc: string,
   name: string,
   uidValidity: number,
 ) {
-  return mailboxRequest<{ folder?: MailboxFolder; name_enc?: string }>(
-    `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}`,
-    { method: "PATCH", body: { name, uid_validity: uidValidity } },
-  );
+  return mailboxRequest<{
+    /** Legacy alias kept for existing dialog consumers. */
+    folder?: MailboxFolder;
+    name?: string;
+    name_enc?: string;
+    destination?: string;
+    deleted?: boolean;
+  }>(`/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}`, {
+    method: "PATCH",
+    body: { name, uid_validity: uidValidity },
+  });
 }
 export function deleteMailboxFolder(nameEnc: string, uidValidity: number) {
   return mailboxRequest<{
-    deleted: boolean;
-    destination?: string;
+    name?: string;
     name_enc?: string;
+    destination?: string;
+    deleted: boolean;
+    recoverable?: boolean;
   }>(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}?uid_validity=${uidValidity}`,
     { method: "DELETE" },
