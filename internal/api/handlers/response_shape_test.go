@@ -579,7 +579,6 @@ func TestTenantCurrentResponseShape(t *testing.T) {
 	assertKeys(t, subscription, "plan_code", "plan_name", "status")
 	if subscription["plan_code"] != "" || subscription["status"] != "" {
 		t.Fatalf("subscription must not come from plans: %v", subscription)
-		t.Fatalf("unexpected subscription payload: %v", subscription)
 	}
 }
 
