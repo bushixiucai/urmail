@@ -299,3 +299,24 @@ test("reading view spans the pane width without a centered paper card", async ({
   expect(widths!.gapLeft).toBeLessThan(60);
   expect(widths!.gapRight).toBeLessThan(60);
 });
+
+test("dark-themed HTML mail keeps background and text colors after sanitization", async ({
+  page,
+}) => {
+  await setupReadFixture(page);
+  // Prod Infura dark mail shape: white text over a dark canvas. The sanitizer
+  // must keep the color pair (plus table bgcolor) or it collapses into
+  // white-on-white.
+  await page.goto("/webmail/inbox");
+  const result = await page.evaluate(async () => {
+    const modulePath = "/src/features/webmail/sanitize-html-mail.ts";
+    const { sanitizeHtmlMail } = await import(/* @vite-ignore */ modulePath);
+    const html =
+      '<body style="background-color:#0b0b0f;color:#ffffff"><div style="background-color:#1a1a22;color:#f5f5f5">Weekly usage</div><table><td bgcolor="#101018" style="color:#e5e5e5">Cell copy</td></table></body>';
+    return sanitizeHtmlMail(html);
+  });
+  expect(result).toMatch(/background-color:\s*#0b0b0f/i);
+  expect(result).toMatch(/color:\s*#ffffff/i);
+  expect(result).toContain('bgcolor="#101018"');
+  expect(result).toContain("Weekly usage");
+});
