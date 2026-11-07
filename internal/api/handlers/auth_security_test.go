@@ -132,7 +132,8 @@ func TestLogoutDoesNotAcknowledgeFailedRevocation(t *testing.T) {
 		panel.Logout(c)
 	})
 	vault := webmail.NewMemoryVault()
-	vault.Put("mailbox-session", "password")
+	vault.Put( //nolint:staticcheck // test adapter: Put is the interface under test
+		"mailbox-session", "password")
 	native := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{}, Sessions: failingMailboxLogout{&fakeMailboxSessions{}}, Vault: vault}
 	router.POST("/mailbox", func(c *gin.Context) {
 		c.Set(middleware.ContextMailboxTokenHash, "mailbox-session")

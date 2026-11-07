@@ -17,11 +17,11 @@ type credentialOnlyVault struct {
 	putCalls int
 }
 
-func (v *credentialOnlyVault) Put(token, password string) { v.putCalls++ }
-func (v *credentialOnlyVault) Get(token string) (string, bool) {
+func (v *credentialOnlyVault) Put(_, _ string) { v.putCalls++ }
+func (v *credentialOnlyVault) Get(_ string) (string, bool) {
 	return "", false
 }
-func (v *credentialOnlyVault) Delete(token string) {}
+func (v *credentialOnlyVault) Delete(_ string) {}
 
 func TestProtocolAuthFailsClosedWithoutSessionVault(t *testing.T) {
 	hash, err := mail.HashPassword("failclosed-vault-secret")
