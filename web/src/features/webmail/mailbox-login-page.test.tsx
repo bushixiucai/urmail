@@ -65,6 +65,7 @@ describe("mailbox login", () => {
     expect(body).toEqual({
       email: "user@example.test",
       password: "secret-pass",
+      remember: false,
     });
     expect(window.sessionStorage.getItem("urmail.mailbox-token")).toBe(
       "mbox-token",
@@ -116,5 +117,8 @@ describe("mailbox login", () => {
         "mbox-token-remembered",
       );
     });
+    // Remember also reaches the API so the backend can extend the TTL.
+    const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
+    expect(body).toMatchObject({ remember: true });
   });
 });

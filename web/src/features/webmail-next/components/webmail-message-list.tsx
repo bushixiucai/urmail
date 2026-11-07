@@ -59,6 +59,8 @@ interface WebmailMessageListProps {
   totalCount?: number;
   isLoadingMore?: boolean;
   isInitialLoading?: boolean;
+  /** Fetch failure for the current view: show an error, never "no messages". */
+  loadError?: Error | null;
   onNearEnd?: () => void;
   onLoadedUids?: (uids: number[]) => void;
   /** Test and embedding override. Production measures the scroller. */
@@ -91,6 +93,7 @@ export function WebmailMessageList({
   totalCount,
   isLoadingMore = false,
   isInitialLoading = false,
+  loadError = null,
   onNearEnd,
   onLoadedUids,
   viewportHeight,
@@ -433,6 +436,28 @@ export function WebmailMessageList({
                   className="mail-row-item border-b border-[#EBE8E0] bg-[#F6F4EE] animate-pulse"
                 />
               ))}
+            </div>
+          ) : loadError ? (
+            <div
+              data-testid="list-load-error"
+              role="alert"
+              className="h-full flex flex-col items-center justify-center gap-2 text-xs text-[var(--vellum-ink-secondary)] px-6 text-center"
+            >
+              <Mail className="w-6 h-6 opacity-40" />
+              <p>
+                {t("webmail_next.list_load_failed", {
+                  defaultValue: "Couldn't load messages.",
+                })}
+              </p>
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="px-3 py-1 rounded border border-[#EBE8E0] text-[#18181B] hover:bg-[#F6F4EE] transition-colors"
+                >
+                  {t("action.retry")}
+                </button>
+              )}
             </div>
           ) : (
             <div className="h-full flex items-center justify-center text-xs text-[var(--vellum-ink-secondary)]">

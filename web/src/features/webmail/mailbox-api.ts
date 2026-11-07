@@ -129,6 +129,8 @@ export function setMailboxSession(
   remember = true,
 ): void {
   if (typeof window === "undefined") return;
+  // A new session re-arms the 401 redirect funnel after any prior expiry.
+  redirectingToLogin = false;
   try {
     const target = remember ? window.localStorage : window.sessionStorage;
     const clean = remember ? window.sessionStorage : window.localStorage;
@@ -161,8 +163,61 @@ export function clearMailboxSession(): void {
   }
 }
 
+/**
+ * True only when a session exists AND its expires_at is still in the future.
+ * A dead token is cleared here so pages fail fast to the login screen instead
+ * of firing a burst of doomed requests.
+ */
 export function hasMailboxSession(): boolean {
-  return Boolean(getMailboxToken());
+  if (!getMailboxToken()) return false;
+  const expiresAt = getMailboxExpiresAt();
+  if (!expiresAt) return true;
+  const expiresMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresMs)) return true;
+  if (expiresMs <= Date.now()) {
+    clearMailboxSession();
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Session expiry redirect must fire once per dead session: concurrent 401s
+ * (folders + settings + quotes…) otherwise each trigger their own navigate.
+ * `window.location.assign` survives React trees that never mounted a Router.
+ * A fresh login re-arms the funnel. The indirection exists so tests can
+ * observe navigations (jsdom's Location is unforgeable).
+ */
+let redirectingToLogin = false;
+let navigateToLogin: (target: string) => void = (target) => {
+  window.location.assign(target);
+};
+/** @internal test seam — swap the navigation sink for redirect assertions. */
+export function setMailboxLoginRedirectHandler(
+  handler: ((target: string) => void) | null,
+): void {
+  navigateToLogin = handler ?? ((target) => window.location.assign(target));
+}
+function redirectToLoginOn401(): void {
+  if (redirectingToLogin) return;
+  redirectingToLogin = true;
+  clearMailboxSession();
+  if (typeof window === "undefined") return;
+  const current = `${window.location.pathname}${window.location.search}`;
+  const target = `/webmail/login`;
+  if (current === target) {
+    redirectingToLogin = false;
+    return;
+  }
+  navigateToLogin(target);
+}
+
+function isMailboxAuthError(status: number, code?: string): boolean {
+  return (
+    status === 401 ||
+    code === "MAILBOX_AUTHORIZATION_DENIED" ||
+    code === "MAILBOX_REAUTH_REQUIRED"
+  );
 }
 
 interface MailboxRequestOptions {
@@ -202,9 +257,16 @@ export async function mailboxRequest<T>(
     try {
       parsed = apiErrorSchema.parse(await response.json());
     } catch {
-      throw new ApiRequestError(response.status, {
+      parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      });
+      };
+    }
+    if (
+      auth !== false &&
+      isMailboxAuthError(response.status, parsed.error?.code)
+    ) {
+      // Single funnel: one dead session = one redirect, whatever raced.
+      redirectToLoginOn401();
     }
     throw new ApiRequestError(response.status, parsed);
   }
@@ -223,11 +285,16 @@ export function fetchMailboxStatus(signal?: AbortSignal) {
   );
 }
 
-export function createMailboxSession(email: string, password: string) {
+/** `remember` also drives the backend session TTL (long-lived when true). */
+export function createMailboxSession(
+  email: string,
+  password: string,
+  remember = false,
+) {
   return mailboxRequest<MailboxSession>("/api/v1/mailbox/session", {
     method: "POST",
     auth: false,
-    body: { email, password },
+    body: { email, password, remember },
   });
 }
 
@@ -623,10 +690,12 @@ export async function fetchAttachmentAsOutgoing(
     try {
       parsed = apiErrorSchema.parse(await response.json());
     } catch {
-      throw new ApiRequestError(response.status, {
+      parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      });
+      };
     }
+    if (isMailboxAuthError(response.status, parsed.error?.code))
+      redirectToLoginOn401();
     throw new ApiRequestError(response.status, parsed);
   }
   const buf = await response.arrayBuffer();
@@ -665,10 +734,12 @@ export async function downloadAttachment(
     try {
       parsed = apiErrorSchema.parse(await response.json());
     } catch {
-      throw new ApiRequestError(response.status, {
+      parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      });
+      };
     }
+    if (isMailboxAuthError(response.status, parsed.error?.code))
+      redirectToLoginOn401();
     throw new ApiRequestError(response.status, parsed);
   }
   const blob = await response.blob();
@@ -1190,10 +1261,12 @@ export async function fetchMessageAsOutgoing(
     try {
       parsed = apiErrorSchema.parse(await response.json());
     } catch {
-      throw new ApiRequestError(response.status, {
+      parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      });
+      };
     }
+    if (isMailboxAuthError(response.status, parsed.error?.code))
+      redirectToLoginOn401();
     throw new ApiRequestError(response.status, parsed);
   }
   if (!response.body) throw Error("ORIGINAL_MESSAGE_UNAVAILABLE");

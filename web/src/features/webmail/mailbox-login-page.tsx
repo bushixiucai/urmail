@@ -55,7 +55,11 @@ export function MailboxLoginPage() {
     setError(null);
     setBusy(true);
     try {
-      const session = await createMailboxSession(email.trim(), password);
+      const session = await createMailboxSession(
+        email.trim(),
+        password,
+        remember,
+      );
       setMailboxSession(session, remember);
       navigate("/webmail/inbox", { replace: true });
     } catch (err: unknown) {
