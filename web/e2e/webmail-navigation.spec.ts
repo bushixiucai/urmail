@@ -177,7 +177,7 @@ for (const locale of ["en", "zh-CN"]) {
     );
     for (const { width, height, label } of views) {
       await page.setViewportSize({ width, height });
-      await page.goto("/webmail/inbox");
+      await page.goto("/webmail/inbox?v=legacy");
       await expect(
         page.getByText("Viewport fixture", { exact: true }),
       ).toBeVisible();
@@ -462,7 +462,7 @@ test("cross-folder equal UIDs keep separate actions and retry only failed select
 }) => {
   const { t, operations } = await crossFolderFixture(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/webmail/inbox");
+  await page.goto("/webmail/inbox?v=legacy");
   await expect(
     page.getByText("Viewport fixture", { exact: true }),
   ).toBeVisible();
@@ -571,7 +571,7 @@ test("a delayed cross-folder search cannot replace a newer folder search", async
       });
     } else return route.fallback();
   });
-  await page.goto("/webmail/inbox");
+  await page.goto("/webmail/inbox?v=legacy");
   await expect(
     page.getByText("Viewport fixture", { exact: true }),
   ).toBeVisible();
