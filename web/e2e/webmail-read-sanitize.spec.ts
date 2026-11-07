@@ -262,3 +262,40 @@ test.describe("Webmail Safe Reading & Image Neutralization", () => {
     await expect(page.getByTestId("remote-images-banner")).toBeHidden();
   });
 });
+
+test("reading view spans the pane width without a centered paper card", async ({
+  page,
+}) => {
+  await setupReadFixture(page);
+  await page.goto("/webmail/inbox");
+  await page.getByTestId("mail-row-301").click();
+  await expect(page.getByTestId("mail-html-frame")).toBeVisible();
+
+  // The detail column must not be centered with a max width: its left edge
+  // hugs the pane and the body container is not a boxed card.
+  const widths = await page.evaluate(() => {
+    const pane = document.querySelector<HTMLElement>(
+      "[data-testid='webmail-reading-pane']",
+    );
+    const container = document.querySelector<HTMLElement>(
+      "[data-testid='mail-body-container']",
+    );
+    if (!pane || !container) return null;
+    const paneRect = pane.getBoundingClientRect();
+    const bodyRect = container.getBoundingClientRect();
+    const centered = Boolean(
+      container.closest(".mx-auto") ??
+      container.closest("[class*='max-w-4xl']"),
+    );
+    return {
+      gapLeft: bodyRect.left - paneRect.left,
+      gapRight: paneRect.right - bodyRect.right,
+      centered,
+    };
+  });
+  expect(widths).not.toBeNull();
+  // Body hugs the pane edges (padding only, no centering strip).
+  expect(widths!.centered).toBe(false);
+  expect(widths!.gapLeft).toBeLessThan(60);
+  expect(widths!.gapRight).toBeLessThan(60);
+});
