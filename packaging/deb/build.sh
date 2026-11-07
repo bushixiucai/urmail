@@ -108,9 +108,14 @@ OBS_DIR="/etc/urmail/observability"
 if [ -d "$OBS_DIR" ] && [ -n "$(ls -A "$OBS_DIR" 2>/dev/null)" ]; then
   install -d -m 0700 "$MIGRATION_BASE"
   rm -rf "$MIGRATION_DIR"
-  install -d -m 0700 "$MIGRATION_DIR"
-  cp -a "$OBS_DIR"/. "$MIGRATION_DIR"/
-  chmod 0700 "$MIGRATION_DIR"
+  # cp -a replicates the live directory itself: the snapshot mirrors the
+  # operator's mode and ownership (0750 root:urmail-monitor stays 0750
+  # root:urmail-monitor), so restoring it in postinst never downgrades the
+  # target to a hardcoded mode. No "chmod 0700" here anymore — that stamp
+  # was what leaked into /etc/urmail/observability on every upgrade.
+  cp -a "$OBS_DIR" "$MIGRATION_DIR"
+  # Belt and braces: record the live metadata for the postinst restore.
+  stat -c '%a %U %G' "$OBS_DIR" > "$MIGRATION_BASE/observability.dir-mode"
 else
   rm -rf "$MIGRATION_DIR"
 fi
@@ -150,6 +155,19 @@ ensure_dir -m 0755 /etc/urmail/observability
 MIGRATION_DIR="/var/lib/urmail-config-migration/observability"
 if [ -d "$MIGRATION_DIR" ] && [ -n "$(ls -A "$MIGRATION_DIR" 2>/dev/null)" ]; then
   cp -a "$MIGRATION_DIR"/. /etc/urmail/observability/
+  # cp -a stamps the target top-level directory with the migration
+  # directory's mode. Restore the operator's recorded mode and ownership so
+  # operator settings (0750 root:urmail-monitor) survive every upgrade.
+  MODE_RECORD="/var/lib/urmail-config-migration/observability.dir-mode"
+  if [ -f "$MODE_RECORD" ]; then
+    # shellcheck disable=SC2046 # exactly three fields: mode user group
+    set -- $(cat "$MODE_RECORD")
+    chmod "$1" /etc/urmail/observability
+    if [ -n "${2:-}" ] && [ -n "${3:-}" ]; then
+      chown "${2}:${3}" /etc/urmail/observability
+    fi
+    rm -f "$MODE_RECORD"
+  fi
 fi
 
 # Seed templates only when target configuration never existed
