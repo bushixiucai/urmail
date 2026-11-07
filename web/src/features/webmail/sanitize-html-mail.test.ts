@@ -188,3 +188,47 @@ it("still strips background-color payloads that try to fetch resources", () => {
   expect(out).not.toContain("tracker.test");
   expect(out).not.toContain("expression");
 });
+
+it("recovers the color from a background shorthand with no explicit longhand", () => {
+  // Real MJML mail (prod Infura) paints dark canvases with the shorthand
+  // `background:#121212` — it enumerates as "background", which the
+  // allowlist drops, so the color must be recovered from CSSOM before the
+  // shorthand goes or dark mail collapses to white-on-white even with
+  // background-color allowlisted.
+  const out = sanitizeHtmlMail(
+    '<body style="background:#121212;color:#ffffff"><p>Weekly stats</p></body>',
+  );
+  expect(out).toMatch(/background-color:\s*(#121212|rgb\(18,\s*18,\s*18\))/i);
+  expect(out).toMatch(/color:\s*(#ffffff|rgb\(255,\s*255,\s*255\))/i);
+});
+
+it("keeps the longhand when a background shorthand sits beside it (MJML pattern)", () => {
+  // MJML emits `background:#fff;background-color:#fff` on the same wrapper;
+  // the shorthand removal must not take the allowlisted longhand with it.
+  const out = sanitizeHtmlMail(
+    '<div style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:550px"><p>Body</p></div>',
+  );
+  expect(out).toMatch(
+    /background-color:\s*(#ffffff|rgb\(255,\s*255,\s*255\))/i,
+  );
+  // The shorthand itself is dropped (no raw `background:` stays behind) and
+  // a fetch-bearing neighbor is still stripped.
+  expect(out).not.toMatch(/background:/i);
+  const hostileNeighbor = sanitizeHtmlMail(
+    '<div style="background:#fff;background-image:url(https://t.test/x.png)"><p>B</p></div>',
+  );
+  expect(hostileNeighbor).not.toContain("t.test");
+  expect(hostileNeighbor).not.toMatch(/background-image/i);
+});
+
+it("leaves MSO conditional comments (and any inline residue) untouched", () => {
+  // Real mail fences Outlook-only blocks in conditional comments that may
+  // contain <style> markup; dropping comment nodes swallows visible content
+  // scoped between the fences (observed with a bgcolor'd table). The
+  // sandbox+CSP iframe keeps such residue inert for modern engines.
+  const mail =
+    '<!--[if mso]><style>p{width:100% !important}</style><![endif]--><table><td bgcolor="#101018">Cell</td></table>';
+  const out = sanitizeHtmlMail(mail);
+  expect(out).toContain('bgcolor="#101018"');
+  expect(out).toContain("Cell");
+});
