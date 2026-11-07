@@ -1,0 +1,18 @@
+# gitleaks config: baseline for the public repo (audit 2026-11-07, see Shared/security/)
+# Allowlist patterns verified as non-secrets during the full-history privacy audit.
+title = "urmail gitleaks config"
+
+[allowlist]
+description = "Known false positives from full-history audit"
+paths = [
+  '''docs/reviews/evidence/security-remediation/source-manifest\.json''', # SHA256 file digests
+  '''api/mailinabox\.yml''',        # upstream mailinabox sample placeholders
+  '''management/templates/users\.html''',
+]
+regexes = [
+  '''sk_test_(controlled|concurrent)''',
+  '''test-quote-signing-key-at-least-32-bytes''',
+  '''s3curE_pa5Sw0rD''',
+  '''ops\d{3}-[a-z-]+''',
+  '''1a2b3c4d5e6f7g8h9i0j''',
+]
