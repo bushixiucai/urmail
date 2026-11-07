@@ -47,7 +47,7 @@ func TestFolderManagementGuardsAndUncertainOutcomes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	f := &managedFolderFixture{fakeIMAPClient: &fakeIMAPClient{folders: []webmail.Folder{{Name: "INBOX"}, {Name: "Drafts", Flags: []string{`\Drafts`}}, {Name: "Custom", Delimiter: "/"}, {Name: "Trash", Flags: []string{`\Trash`}}}}}
 	vault := webmail.NewMemoryVault()
-	vault.Put("token", "password")
+	vault.Put("token", "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{}, Sessions: &fakeMailboxSessions{}, Vault: vault, Dialer: &fakeDialer{wantAddress: "alice@example.test", client: f}}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -121,7 +121,7 @@ func (f *lateAppendFolderFixture) DeleteFolder(_ context.Context, name string) e
 func TestFolderDeletionPreservesConcurrentLateArrival(t *testing.T) {
 	f := &lateAppendFolderFixture{managedFolderFixture: &managedFolderFixture{fakeIMAPClient: &fakeIMAPClient{folders: []webmail.Folder{{Name: "Custom", Delimiter: "."}, {Name: "Waste", Delimiter: ".", Flags: []string{`\Trash`}}}}}, messages: map[string][]string{}}
 	vault := webmail.NewMemoryVault()
-	vault.Put("token", "password")
+	vault.Put("token", "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	h := &MailboxNativeHandler{Enabled: true, Auth: fakeMailboxAuth{}, Sessions: &fakeMailboxSessions{}, Vault: vault, Dialer: &fakeDialer{wantAddress: "alice@example.test", client: f}}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {

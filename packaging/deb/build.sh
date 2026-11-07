@@ -129,12 +129,22 @@ if ! getent passwd mailinabox >/dev/null; then
 	adduser --system --ingroup mailinabox --home /var/lib/urmail --no-create-home mailinabox
 fi
 
-install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail
-install -d -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/backups
-install -d -o mailinabox -g mailinabox -m 0700 /var/lib/urmail/archive
-install -d -o root -g mailinabox -m 0750 /etc/urmail
-install -d -m 0755 /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d /etc/postfix/urmail
-install -d -m 0755 /etc/urmail/observability
+# Idempotent directory creation: never touch permissions of directories that
+# already exist, so operator customization (e.g. alertmanager's 0750
+# root:urmail-monitor on /etc/urmail/observability) survives upgrades.
+ensure_dir() {
+  for dir in "$@"; do :; done  # dir is the last argument
+  [ -d "$dir" ] || install -d "$@" "$dir"
+}
+ensure_dir -o mailinabox -g mailinabox -m 0750 /var/lib/urmail
+ensure_dir -o mailinabox -g mailinabox -m 0750 /var/lib/urmail/backups
+ensure_dir -o mailinabox -g mailinabox -m 0700 /var/lib/urmail/archive
+ensure_dir -o root -g mailinabox -m 0750 /etc/urmail
+ensure_dir -o root -g mailinabox -m 0755 /etc/postfix/urmail
+for shared_dir in /etc/nginx/snippets /etc/dovecot/conf.d /etc/nsd/nsd.conf.d; do
+  ensure_dir -m 0755 "$shared_dir"
+done
+ensure_dir -m 0755 /etc/urmail/observability
 
 # Restore existing observability configuration from preinst snapshot if present
 MIGRATION_DIR="/var/lib/urmail-config-migration/observability"
@@ -153,16 +163,19 @@ if [ -d /usr/share/urmail/observability ]; then
   done
 fi
 
-install -d -o root -g opendkim -m 0750 /etc/opendkim /etc/opendkim/keys
+ensure_dir -o root -g opendkim -m 0750 /etc/opendkim
+ensure_dir -o root -g opendkim -m 0750 /etc/opendkim/keys
 # Seed the canonical file before the service drop-in is loaded, so a failed
 # first generation can restore a valid stock configuration atomically.
 if [ ! -e /etc/opendkim/opendkim.conf ] && [ -f /etc/opendkim.conf ]; then
   install -o root -g opendkim -m 0644 /etc/opendkim.conf /etc/opendkim/opendkim.conf
 fi
-install -d -o root -g root -m 0755 /etc/nsd/zones /var/lib/urmail-acme /var/lib/nsd/urmail-secondary /etc/systemd/system/nsd.service.d
-install -d -o root -g root -m 0700 /var/lib/urmail-agent /etc/letsencrypt /var/log/letsencrypt
-chown root:mailinabox /etc/postfix/urmail
-chmod 0755 /etc/postfix/urmail
+for root_dir in /etc/nsd/zones /var/lib/urmail-acme /var/lib/nsd/urmail-secondary /etc/systemd/system/nsd.service.d; do
+  ensure_dir -o root -g root -m 0755 "$root_dir"
+done
+for private_dir in /var/lib/urmail-agent /etc/letsencrypt /var/log/letsencrypt; do
+  ensure_dir -o root -g root -m 0700 "$private_dir"
+done
 
 # The Debian nsd package does not always include nsd.conf.d; add the drop-in
 # once so generated zones are loaded.

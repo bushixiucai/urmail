@@ -4,6 +4,8 @@ package passwordwork
 import (
 	"context"
 	"errors"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -23,8 +25,13 @@ var (
 )
 
 // ValidateNew applies to newly chosen passwords, not historical verification.
+// Control characters are rejected the same way mailbox passwords are: they
+// corrupt logs and terminal-based entry flows.
 func ValidateNew(password string) error {
 	if utf8.RuneCountInString(password) < MinNewRunes || len(password) > MaxNewBytes || !utf8.ValidString(password) {
+		return ErrInvalidPassword
+	}
+	if strings.ContainsFunc(password, unicode.IsControl) {
 		return ErrInvalidPassword
 	}
 	return nil

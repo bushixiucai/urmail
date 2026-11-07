@@ -154,7 +154,13 @@ func NewMemoryVault() *MemoryVault {
 	}
 }
 
-// Put is retained for test adapters; production uses PutSession with the actual expiry.
+// Put stores a credential with a fixed 30-minute expiry and no session
+// metadata.
+//
+// Deprecated: production paths must use PutSession so the vault entry carries
+// the real session expiry and can be swept with it. Put remains only for test
+// adapters; handlers must fail closed when the vault does not implement
+// SessionVault instead of falling back here.
 func (v *MemoryVault) Put(token, password string) {
 	if v != nil {
 		now := v.now

@@ -132,6 +132,51 @@ class ObservabilityPackagingTests(unittest.TestCase):
             # New file not in snapshot was seeded
             self.assertEqual((obs_dir / "alerts.yml").read_text(), "stock-alerts-new")
 
+    def test_postinst_preserves_existing_directory_permissions(self):
+        """Upgrades must not reset permissions of existing directories (alertmanager needs 0750 root:urmail-monitor)."""
+        postinst = extract_embedded_script(self.build_source, "postinst")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            obs_dir = base / "etc/urmail/observability"
+            obs_dir.mkdir(parents=True)
+            (obs_dir / "alertmanager.yml").write_text("operator-managed")
+            os.chmod(obs_dir, 0o750)
+            varlib = base / "var/lib/urmail"
+            varlib.mkdir(parents=True)
+            os.chmod(varlib, 0o700)
+
+            script = self._adapt_script(postinst, base, stub_systemctl=True)
+            result = subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            # Existing directories keep operator permissions untouched.
+            self.assertEqual(stat.S_IMODE(obs_dir.stat().st_mode), 0o750)
+            self.assertEqual(stat.S_IMODE(varlib.stat().st_mode), 0o700)
+
+    def test_postinst_creates_missing_directories(self):
+        """Idempotent ensure_dir must still create directories that do not exist."""
+        postinst = extract_embedded_script(self.build_source, "postinst")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            script = self._adapt_script(postinst, base, stub_systemctl=True)
+            result = subprocess.run(["/bin/sh", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for expected in [
+                base / "var/lib/urmail/backups",
+                base / "var/lib/urmail/archive",
+                base / "etc/urmail/observability",
+                base / "etc/postfix/urmail",
+            ]:
+                self.assertTrue(expected.is_dir(), f"missing {expected}")
+
+    def test_build_sh_has_no_unconditional_etc_install_dash_d(self):
+        """postinst must never unconditionally reset permissions under /etc."""
+        postinst = extract_embedded_script(self.build_source, "postinst")
+        for line in postinst.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("install -d") and "/etc/" in stripped:
+                self.fail(f"unconditional install -d on system path: {stripped}")
+
     def test_alertmanager_exec_start_pre_blocks_placeholder_receiver(self):
         """Alertmanager ExecStartPre must abort when receiver.enabled points to 127.0.0.1 placeholder."""
         exec_start_pre = extract_exec_start_pre(self.service_source)

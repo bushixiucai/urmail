@@ -116,7 +116,7 @@ func TestSendMailDurableLifecycle(t *testing.T) {
 	sess := webmail.Session{TenantID: f.tenant, MailboxID: f.mailboxA, Address: "a@eas.test", TokenHash: "send-vault"}
 	r, s := newEASRouter(t, f, sess)
 	vault := webmail.NewMemoryVault()
-	vault.Put(sess.TokenHash, "password")
+	vault.Put(sess.TokenHash, "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	s.Vault = vault
 	submit := &sendFake{}
 	s.Submitter = submit
@@ -196,7 +196,7 @@ func TestSendMailSharedSMTPWire(t *testing.T) {
 	sess := webmail.Session{TenantID: f.tenant, MailboxID: f.mailboxA, Address: "a@eas.test", TokenHash: "smtp"}
 	r, s := newEASRouter(t, f, sess)
 	vault := webmail.NewMemoryVault()
-	vault.Put(sess.TokenHash, "secret")
+	vault.Put(sess.TokenHash, "secret") //nolint:staticcheck // test adapter seeding, Put exists for this
 	s.Vault = vault
 	s.MaySend = func(context.Context, int64, int64) (bool, error) { return true, nil }
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
@@ -298,7 +298,7 @@ func TestSmartReplyForwardSourceAndComposition(t *testing.T) {
 	sess := webmail.Session{TenantID: f.tenant, MailboxID: f.mailboxA, Address: "a@eas.test", TokenHash: "smart"}
 	r, s := newEASRouter(t, f, sess)
 	vault := webmail.NewMemoryVault()
-	vault.Put(sess.TokenHash, "password")
+	vault.Put(sess.TokenHash, "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	s.Vault = vault
 	submit := &sendFake{}
 	s.Submitter = submit

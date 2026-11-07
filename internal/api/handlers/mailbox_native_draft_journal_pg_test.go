@@ -82,7 +82,8 @@ func TestDraftSaveJournalReplayReconcileAndConflictPG(t *testing.T) {
 	fixture := newNativeAIHTTPFixture(t)
 	imap := &draftJournalIMAP{fakeIMAPClient: &fakeIMAPClient{}, raw: map[uint32][]byte{}, next: 100}
 	vault := webmail.NewMemoryVault()
-	vault.Put("token", "password")
+	vault.Put( //nolint:staticcheck // test adapter: Put is the interface under test
+		"token", "password")
 	h := &MailboxNativeHandler{Enabled: true, Pool: fixture.pool, Auth: fakeMailboxAuth{}, Sessions: &fakeMailboxSessions{}, Vault: vault, Dialer: &fakeDialer{wantAddress: fixture.principal.Address, client: imap}}
 	request := func(key string, body string, status int) webmail.DraftSaveResult {
 		t.Helper()
@@ -149,7 +150,8 @@ func TestDraftSaveJournalSingleConnectionConcurrentPG(t *testing.T) {
 		imap.raw[uid] = []byte("Original persisted draft")
 	}
 	vault := webmail.NewMemoryVault()
-	vault.Put("token", "password")
+	vault.Put( //nolint:staticcheck // test adapter: Put is the interface under test
+		"token", "password")
 	h := &MailboxNativeHandler{Enabled: true, Pool: pool, Auth: fakeMailboxAuth{}, Sessions: &fakeMailboxSessions{}, Vault: vault, Dialer: draftJournalDialer{client: imap}}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {

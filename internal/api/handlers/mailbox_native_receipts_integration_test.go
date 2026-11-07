@@ -45,7 +45,7 @@ func durableNativeReceiptFixture(t *testing.T) (*MailboxNativeHandler, *gin.Engi
 	hash := mailboxprincipal.HashToken(token)
 	sessions := &fakeMailboxSessions{byHash: map[string]webmail.Session{hash: {TenantID: tenant, MailboxID: mailbox, Address: "alice@http-receipt.test", TokenHash: hash, ExpiresAt: time.Now().Add(time.Hour)}}}
 	vault := webmail.NewMemoryVault()
-	vault.Put(hash, "fixture-password")
+	vault.Put(hash, "fixture-password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	box, e := secrets.New(bytes.Repeat([]byte{3}, 32))
 	if e != nil {
 		t.Fatal(e)

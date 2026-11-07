@@ -3,8 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"strings"
-	"unicode"
 
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
@@ -23,10 +21,7 @@ type mailboxPasswordIdentity struct{ TenantID, MailboxID int64 }
 
 // validMailboxPassword does not trim or normalize a user's secret.
 func validMailboxPassword(oldPassword, newPassword string) bool {
-	if !passwordwork.ValidVerification(oldPassword) || passwordwork.ValidateNew(newPassword) != nil || oldPassword == newPassword {
-		return false
-	}
-	return !strings.ContainsFunc(newPassword, unicode.IsControl)
+	return passwordwork.ValidVerification(oldPassword) && passwordwork.ValidateNew(newPassword) == nil && oldPassword != newPassword
 }
 
 // changeMailboxPassword trusts only the existing mailbox session and a fresh

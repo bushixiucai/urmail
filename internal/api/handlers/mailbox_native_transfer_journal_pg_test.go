@@ -15,7 +15,7 @@ func TestMailTransferDurableReplayAndUnknownPG(t *testing.T) {
 	fixture := newNativeAIHTTPFixture(t)
 	f := &managedFolderFixture{fakeIMAPClient: &fakeIMAPClient{folders: []webmail.Folder{{Name: "INBOX"}, {Name: "Custom"}, {Name: "Trash", Flags: []string{`\Trash`}}}}}
 	vault := webmail.NewMemoryVault()
-	vault.Put("token", "password")
+	vault.Put("token", "password") //nolint:staticcheck // test adapter seeding, Put exists for this
 	h := &MailboxNativeHandler{Enabled: true, Pool: fixture.pool, Auth: fakeMailboxAuth{}, Sessions: &fakeMailboxSessions{}, Vault: vault, Dialer: &fakeDialer{wantAddress: fixture.principal.Address, client: f}}
 	request := func(action, key, body string, status int) *httptest.ResponseRecorder {
 		t.Helper()
