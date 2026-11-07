@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // SortKeys accepted by ListOpts.SortBy and the cross-folder search endpoint.
@@ -50,6 +51,15 @@ func imapSortKey(key string, desc bool) string {
 // server does not advertise SORT. Tie-break by UID so the cursor contract
 // stays stable: for equal keys the ascending direction puts the lower UID
 // first, the descending direction the higher UID first.
+// summaryDate treats an unparsable date as the zero time so sorting keeps a
+// stable, non-panicking order for messages without a usable ENVELOPE date.
+func summaryDate(m MessageSummary) time.Time {
+	if m.Date == nil {
+		return time.Time{}
+	}
+	return *m.Date
+}
+
 func SortSummaries(msgs []MessageSummary, key string, desc bool) {
 	if key == "" {
 		// Arrival order: UID descending, newest first.
@@ -65,7 +75,7 @@ func SortSummaries(msgs []MessageSummary, key string, desc bool) {
 		case "size":
 			return a.Size < b.Size
 		default:
-			return a.Date.Before(b.Date)
+			return summaryDate(a).Before(summaryDate(b))
 		}
 	}
 	sort.SliceStable(msgs, func(i, j int) bool {

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html/charset"
 )
 
 // parseEnvelope extracts subject/from/date from an IMAP ENVELOPE s-expression.
@@ -123,12 +125,21 @@ func decodeMIMEHeader(s string) string {
 	if s == "" {
 		return ""
 	}
-	dec := new(mime.WordDecoder)
+	dec := mime.WordDecoder{CharsetReader: charset.NewReaderLabel}
 	out, err := dec.DecodeHeader(s)
 	if err != nil {
 		return s
 	}
 	return out
+}
+
+// envelopeDate maps an unparsable ENVELOPE date to a nil pointer so the JSON
+// payload omits the field entirely.
+func envelopeDate(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func parseIMAPDate(s string) time.Time {
@@ -329,7 +340,7 @@ func summaryFromAttrs(attrs map[string]string) (MessageSummary, error) {
 		UID:            uid,
 		Subject:        subject,
 		From:           from,
-		Date:           date,
+		Date:           envelopeDate(date),
 		Flags:          parseFlags(attrs["FLAGS"]),
 		Size:           parseSize(attrs["RFC822.SIZE"]),
 		InReplyTo:      inReplyTo,

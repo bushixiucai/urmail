@@ -278,7 +278,7 @@ func TestMailboxNativeRuntime(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if message.MessageID != result.Receipt.MessageID || message.Date.IsZero() || len(message.Bcc) != 0 {
+			if message.MessageID != result.Receipt.MessageID || message.Date == nil || len(message.Bcc) != 0 {
 				t.Fatal("Date/Message-ID/Bcc identity drift")
 			}
 			_ = client.Close()

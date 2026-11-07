@@ -10,7 +10,7 @@ func mk(uid uint32, subject, from string, size int64, date string) MessageSummar
 	if err != nil {
 		panic(err)
 	}
-	return MessageSummary{UID: uid, Subject: subject, Size: size, Date: t,
+	return MessageSummary{UID: uid, Subject: subject, Size: size, Date: envelopeDate(t),
 		From: []Address{{Email: from}}}
 }
 

@@ -139,8 +139,16 @@ func (s *webmailMailSource) DeleteUIDs(ctx context.Context, folder string, uids 
 
 func (s *webmailMailSource) Close() error { return s.client.Close() }
 
+// summaryDateUTC resolves a possibly nil summary date to the zero time.
+func summaryDateUTC(m webmail.MessageSummary) time.Time {
+	if m.Date == nil {
+		return time.Time{}
+	}
+	return m.Date.UTC()
+}
+
 func mailMessageFromSummary(m webmail.MessageSummary) MailMessage {
-	msg := MailMessage{UID: m.UID, Subject: m.Subject, Date: m.Date, Size: m.Size}
+	msg := MailMessage{UID: m.UID, Subject: m.Subject, Date: summaryDateUTC(m), Size: m.Size}
 	for _, a := range m.From {
 		msg.From = append(msg.From, renderAddress(a))
 	}

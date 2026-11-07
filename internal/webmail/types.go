@@ -69,9 +69,11 @@ type MessageSummary struct {
 	UID            uint32    `json:"uid"`
 	Subject        string    `json:"subject"`
 	From           []Address `json:"from"`
-	Date           time.Time `json:"date"`
-	Flags          []string  `json:"flags"`
-	Size           int64     `json:"size"`
+	// Date is nil when the IMAP ENVELOPE date could not be parsed: the JSON
+	// field is omitted so clients render an em dash instead of 1/1/1.
+	Date  *time.Time `json:"date,omitempty"`
+	Flags []string   `json:"flags"`
+	Size  int64      `json:"size"`
 	// MessageID / InReplyTo come from ENVELOPE and feed client-side threading.
 	MessageID string `json:"message_id,omitempty"`
 	InReplyTo string `json:"in_reply_to,omitempty"`
