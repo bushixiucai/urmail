@@ -1,0 +1,73 @@
+name: 'Node.js toolchain'
+description: >
+  Installs a pinned Node.js from nodejs.org/dist and caches it on the
+  runner, together with the npm download cache. Replacement for
+  actions/setup-node when the GitHub releases CDN is down: setup-node
+  downloads from github.com node-versions assets, while nodejs.org is
+  independent infrastructure.
+inputs:
+  node-version:
+    description: 'Exact Node.js version to install, e.g. 22.11.0'
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Resolve platform
+      id: platform
+      shell: bash
+      run: |
+        case "${{ runner.os }}" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          *) echo "::error::unsupported runner.os: ${{ runner.os }}"; exit 1 ;;
+        esac
+        case "${{ runner.arch }}" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::unsupported runner.arch: ${{ runner.arch }}"; exit 1 ;;
+        esac
+        echo "platform=${os}-${arch}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the toolchain
+      id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/.cache/urmail/toolchains/node
+        key: nodetc-${{ runner.os }}-${{ runner.arch }}-node${{ inputs.node-version }}
+
+    - name: Download the toolchain from nodejs.org
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/urmail/toolchains/node"
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+          "https://nodejs.org/dist/v${{ inputs.node-version }}/node-v${{ inputs.node-version }}-${{ steps.platform.outputs.platform }}.tar.xz" \
+          -o "$RUNNER_TEMP/node-toolchain.tar.xz"
+        tar -C "$dest" -xJf "$RUNNER_TEMP/node-toolchain.tar.xz"
+        rm -f "$RUNNER_TEMP/node-toolchain.tar.xz"
+
+    - name: Cache npm downloads
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        # Replaces the npm cache that actions/setup-node used to provide.
+        path: ~/.npm
+        key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/package-lock.json') }}
+        restore-keys: |
+          npm-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Put it on PATH and verify the version
+      shell: bash
+      run: |
+        set -euo pipefail
+        bindir="$HOME/.cache/urmail/toolchains/node/node-v${{ inputs.node-version }}-${{ steps.platform.outputs.platform }}/bin"
+        echo "$bindir" >> "$GITHUB_PATH"
+        # GITHUB_PATH only affects later steps; assert with the absolute path.
+        version="$("$bindir/node" --version)"
+        if [ "$version" != "v${{ inputs.node-version }}" ]; then
+          echo "::error::node version mismatch: got $version, want v${{ inputs.node-version }}"
+          exit 1
+        fi
+        echo "node toolchain ready: $version ($("$bindir/npm" --version))"
