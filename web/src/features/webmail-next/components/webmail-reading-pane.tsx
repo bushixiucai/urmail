@@ -22,7 +22,9 @@ import {
 import {
   createContact,
   type MessageDetail,
+  type MessageSummary,
 } from "@/features/webmail/mailbox-api";
+import { WebmailThreadStack } from "./webmail-thread-stack";
 
 interface WebmailReadingPaneProps {
   message: MessageDetail | null;
@@ -30,6 +32,8 @@ interface WebmailReadingPaneProps {
   isLoading?: boolean;
   isGlobalRemoteImagesAllowed?: boolean;
   isManualRemoteImagesAllowed?: boolean;
+  /** Loaded members of the selected thread (oldest→newest optional). */
+  threadMembers?: MessageSummary[];
   onBack?: () => void;
   onReply?: (msg: MessageDetail) => void;
   onReplyAll?: (msg: MessageDetail) => void;
@@ -38,6 +42,11 @@ interface WebmailReadingPaneProps {
   onToggleStar?: (uid: number) => void;
   onLoadRemoteImages?: (uid: number) => void;
   onAlwaysTrustSender?: (senderEmail: string) => void;
+  /** Switch the expanded stack card (loads that UID's detail). */
+  onExpandThreadUid?: (uid: number) => void;
+  onMarkThreadRead?: () => void;
+  onArchiveThread?: () => void;
+  onDeleteThread?: () => void;
 }
 
 const FRAME_MIN_HEIGHT = 420;
@@ -186,6 +195,7 @@ export function WebmailReadingPane({
   isLoading = false,
   isGlobalRemoteImagesAllowed = false,
   isManualRemoteImagesAllowed = false,
+  threadMembers,
   onBack,
   onReply,
   onReplyAll,
@@ -194,6 +204,10 @@ export function WebmailReadingPane({
   onToggleStar,
   onLoadRemoteImages,
   onAlwaysTrustSender,
+  onExpandThreadUid,
+  onMarkThreadRead,
+  onArchiveThread,
+  onDeleteThread,
 }: WebmailReadingPaneProps) {
   const { t } = useTranslation();
   const [localManualGranted, setLocalManualGranted] = useState(false);
@@ -317,6 +331,117 @@ export function WebmailReadingPane({
       setIsAddingContact(false);
     }
   };
+
+  const bodySlot = (
+    <>
+      {hasBlockedImages && (
+        <div
+          data-testid="remote-images-banner"
+          className="mb-3 p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex items-center justify-between gap-3 text-xs text-[#92400E]"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-[#D97706] shrink-0" />
+            <span>{t("webmail_next.remote_images_blocked")}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              data-testid="show-images-button"
+              type="button"
+              onClick={handleShowImages}
+              className="px-2 py-1 bg-white border border-[#D97706]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
+            >
+              {t("webmail_next.show_images")}
+            </button>
+            <button
+              data-testid="always-trust-button"
+              type="button"
+              onClick={handleAlwaysTrust}
+              className="px-2 py-1 text-[#92400E] hover:underline transition-colors"
+            >
+              {t("webmail_next.always_trust_images")}
+            </button>
+          </div>
+        </div>
+      )}
+      <div
+        data-testid="mail-body-container"
+        className="text-sm text-[#18181B] leading-relaxed min-h-[220px]"
+      >
+        {message.html ? (
+          <SanitizedHtmlFrame
+            title={message.subject || "Email Content"}
+            html={
+              useWorker
+                ? workerHtml
+                : sanitizeHtmlMail(message.html, {
+                    allowRemoteImages: isImageAllowed,
+                  })
+            }
+          />
+        ) : (
+          <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B] max-w-[65ch]">
+            {message.text || "(Empty message)"}
+          </pre>
+        )}
+      </div>
+      {message.attachments && message.attachments.length > 0 && (
+        <div data-testid="attachments-container" className="pt-2">
+          <div className="text-xs font-semibold text-[var(--vellum-ink-secondary)] mb-3">
+            Attachments ({message.attachments.length})
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {message.attachments.map((att) => (
+              <WebmailAttachmentCard
+                key={att.part_id}
+                attachment={att}
+                folderEnc={folderEnc}
+                uid={message.uid}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // Thread stack (VISUAL §3): when the loaded set has 2+ members of the
+  // same thread, render the stacked cards instead of the single-message pane.
+  if (threadMembers && threadMembers.length > 1 && message) {
+    return (
+      <div
+        data-testid="webmail-reading-pane"
+        className="flex-1 h-full flex flex-col bg-[var(--vellum-ground)] overflow-hidden"
+      >
+        {onBack && (
+          <div className="md:hidden h-10 px-3 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] flex items-center shrink-0">
+            <button
+              data-testid="reading-back-button"
+              type="button"
+              onClick={onBack}
+              className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded"
+              aria-label={t("webmail_next.back_to_list")}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        <WebmailThreadStack
+          members={threadMembers}
+          expandedUid={message.uid}
+          expandedDetail={message}
+          isDetailLoading={isLoading}
+          bodySlot={bodySlot}
+          onExpand={(uid) => onExpandThreadUid?.(uid)}
+          onReply={(msg) => onReply?.(msg)}
+          onReplyAll={(msg) => onReplyAll?.(msg)}
+          onForward={(msg) => onForward?.(msg)}
+          onMarkThreadRead={() => onMarkThreadRead?.()}
+          onArchiveThread={() => onArchiveThread?.()}
+          onDeleteThread={() => onDeleteThread?.()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div

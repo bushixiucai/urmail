@@ -1108,6 +1108,24 @@ export function WebmailNextWorkbench({
     onAction: onShortcut,
   });
 
+  // Members of the selected message's thread that are present in the
+  // currently loaded list pages (oldest → newest). Used by the reading
+  // pane stack; count may be < server thread_count until PR-6 lands.
+  const threadMembers = useMemo(() => {
+    if (selectedUid === null) return [] as MessageSummary[];
+    const selected = messages.find((m) => m.uid === selectedUid);
+    if (!selected?.thread_id) return selected ? [selected] : [];
+    const siblings = messages.filter((m) => m.thread_id === selected.thread_id);
+    return siblings.sort(
+      (a, b) =>
+        new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
+    );
+  }, [messages, selectedUid]);
+  const threadMemberUids = useMemo(
+    () => threadMembers.map((m) => m.uid),
+    [threadMembers],
+  );
+
   return (
     <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[#FAF9F5] text-[#18181B] overflow-hidden select-none">
       {/* 1. Global Header */}
@@ -1368,6 +1386,7 @@ export function WebmailNextWorkbench({
               isLoading={isDetailLoading}
               isGlobalRemoteImagesAllowed={isGlobalImagesAllowed}
               isManualRemoteImagesAllowed={isCurrentManualGranted}
+              threadMembers={threadMembers}
               onBack={() => setSelectedUid(null)}
               onReply={handleReply}
               onReplyAll={handleReplyAll}
@@ -1375,6 +1394,35 @@ export function WebmailNextWorkbench({
               onDelete={handleDeleteMessage}
               onToggleStar={handleToggleStar}
               onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
+              onExpandThreadUid={(uid) => openMessage(uid)}
+              onMarkThreadRead={() => {
+                if (threadMemberUids.length === 0) return;
+                void (async () => {
+                  await flagMessages(activeFolder, {
+                    uids: threadMemberUids,
+                    add: ["\\Seen"],
+                    remove: [],
+                  });
+                  refetchMessages();
+                  refetchDetail();
+                })();
+              }}
+              onArchiveThread={() =>
+                void handleMoveSpecial(
+                  "\\Archive",
+                  "Archive",
+                  "webmail_next.folder_archive",
+                  threadMemberUids,
+                )
+              }
+              onDeleteThread={() =>
+                void handleMoveSpecial(
+                  "\\Trash",
+                  "Trash",
+                  "webmail_next.folder_trash",
+                  threadMemberUids,
+                )
+              }
             />
           </WebmailErrorBoundary>
         </div>
