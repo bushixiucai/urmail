@@ -134,7 +134,7 @@ describe("WebmailMessageList", () => {
     expect(onSortChange).toHaveBeenCalledWith("date", "asc");
   });
 
-  it("renders in list_only single-line density mode", () => {
+  it("renders list_only density with the shared two-line structure", () => {
     render(
       <WebmailMessageList
         folderName="Inbox"
@@ -151,7 +151,8 @@ describe("WebmailMessageList", () => {
     const firstRow = screen.getByTestId("mail-row-102");
     expect(firstRow.className).toContain("mail-row-item");
     expect(firstRow.getAttribute("data-density")).toBe("list_only");
-    expect(firstRow.className).not.toContain("h-8");
+    expect(firstRow.className).toContain("h-8");
+    expect(screen.getByTestId("mail-snippet-102")).toBeTruthy();
     expect(screen.getByText("Re: Meeting Tomorrow")).toBeTruthy();
   });
 
