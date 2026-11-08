@@ -9,11 +9,15 @@ export function WebmailMoveNotice({
   token,
   onDone,
   onUndo,
+  suggestRule,
+  onSuggestRule,
 }: {
   message: string | null;
   token: number;
   onDone: () => void;
   onUndo?: () => void;
+  suggestRule?: { sender: string; folder: string } | null;
+  onSuggestRule?: () => void;
 }) {
   const { t } = useTranslation();
 
@@ -35,11 +39,26 @@ export function WebmailMoveNotice({
         <button
           type="button"
           data-testid="webmail-move-undo"
-          className="text-xs font-semibold underline"
+          className="text-xs font-semibold underline hover:text-[#93C5FD]"
           onClick={onUndo}
         >
           {t("webmail_next.undo_move")}
         </button>
+      )}
+      {suggestRule && onSuggestRule && (
+        <div className="flex items-center gap-2 border-l border-white/20 pl-3">
+          <span className="text-xs text-white/80">
+            {t("webmail_next.suggest_sieve_rule")}
+          </span>
+          <button
+            type="button"
+            data-testid="btn-create-sieve-rule"
+            className="text-xs font-semibold text-[#60A5FA] hover:text-[#93C5FD] underline"
+            onClick={onSuggestRule}
+          >
+            {t("webmail_next.create_sieve_rule_action")}
+          </button>
+        </div>
       )}
     </div>
   );

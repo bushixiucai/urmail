@@ -74,6 +74,7 @@ interface WebmailSettingsDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: SettingsTab;
+  initialRuleDraft?: { from?: string; folder?: string };
   onVacationUpdated?: () => void;
   onRemoteImagesPreferenceChanged?: (allowAll: boolean) => void;
 }
@@ -82,6 +83,7 @@ export function WebmailSettingsDrawer({
   isOpen,
   onClose,
   initialTab = "account",
+  initialRuleDraft,
   onVacationUpdated,
   onRemoteImagesPreferenceChanged,
 }: WebmailSettingsDrawerProps) {
@@ -260,7 +262,9 @@ export function WebmailSettingsDrawer({
               )}
               {activeTab === "quota" && <StorageQuotaSection />}
               {activeTab === "signatures" && <IdentitiesSignaturesSection />}
-              {activeTab === "rules" && <SieveRulesSection />}
+              {activeTab === "rules" && (
+                <SieveRulesSection initialRuleDraft={initialRuleDraft} />
+              )}
               {activeTab === "vacation" && (
                 <VacationSection onVacationUpdated={onVacationUpdated} />
               )}

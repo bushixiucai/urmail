@@ -139,6 +139,7 @@ export function WebmailNextWorkbench({
   const clearMoveNotice = useCallback(() => {
     setMoveNotice(null);
     setMoveUndo(null);
+    setPendingSuggestRule(null);
   }, []);
 
   // Search & Filter popover state
@@ -183,6 +184,13 @@ export function WebmailNextWorkbench({
   // Settings drawer state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("account");
+  const [pendingSuggestRule, setPendingSuggestRule] = useState<{
+    sender: string;
+    folder: string;
+  } | null>(null);
+  const [initialRuleDraft, setInitialRuleDraft] = useState<
+    { from?: string; folder?: string } | undefined
+  >(undefined);
 
   const { density, setDensity } = useWebmailPreferences();
 
@@ -685,9 +693,14 @@ export function WebmailNextWorkbench({
     setIsComposeOpen(true);
   };
 
-  const showMoved = (folderLabel: string, undo: MoveUndo | null = null) => {
+  const showMoved = (
+    folderLabel: string,
+    undo: MoveUndo | null = null,
+    suggestRule: { sender: string; folder: string } | null = null,
+  ) => {
     moveTokenRef.current += 1;
     setMoveUndo(undo);
+    setPendingSuggestRule(suggestRule);
     setMoveNotice(t("webmail_next.moved_to", { folder: folderLabel }));
     setMoveNoticeToken(moveTokenRef.current);
   };
@@ -874,7 +887,14 @@ export function WebmailNextWorkbench({
       if (selectedUid !== null && targets.includes(selectedUid)) {
         setSelectedUid(null);
       }
-      showMoved(decodeFolderName(folder.name), undo);
+      const targetMsg = messages.find((m: MessageSummary) =>
+        targets.includes(m.uid),
+      );
+      const sender = targetMsg?.from?.[0]?.email || "";
+      const ruleSuggestion = sender
+        ? { sender, folder: decodeFolderName(folder.name) }
+        : null;
+      showMoved(decodeFolderName(folder.name), undo, ruleSuggestion);
     } catch {
       // Failure keeps the list untouched (rows return to their original place).
       refetchMessages();
@@ -1386,6 +1406,13 @@ export function WebmailNextWorkbench({
                   }).then((response) => {
                     selectionRef.current?.clear();
                     refetchMessages();
+                    const targetMsg = messages.find((m: MessageSummary) =>
+                      uids.includes(m.uid),
+                    );
+                    const sender = targetMsg?.from?.[0]?.email || "";
+                    const ruleSuggestion = sender
+                      ? { sender, folder: decodeFolderName(folderName) }
+                      : null;
                     showMoved(
                       decodeFolderName(folderName),
                       moveUndoFromResponse(
@@ -1394,6 +1421,7 @@ export function WebmailNextWorkbench({
                         uids,
                         response,
                       ),
+                      ruleSuggestion,
                     );
                   });
                 }}
@@ -1481,6 +1509,10 @@ export function WebmailNextWorkbench({
         initialHtml={composeHtml}
         initialText={composeText}
         sendNonce={sendNonce}
+        onOpenAISettings={() => {
+          setSettingsTab("ai");
+          setIsSettingsOpen(true);
+        }}
       />
       <WebmailShortcutHelp
         isOpen={isHelpOpen}
@@ -1491,6 +1523,18 @@ export function WebmailNextWorkbench({
         token={moveNoticeToken}
         onDone={clearMoveNotice}
         onUndo={moveUndo ? undoMove : undefined}
+        suggestRule={pendingSuggestRule}
+        onSuggestRule={() => {
+          if (pendingSuggestRule) {
+            setInitialRuleDraft({
+              from: pendingSuggestRule.sender,
+              folder: pendingSuggestRule.folder,
+            });
+            setSettingsTab("rules");
+            setIsSettingsOpen(true);
+            clearMoveNotice();
+          }
+        }}
       />
       {folderActionError && (
         <div
@@ -1537,8 +1581,12 @@ export function WebmailNextWorkbench({
       <WebmailErrorBoundary>
         <WebmailSettingsDrawer
           isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
+          onClose={() => {
+            setIsSettingsOpen(false);
+            setInitialRuleDraft(undefined);
+          }}
           initialTab={settingsTab}
+          initialRuleDraft={initialRuleDraft}
           onVacationUpdated={refetchRules}
         />
       </WebmailErrorBoundary>

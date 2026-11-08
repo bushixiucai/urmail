@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -11,12 +12,14 @@ import {
   Code,
   FileCode,
 } from "lucide-react";
+import { WebmailSelectionPolish } from "./ai/webmail-selection-polish";
 
 interface WebmailEditorTiptapProps {
   content: string;
   isPlainText: boolean;
   onChange: (html: string, text: string) => void;
   onTogglePlainText: () => void;
+  onOpenAISettings?: () => void;
 }
 
 export function WebmailEditorTiptap({
@@ -24,11 +27,21 @@ export function WebmailEditorTiptap({
   isPlainText,
   onChange,
   onTogglePlainText,
+  onOpenAISettings,
 }: WebmailEditorTiptapProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [polishSelection, setPolishSelection] = useState<{
+    text: string;
+    position: { top: number; left: number };
+  } | null>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        link: false,
       }),
       Link.configure({
         openOnClick: false,
@@ -46,10 +59,84 @@ export function WebmailEditorTiptap({
     },
   });
 
+  // Keep editor content in sync when updated from parent (rollback or AI draft)
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      const currentHtml = editor.getHTML();
+      const currentText = editor.getText();
+      if (content !== currentHtml && content !== currentText) {
+        editor.commands.setContent(content);
+      }
+    }
+  }, [content, editor]);
+
+  // Track text selection for in-situ polish micro-capsule (selection >= 5 characters)
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) {
+        setPolishSelection(null);
+        return;
+      }
+      const text = sel.toString().trim();
+      if (text.length < 5) {
+        setPolishSelection(null);
+        return;
+      }
+      const container = containerRef.current;
+      if (
+        !container ||
+        !sel.anchorNode ||
+        !container.contains(sel.anchorNode)
+      ) {
+        setPolishSelection(null);
+        return;
+      }
+
+      try {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+        const top = Math.max(10, rect.top - 36);
+        const left = rect.left + rect.width / 2;
+        setPolishSelection({ text, position: { top, left } });
+      } catch {
+        // Selection range out of scope
+      }
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, []);
+
+  const handleReplaceSelection = (revisedText: string) => {
+    if (!isPlainText && editor && !editor.isDestroyed) {
+      editor.chain().focus().insertContent(revisedText).run();
+      setPolishSelection(null);
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const updated =
+        content.slice(0, start) + revisedText + content.slice(end);
+      onChange(updated, updated);
+      setPolishSelection(null);
+    }
+  };
+
   if (isPlainText) {
     return (
-      <div className="flex-1 flex flex-col min-h-[260px] bg-white">
+      <div
+        ref={containerRef}
+        className="flex-1 flex flex-col min-h-[260px] bg-white relative"
+      >
         <textarea
+          ref={textareaRef}
           data-testid="plaintext-editor"
           value={content}
           onChange={(e) => onChange(e.target.value, e.target.value)}
@@ -66,12 +153,25 @@ export function WebmailEditorTiptap({
             Switch to Rich Text
           </button>
         </div>
+
+        {polishSelection && (
+          <WebmailSelectionPolish
+            selectedText={polishSelection.text}
+            position={polishSelection.position}
+            onReplace={handleReplaceSelection}
+            onClose={() => setPolishSelection(null)}
+            onOpenAISettings={onOpenAISettings}
+          />
+        )}
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-[260px] bg-white overflow-hidden">
+    <div
+      ref={containerRef}
+      className="flex-1 flex flex-col min-h-[260px] bg-white overflow-hidden relative"
+    >
       <div className="flex-1 overflow-y-auto">
         <EditorContent editor={editor} data-testid="tiptap-editor" />
       </div>
@@ -172,6 +272,16 @@ export function WebmailEditorTiptap({
           </button>
         </div>
       </div>
+
+      {polishSelection && (
+        <WebmailSelectionPolish
+          selectedText={polishSelection.text}
+          position={polishSelection.position}
+          onReplace={handleReplaceSelection}
+          onClose={() => setPolishSelection(null)}
+          onOpenAISettings={onOpenAISettings}
+        />
+      )}
     </div>
   );
 }
