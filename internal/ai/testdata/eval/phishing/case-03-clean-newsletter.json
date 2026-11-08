@@ -1,0 +1,34 @@
+{
+  "input": {
+    "operation": "phishing",
+    "body": "Our November release notes are out: faster search, a new calendar widget and two bug fixes. Read online or reply with feedback.",
+    "subject": "November release notes",
+    "from": "product@example.org"
+  },
+  "mock_output": "{\"score\": 0.06, \"risk_level\": \"low\", \"reasons\": [], \"indicators\": []}",
+  "expect": {
+    "payload": {
+      "score": 0.06,
+      "risk_level": "low",
+      "reasons": [],
+      "indicators": []
+    },
+    "checks": [
+      {
+        "path": "risk_level",
+        "op": "eq",
+        "value": "low"
+      },
+      {
+        "path": "reasons",
+        "op": "len_ge",
+        "value": 0
+      },
+      {
+        "path": "indicators",
+        "op": "len_ge",
+        "value": 0
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "input": {
+    "operation": "draft_reply",
+    "body": "Can we do the product demo on Monday at 9:00?",
+    "subject": "Demo on Monday",
+    "from": "sam@example.com",
+    "instruction": "Politely decline and propose Thursday 10:00"
+  },
+  "mock_output": "{\"subject\": \"Re: Demo on Monday\", \"body\": \"Hello Sam,\\n\\nMonday at 9:00 is tight on our side \\u2014 would Thursday 10:00 suit you for the demo instead?\\n\\nRegards\", \"tone_notes\": \"Polite decline with a concrete alternative.\", \"assumptions\": []}",
+  "expect": {
+    "payload": {
+      "subject": "Re: Demo on Monday",
+      "body": "Hello Sam,\n\nMonday at 9:00 is tight on our side — would Thursday 10:00 suit you for the demo instead?\n\nRegards",
+      "tone_notes": "Polite decline with a concrete alternative.",
+      "assumptions": []
+    },
+    "checks": [
+      {
+        "path": "body",
+        "op": "contains",
+        "value": "Thursday 10:00"
+      },
+      {
+        "path": "assumptions",
+        "op": "len_ge",
+        "value": 0
+      }
+    ]
+  }
+}

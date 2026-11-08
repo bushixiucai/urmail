@@ -1,0 +1,40 @@
+{
+  "input": {
+    "operation": "draft_new",
+    "body": "Please confirm receipt of the corrected invoice.",
+    "subject": "Invoice 88",
+    "from": "ap@example.org",
+    "instruction": "One-line confirmation"
+  },
+  "mock_output": "{\"subject\": \"Re: Invoice 88\", \"body\": \"Confirmed \\u2014 the corrected invoice 88 has been received and filed.\", \"tone_notes\": \"\", \"assumptions\": []}",
+  "expect": {
+    "payload": {
+      "subject": "Re: Invoice 88",
+      "body": "Confirmed — the corrected invoice 88 has been received and filed.",
+      "tone_notes": "",
+      "assumptions": []
+    },
+    "checks": [
+      {
+        "path": "subject",
+        "op": "eq",
+        "value": "Re: Invoice 88"
+      },
+      {
+        "path": "body",
+        "op": "contains",
+        "value": "invoice 88"
+      },
+      {
+        "path": "tone_notes",
+        "op": "eq",
+        "value": ""
+      },
+      {
+        "path": "assumptions",
+        "op": "len_ge",
+        "value": 0
+      }
+    ]
+  }
+}

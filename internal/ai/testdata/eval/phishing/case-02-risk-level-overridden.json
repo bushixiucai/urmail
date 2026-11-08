@@ -1,0 +1,36 @@
+{
+  "input": {
+    "operation": "phishing",
+    "body": "Act within one hour to keep your discounted plan! Click https://deals.example.net/act-now or lose your savings forever.",
+    "subject": "Last hour: your plan expires",
+    "from": "deals@example.net"
+  },
+  "mock_output": "{\"score\": 0.42, \"risk_level\": \"low\", \"reasons\": [\"Subscription upsell with deceptive urgency.\"], \"indicators\": [{\"type\": \"suspicious_link\", \"evidence\": \"act within one hour\"}]}",
+  "expect": {
+    "payload": {
+      "score": 0.42,
+      "risk_level": "medium",
+      "reasons": [
+        "Subscription upsell with deceptive urgency."
+      ],
+      "indicators": [
+        {
+          "type": "suspicious_link",
+          "evidence": "act within one hour"
+        }
+      ]
+    },
+    "checks": [
+      {
+        "path": "risk_level",
+        "op": "eq",
+        "value": "medium"
+      },
+      {
+        "path": "score",
+        "op": "eq",
+        "value": 0.42
+      }
+    ]
+  }
+}

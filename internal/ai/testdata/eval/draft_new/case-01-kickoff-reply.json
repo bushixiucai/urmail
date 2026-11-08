@@ -1,0 +1,37 @@
+{
+  "input": {
+    "operation": "draft_new",
+    "body": "Hi — can we find a slot for the project kickoff next week? Tuesday or Wednesday afternoon works best for me. — Lena",
+    "subject": "Kickoff scheduling",
+    "from": "lena@example.org",
+    "instruction": "Suggest a friendly reply proposing Tuesday 15:00"
+  },
+  "mock_output": "{\"subject\": \"Re: Kickoff scheduling\", \"body\": \"Hi Lena,\\n\\nTuesday 15:00 works for me \\u2014 I have just sent an invite for the project kickoff.\\n\\nBest,\\nNoah\", \"tone_notes\": \"Friendly and direct; confirms the exact time the instruction requested.\", \"assumptions\": [\"The kickoff lasts one hour.\"]}",
+  "expect": {
+    "payload": {
+      "subject": "Re: Kickoff scheduling",
+      "body": "Hi Lena,\n\nTuesday 15:00 works for me — I have just sent an invite for the project kickoff.\n\nBest,\nNoah",
+      "tone_notes": "Friendly and direct; confirms the exact time the instruction requested.",
+      "assumptions": [
+        "The kickoff lasts one hour."
+      ]
+    },
+    "checks": [
+      {
+        "path": "subject",
+        "op": "eq",
+        "value": "Re: Kickoff scheduling"
+      },
+      {
+        "path": "body",
+        "op": "contains",
+        "value": "Tuesday 15:00"
+      },
+      {
+        "path": "assumptions",
+        "op": "len_ge",
+        "value": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "input": {
+    "operation": "custom",
+    "body": "Reminder: the production deployment freeze runs from Dec 20 to Jan 5. Hotfixes need a signed exception from the on-call lead.",
+    "instruction": "Summarize the constraint in one sentence"
+  },
+  "mock_output": "{\"task_type\": \"summary\", \"result\": \"Production deployments are frozen from Dec 20 to Jan 5, with hotfixes only via a signed on-call exception.\"}",
+  "expect": {
+    "payload": {
+      "task_type": "summary",
+      "result": "Production deployments are frozen from Dec 20 to Jan 5, with hotfixes only via a signed on-call exception."
+    },
+    "checks": [
+      {
+        "path": "task_type",
+        "op": "eq",
+        "value": "summary"
+      },
+      {
+        "path": "result",
+        "op": "contains",
+        "value": "frozen"
+      }
+    ]
+  }
+}

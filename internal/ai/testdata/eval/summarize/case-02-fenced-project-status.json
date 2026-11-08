@@ -1,0 +1,39 @@
+{
+  "input": {
+    "operation": "summarize",
+    "body": "Status: the API migration is roughly four fifths done; remaining work is the pagination endpoints. The new per-tenant rate limits are already implemented and ship behind a feature flag next release.",
+    "subject": "Platform migration status",
+    "from": "leads@example.org"
+  },
+  "mock_output": "```json\n{\"bullets\": [\"The API migration is 80% complete.\", \"New rate limits ship behind a feature flag.\"], \"todos\": [{\"task\": \"Announce the migration window\", \"assignee\": null, \"due_date\": null}], \"key_dates\": [], \"language\": \"en\"}\n```",
+  "expect": {
+    "payload": {
+      "bullets": [
+        "The API migration is 80% complete.",
+        "New rate limits ship behind a feature flag."
+      ],
+      "todos": [
+        {
+          "task": "Announce the migration window",
+          "assignee": null,
+          "due_date": null
+        }
+      ],
+      "key_dates": [],
+      "language": "en",
+      "summary": "The API migration is 80% complete.\nNew rate limits ship behind a feature flag."
+    },
+    "checks": [
+      {
+        "path": "bullets",
+        "op": "len_ge",
+        "value": 2
+      },
+      {
+        "path": "summary",
+        "op": "contains",
+        "value": "80% complete"
+      }
+    ]
+  }
+}

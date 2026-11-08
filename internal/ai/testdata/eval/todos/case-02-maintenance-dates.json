@@ -1,0 +1,40 @@
+{
+  "input": {
+    "operation": "todos",
+    "body": "Two things for the maintenance weekend: drain the replica lag before Saturday 06:00, and update the runbook afterwards (due 2026-11-17)."
+  },
+  "mock_output": "{\"items\": [{\"task\": \"Drain the replica lag\", \"assignee\": null, \"due_date\": \"Saturday 06:00\"}, {\"task\": \"Update the runbook\", \"assignee\": null, \"due_date\": \"2026-11-17\"}]}",
+  "expect": {
+    "payload": {
+      "items": [
+        {
+          "task": "Drain the replica lag",
+          "assignee": null,
+          "due_date": "Saturday 06:00"
+        },
+        {
+          "task": "Update the runbook",
+          "assignee": null,
+          "due_date": "2026-11-17"
+        }
+      ]
+    },
+    "checks": [
+      {
+        "path": "items",
+        "op": "len_ge",
+        "value": 2
+      },
+      {
+        "path": "items.1.due_date",
+        "op": "eq",
+        "value": "2026-11-17"
+      },
+      {
+        "path": "items.0.assignee",
+        "op": "eq",
+        "value": null
+      }
+    ]
+  }
+}

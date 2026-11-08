@@ -1,0 +1,33 @@
+{
+  "input": {
+    "operation": "classify",
+    "body": "Please find attached invoice 2047-DE for the November platform fee. Total: 1,180.00 EUR, due 2026-11-30. Account: billing@example.org",
+    "subject": "Invoice 2047-DE — November platform fee",
+    "from": "billing@example.org"
+  },
+  "mock_output": "{\"category\":\"finance\",\"confidence\":0.94}",
+  "expect": {
+    "payload": {
+      "category": "finance",
+      "confidence": 0.94,
+      "score": 0.94
+    },
+    "checks": [
+      {
+        "path": "category",
+        "op": "eq",
+        "value": "finance"
+      },
+      {
+        "path": "confidence",
+        "op": "eq",
+        "value": 0.94
+      },
+      {
+        "path": "score",
+        "op": "eq",
+        "value": 0.94
+      }
+    ]
+  }
+}

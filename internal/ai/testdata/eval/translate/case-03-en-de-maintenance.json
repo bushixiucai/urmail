@@ -1,0 +1,27 @@
+{
+  "input": {
+    "operation": "translate",
+    "body": "The maintenance window has been moved up to 06:00 UTC on Saturday.",
+    "target_language": "de"
+  },
+  "mock_output": "{\"translated_text\": \"Das Wartungsfenster wurde auf Samstag 06:00 UTC vorgezogen.\", \"detected_source\": \"en\"}",
+  "expect": {
+    "payload": {
+      "translated_text": "Das Wartungsfenster wurde auf Samstag 06:00 UTC vorgezogen.",
+      "detected_source": "en",
+      "translation": "Das Wartungsfenster wurde auf Samstag 06:00 UTC vorgezogen."
+    },
+    "checks": [
+      {
+        "path": "detected_source",
+        "op": "eq",
+        "value": "en"
+      },
+      {
+        "path": "translation",
+        "op": "contains",
+        "value": "06:00"
+      }
+    ]
+  }
+}
