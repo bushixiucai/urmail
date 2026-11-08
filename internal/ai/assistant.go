@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/ai/templates"
 )
 
 const (
@@ -72,28 +73,39 @@ func (a *Assistant) ClassifyEmail(subject, body string) (category string, score 
 	return a.ClassifyEmailWithContext(ctx, subject, body)
 }
 
+// completeTemplate assembles the request from the versioned templates
+// registry and sends it. The Capabilities methods keep their parsing and
+// clamping contracts; only prompt assembly moved to the registry.
+func (a *Assistant) completeTemplate(ctx context.Context, operation string, p templates.Params) (CompletionResponse, error) {
+	treq, err := templates.Build(operation, p)
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	req := CompletionRequest{
+		Model:    a.model,
+		JSONMode: treq.JSONMode,
+	}
+	if treq.MaxTokens > 0 {
+		mt := treq.MaxTokens
+		req.MaxTokens = &mt
+	}
+	if treq.Temperature != nil {
+		t := *treq.Temperature
+		req.Temperature = &t
+	}
+	for _, m := range treq.Messages {
+		req.Messages = append(req.Messages, Message{Role: m.Role, Content: m.Content})
+	}
+	return a.provider.Complete(ctx, req)
+}
+
 // ClassifyEmailWithContext categorizes an email using the provided context.
 func (a *Assistant) ClassifyEmailWithContext(ctx context.Context, subject, body string) (category string, score float64, err error) {
 	if strings.TrimSpace(subject) == "" && strings.TrimSpace(body) == "" {
 		return "unknown", 0.0, nil
 	}
 
-	systemPrompt := "You are an email classification assistant. Categorize the given email into exactly one of: " +
-		"inbox, work, personal, marketing, finance, support, notifications, spam.\n" +
-		"Respond ONLY with a JSON object in this format: {\"category\": \"<category>\", \"score\": <float between 0.0 and 1.0>}"
-
-	userPrompt := fmt.Sprintf("Subject: %s\n\nBody:\n%s", subject, body)
-
-	req := CompletionRequest{
-		Model: a.model,
-		Messages: []Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		JSONMode: true,
-	}
-
-	resp, err := a.provider.Complete(ctx, req)
+	resp, err := a.completeTemplate(ctx, "batch_classify", templates.Params{Subject: subject, Body: body})
 	if err != nil {
 		return "", 0.0, wrapProviderError(ctx, err, "email classification")
 	}
@@ -131,21 +143,7 @@ func (a *Assistant) SummarizeEmailWithContext(ctx context.Context, body string, 
 		return "", nil
 	}
 
-	systemPrompt := "You are a concise email summarization assistant. Provide an objective, clear summary of the email. " +
-		"Respond ONLY with the summary text, with no introductory phrases or metadata."
-	if maxLength > 0 {
-		systemPrompt += " The summary must not exceed " + strconv.Itoa(maxLength) + " characters."
-	}
-
-	req := CompletionRequest{
-		Model: a.model,
-		Messages: []Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: body},
-		},
-	}
-
-	resp, err := a.provider.Complete(ctx, req)
+	resp, err := a.completeTemplate(ctx, "batch_summarize", templates.Params{Body: body, MaxLength: maxLength})
 	if err != nil {
 		return "", wrapProviderError(ctx, err, "email summarization")
 	}
@@ -178,19 +176,7 @@ func (a *Assistant) TranslateEmailWithContext(ctx context.Context, body string, 
 		return "", errors.New("target language is required")
 	}
 
-	systemPrompt := fmt.Sprintf("You are a professional email translation assistant. "+
-		"Translate the following email body into %s. Preserve paragraph structure and tone. "+
-		"Respond ONLY with the translation, with no commentary.", targetLang)
-
-	req := CompletionRequest{
-		Model: a.model,
-		Messages: []Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: body},
-		},
-	}
-
-	resp, err := a.provider.Complete(ctx, req)
+	resp, err := a.completeTemplate(ctx, "batch_translate", templates.Params{Body: body, TargetLanguage: targetLang})
 	if err != nil {
 		return "", wrapProviderError(ctx, err, "email translation")
 	}
@@ -211,31 +197,7 @@ func (a *Assistant) DetectPhishing(from, subject, body string, links []string) (
 
 // DetectPhishingWithContext evaluates phishing using the provided context.
 func (a *Assistant) DetectPhishingWithContext(ctx context.Context, from, subject, body string, links []string) (float64, []string, error) {
-	systemPrompt := "You are an expert cybersecurity email threat analyzer. " +
-		"Evaluate the email for phishing indicators such as domain spoofing, urgent threats, credential harvesting, and deceptive links.\n" +
-		"Respond ONLY with a JSON object in this format:\n" +
-		"{\"phishing_score\": <float between 0.0 and 1.0>, \"reasons\": [\"<reason 1>\", \"<reason 2>\"]}\n" +
-		"A score of 0.0 means completely safe; 1.0 means definite phishing threat."
-
-	var linksFormatted string
-	if len(links) > 0 {
-		linksFormatted = "\nLinks:\n- " + strings.Join(links, "\n- ")
-	} else {
-		linksFormatted = "\nLinks: none"
-	}
-
-	userPrompt := fmt.Sprintf("From: %s\nSubject: %s%s\n\nBody:\n%s", from, subject, linksFormatted, body)
-
-	req := CompletionRequest{
-		Model: a.model,
-		Messages: []Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		JSONMode: true,
-	}
-
-	resp, err := a.provider.Complete(ctx, req)
+	resp, err := a.completeTemplate(ctx, "batch_phishing", templates.Params{From: from, Subject: subject, Body: body, Links: links})
 	if err != nil {
 		return 0.0, nil, wrapProviderError(ctx, err, "phishing detection")
 	}
