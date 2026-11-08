@@ -20,6 +20,7 @@ import {
   mutateMailImport,
   previewMailImport,
 } from "./mailbox-import-api";
+import { decodeFolderName } from "@/features/webmail-next/lib/folder-names";
 
 interface Props {
   open: boolean;
@@ -29,17 +30,7 @@ interface Props {
   onImported(): void;
 }
 
-function folderName(encoded: string): string {
-  try {
-    if (!encoded.startsWith("b64.")) return encoded;
-    const raw = atob(encoded.slice(4).replace(/-/g, "+").replace(/_/g, "/"));
-    return new TextDecoder("utf-8", { fatal: true }).decode(
-      Uint8Array.from(raw, (value) => value.charCodeAt(0)),
-    );
-  } catch {
-    return encoded;
-  }
-}
+const folderName = decodeFolderName;
 async function fileBase64(file: File, signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

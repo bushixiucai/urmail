@@ -27,6 +27,7 @@ import type {
   MailboxSortKey,
 } from "@/features/webmail/mailbox-api";
 import type { DensityMode, WebmailItem } from "../types";
+import { decodeFolderName } from "../lib/folder-names";
 
 /** Payload type for dragging UIDs from the list onto a folder. */
 export const MAILBOX_DRAG_TYPE = "application/x-urmail-mailbox-uids";
@@ -421,7 +422,7 @@ export function WebmailMessageList({
                         setMoveOpen(false);
                       }}
                     >
-                      {folder.name}
+                      {decodeFolderName(folder.name)}
                     </button>
                   ))}
                 </div>
@@ -449,7 +450,12 @@ export function WebmailMessageList({
                 <Square className="w-3.5 h-3.5" />
               )}
             </button>
-            <span className="font-semibold text-[#18181B]">{folderName}</span>
+            <span
+              data-testid="folder-name-header"
+              className="font-semibold text-[#18181B]"
+            >
+              {decodeFolderName(folderName)}
+            </span>
             <span
               data-testid="loaded-range"
               className="text-xs text-[var(--vellum-ink-secondary)]"

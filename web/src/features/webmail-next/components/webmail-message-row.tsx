@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { WebmailItem, DensityMode } from "../types";
 import { formatFullDate, formatListDate } from "../lib/format-list-date";
+import { decodeFolderName } from "../lib/folder-names";
 
 interface WebmailMessageRowProps {
   item: WebmailItem;
@@ -268,7 +269,7 @@ function WebmailMessageRowView({
               data-testid={`mail-folder-${item.uid}`}
               className="shrink-0 text-xs text-[var(--vellum-ink-secondary)]"
             >
-              {item.folder}
+              {decodeFolderName(item.folder)}
             </span>
           ) : null}
           {item.hasAttachments && (

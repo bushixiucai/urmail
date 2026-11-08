@@ -25,6 +25,7 @@ import {
   resolveSpecialFolder,
   SCHEDULED_VIEW,
 } from "./lib/special-folders";
+import { decodeFolderName, getFolderDisplayName } from "./lib/folder-names";
 import type { ShortcutAction } from "./lib/mailbox-shortcuts";
 import {
   WebmailSettingsDrawer,
@@ -313,6 +314,7 @@ export function WebmailNextWorkbench({
   const inboxFolder = resolveSpecialFolder(folders, "\\Inbox", "INBOX");
   const inboxEnc = inboxFolder?.name_enc ?? "INBOX";
   const isScheduledView = activeFolder === SCHEDULED_VIEW;
+  const folderDisplayName = getFolderDisplayName(activeFolder, folders, t);
 
   const { data: quotaData } = useQuery({
     queryKey: ["webmail", "quota"],
@@ -862,7 +864,7 @@ export function WebmailNextWorkbench({
       if (selectedUid !== null && targets.includes(selectedUid)) {
         setSelectedUid(null);
       }
-      showMoved(folder.name, undo);
+      showMoved(decodeFolderName(folder.name), undo);
     } catch {
       // Failure keeps the list untouched (rows return to their original place).
       refetchMessages();
@@ -958,7 +960,9 @@ export function WebmailNextWorkbench({
           className="bg-[var(--vellum-surface,#ffffff)] border border-[var(--vellum-border,#EBE8E0)] rounded-lg p-4 w-80"
         >
           <p className="text-sm text-[#18181B]">
-            {t("webmail_next.folder_delete_body", { folder: folderName })}
+            {t("webmail_next.folder_delete_body", {
+              folder: decodeFolderName(folderName),
+            })}
           </p>
           <p className="mt-2 text-xs text-[var(--vellum-ink-secondary)]">
             {t("webmail_next.folder_delete_note")}
@@ -1288,7 +1292,7 @@ export function WebmailNextWorkbench({
               </div>
             ) : (
               <WebmailMessageList
-                folderName={activeFolder}
+                folderName={folderDisplayName}
                 messages={messages}
                 activeUid={selectedUid}
                 cursorUid={cursorUid}
@@ -1349,7 +1353,7 @@ export function WebmailNextWorkbench({
                     selectionRef.current?.clear();
                     refetchMessages();
                     showMoved(
-                      folderName,
+                      decodeFolderName(folderName),
                       moveUndoFromResponse(
                         activeFolder,
                         destination?.name_enc ?? "",

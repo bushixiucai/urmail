@@ -810,4 +810,52 @@ describe("WebmailNextWorkbench Layout", () => {
     });
     expect(screen.queryByTestId("webmail-move-undo")).toBeNull();
   });
+
+  it("renders decoded folder name in header when initialized with b64 encoded folder", async () => {
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [
+        {
+          name: "INBOX",
+          name_enc: "b64.SU5CT1g",
+          delimiter: "/",
+          flags: ["\\Inbox"],
+        },
+        { name: "工作", name_enc: "b64.5bel5L2c", delimiter: "/", flags: [] },
+      ],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench initialFolder="b64.SU5CT1g" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    expect(screen.getByTestId("folder-name-header").textContent).toBe(
+      "webmail_next.inbox",
+    );
+  });
+
+  it("renders decoded Chinese folder name in header when initialized with custom b64 folder", async () => {
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [
+        {
+          name: "INBOX",
+          name_enc: "b64.SU5CT1g",
+          delimiter: "/",
+          flags: ["\\Inbox"],
+        },
+        { name: "工作", name_enc: "b64.5bel5L2c", delimiter: "/", flags: [] },
+      ],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench initialFolder="b64.5bel5L2c" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
+    expect(screen.getByTestId("folder-name-header").textContent).toBe("工作");
+  });
 });

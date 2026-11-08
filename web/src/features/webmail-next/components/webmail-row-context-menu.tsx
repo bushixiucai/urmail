@@ -12,6 +12,7 @@ import {
   Forward,
   ExternalLink,
 } from "lucide-react";
+import { decodeFolderName } from "../lib/folder-names";
 
 export interface ContextMenuFolder {
   name: string;
@@ -251,7 +252,9 @@ export function WebmailRowContextMenu({
                   runAndClose(() => handlers.onMoveTo(uids, folder))
                 }
               >
-                <span className="truncate">{folder.name}</span>
+                <span className="truncate">
+                  {decodeFolderName(folder.name)}
+                </span>
               </button>
             ))}
           </div>
