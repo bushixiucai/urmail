@@ -194,3 +194,44 @@ func TestExtractMIMEPartBoundedByDownloadCap(t *testing.T) {
 		t.Fatalf("oversized part must not be returned")
 	}
 }
+
+// An allowed remote image is rewritten to the same-origin proxy URL, so
+// the reader's browser never contacts the sender's host.
+func TestSanitizeHTMLRewritesRemoteImageToProxy(t *testing.T) {
+	in := `<p>hi</p><img src="https://track.example/pixel.gif" alt="pixel">`
+	var seen []string
+	out, _ := SanitizeHTMLOpts(in, SanitizeOptions{
+		AllowRemoteImages: true,
+		RemoteImageProxy: func(remote string) (string, bool) {
+			seen = append(seen, remote)
+			return "/api/v1/mailbox/images/proxy?u=token&sig=sig", true
+		},
+	})
+	if !strings.Contains(out, "/api/v1/mailbox/images/proxy?u=token&amp;sig=sig") {
+		t.Fatalf("remote image not proxied: %s", out)
+	}
+	if strings.Contains(out, "track.example") {
+		t.Fatalf("third-party host survived: %s", out)
+	}
+	if len(seen) != 1 || seen[0] != "https://track.example/pixel.gif" {
+		t.Fatalf("proxy hook saw %v", seen)
+	}
+}
+
+// A proxy that cannot sign drops the image: there is no direct-URL
+// fallback, because a direct URL would leak the reader's address.
+func TestSanitizeHTMLDropsImageWhenProxyRefuses(t *testing.T) {
+	in := `<img src="https://track.example/pixel.gif" alt="pixel">`
+	out, notes := SanitizeHTMLOpts(in, SanitizeOptions{
+		AllowRemoteImages: true,
+		RemoteImageProxy: func(string) (string, bool) {
+			return "", false
+		},
+	})
+	if strings.Contains(out, "track.example") {
+		t.Fatalf("image survived a refusing proxy: %s", out)
+	}
+	if !hasNote(notes, NoteRemoteImagesBlocked) {
+		t.Fatalf("want remote_images_blocked note, got %v", notes)
+	}
+}

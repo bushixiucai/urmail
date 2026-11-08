@@ -163,7 +163,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
@@ -199,10 +199,22 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		// Render-time sanitization (WEBMAIL-007): the IMAP original stays
 		// untouched. Remote images are blocked by default for privacy;
 		// ?load_images=1 is the per-message "load images" user action.
-		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, webmail.SanitizeOptions{
-			AllowRemoteImages: isTruthyParam(c.Query("load_images")),
+		//
+		// When the reader allows remote images, they are served through
+		// the server-side image proxy: the browser must not contact the
+		// third party, or a tracking pixel learns the reader's address.
+		// Without a signing key the proxy cannot sign a URL, so remote
+		// images stay blocked (fail closed) instead of being fetched by
+		// the browser directly.
+		allowRemote := isTruthyParam(c.Query("load_images")) && len(h.RenderKey) > 0
+		sanitizeOpts := webmail.SanitizeOptions{
+			AllowRemoteImages: allowRemote,
 			CIDRewriter:       cidAttachmentURL(folder, uint32(uid), msg.Attachments, msg.UIDValidity),
-		})
+		}
+		if allowRemote {
+			sanitizeOpts.RemoteImageProxy = h.imageProxyRewriter(session.MailboxID, uint32(uid))
+		}
+		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, sanitizeOpts)
 		msg.HTML = safe
 		msg.Notes = notes
 	}
