@@ -51,25 +51,27 @@ func (c *imapConn) uidSort(ctx context.Context, criteria, key string) ([]uint32,
 }
 
 // uidThread runs UID THREAD REFERENCES when the server advertises
-// THREAD=REFERENCES and returns uid -> thread root.
-func (c *imapConn) uidThread(ctx context.Context, criteria string) (map[uint32]uint32, error) {
+// THREAD=REFERENCES and returns uid -> thread root plus the number of
+// members in each thread. The server reports every member of a thread, so
+// the counts are folder-wide and not limited to the loaded page.
+func (c *imapConn) uidThread(ctx context.Context, criteria string) (map[uint32]uint32, map[uint32]int, error) {
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tag := c.nextTag()
 	if criteria == "" {
 		criteria = "ALL"
 	}
 	if _, err := io.WriteString(c.conn, tag+" UID THREAD REFERENCES UTF-8 "+criteria+"\r\n"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var lines []string
 	for {
 		line, err := c.readLogicalLine()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if strings.HasPrefix(line, "* THREAD") {
 			lines = append(lines, strings.TrimSpace(strings.TrimPrefix(line, "* THREAD")))
@@ -79,7 +81,7 @@ func (c *imapConn) uidThread(ctx context.Context, criteria string) (map[uint32]u
 			return parseThreadRoots(strings.Join(lines, " "))
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("%s", line)
+			return nil, nil, fmt.Errorf("%s", line)
 		}
 	}
 }

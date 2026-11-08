@@ -12,6 +12,7 @@ import {
   Square,
 } from "lucide-react";
 import type { WebmailItem, DensityMode } from "../types";
+import { formatFullDate, formatListDate } from "../lib/format-list-date";
 
 interface WebmailMessageRowProps {
   item: WebmailItem;
@@ -31,6 +32,28 @@ interface WebmailMessageRowProps {
   onDragStartUids?: (uids: number[]) => number[];
 }
 
+/** Per-density metrics (UIUX v0.6.10 visual spec §1). */
+const DENSITY = {
+  comfortable: {
+    row: "h-[52px] px-3 py-2",
+    line1: "text-[13px] leading-5",
+    line2: "text-xs leading-4",
+    senderMax: "max-w-[160px]",
+  },
+  compact: {
+    row: "h-[40px] px-2 py-1",
+    line1: "text-[13px] leading-4",
+    line2: "text-xs leading-4",
+    senderMax: "max-w-[128px]",
+  },
+  list_only: {
+    row: "h-8 px-2 py-0",
+    line1: "text-xs leading-4",
+    line2: "text-xs leading-4",
+    senderMax: "max-w-[96px]",
+  },
+} as const satisfies Record<DensityMode, Record<string, string>>;
+
 function WebmailMessageRowView({
   item,
   isSelected,
@@ -46,8 +69,8 @@ function WebmailMessageRowView({
   onContextMenu,
   onDragStartUids,
 }: WebmailMessageRowProps) {
-  const { t } = useTranslation();
-  const isListOnly = density === "list_only";
+  const { t, i18n } = useTranslation();
+  const metrics = DENSITY[density] ?? DENSITY.comfortable;
   const starLabel = item.isStarred
     ? t("webmail_next.starred")
     : t("webmail_next.not_starred");
@@ -55,6 +78,24 @@ function WebmailMessageRowView({
     ? t("webmail_next.mark_read")
     : t("webmail_next.mark_unread");
   const deleteLabel = t("webmail_next.delete");
+  // Spark-style gradient: today → HH:mm, yesterday → label, older → date.
+  // i18n may be absent in unit-test doubles — fall back to the browser
+  // locale rather than crashing the row.
+  const locale = i18n?.language;
+  const dateLabel = formatListDate(item.date, locale, {
+    yesterday: t("webmail_next.date_yesterday"),
+  });
+  const dateTitle = formatFullDate(item.date, locale);
+  const threadTitle = t("webmail_next.thread_messages_count", {
+    count: item.threadCount ?? 0,
+  });
+
+  const senderColor = item.isUnread
+    ? "font-[650] text-[var(--vellum-ink)]"
+    : "font-medium text-[var(--vellum-ink-read)]";
+  const subjectColor = item.isUnread
+    ? "font-[650] text-[var(--vellum-ink)]"
+    : "font-normal text-[var(--vellum-ink-secondary)]";
 
   return (
     <div
@@ -83,20 +124,29 @@ function WebmailMessageRowView({
             }
           : undefined
       }
-      className="mail-row-item group relative flex items-center border-b border-[#EBE8E0] cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB] focus-visible:-outline-offset-2"
+      className={`mail-row-item group relative flex items-center border-b border-[var(--vellum-border)] cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-primary)] focus-visible:-outline-offset-2 ${
+        metrics.row
+      } ${
+        isActive
+          ? "bg-[var(--vellum-row-active)]"
+          : isSelected
+            ? "bg-[var(--vellum-row-selected)]"
+            : "bg-[var(--vellum-surface)]"
+      } hover:bg-[var(--vellum-row-hover)] transition-[background-color] duration-[120ms] ease-out`}
     >
       {/* Active Left Indicator Bar */}
       {isActive && (
-        <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[var(--brand-primary,#2563eb)]" />
+        <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[var(--brand-primary)]" />
       )}
 
-      {/* Row Left: Unread dot / Checkbox / Star */}
-      <div className="flex items-center gap-2 shrink-0 mr-2">
+      {/* Row Left: fixed 64px slot (unread dot + checkbox + star) so the
+          text column never shifts when the density changes. */}
+      <div className="w-16 shrink-0 flex items-center gap-1">
         <div className="w-2 flex justify-center">
           {item.isUnread ? (
             <div
               data-testid={`unread-dot-${item.uid}`}
-              className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary,#2563eb)]"
+              className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)]"
               aria-label={t("webmail_next.row_unread")}
             />
           ) : (
@@ -113,10 +163,10 @@ function WebmailMessageRowView({
             event.stopPropagation();
             onToggleCheck(event);
           }}
-          className="p-0.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+          className="p-0.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
         >
           {isSelected ? (
-            <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary,#2563eb)]" />
+            <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
           ) : (
             <Square className="w-3.5 h-3.5" />
           )}
@@ -125,10 +175,10 @@ function WebmailMessageRowView({
         <button
           type="button"
           onClick={onToggleStar}
-          className={`p-0.5 rounded hover:text-[var(--vellum-star)] transition-colors ${
+          className={`p-1 rounded hover:text-[var(--vellum-star)] transition-colors ${
             item.isStarred
               ? "text-[var(--vellum-star)]"
-              : "text-[#D4D4D8] group-hover:text-[var(--vellum-ink-secondary)]"
+              : "text-[var(--vellum-ink-secondary)]"
           }`}
           aria-label={starLabel}
           title={starLabel}
@@ -139,77 +189,64 @@ function WebmailMessageRowView({
         </button>
       </div>
 
-      {/* Row Center: Sender, Subject, Snippet */}
-      {isListOnly ? (
-        <div className="flex-1 min-w-0 flex items-center justify-between gap-2 overflow-hidden">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <span
-              className={`truncate text-xs leading-4 shrink-0 max-w-[110px] ${
-                item.isUnread
-                  ? "font-[650] text-[#18181B]"
-                  : "font-medium text-[#3F3F46]"
-              }`}
+      {/* Row Center — identical DOM in every density:
+          line 1 = sender + subject + attachment + time,
+          line 2 = preview snippet (always present, keeps the row height). */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className="flex items-center gap-1 min-w-0">
+          <span
+            className={`truncate shrink-0 ${metrics.senderMax} ${metrics.line1} ${senderColor}`}
+          >
+            {item.sender}
+          </span>
+
+          {/* Thread count badge pill */}
+          {item.threadCount && item.threadCount > 1 && (
+            <button
+              data-testid={`thread-toggle-${item.threadId || item.uid}`}
+              type="button"
+              onClick={onToggleThread}
+              aria-expanded={item.isThreadExpanded ? "true" : "false"}
+              className="h-4 px-1 rounded-full text-[11px] font-[650] bg-[var(--vellum-border)] text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-border-subtle)] flex items-center gap-0.5 shrink-0"
+              title={threadTitle}
             >
-              {item.sender}
-            </span>
+              <span>{item.threadCount}</span>
+              {item.isThreadExpanded ? (
+                <ChevronDown className="w-2.5 h-2.5" />
+              ) : (
+                <ChevronRight className="w-2.5 h-2.5" />
+              )}
+            </button>
+          )}
 
-            {/* Thread count badge pill */}
-            {item.threadCount && item.threadCount > 1 && (
-              <button
-                data-testid={`thread-toggle-${item.threadId || item.uid}`}
-                type="button"
-                onClick={onToggleThread}
-                className="px-1 py-0.2 rounded-full text-xs bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5 shrink-0"
-                title={`${item.threadCount} messages in thread`}
-              >
-                <span>{item.threadCount}</span>
-                {item.isThreadExpanded ? (
-                  <ChevronDown className="w-2 h-2" />
-                ) : (
-                  <ChevronRight className="w-2 h-2" />
-                )}
-              </button>
-            )}
-
+          <span
+            className={`truncate flex-1 min-w-0 ${metrics.line1} ${subjectColor}`}
+          >
+            {item.subject}
+          </span>
+          {item.folder ? (
             <span
-              className={`truncate text-xs leading-4 flex-1 ${
-                item.isUnread
-                  ? "font-[650] text-[#18181B]"
-                  : "font-normal text-[#52525B]"
-              }`}
+              data-testid={`mail-folder-${item.uid}`}
+              className="shrink-0 text-xs text-[var(--vellum-ink-secondary)]"
             >
-              {item.subject}
+              {item.folder}
             </span>
-            {item.folder ? (
-              <span
-                data-testid={`mail-folder-${item.uid}`}
-                className="shrink-0 text-xs text-[var(--vellum-ink-secondary)]"
-              >
-                {item.folder}
-              </span>
-            ) : null}
-
-            {item.hasAttachments && (
-              <Paperclip className="w-4 h-4 text-[var(--vellum-ink-secondary)] shrink-0" />
-            )}
-          </div>
+          ) : null}
+          {item.hasAttachments && (
+            <Paperclip className="w-4 h-4 text-[var(--vellum-ink-secondary)] shrink-0" />
+          )}
 
           {/* Timestamp / Quick Action Hover Bar */}
-          <div className="shrink-0 flex items-center text-xs text-[#52525B]">
-            <span className="group-hover:hidden">
-              {item.date
-                ? new Date(item.date).toLocaleDateString(undefined, {
-                    month: "numeric",
-                    day: "numeric",
-                  })
-                : ""}
+          <span className="shrink-0 ml-2 text-xs text-[var(--vellum-ink-secondary)] flex items-center">
+            <span className="group-hover:hidden" title={dateTitle}>
+              {dateLabel}
             </span>
-            <div className="hidden group-hover:flex items-center gap-1">
+            <span className="hidden group-hover:flex items-center gap-1">
               {onToggleRead && (
                 <button
                   type="button"
                   onClick={onToggleRead}
-                  className="p-0.5 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
+                  className="p-1 hover:text-[var(--vellum-ink)] rounded hover:bg-[var(--vellum-border)]"
                   aria-label={readLabel}
                   title={readLabel}
                 >
@@ -224,123 +261,26 @@ function WebmailMessageRowView({
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="p-0.5 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
+                  className="p-1 hover:text-[#DC2626] rounded hover:bg-[var(--vellum-border)]"
                   aria-label={deleteLabel}
                   title={deleteLabel}
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
               )}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden">
-          <div className="flex items-center justify-between gap-1.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span
-                className={`truncate text-[13px] leading-5 ${
-                  item.isUnread
-                    ? "font-[650] text-[#18181B]"
-                    : "font-medium text-[#3F3F46]"
-                }`}
-              >
-                {item.sender}
-              </span>
-
-              {/* Thread count badge pill */}
-              {item.threadCount && item.threadCount > 1 && (
-                <button
-                  data-testid={`thread-toggle-${item.threadId || item.uid}`}
-                  type="button"
-                  onClick={onToggleThread}
-                  className="px-1.5 py-0.2 rounded-full text-xs bg-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#D4D4D8] font-bold flex items-center gap-0.5"
-                  title={`${item.threadCount} messages in thread`}
-                >
-                  <span>{item.threadCount}</span>
-                  {item.isThreadExpanded ? (
-                    <ChevronDown className="w-2.5 h-2.5" />
-                  ) : (
-                    <ChevronRight className="w-2.5 h-2.5" />
-                  )}
-                </button>
-              )}
-            </div>
-
-            {/* Timestamp / Quick Action Hover Bar */}
-            <div className="shrink-0 flex items-center text-xs text-[#52525B]">
-              {/* Standard date display (hidden on hover if actions available) */}
-              <span className="group-hover:hidden">
-                {item.date
-                  ? new Date(item.date).toLocaleDateString(undefined, {
-                      month: "numeric",
-                      day: "numeric",
-                    })
-                  : ""}
-              </span>
-
-              {/* Hover quick action buttons */}
-              <div className="hidden group-hover:flex items-center gap-1">
-                {onToggleRead && (
-                  <button
-                    type="button"
-                    onClick={onToggleRead}
-                    className="p-1 hover:text-[#18181B] rounded hover:bg-[#EBE8E0]"
-                    aria-label={readLabel}
-                    title={readLabel}
-                  >
-                    {item.isUnread ? (
-                      <MailOpen className="w-3.5 h-3.5" />
-                    ) : (
-                      <Mail className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                )}
-                {onDelete && (
-                  <button
-                    type="button"
-                    onClick={onDelete}
-                    className="p-1 hover:text-[#DC2626] rounded hover:bg-[#EBE8E0]"
-                    aria-label={deleteLabel}
-                    title={deleteLabel}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 min-w-0 text-[13px] leading-5">
-            <span
-              className={`truncate ${
-                item.isUnread
-                  ? "font-[650] text-[#18181B]"
-                  : "font-normal text-[#52525B]"
-              }`}
-            >
-              {item.subject}
             </span>
-            {item.folder ? (
-              <span
-                data-testid={`mail-folder-${item.uid}`}
-                className="shrink-0 text-xs text-[var(--vellum-ink-secondary)]"
-              >
-                {item.folder}
-              </span>
-            ) : null}
-            {item.hasAttachments && (
-              <Paperclip className="w-4 h-4 text-[var(--vellum-ink-secondary)] shrink-0" />
-            )}
-          </div>
-          <p
-            data-testid={`mail-snippet-${item.uid}`}
-            className="truncate text-[13px] leading-5 font-normal text-[var(--vellum-ink-secondary)]"
-          >
-            {item.snippet ?? ""}
-          </p>
+          </span>
         </div>
-      )}
+
+        {/* Line 2: preview snippet — always rendered so the row height
+            never collapses; an empty preview keeps a non-breaking space. */}
+        <p
+          data-testid={`mail-snippet-${item.uid}`}
+          className={`truncate font-normal text-[var(--vellum-ink-secondary)] ${metrics.line2}`}
+        >
+          {item.snippet ? item.snippet : " "}
+        </p>
+      </div>
     </div>
   );
 }
