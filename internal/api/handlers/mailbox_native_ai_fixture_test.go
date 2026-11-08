@@ -221,22 +221,31 @@ func (model *nativeAIFixtureModel) Complete(ctx context.Context, request ai.Comp
 	case <-time.After(100 * time.Millisecond):
 	}
 	model.calls.Add(1)
-	var input ai.OperationInput
-	_ = json.Unmarshal([]byte(request.Messages[len(request.Messages)-1].Content), &input)
+	// Dispatch on the system prompt's task constraint: user messages are
+	// registry-built untrusted-content envelopes, no longer the marshaled
+	// operation input.
+	system := ""
+	if len(request.Messages) > 0 {
+		system = request.Messages[0].Content
+	}
 	var output any
-	switch input.Operation {
-	case "classify":
+	switch {
+	case strings.Contains(system, "Classify the email category"):
 		output = map[string]any{"category": "finance", "score": 0.95}
-	case "summarize":
+	case strings.Contains(system, "Summarize the key facts"):
 		output = map[string]any{"summary": "Invoice total: 42 euros. Payment is due on Friday."}
-	case "translate":
+	case strings.Contains(system, "Translate the email text faithfully"):
 		output = map[string]any{"translation": "发票总金额为42欧元，请于星期五之前付款。"}
-	case "phishing":
+	case strings.Contains(system, "Evaluate the email for phishing"):
 		output = map[string]any{"score": 0.2, "reasons": []string{"Verify the sender and invoice details independently."}}
-	case "polish":
+	case strings.Contains(system, "Refine the provided draft"):
 		output = map[string]any{"draft": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday."}
-	case "draft_new", "draft_reply":
+	case strings.Contains(system, "Suggest a draft reply"):
 		output = map[string]any{"subject": "Invoice follow-up", "body": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday.\n\nKind regards"}
+	case strings.Contains(system, "Extract concrete action items"):
+		output = map[string]any{"items": []map[string]any{{"task": "Pay the invoice by Friday", "assignee": nil, "due_date": "Friday"}}}
+	case strings.Contains(system, "Execute the user instruction"):
+		output = map[string]any{"task_type": "other", "result": "Done."}
 	default:
 		return ai.CompletionResponse{}, ai.ErrInvalidRequest
 	}
