@@ -63,6 +63,20 @@ export function isRemoteUrl(value: string): boolean {
   return /^(?:https?:)?\/\//i.test(value.trim());
 }
 
+/**
+ * Server-rewritten same-origin proxy URL for allowed remote images —
+ * `/api/v1/mailbox/images/proxy?u=…&sig=…` (signed, opaque; the query is
+ * kept verbatim, never parsed). Must be root-relative: any scheme or
+ * protocol-relative host prefix means the URL is attacker-controlled,
+ * not ours, and the ordinary remote-image rules apply.
+ */
+const IMAGE_PROXY_PATH = "/api/v1/mailbox/images/proxy";
+
+export function isImageProxyUrl(src: string): boolean {
+  const s = src.trim();
+  return s === IMAGE_PROXY_PATH || s.startsWith(IMAGE_PROXY_PATH + "?");
+}
+
 /** Explicit absolute http(s) URL (rejects protocol-relative and other schemes). */
 export function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
@@ -96,7 +110,11 @@ function removeEventHandlers(el: Element): void {
   }
 }
 
-function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
+function neutralizeUrlAttrs(
+  el: Element,
+  allowRemote = false,
+  trustedImages?: Set<string>,
+): void {
   const names: string[] = [];
   for (let i = 0; i < el.attributes.length; i++) {
     names.push(el.attributes[i].name);
@@ -128,14 +146,19 @@ function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
       el.removeAttribute(name);
       continue;
     }
-    // Remote src on non-img elements is always stripped
-    if (lower === "src" && !isImg && isRemoteUrl(value)) {
+    // src on non-img elements is always stripped
+    if (lower === "src" && !isImg) {
       el.removeAttribute(name);
       continue;
     }
-    // Remote src on img elements: only allowed if allowRemote is true AND it is an absolute http(s) URL
-    if (lower === "src" && isImg && isRemoteUrl(value)) {
-      if (!allowRemote || !isAbsoluteHttpUrl(value)) {
+    // src on img elements: only allowed if trusted, image proxy, or opted-in absolute http(s)
+    if (lower === "src" && isImg) {
+      const s = value.trim();
+      const ok =
+        (trustedImages && trustedImages.has(s)) ||
+        isImageProxyUrl(s) ||
+        (allowRemote && isAbsoluteHttpUrl(s));
+      if (!ok) {
         el.removeAttribute(name);
       }
     }
@@ -152,22 +175,31 @@ function hardenAnchor(el: Element): void {
   el.setAttribute("target", "_blank");
 }
 
-function shouldStripImg(el: Element, allowRemote = false): boolean {
+function shouldStripImg(
+  el: Element,
+  allowRemote = false,
+  trustedImages?: Set<string>,
+): boolean {
   const src = el.getAttribute("src");
-  if (src != null && isDangerousUrl(src)) return true;
-  if (src != null && isRemoteUrl(src)) {
-    if (!allowRemote || !isAbsoluteHttpUrl(src)) return true;
+  if (src != null) {
+    const s = src.trim();
+    if (isDangerousUrl(s)) return true;
+    if (trustedImages && trustedImages.has(s)) return false;
+    if (isImageProxyUrl(s)) return false;
+    if (allowRemote && isAbsoluteHttpUrl(s)) return false;
+    // Any other src (root-relative non-proxy, relative, protocol-relative,
+    // unallowed remote, un-inlined cid/data/blob, etc.) is stripped.
+    return true;
   }
-  if (src == null) {
-    const srcset = el.getAttribute("srcset");
-    if (srcset) {
-      const remote = srcset.split(",").some((part) => {
-        const url = part.trim().split(/\s+/)[0] ?? "";
-        return url && (isRemoteUrl(url) || isDangerousUrl(url));
-      });
-      if (remote) return true;
-    }
+  const srcset = el.getAttribute("srcset");
+  if (srcset) {
+    const remote = srcset.split(",").some((part) => {
+      const url = part.trim().split(/\s+/)[0] ?? "";
+      return !url || isRemoteUrl(url) || isDangerousUrl(url);
+    });
+    if (remote) return true;
   }
+  // An img with no src and no srcset is inert (e.g. placeholder/data-blocked-src).
   return false;
 }
 
@@ -175,6 +207,17 @@ function isMetaRefresh(el: Element): boolean {
   if (el.tagName.toLowerCase() !== "meta") return false;
   const equiv = el.getAttribute("http-equiv");
   return equiv != null && equiv.trim().toLowerCase() === "refresh";
+}
+
+/** True when the document already carries a CSP meta (server-injected). */
+function hasCspMeta(doc: Document): boolean {
+  for (const meta of Array.from(doc.querySelectorAll("meta"))) {
+    const equiv = meta.getAttribute("http-equiv");
+    if (equiv && equiv.trim().toLowerCase() === "content-security-policy") {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Only CSS properties that cannot fetch or decode image resources are kept.
@@ -269,7 +312,11 @@ function sanitizeStyles(el: Element): void {
   el.removeAttribute("srcset");
 }
 
-function sanitizeElement(el: Element, allowRemote = false): void {
+function sanitizeElement(
+  el: Element,
+  allowRemote = false,
+  trustedImages?: Set<string>,
+): void {
   const tag = el.tagName.toLowerCase();
 
   if (STRIP_TAGS.has(tag) || isMetaRefresh(el)) {
@@ -277,20 +324,20 @@ function sanitizeElement(el: Element, allowRemote = false): void {
     return;
   }
 
-  if (tag === "img" && shouldStripImg(el, allowRemote)) {
+  if (tag === "img" && shouldStripImg(el, allowRemote, trustedImages)) {
     el.remove();
     return;
   }
 
   sanitizeStyles(el);
   removeEventHandlers(el);
-  neutralizeUrlAttrs(el, allowRemote);
+  neutralizeUrlAttrs(el, allowRemote, trustedImages);
   hardenAnchor(el);
 
   // Child list mutates as we remove nodes — snapshot first.
   const children = Array.from(el.children);
   for (const child of children) {
-    sanitizeElement(child, allowRemote);
+    sanitizeElement(child, allowRemote, trustedImages);
   }
 }
 
@@ -318,7 +365,7 @@ export function sanitizeHtmlMail(
       image.removeAttribute("srcset");
     } else if (
       /^(?:cid|data|blob):/i.test(src.trim()) ||
-      src.startsWith("/api/v1/mailbox/")
+      (src.startsWith("/api/v1/mailbox/") && !isImageProxyUrl(src))
     ) {
       image.remove();
     }
@@ -330,17 +377,30 @@ export function sanitizeHtmlMail(
     // between conditional-comment fences (observed: a bgcolor'd table
     // inside `<!--[if !mso]><!-->` vanished). Sandbox+CSP keeps any such
     // residue inert for modern engines.
-    sanitizeElement(doc.documentElement, allowRemote);
+    sanitizeElement(doc.documentElement, allowRemote, trustedImages);
   }
   // This policy is independent of the host page: CSS backgrounds, imports,
-  // fonts, SVG references and media cannot contact remote origins.
-  const policy = doc.createElement("meta");
-  policy.httpEquiv = "Content-Security-Policy";
-  policy.content =
-    "default-src 'none'; img-src " +
-    (allowRemote ? "https: http: " : "") +
-    (trustedImages.size ? "data:" : allowRemote ? "" : "'none'") +
-    "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
-  doc.head.prepend(policy);
+  // fonts, SVG references and media cannot contact remote origins. When the
+  // server already wrapped the body with its own CSP meta (single source of
+  // truth), do not inject a second policy — but the sanitizer itself still
+  // runs as defense in depth.
+  if (!hasCspMeta(doc)) {
+    const hasProxyImages = Array.from(doc.querySelectorAll("img")).some((img) =>
+      isImageProxyUrl(img.getAttribute("src") ?? ""),
+    );
+    const imgSrcParts: string[] = [];
+    if (hasProxyImages) imgSrcParts.push("'self'");
+    if (allowRemote) imgSrcParts.push("https:", "http:");
+    if (trustedImages.size) imgSrcParts.push("data:");
+    const imgSrc = imgSrcParts.length > 0 ? imgSrcParts.join(" ") : "'none'";
+
+    const policy = doc.createElement("meta");
+    policy.httpEquiv = "Content-Security-Policy";
+    policy.content =
+      "default-src 'none'; img-src " +
+      imgSrc +
+      "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'";
+    doc.head.prepend(policy);
+  }
   return "<!doctype html>" + (doc.documentElement?.outerHTML ?? "");
 }
