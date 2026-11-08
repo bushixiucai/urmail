@@ -2,6 +2,31 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.10] - 2026-11-08
+
+会话视图重构 + 邮件隐私层 + 列表行重排（用户深度访谈拍板的三议题合成一个版本交付）。无数据库迁移（schema 158 不变）。
+
+### 新增（隐私层：服务端渲染增强）
+- **图片代理**（#40）：用户允许远程图片后，浏览器不再直连第三方——`img src` 重写为服务端代理 `/api/v1/mailbox/images/proxy`（HMAC 签名 + TTL + 绑定邮箱会话），剥离 Referer 与第三方 cookie 关联；SSRF 防护（私网/环回/链路本地/TEST-NET 拒绝、DNS 解析后钉死已校验地址、30x 逐跳复检）、类型白名单（拒 SVG）与大小上限；远程图片默认仍阻止（v0.6.4 安全基线不变）
+- **外链确认页**（#42）：全部 `http(s)` 外链改走 `/api/v1/mailbox/links/confirm` 确认页——真实域名**逐字符等宽渲染**（防同形字钓鱼）、展示完整目标 URL 与来源邮件/发件人，点击才 302；`mailto:`/`tel:` 不经确认
+- **UA/视口适配**（#43）：客户端请求带 `X-UA-Class`/`X-Viewport-Width`（前端统一附加，resize 防抖快照），服务端按宽度分桶（≤640 / 641–1024 / >1024）重写邮件内固定宽度（`width=600` → `max-width:100%`），营销邮件在窄栏不再横向裁切
+- **CSP 注入上移服务端**（#44）：消毒后 HTML 统一包裹 CSP meta（`default-src 'none'; script-src 'none'` 等），前端检测到服务端 meta 即不自注入（自注入兜底保留作纵深，#48）；渲染管线串成 sanitize → viewport 适配 → CSP 包裹
+- **渲染缓存**（#45）：GetMessage 结果进程内缓存，键含 7 维（mailbox/folder/uid/uid_validity/load_images/ua_class/viewport_bucket），`uid_validity` 变更即失效，TTL 5min、上限 256 条、不跨邮箱；缓存的是 CSP 包裹后的最终 HTML，命中不绕过注入；HTTP 响应保持 no-store
+- **隐私前端配合**（#48）：净化器 img 策略收紧——仅放行代理前缀，根相对非代理（tracker 探针）、相对路径、协议相对全部删除（CI E2E 抓到的 tracker 回归已根修）；前端回退 CSP 仅在存在放行代理图时授予 `'self'`，否则维持 `'none'` 并显式 `script-src 'none'`
+
+### 新增（会话/线程视图）
+- **列表内联展开层级**（#41）：展开线程后子邮件行缩进 + 竖线连接线 + 层级背景档 + 「回复」语义标签，与普通邮件行清晰区分
+- **阅读区堆叠卡片**（#47）：打开线程堆叠全部成员卡片（卡头=发件人/时间/摘要，卡体=正文），默认**仅最新一封展开**，点卡头切换；线程条整组操作（已读/归档/删除/成员计数）+ 上一封/下一封导航；回复/转发作用于当前展开那封
+- **线程合并收紧 + 全量计数**（#38）：主题兜底合并增加约束（参与者重叠**或** ≤7 天时间窗口），同主题不同参与者不再误合；线程计数覆盖全量（不再只算已加载页），并以 `thread_scope` 标注计数口径（server/folder/bounded）
+
+### 变更（列表行重排）
+- **三档密度统一重排**（#39）：Gmail 式两行结构（第一行发件人+主题同行，第二行预览摘要），comfortable 52px 撕裂根修（去掉用 justify-center 塞两行 32px 文本的布局），三档 52/40/32px 同构 DOM，仅行高字号差异，不再有结构跳变
+- **时间梯度**（#39）：今天 `HH:mm` / 昨天「昨天」/ 更早「M月D日」/ 跨年带年（对标 Spark），悬停显示完整时间且不撑行；徽章 title 英文硬编码补 i18n
+- **预览摘要服务端提供**（#46）：`MessageSummary` 新增 `preview` 字段（正文纯文本前 1–2 行，去引用头、限长、空白折叠），列表显示真实正文摘要；前端修正 snippet 误填 subject。**实测延迟影响**（假 IMAP、20 封/页、30 轮、每命令 5ms RTT）：列表 17.4ms → 23.3ms（+5.9ms，批量预取摊薄；`TestPreviewListLatencyMeasurement` 留档）
+
+### 文档更正
+- v0.6.4 条目「远程图片偏好 AES-256-GCM 加密存储」描述不准确（实际为服务端明文存储偏好键，无加密实现），已更正为实际行为
+
 ## [0.6.9] - 2026-11-08
 
 阅读区 iframe 高度自适应（QA 生产目检发现的长邮件裁断缺陷）。无数据库迁移（schema 158 不变）。
@@ -73,7 +98,7 @@ Webmail P1 波1（右键/拖拽/文件夹管理）+ 部署链路根修。无数�
 
 ### 变更
 - **webmail-next 成为默认界面**：`/webmail` 直接进入新 Webmail；旧版保留三层逃生门：URL `?v=legacy`、偏好设置 `preferences.webmail_version=legacy`、本地存储 `storage=legacy`；`isWebmailNextEnabled` 服务端渲染恒为 next
-- 设置抽屉新增「隐私与安全→远程图片」：默认阻止，可按账户允许全部远程加载（fail-closed，AES-256-GCM 加密存储）——旧版与新版均可配置
+- 设置抽屉新增「隐私与安全→远程图片」：默认阻止，可按账户允许全部远程加载（fail-closed，偏好键以明文存于服务端 settings）——旧版与新版均可配置
 - 旧版专属 E2E（浏览器身份/跨标签草稿冲突等 4 处）显式固定 `?v=legacy`
 
 ### 安全（v0.6.4 发版门：cloudflare security-audit-skill 六阶段深审）
