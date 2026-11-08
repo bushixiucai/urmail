@@ -243,8 +243,8 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 				return
 			}
 			afterCommit = func() (any, error) {
-				result, runErr := h.AI.Run(c.Request.Context(), principal, input.RequestKey, input.Input, input.ConfigurationDigest)
-				return gin.H{"result": result}, runErr
+				result, meta, runErr := h.AI.Run(c.Request.Context(), principal, input.RequestKey, input.Input, input.ConfigurationDigest)
+				return assistEnvelope(result, meta), runErr
 			}
 		case "get_sieve":
 			mailbox, getErr := q.PlatformGetMailboxSieve(c, store.PlatformGetMailboxSieveParams{TenantID: tid, ID: mid})

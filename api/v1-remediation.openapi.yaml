@@ -9886,30 +9886,151 @@ components:
                 type: string
     MailboxAIAssistResponse:
       type: object
-      required: [result]
+      required: [result, degraded, degrade_reason, template_version, cache_hit]
       properties:
         result:
           type: object
-          description: Validated fields depend on operation; only the matching operation fields are returned.
+          description: Validated fields depend on operation; only the matching operation fields are returned. classify keeps score (equals confidence), summarize keeps summary (newline-joined bullets), polish keeps draft (equals revised_text) and translate keeps translation (equals translated_text) for one compatibility release.
           properties:
             category:
               type: string
+            confidence:
+              type: number
+              description: classify only.
             score:
               type: number
-            summary:
-              type: string
-            translation:
-              type: string
+              description: classify only; equals confidence for one compatibility release.
             reasons:
               type: array
               items:
                 type: string
+            bullets:
+              type: array
+              description: summarize only.
+              items:
+                type: string
+            todos:
+              type: array
+              description: summarize only.
+              items:
+                type: object
+                required: [task]
+                properties:
+                  task:
+                    type: string
+                  assignee:
+                    type: string
+                    nullable: true
+                  due_date:
+                    type: string
+                    nullable: true
+            key_dates:
+              type: array
+              description: summarize only.
+              items:
+                type: object
+                required: [date]
+                properties:
+                  date:
+                    type: string
+                  label:
+                    type: string
+            language:
+              type: string
+              description: summarize only.
+            summary:
+              type: string
+              description: summarize only; newline-joined bullets for one compatibility release.
             subject:
               type: string
             body:
               type: string
+            tone_notes:
+              type: string
+            assumptions:
+              type: array
+              items:
+                type: string
+            revised_text:
+              type: string
+              description: polish only.
+            changes:
+              type: array
+              description: polish only.
+              items:
+                type: object
+                required: [type, note]
+                properties:
+                  type:
+                    type: string
+                    enum: [clarity, grammar, tone, structure]
+                  note:
+                    type: string
+            tone:
+              type: string
+              enum: [neutral, formal, concise, friendly]
             draft:
               type: string
+              description: polish only; equals revised_text for one compatibility release.
+            translated_text:
+              type: string
+              description: translate only.
+            detected_source:
+              type: string
+              description: translate only.
+            translation:
+              type: string
+              description: translate only; equals translated_text for one compatibility release.
+            risk_level:
+              type: string
+              enum: [low, medium, high, critical]
+              description: phishing only; always mapped from score server-side, never trusted from the model.
+            indicators:
+              type: array
+              description: phishing only.
+              items:
+                type: object
+                required: [type]
+                properties:
+                  type:
+                    type: string
+                    enum: [spoofed_domain, suspicious_link, urgent_pressure, credential_request, other]
+                  evidence:
+                    type: string
+            items:
+              type: array
+              description: todos operation only.
+              items:
+                type: object
+                required: [task]
+                properties:
+                  task:
+                    type: string
+                  assignee:
+                    type: string
+                    nullable: true
+                  due_date:
+                    type: string
+                    nullable: true
+            task_type:
+              type: string
+              enum: [extraction, explanation, summary, translation, draft, other]
+            result:
+              type: string
+              description: custom operation only.
+        degraded:
+          type: boolean
+          description: True when the answer came from a non-structured fallback path.
+        degrade_reason:
+          type: string
+          enum: [provider_unavailable, schema_retry_exhausted]
+          description: Populated only when degraded is true; empty string otherwise.
+        template_version:
+          type: integer
+          description: Prompt generation that produced the result; 0 marks legacy or replayed rows predating versioning.
+        cache_hit:
+          type: boolean
+          description: True when served from the operation result cache (populated by a later release).
     MailboxAIAskPreview:
       type: object
       required: [content_digest, question, sources]

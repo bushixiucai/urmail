@@ -64,30 +64,30 @@ func aiCost(input, output, inputRate, outputRate int64) (int64, error) {
 }
 
 // Run serializes reservation and caches one exact mailbox operation.
-func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, expectedConfiguration ...string) (json.RawMessage, error) {
+func (s *MailboxAIService) Run(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, expectedConfiguration ...string) (json.RawMessage, ai.ResultMeta, error) {
 	return s.run(ctx, principal, key, input, nil, expectedConfiguration...)
 }
 
 // RunCustom uses the same durable intent, reservation and settlement ledger as
 // managed AI, with zero platform cost and the tenant's nonplatform governance.
-func (s *MailboxAIService) RunCustom(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, target *userAICustomConfig, expected string) (json.RawMessage, error) {
+func (s *MailboxAIService) RunCustom(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, target *userAICustomConfig, expected string) (json.RawMessage, ai.ResultMeta, error) {
 	if target == nil {
-		return nil, errAITargetChanged
+		return nil, ai.ResultMeta{}, errAITargetChanged
 	}
 	return s.run(ctx, principal, key, input, target, expected)
 }
 
-func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, custom *userAICustomConfig, expectedConfiguration ...string) (json.RawMessage, error) {
+func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformConsumeMailboxTicketRow, key string, input ai.OperationInput, custom *userAICustomConfig, expectedConfiguration ...string) (json.RawMessage, ai.ResultMeta, error) {
 	if s == nil || s.Pool == nil || len(key) < 16 || len(key) > 200 {
-		return nil, ai.ErrProviderDisabled
+		return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 	}
 	targetDigest := ""
 	if len(expectedConfiguration) == 1 {
 		targetDigest = expectedConfiguration[0]
 	}
-	request, err := ai.BuildOperation(input)
+	request, err := ai.StructuredRequest(input)
 	if err != nil {
-		return nil, err
+		return nil, ai.ResultMeta{}, err
 	}
 	raw, _ := json.Marshal(struct {
 		TenantID, MailboxID int64
@@ -100,23 +100,23 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	hash := hex.EncodeToString(digest[:])
 	tx, err := s.Pool.PlatformTx(ctx)
 	if err != nil {
-		return nil, err
+		return nil, ai.ResultMeta{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := store.New(tx)
 	if err = q.PlatformLockBillingTenant(ctx, principal.TenantID); err != nil {
-		return nil, err
+		return nil, ai.ResultMeta{}, err
 	}
 	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !session.ExpiresAt.Time.After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
-		return nil, ai.ErrUnauthorized
+		return nil, ai.ResultMeta{}, ai.ErrUnauthorized
 	}
 	if err = q.PlatformExpireAIReservations(ctx, principal.TenantID); err != nil {
-		return nil, err
+		return nil, ai.ResultMeta{}, err
 	}
 	cfg, configurationErr := q.PlatformGetAIProvider(ctx, principal.TenantID)
 	if custom != nil {
 		if configurationErr != nil && !errors.Is(configurationErr, pgx.ErrNoRows) {
-			return nil, configurationErr
+			return nil, ai.ResultMeta{}, configurationErr
 		}
 		if errors.Is(configurationErr, pgx.ErrNoRows) {
 			cfg = store.AiProviderConfigs{TenantID: principal.TenantID, PersonalMode: "public"}
@@ -124,51 +124,51 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 		}
 		cfg, err = customAIConfiguration(ctx, q, cfg, principal.TenantID, principal.MailboxID, custom, targetDigest)
 		if err != nil {
-			return nil, err
+			return nil, ai.ResultMeta{}, err
 		}
 	}
 	existing, lookup := q.PlatformGetAIRequest(ctx, store.PlatformGetAIRequestParams{TenantID: principal.TenantID, RequestKey: key})
 	if lookup == nil {
 		if existing.InputDigest != hash || existing.MailboxID != principal.MailboxID {
-			return nil, errAIIntent
+			return nil, ai.ResultMeta{}, errAIIntent
 		}
 		if existing.Status == "completed" {
 			if tx.Commit(ctx) != nil {
-				return nil, errAIBudget
+				return nil, ai.ResultMeta{}, errAIBudget
 			}
-			return existing.Result, nil
+			return existing.Result, ai.ResultMeta{}, nil // replayed rows predate versioning
 		}
-		return nil, errAIIntent
+		return nil, ai.ResultMeta{}, errAIIntent
 	}
 	if !errors.Is(lookup, pgx.ErrNoRows) {
-		return nil, lookup
+		return nil, ai.ResultMeta{}, lookup
 	}
 	if custom == nil && (configurationErr != nil || !cfg.Enabled) {
-		return nil, ai.ErrProviderDisabled
+		return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 	}
 	if !cfg.Enabled {
-		return nil, ai.ErrProviderDisabled
+		return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 	}
 	if targetDigest != "" && targetDigest != cfg.ConfigurationDigest {
-		return nil, errAITargetChanged
+		return nil, ai.ResultMeta{}, errAITargetChanged
 	}
 	if custom == nil && cfg.Provider != "ollama" {
 		if targetDigest == "" || cfg.CloudScopeHash != AICloudScopeHash {
-			return nil, errAIConsent
+			return nil, ai.ResultMeta{}, errAIConsent
 		}
 		allowed, consentErr := q.AICloudAuthorized(ctx, store.AICloudAuthorizedParams{TenantID: principal.TenantID, ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash})
 		if consentErr != nil {
-			return nil, consentErr
+			return nil, ai.ResultMeta{}, consentErr
 		}
 		if !allowed {
-			return nil, errAIConsent
+			return nil, ai.ResultMeta{}, errAIConsent
 		}
 	}
 	if cfg.LocalOnly && cfg.Provider != "ollama" {
-		return nil, ai.ErrLocalOnly
+		return nil, ai.ResultMeta{}, ai.ErrLocalOnly
 	}
 	if (cfg.Mode == "local") != (cfg.Provider == "ollama") {
-		return nil, ai.ErrProviderDisabled
+		return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 	}
 	budgetNow := time.Now().Truncate(time.Microsecond)
 	quota, err := resolveAIQuota(ctx, q, cfg, principal.TenantID, budgetNow)
@@ -186,7 +186,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 			quota.Limits.AI.Tokens = math.MaxInt64
 			quota.Limits.AI.Cost = math.MaxInt64
 		} else {
-			return nil, errAIBudget
+			return nil, ai.ResultMeta{}, errAIBudget
 		}
 	} else if custom != nil {
 		quota.Limits.AI.Tokens = math.MaxInt64
@@ -211,11 +211,11 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 			currency = "CNY"
 		}
 		if tokenLimit <= 0 || costLimit <= 0 || limits.AI.Currency != currency || (currency != "CNY" && currency != "USD") || (cfg.InputMicrosPerMillion == 0 && cfg.OutputMicrosPerMillion == 0) {
-			return nil, errAIBudget
+			return nil, ai.ResultMeta{}, errAIBudget
 		}
 		reservedCost, err = aiCost(reservedTokens, 2048, cfg.InputMicrosPerMillion, cfg.OutputMicrosPerMillion)
 		if err != nil {
-			return nil, err
+			return nil, ai.ResultMeta{}, err
 		}
 	} else {
 		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
@@ -223,9 +223,9 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if custom == nil {
 		if err = checkAIProviderBudget(ctx, q, cfg, principal.TenantID, reservedTokens, reservedCost, budgetNow); err != nil {
 			if errors.Is(err, ErrAIBudgetExceeded) {
-				return nil, errAIBudget
+				return nil, ai.ResultMeta{}, errAIBudget
 			}
-			return nil, err
+			return nil, ai.ResultMeta{}, err
 		}
 	}
 	var provider ai.Provider
@@ -242,27 +242,27 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 		credential := ""
 		if cfg.Provider != "ollama" {
 			if s.Secrets == nil {
-				return nil, ai.ErrProviderDisabled
+				return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 			}
 			credential, err = s.Secrets.DecryptString(cfg.EncryptedKey)
 			if err != nil {
-				return nil, ai.ErrProviderDisabled
+				return nil, ai.ResultMeta{}, ai.ErrProviderDisabled
 			}
 		}
 		provider, err = ai.ConfiguredProvider(cfg.Provider, cfg.Endpoint, cfg.Model, credential, s.CloudEndpoints, s.LocalEndpoints)
 	}
 	if err != nil {
-		return nil, err
+		return nil, ai.ResultMeta{}, err
 	}
 	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: pgtype.Timestamptz{Time: budgetNow, Valid: true}, IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errAIBudget
+		return nil, ai.ResultMeta{}, errAIBudget
 	}
 	if err != nil {
-		return nil, err
+		return nil, ai.ResultMeta{}, err
 	}
 	if tx.Commit(ctx) != nil {
-		return nil, errAIBudget
+		return nil, ai.ResultMeta{}, errAIBudget
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -272,7 +272,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	var actualTokens, actualCost pgtype.Int8
 	var result json.RawMessage
 	if callErr == nil {
-		result, callErr = ai.ValidateOperation(input.Operation, completion.Content)
+		result, callErr = ai.ValidatePayload(input.Operation, ai.ExtractJSON(completion.Content))
 		// Unknown usage remains charged at its reservation even with a valid result.
 		if completion.UsageKnown && completion.PromptTokens >= 0 && completion.OutputTokens >= 0 {
 			tokens := int64(completion.PromptTokens) + int64(completion.OutputTokens)
@@ -295,15 +295,15 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	defer settleCancel()
 	finished, finishErr := store.New(s.Pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: principal.TenantID, ID: reservation.ID, Status: status, ActualTokens: actualTokens, ActualCostMicros: actualCost, Result: result})
 	if finishErr != nil || finished != 1 {
-		return nil, errAIBudget
+		return nil, ai.ResultMeta{}, errAIBudget
 	}
 	if callErr != nil {
-		return nil, ai.ErrProviderError
+		return nil, ai.ResultMeta{}, ai.ErrProviderError
 	}
 	if status != "completed" {
-		return nil, errAIBudget
+		return nil, ai.ResultMeta{}, errAIBudget
 	}
-	return result, nil
+	return result, ai.ResultMeta{TemplateVersion: ai.StructuredTemplateVersion(input.Operation)}, nil
 }
 
 // AIConfigurationHandler exposes only redacted configuration and usage to panel administrators.

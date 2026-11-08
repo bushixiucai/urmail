@@ -221,3 +221,12 @@ func contentComposition(p Params, withFrom bool, links bool) string {
 	}
 	return b.String()
 }
+
+// Version reports the version of a registered template; 0 when the
+// operation is unknown.
+func Version(operation string) int {
+	if tpl, ok := registry[operation]; ok {
+		return tpl.Version
+	}
+	return 0
+}

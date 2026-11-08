@@ -75,7 +75,7 @@ func TestAINonplatformQuotaLegacyNativeAndQAKeepMailFactsPG(t *testing.T) {
 	}
 	target := mailboxAIVersion(t, pool, principal.TenantID)
 	input := ai.OperationInput{Operation: "classify", Body: "Owned synthetic legacy message"}
-	if _, err := service.Run(t.Context(), principal, "legacy-no-config-quota", input, target); !errors.Is(err, errAIBudget) || model.calls.Load() != 0 {
+	if _, _, err := service.Run(t.Context(), principal, "legacy-no-config-quota", input, target); !errors.Is(err, errAIBudget) || model.calls.Load() != 0 {
 		t.Fatal("legacy AI opened without quota", err)
 	}
 	body := aiQuotaCaps(3)
@@ -90,19 +90,19 @@ func TestAINonplatformQuotaLegacyNativeAndQAKeepMailFactsPG(t *testing.T) {
 	if _, err := pool.Exec(t.Context(), `INSERT INTO ai_usage_requests(tenant_id,mailbox_id,request_key,input_digest,period_start,period_end,mode,provider,model,cost_currency,input_rate,output_rate,status,reserved_tokens,reserved_cost_micros,actual_cost_micros) VALUES($1,$2,'old-platform-cost-fixture',repeat('b',64),now()-interval '2 days',now()+interval '30 days','platform','openai','old-platform','CNY',1,1,'completed',1,1000,1000)`, principal.TenantID, principal.MailboxID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Run(t.Context(), principal, "legacy-configured-classify", input, target); err != nil {
+	if _, _, err := service.Run(t.Context(), principal, "legacy-configured-classify", input, target); err != nil {
 		t.Fatal(err)
 	}
 	model.operation = "draft_reply"
 	input.Operation = "draft_reply"
-	if _, err := service.Run(t.Context(), principal, "legacy-configured-reply", input, target); err != nil {
+	if _, _, err := service.Run(t.Context(), principal, "legacy-configured-reply", input, target); err != nil {
 		t.Fatal(err)
 	}
 	reservation, err := (AISearchAskAccounting{Pool: pool}).Reserve(t.Context(), principal.TenantID, principal.MailboxID, "Synthetic grounded question")
 	if err != nil || reservation == nil {
 		t.Fatal("legacy QA has no independent window", err)
 	}
-	if _, err = service.Run(t.Context(), principal, "legacy-configured-over-cap", input, target); !errors.Is(err, errAIBudget) {
+	if _, _, err = service.Run(t.Context(), principal, "legacy-configured-over-cap", input, target); !errors.Is(err, errAIBudget) {
 		t.Fatal("legacy over-cap operation allowed", err)
 	}
 	usage := aiQuotaUsage(t, pool, principal)
@@ -127,7 +127,7 @@ func TestAINonplatformQuotaHistoryModeTimezoneAndDisableCannotResetPG(t *testing
 	}
 	input := ai.OperationInput{Operation: "classify", Body: "Synthetic message"}
 	target := mailboxAIVersion(t, pool, principal.TenantID)
-	if _, err = service.Run(t.Context(), principal, "legacy-one-new-after-old-row", input, target); err != nil {
+	if _, _, err = service.Run(t.Context(), principal, "legacy-one-new-after-old-row", input, target); err != nil {
 		t.Fatal(err)
 	}
 	for _, body := range []map[string]any{{"nonplatform_call_limit": 0, "nonplatform_mailbox_call_limit": 0, "nonplatform_concurrency_limit": 0}, aiQuotaCaps(2)} {
@@ -148,13 +148,13 @@ func TestAINonplatformQuotaHistoryModeTimezoneAndDisableCannotResetPG(t *testing
 	if _, err = pool.Exec(t.Context(), "UPDATE ai_provider_configs SET enabled=true WHERE tenant_id=$1", principal.TenantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Run(t.Context(), principal, "legacy-reenabled-no-refund", input, target); !errors.Is(err, errAIBudget) {
+	if _, _, err = service.Run(t.Context(), principal, "legacy-reenabled-no-refund", input, target); !errors.Is(err, errAIBudget) {
 		t.Fatal("disable/re-enable returned spent quota", err)
 	}
 	if _, err = store.New(pool).PlatformSetAIProvider(t.Context(), store.PlatformSetAIProviderParams{TenantID: principal.TenantID, Mode: "local", Provider: "ollama", Endpoint: "https://127.0.0.1:11434", Model: "owned-local", Enabled: true, LocalOnly: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Run(t.Context(), principal, "local-mode-no-new-window", input, mailboxAIVersion(t, pool, principal.TenantID)); !errors.Is(err, errAIBudget) {
+	if _, _, err = service.Run(t.Context(), principal, "local-mode-no-new-window", input, mailboxAIVersion(t, pool, principal.TenantID)); !errors.Is(err, errAIBudget) {
 		t.Fatal("switching BYO/local returned quota", err)
 	}
 	usage := aiQuotaUsage(t, pool, principal)
@@ -178,7 +178,7 @@ func TestAINonplatformQuotaFiniteFallbackAndPlatformIsolationPG(t *testing.T) {
 	if err != nil || quota.Source != "configured_nonplatform" || !quota.Independent || quota.Limits.AI.Calls != 10 {
 		t.Fatal("settings ai_default_call_limit fallback refused", quota.Source, err)
 	}
-	if _, err = service.Run(t.Context(), principal, "finite-byo-compatible-key", input, target); err != nil {
+	if _, _, err = service.Run(t.Context(), principal, "finite-byo-compatible-key", input, target); err != nil {
 		t.Fatal(err)
 	}
 	if model.calls.Load() != 1 {
@@ -192,7 +192,7 @@ func TestAINonplatformQuotaFiniteFallbackAndPlatformIsolationPG(t *testing.T) {
 		t.Fatal(err)
 	}
 	approveMailboxAICloud(t, legacy, legacyPrincipal.TenantID, true)
-	if _, err = legacyService.Run(t.Context(), legacyPrincipal, "platform-cannot-use-host-caps", input, mailboxAIVersion(t, legacy, legacyPrincipal.TenantID)); !errors.Is(err, errAIBudget) || legacyModel.calls.Load() != 0 {
+	if _, _, err = legacyService.Run(t.Context(), legacyPrincipal, "platform-cannot-use-host-caps", input, mailboxAIVersion(t, legacy, legacyPrincipal.TenantID)); !errors.Is(err, errAIBudget) || legacyModel.calls.Load() != 0 {
 		t.Fatal("host caps bypassed platform plan and term", err)
 	}
 }
@@ -273,11 +273,11 @@ func TestAINonplatformQuotaMailboxAndConcurrentLimitsPG(t *testing.T) {
 		input := ai.OperationInput{Operation: "classify", Body: "Synthetic same-tenant mailbox fixture"}
 		for _, p := range []store.PlatformConsumeMailboxTicketRow{principal, other} {
 			for n := range 2 {
-				if _, err := service.Run(t.Context(), p, fmt.Sprintf("per-mailbox-%d-%d-quota", p.MailboxID, n), input, target); err != nil {
+				if _, _, err := service.Run(t.Context(), p, fmt.Sprintf("per-mailbox-%d-%d-quota", p.MailboxID, n), input, target); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err := service.Run(t.Context(), p, fmt.Sprintf("per-mailbox-%d-over-quota", p.MailboxID), input, target); !errors.Is(err, errAIBudget) {
+			if _, _, err := service.Run(t.Context(), p, fmt.Sprintf("per-mailbox-%d-over-quota", p.MailboxID), input, target); !errors.Is(err, errAIBudget) {
 				t.Fatal("mailbox/tenant cap bypassed", err)
 			}
 		}
@@ -304,7 +304,7 @@ func TestAINonplatformQuotaMailboxAndConcurrentLimitsPG(t *testing.T) {
 		input := ai.OperationInput{Operation: "classify", Body: "Synthetic concurrency fixture"}
 		first := make(chan error, 1)
 		go func() {
-			_, e := service.Run(t.Context(), principal, "explicit-host-concurrency-first", input, target)
+			_, _, e := service.Run(t.Context(), principal, "explicit-host-concurrency-first", input, target)
 			first <- e
 		}()
 		select {
@@ -317,7 +317,7 @@ func TestAINonplatformQuotaMailboxAndConcurrentLimitsPG(t *testing.T) {
 			group.Add(1)
 			go func(n int) {
 				defer group.Done()
-				_, _ = service.Run(t.Context(), principal, fmt.Sprintf("explicit-host-concurrency-%02d", n), input, target)
+				_, _, _ = service.Run(t.Context(), principal, fmt.Sprintf("explicit-host-concurrency-%02d", n), input, target)
 			}(index)
 		}
 		group.Wait()

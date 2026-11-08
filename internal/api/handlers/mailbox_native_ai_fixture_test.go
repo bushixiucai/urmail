@@ -233,13 +233,13 @@ func (model *nativeAIFixtureModel) Complete(ctx context.Context, request ai.Comp
 	case strings.Contains(system, "Classify the email category"):
 		output = map[string]any{"category": "finance", "score": 0.95}
 	case strings.Contains(system, "Summarize the key facts"):
-		output = map[string]any{"summary": "Invoice total: 42 euros. Payment is due on Friday."}
+		output = map[string]any{"bullets": []string{"Invoice total: 42 euros.", "Payment is due on Friday."}, "todos": []map[string]any{}, "key_dates": []map[string]any{}, "language": "en"}
 	case strings.Contains(system, "Translate the email text faithfully"):
-		output = map[string]any{"translation": "发票总金额为42欧元，请于星期五之前付款。"}
+		output = map[string]any{"translated_text": "发票总金额为42欧元，请于星期五之前付款。", "detected_source": "en"}
 	case strings.Contains(system, "Evaluate the email for phishing"):
 		output = map[string]any{"score": 0.2, "reasons": []string{"Verify the sender and invoice details independently."}}
 	case strings.Contains(system, "Refine the provided draft"):
-		output = map[string]any{"draft": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday."}
+		output = map[string]any{"revised_text": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday.", "changes": []map[string]any{}, "tone": "neutral"}
 	case strings.Contains(system, "Suggest a draft reply"):
 		output = map[string]any{"subject": "Invoice follow-up", "body": "Hello, thank you for the invoice. I will arrange payment of 42 euros by Friday.\n\nKind regards"}
 	case strings.Contains(system, "Extract concrete action items"):

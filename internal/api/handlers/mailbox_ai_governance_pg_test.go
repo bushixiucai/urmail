@@ -217,7 +217,7 @@ func TestMailboxAIPersonalBYOKGovernance(t *testing.T) {
 	// Verify RunCustom also rejects with AI_PERSONAL_BYOK_DISABLED
 	service := &MailboxAIService{Pool: pool, Secrets: sec}
 	input := ai.OperationInput{Operation: "summarize", Body: "test"}
-	_, err := service.RunCustom(t.Context(), principal, "byok-gov-disabled-key", input, userTarget, userTarget.Digest)
+	_, _, err := service.RunCustom(t.Context(), principal, "byok-gov-disabled-key", input, userTarget, userTarget.Digest)
 	if err == nil || !strings.Contains(err.Error(), "AI_PERSONAL_BYOK_DISABLED") {
 		t.Fatalf("expected ErrAIPersonalBYOKDisabled, got: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestMailboxAIPersonalBYOKWithNoEnterpriseModel(t *testing.T) {
 
 	// Even though enterprise enabled=false and daily_token_limit=1 (which would exceed 0 or 1 token),
 	// personal BYOK succeeds because it has NO business token/cost quotas and works without enterprise default model!
-	res, err := service.RunCustom(t.Context(), principal, "byok-d03-d04-request-key", input, target, target.Digest)
+	res, _, err := service.RunCustom(t.Context(), principal, "byok-d03-d04-request-key", input, target, target.Digest)
 	if err != nil {
 		t.Fatalf("personal BYOK failed when enterprise model disabled: %v", err)
 	}

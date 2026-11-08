@@ -465,7 +465,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if req.Operation == "draft_new" && input.Body == "" {
 		input.Body = req.Instruction
 	}
-	previewRequest, buildErr := ai.BuildOperation(input)
+	previewRequest, buildErr := ai.StructuredRequest(input)
 	if buildErr != nil {
 		authError(c, 400, "INVALID_PARAMS")
 		return
@@ -504,7 +504,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed) {
 			return
 		}
-		result, err := h.Service.RunCustom(c.Request.Context(), principal, req.RequestKey, input, userAI, req.ConfigurationDigest)
+		result, meta, err := h.Service.RunCustom(c.Request.Context(), principal, req.RequestKey, input, userAI, req.ConfigurationDigest)
 		if err != nil {
 			nativeAIError(c, err)
 			return
@@ -512,11 +512,11 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if !h.verifyResultSource(c, sess, req, digest) {
 			return
 		}
-		c.JSON(200, gin.H{"result": result})
+		c.JSON(200, assistEnvelope(result, meta))
 		return
 	}
 
-	result, err := h.Service.Run(c.Request.Context(), principal, req.RequestKey, input, req.ConfigurationDigest)
+	result, meta, err := h.Service.Run(c.Request.Context(), principal, req.RequestKey, input, req.ConfigurationDigest)
 	if err != nil {
 		nativeAIError(c, err)
 		return
@@ -524,7 +524,20 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if !h.verifyResultSource(c, sess, req, digest) {
 		return
 	}
-	c.JSON(200, gin.H{"result": result})
+	c.JSON(200, assistEnvelope(result, meta))
+}
+
+// assistEnvelope is the assist response contract (TECH §5): the structured
+// result plus provenance fields. Old fields never change meaning; degraded
+// is always false until the retry/degradation stage lands.
+func assistEnvelope(result json.RawMessage, meta ai.ResultMeta) gin.H {
+	return gin.H{
+		"result":           result,
+		"degraded":         meta.Degraded,
+		"degrade_reason":   meta.DegradeReason,
+		"template_version": meta.TemplateVersion,
+		"cache_hit":        meta.CacheHit,
+	}
 }
 func (h *NativeMailboxAI) verifyResultSource(c *gin.Context, sess webmail.Session, req nativeAIInput, digest string) bool {
 	if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed) {
