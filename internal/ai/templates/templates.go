@@ -156,8 +156,8 @@ var pseudoCloseRE = regexp.MustCompile(`(?i)</email_content`)
 // wrapper early; pseudoCloseEscaper additionally breaks exact matches.
 func wrap(nonce, content string) string {
 	open := "<email_content:" + nonce + ">"
-	close := "</email_content:" + nonce + ">"
-	return open + "\n" + pseudoCloseRE.ReplaceAllString(content, "$0​") + "\n" + close
+	closing := "</email_content:" + nonce + ">"
+	return open + "\n" + pseudoCloseRE.ReplaceAllString(content, "$0\u200b") + "\n" + closing
 }
 
 // dataDeclaration tells the model the wrapped content is data, never

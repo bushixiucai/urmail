@@ -51,7 +51,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Classify the email category. Scores must be finite between 0 and 1.",
 				`{"category":"inbox|work|personal|marketing|finance|support|notifications|spam","score":0.0}`)
 		},
@@ -63,7 +63,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Summarize the key facts strictly from the email text. If facts are absent or ambiguous, state that clearly without fabricating facts.",
 				`{"summary":"concise summary"}`)
 		},
@@ -75,7 +75,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Extract concrete action items from the email. Only include an assignee or due date if explicitly stated in the email text; never fabricate unknown deadlines or assignees.",
 				`{"items":[{"task":"action item text","assignee":"person name or null if unspecified","due_date":"date or null if unspecified"}]}`)
 		},

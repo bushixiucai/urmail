@@ -30,17 +30,17 @@ func (c *captureProvider) Complete(ctx context.Context, req ai.CompletionRequest
 // carries the nonce-wrapped untrusted content and whose system message
 // keeps the operation instructions.
 func TestAssistantPromptsUseIsolationEnvelope(t *testing.T) {
-	cap := &captureProvider{
+	provider := &captureProvider{
 		completeFn: func(_ context.Context, _ ai.CompletionRequest) (ai.CompletionResponse, error) {
 			return ai.CompletionResponse{Content: `{"category": "work", "score": 0.5}`}, nil
 		},
 	}
-	a := ai.NewAssistant(cap)
+	a := ai.NewAssistant(provider)
 
 	if _, _, err := a.ClassifyEmailWithContext(context.Background(), "Trial ends", "pay now"); err != nil {
 		t.Fatal(err)
 	}
-	req := cap.last
+	req := provider.last
 	if len(req.Messages) != 2 || req.Messages[0].Role != "system" || req.Messages[1].Role != "user" {
 		t.Fatalf("message layout: %+v", req.Messages)
 	}
@@ -62,7 +62,7 @@ func TestAssistantPromptsUseIsolationEnvelope(t *testing.T) {
 	if _, _, err := a.ClassifyEmailWithContext(context.Background(), "Trial ends", "pay now"); err != nil {
 		t.Fatal(err)
 	}
-	if cap.last.Messages[1].Content == u {
+	if provider.last.Messages[1].Content == u {
 		t.Fatal("envelope nonce repeated across requests")
 	}
 }
