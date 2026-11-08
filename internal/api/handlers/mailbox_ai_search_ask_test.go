@@ -222,21 +222,15 @@ func TestMailboxAISearchAskPayloadMinimization(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil || len(preview.Messages) < 2 {
 		t.Fatalf("invalid preview: %s", response.Body.String())
 	}
-	var opInput struct {
-		Body  string `json:"body"`
-		Draft string `json:"draft"`
+	// The user message is the registry envelope (parameters + wrapped
+	// untrusted content), so payload minimization is asserted on the
+	// wrapped content itself.
+	content := preview.Messages[1].Content
+	if !strings.Contains(content, "The October invoice total is 42 euros.") {
+		t.Fatalf("expected selection in model prompt: %s", content)
 	}
-	if err := json.Unmarshal([]byte(preview.Messages[1].Content), &opInput); err != nil {
-		t.Fatalf("failed to parse operation input: %v %s", err, preview.Messages[1].Content)
-	}
-	if opInput.Body != "The October invoice total is 42 euros." {
-		t.Fatalf("expected selection only, got: %q", opInput.Body)
-	}
-	if opInput.Draft != "" {
-		t.Fatalf("expected draft to be empty in reading context, got: %q", opInput.Draft)
-	}
-	if strings.Contains(preview.Messages[1].Content, "Payment is due on Friday") {
-		t.Fatalf("unselected body leaked into model prompt: %s", preview.Messages[1].Content)
+	if strings.Contains(content, "Payment is due on Friday") {
+		t.Fatalf("unselected body or draft leaked into model prompt: %s", content)
 	}
 }
 
