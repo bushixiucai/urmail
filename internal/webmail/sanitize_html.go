@@ -155,11 +155,19 @@ func (s *htmlSanitizer) visit(n *html.Node) bool {
 	}
 	keepAttrs := 0
 	for _, a := range n.Attr {
-		ok, unsafeStyle := attrAllowed(n, a.Key, a.Val)
-		if unsafeStyle {
-			s.note(NoteUnsafeStyleRemoved)
+		if strings.EqualFold(a.Key, "style") {
+			cleaned, dropped, notes := sanitizeStyleAttr(a.Val, s.opts)
+			for _, nt := range notes {
+				s.note(nt)
+			}
+			if dropped {
+				continue
+			}
+			n.Attr[keepAttrs] = html.Attribute{Key: a.Key, Val: cleaned}
+			keepAttrs++
+			continue
 		}
-		if !ok {
+		if !attrAllowed(n, a.Key, a.Val) {
 			continue
 		}
 		n.Attr[keepAttrs] = html.Attribute{Key: a.Key, Val: a.Val}
@@ -279,44 +287,52 @@ var (
 
 	imgAttrs = map[string]bool{"alt": true}
 
+	// fontAttrs keep the legacy <font> presentational attributes alive;
+	// old-style mails set colors and faces there and no <style> sheet
+	// survives sanitization to replace them.
+	fontAttrs = map[string]bool{"color": true, "face": true, "size": true}
+
 	// safeDataImage matches only raster image data: URIs; SVG/HTML payloads
 	// in data: URIs are excluded on purpose.
 	safeDataImage = regexp.MustCompile(`^data:image/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$`)
 
 	// unsafeCSS matches CSS constructs that fetch URLs or execute.
 	unsafeCSS = regexp.MustCompile(`(?i)url\s*\(|image-set\s*\(|element\s*\(|expression\s*\(|@import|behavior\s*:|javascript\s*:|vbscript\s*:|-moz-binding`)
+
+	// unsafeCSSNonURL is unsafeCSS without the url() branch: inside the
+	// declaration-level style handling, background url() references are
+	// candidates for proxying instead of an automatic drop, while these
+	// constructs always refuse their declaration.
+	unsafeCSSNonURL = regexp.MustCompile(`(?i)image-set\s*\(|element\s*\(|expression\s*\(|@import|behavior\s*:|javascript\s*:|vbscript\s*:|-moz-binding`)
 )
 
-// attrAllowed reports whether an attribute may be kept. unsafeStyle marks a
-// style attribute dropped for containing unsafe CSS (surfaced as a note).
-func attrAllowed(n *html.Node, key, val string) (keep, unsafeStyle bool) {
+// attrAllowed reports whether an attribute may be kept. Style attributes
+// are handled separately by sanitizeStyleAttr (declaration level, PR-5).
+func attrAllowed(n *html.Node, key, val string) bool {
 	lower := strings.ToLower(key)
 	switch lower {
-	case "style":
-		if unsafeCSS.MatchString(val) {
-			return false, true
-		}
-		return true, false
 	case "href":
-		return n.DataAtom == atom.A && safeLinkScheme(val), false
+		return n.DataAtom == atom.A && safeLinkScheme(val)
 	case "src":
 		// <img src> is validated by sanitizeImg; non-img src (none of the
 		// allowed tags legitimately carry one) is refused.
-		return n.DataAtom == atom.Img, false
+		return n.DataAtom == atom.Img
 	case "srcset", "id", "name", "background", "poster", "action",
 		"formaction", "ping", "dynsrc", "lowsrc":
-		return false, false
+		return false
 	}
 	if globalAttrs[lower] {
-		return true, false
+		return true
 	}
 	switch {
 	case n.DataAtom == atom.Img && imgAttrs[lower]:
-		return true, false
+		return true
 	case (n.DataAtom == atom.Td || n.DataAtom == atom.Th || n.DataAtom == atom.Table) && tableAttrs[lower]:
-		return true, false
+		return true
+	case n.DataAtom == atom.Font && fontAttrs[lower]:
+		return true
 	}
-	return false, false
+	return false
 }
 
 // imgSrcURL validates an <img src> against policy and returns the URL to use

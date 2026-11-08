@@ -9,6 +9,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/css v1.0.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pkg/sftp v1.13.9
 	github.com/pquerna/otp v1.5.0
