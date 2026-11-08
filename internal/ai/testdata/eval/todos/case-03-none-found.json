@@ -1,0 +1,19 @@
+{
+  "input": {
+    "operation": "todos",
+    "body": "Our November release notes are out: faster search, a new calendar widget and two bug fixes. No action is required on your side."
+  },
+  "mock_output": "{\"items\": []}",
+  "expect": {
+    "payload": {
+      "items": []
+    },
+    "checks": [
+      {
+        "path": "items",
+        "op": "len_ge",
+        "value": 0
+      }
+    ]
+  }
+}

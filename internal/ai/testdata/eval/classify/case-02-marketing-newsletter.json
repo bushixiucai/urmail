@@ -1,0 +1,28 @@
+{
+  "input": {
+    "operation": "classify",
+    "body": "This week in design: five fresh templates, a case study on onboarding flows, and 20% off annual plans until Sunday. Unsubscribe anytime.",
+    "subject": "Weekly design digest",
+    "from": "news@example.net"
+  },
+  "mock_output": "{\"category\":\"marketing\",\"confidence\":0.89}",
+  "expect": {
+    "payload": {
+      "category": "marketing",
+      "confidence": 0.89,
+      "score": 0.89
+    },
+    "checks": [
+      {
+        "path": "category",
+        "op": "eq",
+        "value": "marketing"
+      },
+      {
+        "path": "confidence",
+        "op": "eq",
+        "value": 0.89
+      }
+    ]
+  }
+}

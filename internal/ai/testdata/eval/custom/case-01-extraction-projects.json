@@ -1,0 +1,31 @@
+{
+  "input": {
+    "operation": "custom",
+    "body": "The board approved three efforts for Q1: Aurora (the search rewrite), Beacon (the billing split) and Cascade (the migration tooling).",
+    "instruction": "List the mentioned projects as a bullet list"
+  },
+  "mock_output": "{\"task_type\": \"extraction\", \"result\": \"- Aurora\\n- Beacon\\n- Cascade\"}",
+  "expect": {
+    "payload": {
+      "task_type": "extraction",
+      "result": "- Aurora\n- Beacon\n- Cascade"
+    },
+    "checks": [
+      {
+        "path": "task_type",
+        "op": "eq",
+        "value": "extraction"
+      },
+      {
+        "path": "result",
+        "op": "contains",
+        "value": "Beacon"
+      },
+      {
+        "path": "result",
+        "op": "contains",
+        "value": "Cascade"
+      }
+    ]
+  }
+}

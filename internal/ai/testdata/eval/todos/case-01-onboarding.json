@@ -1,0 +1,45 @@
+{
+  "input": {
+    "operation": "todos",
+    "body": "Welcome Noah! Before your first day on 2026-11-12: sign the NDA in the HR portal (HR will order the laptop), and book the security training once your account exists."
+  },
+  "mock_output": "{\"items\": [{\"task\": \"Sign the NDA in the HR portal\", \"assignee\": \"Noah\", \"due_date\": \"2026-11-12\"}, {\"task\": \"Order the laptop\", \"assignee\": \"IT\", \"due_date\": null}, {\"task\": \"Book the security training\", \"assignee\": null, \"due_date\": null}]}",
+  "expect": {
+    "payload": {
+      "items": [
+        {
+          "task": "Sign the NDA in the HR portal",
+          "assignee": "Noah",
+          "due_date": "2026-11-12"
+        },
+        {
+          "task": "Order the laptop",
+          "assignee": "IT",
+          "due_date": null
+        },
+        {
+          "task": "Book the security training",
+          "assignee": null,
+          "due_date": null
+        }
+      ]
+    },
+    "checks": [
+      {
+        "path": "items",
+        "op": "len_ge",
+        "value": 3
+      },
+      {
+        "path": "items.0.assignee",
+        "op": "eq",
+        "value": "Noah"
+      },
+      {
+        "path": "items.1.due_date",
+        "op": "eq",
+        "value": null
+      }
+    ]
+  }
+}

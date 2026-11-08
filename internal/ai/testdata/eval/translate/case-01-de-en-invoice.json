@@ -1,0 +1,27 @@
+{
+  "input": {
+    "operation": "translate",
+    "body": "Sehr geehrte Damen und Herren,\n\nwir bitten um Verschiebung der Rechnung 2047-DE auf den 30.11.2026.\n\nMit freundlichen Grüßen\nK. Weber",
+    "target_language": "en"
+  },
+  "mock_output": "{\"translated_text\": \"Dear Sir or Madam,\\n\\nWe request moving invoice 2047-DE to 2026-11-30.\\n\\nKind regards,\\nK. Weber\", \"detected_source\": \"de\"}",
+  "expect": {
+    "payload": {
+      "translated_text": "Dear Sir or Madam,\n\nWe request moving invoice 2047-DE to 2026-11-30.\n\nKind regards,\nK. Weber",
+      "detected_source": "de",
+      "translation": "Dear Sir or Madam,\n\nWe request moving invoice 2047-DE to 2026-11-30.\n\nKind regards,\nK. Weber"
+    },
+    "checks": [
+      {
+        "path": "translation",
+        "op": "contains",
+        "value": "invoice 2047-DE"
+      },
+      {
+        "path": "detected_source",
+        "op": "eq",
+        "value": "de"
+      }
+    ]
+  }
+}

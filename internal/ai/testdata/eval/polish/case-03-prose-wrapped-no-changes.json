@@ -1,0 +1,28 @@
+{
+  "input": {
+    "operation": "polish",
+    "body": "Context: short thank-you note inside a finance handoff thread.",
+    "draft": "Thanks for the quick turnaround on the numbers."
+  },
+  "mock_output": "Here is the JSON:\n{\"revised_text\": \"Thanks for the quick turnaround on the numbers.\", \"changes\": [], \"tone\": \"neutral\"}",
+  "expect": {
+    "payload": {
+      "revised_text": "Thanks for the quick turnaround on the numbers.",
+      "changes": [],
+      "tone": "neutral",
+      "draft": "Thanks for the quick turnaround on the numbers."
+    },
+    "checks": [
+      {
+        "path": "changes",
+        "op": "len_ge",
+        "value": 0
+      },
+      {
+        "path": "tone",
+        "op": "eq",
+        "value": "neutral"
+      }
+    ]
+  }
+}

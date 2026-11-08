@@ -1,0 +1,33 @@
+{
+  "input": {
+    "operation": "draft_new",
+    "body": "We are rolling out your editor to the whole team and need pricing.",
+    "subject": "Volume licensing",
+    "from": "purchasing@example.com",
+    "instruction": "Draft a reply asking for volume pricing on 50 licenses"
+  },
+  "mock_output": "{\"subject\": \"Re: Volume licensing\", \"body\": \"Hello,\\n\\nCould you send volume pricing for 50 licenses, including the support terms?\\n\\nThanks\", \"tone_notes\": \"Neutral business tone; keeps the ask concrete.\", \"assumptions\": [\"The requester means per-seat licenses.\", \"Currency is EUR unless stated otherwise.\"]}",
+  "expect": {
+    "payload": {
+      "subject": "Re: Volume licensing",
+      "body": "Hello,\n\nCould you send volume pricing for 50 licenses, including the support terms?\n\nThanks",
+      "tone_notes": "Neutral business tone; keeps the ask concrete.",
+      "assumptions": [
+        "The requester means per-seat licenses.",
+        "Currency is EUR unless stated otherwise."
+      ]
+    },
+    "checks": [
+      {
+        "path": "body",
+        "op": "contains",
+        "value": "50 licenses"
+      },
+      {
+        "path": "assumptions",
+        "op": "len_ge",
+        "value": 2
+      }
+    ]
+  }
+}

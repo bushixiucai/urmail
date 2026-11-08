@@ -1,0 +1,37 @@
+{
+  "input": {
+    "operation": "draft_reply",
+    "body": "The charger I ordered arrived with a broken plug. Order #A-5531. I want this fixed.",
+    "subject": "Broken charger",
+    "from": "dana@example.net",
+    "instruction": "Apologize and offer a replacement"
+  },
+  "mock_output": "{\"subject\": \"Re: Broken charger\", \"body\": \"Hi Dana,\\n\\nSorry the charger arrived faulty \\u2014 a replacement is on its way and should reach you within three working days.\\n\\nSupport Team\", \"tone_notes\": \"Apologetic without over-admitting; gives a concrete timeline.\", \"assumptions\": [\"Order number A-5531 is valid and in warranty.\"]}",
+  "expect": {
+    "payload": {
+      "subject": "Re: Broken charger",
+      "body": "Hi Dana,\n\nSorry the charger arrived faulty — a replacement is on its way and should reach you within three working days.\n\nSupport Team",
+      "tone_notes": "Apologetic without over-admitting; gives a concrete timeline.",
+      "assumptions": [
+        "Order number A-5531 is valid and in warranty."
+      ]
+    },
+    "checks": [
+      {
+        "path": "subject",
+        "op": "eq",
+        "value": "Re: Broken charger"
+      },
+      {
+        "path": "body",
+        "op": "contains",
+        "value": "replacement"
+      },
+      {
+        "path": "body",
+        "op": "contains",
+        "value": "three working days"
+      }
+    ]
+  }
+}

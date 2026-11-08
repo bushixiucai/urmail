@@ -1,0 +1,26 @@
+{
+  "input": {
+    "operation": "custom",
+    "body": "The bank initiated a chargeback for order #A-5531; the amount is held until the issuer decides.",
+    "instruction": "Explain the term chargeback for a new employee"
+  },
+  "mock_output": "{\"task_type\": \"explanation\", \"result\": \"A chargeback is a forced reversal of a card payment, initiated by the customer through their bank; the disputed amount is held until the issuer decides.\"}",
+  "expect": {
+    "payload": {
+      "task_type": "explanation",
+      "result": "A chargeback is a forced reversal of a card payment, initiated by the customer through their bank; the disputed amount is held until the issuer decides."
+    },
+    "checks": [
+      {
+        "path": "task_type",
+        "op": "eq",
+        "value": "explanation"
+      },
+      {
+        "path": "result",
+        "op": "contains",
+        "value": "reversal"
+      }
+    ]
+  }
+}

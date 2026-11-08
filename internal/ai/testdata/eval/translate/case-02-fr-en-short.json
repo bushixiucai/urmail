@@ -1,0 +1,27 @@
+{
+  "input": {
+    "operation": "translate",
+    "body": "Bonjour, la livraison est prévue jeudi. Merci de confirmer.",
+    "target_language": "en"
+  },
+  "mock_output": "{\"translated_text\": \"Hello, the delivery is scheduled for Thursday. Please confirm.\", \"detected_source\": \"fr\"}",
+  "expect": {
+    "payload": {
+      "translated_text": "Hello, the delivery is scheduled for Thursday. Please confirm.",
+      "detected_source": "fr",
+      "translation": "Hello, the delivery is scheduled for Thursday. Please confirm."
+    },
+    "checks": [
+      {
+        "path": "translation",
+        "op": "contains",
+        "value": "Thursday"
+      },
+      {
+        "path": "detected_source",
+        "op": "eq",
+        "value": "fr"
+      }
+    ]
+  }
+}

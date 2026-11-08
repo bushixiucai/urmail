@@ -1,0 +1,60 @@
+{
+  "input": {
+    "operation": "summarize",
+    "body": "Team,\n\nthe quarterly business review moved to 2026-11-21. Finance still has to sign off the budget, so treat approval as pending. Hiring in the platform team stays frozen until Q1. Mara: please circulate the revised agenda by 2026-11-14; someone should also book the large conference room.",
+    "subject": "QBR planning updates",
+    "from": "pm@example.org"
+  },
+  "mock_output": "{\"bullets\": [\"Quarterly review moved to Nov 21.\", \"Budget approval is pending finance sign-off.\", \"Platform team hiring is frozen until Q1.\"], \"todos\": [{\"task\": \"Circulate the revised agenda\", \"assignee\": \"Mara\", \"due_date\": \"2026-11-14\"}, {\"task\": \"Book the large conference room\", \"assignee\": null, \"due_date\": null}], \"key_dates\": [{\"date\": \"2026-11-21\", \"label\": \"Quarterly business review\"}], \"language\": \"en\"}",
+  "expect": {
+    "payload": {
+      "bullets": [
+        "Quarterly review moved to Nov 21.",
+        "Budget approval is pending finance sign-off.",
+        "Platform team hiring is frozen until Q1."
+      ],
+      "todos": [
+        {
+          "task": "Circulate the revised agenda",
+          "assignee": "Mara",
+          "due_date": "2026-11-14"
+        },
+        {
+          "task": "Book the large conference room",
+          "assignee": null,
+          "due_date": null
+        }
+      ],
+      "key_dates": [
+        {
+          "date": "2026-11-21",
+          "label": "Quarterly business review"
+        }
+      ],
+      "language": "en",
+      "summary": "Quarterly review moved to Nov 21.\nBudget approval is pending finance sign-off.\nPlatform team hiring is frozen until Q1."
+    },
+    "checks": [
+      {
+        "path": "bullets.0",
+        "op": "eq",
+        "value": "Quarterly review moved to Nov 21."
+      },
+      {
+        "path": "language",
+        "op": "eq",
+        "value": "en"
+      },
+      {
+        "path": "key_dates.0.date",
+        "op": "eq",
+        "value": "2026-11-21"
+      },
+      {
+        "path": "todos",
+        "op": "len_ge",
+        "value": 2
+      }
+    ]
+  }
+}

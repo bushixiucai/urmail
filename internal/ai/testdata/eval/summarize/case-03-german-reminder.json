@@ -1,0 +1,43 @@
+{
+  "input": {
+    "operation": "summarize",
+    "body": "Guten Tag,\n\ndie Rechnung 2047-DE ist überfällig. Wir erwarten den Zahlungseingang bis Freitag, den 13.11.2026. Bitte bestätigen Sie den Überweisungsstatus.",
+    "subject": "Zahlungserinnerung Rechnung 2047-DE",
+    "from": "kontakt@example.de"
+  },
+  "mock_output": "{\"bullets\": [\"Invoice 2047-DE is overdue.\", \"Payment is expected by Friday.\"], \"todos\": [], \"key_dates\": [{\"date\": \"2026-11-13\", \"label\": \"Expected payment receipt\"}], \"language\": \"de\"}",
+  "expect": {
+    "payload": {
+      "bullets": [
+        "Invoice 2047-DE is overdue.",
+        "Payment is expected by Friday."
+      ],
+      "todos": [],
+      "key_dates": [
+        {
+          "date": "2026-11-13",
+          "label": "Expected payment receipt"
+        }
+      ],
+      "language": "de",
+      "summary": "Invoice 2047-DE is overdue.\nPayment is expected by Friday."
+    },
+    "checks": [
+      {
+        "path": "language",
+        "op": "eq",
+        "value": "de"
+      },
+      {
+        "path": "key_dates.0.date",
+        "op": "eq",
+        "value": "2026-11-13"
+      },
+      {
+        "path": "todos",
+        "op": "len_ge",
+        "value": 0
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "input": {
+    "operation": "polish",
+    "body": "Context: the weekly ops report was requested on Monday and is now overdue.",
+    "draft": "send me the report asap its late already"
+  },
+  "mock_output": "{\"revised_text\": \"Could you send me the report as soon as possible? It is already overdue.\", \"changes\": [{\"type\": \"grammar\", \"note\": \"Added punctuation and capitalization.\"}, {\"type\": \"tone\", \"note\": \"Replaced the abrupt demand with a polite request.\"}], \"tone\": \"formal\"}",
+  "expect": {
+    "payload": {
+      "revised_text": "Could you send me the report as soon as possible? It is already overdue.",
+      "changes": [
+        {
+          "type": "grammar",
+          "note": "Added punctuation and capitalization."
+        },
+        {
+          "type": "tone",
+          "note": "Replaced the abrupt demand with a polite request."
+        }
+      ],
+      "tone": "formal",
+      "draft": "Could you send me the report as soon as possible? It is already overdue."
+    },
+    "checks": [
+      {
+        "path": "revised_text",
+        "op": "contains",
+        "value": "as soon as possible"
+      },
+      {
+        "path": "changes",
+        "op": "len_ge",
+        "value": 2
+      },
+      {
+        "path": "tone",
+        "op": "eq",
+        "value": "formal"
+      }
+    ]
+  }
+}

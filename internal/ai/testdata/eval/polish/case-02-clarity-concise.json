@@ -1,0 +1,42 @@
+{
+  "input": {
+    "operation": "polish",
+    "body": "Context: reply thread with a logistics partner about delivery slots.",
+    "draft": "I think that maybe we could perhaps try to make it possible to move the delivery to another day if that would maybe work for you, or alternatively we could keep it as is if you want that."
+  },
+  "mock_output": "{\"revised_text\": \"We can move the delivery to another day if that suits you; otherwise we keep the current slot.\", \"changes\": [{\"type\": \"clarity\", \"note\": \"Collapsed the hedged sentence into one direct offer.\"}, {\"type\": \"structure\", \"note\": \"Split option and fallback into two clauses.\"}], \"tone\": \"concise\"}",
+  "expect": {
+    "payload": {
+      "revised_text": "We can move the delivery to another day if that suits you; otherwise we keep the current slot.",
+      "changes": [
+        {
+          "type": "clarity",
+          "note": "Collapsed the hedged sentence into one direct offer."
+        },
+        {
+          "type": "structure",
+          "note": "Split option and fallback into two clauses."
+        }
+      ],
+      "tone": "concise",
+      "draft": "We can move the delivery to another day if that suits you; otherwise we keep the current slot."
+    },
+    "checks": [
+      {
+        "path": "revised_text",
+        "op": "contains",
+        "value": "move the delivery"
+      },
+      {
+        "path": "changes",
+        "op": "len_ge",
+        "value": 2
+      },
+      {
+        "path": "tone",
+        "op": "eq",
+        "value": "concise"
+      }
+    ]
+  }
+}
