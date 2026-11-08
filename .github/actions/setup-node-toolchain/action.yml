@@ -22,7 +22,7 @@ runs:
           *) echo "::error::unsupported runner.os: ${{ runner.os }}"; exit 1 ;;
         esac
         case "${{ runner.arch }}" in
-          X64) arch=amd64 ;;
+          X64) arch=x64 ;; # nodejs.org dist names use x64, not amd64
           ARM64) arch=arm64 ;;
           *) echo "::error::unsupported runner.arch: ${{ runner.arch }}"; exit 1 ;;
         esac
