@@ -378,6 +378,8 @@ describe("SanitizedHtmlFrame auto height", () => {
   it("triggers AI summary from cue strip and displays structured summary card", async () => {
     const mailboxApi = await import("@/features/webmail/mailbox-api");
     vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      enabled: true,
+      allowed: true,
       configuration_digest: "cfg-digest-123",
       endpoint: "https://api.openai.com/v1",
       model: "gpt-4o",
@@ -443,6 +445,8 @@ describe("SanitizedHtmlFrame auto height", () => {
   it("shows unconfigured modal when AI is not configured", async () => {
     const mailboxApi = await import("@/features/webmail/mailbox-api");
     vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      enabled: false,
+      allowed: false,
       configuration_digest: "",
       endpoint: "",
       model: "",
