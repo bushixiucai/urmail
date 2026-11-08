@@ -245,10 +245,13 @@ func normalizePayload(operation string, value any) (json.RawMessage, error) {
 			language = "unknown"
 		}
 		return marshalJSON(map[string]any{
+			// Legacy aliases kept for one release so pre-contract frontends
+			// keep rendering; new fields are authoritative.
 			"bullets":   bullets,
 			"todos":     todos,
 			"key_dates": dates,
 			"language":  language,
+			"summary":   strings.Join(bullets, "\n"),
 		})
 
 	case *struct {
@@ -328,6 +331,7 @@ func normalizePayload(operation string, value any) (json.RawMessage, error) {
 			"revised_text": revised,
 			"changes":      changes,
 			"tone":         tone,
+			"draft":        revised, // legacy alias, one release
 		})
 
 	case *struct {
@@ -342,7 +346,11 @@ func normalizePayload(operation string, value any) (json.RawMessage, error) {
 		if len(source) > 16 {
 			return nil, invalid("detected_source")
 		}
-		return marshalJSON(map[string]any{"translated_text": text, "detected_source": source})
+		return marshalJSON(map[string]any{
+			"translated_text": text,
+			"detected_source": source,
+			"translation":     text, // legacy alias, one release
+		})
 
 	case *struct {
 		Score      *float64 `json:"score"`

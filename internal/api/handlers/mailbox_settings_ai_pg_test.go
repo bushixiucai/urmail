@@ -91,7 +91,7 @@ func TestMailboxBYOKRechecksSessionAfterProviderPG(t *testing.T) {
 			t.Error(err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\"Must not escape revoked session\"}"},"finish_reason":"stop"}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"bullets\":[\"Must not escape revoked session\"],\"todos\":[],\"key_dates\":[],\"language\":\"en\"}"},"finish_reason":"stop"}]}`))
 	}))
 	defer provider.Close()
 	endpoint := provider.URL + "/v1"

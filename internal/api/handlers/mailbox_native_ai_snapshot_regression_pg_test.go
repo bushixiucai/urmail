@@ -33,7 +33,7 @@ func TestNativeAIRejectsProviderSnapshotChangedBetweenReadsPG(t *testing.T) {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			exports.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"model": "fixture-model", "message": map[string]string{"role": "assistant", "content": `{"summary":"fixture"}`}, "done": true, "done_reason": "stop"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"model": "fixture-model", "message": map[string]string{"role": "assistant", "content": `{"bullets":["fixture"],"todos":[],"key_dates":[],"language":"en"}`}, "done": true, "done_reason": "stop"})
 		}))
 	}
 	a, b := provider(), provider()

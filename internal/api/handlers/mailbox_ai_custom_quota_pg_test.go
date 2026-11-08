@@ -47,14 +47,14 @@ func TestMailboxCustomAIUsesCommonQuotaAndZeroPlatformCostPG(t *testing.T) {
 			}}
 			input := ai.OperationInput{Operation: "summarize", Body: "Private user input stays out of accounting metadata"}
 			for i, key := range []string{"custom-quota-first-request", "custom-quota-first-request", "custom-quota-second-request"} {
-				if _, err := service.RunCustom(t.Context(), principal, key, input, target, target.Digest); err != nil {
+				if _, _, err := service.RunCustom(t.Context(), principal, key, input, target, target.Digest); err != nil {
 					t.Fatal(err)
 				}
 				if want := []int64{1, 1, 2}[i]; model.calls.Load() != want {
 					t.Fatal("idempotency repeated provider", model.calls.Load())
 				}
 			}
-			if _, err := service.RunCustom(t.Context(), principal, "custom-quota-denied-request", input, target, target.Digest); !errors.Is(err, errAIBudget) {
+			if _, _, err := service.RunCustom(t.Context(), principal, "custom-quota-denied-request", input, target, target.Digest); !errors.Is(err, errAIBudget) {
 				t.Fatal("custom model bypassed call quota", err)
 			}
 			rows, err := store.New(pool).PlatformAIUsage(t.Context(), principal.TenantID)
@@ -86,7 +86,7 @@ func (m *blockedCustomQuotaModel) Complete(ctx context.Context, _ ai.CompletionR
 	case <-ctx.Done():
 		return ai.CompletionResponse{}, ctx.Err()
 	case <-m.release:
-		return ai.CompletionResponse{Content: `{"summary":"done"}`, UsageKnown: true, PromptTokens: 10, OutputTokens: 5}, nil
+		return ai.CompletionResponse{Content: `{"bullets":["done"],"todos":[],"key_dates":[],"language":"en"}`, UsageKnown: true, PromptTokens: 10, OutputTokens: 5}, nil
 	}
 }
 
@@ -103,7 +103,7 @@ func TestMailboxCustomAIConcurrencyAndSettingsSnapshotPG(t *testing.T) {
 	input := ai.OperationInput{Operation: "summarize", Body: "Shared concurrency slot"}
 	first := make(chan error, 1)
 	go func() {
-		_, err := service.RunCustom(t.Context(), principal, "custom-concurrency-first", input, target, target.Digest)
+		_, _, err := service.RunCustom(t.Context(), principal, "custom-concurrency-first", input, target, target.Digest)
 		first <- err
 	}()
 	select {
@@ -111,7 +111,7 @@ func TestMailboxCustomAIConcurrencyAndSettingsSnapshotPG(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("provider did not start")
 	}
-	if _, err := service.RunCustom(t.Context(), principal, "custom-concurrency-second", input, target, target.Digest); !errors.Is(err, errAIBudget) {
+	if _, _, err := service.RunCustom(t.Context(), principal, "custom-concurrency-second", input, target, target.Digest); !errors.Is(err, errAIBudget) {
 		close(model.release)
 		t.Fatal("custom model bypassed concurrency", err)
 	}
@@ -122,7 +122,7 @@ func TestMailboxCustomAIConcurrencyAndSettingsSnapshotPG(t *testing.T) {
 	if _, err := pool.Exec(t.Context(), "UPDATE mailbox_settings SET version=version+1 WHERE tenant_id=$1 AND mailbox_id=$2", principal.TenantID, principal.MailboxID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.RunCustom(t.Context(), principal, "custom-concurrency-first", input, target, target.Digest); !errors.Is(err, errAITargetChanged) {
+	if _, _, err := service.RunCustom(t.Context(), principal, "custom-concurrency-first", input, target, target.Digest); !errors.Is(err, errAITargetChanged) {
 		t.Fatal("stale config snapshot returned cached work", err)
 	}
 	if model.calls.Load() != 1 {
@@ -186,16 +186,16 @@ func TestMailboxCustomAITokenBudgetsAndLocalOnlyRemainAuthoritativePG(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Run(t.Context(), principal, "enterprise-token-budget-denied", input, entCfg.ConfigurationDigest); !errors.Is(err, errAIBudget) {
+	if _, _, err := service.Run(t.Context(), principal, "enterprise-token-budget-denied", input, entCfg.ConfigurationDigest); !errors.Is(err, errAIBudget) {
 		t.Fatal("enterprise token budget bypassed", err)
 	}
-	if _, err := service.RunCustom(t.Context(), principal, "custom-token-budget-exempt", input, target, target.Digest); err != nil {
+	if _, _, err := service.RunCustom(t.Context(), principal, "custom-token-budget-exempt", input, target, target.Digest); err != nil {
 		t.Fatal("personal BYOK should be exempt from enterprise token budget per D04/D18", err)
 	}
 	if _, err := pool.Exec(t.Context(), "UPDATE ai_provider_configs SET daily_token_limit=0,local_only=true WHERE tenant_id=$1", principal.TenantID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.RunCustom(t.Context(), principal, "custom-local-policy-denied", input, target, target.Digest); !errors.Is(err, ai.ErrLocalOnly) {
+	if _, _, err := service.RunCustom(t.Context(), principal, "custom-local-policy-denied", input, target, target.Digest); !errors.Is(err, ai.ErrLocalOnly) {
 		t.Fatal("custom cloud bypassed local-only governance", err)
 	}
 	if model.calls.Load() != 1 {

@@ -65,7 +65,7 @@ func providerBudgetFixtureUnseeded(t *testing.T, mode, operation string) (*db.Po
 }
 func providerBudgetFirst(t *testing.T, pool *db.Pool, principal store.PlatformConsumeMailboxTicketRow, service *MailboxAIService, target string, input ai.OperationInput, mode string) store.PlatformAIUsageRow {
 	t.Helper()
-	_, err := service.Run(t.Context(), principal, "provider-budget-first-key", input, target)
+	_, _, err := service.Run(t.Context(), principal, "provider-budget-first-key", input, target)
 	if mode == "platform" && !errors.Is(err, errAIBudget) || mode == "byo" && err != nil {
 		t.Fatal("unexpected unknown-usage result", mode, err)
 	}
@@ -102,18 +102,18 @@ func TestNativeAIProviderBudgetAllWindowsAndModesPG(t *testing.T) {
 			if _, err := pool.Exec(t.Context(), fmt.Sprintf("UPDATE ai_provider_configs SET %s=$1 WHERE tenant_id=$2", test.column), 2*unit, principal.TenantID); err != nil {
 				t.Fatal(err)
 			}
-			_, err := service.Run(t.Context(), principal, "provider-budget-exact-limit", input, target)
+			_, _, err := service.Run(t.Context(), principal, "provider-budget-exact-limit", input, target)
 			if test.mode == "platform" && !errors.Is(err, errAIBudget) || test.mode == "byo" && err != nil {
 				t.Fatal("exact boundary refused", err)
 			}
-			if _, err = service.Run(t.Context(), principal, "provider-budget-over-limit", input, target); !errors.Is(err, errAIBudget) {
+			if _, _, err = service.Run(t.Context(), principal, "provider-budget-over-limit", input, target); !errors.Is(err, errAIBudget) {
 				t.Fatal("crossing provider budget allowed", err)
 			}
 			rows, e := store.New(pool).PlatformAIUsage(t.Context(), principal.TenantID)
 			if e != nil || len(rows) != 2 || model.calls.Load() != 2 {
 				t.Fatal("over-budget operation reached provider or wrote intent", len(rows), model.calls.Load(), e)
 			}
-			_, err = service.Run(t.Context(), principal, "provider-budget-first-key", input, target)
+			_, _, err = service.Run(t.Context(), principal, "provider-budget-first-key", input, target)
 			if test.mode == "platform" && !errors.Is(err, errAIIntent) || test.mode == "byo" && err != nil {
 				t.Fatal("existing idempotency contract changed", err)
 			}
@@ -137,7 +137,7 @@ func TestNativeAIProviderBudgetSerializesReservationsBeforeExternalRPCPG(t *test
 				group.Add(1)
 				go func(index int) {
 					defer group.Done()
-					_, _ = service.Run(t.Context(), principal, fmt.Sprintf("provider-budget-race-%03d", index), input, target)
+					_, _, _ = service.Run(t.Context(), principal, fmt.Sprintf("provider-budget-race-%03d", index), input, target)
 				}(n)
 			}
 			group.Wait()
@@ -160,7 +160,7 @@ func TestNativeAndSearchAskShareProviderBudgetLedgerPG(t *testing.T) {
 	if err != nil || reservation == nil {
 		t.Fatal("search ask did not share exact boundary", err)
 	}
-	if _, err = service.Run(t.Context(), principal, "provider-budget-after-search", input, target); !errors.Is(err, errAIBudget) {
+	if _, _, err = service.Run(t.Context(), principal, "provider-budget-after-search", input, target); !errors.Is(err, errAIBudget) {
 		t.Fatal("native ignored grounded answer reservation", err)
 	}
 	if _, err = (AISearchAskAccounting{Pool: pool}).Reserve(t.Context(), principal.TenantID, principal.MailboxID, question); !errors.Is(err, ErrAIBudgetExceeded) {

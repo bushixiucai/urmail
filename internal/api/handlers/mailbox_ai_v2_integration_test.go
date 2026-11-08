@@ -37,7 +37,7 @@ func (p *countedAI) Complete(ctx context.Context, _ ai.CompletionRequest) (ai.Co
 	if p.fail {
 		return ai.CompletionResponse{}, errors.New("provider unavailable")
 	}
-	return ai.CompletionResponse{Content: `{"summary":"Safe offline suggestion"}`, PromptTokens: 10, OutputTokens: 5, TotalTokens: 15, UsageKnown: !p.unknown}, nil
+	return ai.CompletionResponse{Content: `{"bullets":["Safe offline suggestion"],"todos":[],"key_dates":[],"language":"en"}`, PromptTokens: 10, OutputTokens: 5, TotalTokens: 15, UsageKnown: !p.unknown}, nil
 }
 
 func mailboxAIFixture(t *testing.T, calls int64, consentOption ...bool) (*db.Pool, store.PlatformConsumeMailboxTicketRow) {
@@ -121,7 +121,7 @@ func TestMailboxAIBudgetConcurrentCallsAndStableIntent(t *testing.T) {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
-			_, _ = service.Run(context.Background(), principal, fmt.Sprintf("request-key-%016d", index), input, target)
+			_, _, _ = service.Run(context.Background(), principal, fmt.Sprintf("request-key-%016d", index), input, target)
 		}(i)
 	}
 	group.Wait()
@@ -143,12 +143,12 @@ func TestMailboxAIBudgetConcurrentCallsAndStableIntent(t *testing.T) {
 		t.Fatal("no completed reservation")
 	}
 	before := model.calls.Load()
-	result, err := service.Run(context.Background(), principal, key, input, target)
+	result, _, err := service.Run(context.Background(), principal, key, input, target)
 	if err != nil || !json.Valid(result) || model.calls.Load() != before {
 		t.Fatalf("idempotent replay called provider: %v", err)
 	}
 	input.Body = "Changed purchase intent"
-	if _, err = service.Run(context.Background(), principal, key, input, target); !errors.Is(err, errAIIntent) {
+	if _, _, err = service.Run(context.Background(), principal, key, input, target); !errors.Is(err, errAIIntent) {
 		t.Fatalf("changed input %v", err)
 	}
 }
@@ -160,17 +160,17 @@ func TestMailboxAIUnknownUsageRemainsChargedAndCannotReplay(t *testing.T) {
 	target := mailboxAIVersion(t, p, principal.TenantID)
 	input := ai.OperationInput{Operation: "summarize", Body: "Private message"}
 	key := "usage-unknown-intent-0001"
-	if _, err := service.Run(context.Background(), principal, key, input, target); !errors.Is(err, errAIBudget) {
+	if _, _, err := service.Run(context.Background(), principal, key, input, target); !errors.Is(err, errAIBudget) {
 		t.Fatalf("unknown usage free success: %v", err)
 	}
 	row, err := store.New(p).PlatformGetAIRequest(context.Background(), store.PlatformGetAIRequestParams{TenantID: principal.TenantID, RequestKey: key})
 	if err != nil || row.Status != "uncertain" || row.ReservedCostMicros <= 0 || row.ActualCostMicros.Valid {
 		t.Fatalf("unknown reservation released: %+v %v", row, err)
 	}
-	if _, err = service.Run(context.Background(), principal, key, input, target); !errors.Is(err, errAIIntent) {
+	if _, _, err = service.Run(context.Background(), principal, key, input, target); !errors.Is(err, errAIIntent) {
 		t.Fatalf("unknown replay %v", err)
 	}
-	if _, err = service.Run(context.Background(), principal, "other-unknown-intent-0001", input, target); !errors.Is(err, errAIBudget) {
+	if _, _, err = service.Run(context.Background(), principal, "other-unknown-intent-0001", input, target); !errors.Is(err, errAIBudget) {
 		t.Fatalf("unknown spent quota reused %v", err)
 	}
 	if model.calls.Load() != 1 {
@@ -179,7 +179,7 @@ func TestMailboxAIUnknownUsageRemainsChargedAndCannotReplay(t *testing.T) {
 	if _, err = p.Exec(context.Background(), "UPDATE mailboxes SET password_hash='changed' WHERE tenant_id=$1 AND id=$2", principal.TenantID, principal.MailboxID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Run(context.Background(), principal, "post-revoke-intent-0001", input, target); !errors.Is(err, ai.ErrUnauthorized) {
+	if _, _, err = service.Run(context.Background(), principal, "post-revoke-intent-0001", input, target); !errors.Is(err, ai.ErrUnauthorized) {
 		t.Fatalf("revoked principal used: %v", err)
 	}
 }
@@ -229,7 +229,10 @@ func TestMailboxAICloudConsentIsTenantBoundAndTargetVersioned(t *testing.T) {
 	service := MailboxAIService{Pool: p, Provider: func(store.AiProviderConfigs) (ai.Provider, error) { return model, nil }}
 	input := ai.OperationInput{Operation: "summarize", Body: "Private own-mailbox content"}
 	target := mailboxAIVersion(t, p, principal.TenantID)
-	call := func(key, target string) error { _, err := service.Run(ctx, principal, key, input, target); return err }
+	call := func(key, target string) error {
+		_, _, err := service.Run(ctx, principal, key, input, target)
+		return err
+	}
 	if err := call("cloud-unconsented-0001", target); !errors.Is(err, errAIConsent) || model.calls.Load() != 0 {
 		t.Fatalf("platform setup authorized cloud export: %v", err)
 	}

@@ -75,7 +75,7 @@ func TestAIProviderBudgetPutOrdersBeforeQueuedNativeAdmissionPG(t *testing.T) {
 	waitProviderBudgetWaiters(t, pool, principal.TenantID, 1)
 	run := make(chan error, 1)
 	go func() {
-		_, e := service.Run(t.Context(), principal, "budget-put-queued-native", input, target)
+		_, _, e := service.Run(t.Context(), principal, "budget-put-queued-native", input, target)
 		run <- e
 	}()
 	waitProviderBudgetWaiters(t, pool, principal.TenantID, 2)
