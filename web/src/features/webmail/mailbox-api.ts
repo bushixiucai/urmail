@@ -1,4 +1,5 @@
 import type { AIBudgetStatus } from "@/features/ai/ai-budget";
+export type { AIBudgetStatus };
 import { ApiRequestError, apiErrorSchema } from "@/lib/api/client";
 import { initViewportTracking, viewportHeaders } from "./viewport-headers";
 

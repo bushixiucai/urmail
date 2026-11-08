@@ -16,6 +16,7 @@ import {
   Palmtree,
   Forward,
   Shield,
+  Sparkles,
   Settings as SettingsIcon,
 } from "lucide-react";
 const AccountSecuritySection = lazy(() =>
@@ -53,6 +54,11 @@ const RemoteImagesSection = lazy(() =>
     default: module.RemoteImagesSection,
   })),
 );
+const AiSettingsSection = lazy(() =>
+  import("./ai-settings-section").then((module) => ({
+    default: module.AiSettingsSection,
+  })),
+);
 
 export type SettingsTab =
   | "account"
@@ -61,7 +67,8 @@ export type SettingsTab =
   | "rules"
   | "vacation"
   | "forwarding"
-  | "privacy";
+  | "privacy"
+  | "ai";
 
 interface WebmailSettingsDrawerProps {
   isOpen: boolean;
@@ -161,6 +168,11 @@ export function WebmailSettingsDrawer({
         label: t("settings.nav.forwarding", "Forwarding"),
         icon: Forward,
       },
+      {
+        key: "ai",
+        label: t("settings.nav.ai", "AI Control"),
+        icon: Sparkles,
+      },
     ];
 
   return (
@@ -253,6 +265,7 @@ export function WebmailSettingsDrawer({
                 <VacationSection onVacationUpdated={onVacationUpdated} />
               )}
               {activeTab === "forwarding" && <ForwardingSection />}
+              {activeTab === "ai" && <AiSettingsSection />}
             </Suspense>
           </div>
         </div>

@@ -30,6 +30,8 @@ vi.mock("@/features/webmail/mailbox-api", async (importOriginal) => {
     getMailboxRules: vi.fn(),
     saveMailboxRules: vi.fn(),
     listFolders: vi.fn(),
+    fetchMailboxAIBudget: vi.fn(),
+    fetchMailboxAIModels: vi.fn(),
   };
 });
 
@@ -170,6 +172,12 @@ describe("WebmailSettingsDrawer", () => {
     fireEvent.click(screen.getByTestId("settings-nav-forwarding"));
     await waitFor(() => {
       expect(screen.getByTestId("forwarding-section")).toBeTruthy();
+    });
+
+    // Click AI tab
+    fireEvent.click(screen.getByTestId("settings-nav-ai"));
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-settings-section")).toBeTruthy();
     });
   });
 
