@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"mime"
@@ -224,8 +226,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 				entry, hit = h.RenderCache.GetLoose(cacheKey)
 			}
 			if hit {
-				c.Header("Cache-Control", "no-store")
-				c.Data(http.StatusOK, "application/json; charset=utf-8", entry.Payload)
+				serveMessagePayload(c, entry.Payload, "hit")
 				return
 			}
 		}
@@ -308,6 +309,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		authError(c, http.StatusInternalServerError, "INTERNAL")
 		return
 	}
+	xCache := ""
 	if h.RenderCache != nil {
 		h.RenderCache.Put(rendercache.Key{
 			MailboxID:      session.MailboxID,
@@ -318,9 +320,64 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 			UAClass:        uaClass,
 			ViewportBucket: vpBucket,
 		}, payload)
+		xCache = "miss"
 	}
+	serveMessagePayload(c, payload, xCache)
+}
+
+// serveMessagePayload writes one GetMessage body under the conditional-
+// request contract (v0.6.12 PR-7): every 200 carries a strong ETag (the
+// sha256 of the exact payload bytes) and, when the render cache is
+// enabled, X-Render-Cache: hit|miss so QA can tell a served rendering
+// from a fresh render in the access logs. A request whose If-None-Match
+// matches — weak comparison per RFC 9110 §8.8.3, list and * accepted —
+// gets a header-only 304 with no body; the client keeps the bytes it
+// already holds (Cache-Control stays no-store, so nothing is stored by
+// any HTTP cache and the conditional round trip remains an opt-in
+// agreement between the webmail frontend and this API).
+func serveMessagePayload(c *gin.Context, payload []byte, xCache string) {
+	etag := payloadETag(payload)
 	c.Header("Cache-Control", "no-store")
+	if etag != "" {
+		c.Header("ETag", etag)
+	}
+	if xCache != "" {
+		c.Header("X-Render-Cache", xCache)
+	}
+	if etagMatches(c.GetHeader("If-None-Match"), etag) {
+		c.Status(http.StatusNotModified)
+		return
+	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
+}
+
+// payloadETag derives the strong entity tag of a rendered message body.
+// Cache hits replay the exact bytes, so a hit and a fresh render of the
+// same content agree on the tag.
+func payloadETag(payload []byte) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(payload)
+	return `"` + hex.EncodeToString(sum[:]) + `"`
+}
+
+// etagMatches evaluates If-None-Match against the current tag: a
+// comma-separated list, weak validators compared weakly (the W/ prefix
+// is stripped on both sides), * matches any existing representation.
+func etagMatches(header, etag string) bool {
+	if header == "" || etag == "" {
+		return false
+	}
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/")
+		current := strings.TrimPrefix(etag, "W/")
+		if candidate == "*" || candidate == current {
+			return true
+		}
+	}
+	return false
 }
 
 // GetAttachment streams one MIME part as a downloadable attachment.
