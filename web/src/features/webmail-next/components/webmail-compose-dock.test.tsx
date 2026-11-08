@@ -83,4 +83,54 @@ describe("WebmailComposeDock", () => {
     expect(blockquotes.length).toBeGreaterThan(0);
     expect(document.body.textContent).toContain("Hello original email");
   });
+
+  it("toggles AI companion panel and expands dock width from 580px to 880px", () => {
+    render(
+      <WebmailComposeDock
+        isOpen={true}
+        onClose={vi.fn()}
+        initialTo={["partner@example.com"]}
+        initialSubject="Partnership Agreement"
+      />,
+    );
+
+    const dock = screen.getByTestId("webmail-compose-dock");
+    expect(dock.className).toContain("w-[580px]");
+
+    const aiBtn = screen.getByTestId("compose-ai-button");
+    fireEvent.click(aiBtn);
+
+    expect(dock.className).toContain("w-[880px]");
+    expect(screen.getByTestId("compose-ai-companion")).toBeTruthy();
+
+    // Toggle off
+    fireEvent.click(aiBtn);
+    expect(dock.className).toContain("w-[580px]");
+    expect(screen.queryByTestId("compose-ai-companion")).toBeNull();
+  });
+
+  it("applies draft from companion and updates subject input and draft", () => {
+    render(
+      <WebmailComposeDock
+        isOpen={true}
+        onClose={vi.fn()}
+        initialTo={["partner@example.com"]}
+        initialSubject="Original Subject"
+        initialText="Original Text"
+      />,
+    );
+
+    // Open companion
+    fireEvent.click(screen.getByTestId("compose-ai-button"));
+    expect(screen.getByTestId("compose-ai-companion")).toBeTruthy();
+
+    // Apply draft from companion
+    const applyBtn = screen.getByTestId("btn-apply-draft");
+    fireEvent.click(applyBtn);
+
+    const subjectInput = screen.getByTestId(
+      "compose-subject-input",
+    ) as HTMLInputElement;
+    expect(subjectInput.value).toBe("Original Subject");
+  });
 });

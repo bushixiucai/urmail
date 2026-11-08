@@ -10,9 +10,11 @@ import {
   Trash2,
   AlertCircle,
   RotateCcw,
+  Sparkles,
 } from "lucide-react";
 import { WebmailRecipientChips } from "./webmail-recipient-chips";
 import { WebmailEditorTiptap } from "./webmail-editor-tiptap";
+import { WebmailComposeAICompanion } from "./ai/webmail-compose-ai-companion";
 import { useDebouncedDraft } from "../hooks/use-debounced-draft";
 import {
   sendMessage,
@@ -31,6 +33,7 @@ interface WebmailComposeDockProps {
   initialText?: string;
   sendNonce?: number;
   minimizeNonce?: number;
+  onOpenAISettings?: () => void;
 }
 
 export function WebmailComposeDock({
@@ -43,6 +46,7 @@ export function WebmailComposeDock({
   initialText = "",
   sendNonce = 0,
   minimizeNonce = 0,
+  onOpenAISettings,
 }: WebmailComposeDockProps) {
   const { t } = useTranslation();
   const [isMinimized, setIsMinimized] = useState(false);
@@ -51,6 +55,7 @@ export function WebmailComposeDock({
   const [showBcc, setShowBcc] = useState(false);
   const [isPlainText, setIsPlainText] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isAICompanionOpen, setIsAICompanionOpen] = useState(false);
 
   // Undo Toast State
   const [undoToast, setUndoToast] = useState<{
@@ -255,7 +260,7 @@ export function WebmailComposeDock({
             ? "inset-4 rounded-xl"
             : isMinimized
               ? "bottom-0 right-8 w-72 h-10 rounded-t-lg overflow-hidden"
-              : "bottom-0 right-8 w-[580px] h-[640px] rounded-t-xl"
+              : `bottom-0 right-8 ${isAICompanionOpen ? "w-[880px]" : "w-[580px]"} h-[640px] rounded-t-xl`
         }`}
       >
         {/* Dock Header */}
@@ -317,162 +322,207 @@ export function WebmailComposeDock({
 
         {/* Dock Body (Hidden when minimized) */}
         {!isMinimized && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-white">
-            {/* Header Form: Recipient chips & Cc/Bcc */}
-            <div className="px-4 pt-2 border-b border-[#EBE8E0] space-y-0.5 bg-white shrink-0">
-              <div className="relative">
-                <WebmailRecipientChips
-                  label="To"
-                  recipients={draft.to}
-                  onChange={(to) => updateDraft({ to })}
-                  testId="compose-to-input"
-                />
-                <div className="absolute right-0 top-1.5 flex items-center gap-2 text-xs text-[var(--vellum-ink-secondary)]">
-                  {!showCc && (
-                    <button
-                      type="button"
-                      onClick={() => setShowCc(true)}
-                      className="hover:text-[#18181B]"
-                    >
-                      Cc
-                    </button>
-                  )}
-                  {!showBcc && (
-                    <button
-                      type="button"
-                      onClick={() => setShowBcc(true)}
-                      className="hover:text-[#18181B]"
-                    >
-                      Bcc
-                    </button>
-                  )}
+          <div className="flex-1 flex overflow-hidden bg-white">
+            {/* Left Column: Editor & Form Controls */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
+              {/* Header Form: Recipient chips & Cc/Bcc */}
+              <div className="px-4 pt-2 border-b border-[#EBE8E0] space-y-0.5 bg-white shrink-0">
+                <div className="relative">
+                  <WebmailRecipientChips
+                    label="To"
+                    recipients={draft.to}
+                    onChange={(to) => updateDraft({ to })}
+                    testId="compose-to-input"
+                  />
+                  <div className="absolute right-0 top-1.5 flex items-center gap-2 text-xs text-[var(--vellum-ink-secondary)]">
+                    {!showCc && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCc(true)}
+                        className="hover:text-[#18181B]"
+                      >
+                        Cc
+                      </button>
+                    )}
+                    {!showBcc && (
+                      <button
+                        type="button"
+                        onClick={() => setShowBcc(true)}
+                        className="hover:text-[#18181B]"
+                      >
+                        Bcc
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {showCc && (
+                  <WebmailRecipientChips
+                    label="Cc"
+                    recipients={draft.cc || []}
+                    onChange={(cc) => updateDraft({ cc })}
+                    testId="compose-cc-input"
+                  />
+                )}
+
+                {showBcc && (
+                  <WebmailRecipientChips
+                    label="Bcc"
+                    recipients={draft.bcc || []}
+                    onChange={(bcc) => updateDraft({ bcc })}
+                    testId="compose-bcc-input"
+                  />
+                )}
+
+                <div className="flex items-center py-1">
+                  <input
+                    data-testid="compose-subject-input"
+                    type="text"
+                    value={draft.subject}
+                    onChange={(e) => updateDraft({ subject: e.target.value })}
+                    placeholder={t("compose.subject_placeholder")}
+                    className="w-full text-xs text-[#18181B] font-medium outline-none py-1"
+                  />
                 </div>
               </div>
 
-              {showCc && (
-                <WebmailRecipientChips
-                  label="Cc"
-                  recipients={draft.cc || []}
-                  onChange={(cc) => updateDraft({ cc })}
-                  testId="compose-cc-input"
-                />
+              {/* Attachment Error Notice */}
+              {attachmentError && (
+                <div
+                  data-testid="attachment-error-notice"
+                  className="px-4 py-1.5 bg-[#FEE2E2] border-b border-[#FECACA] flex items-center gap-2 text-xs text-[#DC2626]"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{attachmentError}</span>
+                </div>
               )}
 
-              {showBcc && (
-                <WebmailRecipientChips
-                  label="Bcc"
-                  recipients={draft.bcc || []}
-                  onChange={(bcc) => updateDraft({ bcc })}
-                  testId="compose-bcc-input"
-                />
-              )}
-
-              <div className="flex items-center py-1">
-                <input
-                  data-testid="compose-subject-input"
-                  type="text"
-                  value={draft.subject}
-                  onChange={(e) => updateDraft({ subject: e.target.value })}
-                  placeholder={t("compose.subject_placeholder")}
-                  className="w-full text-xs text-[#18181B] font-medium outline-none py-1"
-                />
-              </div>
-            </div>
-
-            {/* Attachment Error Notice */}
-            {attachmentError && (
-              <div
-                data-testid="attachment-error-notice"
-                className="px-4 py-1.5 bg-[#FEE2E2] border-b border-[#FECACA] flex items-center gap-2 text-xs text-[#DC2626]"
-              >
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{attachmentError}</span>
-              </div>
-            )}
-
-            {/* Attachments Pill List */}
-            {draft.attachments && draft.attachments.length > 0 && (
-              <div className="px-4 py-1.5 border-b border-[#EBE8E0] flex flex-wrap gap-1.5 max-h-24 overflow-y-auto bg-[#FAF9F5]">
-                {draft.attachments.map((att, idx) => (
-                  <div
-                    key={att.filename + idx}
-                    className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#EBE8E0] rounded text-xs text-[#18181B]"
-                  >
-                    <Paperclip className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />
-                    <span className="truncate max-w-[140px]">
-                      {att.filename}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(idx)}
-                      className="p-0.5 hover:text-[#DC2626]"
+              {/* Attachments Pill List */}
+              {draft.attachments && draft.attachments.length > 0 && (
+                <div className="px-4 py-1.5 border-b border-[#EBE8E0] flex flex-wrap gap-1.5 max-h-24 overflow-y-auto bg-[#FAF9F5]">
+                  {draft.attachments.map((att, idx) => (
+                    <div
+                      key={att.filename + idx}
+                      className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#EBE8E0] rounded text-xs text-[#18181B]"
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+                      <Paperclip className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />
+                      <span className="truncate max-w-[140px]">
+                        {att.filename}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(idx)}
+                        className="p-0.5 hover:text-[#DC2626]"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            {/* TipTap Rich Text Editor */}
-            <WebmailEditorTiptap
-              content={draft.html || draft.text}
-              isPlainText={isPlainText}
-              onChange={(html, text) => updateDraft({ html, text })}
-              onTogglePlainText={() => setIsPlainText((p) => !p)}
-            />
+              {/* TipTap Rich Text Editor */}
+              <WebmailEditorTiptap
+                content={draft.html || draft.text}
+                isPlainText={isPlainText}
+                onChange={(html, text) => updateDraft({ html, text })}
+                onTogglePlainText={() => setIsPlainText((p) => !p)}
+                onOpenAISettings={onOpenAISettings}
+              />
 
-            {/* Dock Bottom Footer Bar */}
-            <div className="h-12 px-4 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between shrink-0 select-none">
-              <div className="flex items-center gap-3">
-                <button
-                  data-testid="compose-send-button"
-                  type="button"
-                  onClick={handleSend}
-                  disabled={draft.to.length === 0 || Boolean(attachmentError)}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{t("webmail_next.send")}</span>
-                </button>
+              {/* Dock Bottom Footer Bar */}
+              <div className="h-12 px-4 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between shrink-0 select-none">
+                <div className="flex items-center gap-2">
+                  <button
+                    data-testid="compose-send-button"
+                    type="button"
+                    onClick={handleSend}
+                    disabled={draft.to.length === 0 || Boolean(attachmentError)}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{t("webmail_next.send")}</span>
+                  </button>
 
-                <label
-                  className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0] rounded cursor-pointer transition-colors"
-                  title="Attach file (max 5MB single, 10MB total)"
-                >
-                  <Paperclip className="w-4 h-4" />
-                  <input
-                    data-testid="compose-file-input"
-                    type="file"
-                    multiple
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+                  <label
+                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0] rounded cursor-pointer transition-colors"
+                    title="Attach file (max 5MB single, 10MB total)"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                    <input
+                      data-testid="compose-file-input"
+                      type="file"
+                      multiple
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
 
-              <div className="flex items-center gap-3 text-xs text-[#52525B]">
-                <span data-testid="draft-status-indicator">
-                  {isSaving
-                    ? "Saving draft..."
-                    : lastSavedAt
-                      ? `${t("webmail_next.draft_saved")} ${lastSavedAt}`
-                      : ""}
-                </span>
+                  {/* AI Writing Assistant Toggle Button */}
+                  <button
+                    data-testid="compose-ai-button"
+                    type="button"
+                    onClick={() => setIsAICompanionOpen((p) => !p)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      isAICompanionOpen
+                        ? "bg-[#2563EB]/10 text-[#2563EB]"
+                        : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0]"
+                    }`}
+                    title={t("webmail_next.ai_companion_toggle")}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#D97706]" />
+                    <span>{t("webmail_next.ai_companion_btn")}</span>
+                  </button>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearDraft();
-                    onClose();
-                  }}
-                  className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#EBE8E0] rounded transition-colors"
-                  title="Discard Draft"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-3 text-xs text-[#52525B]">
+                  <span data-testid="draft-status-indicator">
+                    {isSaving
+                      ? "Saving draft..."
+                      : lastSavedAt
+                        ? `${t("webmail_next.draft_saved")} ${lastSavedAt}`
+                        : ""}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearDraft();
+                      onClose();
+                    }}
+                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#EBE8E0] rounded transition-colors"
+                    title="Discard Draft"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* Right Column: Side-by-Side AI Companion Panel */}
+            {isAICompanionOpen && (
+              <WebmailComposeAICompanion
+                currentSubject={draft.subject}
+                currentBody={draft.text || draft.html || ""}
+                isReply={draft.subject.startsWith("Re:")}
+                onRollback={(ver) => {
+                  updateDraft({
+                    subject: ver.subject,
+                    text: ver.body,
+                    html: ver.body,
+                  });
+                }}
+                onApply={(ver) => {
+                  updateDraft({
+                    subject: ver.subject,
+                    text: ver.body,
+                    html: ver.body,
+                  });
+                }}
+                onClose={() => setIsAICompanionOpen(false)}
+                onOpenAISettings={onOpenAISettings}
+              />
+            )}
           </div>
         )}
       </div>

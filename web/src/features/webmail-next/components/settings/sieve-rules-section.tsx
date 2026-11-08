@@ -22,7 +22,11 @@ import {
   Ban,
 } from "lucide-react";
 
-export function SieveRulesSection() {
+export function SieveRulesSection({
+  initialRuleDraft,
+}: {
+  initialRuleDraft?: { from?: string; folder?: string };
+} = {}) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,16 +38,18 @@ export function SieveRulesSection() {
   const [folders, setFolders] = useState<MailboxFolder[]>([]);
 
   // Add rule modal / form state
-  const [isAdding, setIsAdding] = useState(false);
+  const [isAdding, setIsAdding] = useState(Boolean(initialRuleDraft));
   const [newHeader, setNewHeader] = useState<"subject" | "from" | "to" | "cc">(
     "from",
   );
   const [newMatch, setNewMatch] = useState<"contains" | "is">("contains");
-  const [newValue, setNewValue] = useState("");
+  const [newValue, setNewValue] = useState(initialRuleDraft?.from || "");
   const [newAction, setNewAction] = useState<"fileinto" | "keep" | "discard">(
     "fileinto",
   );
-  const [newFolder, setNewFolder] = useState("Archive");
+  const [newFolder, setNewFolder] = useState(
+    initialRuleDraft?.folder || "Archive",
+  );
   const [newMatchType, setNewMatchType] = useState<"all" | "any">("all");
 
   const loadData = async () => {
