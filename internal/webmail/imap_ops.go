@@ -125,6 +125,11 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if err != nil {
 		return ListResult{}, err
 	}
+	if opts.Preview {
+		// One batched command downloads the page's snippets; failures only
+		// leave the previews empty (see preview_fetch.go).
+		c.attachPreviews(ctx, summaries)
+	}
 
 	threadMode := ""
 	threadScope := ""

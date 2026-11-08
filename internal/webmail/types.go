@@ -32,6 +32,10 @@ type ListOpts struct {
 	CursorUID uint32
 	// Thread requests thread_id/thread_count on the returned summaries.
 	Thread bool
+	// Preview requests a one-line body snippet (preview) for every message
+	// on the returned page. The snippets are downloaded with one batched
+	// IMAP command per page and are byte-bounded; see preview_fetch.go.
+	Preview bool
 }
 
 const (
@@ -86,6 +90,10 @@ type MessageSummary struct {
 	// single-folder listings.
 	Folder    string `json:"folder,omitempty"`
 	FolderEnc string `json:"folder_enc,omitempty"`
+	// Preview is a one-line plain-text snippet of the message body. It is
+	// populated only when the caller asked for previews (ListOpts.Preview)
+	// and omitted when the body has no readable text.
+	Preview string `json:"preview,omitempty"`
 }
 
 // ListResult is a page of message summaries plus the folder UID total.
