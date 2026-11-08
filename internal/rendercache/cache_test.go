@@ -41,6 +41,48 @@ func TestCacheMailboxIsolationAndInvalidate(t *testing.T) {
 	}
 }
 
+// TestCacheLooseMatchesIgnoringUIDValidity covers the DEF-3 lookup: a
+// request without uid_validity matches the entry rendered under any
+// validity, while every other dimension still has to agree exactly, an
+// exact Get with a zero validity never matches, and expiry applies.
+func TestCacheLooseMatchesIgnoringUIDValidity(t *testing.T) {
+	c := New()
+	now := time.Now()
+	c.now = func() time.Time { return now }
+	key := Key{MailboxID: 9, Folder: "INBOX", UID: 7, UIDValidity: 42, LoadImages: false, UAClass: "desktop", ViewportBucket: "wide"}
+	c.Put(key, []byte("rendered"))
+
+	loose := key
+	loose.UIDValidity = 0
+	entry, ok := c.GetLoose(loose)
+	if !ok || string(entry.Payload) != "rendered" {
+		t.Fatalf("loose hit = %v %q", ok, entry.Payload)
+	}
+
+	for _, tc := range []struct {
+		name string
+		mut  func(Key) Key
+	}{
+		{"folder", func(k Key) Key { k.Folder = "Archive"; return k }},
+		{"uid", func(k Key) Key { k.UID = 8; return k }},
+		{"mailbox", func(k Key) Key { k.MailboxID = 10; return k }},
+		{"load_images", func(k Key) Key { k.LoadImages = true; return k }},
+		{"ua_class", func(k Key) Key { k.UAClass = "mobile"; return k }},
+		{"viewport", func(k Key) Key { k.ViewportBucket = "narrow"; return k }},
+	} {
+		if _, ok := c.GetLoose(tc.mut(loose)); ok {
+			t.Fatalf("loose match on changed %s must miss", tc.name)
+		}
+	}
+	if _, ok := c.Get(loose); ok {
+		t.Fatal("exact Get with zero validity must miss")
+	}
+	c.now = func() time.Time { return now.Add(DefaultTTL + time.Second) }
+	if _, ok := c.GetLoose(loose); ok {
+		t.Fatal("expired entry returned loosely")
+	}
+}
+
 func TestCacheEvictsWhenFull(t *testing.T) {
 	c := New()
 	c.max = 2

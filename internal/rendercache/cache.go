@@ -68,6 +68,42 @@ func (c *Cache) Get(key Key) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
+	entry, ok = c.freshLocked(key, entry)
+	if !ok {
+		return Entry{}, false
+	}
+	return entry, true
+}
+
+// GetLoose returns a fresh entry matching key on every dimension EXCEPT
+// uid_validity. GetMessage uses it when the request did not carry
+// uid_validity: the cached payload echoes the validity the message had
+// when it was rendered, so the client can still detect a renumber, and
+// the TTL bounds how long such a renumber could go unnoticed server-side.
+func (c *Cache) GetLoose(key Key) (Entry, bool) {
+	if c == nil {
+		return Entry{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, entry := range c.entries {
+		if k.MailboxID != key.MailboxID || k.Folder != key.Folder ||
+			k.UID != key.UID || k.LoadImages != key.LoadImages ||
+			k.UAClass != key.UAClass || k.ViewportBucket != key.ViewportBucket {
+			continue
+		}
+		entry, ok := c.freshLocked(k, entry)
+		if !ok {
+			return Entry{}, false
+		}
+		return entry, true
+	}
+	return Entry{}, false
+}
+
+// freshLocked touches one entry whose TTL is checked under the held lock.
+// An expired entry is dropped and reported as missing.
+func (c *Cache) freshLocked(key Key, entry Entry) (Entry, bool) {
 	if c.now().After(entry.At.Add(c.ttl)) {
 		delete(c.entries, key)
 		return Entry{}, false

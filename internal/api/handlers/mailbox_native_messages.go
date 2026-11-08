@@ -195,9 +195,15 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		}
 		expectedValidity = uint32(v)
 	}
-	// A cache hit needs uid_validity in the request so a folder renumber
-	// cannot serve a stale body. Without it we fall through to IMAP.
-	if h.RenderCache != nil && expectedValidity != 0 {
+	// Cache hit paths. With uid_validity in the request the exact key
+	// proves the folder was not renumbered. Without it a loose match
+	// (every dimension except uid_validity) still serves the cached
+	// rendering: the payload echoes the uid_validity the entry was
+	// rendered with so the client can detect a renumber, and the TTL
+	// bounds how long one could go unnoticed server-side (DEF-3: the
+	// previous hard requirement made every request without uid_validity
+	// pay the full IMAP FETCH + sanitize again).
+	if h.RenderCache != nil {
 		if sessionPeek, ok := middleware.GetMailboxSession(c); ok {
 			cacheKey := rendercache.Key{
 				MailboxID:      sessionPeek.MailboxID,
@@ -208,7 +214,16 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 				UAClass:        uaClass,
 				ViewportBucket: vpBucket,
 			}
-			if entry, hit := h.RenderCache.Get(cacheKey); hit {
+			var (
+				entry rendercache.Entry
+				hit   bool
+			)
+			if expectedValidity != 0 {
+				entry, hit = h.RenderCache.Get(cacheKey)
+			} else {
+				entry, hit = h.RenderCache.GetLoose(cacheKey)
+			}
+			if hit {
 				c.Header("Cache-Control", "no-store")
 				c.Data(http.StatusOK, "application/json; charset=utf-8", entry.Payload)
 				return
