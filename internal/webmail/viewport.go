@@ -66,6 +66,22 @@ func ViewportBucket(width int) string {
 var (
 	widthAttrRE  = regexp.MustCompile(`(?i)^\s*(\d+)\s*(px)?\s*$`)
 	widthStyleRE = regexp.MustCompile(`(?i)(^|;)\s*width\s*:\s*(\d+)\s*px\s*(;|$)`)
+	// insetStyleRE captures one fixed-pixel horizontal inset declaration
+	// (margin or padding, left or right) inside a style attribute. The
+	// declaration name is specific enough to anchor without a prefix; a
+	// (^|;) prefix would consume the shared separator and hide the next
+	// declaration from the same pass.
+	insetStyleRE = regexp.MustCompile(`(?i)((?:margin|padding)-(?:left|right))\s*:\s*(\d+)\s*px\s*(;|$)`)
+)
+
+const (
+	// narrowInsetThreshold is the horizontal inset size that a narrow
+	// reading pane cannot afford: desktop designs routinely use 48-50px
+	// gutters, which on a 375px pane eat over a quarter of the width.
+	narrowInsetThreshold = 32
+	// narrowInsetReplacement is the desktop-typical mobile gutter the
+	// oversized insets clamp down to.
+	narrowInsetReplacement = 16
 )
 
 // AdaptHTMLForViewport rewrites fixed widths and wraps the body in a
@@ -86,6 +102,9 @@ func AdaptHTMLForViewport(body string, vp Viewport) string {
 		root = doc
 	}
 	rewriteFixedWidths(root)
+	if bucket == "narrow" {
+		rewriteWideInsets(root)
+	}
 	var buf strings.Builder
 	for c := root.FirstChild; c != nil; c = c.NextSibling {
 		if err := html.Render(&buf, c); err != nil {
@@ -118,6 +137,40 @@ func viewportCSS() string {
 // narrowest reading pane keep their markup: rescaling a 36px icon cell to
 // 60% of the pane would stretch it far beyond what the designer intended.
 const fluidWidthThreshold = 320
+
+// rewriteWideInsets clamps oversized fixed-pixel horizontal margins and
+// paddings on narrow panes. Desktop designs use wide gutters (Slack's
+// marketing mail sets margin: 0 50px), which on a 375px pane cost a
+// quarter of the width and leave a large blank band beside the text.
+// Auto values (centering) and small insets stay untouched; only px values
+// at or above narrowInsetThreshold become narrowInsetReplacement. Runs
+// only for the narrow bucket, after the width rewrites.
+func rewriteWideInsets(n *html.Node) {
+	if n == nil {
+		return
+	}
+	if n.Type == html.ElementNode {
+		for i := range n.Attr {
+			if !strings.EqualFold(n.Attr[i].Key, "style") {
+				continue
+			}
+			n.Attr[i].Val = insetStyleRE.ReplaceAllStringFunc(n.Attr[i].Val, func(match string) string {
+				m := insetStyleRE.FindStringSubmatch(match)
+				if len(m) < 4 {
+					return match
+				}
+				px, err := strconv.Atoi(m[2])
+				if err != nil || px < narrowInsetThreshold {
+					return match
+				}
+				return m[1] + ":" + strconv.Itoa(narrowInsetReplacement) + "px" + m[3]
+			})
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		rewriteWideInsets(c)
+	}
+}
 
 // rewriteFixedWidths rewrites fixed widths so marketing mail adapts to the
 // reading pane. Tables, divs and images become fluid; the CELLS of a
