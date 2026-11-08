@@ -51,6 +51,12 @@ type SanitizeOptions struct {
 	// (attachment endpoint). When nil or it reports !ok, cid images are
 	// dropped with NoteCIDUnresolved.
 	CIDRewriter func(cid string) (url string, ok bool)
+	// RemoteImageProxy, when non-nil, rewrites an allowed remote image
+	// URL to a same-origin URL served by the image proxy, so the browser
+	// never contacts the third party. Reporting !ok drops the image:
+	// there is no direct-URL fallback, because a direct URL would hand
+	// the reader's address to the sender.
+	RemoteImageProxy func(remoteURL string) (url string, ok bool)
 }
 
 // SanitizeHTML sanitizes an HTML mail body with remote images blocked.
@@ -293,6 +299,15 @@ func imgSrcURL(src string, opts SanitizeOptions) (url, note string) {
 		return v, ""
 	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
 		if opts.AllowRemoteImages {
+			if opts.RemoteImageProxy != nil {
+				// The proxy is the only safe way to show a remote image:
+				// a direct URL would let the sender learn the reader's
+				// address, so a refusal drops the image instead.
+				if u, ok := opts.RemoteImageProxy(v); ok && u != "" {
+					return u, ""
+				}
+				return "", NoteRemoteImagesBlocked
+			}
 			return v, ""
 		}
 		return "", NoteRemoteImagesBlocked

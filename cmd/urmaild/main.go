@@ -97,6 +97,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The webmail render key signs image proxy URLs and link confirmation
+	// tokens. An operator may set its own key; otherwise one is derived
+	// from the master key, so the feature works out of the box and the
+	// key stays stable across restarts. Without a key the privacy layer
+	// stays off and remote images remain blocked.
+	webmailRenderKey := []byte(cfg.WebmailRenderKey)
+	if len(webmailRenderKey) == 0 {
+		if deriver, ok := secretBox.(interface{ DeriveKey(string) []byte }); ok {
+			webmailRenderKey = deriver.DeriveKey("webmail-render-v1")
+		}
+	}
 
 	appPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "core-app", cfg.DatabaseBudgets.Core)
 	if err != nil {
@@ -378,6 +389,7 @@ func run() error {
 		DNSManagedZones:       cfg.DNSManagedZones,
 		DNSPlans:              dnsPlans,
 		QuoteHMACKey:          cfg.QuoteHMACKey,
+		WebmailRenderKey:      webmailRenderKey,
 		BaseURL:               baseURL,
 		MarketingTokens:       tokenVerifier,
 		MarketingEnabled:      cfg.MarketingEnabled && !cfg.WorkersHeld,
