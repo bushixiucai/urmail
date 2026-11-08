@@ -3003,5 +3003,19 @@
   "webmail_next.ai_assumptions_title": "模型商业假设清单 (请核对)",
   "webmail_next.ai_degraded_notice": "模型结构化解析不完整，已降级输出，请人工核对",
   "webmail_next.ai_diff_view_title": "改写前后对比 (Diff View)",
-  "webmail_next.ai_changes_rationale": "修改理由列表"
+  "webmail_next.ai_changes_rationale": "修改理由列表",
+  "webmail_next.ai_cache_hit": "⚡ 缓存命中",
+  "webmail_next.ai_dismiss": "关闭摘要",
+  "webmail_next.ai_refine_standard": "标准要点",
+  "webmail_next.ai_refine_shorter": "更简短(一句话)",
+  "webmail_next.ai_refine_todos": "只看待办",
+  "webmail_next.ai_refine_translate": "全文翻译对照",
+  "webmail_next.ai_confidence": "置信度 {{score}}%",
+  "webmail_next.ai_due_date": "截止: {{date}}",
+  "webmail_next.ai_due_date_with_assignee": "负责人: {{assignee}} · 截止: {{date}}",
+  "webmail_next.ai_assignee": "负责人: {{assignee}}",
+  "webmail_next.ai_phishing_high_risk": "高风险安全提示：检测到疑似钓鱼或欺诈特征",
+  "webmail_next.ai_retry": "重试",
+  "webmail_next.ai_unconfigured_prompt": "当前未配置 AI 模型服务，是否前往设置配置专属密钥？",
+  "webmail_next.ai_go_to_settings": "前往设置"
 }

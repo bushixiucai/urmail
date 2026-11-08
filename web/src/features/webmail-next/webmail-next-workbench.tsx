@@ -1433,6 +1433,10 @@ export function WebmailNextWorkbench({
               onToggleStar={handleToggleStar}
               onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
               onExpandThreadUid={(uid) => openMessage(uid)}
+              onOpenAISettings={() => {
+                setSettingsTab("ai");
+                setIsSettingsOpen(true);
+              }}
               onMarkThreadRead={() => {
                 if (threadMemberUids.length === 0) return;
                 void (async () => {

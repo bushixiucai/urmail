@@ -3003,5 +3003,19 @@
   "webmail_next.ai_assumptions_title": "Model assumptions (review needed)",
   "webmail_next.ai_degraded_notice": "Structured parsing incomplete, degraded output provided",
   "webmail_next.ai_diff_view_title": "Revision diff (Diff View)",
-  "webmail_next.ai_changes_rationale": "Rationale for changes"
+  "webmail_next.ai_changes_rationale": "Rationale for changes",
+  "webmail_next.ai_cache_hit": "⚡ Cache hit",
+  "webmail_next.ai_dismiss": "Dismiss summary",
+  "webmail_next.ai_refine_standard": "Standard summary",
+  "webmail_next.ai_refine_shorter": "Shorter (one sentence)",
+  "webmail_next.ai_refine_todos": "Action items only",
+  "webmail_next.ai_refine_translate": "Full translation",
+  "webmail_next.ai_confidence": "Confidence {{score}}%",
+  "webmail_next.ai_due_date": "Due: {{date}}",
+  "webmail_next.ai_due_date_with_assignee": "Assignee: {{assignee}} · Due: {{date}}",
+  "webmail_next.ai_assignee": "Assignee: {{assignee}}",
+  "webmail_next.ai_phishing_high_risk": "High-risk security alert: Suspicious phishing or fraud indicators detected",
+  "webmail_next.ai_retry": "Retry",
+  "webmail_next.ai_unconfigured_prompt": "AI model service is not configured. Would you like to go to Settings to configure your key?",
+  "webmail_next.ai_go_to_settings": "Go to Settings"
 }

@@ -352,4 +352,120 @@ describe("SanitizedHtmlFrame auto height", () => {
     // Falls back to the minimum; no crash, no zero-height clip.
     expect(frame.style.height).toBe("420px");
   });
+
+  it("renders ai-cue-strip on long messages (>1500 chars), but not on short messages", () => {
+    // Short message: no cue strip
+    const { rerender } = render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, text: "Short message under 1500 chars." }}
+        folderEnc="INBOX"
+      />,
+    );
+    expect(screen.queryByTestId("ai-cue-strip")).toBeNull();
+
+    // Long message (>1500 chars): cue strip shown
+    const longText = "A".repeat(1600);
+    rerender(
+      <WebmailReadingPane
+        message={{ ...mockMessage, text: longText }}
+        folderEnc="INBOX"
+      />,
+    );
+    expect(screen.getByTestId("ai-cue-strip")).toBeTruthy();
+    expect(screen.getByTestId("btn-trigger-summary")).toBeTruthy();
+  });
+
+  it("triggers AI summary from cue strip and displays structured summary card", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      configuration_digest: "cfg-digest-123",
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-4o",
+      provider: "openai",
+    });
+    vi.spyOn(mailboxApi, "previewMailboxAI").mockResolvedValue({
+      content_digest: "content-digest-456",
+    });
+    vi.spyOn(mailboxApi, "runMailboxAI").mockResolvedValue({
+      template_version: 2,
+      degraded: false,
+      cache_hit: true,
+      result: {
+        bullets: ["Key contract term 1", "Key contract term 2"],
+        todos: [{ task: "Sign contract", due_date: "2026-11-20" }],
+      },
+    });
+
+    const longText = "A".repeat(1600);
+    render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, text: longText }}
+        folderEnc="INBOX"
+      />,
+    );
+
+    const triggerBtn = screen.getByTestId("btn-trigger-summary");
+    fireEvent.click(triggerBtn);
+
+    const summaryCard = await screen.findByTestId("structured-summary-card");
+    expect(summaryCard).toBeTruthy();
+    expect(screen.getByText("Key contract term 1")).toBeTruthy();
+    expect(screen.getByText("Sign contract")).toBeTruthy();
+    expect(screen.getByTestId("ai-cache-hit")).toBeTruthy();
+  });
+
+  it("displays phishing warning banner with indicators when risk_level is high", () => {
+    const phishingMessage: MessageDetail = {
+      ...mockMessage,
+      risk_level: "high",
+      indicators: [
+        {
+          type: "spoofed_domain",
+          evidence: "From address does not match DKIM d= domain",
+        },
+        {
+          type: "urgent_pressure",
+          evidence: "Wire transfer requested within 24 hours",
+        },
+      ],
+    };
+
+    render(<WebmailReadingPane message={phishingMessage} folderEnc="INBOX" />);
+
+    expect(screen.getByTestId("phishing-warning-banner")).toBeTruthy();
+    expect(screen.getByText("webmail_next.ai_phishing_high_risk")).toBeTruthy();
+    expect(screen.getByText("spoofed_domain")).toBeTruthy();
+    expect(
+      screen.getByText(": From address does not match DKIM d= domain"),
+    ).toBeTruthy();
+  });
+
+  it("shows unconfigured modal when AI is not configured", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      configuration_digest: "",
+      endpoint: "",
+      model: "",
+      provider: "",
+    });
+
+    const onOpenAISettings = vi.fn();
+    const longText = "A".repeat(1600);
+    render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, text: longText }}
+        folderEnc="INBOX"
+        onOpenAISettings={onOpenAISettings}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("btn-trigger-summary"));
+
+    const modal = await screen.findByTestId("ai-unconfigured-modal");
+    expect(modal).toBeTruthy();
+
+    const goToSettingsBtn = screen.getByText("webmail_next.ai_go_to_settings");
+    fireEvent.click(goToSettingsBtn);
+    expect(onOpenAISettings).toHaveBeenCalledTimes(1);
+  });
 });

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
+import { WebmailAICueStrip } from "./ai/webmail-ai-cue-strip";
+import { WebmailStructuredSummary } from "./ai/webmail-structured-summary";
 import { sanitizeHtmlMail } from "@/features/webmail/sanitize-html-mail";
 import {
   sanitizeHtmlMailAsync,
@@ -21,6 +23,10 @@ import {
 } from "@/features/webmail/sanitize-html-mail-async";
 import {
   createContact,
+  fetchMailboxAITarget,
+  previewMailboxAI,
+  runMailboxAI,
+  type MailboxAIAssistResponse,
   type MessageDetail,
   type MessageSummary,
 } from "@/features/webmail/mailbox-api";
@@ -47,6 +53,7 @@ interface WebmailReadingPaneProps {
   onMarkThreadRead?: () => void;
   onArchiveThread?: () => void;
   onDeleteThread?: () => void;
+  onOpenAISettings?: () => void;
 }
 
 const FRAME_MIN_HEIGHT = 420;
@@ -215,11 +222,118 @@ export function WebmailReadingPane({
   onMarkThreadRead,
   onArchiveThread,
   onDeleteThread,
+  onOpenAISettings,
 }: WebmailReadingPaneProps) {
   const { t } = useTranslation();
   const [localManualGranted, setLocalManualGranted] = useState(false);
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [contactAdded, setContactAdded] = useState(false);
+
+  // AI Summary & Security State
+  const [summaryResponse, setSummaryResponse] =
+    useState<MailboxAIAssistResponse | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [isSummaryDismissed, setIsSummaryDismissed] = useState(false);
+  const [showUnconfiguredModal, setShowUnconfiguredModal] = useState(false);
+  const summaryAbortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    summaryAbortControllerRef.current?.abort();
+    setSummaryResponse(null);
+    setIsGeneratingSummary(false);
+    setSummaryError(null);
+    setIsSummaryDismissed(false);
+    setShowUnconfiguredModal(false);
+  }, [message?.uid]);
+
+  const handleGenerateSummary = async (options?: {
+    lengthLimit?: number;
+    operation?: "summarize" | "todos" | "translate";
+    targetLang?: string;
+  }) => {
+    if (!message || !message.uid) return;
+    summaryAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    summaryAbortControllerRef.current = controller;
+
+    setIsGeneratingSummary(true);
+    setSummaryError(null);
+
+    const op = options?.operation || "summarize";
+    const plainText =
+      message.text ||
+      (message.html ? message.html.replace(/<[^>]+>/g, " ").trim() : "");
+
+    try {
+      const target = await fetchMailboxAITarget(controller.signal);
+      if (!target.configuration_digest) {
+        setShowUnconfiguredModal(true);
+        return;
+      }
+      const input = {
+        operation: op,
+        configuration_digest: target.configuration_digest,
+        confirmed: true,
+        request_key: `summary-${crypto.randomUUID()}`,
+        folder_enc: folderEnc,
+        uid: message.uid,
+        uid_validity: message.uid_validity,
+        body: plainText,
+        subject: message.subject || "",
+        selection: plainText,
+        length_limit: options?.lengthLimit,
+        target_language: options?.targetLang || "zh-CN",
+      };
+
+      const preview = await previewMailboxAI(
+        "assist",
+        input,
+        controller.signal,
+      );
+
+      const resp = await runMailboxAI(
+        { ...input, content_digest: preview.content_digest },
+        controller.signal,
+      );
+
+      if (!controller.signal.aborted) {
+        if (op === "translate" && summaryResponse) {
+          setSummaryResponse({
+            ...summaryResponse,
+            result: {
+              ...summaryResponse.result,
+              translated_text:
+                resp.result.translated_text ||
+                resp.result.text ||
+                resp.result.summary,
+            },
+          });
+        } else {
+          setSummaryResponse(resp);
+        }
+      }
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      const apiErr = err as { code?: string; message?: string };
+      if (
+        apiErr?.code === "AI_UNCONFIGURED" ||
+        apiErr?.code === "AI_DISABLED"
+      ) {
+        setShowUnconfiguredModal(true);
+      } else {
+        setSummaryError(
+          t(`error.${apiErr?.code}`, {
+            defaultValue: t("page.webmail.ai_failed"),
+          }),
+        );
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsGeneratingSummary(false);
+      }
+    }
+  };
 
   const isImageAllowed = Boolean(
     isGlobalRemoteImagesAllowed ||
@@ -339,8 +453,87 @@ export function WebmailReadingPane({
     }
   };
 
+  const isHighRisk =
+    message.risk_level === "high" ||
+    message.risk_level === "critical" ||
+    Boolean(
+      message.indicators &&
+      message.indicators.length > 0 &&
+      message.risk_level !== "low",
+    );
+
+  const messageTextLength =
+    (message.text?.length ?? 0) ||
+    (message.html ? message.html.replace(/<[^>]+>/g, " ").length : 0);
+  const isLongMail = messageTextLength > 1500;
+  const shouldShowCueStrip =
+    !isSummaryDismissed &&
+    !summaryResponse &&
+    !isGeneratingSummary &&
+    (isLongMail ||
+      Boolean(message.security_notes?.includes("foreign_language")));
+
+  const aiSlot = (
+    <>
+      {isHighRisk && (
+        <div
+          data-testid="phishing-warning-banner"
+          className="mb-4 p-3 bg-[#FEE2E2] dark:bg-[#7F1D1D]/30 border border-[#FECACA] dark:border-[#991B1B] rounded-lg text-xs text-[#991B1B] dark:text-[#FCA5A5] flex items-start gap-2.5"
+        >
+          <ShieldAlert className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-semibold">
+              {t("webmail_next.ai_phishing_high_risk")}
+            </div>
+            {message.indicators && message.indicators.length > 0 && (
+              <ul className="list-disc list-inside space-y-0.5 opacity-90">
+                {message.indicators.map((ind, i) => (
+                  <li key={i}>
+                    <span className="font-medium">{ind.type}</span>
+                    {ind.evidence ? `: ${ind.evidence}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+      {shouldShowCueStrip && (
+        <WebmailAICueStrip
+          onTriggerSummary={() => handleGenerateSummary()}
+          isLoading={isGeneratingSummary}
+        />
+      )}
+      {(summaryResponse || isGeneratingSummary || summaryError) &&
+        !isSummaryDismissed && (
+          <WebmailStructuredSummary
+            response={summaryResponse}
+            isLoading={isGeneratingSummary}
+            error={summaryError}
+            messageUid={message.uid}
+            onDismiss={() => {
+              summaryAbortControllerRef.current?.abort();
+              setIsSummaryDismissed(true);
+            }}
+            onRetry={() => handleGenerateSummary()}
+            onCancel={() => {
+              summaryAbortControllerRef.current?.abort();
+              setIsGeneratingSummary(false);
+            }}
+            onRefineStandard={() => handleGenerateSummary()}
+            onRefineShorter={() => handleGenerateSummary({ lengthLimit: 100 })}
+            onRefineTodos={() => handleGenerateSummary({ operation: "todos" })}
+            onRefineTranslate={() =>
+              handleGenerateSummary({ operation: "translate" })
+            }
+          />
+        )}
+    </>
+  );
+
   const bodySlot = (
     <>
+      {aiSlot}
       {hasBlockedImages && (
         <div
           data-testid="remote-images-banner"
@@ -551,6 +744,8 @@ export function WebmailReadingPane({
                   </span>
                   <WebmailSecurityBadge
                     authentication={message.authentication}
+                    riskLevel={message.risk_level}
+                    indicators={message.indicators}
                   />
                   <button
                     data-testid="btn-add-contact"
@@ -606,82 +801,43 @@ export function WebmailReadingPane({
           </div>
         </div>
 
-        {/* Remote Images Neutralization Banner */}
-        {hasBlockedImages && (
-          <div
-            data-testid="remote-images-banner"
-            className="p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[#92400E]"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <ShieldAlert className="w-4 h-4 text-[#D97706] shrink-0" />
-              <span className="break-words leading-relaxed">
-                {t("webmail_next.remote_images_blocked")}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <button
-                data-testid="show-images-button"
-                type="button"
-                onClick={handleShowImages}
-                className="px-2 py-1 bg-white border border-[#D97706]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
-              >
-                {t("webmail_next.show_images")}
-              </button>
-              <button
-                data-testid="always-trust-button"
-                type="button"
-                onClick={handleAlwaysTrust}
-                className="px-2 py-1 text-[#92400E] hover:underline transition-colors"
-              >
-                {t("webmail_next.always_trust_images")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Sandboxed Body Rendering — spans the pane width for HTML; the
-            card chrome is gone so the body is not boxed into a strip. */}
-        <div
-          data-testid="mail-body-container"
-          className="text-sm text-[#18181B] leading-relaxed min-h-[220px]"
-        >
-          {message.html ? (
-            <SanitizedHtmlFrame
-              title={message.subject || "Email Content"}
-              html={
-                useWorker
-                  ? workerHtml
-                  : sanitizeHtmlMail(message.html, {
-                      allowRemoteImages: isImageAllowed,
-                    })
-              }
-            />
-          ) : (
-            <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B] max-w-[65ch]">
-              {message.text || "(Empty message)"}
-            </pre>
-          )}
-        </div>
-
-        {/* Attachments Section */}
-        {message.attachments && message.attachments.length > 0 && (
-          <div data-testid="attachments-container" className="pt-2">
-            <div className="text-xs font-semibold text-[var(--vellum-ink-secondary)] mb-3">
-              Attachments ({message.attachments.length})
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {message.attachments.map((att) => (
-                <WebmailAttachmentCard
-                  key={att.part_id}
-                  attachment={att}
-                  folderEnc={folderEnc}
-                  uid={message.uid}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        {bodySlot}
       </div>
+
+      {showUnconfiguredModal && (
+        <div
+          data-testid="ai-unconfigured-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        >
+          <div className="bg-white dark:bg-[#1E1E22] rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4 border border-[#EBE8E0] dark:border-[#323238]">
+            <div className="text-sm font-semibold text-[#18181B] dark:text-[#F4F4F6]">
+              {t("page.webmail.ai_settings_title")}
+            </div>
+            <p className="text-xs text-[var(--vellum-ink-secondary)] leading-relaxed">
+              {t("webmail_next.ai_unconfigured_prompt")}
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowUnconfiguredModal(false)}
+                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:bg-[#F3F1EC] dark:hover:bg-[#323238] rounded-md font-medium"
+              >
+                {t("page.webmail.ai_cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnconfiguredModal(false);
+                  onOpenAISettings?.();
+                }}
+                className="px-3 py-1.5 text-xs bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-md font-semibold"
+              >
+                {t("webmail_next.ai_go_to_settings")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
