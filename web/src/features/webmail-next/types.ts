@@ -32,6 +32,10 @@ export interface WebmailItem {
   threadCount?: number;
   childUids?: number[];
   isThreadExpanded?: boolean;
+  /** True when this row is an expanded child of a thread (not the representative). */
+  isThreadChild?: boolean;
+  /** Last child in the expanded list — stops the connector line mid-row. */
+  isLastThreadChild?: boolean;
   folder?: string;
   folderEnc?: string;
 }

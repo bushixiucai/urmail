@@ -63,6 +63,36 @@ describe("WebmailMessageList", () => {
     expect(screen.getByText("Standalone Note")).toBeTruthy();
   });
 
+  it("expands a thread with indented children, reply label, and connector", () => {
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+
+    // Before expand: only the representative (newest = uid 102) is shown.
+    expect(screen.getByTestId("mail-row-102")).toBeTruthy();
+    expect(screen.queryByTestId("mail-row-101")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("thread-toggle-1"));
+
+    const child = screen.getByTestId("mail-row-101");
+    expect(child.getAttribute("data-thread-child")).toBe("true");
+    // Indent (pl-5 = 20px) and subtle background mark the hierarchy.
+    expect(child.className).toContain("bg-[var(--vellum-surface-subtle)]");
+    // Reply semantic label
+    expect(child.textContent).toContain("webmail_next.reply");
+    // Connector stubs are present and decorative.
+    expect(child.querySelectorAll("[aria-hidden]").length).toBeGreaterThan(0);
+  });
+
   it("handles Shift-click range multi-select", () => {
     const onSelect = vi.fn();
     render(

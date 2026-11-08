@@ -71,6 +71,10 @@ function WebmailMessageRowView({
 }: WebmailMessageRowProps) {
   const { t, i18n } = useTranslation();
   const metrics = DENSITY[density] ?? DENSITY.comfortable;
+  const isChild = Boolean(item.isThreadChild);
+  // Spec §4: child first-line shrinks 13→12 except list_only which is already 12.
+  const childLine1 =
+    density === "list_only" ? metrics.line1 : "text-xs leading-4";
   const starLabel = item.isStarred
     ? t("webmail_next.starred")
     : t("webmail_next.not_starred");
@@ -101,6 +105,7 @@ function WebmailMessageRowView({
     <div
       data-testid={`mail-row-${item.uid}`}
       data-density={density}
+      data-thread-child={isChild ? "true" : "false"}
       data-selected={isSelected ? "true" : "false"}
       data-active={isActive ? "true" : "false"}
       data-cursor={isCursor ? "true" : "false"}
@@ -131,12 +136,32 @@ function WebmailMessageRowView({
           ? "bg-[var(--vellum-row-active)]"
           : isSelected
             ? "bg-[var(--vellum-row-selected)]"
-            : "bg-[var(--vellum-surface)]"
+            : isChild
+              ? "bg-[var(--vellum-surface-subtle)]"
+              : "bg-[var(--vellum-surface)]"
       } hover:bg-[var(--vellum-row-hover)] transition-[background-color] duration-[120ms] ease-out`}
     >
       {/* Active Left Indicator Bar */}
       {isActive && (
         <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[var(--brand-primary)]" />
+      )}
+
+      {/* Thread connector (VISUAL §4): vertical line on the left-slot midline
+          (w-16 → 32px) from the parent edge down to the last child mid-row,
+          plus an 8px stub into the Reply label. Decorative only. */}
+      {isChild && (
+        <>
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute left-8 w-px bg-[var(--vellum-border)] ${
+              item.isLastThreadChild ? "top-0 h-1/2" : "-top-2 bottom-0"
+            }`}
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-8 top-1/2 h-px w-2 -translate-y-1/2 bg-[var(--vellum-border)]"
+          />
+        </>
       )}
 
       {/* Row Left: fixed 64px slot (unread dot + checkbox + star) so the
@@ -191,11 +216,23 @@ function WebmailMessageRowView({
 
       {/* Row Center — identical DOM in every density:
           line 1 = sender + subject + attachment + time,
-          line 2 = preview snippet (always present, keeps the row height). */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          line 2 = preview snippet (always present, keeps the row height).
+          Children get a 20px indent, connector lines, and a Reply label. */}
+      <div
+        className={`relative flex-1 min-w-0 flex flex-col overflow-hidden ${
+          isChild ? "pl-5" : ""
+        }`}
+      >
         <div className="flex items-center gap-1 min-w-0">
+          {isChild && (
+            <span className="shrink-0 text-xs text-[var(--vellum-ink-secondary)] mr-1">
+              {t("webmail_next.reply")}
+            </span>
+          )}
           <span
-            className={`truncate shrink-0 ${metrics.senderMax} ${metrics.line1} ${senderColor}`}
+            className={`truncate shrink-0 ${metrics.senderMax} ${
+              isChild ? childLine1 : metrics.line1
+            } ${senderColor}`}
           >
             {item.sender}
           </span>
@@ -220,7 +257,9 @@ function WebmailMessageRowView({
           )}
 
           <span
-            className={`truncate flex-1 min-w-0 ${metrics.line1} ${subjectColor}`}
+            className={`truncate flex-1 min-w-0 ${
+              isChild ? childLine1 : metrics.line1
+            } ${subjectColor}`}
           >
             {item.subject}
           </span>
@@ -303,6 +342,8 @@ export function webmailMessageRowPropsAreEqual(
     a.threadId === b.threadId &&
     a.threadCount === b.threadCount &&
     a.isThreadExpanded === b.isThreadExpanded &&
+    a.isThreadChild === b.isThreadChild &&
+    a.isLastThreadChild === b.isLastThreadChild &&
     a.folder === b.folder &&
     prev.isSelected === next.isSelected &&
     prev.isActive === next.isActive &&
