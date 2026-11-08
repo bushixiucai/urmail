@@ -23,6 +23,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/onboarding"
+	"github.com/bushixiucai/urmail/internal/rendercache"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -302,6 +303,7 @@ func New(opts Options) *gin.Engine {
 		Pool:             opts.PlatformPool,
 		MaySend:          handlers.MailAllowed(platformQueries),
 		RenderKey:        opts.WebmailRenderKey,
+		RenderCache:      rendercache.New(),
 		// WEBMAIL-005/006 mailbox self-service: signature, identities,
 		// quota and managed-sieve rules through the existing safe pipeline.
 		SelfSettings: handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool},

@@ -17,6 +17,7 @@ import (
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
+	"github.com/bushixiucai/urmail/internal/rendercache"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -62,6 +63,11 @@ type MailboxNativeHandler struct {
 	// ImageFetcher downloads proxied images. Nil uses the default fetcher
 	// with its SSRF screen and limits; tests inject their own.
 	ImageFetcher ImageProxyFetcher
+	// RenderCache stores short-lived GetMessage JSON keyed by
+	// (mailbox, folder, uid, uid_validity, load_images, ua, viewport).
+	// Nil disables caching. HTTP responses still carry Cache-Control:
+	// no-store so browsers never keep the body.
+	RenderCache *rendercache.Cache
 }
 
 // ImageProxyFetcher downloads one remote image for the proxy endpoint.
