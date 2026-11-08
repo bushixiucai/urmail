@@ -88,6 +88,9 @@ export interface MessageDetail extends MessageSummary {
     domain?: string;
     checked_at?: string;
   };
+  security_notes?: string[];
+  risk_level?: "low" | "medium" | "high" | "critical";
+  indicators?: MailboxAIIndicator[];
   uid_validity?: number;
   to?: MailboxAddress[];
   cc?: MailboxAddress[];
@@ -1068,9 +1071,38 @@ export type MailboxAIOperation =
   | "phishing"
   | "polish"
   | "draft_new"
-  | "draft_reply";
+  | "draft_reply"
+  | "todos";
+export interface MailboxAITodo {
+  task: string;
+  assignee?: string | null;
+  due_date?: string | null;
+}
+
+export interface MailboxAIKeyDate {
+  date: string;
+  label: string;
+}
+
+export interface MailboxAIChange {
+  type: "clarity" | "grammar" | "tone" | "structure";
+  note: string;
+}
+
+export interface MailboxAIIndicator {
+  type:
+    | "spoofed_domain"
+    | "suspicious_link"
+    | "urgent_pressure"
+    | "credential_request"
+    | "other";
+  evidence?: string;
+}
+
 export interface MailboxAIResult {
+  // Legacy compatibility fields
   category?: string;
+  confidence?: number;
   score?: number;
   summary?: string;
   translation?: string;
@@ -1078,7 +1110,40 @@ export interface MailboxAIResult {
   subject?: string;
   body?: string;
   reasons?: string[];
+  text?: string;
+
+  // Structured v2 fields
+  bullets?: string[];
+  todos?: MailboxAITodo[];
+  key_dates?: MailboxAIKeyDate[];
+  language?: string;
+
+  tone_notes?: string;
+  assumptions?: string[];
+
+  revised_text?: string;
+  changes?: MailboxAIChange[];
+  tone?: "neutral" | "formal" | "concise" | "friendly";
+
+  translated_text?: string;
+  detected_source?: string;
+
+  risk_level?: "low" | "medium" | "high" | "critical";
+  indicators?: MailboxAIIndicator[];
+
+  items?: MailboxAITodo[];
+  task_type?: string;
+  result?: string;
 }
+
+export interface MailboxAIAssistResponse {
+  result: MailboxAIResult;
+  degraded?: boolean;
+  degrade_reason?: "provider_unavailable" | "schema_retry_exhausted" | "";
+  template_version?: number;
+  cache_hit?: boolean;
+}
+
 export interface MailboxAICitation extends MailboxAISource {
   id: string;
   quote: string;
@@ -1111,13 +1176,15 @@ export function runMailboxAI(
     instruction?: string;
     selection?: string;
     target_language?: string;
+    length_limit?: number;
   } & Partial<MailboxAISource>,
   signal?: AbortSignal,
 ) {
-  return mailboxRequest<{ result: MailboxAIResult }>(
-    "/api/v1/mailbox/ai/assist",
-    { method: "POST", body, signal },
-  );
+  return mailboxRequest<MailboxAIAssistResponse>("/api/v1/mailbox/ai/assist", {
+    method: "POST",
+    body,
+    signal,
+  });
 }
 export function askMailboxAI(
   body: {
