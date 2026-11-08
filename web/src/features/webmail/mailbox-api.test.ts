@@ -20,13 +20,35 @@ import {
   sendMessage,
   setMailboxSession,
 } from "./mailbox-api";
+import {
+  initViewportTracking,
+  resetViewportTrackingForTests,
+} from "./viewport-headers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  resetViewportTrackingForTests();
   window.localStorage.clear();
   window.sessionStorage.clear();
 });
+it("sends UA-class and viewport-width headers on every mailbox request", async () => {
+  resetViewportTrackingForTests();
+  window.innerWidth = 1440;
+  initViewportTracking(window);
+  const fetcher = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({}),
+  });
+  vi.stubGlobal("fetch", fetcher);
+  await listFolders();
+  expect(fetcher.mock.calls[0]![1].headers).toMatchObject({
+    "X-UA-Class": expect.stringMatching(/^(desktop|mobile|tablet)$/),
+    "X-Viewport-Width": "1440",
+  });
+});
+
 it("binds schedule retries to the idempotency header and exact UIDVALIDITY", async () => {
   window.sessionStorage.setItem("urmail.mailbox-token", "mailbox-only");
   const fetcher = vi.fn().mockResolvedValue({

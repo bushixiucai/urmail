@@ -63,6 +63,20 @@ export function isRemoteUrl(value: string): boolean {
   return /^(?:https?:)?\/\//i.test(value.trim());
 }
 
+/**
+ * Server-rewritten same-origin proxy URL for allowed remote images —
+ * `/api/v1/mailbox/images/proxy?u=…&sig=…` (signed, opaque; the query is
+ * kept verbatim, never parsed). Must be root-relative: any scheme or
+ * protocol-relative host prefix means the URL is attacker-controlled,
+ * not ours, and the ordinary remote-image rules apply.
+ */
+const IMAGE_PROXY_PATH = "/api/v1/mailbox/images/proxy";
+
+export function isImageProxyUrl(src: string): boolean {
+  const s = src.trim();
+  return s === IMAGE_PROXY_PATH || s.startsWith(IMAGE_PROXY_PATH + "?");
+}
+
 /** Explicit absolute http(s) URL (rejects protocol-relative and other schemes). */
 export function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
@@ -175,6 +189,17 @@ function isMetaRefresh(el: Element): boolean {
   if (el.tagName.toLowerCase() !== "meta") return false;
   const equiv = el.getAttribute("http-equiv");
   return equiv != null && equiv.trim().toLowerCase() === "refresh";
+}
+
+/** True when the document already carries a CSP meta (server-injected). */
+function hasCspMeta(doc: Document): boolean {
+  for (const meta of Array.from(doc.querySelectorAll("meta"))) {
+    const equiv = meta.getAttribute("http-equiv");
+    if (equiv && equiv.trim().toLowerCase() === "content-security-policy") {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Only CSS properties that cannot fetch or decode image resources are kept.
@@ -318,7 +343,7 @@ export function sanitizeHtmlMail(
       image.removeAttribute("srcset");
     } else if (
       /^(?:cid|data|blob):/i.test(src.trim()) ||
-      src.startsWith("/api/v1/mailbox/")
+      (src.startsWith("/api/v1/mailbox/") && !isImageProxyUrl(src))
     ) {
       image.remove();
     }
@@ -333,14 +358,21 @@ export function sanitizeHtmlMail(
     sanitizeElement(doc.documentElement, allowRemote);
   }
   // This policy is independent of the host page: CSS backgrounds, imports,
-  // fonts, SVG references and media cannot contact remote origins.
-  const policy = doc.createElement("meta");
-  policy.httpEquiv = "Content-Security-Policy";
-  policy.content =
-    "default-src 'none'; img-src " +
-    (allowRemote ? "https: http: " : "") +
-    (trustedImages.size ? "data:" : allowRemote ? "" : "'none'") +
-    "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
-  doc.head.prepend(policy);
+  // fonts, SVG references and media cannot contact remote origins. When the
+  // server already wrapped the body with its own CSP meta (single source of
+  // truth), do not inject a second policy — but the sanitizer itself still
+  // runs as defense in depth.
+  if (!hasCspMeta(doc)) {
+    // 'self' is required unconditionally: allowed remote images arrive as
+    // same-origin proxy URLs and inline cid rewrites are same-origin too.
+    const policy = doc.createElement("meta");
+    policy.httpEquiv = "Content-Security-Policy";
+    policy.content =
+      "default-src 'none'; img-src 'self' " +
+      (allowRemote ? "https: http: " : "") +
+      (trustedImages.size ? "data:" : "") +
+      "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
+    doc.head.prepend(policy);
+  }
   return "<!doctype html>" + (doc.documentElement?.outerHTML ?? "");
 }

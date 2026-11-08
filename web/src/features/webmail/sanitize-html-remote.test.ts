@@ -7,7 +7,9 @@ describe("sanitizeHtmlMail allowRemoteImages scope and hardening", () => {
       '<p>x</p><img src="https://track.example/pixel.gif">',
     );
     expect(out).not.toContain("track.example");
-    expect(out).toContain("img-src 'none'");
+    // Default-off leaves only the same-origin proxy source; no remote host.
+    expect(out).toContain("img-src 'self'");
+    expect(out).not.toMatch(/img-src[^;]*(https?:|data:)/);
   });
 
   it("keeps only absolute http and https <img src> when opted in", () => {
@@ -17,7 +19,7 @@ describe("sanitizeHtmlMail allowRemoteImages scope and hardening", () => {
     );
     expect(out).toContain("https://track.example/pixel.gif");
     expect(out).toContain("http://insecure.example/pic.jpg");
-    expect(out).toContain("img-src https: http:");
+    expect(out).toContain("img-src 'self' https: http:");
   });
 
   it("always strips protocol-relative img src even when opted in", () => {
