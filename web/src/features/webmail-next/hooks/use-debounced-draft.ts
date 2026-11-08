@@ -21,6 +21,19 @@ const STORAGE_KEY = "urmail.webmail.active_draft";
 
 export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
   const [draft, setDraftState] = useState<DraftPayload>(() => {
+    if (initialDraft) {
+      return {
+        to: initialDraft.to || [],
+        cc: initialDraft.cc || [],
+        bcc: initialDraft.bcc || [],
+        subject: initialDraft.subject || "",
+        text: initialDraft.text || "",
+        html: initialDraft.html || "",
+        attachments: initialDraft.attachments || [],
+        uid: initialDraft.uid,
+        uid_validity: initialDraft.uid_validity,
+      };
+    }
     if (typeof window !== "undefined") {
       try {
         const stored = sessionStorage.getItem(STORAGE_KEY);
@@ -34,7 +47,6 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
             text: "",
             html: "",
             attachments: [],
-            ...initialDraft,
             ...parsed,
           };
         }
@@ -43,15 +55,13 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
       }
     }
     return {
-      to: initialDraft?.to || [],
-      cc: initialDraft?.cc || [],
-      bcc: initialDraft?.bcc || [],
-      subject: initialDraft?.subject || "",
-      text: initialDraft?.text || "",
-      html: initialDraft?.html || "",
-      attachments: initialDraft?.attachments || [],
-      uid: initialDraft?.uid,
-      uid_validity: initialDraft?.uid_validity,
+      to: [],
+      cc: [],
+      bcc: [],
+      subject: "",
+      text: "",
+      html: "",
+      attachments: [],
     };
   });
 

@@ -66,4 +66,21 @@ describe("WebmailComposeDock", () => {
     expect(screen.getByTestId("undo-send-toast")).toBeTruthy();
     expect(screen.getByTestId("undo-send-button")).toBeTruthy();
   });
+
+  it("renders quoted content with blockquote when initialHtml is provided (DEF-5)", () => {
+    const quotedHtml = `<p><br></p><div class="urmail-quoted-message"><p>On Nov 8, 2026, Alice wrote:</p><blockquote style="border-left: 2px solid #ccc; padding-left: 8px; margin-left: 8px;"><p>Hello original email</p></blockquote></div>`;
+    render(
+      <WebmailComposeDock
+        isOpen={true}
+        onClose={vi.fn()}
+        initialTo={["alice@example.com"]}
+        initialSubject="Re: Hello"
+        initialHtml={quotedHtml}
+      />,
+    );
+
+    const blockquotes = document.querySelectorAll("blockquote");
+    expect(blockquotes.length).toBeGreaterThan(0);
+    expect(document.body.textContent).toContain("Hello original email");
+  });
 });

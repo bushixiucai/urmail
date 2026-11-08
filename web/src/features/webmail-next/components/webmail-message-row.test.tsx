@@ -81,4 +81,22 @@ describe("webmailMessageRowPropsAreEqual", () => {
     render(<WebmailMessageRow {...base} />);
     expect(screen.getByTestId("mail-snippet-7").textContent).toBe("preview");
   });
+
+  it("keeps timestamp visible with title and renders quick action buttons without hiding date (DEF-6)", () => {
+    const onDelete = vi.fn();
+    const onToggleRead = vi.fn();
+    render(
+      <WebmailMessageRow
+        {...base}
+        onDelete={onDelete}
+        onToggleRead={onToggleRead}
+      />,
+    );
+    const dateSpan = screen.getByTitle(/2026/);
+    expect(dateSpan).toBeTruthy();
+    expect(dateSpan.className).not.toContain("group-hover:hidden");
+
+    expect(screen.getByLabelText("webmail_next.mark_read")).toBeTruthy();
+    expect(screen.getByLabelText("webmail_next.delete")).toBeTruthy();
+  });
 });

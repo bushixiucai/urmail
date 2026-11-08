@@ -93,12 +93,13 @@ function SanitizedHtmlFrame({
     if (!frame) return;
     const height = measureFrameHeight(frame);
     if (height > 0) {
-      setFrameHeight(
-        Math.min(
+      setFrameHeight((prev) => {
+        const next = Math.min(
           FRAME_MAX_HEIGHT,
           Math.max(FRAME_MIN_HEIGHT, Math.ceil(height)),
-        ),
-      );
+        );
+        return Math.abs(prev - next) > 1 ? next : prev;
+      });
     }
   }, []);
 
@@ -130,7 +131,13 @@ function SanitizedHtmlFrame({
           if (resizeDebounce.current != null) {
             window.clearTimeout(resizeDebounce.current);
           }
-          resizeDebounce.current = window.setTimeout(remeasure, 80);
+          resizeDebounce.current = window.setTimeout(() => {
+            if (typeof window.requestAnimationFrame === "function") {
+              window.requestAnimationFrame(remeasure);
+            } else {
+              remeasure();
+            }
+          }, 80);
         });
         observer.observe(body);
       }
@@ -337,13 +344,15 @@ export function WebmailReadingPane({
       {hasBlockedImages && (
         <div
           data-testid="remote-images-banner"
-          className="mb-3 p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex items-center justify-between gap-3 text-xs text-[#92400E]"
+          className="mb-3 p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[#92400E]"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <ShieldAlert className="w-4 h-4 text-[#D97706] shrink-0" />
-            <span>{t("webmail_next.remote_images_blocked")}</span>
+            <span className="break-words leading-relaxed">
+              {t("webmail_next.remote_images_blocked")}
+            </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
               data-testid="show-images-button"
               type="button"
@@ -521,7 +530,7 @@ export function WebmailReadingPane({
       {/* 2. Message Detail Content — full width like Gmail/Outlook; the
           readable-measure cap applies to plain-text paragraphs only, never
           to the body container itself. */}
-      <div className="px-6 py-4 w-full space-y-4">
+      <div className="px-3 sm:px-6 py-3 sm:py-4 w-full space-y-4">
         {/* Subject & Security */}
         <div>
           <h1 className="text-[20px] leading-7 font-[650] text-[#18181B] tracking-tight">
@@ -601,13 +610,15 @@ export function WebmailReadingPane({
         {hasBlockedImages && (
           <div
             data-testid="remote-images-banner"
-            className="p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex items-center justify-between gap-3 text-xs text-[#92400E]"
+            className="p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[#92400E]"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <ShieldAlert className="w-4 h-4 text-[#D97706] shrink-0" />
-              <span>{t("webmail_next.remote_images_blocked")}</span>
+              <span className="break-words leading-relaxed">
+                {t("webmail_next.remote_images_blocked")}
+              </span>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 data-testid="show-images-button"
                 type="button"

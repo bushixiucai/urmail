@@ -219,4 +219,72 @@ describe("WebmailMessageList", () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith(103);
   });
+
+  it("renders decoded folder name in list header when passed b64 encoded folderName", () => {
+    const { unmount } = render(
+      <WebmailMessageList
+        folderName="b64.SU5CT1g"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="compact"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("folder-name-header").textContent).toBe("INBOX");
+    unmount();
+
+    render(
+      <WebmailMessageList
+        folderName="b64.5pS25Lu2566x"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="compact"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("folder-name-header").textContent).toBe("收件箱");
+  });
+
+  it("decodes folder names in cross-folder message rows and bulk move menu", () => {
+    const messagesWithFolder = [
+      {
+        ...mockMessages[0],
+        folder: "b64.6YeN6KaB6YKu5Lu2", // 重要邮件
+      },
+    ];
+
+    render(
+      <WebmailMessageList
+        folderName="Search Results"
+        messages={messagesWithFolder}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="compact"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+        moveFolders={[
+          {
+            name: "b64.UHJvamVjdCBBbHBoYQ", // Project Alpha
+            name_enc: "b64.UHJvamVjdCBBbHBoYQ",
+          },
+        ]}
+      />,
+    );
+
+    // Cross-folder badge should show decoded name
+    expect(screen.getByTestId("mail-folder-101").textContent).toBe("重要邮件");
+
+    // Select row and open bulk move menu
+    fireEvent.click(screen.getByTestId("mail-check-101"));
+    fireEvent.click(screen.getByTestId("bulk-move"));
+    const bulkMenu = screen.getByTestId("bulk-move-menu");
+    expect(bulkMenu.textContent).toContain("Project Alpha");
+  });
 });
