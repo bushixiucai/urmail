@@ -1,0 +1,38 @@
+From: API Notifications <notify@m2.redacted>
+To: tiger@example.test
+Subject: Your testnet project is ready
+Date: Sat, 08 Nov 2026 10:30:00 +0000
+Message-ID: <corpus-infura-dark-1@m2.redacted>
+Content-Type: multipart/alternative; boundary="corpus-boundary-7f3a"
+
+--corpus-boundary-7f3a
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Your API project is ready.
+--corpus-boundary-7f3a
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<html><head><style>
+body{margin:0;padding:0;background-color:#1a1d29;font-family:-apple-system,'Segoe UI',sans-serif}
+.container{max-width:640px;margin:0 auto}
+</style></head>
+<body bgcolor="#1a1d29">
+<div class="container">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#1a1d29">
+<tr><td align="center" style="padding:24px">
+<table width="640" cellpadding="0" cellspacing="0" border="0" bgcolor="#232735" style="border-radius:12px">
+<tr><td style="padding:40px 48px">
+<img src="https://status-mailer.example/logo-light.png" width="120" alt="logo" style="display:block">
+<h1 style="color:#e8eaf2;font-size:24px;margin:24px 0 8px">Welcome to the testnet</h1>
+<p style="color:#9aa0b5;font-size:15px;line-height:1.6">Your API project is ready. This is a dark-themed transactional mail built with an MJML-style layout.</p>
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr><td bgcolor="#2f3548" style="padding:16px;border-radius:8px">
+<p style="color:#e8eaf2;font-size:14px;margin:0">Project ID: corpus-demo-4f2a</p>
+</td></tr></table>
+<a href="https://status-mailer.example/dashboard" style="display:inline-block;background:#627eea;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-size:15px;margin-top:24px">Open dashboard</a>
+</td></tr></table>
+</td></tr></table></div>
+</body></html>
+--corpus-boundary-7f3a--
