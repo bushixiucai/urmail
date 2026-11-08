@@ -1,0 +1,64 @@
+name: 'Go toolchain'
+description: >
+  Installs the pinned Go toolchain from go.dev/dl and caches it on the
+  runner. Replacement for actions/setup-go when the GitHub releases CDN
+  is down: setup-go downloads from github.com assets and fails with
+  403/504 during CDN incidents, while go.dev serves the same archives
+  from independent infrastructure.
+inputs:
+  go-version:
+    description: 'Exact Go version to install, e.g. 1.27.3'
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Resolve platform
+      id: platform
+      shell: bash
+      run: |
+        case "${{ runner.os }}" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          *) echo "::error::unsupported runner.os: ${{ runner.os }}"; exit 1 ;;
+        esac
+        case "${{ runner.arch }}" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::unsupported runner.arch: ${{ runner.arch }}"; exit 1 ;;
+        esac
+        echo "platform=${os}-${arch}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the toolchain
+      id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/.cache/urmail/toolchains/go
+        key: gotc-${{ runner.os }}-${{ runner.arch }}-go${{ inputs.go-version }}
+
+    - name: Download the toolchain from go.dev
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/urmail/toolchains/go"
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+          "https://go.dev/dl/go${{ inputs.go-version }}.${{ steps.platform.outputs.platform }}.tar.gz" \
+          -o "$RUNNER_TEMP/go-toolchain.tar.gz"
+        tar -C "$dest" -xzf "$RUNNER_TEMP/go-toolchain.tar.gz"
+        rm -f "$RUNNER_TEMP/go-toolchain.tar.gz"
+
+    - name: Put it on PATH and verify the version
+      shell: bash
+      run: |
+        set -euo pipefail
+        gobin="$HOME/.cache/urmail/toolchains/go/go/bin"
+        echo "$gobin" >> "$GITHUB_PATH"
+        # GITHUB_PATH only affects later steps; assert with the absolute path.
+        version="$("$gobin/go" version | awk '{print $3}')"
+        if [ "$version" != "go${{ inputs.go-version }}" ]; then
+          echo "::error::go toolchain version mismatch: got $version, want go${{ inputs.go-version }}"
+          exit 1
+        fi
+        echo "go toolchain ready: $("$gobin/go" version)"

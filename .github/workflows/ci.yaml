@@ -21,20 +21,110 @@ concurrency:
 
 env:
   GO_VERSION: "1.27.3"
+  NODE_VERSION: "22.11.0"
   GOPROXY: https://goproxy.cn,direct
   npm_config_registry: https://registry.npmmirror.com
 
+# ===========================================================================
+# Job map - read this before changing a job
+#
+# `changes` is the gatekeeper.  It diffs the push or pull request against its
+# base and classifies every touched path into one of four groups; every other
+# job declares `needs: changes` plus an `if:` condition built from them, so a
+# pull request only pays for the jobs its change can actually break.
+#
+# Path rules (scripts/ci-detect-changes.py owns them):
+#   docs      *.md, VERSION, docs/**            -> only the Shell job runs
+#   go        internal/**, cmd/**, api/**, *.go, go.mod, go.sum, Makefile,
+#             packaging/**, installer/**, scripts/**
+#   frontend  web/**                            -> frontend-consuming jobs
+#   deps      go.mod, go.sum, web/package.json, web/package-lock.json
+#   anything else (for example .github/**)       -> every job runs (fail-safe)
+#   push to main, tag pushes, manual runs        -> every job runs
+#
+# Job semantics - no job is ever removed or weakened, it is only skipped when
+# the change cannot break it:
+#   Go             tidy, build, vet, sqlc drift, unit tests with coverage,
+#                  golangci-lint, message catalogue check
+#   Integration    the same Go suite against PostgreSQL, split into four
+#                  disjoint shards (scripts/ci-integration-shards.py) that
+#                  run in parallel with one database each
+#   Frontend       typecheck, lint, vitest, native webmail privacy e2e
+#   Embedded       frontend bundle inside the Go binary
+#   Package smoke  deb build and content check
+#   Native webmail real Postfix/Dovecot protocol acceptance
+#   Browser        development stack and browser end-to-end tests
+#   Install        installer contract on three OS/architecture combinations
+#   Shell          shellcheck, release gate test, shell syntax
+#   Security       govulncheck and npm audit
+#
+# The frontend-consuming jobs (Embedded, Package smoke, Install, Browser)
+# build web/dist themselves: internal/web/dist is not committed, so skipping
+# that build would leave the binary without a bundle and break the very
+# check those jobs exist for.
+# ===========================================================================
+
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      go: ${{ steps.detect.outputs.go }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      deps: ${{ steps.detect.outputs.deps }}
+      docs: ${{ steps.detect.outputs.docs }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Classify the changed paths
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: python3 scripts/ci-detect-changes.py
+
   go:
     name: Go
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/go/bin
+          key: gobin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yaml') }}
+          restore-keys: |
+            gobin-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Verify go.mod is tidy
         run: |
@@ -49,7 +139,7 @@ jobs:
 
       - name: sqlc drift check
         run: |
-          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+          bash scripts/ci-go-install.sh github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
           "$(go env GOPATH)/bin/sqlc" generate
           git diff --exit-code -- internal/store
 
@@ -58,7 +148,7 @@ jobs:
 
       - name: golangci-lint
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          bash scripts/ci-go-install.sh github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
           "$(go env GOPATH)/bin/golangci-lint" run --timeout=10m
 
       - name: Message catalogue consistency
@@ -77,6 +167,8 @@ jobs:
 
   frontend:
     name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -84,11 +176,9 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-node-toolchain
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install
         run: npm ci
@@ -115,52 +205,100 @@ jobs:
         run: npm run build
 
   integration:
-    name: Integration (PostgreSQL)
+    name: Integration (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - handlers
+          - data
+          - platform
+          - core
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: urmail
           POSTGRES_PASSWORD: urmail
-          POSTGRES_DB: urmail
+          POSTGRES_DB: urmail_${{ matrix.shard }}
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U urmail -d urmail"
+          --health-cmd "pg_isready -U urmail -d urmail_${{ matrix.shard }}"
           --health-interval 2s
           --health-timeout 3s
           --health-retries 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install recovery test tools
         run: sudo apt-get update && sudo apt-get install -y age postgresql-client-16
 
+      - name: Compute the shard packages
+        run: |
+          python3 scripts/ci-integration-shards.py --check
+          python3 scripts/ci-integration-shards.py --shard "${{ matrix.shard }}" > /tmp/shard-packages.txt
+          wc -l /tmp/shard-packages.txt
+
       - name: Test against PostgreSQL
         env:
-          URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail?sslmode=disable
+          URMAIL_TEST_DATABASE_URL: postgres://urmail:urmail@127.0.0.1:5432/urmail_${{ matrix.shard }}?sslmode=disable
         run: |
           export PATH="/usr/lib/postgresql/16/bin:$PATH"
-          go test -race -timeout 20m -p 1 ./internal/... ./cmd/...
+          xargs go test -race -timeout 20m -p 1 < /tmp/shard-packages.txt
 
   native-webmail:
     name: Native webmail (Postfix and Dovecot)
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build the disposable mail protocol fixture
         run: docker build -t urmail-native-webmail-ci:22.04 -f .github/fixtures/native-webmail.Dockerfile .github/fixtures
@@ -188,20 +326,35 @@ jobs:
 
   embed:
     name: Embedded frontend
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
+
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Build the frontend
         working-directory: web
@@ -226,20 +379,35 @@ jobs:
 
   package-smoke:
     name: Package smoke
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
+
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Build frontend
         working-directory: web
@@ -287,18 +455,33 @@ jobs:
 
   browser:
     name: Development stack and browser
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Install frontend and browser
         working-directory: web
         run: |
@@ -327,6 +510,8 @@ jobs:
 
   install:
     name: Linux installation (${{ matrix.os }}, ${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -340,15 +525,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Build the installable candidate
         env:
           ARCH: ${{ matrix.arch }}
@@ -376,21 +574,43 @@ jobs:
 
   security:
     name: Security dependencies
+    needs: changes
+    if: needs.changes.outputs.deps == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+      - uses: ./.github/actions/setup-go-toolchain
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+
+      - name: Cache Go module downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gomod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: gocache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ runner.arch }}-
+      - uses: ./.github/actions/setup-node-toolchain
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Cache Go tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/go/bin
+          key: gobin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yaml') }}
+          restore-keys: |
+            gobin-${{ runner.os }}-${{ runner.arch }}-
       - name: Check reachable Go vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          bash scripts/ci-go-install.sh golang.org/x/vuln/cmd/govulncheck@v1.9.0
           "$(go env GOPATH)/bin/govulncheck" ./...
       - name: Audit locked npm dependencies
         run: npm audit --prefix web --audit-level=moderate --registry=https://registry.npmjs.org

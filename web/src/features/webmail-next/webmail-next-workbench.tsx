@@ -25,6 +25,7 @@ import {
   resolveSpecialFolder,
   SCHEDULED_VIEW,
 } from "./lib/special-folders";
+import { decodeFolderName, getFolderDisplayName } from "./lib/folder-names";
 import type { ShortcutAction } from "./lib/mailbox-shortcuts";
 import {
   WebmailSettingsDrawer,
@@ -155,6 +156,8 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
+  const [composeHtml, setComposeHtml] = useState("");
+  const [composeText, setComposeText] = useState("");
   const [composeKey, setComposeKey] = useState(0);
 
   const queryClient = useQueryClient();
@@ -313,6 +316,7 @@ export function WebmailNextWorkbench({
   const inboxFolder = resolveSpecialFolder(folders, "\\Inbox", "INBOX");
   const inboxEnc = inboxFolder?.name_enc ?? "INBOX";
   const isScheduledView = activeFolder === SCHEDULED_VIEW;
+  const folderDisplayName = getFolderDisplayName(activeFolder, folders, t);
 
   const { data: quotaData } = useQuery({
     queryKey: ["webmail", "quota"],
@@ -665,10 +669,18 @@ export function WebmailNextWorkbench({
   const toggleRail = () => setIsRailCollapsed((prev) => !prev);
   const listValidity = messageListData?.uid_validity;
 
-  const openCompose = (to: string[], subject: string, cc: string[] = []) => {
+  const openCompose = (
+    to: string[],
+    subject: string,
+    cc: string[] = [],
+    initialHtml = "",
+    initialText = "",
+  ) => {
     setComposeTo(to);
     setComposeCc(cc);
     setComposeSubject(subject);
+    setComposeHtml(initialHtml);
+    setComposeText(initialText);
     setComposeKey((key) => key + 1);
     setIsComposeOpen(true);
   };
@@ -862,7 +874,7 @@ export function WebmailNextWorkbench({
       if (selectedUid !== null && targets.includes(selectedUid)) {
         setSelectedUid(null);
       }
-      showMoved(folder.name, undo);
+      showMoved(decodeFolderName(folder.name), undo);
     } catch {
       // Failure keeps the list untouched (rows return to their original place).
       refetchMessages();
@@ -958,7 +970,9 @@ export function WebmailNextWorkbench({
           className="bg-[var(--vellum-surface,#ffffff)] border border-[var(--vellum-border,#EBE8E0)] rounded-lg p-4 w-80"
         >
           <p className="text-sm text-[#18181B]">
-            {t("webmail_next.folder_delete_body", { folder: folderName })}
+            {t("webmail_next.folder_delete_body", {
+              folder: decodeFolderName(folderName),
+            })}
           </p>
           <p className="mt-2 text-xs text-[var(--vellum-ink-secondary)]">
             {t("webmail_next.folder_delete_note")}
@@ -989,9 +1003,31 @@ export function WebmailNextWorkbench({
   const replySubject = (subject: string) =>
     subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 
+  const buildReplyQuote = (msg: MessageDetail) => {
+    const from = msg.from?.[0]?.name
+      ? `${msg.from[0].name} <${msg.from[0].email}>`
+      : msg.from?.[0]?.email || "";
+    const dateStr = msg.date ? new Date(msg.date).toLocaleString() : "";
+    const quoteHeader = `On ${dateStr}, ${from} wrote:`;
+    const bodyHtml =
+      msg.html || (msg.text ? `<p>${msg.text.replace(/\n/g, "<br>")}</p>` : "");
+    const quotedHtml = `<p><br></p><div class="urmail-quoted-message"><p>${quoteHeader}</p><blockquote style="border-left: 2px solid #ccc; padding-left: 8px; margin-left: 8px;">${bodyHtml}</blockquote></div>`;
+    const quotedText = msg.text
+      ? `\n\n---\n${from}\n\n${msg.text.replace(/^/gm, "> ")}`
+      : "";
+    return { quotedHtml, quotedText };
+  };
+
   const handleReply = (msg: MessageDetail) => {
     const sender = msg.from?.[0]?.email;
-    openCompose(sender ? [sender] : [], replySubject(msg.subject));
+    const { quotedHtml, quotedText } = buildReplyQuote(msg);
+    openCompose(
+      sender ? [sender] : [],
+      replySubject(msg.subject),
+      [],
+      quotedHtml,
+      quotedText,
+    );
   };
 
   const handleReplyAll = (msg: MessageDetail) => {
@@ -1008,14 +1044,16 @@ export function WebmailNextWorkbench({
         seen.add(key);
         return true;
       });
-    openCompose(to, replySubject(msg.subject), cc);
+    const { quotedHtml, quotedText } = buildReplyQuote(msg);
+    openCompose(to, replySubject(msg.subject), cc, quotedHtml, quotedText);
   };
 
   const handleForward = (msg: MessageDetail) => {
     const subject = msg.subject.toLowerCase().startsWith("fwd:")
       ? msg.subject
       : `Fwd: ${msg.subject}`;
-    openCompose([], subject);
+    const { quotedHtml, quotedText } = buildReplyQuote(msg);
+    openCompose([], subject, [], quotedHtml, quotedText);
   };
 
   const loadedUids = () =>
@@ -1288,7 +1326,7 @@ export function WebmailNextWorkbench({
               </div>
             ) : (
               <WebmailMessageList
-                folderName={activeFolder}
+                folderName={folderDisplayName}
                 messages={messages}
                 activeUid={selectedUid}
                 cursorUid={cursorUid}
@@ -1349,7 +1387,7 @@ export function WebmailNextWorkbench({
                     selectionRef.current?.clear();
                     refetchMessages();
                     showMoved(
-                      folderName,
+                      decodeFolderName(folderName),
                       moveUndoFromResponse(
                         activeFolder,
                         destination?.name_enc ?? "",
@@ -1436,6 +1474,8 @@ export function WebmailNextWorkbench({
         initialTo={composeTo}
         initialCc={composeCc}
         initialSubject={composeSubject}
+        initialHtml={composeHtml}
+        initialText={composeText}
         sendNonce={sendNonce}
       />
       <WebmailShortcutHelp
