@@ -9,7 +9,7 @@ it("does not grant data image decoding through markup, srcset or CSS", () => {
   expect(doc.querySelectorAll("img[src]")).toHaveLength(0);
   const policy = doc.querySelector("meta")!.content;
   expect(policy).toContain("img-src 'none'");
-  expect(policy).not.toContain("data:");
+  expect(policy).not.toMatch(/img-src[^;]*(https?:|data:)/);
 });
 it("allows only authorized raster objects without enabling sender data URLs", () => {
   const doc = new DOMParser().parseFromString(

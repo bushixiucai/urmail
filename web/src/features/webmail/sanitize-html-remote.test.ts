@@ -8,6 +8,7 @@ describe("sanitizeHtmlMail allowRemoteImages scope and hardening", () => {
     );
     expect(out).not.toContain("track.example");
     expect(out).toContain("img-src 'none'");
+    expect(out).not.toMatch(/img-src[^;]*(https?:|data:)/);
   });
 
   it("keeps only absolute http and https <img src> when opted in", () => {

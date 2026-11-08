@@ -136,6 +136,120 @@ describe("sanitizeHtmlMail", () => {
   });
 });
 
+const PROXY_SRC =
+  "/api/v1/mailbox/images/proxy?u=aHR0cHM6Ly9jZG4uZXhhbXBsZQ&sig=YWJj&exp=1234";
+
+describe("same-origin image proxy (server-rewritten src)", () => {
+  it("keeps proxied remote images with the signed query verbatim", () => {
+    const out = sanitizeHtmlMail(
+      `<p>before</p><img src="${PROXY_SRC}" alt="banner"><p>after</p>`,
+    );
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const imgs = [...doc.querySelectorAll("img")];
+    expect(imgs).toHaveLength(1);
+    // getAttribute returns the unescaped attribute value — the signed
+    // query must survive byte-for-byte (& not rewritten, params untouched).
+    expect(imgs[0]!.getAttribute("src")).toBe(PROXY_SRC);
+  });
+
+  it("keeps proxied images even when remote images are blocked", () => {
+    // allowRemoteImages is unrelated: the proxy URL is already same-origin.
+    const out = sanitizeHtmlMail(`<img src="${PROXY_SRC}">`, {
+      allowRemoteImages: false,
+    });
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    expect(doc.querySelector("img")?.getAttribute("src")).toBe(PROXY_SRC);
+  });
+
+  it("still drops non-proxy mailbox URLs and hostile proxy impostors", () => {
+    const out = sanitizeHtmlMail(
+      [
+        '<img src="/api/v1/mailbox/folders/x/messages/1/attachments/2">',
+        '<img src="https://evil.example/api/v1/mailbox/images/proxy?u=x&sig=y">',
+        '<img src="//evil.example/api/v1/mailbox/images/proxy?u=x&sig=y">',
+        '<img src="/api/v1/mailbox/images/proxy-other?u=x">',
+      ].join(""),
+    );
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    expect([...doc.querySelectorAll("img")]).toHaveLength(0);
+  });
+
+  it("treats whitespace-padded proxy URLs as proxies (trimmed match)", () => {
+    const out = sanitizeHtmlMail(`<img src="  ${PROXY_SRC}">`);
+    expect(out).toContain("images/proxy");
+  });
+});
+
+describe("CSP injection idempotency (server-injected policy)", () => {
+  const SERVER_CSP =
+    "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
+
+  it("does not inject a second CSP when the server already wrapped the body", () => {
+    const serverHtml =
+      `<!doctype html><html><head><meta charset="utf-8">` +
+      `<meta http-equiv="Content-Security-Policy" content="${SERVER_CSP.replace(/"/g, "&quot;")}">` +
+      `</head><body><p>hello</p></body></html>`;
+    const out = sanitizeHtmlMail(serverHtml);
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const csps = [...doc.querySelectorAll("meta")].filter(
+      (m) =>
+        m.getAttribute("http-equiv")?.trim().toLowerCase() ===
+        "content-security-policy",
+    );
+    expect(csps).toHaveLength(1);
+    expect(csps[0]!.getAttribute("content")).toBe(SERVER_CSP);
+  });
+
+  it("detects a case-variant http-equiv as an existing policy", () => {
+    const serverHtml =
+      `<html><head><meta HTTP-EQUIV="Content-Security-Policy" content="${SERVER_CSP}"></head>` +
+      `<body><img src="/api/v1/mailbox/images/proxy?u=x&sig=y"></body></html>`;
+    const out = sanitizeHtmlMail(serverHtml);
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const csps = [...doc.querySelectorAll("meta")].filter(
+      (m) =>
+        m.getAttribute("http-equiv")?.trim().toLowerCase() ===
+        "content-security-policy",
+    );
+    expect(csps).toHaveLength(1);
+  });
+
+  it("still injects its own policy when no server CSP is present (legacy path)", () => {
+    const out = sanitizeHtmlMail("<p>legacy body</p>");
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const policy = doc.querySelector(
+      'meta[http-equiv="Content-Security-Policy"]',
+    );
+    expect(policy).toBeTruthy();
+    expect(policy?.getAttribute("content")).toContain("default-src 'none'");
+    expect(policy?.getAttribute("content")).toContain("img-src 'none'");
+  });
+
+  it("grants img-src 'self' when same-origin proxy images are present", () => {
+    const out = sanitizeHtmlMail(`<img src="${PROXY_SRC}">`);
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const policy = doc.querySelector(
+      'meta[http-equiv="Content-Security-Policy"]',
+    );
+    expect(policy?.getAttribute("content")).toContain("img-src 'self'");
+  });
+
+  it("strips root-relative non-proxy and relative img src (only proxy allowed)", () => {
+    const out = sanitizeHtmlMail(
+      [
+        '<img src="/__tracker/img.gif">',
+        '<img src="/relative/img.png">',
+        '<img src="relative.png">',
+        `<img src="${PROXY_SRC}">`,
+      ].join(""),
+    );
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const imgs = [...doc.querySelectorAll("img")];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]?.getAttribute("src")).toBe(PROXY_SRC);
+  });
+});
+
 describe("HTML mail network policy", () => {
   it("places an independent restrictive CSP before attacker styles and policies", () => {
     const out = sanitizeHtmlMail(
@@ -146,6 +260,7 @@ describe("HTML mail network policy", () => {
     expect(policy?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
     const csp = policy?.getAttribute("content") ?? "";
     expect(csp).toContain("default-src 'none'");
+    // When no proxy/remote/inline images are present, img-src collapses to 'none'.
     expect(csp).toContain("img-src 'none'");
     expect(csp).toContain("style-src 'unsafe-inline'");
     expect(csp).toContain("font-src 'none'");

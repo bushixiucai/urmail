@@ -1,5 +1,12 @@
 import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 import { ApiRequestError, apiErrorSchema } from "@/lib/api/client";
+import { initViewportTracking, viewportHeaders } from "./viewport-headers";
+
+// UA/viewport contract headers for server-side mail adaptation (PR #43).
+// Installed once per module load; the resize listener is debounced.
+if (typeof window !== "undefined") {
+  initViewportTracking(window);
+}
 
 const MAILBOX_TOKEN_KEY = "urmail.mailbox-token";
 const MAILBOX_ADDRESS_KEY = "urmail.mailbox-address";
@@ -235,7 +242,10 @@ export async function mailboxRequest<T>(
   options: MailboxRequestOptions = {},
 ): Promise<T> {
   const { method = "GET", body, signal, auth = true } = options;
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...viewportHeaders(),
+  };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (options.idempotencyKey)
     headers["Idempotency-Key"] = options.idempotencyKey;
@@ -679,7 +689,10 @@ export async function fetchAttachmentAsOutgoing(
   signal?: AbortSignal,
 ): Promise<OutgoingAttachment> {
   const token = getMailboxToken();
-  const headers: Record<string, string> = { Accept: "*/*" };
+  const headers: Record<string, string> = {
+    Accept: "*/*",
+    ...viewportHeaders(),
+  };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/attachments/${encodeURIComponent(partId)}${uidValidity ? `?uid_validity=${uidValidity}` : ""}`,
@@ -723,7 +736,10 @@ export async function downloadAttachment(
   uidValidity?: number,
 ): Promise<void> {
   const token = getMailboxToken();
-  const headers: Record<string, string> = { Accept: "*/*" };
+  const headers: Record<string, string> = {
+    Accept: "*/*",
+    ...viewportHeaders(),
+  };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/attachments/${encodeURIComponent(partId)}${uidValidity ? `?uid_validity=${uidValidity}` : ""}`,
@@ -1262,7 +1278,10 @@ export async function fetchMessageAsOutgoing(
   const response = await fetch(
     `/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/${uid}/raw?uid_validity=${uidValidity}`,
     {
-      headers: { Authorization: `Bearer ${token ?? ""}` },
+      headers: {
+        Authorization: `Bearer ${token ?? ""}`,
+        ...viewportHeaders(),
+      },
       credentials: "same-origin",
       cache: "no-store",
       signal,
