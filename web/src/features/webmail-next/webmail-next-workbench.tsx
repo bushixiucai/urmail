@@ -156,6 +156,8 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
+  const [composeHtml, setComposeHtml] = useState("");
+  const [composeText, setComposeText] = useState("");
   const [composeKey, setComposeKey] = useState(0);
 
   const queryClient = useQueryClient();
@@ -667,10 +669,18 @@ export function WebmailNextWorkbench({
   const toggleRail = () => setIsRailCollapsed((prev) => !prev);
   const listValidity = messageListData?.uid_validity;
 
-  const openCompose = (to: string[], subject: string, cc: string[] = []) => {
+  const openCompose = (
+    to: string[],
+    subject: string,
+    cc: string[] = [],
+    initialHtml = "",
+    initialText = "",
+  ) => {
     setComposeTo(to);
     setComposeCc(cc);
     setComposeSubject(subject);
+    setComposeHtml(initialHtml);
+    setComposeText(initialText);
     setComposeKey((key) => key + 1);
     setIsComposeOpen(true);
   };
@@ -993,9 +1003,31 @@ export function WebmailNextWorkbench({
   const replySubject = (subject: string) =>
     subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 
+  const buildReplyQuote = (msg: MessageDetail) => {
+    const from = msg.from?.[0]?.name
+      ? `${msg.from[0].name} <${msg.from[0].email}>`
+      : msg.from?.[0]?.email || "";
+    const dateStr = msg.date ? new Date(msg.date).toLocaleString() : "";
+    const quoteHeader = `On ${dateStr}, ${from} wrote:`;
+    const bodyHtml =
+      msg.html || (msg.text ? `<p>${msg.text.replace(/\n/g, "<br>")}</p>` : "");
+    const quotedHtml = `<p><br></p><div class="urmail-quoted-message"><p>${quoteHeader}</p><blockquote style="border-left: 2px solid #ccc; padding-left: 8px; margin-left: 8px;">${bodyHtml}</blockquote></div>`;
+    const quotedText = msg.text
+      ? `\n\n---\n${from}\n\n${msg.text.replace(/^/gm, "> ")}`
+      : "";
+    return { quotedHtml, quotedText };
+  };
+
   const handleReply = (msg: MessageDetail) => {
     const sender = msg.from?.[0]?.email;
-    openCompose(sender ? [sender] : [], replySubject(msg.subject));
+    const { quotedHtml, quotedText } = buildReplyQuote(msg);
+    openCompose(
+      sender ? [sender] : [],
+      replySubject(msg.subject),
+      [],
+      quotedHtml,
+      quotedText,
+    );
   };
 
   const handleReplyAll = (msg: MessageDetail) => {
@@ -1012,14 +1044,16 @@ export function WebmailNextWorkbench({
         seen.add(key);
         return true;
       });
-    openCompose(to, replySubject(msg.subject), cc);
+    const { quotedHtml, quotedText } = buildReplyQuote(msg);
+    openCompose(to, replySubject(msg.subject), cc, quotedHtml, quotedText);
   };
 
   const handleForward = (msg: MessageDetail) => {
     const subject = msg.subject.toLowerCase().startsWith("fwd:")
       ? msg.subject
       : `Fwd: ${msg.subject}`;
-    openCompose([], subject);
+    const { quotedHtml, quotedText } = buildReplyQuote(msg);
+    openCompose([], subject, [], quotedHtml, quotedText);
   };
 
   const loadedUids = () =>
@@ -1440,6 +1474,8 @@ export function WebmailNextWorkbench({
         initialTo={composeTo}
         initialCc={composeCc}
         initialSubject={composeSubject}
+        initialHtml={composeHtml}
+        initialText={composeText}
         sendNonce={sendNonce}
       />
       <WebmailShortcutHelp

@@ -27,6 +27,8 @@ interface WebmailComposeDockProps {
   initialTo?: string[];
   initialCc?: string[];
   initialSubject?: string;
+  initialHtml?: string;
+  initialText?: string;
   sendNonce?: number;
   minimizeNonce?: number;
 }
@@ -37,6 +39,8 @@ export function WebmailComposeDock({
   initialTo = [],
   initialCc = [],
   initialSubject = "",
+  initialHtml = "",
+  initialText = "",
   sendNonce = 0,
   minimizeNonce = 0,
 }: WebmailComposeDockProps) {
@@ -58,8 +62,18 @@ export function WebmailComposeDock({
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const initialDraftProp =
-    initialTo.length > 0 || initialCc.length > 0 || Boolean(initialSubject)
-      ? { to: initialTo, cc: initialCc, subject: initialSubject }
+    initialTo.length > 0 ||
+    initialCc.length > 0 ||
+    Boolean(initialSubject) ||
+    Boolean(initialHtml) ||
+    Boolean(initialText)
+      ? {
+          to: initialTo,
+          cc: initialCc,
+          subject: initialSubject,
+          html: initialHtml,
+          text: initialText,
+        }
       : undefined;
 
   const { draft, updateDraft, clearDraft, isSaving, lastSavedAt } =

@@ -277,23 +277,21 @@ function WebmailMessageRowView({
           )}
 
           {/* Timestamp / Quick Action Hover Bar */}
-          <span className="shrink-0 ml-2 text-xs text-[var(--vellum-ink-secondary)] flex items-center">
-            <span className="group-hover:hidden" title={dateTitle}>
-              {dateLabel}
-            </span>
-            <span className="hidden group-hover:flex items-center gap-1">
+          <span className="shrink-0 ml-2 text-xs text-[var(--vellum-ink-secondary)] flex items-center gap-1.5">
+            <span title={dateTitle}>{dateLabel}</span>
+            <span className="hidden group-hover:inline-flex items-center gap-1">
               {onToggleRead && (
                 <button
                   type="button"
                   onClick={onToggleRead}
-                  className="p-1 hover:text-[var(--vellum-ink)] rounded hover:bg-[var(--vellum-border)]"
+                  className="p-0.5 hover:text-[var(--vellum-ink)] rounded hover:bg-[var(--vellum-border)]"
                   aria-label={readLabel}
                   title={readLabel}
                 >
                   {item.isUnread ? (
-                    <MailOpen className="w-3 h-3" />
+                    <MailOpen className="w-3.5 h-3.5" />
                   ) : (
-                    <Mail className="w-3 h-3" />
+                    <Mail className="w-3.5 h-3.5" />
                   )}
                 </button>
               )}
@@ -301,11 +299,11 @@ function WebmailMessageRowView({
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="p-1 hover:text-[#DC2626] rounded hover:bg-[var(--vellum-border)]"
+                  className="p-0.5 hover:text-[#DC2626] rounded hover:bg-[var(--vellum-border)]"
                   aria-label={deleteLabel}
                   title={deleteLabel}
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}
             </span>

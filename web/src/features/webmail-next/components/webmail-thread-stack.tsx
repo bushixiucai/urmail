@@ -92,8 +92,16 @@ export function WebmailThreadStack({
     onExpand(ordered[expandedIndex + 1].uid);
   };
 
+  const totalThreadCount = useMemo(() => {
+    const maxServerCount = Math.max(
+      ...members.map((m) => m.thread_count ?? 0),
+      0,
+    );
+    return maxServerCount > ordered.length ? maxServerCount : ordered.length;
+  }, [members, ordered.length]);
+
   const countLabel = t("webmail_next.thread_messages_count", {
-    count: ordered.length,
+    count: totalThreadCount,
   });
 
   return (
@@ -101,7 +109,7 @@ export function WebmailThreadStack({
       data-testid="thread-stack"
       className="flex-1 flex flex-col min-h-0"
       aria-label={t("webmail_next.thread_stack_label", {
-        count: ordered.length,
+        count: totalThreadCount,
       })}
     >
       {/* Thread action bar — sticky top */}
@@ -139,7 +147,10 @@ export function WebmailThreadStack({
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--vellum-ink-secondary)]">
+          <span
+            data-testid="thread-count-label"
+            className="text-xs text-[var(--vellum-ink-secondary)]"
+          >
             {countLabel}
           </span>
           <button
@@ -170,7 +181,7 @@ export function WebmailThreadStack({
       </div>
 
       {/* Card stack */}
-      <div className="flex-1 overflow-y-auto bg-[var(--vellum-ground)] px-6 py-4">
+      <div className="flex-1 overflow-y-auto bg-[var(--vellum-ground)] px-3 sm:px-6 py-3 sm:py-4">
         <div className="relative max-w-[720px] mx-auto space-y-2">
           {/* Timeline (decorative) */}
           <div
@@ -210,12 +221,19 @@ export function WebmailThreadStack({
                   {senderInitial(member)}
                 </div>
 
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   data-testid={`thread-card-header-${member.uid}`}
                   aria-expanded={isExpanded}
                   onClick={() => onExpand(member.uid)}
-                  className="w-full h-12 pl-12 pr-3 flex items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-primary)] focus-visible:outline-offset-[-2px] rounded-lg"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onExpand(member.uid);
+                    }
+                  }}
+                  className="w-full h-12 pl-4 sm:pl-12 pr-3 flex items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-primary)] focus-visible:outline-offset-[-2px] rounded-lg cursor-pointer select-none"
                 >
                   <span
                     className={`truncate max-w-[40%] text-[13px] leading-4 ${
@@ -279,14 +297,14 @@ export function WebmailThreadStack({
                       isExpanded ? "" : "-rotate-90"
                     }`}
                   />
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div
                     role="region"
                     aria-label={name}
                     data-testid={`thread-card-body-${member.uid}`}
-                    className="border-t border-[var(--vellum-border-subtle)] pl-12 pr-4 py-4"
+                    className="border-t border-[var(--vellum-border-subtle)] pl-4 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4"
                   >
                     {isDetailLoading && !expandedDetail ? (
                       <div className="animate-pulse space-y-2">

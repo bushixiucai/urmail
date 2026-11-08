@@ -78,8 +78,15 @@ export function useMessageThreading(messages: MessageSummary[]) {
       const root = sorted[0];
       const isExpanded = expandedThreadIds.has(threadId);
 
+      const maxServerCount = Math.max(
+        ...msgs.map((m) => m.thread_count ?? 0),
+        root.thread_count ?? 0,
+      );
+      const totalCount =
+        maxServerCount > msgs.length ? maxServerCount : msgs.length;
+
       const parentItem = toWebmailItem(root);
-      parentItem.threadCount = msgs.length;
+      parentItem.threadCount = totalCount;
       parentItem.isThreadExpanded = isExpanded;
       parentItem.childUids = sorted.slice(1).map((c) => c.uid);
 
@@ -91,7 +98,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
             .filter(Boolean),
         ),
       );
-      parentItem.sender = `${uniqueSenders.join(", ")} (${msgs.length})`;
+      parentItem.sender = `${uniqueSenders.join(", ")} (${totalCount})`;
 
       result.push(parentItem);
 
