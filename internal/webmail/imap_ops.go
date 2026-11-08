@@ -27,10 +27,14 @@ import (
 // messages across pages.
 //
 // Threading: opts.Thread stamps thread_id/thread_count. With
-// THREAD=REFERENCES advertised the server computes the grouping
-// (ThreadMode "server"); otherwise the client path groups over the fetched
-// summaries (bounded by MaxSortScan, ThreadMode "client" — counts cover the
-// loaded set only).
+// THREAD=REFERENCES advertised the server computes the grouping and the
+// thread sizes (ThreadMode "server", ThreadScope "server" — the counts come
+// from the THREAD response and cover every member of the thread, so they are
+// folder-wide and identical on every page). Otherwise the client path
+// groups over a bounded summary scan of the filtered set (MaxSortScan
+// summaries, ThreadMode "client"): the counts cover the whole filtered set
+// (ThreadScope "folder") when it fits the bound and only the scanned prefix
+// (ThreadScope "bounded") when it does not.
 func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpts) (ListResult, error) {
 	opts = ClampListOpts(opts)
 	criteria, hasAttachment, err := buildSearchPlan(opts.Query)
@@ -45,6 +49,10 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	serverSorted := false
 	// allSummaries caches summaries fetched for sort/thread fallbacks.
 	var allSummaries []MessageSummary
+	// matched counts the UIDs of the whole filtered set, independently of
+	// the listing bound; it tells the thread path whether the scan covered
+	// the folder or only a prefix of it.
+	matched := 0
 	if opts.SortBy != "" {
 		if uids, sortErr := c.uidSort(ctx, criteria, imapSortKey(opts.SortBy, opts.SortDesc)); sortErr == nil {
 			if hasAttachment {
@@ -54,6 +62,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 				}
 			}
 			ordered, serverSorted = uids, true
+			matched = len(uids)
 		}
 	}
 	if ordered == nil {
@@ -72,7 +81,10 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 			uids[i], uids[j] = uids[j], uids[i]
 		}
 		ordered = uids
-		if opts.SortBy != "" || opts.Thread {
+		matched = len(uids)
+		if opts.SortBy != "" {
+			// Client-side sort fallback: the ordering is computed locally, so
+			// it is bounded by MaxSortScan.
 			if len(ordered) > MaxSortScan {
 				ordered = ordered[:MaxSortScan]
 			}
@@ -115,23 +127,37 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	}
 
 	threadMode := ""
+	threadScope := ""
 	if opts.Thread {
 		threadMode = "client"
-		if roots, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
-			ApplyThreads(summaries, roots)
+		threadScope = ThreadScopeFolder
+		if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
+			// The THREAD response carries every member of every thread, so the
+			// counts are folder-wide: a thread whose members are spread over
+			// several pages reports the same total on each of them.
+			ApplyThreadsWithCounts(summaries, roots, counts)
 			threadMode = "server"
+			threadScope = ThreadScopeServer
 		} else {
+			// Client path: count over a bounded scan of the filtered set so
+			// the counts do not depend on the page that was loaded.
 			set := allSummaries
 			if set == nil {
-				if len(ordered) > MaxSortScan {
-					ordered = ordered[:MaxSortScan]
+				scan := ordered
+				if len(scan) > MaxSortScan {
+					scan = scan[:MaxSortScan]
 				}
-				set, err = c.uidFetchSummaries(ctx, ordered)
+				set, err = c.uidFetchSummaries(ctx, scan)
 				if err != nil {
 					return ListResult{}, err
 				}
 			}
 			ApplyThreads(summaries, BuildThreads(set))
+			if len(set) < matched {
+				// The folder is larger than the scan bound: the counts cover
+				// the scanned prefix only.
+				threadScope = ThreadScopeBounded
+			}
 		}
 	}
 	return ListResult{
@@ -142,6 +168,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		Sort:         opts.SortBy,
 		ServerSorted: serverSorted,
 		ThreadMode:   threadMode,
+		ThreadScope:  threadScope,
 	}, nil
 }
 

@@ -105,11 +105,13 @@ func TestPaginationStableUnderNewMail(t *testing.T) {
 }
 
 func TestBuildThreadsByReferences(t *testing.T) {
+	// Same participants: the subject fallback may merge UID 4 into the
+	// reply chain even though its In-Reply-To target is unknown.
 	msgs := []MessageSummary{
-		{UID: 1, MessageID: "<a@x>", Subject: "Hi"},
-		{UID: 2, InReplyTo: "<a@x>", Subject: "Re: Hi"},
-		{UID: 3, MessageID: "<b@x>", Subject: "Other"},
-		{UID: 4, InReplyTo: "<missing@x>", MessageID: "<c@x>", Subject: "Re: Hi"},
+		{UID: 1, MessageID: "<a@x>", Subject: "Hi", From: []Address{{Email: "alice@x"}}},
+		{UID: 2, InReplyTo: "<a@x>", Subject: "Re: Hi", From: []Address{{Email: "alice@x"}}},
+		{UID: 3, MessageID: "<b@x>", Subject: "Other", From: []Address{{Email: "alice@x"}}},
+		{UID: 4, InReplyTo: "<missing@x>", MessageID: "<c@x>", Subject: "Re: Hi", From: []Address{{Email: "alice@x"}}},
 	}
 	threads := BuildThreads(msgs)
 	for _, uid := range []uint32{1, 2, 4} {
@@ -127,11 +129,12 @@ func TestBuildThreadsByReferences(t *testing.T) {
 }
 
 func TestBuildThreadsBySubjectFallback(t *testing.T) {
+	// Same participants and one day apart: the subject fallback merges them.
 	msgs := []MessageSummary{
-		{UID: 7, Subject: "Re: Re: 计划"},
-		{UID: 5, Subject: "计划"},
-		{UID: 6, Subject: "Fwd: 计划"},
-		{UID: 8, Subject: "unrelated"},
+		{UID: 7, Subject: "Re: Re: 计划", From: []Address{{Email: "alice@x"}}, Date: envelopeDate(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))},
+		{UID: 5, Subject: "计划", From: []Address{{Email: "alice@x"}}, Date: envelopeDate(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))},
+		{UID: 6, Subject: "Fwd: 计划", From: []Address{{Email: "alice@x"}}, Date: envelopeDate(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))},
+		{UID: 8, Subject: "unrelated", From: []Address{{Email: "alice@x"}}},
 		{UID: 9, Subject: ""},
 	}
 	threads := BuildThreads(msgs)
@@ -146,7 +149,7 @@ func TestBuildThreadsBySubjectFallback(t *testing.T) {
 }
 
 func TestParseThreadRoots(t *testing.T) {
-	roots, err := parseThreadRoots("(1 2 (3))(4)")
+	roots, counts, err := parseThreadRoots("(1 2 (3))(4)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +162,16 @@ func TestParseThreadRoots(t *testing.T) {
 			t.Fatalf("uid %d root %d want %d", uid, roots[uid], root)
 		}
 	}
-	if _, err := parseThreadRoots("(1"); err == nil {
+	wantCounts := map[uint32]int{1: 3, 4: 1}
+	for root, count := range wantCounts {
+		if counts[root] != count {
+			t.Fatalf("root %d count %d want %d", root, counts[root], count)
+		}
+	}
+	if _, _, err := parseThreadRoots("(1"); err == nil {
 		t.Fatal("unbalanced accepted")
 	}
-	if roots, err := parseThreadRoots(""); err != nil || roots != nil {
-		t.Fatalf("empty wrong: %v %v", roots, err)
+	if roots, counts, err := parseThreadRoots(""); err != nil || roots != nil || counts != nil {
+		t.Fatalf("empty wrong: %v %v %v", roots, counts, err)
 	}
 }
