@@ -24,7 +24,10 @@ func TestSanitizeRemoteImagesGolden(t *testing.T) {
 		"<style>@import url(https://evil.example/x.css);</style>" +
 		"<video poster=\"https://evil.example/x.jpg\"></video>"
 
-	const blockedGolden = "<div>x</div><img alt=\"dot\" src=\"data:image/png;base64,iVBORw0KGgo=\"/>"
+	// The stray <td> above is foster-parented by the HTML parser, so its
+	// text lands directly in the body and is preserved as bare text
+	// (dropping it used to lose real content).
+	const blockedGolden = "x<div>x</div><img alt=\"dot\" src=\"data:image/png;base64,iVBORw0KGgo=\"/>"
 	out, notes := SanitizeHTML(in)
 	if out != blockedGolden {
 		t.Fatalf("default pass mismatch:\n got %q\nwant %q", out, blockedGolden)
@@ -37,7 +40,7 @@ func TestSanitizeRemoteImagesGolden(t *testing.T) {
 
 	const allowedGolden = "<img alt=\"pixel\" src=\"https://track.example/pixel.gif\"/>" +
 		"<img src=\"http://track.example/pixel.gif\"/>" +
-		"<div>x</div>" +
+		"x<div>x</div>" +
 		"<img alt=\"dot\" src=\"data:image/png;base64,iVBORw0KGgo=\"/>"
 	allowed, allowedNotes := SanitizeHTMLOpts(in, SanitizeOptions{AllowRemoteImages: true})
 	if allowed != allowedGolden {

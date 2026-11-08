@@ -2,6 +2,7 @@ package webmail
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -76,22 +77,60 @@ func startPreviewServer(t *testing.T, searchUIDs []uint32, bodies map[uint32][]b
 	return ln.Addr().String(), cmds
 }
 
-// writePreviewFetch answers a batched BODY.PEEK[] partial fetch: every UID of
-// the requested set gets its own literal, truncated to the requested bytes
+// writePreviewFetch answers a batched split preview fetch: every UID of the
+// requested set gets a HEADER.FIELDS literal carrying only the requested
+// fields plus a TEXT literal truncated to the requested partial byte count,
 // like a compliant server.
 func writePreviewFetch(w *bufio.Writer, command, tag string, bodies map[uint32][]byte) {
 	uids := requestUIDSet(command)
 	perMessage := requestedPartialBytes(command)
+	wanted := requestedHeaderFields(command)
 	for _, uid := range uids {
-		body := bodies[uid]
-		if perMessage > 0 && perMessage < len(body) {
-			body = body[:perMessage]
+		header, text, _ := bytes.Cut(bodies[uid], []byte("\r\n\r\n"))
+		header = filterHeaderFields(header, wanted)
+		if perMessage > 0 && perMessage < len(text) {
+			text = text[:perMessage]
 		}
-		_, _ = fmt.Fprintf(w, "* 1 FETCH (UID %d BODY[]<0> {%d}\r\n", uid, len(body))
-		_, _ = w.Write(body)
+		_, _ = fmt.Fprintf(w, "* 1 FETCH (UID %d BODY[HEADER.FIELDS (CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] {%d}\r\n", uid, len(header))
+		_, _ = w.Write(header)
+		_, _ = fmt.Fprintf(w, " BODY[TEXT]<0> {%d}\r\n", len(text))
+		_, _ = w.Write(text)
 		_, _ = io.WriteString(w, ")\r\n")
 	}
 	_, _ = io.WriteString(w, tag+" OK [PARTIAL] fetch done\r\n")
+}
+
+// requestedHeaderFields parses the field list of a HEADER.FIELDS request.
+func requestedHeaderFields(command string) map[string]bool {
+	wanted := map[string]bool{}
+	start := strings.Index(command, "HEADER.FIELDS (")
+	if start < 0 {
+		return wanted
+	}
+	rest := command[start+len("HEADER.FIELDS ("):]
+	end := strings.IndexByte(rest, ')')
+	if end < 0 {
+		return wanted
+	}
+	for _, field := range strings.Fields(rest[:end]) {
+		wanted[strings.ToLower(field)] = true
+	}
+	return wanted
+}
+
+// filterHeaderFields keeps only the wanted fields of a raw header block,
+// each line CRLF-terminated like a real HEADER.FIELDS response.
+func filterHeaderFields(header []byte, wanted map[string]bool) []byte {
+	var out []byte
+	for _, line := range strings.Split(string(header), "\r\n") {
+		idx := strings.IndexByte(line, ':')
+		if idx <= 0 || !wanted[strings.ToLower(strings.TrimSpace(line[:idx]))] {
+			continue
+		}
+		out = append(out, line...)
+		out = append(out, '\r', '\n')
+	}
+	return out
 }
 
 // requestUIDSet parses the UID set of a "UID FETCH <set> ..." command line.
@@ -330,5 +369,53 @@ func TestParseFetchUIDVariants(t *testing.T) {
 		if ok != tc.ok || uid != tc.uid {
 			t.Fatalf("parseFetchUID(%q) = %d %v, want %d %v", tc.line, uid, ok, tc.uid, tc.ok)
 		}
+	}
+}
+
+// TestListMessagesPreviewIgnoresOversizedHeaders is the v0.6.10-hotfix-2
+// DEF-1 regression: production header chains (DKIM signatures, mailing-list
+// stamps) exceed the whole preview byte budget, so a head-only partial fetch
+// returned zero body bytes and every preview stayed empty. The split fetch
+// must skip the headers entirely, snippet from the TEXT literal, and keep
+// the single batched command shape.
+func TestListMessagesPreviewIgnoresOversizedHeaders(t *testing.T) {
+	dkim := strings.Repeat("DKIM-Signature: v=1; a=rsa-sha256; b="+strings.Repeat("x", 90)+"\r\n", 22)
+	bodies := map[uint32][]byte{
+		7: []byte(dkim + "Content-Type: text/plain; charset=utf-8\r\n\r\nVisible body text after huge headers\r\n"),
+	}
+	addr, cmds := startPreviewServer(t, []uint32{7}, bodies, 0)
+	client := dialTestClient(t, addr)
+	result, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Preview: true, Limit: 1})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("messages=%d", len(result.Messages))
+	}
+	if got := result.Messages[0].Preview; got != "Visible body text after huge headers" {
+		t.Fatalf("preview = %q, want the body text behind the oversized headers", got)
+	}
+
+	// The bulk command must still be one command, request only the two
+	// snippet headers, and partial-fetch the TEXT section.
+	collected := drainCommands(cmds, 500*time.Millisecond)
+	bulk := 0
+	for _, cmd := range collected {
+		if !strings.Contains(cmd, "BODY.PEEK") {
+			continue
+		}
+		bulk++
+		if !strings.Contains(cmd, "HEADER.FIELDS (CONTENT-TYPE CONTENT-TRANSFER-ENCODING)") {
+			t.Fatalf("bulk command %q must request only the snippet header fields", cmd)
+		}
+		if !strings.Contains(cmd, fmt.Sprintf("BODY.PEEK[TEXT]<0.%d>", previewFetchBytes)) {
+			t.Fatalf("bulk command %q must partial-fetch TEXT with the %d byte budget", cmd, previewFetchBytes)
+		}
+		if strings.Contains(cmd, "BODY.PEEK[]") {
+			t.Fatalf("bulk command %q must not fetch the raw head anymore", cmd)
+		}
+	}
+	if bulk != 1 {
+		t.Fatalf("expected one bulk preview fetch, got %d: %v", bulk, collected)
 	}
 }
