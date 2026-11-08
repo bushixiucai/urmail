@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
+	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/autoconfig"
@@ -271,7 +272,7 @@ func New(opts Options) *gin.Engine {
 		bridgeKey = nil
 	}
 	sieveBridge := &handlers.SieveBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, Activator: opts.SieveActivator}
-	mailboxAI := &handlers.MailboxAIService{Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
+	mailboxAI := &handlers.MailboxAIService{Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints, ResultCache: ai.NewResultCache()}
 	aiConfiguration := &handlers.AIConfigurationHandler{HealthRepository: handlers.NewAIHealthRepository(opts.AIPlatformPool), Pool: opts.AIPlatformPool, Secrets: opts.Secrets, CloudEndpoints: opts.AICloudEndpoints, LocalEndpoints: opts.AILocalEndpoints}
 	mailboxBridge := &handlers.MailboxBridgeHandler{Pool: opts.PlatformPool, Key: bridgeKey, AI: mailboxAI, Sieve: opts.SieveActivator}
 	webmailVault := opts.WebmailVault

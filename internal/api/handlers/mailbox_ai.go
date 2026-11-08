@@ -36,6 +36,9 @@ type MailboxAIService struct {
 	CloudEndpoints, LocalEndpoints []string
 	// Provider is an injection point for offline tests, never derived from input.
 	Provider func(store.AiProviderConfigs) (ai.Provider, error)
+	// ResultCache serves repeat operations from memory (TECH §4): no
+	// provider call, no quota debit. Nil disables the cache.
+	ResultCache *ai.ResultCache
 }
 
 type aiPlanLimits struct {
@@ -109,6 +112,17 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	}
 	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !session.ExpiresAt.Time.After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
 		return nil, ai.ResultMeta{}, ai.ErrUnauthorized
+	}
+	// Result cache (TECH §4): a validated answer for the identical
+	// operation replays without a provider call and without touching the
+	// quota. The digest folds tenant, mailbox, uid validity, input and
+	// target configuration; the template version rides the key so a
+	// prompt upgrade invalidates cached answers.
+	version := ai.StructuredTemplateVersion(input.Operation)
+	if cached, ok := s.ResultCache.Get(input.Operation, version, hash); ok {
+		cached.Meta.CacheHit = true
+		ai.CacheHitsTotal.Inc()
+		return cached.Payload, cached.Meta, nil
 	}
 	if err = q.PlatformExpireAIReservations(ctx, principal.TenantID); err != nil {
 		return nil, ai.ResultMeta{}, err
@@ -301,6 +315,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if status != "completed" {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
+	s.ResultCache.Put(input.Operation, version, hash, result, meta)
 	return result, meta, nil
 }
 

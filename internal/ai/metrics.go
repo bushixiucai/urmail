@@ -28,6 +28,13 @@ var (
 		Buckets: prometheus.ExponentialBuckets(0.05, 2, 12),
 	}, []string{"provider"})
 
+	// CacheHitsTotal counts assist results served from the operation
+	// result cache (no provider call, no quota debit).
+	CacheHitsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "urmail_ai_cache_hits_total",
+		Help: "Assist results served from the operation result cache instead of a provider call.",
+	})
+
 	// BreakerTransitionsTotal counts circuit breaker state transitions.
 	BreakerTransitionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "urmail_ai_breaker_transitions_total",
