@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"mime"
 	"net/http"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/mailauth"
+	"github.com/bushixiucai/urmail/internal/rendercache"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -179,15 +182,47 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
+	loadImages := isTruthyParam(c.Query("load_images"))
+	uaClass := webmail.ParseUAClass(c.GetHeader("X-UA-Class"))
+	vpWidth := webmail.ParseViewportWidth(c.GetHeader("X-Viewport-Width"))
+	vpBucket := webmail.ViewportBucket(vpWidth)
+	var expectedValidity uint32
+	if value := c.Query("uid_validity"); value != "" {
+		v, parseErr := strconv.ParseUint(value, 10, 32)
+		if parseErr != nil || v == 0 {
+			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+			return
+		}
+		expectedValidity = uint32(v)
+	}
+	// A cache hit needs uid_validity in the request so a folder renumber
+	// cannot serve a stale body. Without it we fall through to IMAP.
+	if h.RenderCache != nil && expectedValidity != 0 {
+		if sessionPeek, ok := middleware.GetMailboxSession(c); ok {
+			cacheKey := rendercache.Key{
+				MailboxID:      sessionPeek.MailboxID,
+				Folder:         folder,
+				UID:            uint32(uid),
+				UIDValidity:    expectedValidity,
+				LoadImages:     loadImages && len(h.RenderKey) > 0,
+				UAClass:        uaClass,
+				ViewportBucket: vpBucket,
+			}
+			if entry, hit := h.RenderCache.Get(cacheKey); hit {
+				c.Header("Cache-Control", "no-store")
+				c.Data(http.StatusOK, "application/json; charset=utf-8", entry.Payload)
+				return
+			}
+		}
+	}
 	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
 	defer func() { _ = client.Close() }()
-	if value := c.Query("uid_validity"); value != "" {
-		expected, parseErr := strconv.ParseUint(value, 10, 32)
+	if expectedValidity != 0 {
 		actual, readErr := client.FolderUIDValidity(c.Request.Context(), folder)
-		if parseErr != nil || readErr != nil || expected == 0 || uint64(actual) != expected {
+		if readErr != nil || uint64(actual) != uint64(expectedValidity) {
 			authError(c, 409, "AI_SOURCE_CHANGED")
 			return
 		}
@@ -201,7 +236,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
 	}
-	if value := c.Query("uid_validity"); value != "" && value != strconv.FormatUint(uint64(msg.UIDValidity), 10) {
+	if expectedValidity != 0 && expectedValidity != msg.UIDValidity {
 		authError(c, 409, "AI_SOURCE_CHANGED")
 		return
 	}
@@ -222,7 +257,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		// Without a signing key the proxy cannot sign a URL, so remote
 		// images stay blocked (fail closed) instead of being fetched by
 		// the browser directly.
-		allowRemote := isTruthyParam(c.Query("load_images")) && len(h.RenderKey) > 0
+		allowRemote := loadImages && len(h.RenderKey) > 0
 		sanitizeOpts := webmail.SanitizeOptions{
 			AllowRemoteImages: allowRemote,
 			CIDRewriter:       cidAttachmentURL(folder, uint32(uid), msg.Attachments, msg.UIDValidity),
@@ -242,15 +277,29 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 			sanitizeOpts.LinkRewriter = h.linkConfirmRewriter(session.MailboxID, uint32(uid), from, msg.Subject)
 		}
 		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, sanitizeOpts)
-		vp := webmail.Viewport{
-			UAClass: webmail.ParseUAClass(c.GetHeader("X-UA-Class")),
-			Width:   webmail.ParseViewportWidth(c.GetHeader("X-Viewport-Width")),
-		}
+		vp := webmail.Viewport{UAClass: uaClass, Width: vpWidth}
 		adapted := webmail.AdaptHTMLForViewport(safe, vp)
 		msg.HTML = webmail.WrapHTMLDocument(adapted)
 		msg.Notes = notes
 	}
-	c.JSON(http.StatusOK, msg)
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		authError(c, http.StatusInternalServerError, "INTERNAL")
+		return
+	}
+	if h.RenderCache != nil {
+		h.RenderCache.Put(rendercache.Key{
+			MailboxID:      session.MailboxID,
+			Folder:         folder,
+			UID:            uint32(uid),
+			UIDValidity:    msg.UIDValidity,
+			LoadImages:     loadImages && len(h.RenderKey) > 0,
+			UAClass:        uaClass,
+			ViewportBucket: vpBucket,
+		}, payload)
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
 }
 
 // GetAttachment streams one MIME part as a downloadable attachment.
