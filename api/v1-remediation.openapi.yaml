@@ -10018,6 +10018,9 @@ components:
             result:
               type: string
               description: custom operation only.
+            text:
+              type: string
+              description: Present only when degraded=true with degrade_reason=schema_retry_exhausted; the plain-text fallback answer of the operation.
         degraded:
           type: boolean
           description: True when the answer came from a non-structured fallback path.

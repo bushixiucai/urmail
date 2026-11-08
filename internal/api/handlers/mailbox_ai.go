@@ -267,27 +267,25 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	request.Model = cfg.Model
-	completion, callErr := provider.Complete(callCtx, request)
+	result, usage, meta, callErr := ai.CompleteValidated(callCtx, provider, input.Operation, request, ai.StructuredParams(input))
 	status := "uncertain"
 	var actualTokens, actualCost pgtype.Int8
-	var result json.RawMessage
 	if callErr == nil {
-		result, callErr = ai.ValidatePayload(input.Operation, ai.ExtractJSON(completion.Content))
 		// Unknown usage remains charged at its reservation even with a valid result.
-		if completion.UsageKnown && completion.PromptTokens >= 0 && completion.OutputTokens >= 0 {
-			tokens := int64(completion.PromptTokens) + int64(completion.OutputTokens)
+		if usage.Known {
+			tokens := int64(usage.PromptTokens) + int64(usage.OutputTokens)
 			cost := int64(0)
 			if cfg.Mode == "platform" {
-				cost, err = aiCost(int64(completion.PromptTokens), int64(completion.OutputTokens), cfg.InputMicrosPerMillion, cfg.OutputMicrosPerMillion)
+				cost, err = aiCost(int64(usage.PromptTokens), int64(usage.OutputTokens), cfg.InputMicrosPerMillion, cfg.OutputMicrosPerMillion)
 			}
 			if err == nil {
 				actualTokens = pgtype.Int8{Int64: tokens, Valid: true}
 				actualCost = pgtype.Int8{Int64: cost, Valid: true}
-				if callErr == nil && tokens <= reservedTokens && cost <= reservedCost {
+				if tokens <= reservedTokens && cost <= reservedCost {
 					status = "completed"
 				}
 			}
-		} else if cfg.Mode != "platform" && callErr == nil {
+		} else if cfg.Mode != "platform" {
 			status = "completed"
 		}
 	}
@@ -303,7 +301,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if status != "completed" {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
-	return result, ai.ResultMeta{TemplateVersion: ai.StructuredTemplateVersion(input.Operation)}, nil
+	return result, meta, nil
 }
 
 // AIConfigurationHandler exposes only redacted configuration and usage to panel administrators.

@@ -211,6 +211,9 @@ func (f nativeAIFixtureDialer) Dial(context.Context, string, string) (webmail.Cl
 type nativeAIFixtureModel struct {
 	calls atomic.Int64
 	hook  func()
+	// respond optionally overrides the canned answer; the second return
+	// value reports whether the override handled the request.
+	respond func(request ai.CompletionRequest) (string, bool)
 }
 
 func (*nativeAIFixtureModel) Name() string { return "deterministic-test-provider" }
@@ -221,6 +224,11 @@ func (model *nativeAIFixtureModel) Complete(ctx context.Context, request ai.Comp
 	case <-time.After(100 * time.Millisecond):
 	}
 	model.calls.Add(1)
+	if model.respond != nil {
+		if content, ok := model.respond(request); ok {
+			return ai.CompletionResponse{Content: content, PromptTokens: 12, OutputTokens: 18, TotalTokens: 30, UsageKnown: true}, nil
+		}
+	}
 	// Dispatch on the system prompt's task constraint: user messages are
 	// registry-built untrusted-content envelopes, no longer the marshaled
 	// operation input.
