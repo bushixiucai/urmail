@@ -8,10 +8,7 @@ it("does not grant data image decoding through markup, srcset or CSS", () => {
   const doc = new DOMParser().parseFromString(html, "text/html");
   expect(doc.querySelectorAll("img[src]")).toHaveLength(0);
   const policy = doc.querySelector("meta")!.content;
-  // 'self' is required for same-origin proxy images; no remote or data
-  // source may leak into the policy when nothing trusted remains.
-  expect(policy).toContain("img-src 'self'");
-  expect(policy).not.toContain("img-src 'none'");
+  expect(policy).toContain("img-src 'none'");
   expect(policy).not.toMatch(/img-src[^;]*(https?:|data:)/);
 });
 it("allows only authorized raster objects without enabling sender data URLs", () => {
@@ -24,7 +21,7 @@ it("allows only authorized raster objects without enabling sender data URLs", ()
   );
   expect(doc.querySelectorAll("img")).toHaveLength(1);
   expect(doc.querySelector("img")!.src).toBe("data:image/png;base64,YQ==");
-  expect(doc.querySelector("meta")!.content).toContain("img-src 'self' data:");
+  expect(doc.querySelector("meta")!.content).toContain("img-src data:");
   expect(doc.querySelector("style")).toBeNull();
 });
 it("rejects duplicate PNG headers and animation chunks", () => {

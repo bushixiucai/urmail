@@ -110,7 +110,11 @@ function removeEventHandlers(el: Element): void {
   }
 }
 
-function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
+function neutralizeUrlAttrs(
+  el: Element,
+  allowRemote = false,
+  trustedImages?: Set<string>,
+): void {
   const names: string[] = [];
   for (let i = 0; i < el.attributes.length; i++) {
     names.push(el.attributes[i].name);
@@ -142,14 +146,19 @@ function neutralizeUrlAttrs(el: Element, allowRemote = false): void {
       el.removeAttribute(name);
       continue;
     }
-    // Remote src on non-img elements is always stripped
-    if (lower === "src" && !isImg && isRemoteUrl(value)) {
+    // src on non-img elements is always stripped
+    if (lower === "src" && !isImg) {
       el.removeAttribute(name);
       continue;
     }
-    // Remote src on img elements: only allowed if allowRemote is true AND it is an absolute http(s) URL
-    if (lower === "src" && isImg && isRemoteUrl(value)) {
-      if (!allowRemote || !isAbsoluteHttpUrl(value)) {
+    // src on img elements: only allowed if trusted, image proxy, or opted-in absolute http(s)
+    if (lower === "src" && isImg) {
+      const s = value.trim();
+      const ok =
+        (trustedImages && trustedImages.has(s)) ||
+        isImageProxyUrl(s) ||
+        (allowRemote && isAbsoluteHttpUrl(s));
+      if (!ok) {
         el.removeAttribute(name);
       }
     }
@@ -166,22 +175,31 @@ function hardenAnchor(el: Element): void {
   el.setAttribute("target", "_blank");
 }
 
-function shouldStripImg(el: Element, allowRemote = false): boolean {
+function shouldStripImg(
+  el: Element,
+  allowRemote = false,
+  trustedImages?: Set<string>,
+): boolean {
   const src = el.getAttribute("src");
-  if (src != null && isDangerousUrl(src)) return true;
-  if (src != null && isRemoteUrl(src)) {
-    if (!allowRemote || !isAbsoluteHttpUrl(src)) return true;
+  if (src != null) {
+    const s = src.trim();
+    if (isDangerousUrl(s)) return true;
+    if (trustedImages && trustedImages.has(s)) return false;
+    if (isImageProxyUrl(s)) return false;
+    if (allowRemote && isAbsoluteHttpUrl(s)) return false;
+    // Any other src (root-relative non-proxy, relative, protocol-relative,
+    // unallowed remote, un-inlined cid/data/blob, etc.) is stripped.
+    return true;
   }
-  if (src == null) {
-    const srcset = el.getAttribute("srcset");
-    if (srcset) {
-      const remote = srcset.split(",").some((part) => {
-        const url = part.trim().split(/\s+/)[0] ?? "";
-        return url && (isRemoteUrl(url) || isDangerousUrl(url));
-      });
-      if (remote) return true;
-    }
+  const srcset = el.getAttribute("srcset");
+  if (srcset) {
+    const remote = srcset.split(",").some((part) => {
+      const url = part.trim().split(/\s+/)[0] ?? "";
+      return !url || isRemoteUrl(url) || isDangerousUrl(url);
+    });
+    if (remote) return true;
   }
+  // An img with no src and no srcset is inert (e.g. placeholder/data-blocked-src).
   return false;
 }
 
@@ -294,7 +312,11 @@ function sanitizeStyles(el: Element): void {
   el.removeAttribute("srcset");
 }
 
-function sanitizeElement(el: Element, allowRemote = false): void {
+function sanitizeElement(
+  el: Element,
+  allowRemote = false,
+  trustedImages?: Set<string>,
+): void {
   const tag = el.tagName.toLowerCase();
 
   if (STRIP_TAGS.has(tag) || isMetaRefresh(el)) {
@@ -302,20 +324,20 @@ function sanitizeElement(el: Element, allowRemote = false): void {
     return;
   }
 
-  if (tag === "img" && shouldStripImg(el, allowRemote)) {
+  if (tag === "img" && shouldStripImg(el, allowRemote, trustedImages)) {
     el.remove();
     return;
   }
 
   sanitizeStyles(el);
   removeEventHandlers(el);
-  neutralizeUrlAttrs(el, allowRemote);
+  neutralizeUrlAttrs(el, allowRemote, trustedImages);
   hardenAnchor(el);
 
   // Child list mutates as we remove nodes — snapshot first.
   const children = Array.from(el.children);
   for (const child of children) {
-    sanitizeElement(child, allowRemote);
+    sanitizeElement(child, allowRemote, trustedImages);
   }
 }
 
@@ -355,7 +377,7 @@ export function sanitizeHtmlMail(
     // between conditional-comment fences (observed: a bgcolor'd table
     // inside `<!--[if !mso]><!-->` vanished). Sandbox+CSP keeps any such
     // residue inert for modern engines.
-    sanitizeElement(doc.documentElement, allowRemote);
+    sanitizeElement(doc.documentElement, allowRemote, trustedImages);
   }
   // This policy is independent of the host page: CSS backgrounds, imports,
   // fonts, SVG references and media cannot contact remote origins. When the
@@ -363,15 +385,21 @@ export function sanitizeHtmlMail(
   // truth), do not inject a second policy — but the sanitizer itself still
   // runs as defense in depth.
   if (!hasCspMeta(doc)) {
-    // 'self' is required unconditionally: allowed remote images arrive as
-    // same-origin proxy URLs and inline cid rewrites are same-origin too.
+    const hasProxyImages = Array.from(doc.querySelectorAll("img")).some((img) =>
+      isImageProxyUrl(img.getAttribute("src") ?? ""),
+    );
+    const imgSrcParts: string[] = [];
+    if (hasProxyImages) imgSrcParts.push("'self'");
+    if (allowRemote) imgSrcParts.push("https:", "http:");
+    if (trustedImages.size) imgSrcParts.push("data:");
+    const imgSrc = imgSrcParts.length > 0 ? imgSrcParts.join(" ") : "'none'";
+
     const policy = doc.createElement("meta");
     policy.httpEquiv = "Content-Security-Policy";
     policy.content =
-      "default-src 'none'; img-src 'self' " +
-      (allowRemote ? "https: http: " : "") +
-      (trustedImages.size ? "data:" : "") +
-      "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'";
+      "default-src 'none'; img-src " +
+      imgSrc +
+      "; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'";
     doc.head.prepend(policy);
   }
   return "<!doctype html>" + (doc.documentElement?.outerHTML ?? "");

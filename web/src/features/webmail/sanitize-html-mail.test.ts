@@ -136,10 +136,10 @@ describe("sanitizeHtmlMail", () => {
   });
 });
 
-describe("same-origin image proxy (server-rewritten src)", () => {
-  const PROXY_SRC =
-    "/api/v1/mailbox/images/proxy?u=aHR0cHM6Ly9jZG4uZXhhbXBsZQ&sig=YWJj&exp=1234";
+const PROXY_SRC =
+  "/api/v1/mailbox/images/proxy?u=aHR0cHM6Ly9jZG4uZXhhbXBsZQ&sig=YWJj&exp=1234";
 
+describe("same-origin image proxy (server-rewritten src)", () => {
   it("keeps proxied remote images with the signed query verbatim", () => {
     const out = sanitizeHtmlMail(
       `<p>before</p><img src="${PROXY_SRC}" alt="banner"><p>after</p>`,
@@ -221,7 +221,32 @@ describe("CSP injection idempotency (server-injected policy)", () => {
       'meta[http-equiv="Content-Security-Policy"]',
     );
     expect(policy).toBeTruthy();
+    expect(policy?.getAttribute("content")).toContain("default-src 'none'");
+    expect(policy?.getAttribute("content")).toContain("img-src 'none'");
+  });
+
+  it("grants img-src 'self' when same-origin proxy images are present", () => {
+    const out = sanitizeHtmlMail(`<img src="${PROXY_SRC}">`);
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const policy = doc.querySelector(
+      'meta[http-equiv="Content-Security-Policy"]',
+    );
     expect(policy?.getAttribute("content")).toContain("img-src 'self'");
+  });
+
+  it("strips root-relative non-proxy and relative img src (only proxy allowed)", () => {
+    const out = sanitizeHtmlMail(
+      [
+        '<img src="/__tracker/img.gif">',
+        '<img src="/relative/img.png">',
+        '<img src="relative.png">',
+        `<img src="${PROXY_SRC}">`,
+      ].join(""),
+    );
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    const imgs = [...doc.querySelectorAll("img")];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]?.getAttribute("src")).toBe(PROXY_SRC);
   });
 });
 
@@ -235,10 +260,8 @@ describe("HTML mail network policy", () => {
     expect(policy?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
     const csp = policy?.getAttribute("content") ?? "";
     expect(csp).toContain("default-src 'none'");
-    // Same-origin proxy images (and cid rewrites) must survive the policy —
-    // the img-src directive must not collapse to 'none'.
-    expect(csp).toContain("img-src 'self'");
-    expect(csp).not.toContain("img-src 'none'");
+    // When no proxy/remote/inline images are present, img-src collapses to 'none'.
+    expect(csp).toContain("img-src 'none'");
     expect(csp).toContain("style-src 'unsafe-inline'");
     expect(csp).toContain("font-src 'none'");
     expect(csp).toContain("connect-src 'none'");
