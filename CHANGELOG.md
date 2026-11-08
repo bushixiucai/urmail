@@ -2,6 +2,44 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.12] - 2026-11-09
+
+双主线：**AI 邮件处理（重点功能，全链路工程化）** + **服务端渲染管线系统性收口**。无数据库迁移（schema 158 不变）。
+
+### AI 邮件处理（重点功能）
+
+产品原则：内置 Prompt + 结构化数据处理 workflow，不依赖模型自由发挥。深度设计经用户终审批准后实施（决策主文档 + UX 规格 + 管线技术设计，17 个 PR 分三线交付）。
+
+后端管线（#61 #62 #63 #65 #68 #71 #73）：
+- **内置 Prompt 模板注册表**（#61）：每操作 system+user 模板常量化，版本号随变更递增进 metrics 与响应体，回滚=revert；每请求随机 nonce 包裹邮件内容 + 数据声明——模型无法用正文伪造闭合标签逃逸；few-shot 全不用（省一半 token、消除模仿注入面）
+- **结构化输出 schema 全覆盖**（#62）：摘要=要点/待办/关键日期/语言；起草=主题/正文/语气说明/模型假设清单；润色=改写文本+修改理由；翻译=译文+源语言检测；分类/钓鱼升级（risk_level 由分数映射兜底，防枚举字段被注入操纵）；DisallowUnknownFields 严格校验
+- **契约 v2**（#63）：assist 响应带 degraded/degrade_reason/template_version/cache_hit；legacy 字段别名保一个版本兼容；OpenAPI 全量更新
+- **校验→重试→降级**（#65）：schema 失败低温重试 1 次 → 仍失败换纯文本模板重发 + degraded 标注（用户永远拿到带标注的可用结果，ollama 小模型同样可用）；provider 错误不重试直接降级；配额一次操作幂等扣一次（预扣防刷量，重试/降级不重复扣）
+- **输出侧注入加固**（#68）：SanitizePayload 递归剥离指令回显（只剥不拒，记 injection_attempts_total）；五用例钉住
+- **操作结果缓存**（#71）：键=操作+模板版本+内容摘要（含租户维度），命中不调 provider 不扣配额回 cache_hit=true；降级结果永不定格缓存
+- **双层评估集**（#73）：27 fixtures（9 操作×3 例），mock 评估即 go test 零 CI 改动；URMAIL_AI_EVAL=1 走真实 provider（阈值云端遵从率 ≥95% / ollama ≥80%）；钉住 fence 抽取、risk_level 映射防谎报、注入输入输出干净
+
+前端（#66 #69 #72）：
+- **设置抽屉第 8 分区「AI 智控」**（#66）：BYOK write-only key、key_configured 徽标、清除、模型连通测试、额度看板
+- **读信摘要卡**（#69）：要点/待办/关键日期/语言结构块 + 追问 chips（更简短/只看待办/翻译本文）+ 长信/外文信轻引导条（场景化引导，不自动生成不浪费配额）+ 钓鱼安全徽章（低风险静默、高风险醒目）+ degraded 降级标注
+- **写信 AI 伴侣**（#72）：880px 双栏对话面板（chips 调优+自由输入+版本历史回退+模型假设审阅折叠卡）+ 选区就地润色胶囊（diff+修改理由）+ 移动时 AI 建议一键转 Sieve 规则（AI 仅建议不执行）
+- UX 范式（用户访谈拍板）：混合双形态（读信=嵌入卡片、写信=对话面板）、入口少而准；Ask 全邮箱问答移至下期（结合搜索体验专门设计）
+
+### 服务端渲染管线（系统性收口）
+
+「修一处破一处」长尾的工程化根治，纯 Go 无新组件，每步带语料回归：
+- **语料回归框架**（#58）：.eml 输入 + golden + 不变量断言（无 script/CSP 恰一份/无多格塌陷行）；QA 导出的 3 封真实破版邮件脱敏入语料（发件人域名哈希零泄露）——每个后续渲染改动都有真实邮件防护网
+- **窄桶 inset clamp**（#59）：margin/padding-left/right ≥32px clamp 到 16px，修 Slack 营销信 375 宽下 97px 横向富余（真实样本 golden 实证生效）
+- **钝器收敛**（#60）：ensureFluidStyle 只作用顶层容器与表格（嵌套 flex/inline-block 不再被强加满宽压成竖排）、min/max-width 识别、calc() 100% 分支保护、包裹层通配收敛为四元素精准作用面
+- **暗色最小版**（#64）：color-scheme 声明让原生控件跟随系统深浅，零配色赋值不反色（Gmail 克制路线，测试钉住 dark 块不含配色）
+- **背景图声明级代理**（#67）：background-image 与 img 同政策（默认阻止、允许时走服务端代理），style 属性从一票否决改为按声明粒度处理；顺带修复老式邮件 font color/face/size 丢失
+- **style 选择器内联**（#70）：go-premailer 在净化前跑（内联→净化→适配），class 布局邮件（Slack/Notion 类）从「净化即失明」恢复完整骨架；@font-face 剥除、@media 按请求视口 bucket 服务端判定应用/丢弃
+- **条件请求与可观测**（#74）：详情 200 带强 ETag（payload sha256）+ X-Render-Cache: hit|miss 观测头；If-None-Match 按 RFC 9110 弱比较→纯头 304，缓存命中路径连 IMAP FETCH 都不做——v0.6.11 复验 DEF-3「公网二次打开无体感」的正解
+
+### 其他
+- CI 加固（urmailctl offsite flake 诊断、本地 DSN 变量名防呆）随下版
+- 无数据库迁移（schema 158 不变）
+
 ## [0.6.11] - 2026-11-08
 
 v0.6.10 生产缺陷修复批次（QA 验收 6 缺陷 + 用户实拍 2 缺陷全修）+ CI 基建改造。无数据库迁移（schema 158 不变）。
