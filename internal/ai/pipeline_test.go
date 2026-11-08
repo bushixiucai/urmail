@@ -97,8 +97,8 @@ func TestPipelineSummarizeStructured(t *testing.T) {
 		t.Fatal(err)
 	}
 	var payload struct {
-		Bullets   []string `json:"bullets"`
-		KeyDates  []struct {
+		Bullets  []string `json:"bullets"`
+		KeyDates []struct {
 			Date  string `json:"date"`
 			Label string `json:"label"`
 		} `json:"key_dates"`

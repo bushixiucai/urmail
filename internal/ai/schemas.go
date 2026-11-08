@@ -50,9 +50,9 @@ func clampScore(score *float64) bool {
 	return true
 }
 
-func trimNonEmpty(s string, max int) (string, bool) {
+func trimNonEmpty(s string, limit int) (string, bool) {
 	s = strings.TrimSpace(s)
-	if s == "" || len(s) > max {
+	if s == "" || len(s) > limit {
 		return "", false
 	}
 	return s, true
@@ -79,8 +79,8 @@ func ValidatePayload(operation string, raw string) (json.RawMessage, error) {
 		}{}
 	case "summarize":
 		value = &struct {
-			Bullets   []string `json:"bullets"`
-			Todos     []struct {
+			Bullets []string `json:"bullets"`
+			Todos   []struct {
 				Task     string  `json:"task"`
 				Assignee *string `json:"assignee"`
 				DueDate  *string `json:"due_date"`
@@ -140,7 +140,7 @@ func ValidatePayload(operation string, raw string) (json.RawMessage, error) {
 	}
 
 	if err := decoder.Decode(value); err != nil {
-		return nil, fmt.Errorf("%w: %s schema: %v", ErrInvalidResponse, operation, err)
+		return nil, fmt.Errorf("%w: %s schema: %w", ErrInvalidResponse, operation, err)
 	}
 	var extra any
 	if !errors.Is(decoder.Decode(&extra), io.EOF) {
@@ -180,8 +180,8 @@ func normalizePayload(operation string, value any) (json.RawMessage, error) {
 		})
 
 	case *struct {
-		Bullets   []string `json:"bullets"`
-		Todos     []struct {
+		Bullets []string `json:"bullets"`
+		Todos   []struct {
 			Task     string  `json:"task"`
 			Assignee *string `json:"assignee"`
 			DueDate  *string `json:"due_date"`
@@ -454,7 +454,7 @@ func round3(f float64) float64 {
 func marshalJSON(v any) (json.RawMessage, error) {
 	out, err := json.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("%w: normalize: %v", ErrInvalidResponse, err)
+		return nil, fmt.Errorf("%w: normalize: %w", ErrInvalidResponse, err)
 	}
 	return out, nil
 }
