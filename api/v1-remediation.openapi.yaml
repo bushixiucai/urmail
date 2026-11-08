@@ -3989,6 +3989,23 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
+  /mailbox/images/proxy:
+    get:
+      tags: [Native mailbox]
+      summary: Fetch a remote mail image through the server (privacy proxy)
+      description: |
+        The reader's browser never contacts the third-party host. The request
+        is authorised by a short-lived HMAC signature that binds the mailbox,
+        the message UID and the target URL. A bearer token that is present
+        anyway must belong to the same mailbox. SVG and non-raster types are
+        refused; private / loopback / link-local targets are refused (SSRF).
+      parameters:
+      - {name: u, in: query, required: true, schema: {type: string}, description: Base64url-encoded signed payload.}
+      - {name: sig, in: query, required: true, schema: {type: string}, description: HMAC-SHA256 of the payload.}
+      responses:
+        '200': {description: Raster image bytes (png/jpeg/gif/webp) or a transparent placeholder on fetch failure.}
+        '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /mailbox/folders/{name}/messages/{uid}:
     get:
       tags: [Native mailbox]

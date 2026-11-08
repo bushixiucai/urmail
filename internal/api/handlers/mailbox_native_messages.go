@@ -29,7 +29,11 @@ import (
 //     keeps pagination stable while new mail arrives (webmail.ListOpts
 //     documents the contract). Expunged cursors resync from the head.
 //   - thread — "1"/"true" to stamp thread_id/thread_count (server path with
-//     THREAD=REFERENCES, client grouping otherwise; response thread_mode).
+//     THREAD=REFERENCES, client grouping otherwise; response thread_mode and
+//     thread_scope, the latter reporting how complete the counts are).
+//   - preview — "0"/"false" drops the one-line body snippet from every row.
+//     By default each message carries a plain-text snippet (preview) fetched
+//     with one batched, byte-bounded IMAP command per page.
 func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	folder, ok := h.folderParam(c)
 	if !ok {
@@ -66,6 +70,7 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		SortDesc:  sortDesc,
 		CursorUID: uint32(cursor64),
 		Thread:    thread,
+		Preview:   !isDisabledParam(c.Query("preview")),
 	})
 	result, err := client.ListMessages(c.Request.Context(), folder, opts)
 	if err != nil {
@@ -96,6 +101,7 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		"sort":          result.Sort,
 		"server_sorted": result.ServerSorted,
 		"thread_mode":   result.ThreadMode,
+		"thread_scope":  result.ThreadScope,
 	})
 }
 
@@ -103,6 +109,16 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 func isTruthyParam(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// isDisabledParam reports whether a default-on query flag was explicitly
+// switched off ("0", "false", "off", "no").
+func isDisabledParam(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "false", "off", "no":
 		return true
 	}
 	return false
@@ -163,7 +179,7 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
+	client, session, ok := h.dialIMAP(c)
 	if !ok {
 		return
 	}
@@ -199,10 +215,22 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		// Render-time sanitization (WEBMAIL-007): the IMAP original stays
 		// untouched. Remote images are blocked by default for privacy;
 		// ?load_images=1 is the per-message "load images" user action.
-		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, webmail.SanitizeOptions{
-			AllowRemoteImages: isTruthyParam(c.Query("load_images")),
+		//
+		// When the reader allows remote images, they are served through
+		// the server-side image proxy: the browser must not contact the
+		// third party, or a tracking pixel learns the reader's address.
+		// Without a signing key the proxy cannot sign a URL, so remote
+		// images stay blocked (fail closed) instead of being fetched by
+		// the browser directly.
+		allowRemote := isTruthyParam(c.Query("load_images")) && len(h.RenderKey) > 0
+		sanitizeOpts := webmail.SanitizeOptions{
+			AllowRemoteImages: allowRemote,
 			CIDRewriter:       cidAttachmentURL(folder, uint32(uid), msg.Attachments, msg.UIDValidity),
-		})
+		}
+		if allowRemote {
+			sanitizeOpts.RemoteImageProxy = h.imageProxyRewriter(session.MailboxID, uint32(uid))
+		}
+		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, sanitizeOpts)
 		msg.HTML = safe
 		msg.Notes = notes
 	}

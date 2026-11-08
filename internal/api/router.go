@@ -94,6 +94,10 @@ type Options struct {
 	DNSManagedZones []string
 	// QuoteHMACKey signs support diagnostics.
 	QuoteHMACKey string
+	// WebmailRenderKey signs webmail image proxy URLs and link
+	// confirmation tokens. An empty key disables both: remote images stay
+	// blocked and links keep their plain form.
+	WebmailRenderKey []byte
 	// BaseURL is the public panel origin used for Stripe redirects.
 	BaseURL string
 	// MarketingTokens verifies stateless, signed unsubscribe tokens.
@@ -297,6 +301,7 @@ func New(opts Options) *gin.Engine {
 		AILocalEndpoints: opts.AILocalEndpoints,
 		Pool:             opts.PlatformPool,
 		MaySend:          handlers.MailAllowed(platformQueries),
+		RenderKey:        opts.WebmailRenderKey,
 		// WEBMAIL-005/006 mailbox self-service: signature, identities,
 		// quota and managed-sieve rules through the existing safe pipeline.
 		SelfSettings: handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool},
@@ -383,6 +388,13 @@ func New(opts Options) *gin.Engine {
 			v1.POST("/roundcube/bridge", mailboxBridge.Bridge)
 		}
 		v1.GET("/mailbox/status", mailboxNative.Status)
+		// The image proxy is authorized by the signed URL alone: an image
+		// inside the sandboxed message frame cannot present the mailbox
+		// bearer token. A bearer that is sent anyway must belong to the
+		// signed mailbox.
+		v1.GET("/mailbox/images/proxy", middleware.RateLimitWindow(600, time.Minute, func(c *gin.Context) (string, bool) {
+			return c.ClientIP(), true
+		}), mailboxNative.ImageProxy)
 		v1.GET("/internal/status/ready", func(c *gin.Context) {
 			c.Set("statusReadyQuerier", opts.PlatformPool)
 			handlers.StatusReady(c)
