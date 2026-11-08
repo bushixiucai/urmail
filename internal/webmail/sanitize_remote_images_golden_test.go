@@ -6,10 +6,13 @@ import "testing"
 // contract for remote images: one identical input, two states (default and
 // AllowRemoteImages opt-in), compared as exact golden output. Absolute
 // http(s) <img src> survives only the opt-in pass; protocol-relative img src,
-// srcset, remote poster/background, CSS url(), scripts and dangerous schemes
-// are removed in both states; safe raster data: images survive; cid images
-// are only rewritten when a rewriter is configured. The sanitizer source must
-// not be loosened to keep this test green.
+// srcset, remote poster/background are removed in both states; CSS url()
+// references follow the img policy since PR-5 (declaration level: blocked by
+// default, direct under opt-in without a proxy, proxied when one is
+// configured); scripts and dangerous schemes are removed in both states;
+// safe raster data: images survive; cid images are only rewritten when a
+// rewriter is configured. The sanitizer source must not be loosened to keep
+// this test green.
 func TestSanitizeRemoteImagesGolden(t *testing.T) {
 	const in = "<img src=\"https://track.example/pixel.gif\" alt=\"pixel\">" +
 		"<img src=\"http://track.example/pixel.gif\">" +
@@ -40,7 +43,7 @@ func TestSanitizeRemoteImagesGolden(t *testing.T) {
 
 	const allowedGolden = "<img alt=\"pixel\" src=\"https://track.example/pixel.gif\"/>" +
 		"<img src=\"http://track.example/pixel.gif\"/>" +
-		"x<div>x</div>" +
+		"x<div style=\"background: url(https://evil.example/x.png)\">x</div>" +
 		"<img alt=\"dot\" src=\"data:image/png;base64,iVBORw0KGgo=\"/>"
 	allowed, allowedNotes := SanitizeHTMLOpts(in, SanitizeOptions{AllowRemoteImages: true})
 	if allowed != allowedGolden {
@@ -49,7 +52,7 @@ func TestSanitizeRemoteImagesGolden(t *testing.T) {
 	if hasNote(allowedNotes, NoteRemoteImagesBlocked) {
 		t.Fatalf("opt-in pass must not report blocked remote images: %v", allowedNotes)
 	}
-	for _, banned := range []string{"//evil.example", "srcset", "background=", "url(", "poster", "script", "javascript:", "image/svg"} {
+	for _, banned := range []string{"src=\"//evil.example", "srcset", "background=", "poster", "script", "javascript:", "image/svg"} {
 		if containsFold(allowed, banned) {
 			t.Fatalf("opt-in output contains %q: %s", banned, allowed)
 		}
