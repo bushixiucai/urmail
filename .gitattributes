@@ -1,0 +1,2 @@
+internal/webmail/testdata/corpus/*.eml -text
+internal/webmail/testdata/corpus/*.golden.html -text
