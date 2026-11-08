@@ -395,6 +395,10 @@ func New(opts Options) *gin.Engine {
 		v1.GET("/mailbox/images/proxy", middleware.RateLimitWindow(600, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
 		}), mailboxNative.ImageProxy)
+		v1.GET("/mailbox/links/confirm", mailboxNative.LinkConfirm)
+		v1.POST("/mailbox/links/confirm", middleware.RateLimitWindow(60, time.Minute, func(c *gin.Context) (string, bool) {
+			return c.ClientIP(), true
+		}), mailboxNative.LinkConfirm)
 		v1.GET("/internal/status/ready", func(c *gin.Context) {
 			c.Set("statusReadyQuerier", opts.PlatformPool)
 			handlers.StatusReady(c)

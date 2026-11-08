@@ -57,6 +57,11 @@ type SanitizeOptions struct {
 	// there is no direct-URL fallback, because a direct URL would hand
 	// the reader's address to the sender.
 	RemoteImageProxy func(remoteURL string) (url string, ok bool)
+	// LinkRewriter, when non-nil, rewrites absolute http(s) hrefs to a
+	// same-origin confirmation page. mailto:/tel: and relative URLs stay
+	// untouched. Reporting !ok drops the href so the reader cannot leave
+	// without confirming.
+	LinkRewriter func(href string) (url string, ok bool)
 }
 
 // SanitizeHTML sanitizes an HTML mail body with remote images blocked.
@@ -158,7 +163,7 @@ func (s *htmlSanitizer) visit(n *html.Node) bool {
 	}
 	n.Attr = n.Attr[:keepAttrs]
 	if n.DataAtom == atom.A {
-		hardenAnchor(n)
+		s.hardenAnchor(n)
 	}
 	children := make([]*html.Node, 0, 4)
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -198,12 +203,36 @@ func (s *htmlSanitizer) sanitizeImg(img *html.Node) bool {
 }
 
 // hardenAnchor forces links open in a new tab without referrer; href schemes
-// are already restricted by safeLinkScheme.
-func hardenAnchor(a *html.Node) {
+// are already restricted by safeLinkScheme. Absolute http(s) links are
+// rewritten through LinkRewriter when one is configured so the reader
+// must confirm before leaving the webmail origin.
+func (s *htmlSanitizer) hardenAnchor(a *html.Node) {
+	if s.opts.LinkRewriter != nil {
+		for i := range a.Attr {
+			if !strings.EqualFold(a.Attr[i].Key, "href") {
+				continue
+			}
+			if rewritten, ok := s.opts.LinkRewriter(a.Attr[i].Val); ok && rewritten != "" {
+				a.Attr[i].Val = rewritten
+			} else if needsConfirmHref(a.Attr[i].Val) {
+				// A refusing rewriter drops the href: there is no
+				// direct-URL fallback for absolute http(s) links.
+				a.Attr = append(a.Attr[:i], a.Attr[i+1:]...)
+			}
+			break
+		}
+	}
 	a.Attr = append(a.Attr,
 		html.Attribute{Key: "rel", Val: "noopener noreferrer"},
 		html.Attribute{Key: "target", Val: "_blank"},
 	)
+}
+
+// needsConfirmHref reports absolute http(s) hrefs that the confirmation
+// page must intercept. mailto:/tel: and relative URLs stay untouched.
+func needsConfirmHref(href string) bool {
+	lower := strings.ToLower(strings.TrimSpace(href))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
 var (

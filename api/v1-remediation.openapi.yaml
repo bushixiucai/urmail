@@ -3989,6 +3989,35 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}
+  /mailbox/links/confirm:
+    get:
+      tags: [Native mailbox]
+      summary: Confirm an outbound mail link before leaving urMail
+      description: |
+        Shows the destination hostname character-by-character (homograph
+        defence), the full URL, and the source sender/subject. mailto:/tel:
+        links never reach this page.
+      parameters:
+      - {name: t, in: query, required: true, schema: {type: string}, description: Signed confirmation token.}
+      responses:
+        '200': {description: HTML confirmation page.}
+        '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Native mailbox]
+      summary: Proceed to the confirmed outbound URL
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [t]
+              properties:
+                t: {type: string}
+      responses:
+        '302': {description: Redirect to the real destination.}
+        '403': {$ref: '#/components/responses/Error'}
   /mailbox/images/proxy:
     get:
       tags: [Native mailbox]
