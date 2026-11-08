@@ -62,6 +62,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
         size: m.size,
         threadId: m.thread_id,
         threadCount: isChild ? undefined : m.thread_count,
+        isThreadChild: isChild || undefined,
         folder: m.folder,
         folderEnc: m.folder_enc,
       };
@@ -95,9 +96,14 @@ export function useMessageThreading(messages: MessageSummary[]) {
       result.push(parentItem);
 
       if (isExpanded) {
-        for (const child of sorted.slice(1)) {
-          result.push(toWebmailItem(child, true));
-        }
+        // Spec: children under the parent, oldest → newest (exclude the
+        // representative which is the newest message).
+        const children = sorted.slice(1).reverse();
+        children.forEach((child, index) => {
+          const item = toWebmailItem(child, true);
+          if (index === children.length - 1) item.isLastThreadChild = true;
+          result.push(item);
+        });
       }
     }
 
