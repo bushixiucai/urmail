@@ -102,7 +102,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Evaluate the email for phishing or security risks based on verifiable evidence. Scores must be finite between 0 and 1. If an element cannot be verified, state that explicitly.",
 				`{"score":0.0,"reasons":["reason"]}`)
 		},
@@ -114,7 +114,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Suggest a draft reply based strictly on the email and instructions. Do not invent factual commitments, contractual promises, or unauthorized deadlines. Suggestion only; never send.",
 				`{"subject":"suggested subject","body":"suggested body; never send it"}`)
 		},
@@ -126,7 +126,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Suggest a draft reply based strictly on the email and instructions. Do not invent factual commitments, contractual promises, or unauthorized deadlines. Suggestion only; never send.",
 				`{"subject":"suggested subject","body":"suggested body; never send it"}`)
 		},
@@ -146,7 +146,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Refine the provided draft for clarity and professional tone without altering factual commitments.",
 				`{"draft":"suggested draft; never send it"}`)
 		},
@@ -164,7 +164,7 @@ func init() {
 		Version:   1,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return jsonSystem("Execute the user instruction regarding the email. Do not execute actions, send messages or create rules.",
 				`{"task_type":"extraction|explanation|summary|translation|draft|other","result":"task result"}`)
 		},

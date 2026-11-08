@@ -16,7 +16,7 @@ func init() {
 		Operation: "batch_classify",
 		Version:   1,
 		JSONMode:  true,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return "You are an email classification assistant. Categorize the given email into exactly one of: " +
 				"inbox, work, personal, marketing, finance, support, notifications, spam.\n" +
 				"Respond ONLY with a JSON object in this format: {\"category\": \"<category>\", \"score\": <float between 0.0 and 1.0>}"
@@ -56,7 +56,7 @@ func init() {
 		Operation: "batch_phishing",
 		Version:   1,
 		JSONMode:  true,
-		System: func(p Params) string {
+		System: func(_ Params) string {
 			return "You are an expert cybersecurity email threat analyzer. " +
 				"Evaluate the email for phishing indicators such as domain spoofing, urgent threats, credential harvesting, and deceptive links.\n" +
 				"Respond ONLY with a JSON object in this format:\n" +
