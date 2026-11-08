@@ -108,7 +108,17 @@ func assertCorpusInvariants(t *testing.T, sanitized, out string) {
 	if csp := strings.Count(lower, "http-equiv=\"content-security-policy\""); csp != 1 {
 		t.Fatalf("CSP meta count = %d, want exactly 1", csp)
 	}
-	// The M2 contract: no row carries two or more full-width direct cells.
+}
+
+// assertCorpusLayoutInvariants guards the structural M2 contract: no row
+// carries two or more full-width direct cells. It runs on the desktop
+// chain only, where every media block is dropped and no sender-authored
+// responsive stacking applies — so a full-width cell here can only come
+// from our own adaptation regressions (the PR-B blunt-instrument class
+// of bug). On the mobile chain senders legitimately stack columns for
+// phones (Slack's logo-social-row does exactly that).
+func assertCorpusLayoutInvariants(t *testing.T, out string) {
+	t.Helper()
 	for _, row := range corpusRows(t, out) {
 		if row.cells >= 2 && row.fullWidth >= 2 {
 			t.Fatalf("collapsed row (%d cells, %d full-width) survived", row.cells, row.fullWidth)
@@ -184,10 +194,23 @@ func TestCorpusRenderGolden(t *testing.T) {
 				t.Fatalf("read: %v", err)
 			}
 			doc := corpusHTMLPart(t, raw)
-			safe, _ := SanitizeHTMLOpts(doc, SanitizeOptions{})
+			// Mirror the production pipeline order (inline → sanitize →
+			// adapt) so the goldens pin the whole chain, media handling
+			// included. The golden is the mobile render (phones are the
+			// broken-layout surface); the invariants run on both chains —
+			// the structural M2 check on the desktop chain where media is
+			// dropped, so it can only catch our own regressions.
+			inlined := InlineCSS(doc, UAClassMobile)
+			safe, _ := SanitizeHTMLOpts(inlined, SanitizeOptions{})
 			out := AdaptHTMLForViewport(safe, Viewport{UAClass: "mobile", Width: 375})
 			wrapped := WrapHTMLDocument(out)
 			assertCorpusInvariants(t, safe, wrapped)
+
+			desktopInlined := InlineCSS(doc, UAClassDesktop)
+			desktopSafe, _ := SanitizeHTMLOpts(desktopInlined, SanitizeOptions{})
+			desktopWrapped := WrapHTMLDocument(AdaptHTMLForViewport(desktopSafe, Viewport{UAClass: UAClassDesktop, Width: 1024}))
+			assertCorpusInvariants(t, desktopSafe, desktopWrapped)
+			assertCorpusLayoutInvariants(t, desktopWrapped)
 
 			goldenPath := strings.TrimSuffix(p, ".eml") + ".golden.html"
 			if update {
