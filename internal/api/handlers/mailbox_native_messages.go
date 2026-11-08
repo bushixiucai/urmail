@@ -291,7 +291,13 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 			}
 			sanitizeOpts.LinkRewriter = h.linkConfirmRewriter(session.MailboxID, uint32(uid), from, msg.Subject)
 		}
-		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, sanitizeOpts)
+		// Style-selector inlining precedes sanitization (inline →
+		// sanitize → adapt): <style> rules would otherwise die in the
+		// sanitizer before touching an element. Media queries are
+		// evaluated server-side against the reading bucket, so the
+		// rendercache key's bucket fully determines the output.
+		inlined := webmail.InlineCSS(msg.HTML, uaClass)
+		safe, notes := webmail.SanitizeHTMLOpts(inlined, sanitizeOpts)
 		vp := webmail.Viewport{UAClass: uaClass, Width: vpWidth}
 		adapted := webmail.AdaptHTMLForViewport(safe, vp)
 		msg.HTML = webmail.WrapHTMLDocument(adapted)
