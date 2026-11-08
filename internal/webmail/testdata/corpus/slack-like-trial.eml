@@ -1,0 +1,51 @@
+From: Trial Notices <notices@m1.redacted>
+To: tiger@example.test
+Subject: Your trial ends in 7 days
+Date: Sat, 08 Nov 2026 09:00:00 +0000
+Message-ID: <corpus-slack-like-1@m1.redacted>
+Content-Type: multipart/alternative; boundary="corpus-boundary-7f3a"
+
+--corpus-boundary-7f3a
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Your trial ends in 7 days. Upgrade your workspace before the trial expires.
+--corpus-boundary-7f3a
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><head>
+<style type="text/css">
+body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
+.lg_margin{margin-left:50px;margin-right:50px}
+.logo_style{margin-top:18px}
+.list-item--icon_width{width:36px;vertical-align:top}
+.list-item--gap_width{width:16px}
+.list-item--header_font{font-size:18px;font-weight:700;color:#1d1c1d}
+.email_footer{font-size:15px;color:#717274;text-align:center}
+</style></head>
+<body style="background:#f4f4f4">
+<table id="body" class="card" style="border:0;border-collapse:collapse;margin:0 auto;background:white;border-radius:8px;margin-bottom:16px;">
+<tr><td style="width:546px;vertical-align:top;padding-top:32px">
+<div style="max-width:600px;margin:0 auto;">
+<div style="margin-left:50px;margin-right:50px;" class="lg_margin">
+<div style="margin-top:18px;" class="logo_style"><img height="45" src="https://brand-mailer.example/logo.png" alt="logo"></div>
+<h1>Your trial ends in 7 days</h1>
+<p>Upgrade your workspace before the trial expires to keep your message history.</p>
+<div style="margin-bottom:20px"><table><tr>
+<td class="list-item--icon_width"><img src="https://brand-mailer.example/clock.png" alt="clock icon"></td>
+<td class="list-item--gap_width"></td>
+<td><h3 class="list-item--header_font">Trial ends on Nov 15</h3><div class="text">Your workspace reverts to the free plan.</div></td>
+</tr></table></div>
+<div style="margin-bottom:20px"><table><tr>
+<td class="list-item--icon_width"><img src="https://brand-mailer.example/lock.png" alt="icon"></td>
+<td class="list-item--gap_width"></td>
+<td><h3 class="list-item--header_font">Keep your history</h3><div class="text">Upgrade now to keep everything.</div></td>
+</tr></table></div>
+</div></td></tr></table>
+<table style="padding:0;margin:0;width:100%;"><tr>
+<td class="email_footer" style="font-size:15px;color:#717274;text-align:center;width:100%;">Sent by the workspace owner &middot; Unsubscribe anytime</td>
+</tr></table>
+</body></html>
+--corpus-boundary-7f3a--
