@@ -230,7 +230,8 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 			UAClass: webmail.ParseUAClass(c.GetHeader("X-UA-Class")),
 			Width:   webmail.ParseViewportWidth(c.GetHeader("X-Viewport-Width")),
 		}
-		msg.HTML = webmail.AdaptHTMLForViewport(safe, vp)
+		adapted := webmail.AdaptHTMLForViewport(safe, vp)
+		msg.HTML = webmail.WrapHTMLDocument(adapted)
 		msg.Notes = notes
 	}
 	c.JSON(http.StatusOK, msg)
