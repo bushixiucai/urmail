@@ -139,13 +139,22 @@ func AdaptHTMLForViewport(body string, vp Viewport) string {
 func wrapViewport(inner, ua, bucket string) string {
 	class := fmt.Sprintf("urmail-vp urmail-vp-%s urmail-ua-%s", bucket, ua)
 	style := viewportCSS()
-	return `<style type="text/css">` + style + `</style><div class="` + class + `">` + inner + `</div>`
+	// The dark-scheme declaration rides at the fragment head: the render
+	// fragment is loaded as an iframe document, so the meta lands in that
+	// document's head and the browser may render native widgets for the
+	// pane in the user's scheme. Email content colors stay untouched.
+	return `<meta name="color-scheme" content="light dark">` + `<style type="text/css">` + style + `</style><div class="` + class + `">` + inner + `</div>`
 }
 
 // viewportCSS returns the wrapper stylesheet. The max-width cap targets
 // layout elements only (table/td/th/img): a universal *{max-width} also
 // lands on flex and inline-block children and was one of the blunt tools
 // that crushed modern-mail layouts into a vertical column.
+//
+// The trailing prefers-color-scheme rule is the minimal dark support
+// (Gmail-style restraint): it declares the scheme so native widgets
+// (scrollbars, form controls) follow the user preference; it never
+// inverts or recolors the email itself.
 func viewportCSS() string {
 	return strings.TrimSpace(`
 .urmail-vp{max-width:100%;overflow-x:auto;box-sizing:border-box}
@@ -156,6 +165,7 @@ func viewportCSS() string {
 .urmail-vp-medium{width:100%}
 .urmail-vp-wide{width:100%}
 @media (max-width:640px){.urmail-vp{font-size:16px}}
+@media (prefers-color-scheme:dark){.urmail-vp{color-scheme:light dark}}
 `)
 }
 
