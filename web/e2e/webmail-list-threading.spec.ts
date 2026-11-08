@@ -72,7 +72,7 @@ async function setupListFixture(page: Page) {
         ],
         total: 3,
       };
-    else if (path.includes("/messages/202") || path.includes("/messages/201"))
+    else if (path.includes("/messages/202"))
       payload = {
         uid: 202,
         subject: "Re: Project Status Update",
@@ -81,6 +81,17 @@ async function setupListFixture(page: Page) {
         flags: [],
         size: 2048,
         text: "Updated project plan.",
+        attachments: [],
+      };
+    else if (path.includes("/messages/201"))
+      payload = {
+        uid: 201,
+        subject: "Project Status Update",
+        from: [{ name: "Alice", email: "alice@example.test" }],
+        date: "2026-11-06T09:00:00Z",
+        flags: ["\\Seen"],
+        size: 1024,
+        text: "Kicking off the project plan.",
         attachments: [],
       };
 
@@ -139,5 +150,69 @@ test.describe("Webmail List & Threading", () => {
 
     await selectAllBtn.click();
     await expect(row202).toHaveAttribute("data-selected", "false");
+  });
+
+  test("thread stack: opens with only the newest card expanded and navigates", async ({
+    page,
+  }) => {
+    await setupListFixture(page);
+    await page.goto("/webmail/inbox");
+
+    // Wait for the list to settle before opening (auto-select effect runs
+    // once messages arrive; clicking a just-mounted virtual row can race).
+    await expect(page.getByTestId("mail-row-202")).toBeVisible();
+    await page.waitForTimeout(500);
+
+    // Open the thread representative (newest = uid 202). Click the subject
+    // area — the row's center sits on the thread badge, which only expands.
+    await page.getByTestId("mail-row-202").click({
+      position: { x: 200, y: 20 },
+    });
+
+    // Reading pane switches to the stacked cards view.
+    const stack = page.getByTestId("thread-stack");
+    await expect(stack).toBeVisible();
+    await expect(page.getByTestId("thread-card-201")).toBeVisible();
+    await expect(page.getByTestId("thread-card-202")).toBeVisible();
+
+    // Default: only the newest (202) is expanded.
+    await expect(page.getByTestId("thread-card-202")).toHaveAttribute(
+      "data-expanded",
+      "true",
+    );
+    await expect(page.getByTestId("thread-card-201")).toHaveAttribute(
+      "data-expanded",
+      "false",
+    );
+
+    // Thread bar shows member count and prev/next controls.
+    await expect(page.getByTestId("thread-prev")).toBeVisible();
+    await expect(page.getByTestId("thread-next")).toBeVisible();
+
+    // Click the older card header: it expands, the other collapses.
+    await page.getByTestId("thread-card-header-201").click();
+    await expect(page.getByTestId("thread-card-201")).toHaveAttribute(
+      "data-expanded",
+      "true",
+    );
+    await expect(page.getByTestId("thread-card-202")).toHaveAttribute(
+      "data-expanded",
+      "false",
+    );
+
+    // Reply actions scope to the expanded card.
+    await expect(page.getByTestId("thread-card-reply")).toBeVisible();
+
+    // Prev at the oldest card is disabled; navigate next back to 202.
+    await expect(page.getByTestId("thread-prev")).toBeDisabled();
+    await page.getByTestId("thread-next").click();
+    await expect(page.getByTestId("thread-card-202")).toHaveAttribute(
+      "data-expanded",
+      "true",
+    );
+    await expect(page.getByTestId("thread-card-201")).toHaveAttribute(
+      "data-expanded",
+      "false",
+    );
   });
 });
