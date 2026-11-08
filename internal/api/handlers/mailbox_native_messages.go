@@ -29,7 +29,8 @@ import (
 //     keeps pagination stable while new mail arrives (webmail.ListOpts
 //     documents the contract). Expunged cursors resync from the head.
 //   - thread — "1"/"true" to stamp thread_id/thread_count (server path with
-//     THREAD=REFERENCES, client grouping otherwise; response thread_mode).
+//     THREAD=REFERENCES, client grouping otherwise; response thread_mode and
+//     thread_scope, the latter reporting how complete the counts are).
 func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 	folder, ok := h.folderParam(c)
 	if !ok {
@@ -96,6 +97,7 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		"sort":          result.Sort,
 		"server_sorted": result.ServerSorted,
 		"thread_mode":   result.ThreadMode,
+		"thread_scope":  result.ThreadScope,
 	})
 }
 
