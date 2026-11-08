@@ -146,7 +146,14 @@ func ValidatePayload(operation string, raw string) (json.RawMessage, error) {
 	if !errors.Is(decoder.Decode(&extra), io.EOF) {
 		return nil, fmt.Errorf("%w: %s trailing content", ErrInvalidResponse, operation)
 	}
-	return normalizePayload(operation, value)
+	normalized, err := normalizePayload(operation, value)
+	if err != nil {
+		return nil, err
+	}
+	// Output-side injection hardening rides last: normalized strings are
+	// bounds-checked, so stripping echoes cannot trip the limits again.
+	cleaned, _ := SanitizePayload(normalized)
+	return cleaned, nil
 }
 
 // normalizePayload enforces per-operation bounds and emits the normalized
