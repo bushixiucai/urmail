@@ -81,22 +81,7 @@ func (a *Assistant) completeTemplate(ctx context.Context, operation string, p te
 	if err != nil {
 		return CompletionResponse{}, err
 	}
-	req := CompletionRequest{
-		Model:    a.model,
-		JSONMode: treq.JSONMode,
-	}
-	if treq.MaxTokens > 0 {
-		mt := treq.MaxTokens
-		req.MaxTokens = &mt
-	}
-	if treq.Temperature != nil {
-		t := *treq.Temperature
-		req.Temperature = &t
-	}
-	for _, m := range treq.Messages {
-		req.Messages = append(req.Messages, Message{Role: m.Role, Content: m.Content})
-	}
-	return a.provider.Complete(ctx, req)
+	return a.provider.Complete(ctx, requestFromTemplate(a.model, treq))
 }
 
 // ClassifyEmailWithContext categorizes an email using the provided context.
