@@ -235,3 +235,37 @@ func TestSanitizeHTMLDropsImageWhenProxyRefuses(t *testing.T) {
 		t.Fatalf("want remote_images_blocked note, got %v", notes)
 	}
 }
+
+func TestSanitizeHTMLRewritesExternalLinksToConfirm(t *testing.T) {
+	in := `<p><a href="https://evil.example/phish">click</a><a href="mailto:a@b.test">mail</a><a href="/relative">rel</a></p>`
+	out, _ := SanitizeHTMLOpts(in, SanitizeOptions{
+		LinkRewriter: func(href string) (string, bool) {
+			if strings.HasPrefix(href, "http") {
+				return "/api/v1/mailbox/links/confirm?t=tok", true
+			}
+			return "", false
+		},
+	})
+	if strings.Contains(out, "evil.example") {
+		t.Fatalf("direct link survived: %s", out)
+	}
+	if !strings.Contains(out, "/api/v1/mailbox/links/confirm?t=tok") {
+		t.Fatalf("confirm rewrite missing: %s", out)
+	}
+	if !strings.Contains(out, "mailto:a@b.test") {
+		t.Fatalf("mailto rewritten: %s", out)
+	}
+	if !strings.Contains(out, `href="/relative"`) {
+		t.Fatalf("relative rewritten: %s", out)
+	}
+}
+
+func TestSanitizeHTMLDropsLinkWhenRewriterRefuses(t *testing.T) {
+	in := `<a href="https://evil.example/phish">click</a>`
+	out, _ := SanitizeHTMLOpts(in, SanitizeOptions{
+		LinkRewriter: func(string) (string, bool) { return "", false },
+	})
+	if strings.Contains(out, "evil.example") || strings.Contains(out, "href=") {
+		t.Fatalf("refused link survived: %s", out)
+	}
+}

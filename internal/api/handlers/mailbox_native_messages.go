@@ -230,6 +230,17 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		if allowRemote {
 			sanitizeOpts.RemoteImageProxy = h.imageProxyRewriter(session.MailboxID, uint32(uid))
 		}
+		if len(h.RenderKey) > 0 {
+			from := ""
+			if len(msg.From) > 0 {
+				if msg.From[0].Name != "" {
+					from = msg.From[0].Name + " <" + msg.From[0].Email + ">"
+				} else {
+					from = msg.From[0].Email
+				}
+			}
+			sanitizeOpts.LinkRewriter = h.linkConfirmRewriter(session.MailboxID, uint32(uid), from, msg.Subject)
+		}
 		safe, notes := webmail.SanitizeHTMLOpts(msg.HTML, sanitizeOpts)
 		msg.HTML = safe
 		msg.Notes = notes
