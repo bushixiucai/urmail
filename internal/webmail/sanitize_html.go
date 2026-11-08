@@ -126,16 +126,20 @@ func (s *htmlSanitizer) note(n string) {
 	s.notes = append(s.notes, n)
 }
 
-// visit sanitizes node n in place and reports whether it survives (kept by
-// the caller). Nodes are mutated in the parsed tree, which is dropped after
-// rendering; the child list is snapshotted before recursion.
+// visit sanitizes node n in place and reports whether the node survives as
+// a kept node of the sanitized document. Nodes are mutated in the parsed
+// tree, which is dropped after rendering; the child list is snapshotted
+// before recursion. A child that does not survive is removed from the tree
+// here: a disallowed subtree that only stopped being *reported* kept would
+// still reach the rendered output (script, style, iframe, forms, blocked
+// images) - the bug this loop exists to prevent.
 func (s *htmlSanitizer) visit(n *html.Node) bool {
 	switch n.Type {
 	case html.TextNode:
-		return false // kept via its sanitized parent element
+		return true // text renders with its parent element
 	case html.ElementNode:
 	default:
-		return false // comments, doctype, etc.
+		return false // comments, doctype, etc. are removed
 	}
 	if !allowedTags[n.DataAtom] {
 		// Dropped with its whole subtree: script/style/iframe/svg/math/
@@ -170,7 +174,12 @@ func (s *htmlSanitizer) visit(n *html.Node) bool {
 		children = append(children, c)
 	}
 	for _, c := range children {
-		s.visit(c)
+		if s.visit(c) {
+			continue
+		}
+		if c.Parent == n {
+			n.RemoveChild(c)
+		}
 	}
 	return true
 }
