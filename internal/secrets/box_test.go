@@ -60,3 +60,19 @@ func TestLegacyPlaintextPassesThrough(t *testing.T) {
 		t.Fatalf("legacy = %q, %v", got, err)
 	}
 }
+
+func TestDeriveKeyStableAndLabelBound(t *testing.T) {
+	box, err := secrets.New(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := box.DeriveKey("webmail-render-v1")
+	b := box.DeriveKey("webmail-render-v1")
+	c := box.DeriveKey("other-purpose")
+	if len(a) != 32 || string(a) != string(b) {
+		t.Fatalf("derive not stable: %x vs %x", a, b)
+	}
+	if string(a) == string(c) {
+		t.Fatalf("different labels must not collide")
+	}
+}

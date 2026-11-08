@@ -5,6 +5,7 @@ package secrets
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -21,6 +22,7 @@ const prefix = "enc:v1:"
 // Box is an AES-256-GCM wrapper around a 32-byte key.
 type Box struct {
 	aead cipher.AEAD
+	key  []byte
 }
 
 // Load derives the encryption key from the master key at path.
@@ -67,7 +69,22 @@ func New(key []byte) (*Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Box{aead: aead}, nil
+	return &Box{aead: aead, key: key}, nil
+}
+
+// DeriveKey returns a 32-byte subkey bound to label, derived from the
+// master key with HMAC-SHA256. One master key can then serve several
+// purposes (secret encryption, request signing) without any of them
+// reusing the raw key material. The label is part of the derivation, so
+// subkeys for different purposes never collide.
+func (b *Box) DeriveKey(label string) []byte {
+	if b == nil || len(b.key) == 0 {
+		return nil
+	}
+	mac := hmac.New(sha256.New, b.key)
+	mac.Write([]byte("urmail/derive/v1/"))
+	mac.Write([]byte(label))
+	return mac.Sum(nil)
 }
 
 // EncryptString returns a versioned, base64-encoded ciphertext.

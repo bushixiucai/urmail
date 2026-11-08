@@ -104,6 +104,13 @@ type ListResult struct {
 	// "" (not requested), "server" (IMAP THREAD=REFERENCES) or "client"
 	// (grouping computed over the fetched summaries).
 	ThreadMode string `json:"thread_mode,omitempty"`
+	// ThreadScope reports how complete the stamped thread_count is:
+	// "server" (counts come from the IMAP THREAD response and cover every
+	// member of the thread), "folder" (the client path counted the whole
+	// filtered set) or "bounded" (the client path could only count the
+	// scanned prefix, so the counts are a lower bound). Empty when threads
+	// were not requested.
+	ThreadScope string `json:"thread_scope,omitempty"`
 }
 
 // AttachmentMeta describes a non-inline MIME part (download endpoint optional).

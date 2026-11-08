@@ -146,8 +146,12 @@ type Config struct {
 	QuoteHMACKey string
 	// MarketingUnsubscribeHMACKey signs recipient opt-out tokens; no default.
 	MarketingUnsubscribeHMACKey string
-	RoundcubeBridgeKey          string
-	RoundcubeEnabled            bool
+	// WebmailRenderKey signs webmail image proxy URLs and link
+	// confirmation tokens. It has no default: when it is empty the
+	// server derives one from the master key instead.
+	WebmailRenderKey   string
+	RoundcubeBridgeKey string
+	RoundcubeEnabled   bool
 	// WebmailNative enables the native IMAP-proxy webmail API under
 	// /api/v1/mailbox/... . It is off by default and independent of Roundcube.
 	WebmailNative bool
@@ -303,6 +307,7 @@ func Load() (*Config, error) {
 		StripeWebhookSecret:         values["URMAIL_STRIPE_WEBHOOK_SECRET"],
 		QuoteHMACKey:                values["URMAIL_QUOTE_HMAC_KEY"],
 		MarketingUnsubscribeHMACKey: values["URMAIL_MARKETING_UNSUBSCRIBE_HMAC_KEY"],
+		WebmailRenderKey:            values["URMAIL_WEBMAIL_RENDER_KEY"],
 		RoundcubeBridgeKey:          values["URMAIL_ROUNDCUBE_BRIDGE_KEY"],
 		RoundcubeEnabled:            parseBool(values["URMAIL_ROUNDCUBE_ENABLED"]),
 		WebmailNative:               parseBool(values["URMAIL_WEBMAIL_NATIVE"]),

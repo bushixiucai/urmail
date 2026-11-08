@@ -92,6 +92,10 @@ func TestGetMessageSanitizesHTMLRenderTime(t *testing.T) {
 	// The fake returns the same pointer; restore the fixture so this
 	// request exercises a fresh parse (the handler mutates the returned
 	// view render-time, the IMAP original is untouched in production).
+	//
+	// Without a render key the proxy cannot sign a URL, so the opt-in
+	// stays blocked: a direct third-party URL would hand the reader's
+	// address to the sender.
 	imap.message = &msg2
 	w = auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7?load_images=1")
 	if w.Code != http.StatusOK {
@@ -100,8 +104,51 @@ func TestGetMessageSanitizesHTMLRenderTime(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.Contains(got.HTML, "https://track.example/pixel.gif") {
-		t.Fatalf("opt-in remote image missing: %s", got.HTML)
+	if strings.Contains(got.HTML, "https://track.example/pixel.gif") {
+		t.Fatalf("remote image leaked without a render key: %s", got.HTML)
+	}
+}
+
+// With a render key the opt-in request routes the remote image through
+// the server-side proxy: the browser never contacts the third party.
+func TestGetMessageProxiesRemoteImagesWhenAllowed(t *testing.T) {
+	msg := &webmail.Message{
+		MessageSummary: webmail.MessageSummary{UID: 7, Subject: "Hi"},
+		UIDValidity:    42,
+		HTML:           "<p>hi</p><img src=\"https://track.example/pixel.gif\" alt=\"pixel\">",
+	}
+	handler, imap, auth := newSanitizeTestHandler(t, msg)
+	handler.RenderKey = []byte("render-key")
+	folder := webmail.EncodeFolderName("INBOX")
+
+	w := auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7?load_images=1")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get %d %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		HTML string `json:"html"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if strings.Contains(got.HTML, "track.example") {
+		t.Fatalf("third-party host survived the proxy rewrite: %s", got.HTML)
+	}
+	if !strings.Contains(got.HTML, "/api/v1/mailbox/images/proxy?u=") {
+		t.Fatalf("remote image not proxied: %s", got.HTML)
+	}
+
+	// The default request still blocks remote images.
+	imap.message = msg
+	w = auth(http.MethodGet, "/api/v1/mailbox/folders/"+folder+"/messages/7")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get %d %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if strings.Contains(got.HTML, "/api/v1/mailbox/images/proxy") {
+		t.Fatalf("remote image proxied without opt-in: %s", got.HTML)
 	}
 }
 

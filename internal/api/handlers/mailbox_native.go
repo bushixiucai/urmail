@@ -55,6 +55,19 @@ type MailboxNativeHandler struct {
 	Rules MailboxRulesStore
 	// EAS serves the ActiveSync transport; nil keeps the not-implemented stub.
 	EAS *eas.Server
+	// RenderKey signs webmail image proxy URLs (and, later, link
+	// confirmation tokens). An empty key disables those features: remote
+	// images stay blocked and links keep their plain form.
+	RenderKey []byte
+	// ImageFetcher downloads proxied images. Nil uses the default fetcher
+	// with its SSRF screen and limits; tests inject their own.
+	ImageFetcher ImageProxyFetcher
+}
+
+// ImageProxyFetcher downloads one remote image for the proxy endpoint.
+type ImageProxyFetcher interface {
+	// Fetch returns the image bytes and its media type.
+	Fetch(ctx context.Context, rawURL string) (data []byte, contentType string, err error)
 }
 
 // MailboxNativeAuth looks up active mailbox credentials for login.
