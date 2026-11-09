@@ -2,6 +2,29 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.15] - 2026-11-09
+
+UIUX 评审批次 1 + 钓鱼红条接线。含数据库迁移（0159，新表 mailbox_ai_phishing_findings）。
+
+### UIUX 批次 1（运行时评审 2 P0+全 S 项，#84）
+
+- **品牌主色令牌补全**：`--brand-primary` 全局未定义致未读点/正在读 3px 指示条六态不可见（computed-style 实测 rgba(0,0,0,0)）——theme-vellum.css 补 `#2563eb`，焦点环一并恢复
+- **正文可复制**：移除工作台根 select-none，阅读区正文容器补 select-text（导航/列表行/控件各自 select-none 保留）
+- i18n 泄漏修复：排序按钮 label+tooltip 与附件标题入消息目录（zh/en 各 8 键）
+- 纯文本正文 text-xs→text-sm（leading 22px）；AI 四组件（cue strip/compose companion/selection polish/structured summary）10/11px→12px
+- **暗色决策①b 落地**：AI 区局部 dark 类全部移除（应用级暗色 v1 明确不支持；vellum dark 令牌补全随批次 2 语义令牌迁移进 backlog，届时按主题令牌自然恢复双态）
+
+### 钓鱼红条接线（#85 #86 #87，QA 实测检测 score=0.99/critical 后的唯一缺口）
+
+- **分析结果持久化与暴露**（#87，migration 0159）：phishing_v2 分析成功后 upsert mailbox_ai_phishing_findings（UNIQUE(mailbox_id,folder,uid_validity,uid)，重复分析覆盖，mailbox 删除级联）；GET message 对分析过的邮件返回可选 phishing 对象 {score, risk_level, reasons, indicators, analyzed_at}（risk_level 恒为服务端按 score 映射，≥0.6=high/≥0.85=critical）；未分析/失败均无键=前端静默；assist 成功后按消息 evict 渲染缓存（新增 Cache.InvalidateMessage），重开即见结果；写入 best-effort+失败计数 urmail_ai_phishing_persist_failures_total
+- **读信区触发入口与红条**（#85）：发件人行安全徽标旁新增「钓鱼与安全检查」，两步 consent 契约调用（无 selection、409 静默重试）；score≥0.6 渲染 #FEE2E2 红条（标题正下方、indicators 枚举、评分行），<0.6 静默轻提示，消息无 risk 键完全无感；6 例测试钉住状态机
+- **polish 选区约束**（#86）：polish_v2 模板 v3 加「revised_text 仅含被润色 draft 改写」约束（修 QA 发现的模型整篇重写致上下文重复），评估 harness 新增 len_le/not_contains 断言
+
+### 验收
+
+- v0.6.14 定向复测可放量（QA：两项阻断修复确认、translate 200/20.7s、渲染/线程回归全绿）
+- 红条最终验收：探针二号（tiger 信箱保留样本，score=0.99）随本版部署后由 QA 执行；UIUX 批次 1 视觉回归同步
+
 ## [0.6.14] - 2026-11-09
 
 v0.6.13 定向复测两项前端缺陷快速修复 + 安全徽章判读定案。无数据库迁移（schema 158 不变）。
