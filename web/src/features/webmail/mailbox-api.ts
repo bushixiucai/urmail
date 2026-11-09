@@ -1,6 +1,11 @@
 import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 export type { AIBudgetStatus };
 import { ApiRequestError, parseApiErrorPayload } from "@/lib/api/client";
+import {
+  etagCacheKey,
+  noteEtagResponse,
+  revalidatingFetch,
+} from "@/lib/api/client";
 import { initViewportTracking, viewportHeaders } from "./viewport-headers";
 
 // UA/viewport contract headers for server-side mail adaptation (PR #43).
@@ -265,13 +270,21 @@ export async function mailboxRequest<T>(
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(path, {
+  const cacheKey = etagCacheKey(method, path, getMailboxToken());
+  const { response, fromCache, payload } = await revalidatingFetch<T>(
+    path,
+    {
+      method,
+      headers,
+      credentials: "same-origin",
+      signal,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
     method,
-    headers,
-    credentials: "same-origin",
-    signal,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    cacheKey,
+  );
+
+  if (fromCache) return payload as T;
 
   if (!response.ok) {
     let parsed;
@@ -295,7 +308,9 @@ export async function mailboxRequest<T>(
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const data = (await response.json()) as T;
+  noteEtagResponse(cacheKey, response, data);
+  return data;
 }
 
 export function fetchMailboxStatus(signal?: AbortSignal) {

@@ -169,6 +169,79 @@ export interface RequestOptions {
   idempotencyKey?: string;
 }
 
+/**
+ * M4①: in-memory ETag revalidation cache. GET responses that carry an
+ * ETag are cached; replaying the same GET sends If-None-Match and a 304
+ * reuses the local payload without re-reading the body. Bounded FIFO so
+ * long sessions cannot grow it without limit. Conditional GETs keep the
+ * X-Render-Cache contract intact — the server still observes hits/misses.
+ */
+const ETAG_CACHE_LIMIT = 256;
+const etagCache = new Map<string, { etag: string; payload: unknown }>();
+
+export function etagCacheKey(
+  method: string,
+  path: string,
+  token: string | null,
+): string {
+  return `${method} ${token ?? ""} ${path}`;
+}
+
+/** Test hook: drop every cached ETag entry. */
+export function clearEtagCacheForTests(): void {
+  etagCache.clear();
+}
+
+export interface RevalidatingFetchResult<T> {
+  response: Response;
+  /** True when a 304 reused the cached payload (body already parsed). */
+  fromCache: boolean;
+  /** Cached payload, set only when fromCache is true. */
+  payload?: T;
+}
+
+/**
+ * Shared fetch funnel for clients that support ETag revalidation. Attaches
+ * If-None-Match when a cached entry exists for the key and resolves a 304
+ * from the cache; every other status comes back untouched for the caller's
+ * error handling.
+ */
+export async function revalidatingFetch<T>(
+  path: string,
+  init: RequestInit,
+  method: string,
+  key: string,
+): Promise<RevalidatingFetchResult<T>> {
+  const headers = init.headers as Record<string, string>;
+  const cached = method === "GET" ? etagCache.get(key) : undefined;
+  if (cached) headers["If-None-Match"] = cached.etag;
+
+  const response = await fetch(path, init);
+
+  if (cached && response.status === 304) {
+    return { response, fromCache: true, payload: cached.payload as T };
+  }
+  return { response, fromCache: false };
+}
+
+/** Store a parsed GET payload when the response carried an ETag. */
+export function noteEtagResponse(
+  key: string,
+  response: Response,
+  payload: unknown,
+): void {
+  // Optional chain keeps hand-rolled fetch mocks (no headers) working.
+  const etag = response.headers?.get("ETag");
+  if (!etag) return;
+  etagCache.delete(key);
+  etagCache.set(key, { etag, payload });
+  while (etagCache.size > ETAG_CACHE_LIMIT) {
+    const oldest = etagCache.keys().next().value;
+    if (oldest === undefined) break;
+    etagCache.delete(oldest);
+  }
+}
+
 export async function request<T>(
   path: string,
   options: RequestOptions = {},
@@ -187,13 +260,21 @@ export async function request<T>(
     headers["X-CSRF-Token"] = csrf;
   }
 
-  const response = await fetch(path, {
+  const cacheKey = etagCacheKey(method, path, token);
+  const { response, fromCache, payload } = await revalidatingFetch<T>(
+    path,
+    {
+      method,
+      headers,
+      credentials: "same-origin",
+      signal,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
     method,
-    headers,
-    credentials: "same-origin",
-    signal,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    cacheKey,
+  );
+
+  if (fromCache) return payload as T;
 
   if (!response.ok) {
     let parsed: ApiError | null = null;
@@ -211,5 +292,7 @@ export async function request<T>(
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const data = (await response.json()) as T;
+  noteEtagResponse(cacheKey, response, data);
+  return data;
 }

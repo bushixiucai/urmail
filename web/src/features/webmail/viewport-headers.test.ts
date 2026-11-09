@@ -13,6 +13,25 @@ const IPAD_UA =
 const DESKTOP_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
+function stubColorScheme(dark: boolean) {
+  const listeners = new Set<(e: { matches: boolean }) => void>();
+  const mql = {
+    get matches() {
+      return dark;
+    },
+    media: "(prefers-color-scheme: dark)",
+    addEventListener: (_: string, cb: (e: { matches: boolean }) => void) =>
+      listeners.add(cb),
+    removeEventListener: (_: string, cb: (e: { matches: boolean }) => void) =>
+      listeners.delete(cb),
+  };
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => mql),
+  );
+  return listeners;
+}
+
 describe("classifyUAClass", () => {
   it("trusts explicit mobile and tablet UA hints over width", () => {
     expect(classifyUAClass(IPHONE_UA, 900)).toBe("mobile");
@@ -31,13 +50,18 @@ describe("classifyUAClass", () => {
 });
 
 describe("viewportHeaders", () => {
+  // jsdom has no matchMedia; stub a light-mode query by default so the
+  // color-scheme snapshot is deterministic. Tests override for dark.
   beforeEach(() => {
+    vi.unstubAllGlobals();
     resetViewportTrackingForTests();
     window.innerWidth = 1280;
+    stubColorScheme(false);
   });
 
   afterEach(() => {
     resetViewportTrackingForTests();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -46,11 +70,43 @@ describe("viewportHeaders", () => {
     expect(viewportHeaders(DESKTOP_UA)).toEqual({
       "X-UA-Class": "desktop",
       "X-Viewport-Width": "1280",
+      "X-Color-Scheme": "light",
     });
   });
 
   it("omits the width header when the viewport is unknown", () => {
+    // No initViewportTracking: width and color snapshots stay unset.
     expect(viewportHeaders(DESKTOP_UA)).toEqual({ "X-UA-Class": "desktop" });
+  });
+
+  it("reports a dark color scheme from the media query", () => {
+    stubColorScheme(true);
+    initViewportTracking(window);
+    expect(viewportHeaders(DESKTOP_UA)["X-Color-Scheme"]).toBe("dark");
+  });
+
+  it("omits the color header when matchMedia is unavailable", () => {
+    vi.stubGlobal("matchMedia", undefined);
+    initViewportTracking(window);
+    expect(viewportHeaders(DESKTOP_UA)["X-Color-Scheme"]).toBeUndefined();
+  });
+
+  it("tracks color scheme flips through the change listener", () => {
+    const listeners = stubColorScheme(false);
+    initViewportTracking(window);
+    expect(viewportHeaders(DESKTOP_UA)["X-Color-Scheme"]).toBe("light");
+    for (const cb of listeners) cb({ matches: true });
+    expect(viewportHeaders(DESKTOP_UA)["X-Color-Scheme"]).toBe("dark");
+  });
+
+  it("sends X-Text-Scale only for non-default stored preferences", () => {
+    window.localStorage.setItem("urmail.text-scale", "lg");
+    expect(viewportHeaders(DESKTOP_UA)["X-Text-Scale"]).toBe("lg");
+    window.localStorage.setItem("urmail.text-scale", "md");
+    expect(viewportHeaders(DESKTOP_UA)["X-Text-Scale"]).toBeUndefined();
+    window.localStorage.setItem("urmail.text-scale", "bogus");
+    expect(viewportHeaders(DESKTOP_UA)["X-Text-Scale"]).toBeUndefined();
+    window.localStorage.removeItem("urmail.text-scale");
   });
 
   it("debounces resize updates before a request reads the snapshot", () => {
@@ -66,6 +122,7 @@ describe("viewportHeaders", () => {
     expect(viewportHeaders(IPHONE_UA)).toEqual({
       "X-UA-Class": "mobile",
       "X-Viewport-Width": "480",
+      "X-Color-Scheme": "light",
     });
   });
 
