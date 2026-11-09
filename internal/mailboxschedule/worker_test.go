@@ -144,6 +144,9 @@ func (*fakeIMAP) MoveToTrash(context.Context, string, []uint32) (string, error) 
 	return "Trash", nil
 }
 func (*fakeIMAP) Close() error { return nil }
+func (*fakeIMAP) GetThreadMembers(context.Context, string, uint32, webmail.ThreadMembersOpts) (webmail.ThreadMembersResult, error) {
+	return webmail.ThreadMembersResult{}, nil
+}
 
 type fakeDialer struct{ client webmail.Client }
 

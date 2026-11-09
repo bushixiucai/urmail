@@ -426,6 +426,7 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/folders/:name/messages/move", mailboxNative.MoveMessages)
 			mailboxAuthed.POST("/folders/:name/messages/delete", mailboxNative.DeleteMessages)
 			mailboxAuthed.GET("/folders/:name/messages/:uid", mailboxNative.GetMessage)
+			mailboxAuthed.GET("/folders/:name/messages/:uid/thread", mailboxNative.ThreadMembers)
 			mailboxAuthed.GET("/folders/:name/messages/:uid/attachments/:part_id", mailboxNative.GetAttachment)
 			mailboxAuthed.GET("/folders/:name/messages/:uid/raw", mailboxNative.GetRawMessage)
 			handlers.RegisterMailboxImportRoutes(mailboxAuthed, mailboxNative)

@@ -260,6 +260,19 @@ func (c *threadCluster) absorb(other *threadCluster) {
 // by the fallback: it compares whole chain groups, so a chain always stays
 // one thread.
 func BuildThreads(msgs []MessageSummary) map[uint32]uint32 {
+	return buildThreads(msgs, false)
+}
+
+// BuildThreadsFolderScoped behaves like BuildThreads, but the subject
+// fallback only merges groups inside the same folder. The cross-folder
+// thread-members path uses it: References chains still span folders (the
+// only strong grouping), while bounce sweeps and broadcasts must not fuse
+// INBOX and Sent members by subject.
+func BuildThreadsFolderScoped(msgs []MessageSummary) map[uint32]uint32 {
+	return buildThreads(msgs, true)
+}
+
+func buildThreads(msgs []MessageSummary, perFolderFallback bool) map[uint32]uint32 {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -324,6 +337,11 @@ func BuildThreads(msgs []MessageSummary) map[uint32]uint32 {
 		norm := strings.ToLower(NormalizeThreadSubject(m.Subject))
 		if norm == "" {
 			continue
+		}
+		if perFolderFallback {
+			// Folder-local fallback: the same subject in another folder is a
+			// different bucket. Reply chains still span folders.
+			norm = m.Folder + "\x00" + norm
 		}
 		root := find(m.UID)
 		if seen[norm] == nil {
