@@ -640,9 +640,11 @@ export function WebmailReadingPane({
   const aiSlot = (
     <>
       {isHighRisk && (
+        // Decision ①b: v1 is light-only, so the banner has no dark variants —
+        // it must read #FEE2E2/#FECACA/#991B1B in every state.
         <div
           data-testid="phishing-warning-banner"
-          className="mb-4 p-3 bg-[#FEE2E2] dark:bg-[#7F1D1D]/30 border border-[#FECACA] dark:border-[#991B1B] rounded-lg text-xs text-[#991B1B] dark:text-[#FCA5A5] flex items-start gap-2.5"
+          className="mb-4 p-3 bg-[#FEE2E2] border border-[#FECACA] rounded-lg text-xs text-[#991B1B] flex items-start gap-2.5"
         >
           <ShieldAlert className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
           <div className="space-y-1">

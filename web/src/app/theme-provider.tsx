@@ -11,13 +11,17 @@ import {
 export type ThemeMode = "light" | "dark" | "system";
 export const THEME_STORAGE_KEY = "urmail.theme";
 const mediaQuery = "(prefers-color-scheme: dark)";
+// Decision ①b (2026-11-09): v1 ships light only — there is no theme picker,
+// so users must never land in the half-dark state. Anything unpersisted,
+// invalid or left on "system" clamps to light; the dark machinery below
+// stays in place (dormant) for the v2 token-layer dark mode.
 const validMode = (value: string | null): ThemeMode =>
-  value === "light" || value === "dark" ? value : "system";
+  value === "light" || value === "dark" ? value : "light";
 function storedMode(): ThemeMode {
   try {
     return validMode(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
-    return "system";
+    return "light";
   }
 }
 const ThemeContext = createContext<{
@@ -39,7 +43,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const media = window.matchMedia?.(mediaQuery);
     const apply = () => {
-      const dark = mode === "dark" || (mode === "system" && !!media?.matches);
+      // v1: only an explicit "dark" activates dark; "system" behaves as
+      // light (decision ①b). The OS listener stays wired for v2.
+      const dark = mode === "dark";
       document.documentElement.classList.toggle("dark", dark);
       document.documentElement.style.colorScheme = dark ? "dark" : "light";
     };
