@@ -441,15 +441,18 @@ func journeyAssertFacts(t *testing.T, dsn string) {
 // facts, ownership, holds, isolation and explicit release all verified.
 func TestOffsiteEncryptedRestoreJourney(t *testing.T) {
 	journeyRequireBinaries(t)
-	if os.Getenv("URMAIL_TEST_DATABASE_URL") == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set; skipping PostgreSQL restore journey")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 170*time.Second)
-	defer cancel()
-
+	testdb.RequireDatabaseURL(t)
+	// The fixture is created before the pipeline deadline starts. Creating it
+	// waits for the cluster-wide bootstrap lock, and on a loaded CI runner
+	// that wait must not silently eat the pipeline budget: a fixture that
+	// queued behind other packages used to surface later as an opaque
+	// "backupauto pipeline: context deadline exceeded".
 	source := testdb.New(t)
 	journeyMigrate(t, source)
 	journeySeed(t, source)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 170*time.Second)
+	defer cancel()
 
 	offsite := t.TempDir()
 	identityPath, recipient := journeyWriteIdentity(t, offsite)
@@ -696,14 +699,15 @@ func mustCreate(t *testing.T, path string) io.WriteCloser {
 // mailboxes stay refused until the explicit platform release runs.
 func TestRestoreFailureKeepsTargetFencedUntilExplicitRelease(t *testing.T) {
 	journeyRequireBinaries(t)
-	if os.Getenv("URMAIL_TEST_DATABASE_URL") == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set; skipping PostgreSQL restore journey")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
+	testdb.RequireDatabaseURL(t)
+	// Same ordering as the journey above: the fixture waits for the
+	// cluster-wide bootstrap lock and that wait must stay outside the
+	// pipeline deadline.
 	target := testdb.New(t)
 	journeyMigrate(t, target)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 
 	// Unfenced seed so every guard trigger (tenant, domain, mailbox) can be
 	// probed with a NEW row once the fence is active.

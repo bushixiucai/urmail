@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -13,10 +12,7 @@ import (
 )
 
 func TestDatabaseIsolationAndOwnedCleanup(t *testing.T) {
-	dsn := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set")
-	}
+	dsn := testdb.RequireDatabaseURL(t)
 	ctx := context.Background()
 	observer, err := pgx.Connect(ctx, dsn)
 	if err != nil {
