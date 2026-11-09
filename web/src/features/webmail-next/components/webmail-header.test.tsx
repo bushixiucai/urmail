@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebmailHeader } from "./webmail-header";
 
@@ -24,21 +24,30 @@ vi.mock("@/components/brand/public-brand", () => ({
   usePublicBrand: () => ({ name: "urMail" }),
 }));
 
+function renderHeader(
+  overrides: Partial<{
+    onOpenSettings: () => void;
+    onOpenContacts: () => void;
+  }> = {},
+) {
+  return render(
+    <WebmailHeader
+      onToggleRail={vi.fn()}
+      onRefresh={vi.fn()}
+      searchQuery=""
+      onSearchChange={vi.fn()}
+      density="comfortable"
+      onSetDensity={vi.fn()}
+      onOpenSettings={overrides.onOpenSettings ?? vi.fn()}
+      onOpenContacts={overrides.onOpenContacts ?? vi.fn()}
+      onOpenAdvancedSearch={vi.fn()}
+    />,
+  );
+}
+
 describe("WebmailHeader icon buttons", () => {
   it("names the icon buttons with i18n keys", () => {
-    render(
-      <WebmailHeader
-        onToggleRail={vi.fn()}
-        onRefresh={vi.fn()}
-        searchQuery=""
-        onSearchChange={vi.fn()}
-        density="comfortable"
-        onSetDensity={vi.fn()}
-        onOpenSettings={vi.fn()}
-        onOpenContacts={vi.fn()}
-        onOpenAdvancedSearch={vi.fn()}
-      />,
-    );
+    renderHeader();
 
     expect(
       screen.getByTestId("rail-toggle-button").getAttribute("aria-label"),
@@ -55,6 +64,44 @@ describe("WebmailHeader icon buttons", () => {
     expect(
       screen.getByTestId("webmail-contacts-btn").getAttribute("aria-label"),
     ).toBe("contacts.title");
+  });
+
+  it("folds contacts and settings into a mobile more-menu", () => {
+    const onOpenSettings = vi.fn();
+    const onOpenContacts = vi.fn();
+    renderHeader({ onOpenSettings, onOpenContacts });
+
+    const moreBtn = screen.getByTestId("webmail-more-btn");
+    expect(moreBtn.getAttribute("aria-label")).toBe(
+      "webmail_next.more_actions",
+    );
+    expect(screen.queryByTestId("webmail-more-menu")).toBeNull();
+
+    fireEvent.click(moreBtn);
+    expect(screen.getByTestId("webmail-more-menu")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("webmail-more-contacts"));
+    expect(onOpenContacts).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("webmail-more-menu")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("webmail-more-btn"));
+    fireEvent.click(screen.getByTestId("webmail-more-settings"));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("webmail-more-menu")).toBeNull();
+  });
+
+  it("hides the more-menu when its callbacks are absent", () => {
+    render(
+      <WebmailHeader
+        onToggleRail={vi.fn()}
+        onRefresh={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        density="comfortable"
+        onSetDensity={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("webmail-more-btn")).toBeNull();
   });
 });
 
