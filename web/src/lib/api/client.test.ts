@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  apiErrorSchema,
   ApiRequestError,
   clearAuth,
   getCSRFToken,
   getSessionToken,
+  parseApiErrorPayload,
   request,
   setCSRFToken,
   setSessionToken,
@@ -30,13 +30,42 @@ describe("API error contracts", () => {
     });
   });
   it("retains key and interpolation parameters", () => {
-    const body = apiErrorSchema.parse({
+    const body = parseApiErrorPayload({
       error: { code: "QUOTA", message: "quota.exceeded", params: { limit: 3 } },
     });
-    expect(new ApiRequestError(403, body)).toMatchObject({
+    expect(body).not.toBeNull();
+    expect(new ApiRequestError(403, body!)).toMatchObject({
       messageKey: "quota.exceeded",
       params: { limit: 3 },
     });
+  });
+  it("parseApiErrorPayload accepts the documented envelope shapes", () => {
+    expect(parseApiErrorPayload({ error: { code: "" } })).toMatchObject({
+      error: { code: "" },
+    });
+    expect(
+      parseApiErrorPayload({
+        error: { code: "X", details: { any: "thing" }, extra: "dropped" },
+      }),
+    ).toMatchObject({ error: { code: "X", details: { any: "thing" } } });
+    expect(
+      parseApiErrorPayload({
+        error: { code: "X", params: { a: 1 } },
+      })?.error.params,
+    ).toEqual({ a: 1 });
+  });
+  it("parseApiErrorPayload rejects malformed envelopes", () => {
+    expect(parseApiErrorPayload(null)).toBeNull();
+    expect(parseApiErrorPayload("<html>")).toBeNull();
+    expect(parseApiErrorPayload({})).toBeNull();
+    expect(parseApiErrorPayload({ error: {} })).toBeNull();
+    expect(parseApiErrorPayload({ error: { code: 5 } })).toBeNull();
+    expect(
+      parseApiErrorPayload({ error: { code: "X", message: 9 } }),
+    ).toBeNull();
+    expect(
+      parseApiErrorPayload({ error: { code: "X", params: "nope" } }),
+    ).toBeNull();
   });
   it("normalizes malformed upstream errors without exposing HTML", async () => {
     vi.stubGlobal(

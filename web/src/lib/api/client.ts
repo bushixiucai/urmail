@@ -1,15 +1,45 @@
-import { z } from "zod";
+export interface ApiError {
+  error: {
+    code: string;
+    message?: string;
+    params?: Record<string, unknown>;
+    details?: unknown;
+  };
+}
 
-export const apiErrorSchema = z.object({
-  error: z.object({
-    code: z.string(),
-    message: z.string().optional(),
-    params: z.record(z.string(), z.unknown()).optional(),
-    details: z.unknown().optional(),
-  }),
-});
-
-export type ApiError = z.infer<typeof apiErrorSchema>;
+/**
+ * Hand-rolled guard for the API error envelope. Deliberately dependency-free
+ * so that the whole zod runtime stays out of the first-paint bundle. Accepts
+ * the same payloads the previous zod schema accepted: `error.code` must be a
+ * string; `message` (string) and `params` (object) are optional; `details`
+ * passes through unchecked; unknown keys are dropped.
+ */
+export function parseApiErrorPayload(body: unknown): ApiError | null {
+  if (typeof body !== "object" || body === null) return null;
+  const err = (body as { error?: unknown }).error;
+  if (typeof err !== "object" || err === null) return null;
+  const { code, message, params, details } = err as {
+    code?: unknown;
+    message?: unknown;
+    params?: unknown;
+    details?: unknown;
+  };
+  if (typeof code !== "string") return null;
+  if (message !== undefined && typeof message !== "string") return null;
+  if (params !== undefined && (typeof params !== "object" || params === null)) {
+    return null;
+  }
+  return {
+    error: {
+      code,
+      ...(message !== undefined ? { message } : {}),
+      ...(params !== undefined
+        ? { params: params as Record<string, unknown> }
+        : {}),
+      ...(details !== undefined ? { details } : {}),
+    },
+  };
+}
 
 /** A message that looks like an i18n catalogue key, e.g. "error.CONFLICT". */
 const I18N_KEY_PATTERN = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9_-]+)+$/;
@@ -166,15 +196,18 @@ export async function request<T>(
   });
 
   if (!response.ok) {
-    let parsed: ApiError;
+    let parsed: ApiError | null = null;
     try {
-      parsed = apiErrorSchema.parse(await response.json());
+      parsed = parseApiErrorPayload(await response.json());
     } catch {
-      throw new ApiRequestError(response.status, {
-        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
-      });
+      // Unparseable body falls through to the bounded INTERNAL_ERROR below.
     }
-    throw new ApiRequestError(response.status, parsed);
+    throw new ApiRequestError(
+      response.status,
+      parsed ?? {
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      },
+    );
   }
 
   if (response.status === 204) return undefined as T;
