@@ -2,6 +2,26 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.17] - 2026-11-09
+
+UIUX 评审批次 2 全量交付（语义令牌体系 / 骨架空态 / 移动端适配）。无数据库迁移。
+
+### 语义令牌体系（#92 #93 #96，UIUX-BATCH2-SPEC 实施）
+
+- **新增 22 个语义令牌**（theme-vellum.css）：品牌系（brand-strong/brand-soft/brand-border）、墨色系（ink-disabled/ink-hover）、表面系（surface-muted）、警告系（warning-fill/border/text/text-strong/strong）、危险系（danger-fill/fill-soft/border/text/strong/strong-hover）、成功系（success-fill/border/text）、AI 琥珀系（ai-accent/ai-accent-strong，与警告同值分令牌，独立演进）；全部对比度实测达标
+- **硬编码色 951→1**：机械迁移 419 处 + 语义三组 131 处 + 判读定夺落实，全仓仅剩白名单 #78350F（度假横幅链接 hover）；`dark:` 前缀类保持 0；settings 目录豁免至下批次
+- **CI 守门**：check-color-tokens.mjs 接入 lint（hex 阈值 <140 逐次不得回升、dark:=0 断言、测试 fixture 与白名单排除）；靛青→品牌蓝为规格预期视觉变化
+- 判读治理三修正：琥珀家族按用途映射禁止按值匹配（#D97706/#B45309 双案）、信息蓝链接统一 brand-primary（Gmail/Outlook 标准）、danger/ink 按钮 hover 补档位
+
+### 骨架屏与空态（#94）
+
+- 列表骨架 8 行双条（行高随三档密度 52/40/32 联动、请求 >300ms 才渲染防闪、整块 200ms fade 无 pulse 闪光）+ 阅读区骨架
+- 空态组件 WebmailEmptyState 三场景：空文件夹/搜索无结果/全部已处理（图标+标题+说明+动作，i18n zh-CN/en 双语齐备）
+
+### 移动端适配（#95，375px Playwright 验收 11/11）
+
+- 写信 FAB 56×56（safe-area 内边距、写信 dock 打开时隐藏、批量条激活自动让位）；顶栏密度按钮 <md icon-only 44×44（三档密度统一）；<md 默认锁定 comfortable 密度（触控目标 ≥44px，html 密度 class 同步修正全局覆盖）；批量条 <md fixed 钉底；顶栏 logo 375px 单行（#96）
+
 ## [0.6.16] - 2026-11-09
 
 UIUX 批次 1 验证回票修复（暗色决策①b 收尾）。无数据库迁移。
