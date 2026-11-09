@@ -90,6 +90,14 @@ export interface MessageDetail extends MessageSummary {
   };
   security_notes?: string[];
   risk_level?: "low" | "medium" | "high" | "critical";
+  /**
+   * Phishing score exposed by the server-side pipeline (OpenAPI assist
+   * phishing shape: 0..1). `>= 0.6` renders the high-risk banner; anything
+   * below stays silent. `risk_score` is accepted as an alias while the
+   * message-API key name settles.
+   */
+  score?: number;
+  risk_score?: number;
   indicators?: MailboxAIIndicator[];
   uid_validity?: number;
   to?: MailboxAddress[];
@@ -1103,6 +1111,7 @@ export interface MailboxAIResult {
   // Legacy compatibility fields
   category?: string;
   confidence?: number;
+  /** Phishing score (0..1); `>= 0.6` means high risk. */
   score?: number;
   summary?: string;
   translation?: string;

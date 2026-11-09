@@ -515,6 +515,188 @@ describe("SanitizedHtmlFrame auto height", () => {
     ).toBeTruthy();
   });
 
+  it("renders the red banner from score >= 0.6 with enumerated indicators and score", () => {
+    const scored: MessageDetail = {
+      ...mockMessage,
+      score: 0.99,
+      indicators: [
+        {
+          type: "suspicious_link",
+          evidence: "Link points to a look-alike domain",
+        },
+      ],
+    };
+
+    render(<WebmailReadingPane message={scored} folderEnc="INBOX" />);
+
+    expect(screen.getByTestId("phishing-warning-banner")).toBeTruthy();
+    expect(screen.getByTestId("phishing-risk-score").textContent).toBe(
+      "webmail_next.ai_phishing_score",
+    );
+    expect(screen.getByText("suspicious_link")).toBeTruthy();
+    expect(
+      screen.getByText(": Link points to a look-alike domain"),
+    ).toBeTruthy();
+  });
+
+  it("stays silent when score < 0.6 even if medium indicators exist", () => {
+    const medium: MessageDetail = {
+      ...mockMessage,
+      score: 0.4,
+      risk_level: "medium",
+      indicators: [{ type: "urgent_pressure", evidence: "Act within 24h" }],
+    };
+
+    render(<WebmailReadingPane message={medium} folderEnc="INBOX" />);
+
+    expect(screen.queryByTestId("phishing-warning-banner")).toBeNull();
+  });
+
+  it("renders nothing for mail without any risk keys (un-analysed = silent)", () => {
+    render(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
+
+    expect(screen.queryByTestId("phishing-warning-banner")).toBeNull();
+    // The on-demand check entry stays available for an explicit check.
+    expect(screen.getByTestId("btn-security-check")).toBeTruthy();
+  });
+
+  it("runs the on-demand phishing check and renders the red banner on high score", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "cfg-digest-sec",
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-4o",
+      provider: "openai",
+    });
+    vi.spyOn(mailboxApi, "previewMailboxAI").mockResolvedValue({
+      content_digest: "content-digest-sec",
+    });
+    const runSpy = vi.spyOn(mailboxApi, "runMailboxAI").mockResolvedValue({
+      result: {
+        score: 0.99,
+        risk_level: "high",
+        indicators: [
+          {
+            type: "credential_request",
+            evidence: "Asks for the account password",
+          },
+        ],
+      },
+    });
+
+    render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, uid: 37931 }}
+        folderEnc="INBOX"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("btn-security-check"));
+
+    const banner = await screen.findByTestId("phishing-warning-banner");
+    expect(banner).toBeTruthy();
+    expect(screen.getByText("credential_request")).toBeTruthy();
+    expect(screen.queryByTestId("security-check-note")).toBeNull();
+
+    // Contract: two-step assist call without selection, same intent key.
+    const previewInput = vi.mocked(mailboxApi.previewMailboxAI).mock
+      .calls[0][1] as Record<string, unknown>;
+    expect(previewInput.operation).toBe("phishing");
+    expect(previewInput).not.toHaveProperty("selection");
+    expect(previewInput.uid).toBe(37931);
+    const runInput = runSpy.mock.calls[0][0] as Record<string, unknown>;
+    expect(runInput.confirmed).toBe(true);
+    expect(runInput.content_digest).toBe("content-digest-sec");
+    expect(runInput.request_key).toBe(previewInput.request_key);
+  });
+
+  it("keeps silent with a quiet note when the on-demand check scores low", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "cfg-digest-sec",
+    });
+    vi.spyOn(mailboxApi, "previewMailboxAI").mockResolvedValue({
+      content_digest: "content-digest-sec",
+    });
+    vi.spyOn(mailboxApi, "runMailboxAI").mockResolvedValue({
+      result: { score: 0.21, risk_level: "low" },
+    });
+
+    render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, uid: 37932 }}
+        folderEnc="INBOX"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("btn-security-check"));
+
+    const note = await screen.findByTestId("security-check-note");
+    expect(note.textContent).toBe("webmail_next.security_check_clear");
+    expect(screen.queryByTestId("phishing-warning-banner")).toBeNull();
+  });
+
+  it("shows the unconfigured modal when the on-demand check runs without AI setup", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      enabled: false,
+      allowed: false,
+      configuration_digest: "",
+    });
+
+    const onOpenAISettings = vi.fn();
+    render(
+      <WebmailReadingPane
+        message={mockMessage}
+        folderEnc="INBOX"
+        onOpenAISettings={onOpenAISettings}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("btn-security-check"));
+
+    const modal = await screen.findByTestId("ai-unconfigured-modal");
+    expect(modal).toBeTruthy();
+  });
+
+  it("silently retries a stale 409 once during the on-demand check", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "cfg-digest-sec",
+    });
+    vi.spyOn(mailboxApi, "previewMailboxAI").mockResolvedValue({
+      content_digest: "content-digest-sec",
+    });
+    vi.spyOn(mailboxApi, "runMailboxAI")
+      .mockRejectedValueOnce({
+        status: 409,
+        code: "AI_CONTENT_CONSENT_STALE",
+      })
+      .mockResolvedValueOnce({
+        result: { score: 0.99, risk_level: "high" },
+      });
+
+    render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, uid: 37933 }}
+        folderEnc="INBOX"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("btn-security-check"));
+
+    await screen.findByTestId("phishing-warning-banner");
+    expect(mailboxApi.previewMailboxAI).toHaveBeenCalledTimes(2);
+    expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("security-check-note")).toBeNull();
+  });
+
   it("shows unconfigured modal when AI is not configured", async () => {
     const mailboxApi = await import("@/features/webmail/mailbox-api");
     vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockResolvedValue({
