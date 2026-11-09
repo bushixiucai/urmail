@@ -36,6 +36,16 @@
         "path": "tone",
         "op": "eq",
         "value": "formal"
+      },
+      {
+        "path": "revised_text",
+        "op": "len_le",
+        "value": 150
+      },
+      {
+        "path": "revised_text",
+        "op": "not_contains",
+        "value": "requested on Monday"
       }
     ]
   }

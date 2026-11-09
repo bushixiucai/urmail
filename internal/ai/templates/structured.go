@@ -54,11 +54,14 @@ func init() {
 
 	Register(Template{
 		Operation: "polish_v2",
-		Version:   2,
+		// v3 adds the selection-scope constraint (v0.6.15 QA: the model
+		// rewrote the whole email context instead of only the draft) —
+		// the version bump invalidates cached v2 answers.
+		Version:   3,
 		JSONMode:  true,
 		MaxTokens: 2048,
 		System: func(_ Params) string {
-			return structuredSchema("Refine the provided draft for clarity and professional tone without altering factual commitments. Explain each change you made.",
+			return structuredSchema("Refine the provided draft for clarity and professional tone without altering factual commitments. revised_text must contain ONLY the rewritten draft text the user asked to polish — never rewrite, summarize, translate or reproduce the surrounding email context, and do not append quoted material from it. Explain each change you made.",
 				`{"revised_text":"revised draft","changes":[{"type":"clarity|grammar|tone|structure","note":"what changed"}],"tone":"neutral|formal|concise|friendly"}`)
 		},
 		User: envelope(nil, func(p Params) string {

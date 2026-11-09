@@ -43,7 +43,8 @@ var evalOperations = []string{
 
 // evalCheck is one assertion against the normalized payload. Path is a
 // dot path (map keys and array indexes). Op is one of eq, contains,
-// len_ge. Value decodes from JSON, so numbers are float64.
+// not_contains, len_ge, len_le. Value decodes from JSON, so numbers are
+// float64.
 type evalCheck struct {
 	Path  string `json:"path"`
 	Op    string `json:"op"`
@@ -253,6 +254,24 @@ func runEvalCheck(payload json.RawMessage, chk evalCheck) error {
 		}
 		if got := reflect.ValueOf(actual).Len(); got < want {
 			return fmt.Errorf("length %d, want >= %d", got, want)
+		}
+		return nil
+	case "len_le":
+		want := int(reflect.ValueOf(chk.Value).Float())
+		if !isLenable(actual) {
+			return fmt.Errorf("len_le needs an array or string, got %T", actual)
+		}
+		if got := reflect.ValueOf(actual).Len(); got > want {
+			return fmt.Errorf("length %d, want <= %d", got, want)
+		}
+		return nil
+	case "not_contains":
+		s, ok := actual.(string)
+		if !ok {
+			return fmt.Errorf("not_contains needs a string, got %T", actual)
+		}
+		if strings.Contains(s, fmt.Sprint(chk.Value)) {
+			return fmt.Errorf("string unexpectedly contains %q", chk.Value)
 		}
 		return nil
 	default:
