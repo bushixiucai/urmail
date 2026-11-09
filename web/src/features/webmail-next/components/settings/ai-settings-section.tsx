@@ -443,7 +443,7 @@ export function AiSettingsSection() {
                     className="flex items-center justify-between p-2.5 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4]"
                   >
                     <div className="flex items-center gap-2 text-xs font-medium text-[#166534]">
-                      <CheckCircle2 className="w-4 h-4 text-[#16A34A]" />
+                      <CheckCircle2 className="w-4 h-4 text-[var(--vellum-success-text)]" />
                       <span data-testid="badge-key-configured">
                         {t(
                           "settings.ai.key_encrypted_badge",

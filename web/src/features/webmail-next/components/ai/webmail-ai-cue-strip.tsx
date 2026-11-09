@@ -29,7 +29,7 @@ export function WebmailAICueStrip({
           type="button"
           onClick={onTriggerSummary}
           disabled={isLoading}
-          className="h-7 px-3 bg-[var(--brand-primary)] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors"
+          className="h-7 px-3 bg-[var(--brand-primary)] hover:bg-[var(--vellum-brand-strong)] disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors"
         >
           <span>{t("webmail_next.ai_cue_trigger_btn")}</span>
         </button>

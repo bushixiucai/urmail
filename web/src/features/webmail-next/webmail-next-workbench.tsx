@@ -1029,7 +1029,7 @@ export function WebmailNextWorkbench({
             <button
               type="button"
               data-testid="folder-delete-confirm"
-              className="text-xs px-3 py-1.5 bg-[#DC2626] text-white rounded"
+              className="text-xs px-3 py-1.5 bg-[var(--vellum-danger-strong)] text-white rounded"
               onClick={onConfirm}
             >
               {t("webmail_next.delete_folder")}
@@ -1240,7 +1240,7 @@ export function WebmailNextWorkbench({
       {isVacationActive && (
         <div
           data-testid="vacation-active-banner"
-          className="bg-[#FEF3C7] border-b border-[#FDE68A] text-[#92400E] px-4 py-2 text-xs flex items-center justify-between z-20 shrink-0"
+          className="bg-[var(--vellum-warning-fill)] border-b border-[var(--vellum-warning-border)] text-[var(--vellum-warning-text)] px-4 py-2 text-xs flex items-center justify-between z-20 shrink-0"
         >
           <div
             className="flex items-center gap-2 cursor-pointer hover:underline"
@@ -1269,7 +1269,7 @@ export function WebmailNextWorkbench({
             data-testid="btn-quick-dismiss-vacation"
             type="button"
             onClick={handleQuickDisableVacation}
-            className="text-xs font-semibold text-[var(--vellum-star)] hover:text-[#78350F] underline ml-4 shrink-0"
+            className="text-xs font-semibold text-[var(--vellum-warning-text-strong)] hover:text-[#78350F] underline ml-4 shrink-0"
           >
             {t("webmail_next.vacation_quick_disable", "Turn off")}
           </button>
@@ -1372,6 +1372,9 @@ export function WebmailNextWorkbench({
                 folderName={folderDisplayName}
                 messages={messages}
                 activeUid={selectedUid}
+                isSearchView={searchDraft.trim() !== ""}
+                onClearSearch={() => setSearchDraft("")}
+                onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
                 onSelectMessage={(uid) => openMessage(uid)}
                 totalCount={messageTotal}
@@ -1583,7 +1586,7 @@ export function WebmailNextWorkbench({
         <div
           role="alert"
           data-testid="folder-action-error"
-          className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#DC2626] text-white text-xs shadow-lg"
+          className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[var(--vellum-danger-strong)] text-white text-xs shadow-lg"
         >
           {t("webmail_next.folder_action_failed")}
         </div>

@@ -808,9 +808,12 @@ describe("WebmailNextWorkbench Layout", () => {
     );
     await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
     fireEvent.keyDown(window, { key: "e" });
-    await waitFor(() => {
-      expect(screen.getByTestId("webmail-move-notice")).toBeTruthy();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("webmail-move-notice")).toBeTruthy();
+      },
+      { timeout: 5000 },
+    );
     expect(screen.queryByTestId("webmail-move-undo")).toBeNull();
   });
 

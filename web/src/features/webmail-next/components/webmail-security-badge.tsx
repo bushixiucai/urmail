@@ -40,17 +40,17 @@ export function WebmailSecurityBadge({
         onClick={() => setShowDetails((p) => !p)}
         className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
           isHighRisk
-            ? "bg-[#FEE2E2] text-[#991B1B] hover:bg-[#FECACA]"
+            ? "bg-[var(--vellum-danger-fill)] text-[var(--vellum-danger-text)] hover:bg-[var(--vellum-danger-border)]"
             : isPass
-              ? "bg-[#DCFCE7] text-[#166534] hover:bg-[#BBF7D0]"
-              : "bg-[#FEF3C7] text-[#92400E] hover:bg-[#FDE68A]"
+              ? "bg-[var(--vellum-success-fill)] text-[var(--vellum-success-text)] hover:bg-[var(--vellum-success-border)]"
+              : "bg-[var(--vellum-warning-fill)] text-[var(--vellum-warning-text)] hover:bg-[var(--vellum-warning-border)]"
         }`}
         title="Security & Authentication Details"
       >
         {isHighRisk ? (
-          <ShieldAlert className="w-3.5 h-3.5 text-[#DC2626]" />
+          <ShieldAlert className="w-3.5 h-3.5 text-[var(--vellum-danger-strong)]" />
         ) : isPass ? (
-          <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
+          <ShieldCheck className="w-3.5 h-3.5 text-[var(--vellum-success-text)]" />
         ) : (
           <Shield className="w-3.5 h-3.5 text-[var(--vellum-warning-strong)]" />
         )}
@@ -84,8 +84,8 @@ export function WebmailSecurityBadge({
                 <span
                   className={`font-semibold ${
                     authentication.status === "pass"
-                      ? "text-[#16A34A]"
-                      : "text-[#DC2626]"
+                      ? "text-[var(--vellum-success-text)]"
+                      : "text-[var(--vellum-danger-strong)]"
                   }`}
                 >
                   {authentication.status.toUpperCase()}
@@ -104,10 +104,10 @@ export function WebmailSecurityBadge({
               <span
                 className={`font-semibold ${
                   riskLevel === "low"
-                    ? "text-[#16A34A]"
+                    ? "text-[var(--vellum-success-text)]"
                     : riskLevel === "medium"
                       ? "text-[var(--vellum-warning-strong)]"
-                      : "text-[#DC2626]"
+                      : "text-[var(--vellum-danger-strong)]"
                 }`}
               >
                 {riskLevel.toUpperCase()}
@@ -119,7 +119,7 @@ export function WebmailSecurityBadge({
               <div className="text-[var(--vellum-ink-secondary)] font-medium mb-1">
                 Indicators:
               </div>
-              <ul className="list-disc list-inside space-y-0.5 text-[#991B1B]">
+              <ul className="list-disc list-inside space-y-0.5 text-[var(--vellum-danger-text)]">
                 {indicators.map((ind, i) => (
                   <li key={i} className="break-words">
                     <span className="font-medium">{ind.type}</span>

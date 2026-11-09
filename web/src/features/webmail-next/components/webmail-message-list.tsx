@@ -12,6 +12,9 @@ import {
   MailOpen,
   Star,
   FolderInput,
+  Inbox,
+  SearchX,
+  CheckCircle2,
 } from "lucide-react";
 import { WebmailMessageRow } from "./webmail-message-row";
 import {
@@ -21,6 +24,9 @@ import {
   type ContextMenuFolder,
 } from "./webmail-row-context-menu";
 import { useMessageThreading } from "../hooks/use-message-threading";
+import { useDelayedFlag } from "../hooks/use-delayed-flag";
+import { MailListSkeleton, SkeletonRow } from "./webmail-skeleton";
+import { WebmailEmptyState } from "./webmail-empty-state";
 import { useRangeSelection } from "../hooks/use-range-selection";
 import type {
   MessageSummary,
@@ -79,6 +85,12 @@ interface WebmailMessageListProps {
   onLoadedUids?: (uids: number[]) => void;
   /** Test and embedding override. Production measures the scroller. */
   viewportHeight?: number;
+  /** B2-2 空态三场景：当前视图为搜索（无结果时展示 SearchX 空态）。 */
+  isSearchView?: boolean;
+  /** B2-2 空态动作：清除搜索条件。 */
+  onClearSearch?: () => void;
+  /** B2-2 空态动作：发起写信。 */
+  onCompose?: () => void;
   /** B2-3：批量选择数量变化上报（移动端写信 FAB 让位批量条）。 */
   onSelectionCountChange?: (count: number) => void;
 }
@@ -115,6 +127,9 @@ export function WebmailMessageList({
   onNearEnd,
   onLoadedUids,
   viewportHeight,
+  isSearchView = false,
+  onClearSearch,
+  onCompose,
   onSelectionCountChange,
 }: WebmailMessageListProps) {
   const { t } = useTranslation();
@@ -168,6 +183,11 @@ export function WebmailMessageList({
   const parentRef = useRef<HTMLDivElement>(null);
   const rowHeight =
     density === "comfortable" ? 52 : density === "list_only" ? 32 : 40;
+  // B2-2 防闪：in-flight >300ms 才渲染骨架（<300ms 直接空→内容）。
+  const showInitialSkeleton = useDelayedFlag(isInitialLoading, 300);
+  // B2-2 场景三「全部已处理」：列表非空、全部已读、非搜索视图时在列表末尾提示。
+  const allCaughtUp =
+    !isSearchView && items.length > 0 && items.every((item) => !item.isUnread);
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
@@ -515,15 +535,12 @@ export function WebmailMessageList({
         style={{ contain: "layout paint" }}
       >
         {items.length === 0 ? (
-          isInitialLoading ? (
-            <div data-testid="list-initial-skeleton" aria-busy="true">
-              {Array.from({ length: 6 }, (_, index) => (
-                <div
-                  key={index}
-                  className="mail-row-item border-b border-[var(--vellum-border)] bg-[var(--vellum-surface-muted)] animate-pulse"
-                />
-              ))}
-            </div>
+          showInitialSkeleton ? (
+            <MailListSkeleton
+              testId="list-initial-skeleton"
+              rows={8}
+              rowHeight={rowHeight}
+            />
           ) : loadError ? (
             <div
               data-testid="list-load-error"
@@ -546,10 +563,24 @@ export function WebmailMessageList({
                 </button>
               )}
             </div>
+          ) : isSearchView ? (
+            <WebmailEmptyState
+              testId="empty-search"
+              icon={SearchX}
+              title={t("webmail_next.empty_search_title")}
+              description={t("webmail_next.empty_search_body")}
+              actionLabel={t("webmail_next.empty_search_action")}
+              onAction={onClearSearch}
+            />
           ) : (
-            <div className="h-full flex items-center justify-center text-xs text-[var(--vellum-ink-secondary)]">
-              {t("webmail_next.no_messages")}
-            </div>
+            <WebmailEmptyState
+              testId="empty-folder"
+              icon={Inbox}
+              title={t("webmail_next.empty_folder_title")}
+              description={t("webmail_next.empty_folder_body")}
+              actionLabel={t("webmail_next.empty_folder_action")}
+              onAction={onCompose}
+            />
           )
         ) : virtualItems.length > 0 ? (
           <div
@@ -586,12 +617,22 @@ export function WebmailMessageList({
             </div>
           ))
         )}
-        {isLoadingMore && (
+        {allCaughtUp && (
           <div
-            data-testid="list-page-skeleton"
-            aria-busy="true"
-            className="mail-row-item border-b border-[var(--vellum-border)] bg-[var(--vellum-surface-muted)] animate-pulse"
-          />
+            data-testid="list-all-caught-up"
+            className="py-8 border-t border-[var(--vellum-border)]"
+          >
+            <WebmailEmptyState
+              icon={CheckCircle2}
+              title={t("webmail_next.empty_all_done_title")}
+              description={t("webmail_next.empty_all_done_body")}
+            />
+          </div>
+        )}
+        {isLoadingMore && (
+          <div data-testid="list-page-skeleton" aria-busy="true">
+            <SkeletonRow height={rowHeight} />
+          </div>
         )}
       </div>
       {contextHandlers && (

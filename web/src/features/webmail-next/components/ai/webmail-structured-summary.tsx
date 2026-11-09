@@ -124,7 +124,7 @@ export function WebmailStructuredSummary({
           {language && (
             <span
               data-testid="ai-summary-language"
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#E0E7FF] text-[#3730A3]"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)]"
             >
               <Globe className="w-3 h-3" />
               <span>{language}</span>
@@ -134,7 +134,7 @@ export function WebmailStructuredSummary({
             <span
               key={idx}
               data-testid="ai-key-date-badge"
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#FEF3C7] text-[#92400E]"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--vellum-warning-fill)] text-[var(--vellum-warning-text)]"
             >
               <Calendar className="w-3 h-3" />
               <span>
@@ -148,7 +148,7 @@ export function WebmailStructuredSummary({
           {isCacheHit && (
             <span
               data-testid="ai-cache-hit"
-              className="text-xs text-[#71717A] flex items-center gap-1 font-medium"
+              className="text-xs text-[var(--vellum-ink-secondary)] flex items-center gap-1 font-medium"
             >
               {t("webmail_next.ai_cache_hit")}
             </span>
@@ -157,7 +157,7 @@ export function WebmailStructuredSummary({
             data-testid="btn-dismiss-summary"
             type="button"
             onClick={onDismiss}
-            className="p-1 text-[#71717A] hover:text-[var(--vellum-ink)] rounded hover:bg-black/5 transition-colors"
+            className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded hover:bg-black/5 transition-colors"
             aria-label={t("webmail_next.ai_dismiss")}
             title={t("webmail_next.ai_dismiss")}
           >
@@ -170,7 +170,7 @@ export function WebmailStructuredSummary({
       {isDegraded && (
         <div
           data-testid="ai-degraded-notice"
-          className="mt-3 p-2.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-md text-xs text-[#92400E] flex items-center gap-2"
+          className="mt-3 p-2.5 bg-[var(--vellum-warning-fill)] border border-[var(--vellum-warning-border)] rounded-md text-xs text-[var(--vellum-warning-text)] flex items-center gap-2"
         >
           <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--vellum-warning-strong)]" />
           <span>{t("webmail_next.ai_degraded_notice")}</span>
@@ -191,7 +191,7 @@ export function WebmailStructuredSummary({
             <button
               type="button"
               onClick={onCancel}
-              className="text-xs text-[#DC2626] hover:underline font-medium"
+              className="text-xs text-[var(--vellum-danger-strong)] hover:underline font-medium"
             >
               {t("page.webmail.ai_cancel")}
             </button>
@@ -203,14 +203,14 @@ export function WebmailStructuredSummary({
       {!isLoading && error && (
         <div
           data-testid="ai-summary-error"
-          className="py-4 text-xs text-[#DC2626] flex items-center justify-between gap-2"
+          className="py-4 text-xs text-[var(--vellum-danger-strong)] flex items-center justify-between gap-2"
         >
           <span>{error}</span>
           {onRetry && (
             <button
               type="button"
               onClick={onRetry}
-              className="px-2.5 py-1 bg-white border border-[#DC2626]/30 text-[#DC2626] rounded hover:bg-[#FEF2F2] font-medium flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1 bg-white border border-[var(--vellum-danger-strong)]/30 text-[var(--vellum-danger-strong)] rounded hover:bg-[var(--vellum-danger-fill-soft)] font-medium flex items-center gap-1 transition-colors"
             >
               <RotateCcw className="w-3 h-3" />
               <span>{t("webmail_next.ai_retry")}</span>

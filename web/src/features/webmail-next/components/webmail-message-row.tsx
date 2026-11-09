@@ -299,7 +299,7 @@ function WebmailMessageRowView({
                 <button
                   type="button"
                   onClick={onDelete}
-                  className="p-0.5 hover:text-[#DC2626] rounded hover:bg-[var(--vellum-border)]"
+                  className="p-0.5 hover:text-[var(--vellum-danger-strong)] rounded hover:bg-[var(--vellum-border)]"
                   aria-label={deleteLabel}
                   title={deleteLabel}
                 >

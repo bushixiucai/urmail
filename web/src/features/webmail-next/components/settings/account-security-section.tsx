@@ -52,7 +52,7 @@ export function AccountSecuritySection() {
     return {
       score: 3,
       label: t("settings.security.strength_strong", "Strong"),
-      color: "bg-[#16A34A]",
+      color: "bg-[var(--vellum-success-text)]",
     };
   };
 
@@ -142,7 +142,7 @@ export function AccountSecuritySection() {
 
       {success ? (
         <div className="p-4 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[#166534] text-sm flex items-start gap-3">
-          <CheckCircle2 className="w-5 h-5 text-[#16A34A] shrink-0 mt-0.5" />
+          <CheckCircle2 className="w-5 h-5 text-[var(--vellum-success-text)] shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold">
               {t(

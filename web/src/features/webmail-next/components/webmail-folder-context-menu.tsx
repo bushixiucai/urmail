@@ -100,7 +100,7 @@ export function WebmailFolderContextMenu({
         type="button"
         role="menuitem"
         data-testid="folder-menu-delete"
-        className="w-full flex items-center px-3 h-8 text-left text-xs text-[#DC2626] hover:bg-[var(--vellum-surface-muted)]"
+        className="w-full flex items-center px-3 h-8 text-left text-xs text-[var(--vellum-danger-strong)] hover:bg-[var(--vellum-surface-muted)]"
         onClick={() => runAndClose(() => onDelete(state.nameEnc, state.name))}
       >
         {t("webmail_next.delete_folder")}
