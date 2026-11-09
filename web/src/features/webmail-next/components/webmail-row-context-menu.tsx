@@ -122,7 +122,7 @@ export function WebmailRowContextMenu({
   const uids = [state.uid];
 
   const itemClass =
-    "w-full flex items-center gap-2.5 px-3 h-8 text-left text-xs text-[#18181B] hover:bg-[#F6F4EE] disabled:opacity-40 disabled:pointer-events-none";
+    "w-full flex items-center gap-2.5 px-3 h-8 text-left text-xs text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)] disabled:opacity-40 disabled:pointer-events-none";
 
   const item = (
     label: string,

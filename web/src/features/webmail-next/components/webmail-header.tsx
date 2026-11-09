@@ -80,21 +80,21 @@ export function WebmailHeader({
   return (
     <header
       data-testid="webmail-header"
-      className="h-12 border-b border-[#EBE8E0] bg-[#FFFFFF] px-4 flex items-center justify-between select-none z-30 shrink-0"
+      className="h-12 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-4 flex items-center justify-between select-none z-30 shrink-0"
     >
       <div className="flex items-center gap-3 w-56">
         <button
           data-testid="rail-toggle-button"
           type="button"
           onClick={onToggleRail}
-          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
           aria-label={t("webmail_next.toggle_navigation")}
           title={t("webmail_next.toggle_navigation")}
         >
           <PanelLeft className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2 font-bold text-base text-[#18181B] tracking-tight">
-          <div className="w-2 h-2 rounded-full bg-[var(--brand-primary,#2563eb)]" />
+        <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)] tracking-tight">
+          <div className="w-2 h-2 rounded-full bg-[var(--brand-primary,var(--brand-primary))]" />
           <span>{brand?.name || t("webmail_next.brand_name")}</span>
         </div>
       </div>
@@ -115,14 +115,14 @@ export function WebmailHeader({
               }
             }}
             placeholder={t("webmail.header.search_placeholder")}
-            className="w-full h-8 pl-9 pr-16 bg-[#F6F4EE] rounded-full text-xs text-[#18181B] border border-transparent focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none transition-all"
+            className="w-full h-8 pl-9 pr-16 bg-[var(--vellum-surface-muted)] rounded-full text-xs text-[var(--vellum-ink)] border border-transparent focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none transition-all"
           />
           {onOpenAdvancedSearch && (
             <button
               data-testid="btn-open-advanced-search"
               type="button"
               onClick={onOpenAdvancedSearch}
-              className="absolute right-1 top-1 flex h-6 w-6 min-h-6 min-w-6 items-center justify-center text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded"
+              className="absolute right-1 top-1 flex h-6 w-6 min-h-6 min-w-6 items-center justify-center text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded"
               aria-label={t("webmail_next.advanced_filter")}
               title={t("webmail_next.advanced_filter")}
             >
@@ -152,7 +152,7 @@ export function WebmailHeader({
             type="button"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className={`p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors ${
+            className={`p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors ${
               isRefreshing ? "animate-spin" : ""
             }`}
             aria-label={t("webmail_next.refresh")}
@@ -168,7 +168,7 @@ export function WebmailHeader({
             aria-haspopup="menu"
             aria-expanded={densityOpen}
             onClick={() => setDensityOpen((open) => !open)}
-            className="flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-[#EBE8E0] text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-[var(--vellum-border)] text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("webmail_next.density_menu")}
           >
             <LayoutList className="w-3.5 h-3.5" />
@@ -178,7 +178,7 @@ export function WebmailHeader({
             <div
               role="menu"
               data-testid="webmail-density-menu"
-              className="absolute right-0 top-8 z-40 min-w-36 bg-white border border-[#EBE8E0] rounded-md shadow-lg py-1"
+              className="absolute right-0 top-8 z-40 min-w-36 bg-white border border-[var(--vellum-border)] rounded-md shadow-lg py-1"
             >
               {(Object.keys(densityLabel) as DensityMode[]).map((mode) => (
                 <button
@@ -187,7 +187,7 @@ export function WebmailHeader({
                   role="menuitemradio"
                   aria-checked={density === mode}
                   data-testid={`webmail-density-${mode}`}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-[#18181B] hover:bg-[#F6F4EE]"
+                  className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)]"
                   onClick={() => {
                     onSetDensity(mode);
                     setDensityOpen(false);
@@ -205,7 +205,7 @@ export function WebmailHeader({
             data-testid="webmail-contacts-btn"
             type="button"
             onClick={onOpenContacts}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("contacts.title")}
             title={t("contacts.title")}
           >
@@ -217,7 +217,7 @@ export function WebmailHeader({
             data-testid="webmail-settings-btn"
             type="button"
             onClick={onOpenSettings}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("webmail_next.settings")}
             title={t("webmail_next.settings")}
           >

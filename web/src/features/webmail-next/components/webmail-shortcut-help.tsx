@@ -51,11 +51,11 @@ export function WebmailShortcutHelp({
         aria-modal="true"
         aria-label={t("webmail_next.shortcut_help_title")}
         data-testid="webmail-shortcut-help"
-        className="w-[520px] max-w-[92vw] bg-white border border-[#EBE8E0] rounded-lg shadow-xl p-5"
+        className="w-[520px] max-w-[92vw] bg-white border border-[var(--vellum-border)] rounded-lg shadow-xl p-5"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-[#18181B]">
+          <h2 className="text-sm font-semibold text-[var(--vellum-ink)]">
             {t("webmail_next.shortcut_help_title")}
           </h2>
           <button
@@ -70,7 +70,7 @@ export function WebmailShortcutHelp({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {GROUPS.map((group) => (
             <section key={group.title}>
-              <h3 className="text-xs font-semibold text-[#18181B] mb-2">
+              <h3 className="text-xs font-semibold text-[var(--vellum-ink)] mb-2">
                 {t(group.title)}
               </h3>
               <ul className="space-y-1.5">
@@ -79,7 +79,9 @@ export function WebmailShortcutHelp({
                     key={keys}
                     className="flex items-center justify-between gap-2 text-xs"
                   >
-                    <span className="font-mono text-[#18181B]">{keys}</span>
+                    <span className="font-mono text-[var(--vellum-ink)]">
+                      {keys}
+                    </span>
                     <span className="text-[var(--vellum-ink-secondary)] text-right">
                       {t(label)}
                     </span>

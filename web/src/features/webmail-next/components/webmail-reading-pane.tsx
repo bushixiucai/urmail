@@ -178,9 +178,9 @@ function SanitizedHtmlFrame({
         aria-busy="true"
         className="animate-pulse space-y-3"
       >
-        <div className="h-3 w-2/3 rounded bg-[#EBE8E0]" />
-        <div className="h-3 w-1/2 rounded bg-[#EBE8E0]" />
-        <div className="h-24 w-full rounded bg-[#EBE8E0]" />
+        <div className="h-3 w-2/3 rounded bg-[var(--vellum-border)]" />
+        <div className="h-3 w-1/2 rounded bg-[var(--vellum-border)]" />
+        <div className="h-24 w-full rounded bg-[var(--vellum-border)]" />
       </div>
     );
   }
@@ -407,7 +407,7 @@ export function WebmailReadingPane({
     return (
       <div
         data-testid="webmail-reading-pane"
-        className="flex-1 h-full bg-[#FAF9F5] p-6"
+        className="flex-1 h-full bg-[var(--vellum-ground)] p-6"
       >
         <div
           data-testid="reading-skeleton"
@@ -415,9 +415,9 @@ export function WebmailReadingPane({
           aria-label={t("webmail_next.loading_message")}
           className="animate-pulse space-y-3"
         >
-          <div className="h-4 w-2/3 rounded bg-[#EBE8E0]" />
-          <div className="h-3 w-1/3 rounded bg-[#EBE8E0]" />
-          <div className="h-24 w-full rounded bg-[#EBE8E0]" />
+          <div className="h-4 w-2/3 rounded bg-[var(--vellum-border)]" />
+          <div className="h-3 w-1/3 rounded bg-[var(--vellum-border)]" />
+          <div className="h-24 w-full rounded bg-[var(--vellum-border)]" />
         </div>
       </div>
     );
@@ -427,12 +427,12 @@ export function WebmailReadingPane({
     return (
       <div
         data-testid="webmail-reading-pane"
-        className="flex-1 h-full flex flex-col items-center justify-center bg-[#FAF9F5] text-xs text-[#52525B]"
+        className="flex-1 h-full flex flex-col items-center justify-center bg-[var(--vellum-ground)] text-xs text-[var(--vellum-ink-secondary)]"
       >
-        <div className="w-12 h-12 rounded-full bg-[#F3F1EC] flex items-center justify-center mb-2">
+        <div className="w-12 h-12 rounded-full bg-[var(--vellum-row-hover)] flex items-center justify-center mb-2">
           <Mail className="w-6 h-6 text-[var(--vellum-ink-secondary)]" />
         </div>
-        <span className="text-sm font-semibold leading-[22px] text-[#18181B]">
+        <span className="text-sm font-semibold leading-[22px] text-[var(--vellum-ink)]">
           {t("webmail_next.empty_reading_title")}
         </span>
         <span className="mt-1 text-xs leading-4 text-[var(--vellum-ink-secondary)]">
@@ -723,7 +723,7 @@ export function WebmailReadingPane({
           className="mb-3 p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[#92400E]"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <ShieldAlert className="w-4 h-4 text-[#D97706] shrink-0" />
+            <ShieldAlert className="w-4 h-4 text-[var(--vellum-color-warning)] shrink-0" />
             <span className="break-words leading-relaxed">
               {t("webmail_next.remote_images_blocked")}
             </span>
@@ -733,7 +733,7 @@ export function WebmailReadingPane({
               data-testid="show-images-button"
               type="button"
               onClick={handleShowImages}
-              className="px-2 py-1 bg-white border border-[#D97706]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
+              className="px-2 py-1 bg-white border border-[var(--vellum-color-warning)]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
             >
               {t("webmail_next.show_images")}
             </button>
@@ -750,7 +750,7 @@ export function WebmailReadingPane({
       )}
       <div
         data-testid="mail-body-container"
-        className="select-text text-sm text-[#18181B] leading-relaxed min-h-[220px]"
+        className="select-text text-sm text-[var(--vellum-ink)] leading-relaxed min-h-[220px]"
       >
         {message.html ? (
           <SanitizedHtmlFrame
@@ -764,7 +764,7 @@ export function WebmailReadingPane({
             }
           />
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-[22px] text-[#18181B] max-w-[65ch]">
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-[22px] text-[var(--vellum-ink)] max-w-[65ch]">
             {message.text || "(Empty message)"}
           </pre>
         )}
@@ -833,17 +833,17 @@ export function WebmailReadingPane({
   return (
     <div
       data-testid="webmail-reading-pane"
-      className="flex-1 h-full flex flex-col bg-[#FAF9F5] overflow-y-auto"
+      className="flex-1 h-full flex flex-col bg-[var(--vellum-ground)] overflow-y-auto"
     >
       {/* 1. Header Toolbar */}
-      <div className="h-12 px-6 border-b border-[#EBE8E0] bg-[#FFFFFF] flex items-center justify-between shrink-0">
+      <div className="h-12 px-6 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           {onBack && (
             <button
               data-testid="reading-back-button"
               type="button"
               onClick={onBack}
-              className="md:hidden p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded hover:bg-[#F3F1EC]"
+              className="md:hidden p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded hover:bg-[var(--vellum-row-hover)]"
               aria-label={t("webmail_next.back_to_list")}
               title={t("webmail_next.back_to_list")}
             >
@@ -854,7 +854,7 @@ export function WebmailReadingPane({
             data-testid="reading-reply-button"
             type="button"
             onClick={() => onReply?.(message)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#18181B] hover:bg-[#F3F1EC] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] transition-colors"
           >
             <Reply className="w-4 h-4" />
             <span>{t("webmail_next.reply")}</span>
@@ -862,7 +862,7 @@ export function WebmailReadingPane({
           <button
             type="button"
             onClick={() => onReplyAll?.(message)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#18181B] hover:bg-[#F3F1EC] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] transition-colors"
           >
             <ReplyAll className="w-4 h-4" />
             <span>{t("webmail_next.reply_all")}</span>
@@ -870,7 +870,7 @@ export function WebmailReadingPane({
           <button
             type="button"
             onClick={() => onForward?.(message)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[#18181B] hover:bg-[#F3F1EC] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] transition-colors"
           >
             <Forward className="w-4 h-4" />
             <span>{t("webmail_next.forward")}</span>
@@ -881,7 +881,7 @@ export function WebmailReadingPane({
           <button
             type="button"
             onClick={() => onToggleStar?.(message.uid)}
-            className={`p-1.5 rounded hover:bg-[#F3F1EC] transition-colors ${
+            className={`p-1.5 rounded hover:bg-[var(--vellum-row-hover)] transition-colors ${
               isStarred
                 ? "text-[var(--vellum-star)]"
                 : "text-[var(--vellum-ink-secondary)]"
@@ -896,7 +896,7 @@ export function WebmailReadingPane({
           <button
             type="button"
             onClick={() => onDelete?.(message.uid)}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#F3F1EC] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[var(--vellum-row-hover)] transition-colors"
             aria-label={t("webmail_next.delete")}
             title={t("webmail_next.delete")}
           >
@@ -911,17 +911,17 @@ export function WebmailReadingPane({
       <div className="px-3 sm:px-6 py-3 sm:py-4 w-full space-y-4">
         {/* Subject & Security */}
         <div>
-          <h1 className="text-[20px] leading-7 font-[650] text-[#18181B] tracking-tight">
+          <h1 className="text-[20px] leading-7 font-[650] text-[var(--vellum-ink)] tracking-tight">
             {message.subject || "(No subject)"}
           </h1>
-          <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[#EBE8E0]">
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[var(--vellum-border)]">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[var(--brand-primary,#2563eb)] text-white font-bold text-sm flex items-center justify-center shrink-0">
+              <div className="w-9 h-9 rounded-full bg-[var(--brand-primary,var(--brand-primary))] text-white font-bold text-sm flex items-center justify-center shrink-0">
                 {(senderName || "?").charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-[#18181B]">
+                  <span className="text-xs font-semibold text-[var(--vellum-ink)]">
                     {senderName}
                   </span>
                   <span className="text-xs text-[var(--vellum-ink-secondary)]">
@@ -939,7 +939,7 @@ export function WebmailReadingPane({
                     type="button"
                     onClick={() => void handleRunSecurityCheck()}
                     disabled={isRunningSecurityCheck}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0] transition-colors disabled:opacity-50 select-none"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-border)] transition-colors disabled:opacity-50 select-none"
                     title={t("page.webmail.ai_quick_security")}
                     aria-label={t("page.webmail.ai_quick_security")}
                   >
@@ -969,7 +969,7 @@ export function WebmailReadingPane({
                     className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
                       contactAdded
                         ? "text-[#16A34A] bg-[#DCFCE7]"
-                        : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0]"
+                        : "text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-border)]"
                     }`}
                     aria-label={
                       contactAdded
@@ -997,7 +997,7 @@ export function WebmailReadingPane({
                     )}
                   </button>
                 </div>
-                <div className="text-xs text-[#52525B] mt-0.5">
+                <div className="text-xs text-[var(--vellum-ink-secondary)] mt-0.5">
                   {message.to && message.to.length > 0
                     ? t("webmail_next.to_recipients", {
                         recipients: message.to
@@ -1009,7 +1009,7 @@ export function WebmailReadingPane({
               </div>
             </div>
 
-            <div className="text-xs text-[#52525B]">
+            <div className="text-xs text-[var(--vellum-ink-secondary)]">
               {message.date ? new Date(message.date).toLocaleString() : ""}
             </div>
           </div>
@@ -1023,8 +1023,8 @@ export function WebmailReadingPane({
           data-testid="ai-unconfigured-modal"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
         >
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4 border border-[#EBE8E0]">
-            <div className="text-sm font-semibold text-[#18181B]">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4 border border-[var(--vellum-border)]">
+            <div className="text-sm font-semibold text-[var(--vellum-ink)]">
               {t("page.webmail.ai_settings_title")}
             </div>
             <p className="text-xs text-[var(--vellum-ink-secondary)] leading-relaxed">
@@ -1034,7 +1034,7 @@ export function WebmailReadingPane({
               <button
                 type="button"
                 onClick={() => setShowUnconfiguredModal(false)}
-                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:bg-[#F3F1EC] rounded-md font-medium"
+                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-row-hover)] rounded-md font-medium"
               >
                 {t("page.webmail.ai_cancel")}
               </button>
@@ -1044,7 +1044,7 @@ export function WebmailReadingPane({
                   setShowUnconfiguredModal(false);
                   onOpenAISettings?.();
                 }}
-                className="px-3 py-1.5 text-xs bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-md font-semibold"
+                className="px-3 py-1.5 text-xs bg-[var(--brand-primary)] hover:bg-[#1D4ED8] text-white rounded-md font-semibold"
               >
                 {t("webmail_next.ai_go_to_settings")}
               </button>

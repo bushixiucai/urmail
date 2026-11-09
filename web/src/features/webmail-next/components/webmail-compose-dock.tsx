@@ -255,7 +255,7 @@ export function WebmailComposeDock({
         data-testid="webmail-compose-dock"
         data-compose-dock="true"
         data-minimized={isMinimized ? "true" : "false"}
-        className={`fixed z-50 transition-all duration-200 bg-white border border-[#EBE8E0] shadow-2xl flex flex-col ${
+        className={`fixed z-50 transition-all duration-200 bg-white border border-[var(--vellum-border)] shadow-2xl flex flex-col ${
           isMaximized
             ? "inset-4 rounded-xl"
             : isMinimized
@@ -264,7 +264,7 @@ export function WebmailComposeDock({
         }`}
       >
         {/* Dock Header */}
-        <div className="h-10 px-4 bg-[#18181B] text-white flex items-center justify-between shrink-0 select-none rounded-t-lg">
+        <div className="h-10 px-4 bg-[var(--vellum-ink)] text-white flex items-center justify-between shrink-0 select-none rounded-t-lg">
           <span className="text-xs font-semibold truncate">
             {draft.subject || t("webmail_next.compose")}
           </span>
@@ -326,7 +326,7 @@ export function WebmailComposeDock({
             {/* Left Column: Editor & Form Controls */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
               {/* Header Form: Recipient chips & Cc/Bcc */}
-              <div className="px-4 pt-2 border-b border-[#EBE8E0] space-y-0.5 bg-white shrink-0">
+              <div className="px-4 pt-2 border-b border-[var(--vellum-border)] space-y-0.5 bg-white shrink-0">
                 <div className="relative">
                   <WebmailRecipientChips
                     label="To"
@@ -339,7 +339,7 @@ export function WebmailComposeDock({
                       <button
                         type="button"
                         onClick={() => setShowCc(true)}
-                        className="hover:text-[#18181B]"
+                        className="hover:text-[var(--vellum-ink)]"
                       >
                         Cc
                       </button>
@@ -348,7 +348,7 @@ export function WebmailComposeDock({
                       <button
                         type="button"
                         onClick={() => setShowBcc(true)}
-                        className="hover:text-[#18181B]"
+                        className="hover:text-[var(--vellum-ink)]"
                       >
                         Bcc
                       </button>
@@ -381,7 +381,7 @@ export function WebmailComposeDock({
                     value={draft.subject}
                     onChange={(e) => updateDraft({ subject: e.target.value })}
                     placeholder={t("compose.subject_placeholder")}
-                    className="w-full text-xs text-[#18181B] font-medium outline-none py-1"
+                    className="w-full text-xs text-[var(--vellum-ink)] font-medium outline-none py-1"
                   />
                 </div>
               </div>
@@ -399,11 +399,11 @@ export function WebmailComposeDock({
 
               {/* Attachments Pill List */}
               {draft.attachments && draft.attachments.length > 0 && (
-                <div className="px-4 py-1.5 border-b border-[#EBE8E0] flex flex-wrap gap-1.5 max-h-24 overflow-y-auto bg-[#FAF9F5]">
+                <div className="px-4 py-1.5 border-b border-[var(--vellum-border)] flex flex-wrap gap-1.5 max-h-24 overflow-y-auto bg-[var(--vellum-ground)]">
                   {draft.attachments.map((att, idx) => (
                     <div
                       key={att.filename + idx}
-                      className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[#EBE8E0] rounded text-xs text-[#18181B]"
+                      className="flex items-center gap-1 px-2 py-0.5 bg-white border border-[var(--vellum-border)] rounded text-xs text-[var(--vellum-ink)]"
                     >
                       <Paperclip className="w-3 h-3 text-[var(--vellum-ink-secondary)]" />
                       <span className="truncate max-w-[140px]">
@@ -431,21 +431,21 @@ export function WebmailComposeDock({
               />
 
               {/* Dock Bottom Footer Bar */}
-              <div className="h-12 px-4 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between shrink-0 select-none">
+              <div className="h-12 px-4 border-t border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex items-center justify-between shrink-0 select-none">
                 <div className="flex items-center gap-2">
                   <button
                     data-testid="compose-send-button"
                     type="button"
                     onClick={handleSend}
                     disabled={draft.to.length === 0 || Boolean(attachmentError)}
-                    className="flex items-center gap-2 px-4 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
+                    className="flex items-center gap-2 px-4 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-lg shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none transition-all"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>{t("webmail_next.send")}</span>
                   </button>
 
                   <label
-                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0] rounded cursor-pointer transition-colors"
+                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-border)] rounded cursor-pointer transition-colors"
                     title="Attach file (max 5MB single, 10MB total)"
                   >
                     <Paperclip className="w-4 h-4" />
@@ -465,17 +465,17 @@ export function WebmailComposeDock({
                     onClick={() => setIsAICompanionOpen((p) => !p)}
                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       isAICompanionOpen
-                        ? "bg-[#2563EB]/10 text-[#2563EB]"
-                        : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0]"
+                        ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
+                        : "text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-border)]"
                     }`}
                     title={t("webmail_next.ai_companion_toggle")}
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[#D97706]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--vellum-color-warning)]" />
                     <span>{t("webmail_next.ai_companion_btn")}</span>
                   </button>
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-[#52525B]">
+                <div className="flex items-center gap-3 text-xs text-[var(--vellum-ink-secondary)]">
                   <span data-testid="draft-status-indicator">
                     {isSaving
                       ? "Saving draft..."
@@ -490,7 +490,7 @@ export function WebmailComposeDock({
                       clearDraft();
                       onClose();
                     }}
-                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[#EBE8E0] rounded transition-colors"
+                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[var(--vellum-border)] rounded transition-colors"
                     title="Discard Draft"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -531,7 +531,7 @@ export function WebmailComposeDock({
       {undoToast.visible && (
         <div
           data-testid="undo-send-toast"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 bg-[#18181B] text-white rounded-lg shadow-2xl flex items-center gap-4 text-xs font-medium animate-in fade-in slide-in-from-bottom-2"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 bg-[var(--vellum-ink)] text-white rounded-lg shadow-2xl flex items-center gap-4 text-xs font-medium animate-in fade-in slide-in-from-bottom-2"
         >
           <span>
             {t("webmail_next.mail_sent")} ({undoToast.countdown}s)

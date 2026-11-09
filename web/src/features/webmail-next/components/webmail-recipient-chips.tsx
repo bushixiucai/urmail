@@ -132,7 +132,7 @@ export function WebmailRecipientChips({
   return (
     <div
       ref={containerRef}
-      className="relative flex flex-wrap items-center gap-1.5 py-1 text-xs border-b border-[#F3F1EC]"
+      className="relative flex flex-wrap items-center gap-1.5 py-1 text-xs border-b border-[var(--vellum-row-hover)]"
     >
       <span className="w-12 text-[var(--vellum-ink-secondary)] shrink-0 font-medium">
         {label}:
@@ -142,7 +142,7 @@ export function WebmailRecipientChips({
           <div
             key={email}
             data-testid={`recipient-pill-${email}`}
-            className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-[#EFF6FF] text-[#1E40AF] rounded-full text-xs font-medium border border-[#DBEAFE]"
+            className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-[var(--vellum-brand-soft)] text-[#1E40AF] rounded-full text-xs font-medium border border-[#DBEAFE]"
           >
             <span>{email}</span>
             <button
@@ -168,14 +168,14 @@ export function WebmailRecipientChips({
               ? (placeholder ?? t("compose.recipient_placeholder"))
               : ""
           }
-          className="flex-1 min-w-[120px] bg-transparent outline-none text-xs text-[#18181B] py-0.5"
+          className="flex-1 min-w-[120px] bg-transparent outline-none text-xs text-[var(--vellum-ink)] py-0.5"
         />
 
         {/* Corporate Directory Autocomplete Dropdown Card */}
         {isDropdownOpen && suggestions.length > 0 && (
           <div
             data-testid="corporate-autocomplete-dropdown"
-            className="absolute left-0 top-full mt-1 w-80 max-h-56 overflow-y-auto bg-[#FFFFFF] border border-[#EBE8E0] rounded-lg shadow-xl z-50 py-1"
+            className="absolute left-0 top-full mt-1 w-80 max-h-56 overflow-y-auto bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg shadow-xl z-50 py-1"
           >
             {suggestions.map((contact, idx) => {
               const primaryEmail = contact?.emails?.[0]?.address || "";
@@ -194,8 +194,8 @@ export function WebmailRecipientChips({
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`px-3 py-2 cursor-pointer flex items-center gap-2 transition-colors ${
                     isSelected
-                      ? "bg-[#EFF6FF] text-[#1E40AF]"
-                      : "hover:bg-[#FAF9F5] text-[#18181B]"
+                      ? "bg-[var(--vellum-brand-soft)] text-[#1E40AF]"
+                      : "hover:bg-[var(--vellum-ground)] text-[var(--vellum-ink)]"
                   }`}
                 >
                   {/* Avatar badge */}
@@ -221,7 +221,7 @@ export function WebmailRecipientChips({
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-[#52525B] truncate font-mono">
+                    <div className="text-xs text-[var(--vellum-ink-secondary)] truncate font-mono">
                       {primaryEmail}
                     </div>
                   </div>

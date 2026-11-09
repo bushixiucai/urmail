@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && git rev-parse HEAD > dist/.build-stamp",
     "preview": "vite preview",
-    "lint": "eslint . && prettier --check .",
+    "lint": "node scripts/check-color-tokens.mjs && eslint . && prettier --check .",
     "lint:fix": "eslint . --fix && prettier --write .",
     "test": "vitest",
     "test:e2e": "playwright test",

@@ -136,11 +136,11 @@ export function WebmailAdvancedSearchPopover({
     <div
       ref={popoverRef}
       data-testid="advanced-search-popover"
-      className="absolute right-0 top-full mt-2 w-[420px] bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl shadow-2xl z-40 p-5 space-y-4 select-none text-xs"
+      className="absolute right-0 top-full mt-2 w-[420px] bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-xl shadow-2xl z-40 p-5 space-y-4 select-none text-xs"
     >
-      <div className="flex items-center justify-between border-b border-[#EBE8E0] pb-2">
-        <div className="flex items-center gap-2 font-bold text-[#18181B] text-xs">
-          <SlidersHorizontal className="w-4 h-4 text-[var(--brand-primary,#2563eb)]" />
+      <div className="flex items-center justify-between border-b border-[var(--vellum-border)] pb-2">
+        <div className="flex items-center gap-2 font-bold text-[var(--vellum-ink)] text-xs">
+          <SlidersHorizontal className="w-4 h-4 text-[var(--brand-primary,var(--brand-primary))]" />
           <span>
             {t("search.advanced_filter_title", "Advanced Mail Filters")}
           </span>
@@ -148,7 +148,7 @@ export function WebmailAdvancedSearchPopover({
         <button
           type="button"
           onClick={onClose}
-          className="p-1 rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#F6F4EE]"
+          className="p-1 rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)]"
         >
           <X className="w-4 h-4" />
         </button>
@@ -166,7 +166,7 @@ export function WebmailAdvancedSearchPopover({
             value={from}
             onChange={(e) => setFrom(e.target.value)}
             placeholder="sender@domain.com"
-            className="flex-1 h-8 px-2 rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+            className="flex-1 h-8 px-2 rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
           />
         </div>
 
@@ -181,7 +181,7 @@ export function WebmailAdvancedSearchPopover({
             value={to}
             onChange={(e) => setTo(e.target.value)}
             placeholder="recipient@domain.com"
-            className="flex-1 h-8 px-2 rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+            className="flex-1 h-8 px-2 rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
           />
         </div>
 
@@ -196,7 +196,7 @@ export function WebmailAdvancedSearchPopover({
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder={t("search.subject_placeholder", "Keywords in subject")}
-            className="flex-1 h-8 px-2 rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+            className="flex-1 h-8 px-2 rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
           />
         </div>
 
@@ -211,7 +211,7 @@ export function WebmailAdvancedSearchPopover({
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder={t("search.body_placeholder", "Keywords in body")}
-            className="flex-1 h-8 px-2 rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+            className="flex-1 h-8 px-2 rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
           />
         </div>
 
@@ -225,7 +225,7 @@ export function WebmailAdvancedSearchPopover({
             data-testid="search-select-folder"
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
-            className="flex-1 h-8 px-2 rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+            className="flex-1 h-8 px-2 rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
           >
             <option value="">
               {t("search.all_folders", "All Mailboxes (Cross-Folder)")}
@@ -239,15 +239,15 @@ export function WebmailAdvancedSearchPopover({
         </div>
 
         {/* Attachments filter */}
-        <div className="pt-1 border-t border-[#F3F1EC] space-y-2">
+        <div className="pt-1 border-t border-[var(--vellum-row-hover)] space-y-2">
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer font-medium text-[#18181B]">
+            <label className="flex items-center gap-2 cursor-pointer font-medium text-[var(--vellum-ink)]">
               <input
                 data-testid="search-checkbox-attachments"
                 type="checkbox"
                 checked={hasAttachment}
                 onChange={(e) => setHasAttachment(e.target.checked)}
-                className="rounded border-[#D4D4D8] text-[var(--brand-primary,#2563eb)] focus:ring-[var(--brand-primary,#2563eb)]"
+                className="rounded border-[var(--vellum-ink-disabled)] text-[var(--brand-primary,var(--brand-primary))] focus:ring-[var(--brand-primary,var(--brand-primary))]"
               />
               <span className="flex items-center gap-1">
                 <Paperclip className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
@@ -260,13 +260,13 @@ export function WebmailAdvancedSearchPopover({
               value={filenameExt}
               onChange={(e) => setFilenameExt(e.target.value)}
               placeholder="e.g. .pdf, .xlsx"
-              className="w-32 h-7 px-2 text-xs rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:outline-none"
+              className="w-32 h-7 px-2 text-xs rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:outline-none"
             />
           </div>
         </div>
 
         {/* Date Range */}
-        <div className="pt-1 border-t border-[#F3F1EC] space-y-2">
+        <div className="pt-1 border-t border-[var(--vellum-row-hover)] space-y-2">
           <div className="flex items-center gap-2">
             <label className="w-16 text-[var(--vellum-ink-secondary)] font-medium shrink-0 flex items-center gap-1">
               <Calendar className="w-3 h-3" />
@@ -280,7 +280,7 @@ export function WebmailAdvancedSearchPopover({
                   e.target.value as "all" | "7d" | "30d" | "1y" | "custom",
                 )
               }
-              className="flex-1 h-8 px-2 rounded border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+              className="flex-1 h-8 px-2 rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
             >
               <option value="all">{t("search.date_all", "Any time")}</option>
               <option value="7d">{t("search.date_7d", "Past 7 days")}</option>
@@ -301,26 +301,26 @@ export function WebmailAdvancedSearchPopover({
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-[#D4D4D8] bg-[#F6F4EE]"
+                className="h-7 px-2 text-xs rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)]"
               />
               <input
                 data-testid="search-input-date-to"
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="h-7 px-2 text-xs rounded border border-[#D4D4D8] bg-[#F6F4EE]"
+                className="h-7 px-2 text-xs rounded border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)]"
               />
             </div>
           )}
         </div>
 
         {/* Buttons */}
-        <div className="pt-3 border-t border-[#EBE8E0] flex items-center justify-between">
+        <div className="pt-3 border-t border-[var(--vellum-border)] flex items-center justify-between">
           <button
             data-testid="btn-reset-filters"
             type="button"
             onClick={handleReset}
-            className="flex items-center gap-1 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] text-xs px-2 py-1 rounded"
+            className="flex items-center gap-1 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] text-xs px-2 py-1 rounded"
           >
             <RotateCcw className="w-3 h-3" />
             <span>{t("common.reset", "Reset")}</span>
@@ -329,14 +329,14 @@ export function WebmailAdvancedSearchPopover({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded border border-[#EBE8E0]"
+              className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded border border-[var(--vellum-border)]"
             >
               {t("common.cancel", "Cancel")}
             </button>
             <button
               data-testid="btn-submit-advanced-search"
               type="submit"
-              className="px-4 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white font-semibold text-xs rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
+              className="px-4 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white font-semibold text-xs rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
             >
               <Search className="w-3.5 h-3.5" />
               <span>{t("search.submit_search", "Search")}</span>

@@ -126,18 +126,18 @@ export function WebmailContactsModal({
       data-testid="webmail-contacts-modal"
       className="fixed inset-0 z-[500] flex justify-end bg-black/40 backdrop-blur-xs select-none transition-all duration-300"
     >
-      <div className="w-full sm:max-w-xl h-full bg-[#FFFFFF] shadow-2xl flex flex-col border-l border-[#EBE8E0] overflow-hidden">
+      <div className="w-full sm:max-w-xl h-full bg-[var(--vellum-surface)] shadow-2xl flex flex-col border-l border-[var(--vellum-border)] overflow-hidden">
         {/* Header */}
-        <div className="h-14 px-6 border-b border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 font-bold text-base text-[#18181B]">
-            <BookUser className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+        <div className="h-14 px-6 border-b border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)]">
+            <BookUser className="w-5 h-5 text-[var(--brand-primary,var(--brand-primary))]" />
             <span>{t("contacts.title", "Personal Contacts")}</span>
           </div>
           <button
             data-testid="btn-close-contacts"
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#EBE8E0] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] transition-colors"
             title="Close"
           >
             <X className="w-5 h-5" />
@@ -145,7 +145,7 @@ export function WebmailContactsModal({
         </div>
 
         {/* Toolbar: Search & Add button */}
-        <div className="p-4 border-b border-[#EBE8E0] bg-[#FFFFFF] space-y-3 shrink-0">
+        <div className="p-4 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] space-y-3 shrink-0">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-[var(--vellum-ink-secondary)] absolute left-3 top-2.5 pointer-events-none" />
@@ -158,14 +158,14 @@ export function WebmailContactsModal({
                   "contacts.search_placeholder",
                   "Search contacts by name or email...",
                 )}
-                className="w-full h-8 pl-9 pr-3 text-xs rounded-full border border-[#D4D4D8] bg-[#F6F4EE] focus:bg-white focus:border-[var(--brand-primary,#2563eb)] focus:outline-none"
+                className="w-full h-8 pl-9 pr-3 text-xs rounded-full border border-[var(--vellum-ink-disabled)] bg-[var(--vellum-surface-muted)] focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none"
               />
             </div>
             <button
               data-testid="btn-toggle-add-contact"
               type="button"
               onClick={() => setIsAdding((prev) => !prev)}
-              className="px-3 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-md shadow-xs hover:brightness-105 flex items-center gap-1.5"
             >
               <UserPlus className="w-3.5 h-3.5" />
               <span>
@@ -181,7 +181,7 @@ export function WebmailContactsModal({
             <form
               onSubmit={handleCreateContact}
               data-testid="add-contact-form"
-              className="p-3 bg-[#FAF9F5] border border-[#EBE8E0] rounded-lg space-y-3"
+              className="p-3 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-lg space-y-3"
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input
@@ -191,7 +191,7 @@ export function WebmailContactsModal({
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder={t("contacts.name_placeholder", "Full Name")}
                   required
-                  className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-white focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                  className="h-8 px-2 text-xs rounded border border-[var(--vellum-ink-disabled)] bg-white focus:outline-none focus:border-[var(--brand-primary,var(--brand-primary))]"
                 />
                 <input
                   data-testid="input-contact-email"
@@ -203,14 +203,14 @@ export function WebmailContactsModal({
                     "email@example.com",
                   )}
                   required
-                  className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-white focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                  className="h-8 px-2 text-xs rounded border border-[var(--vellum-ink-disabled)] bg-white focus:outline-none focus:border-[var(--brand-primary,var(--brand-primary))]"
                 />
               </div>
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsAdding(false)}
-                  className="px-3 py-1 text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+                  className="px-3 py-1 text-xs text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                 >
                   {t("common.cancel", "Cancel")}
                 </button>
@@ -218,7 +218,7 @@ export function WebmailContactsModal({
                   data-testid="btn-save-new-contact"
                   type="submit"
                   disabled={saving}
-                  className="px-3 py-1 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded shadow-xs hover:brightness-105"
+                  className="px-3 py-1 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded shadow-xs hover:brightness-105"
                 >
                   {saving
                     ? t("common.saving", "Saving...")
@@ -256,7 +256,7 @@ export function WebmailContactsModal({
                     id={`contact-group-${letter}`}
                     className="space-y-1.5"
                   >
-                    <div className="sticky top-0 bg-[#FAF9F5] px-2 py-0.5 rounded text-xs font-bold text-[var(--brand-primary,#2563eb)] border border-[#EBE8E0]">
+                    <div className="sticky top-0 bg-[var(--vellum-ground)] px-2 py-0.5 rounded text-xs font-bold text-[var(--brand-primary,var(--brand-primary))] border border-[var(--vellum-border)]">
                       {letter}
                     </div>
                     <div className="space-y-1">
@@ -273,17 +273,17 @@ export function WebmailContactsModal({
                           <div
                             key={c.id}
                             data-testid={`contact-card-${c.id}`}
-                            className="p-2 bg-[#FFFFFF] border border-[#EBE8E0] rounded-lg hover:border-[#D4D4D8] transition-colors flex items-center justify-between gap-3"
+                            className="p-2 bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg hover:border-[var(--vellum-ink-disabled)] transition-colors flex items-center justify-between gap-3"
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <div className="w-8 h-8 rounded-full bg-[#E0E7FF] text-[#3730A3] font-bold text-xs flex items-center justify-center shrink-0">
                                 {initial}
                               </div>
                               <div className="min-w-0">
-                                <div className="font-semibold text-xs text-[#18181B] truncate">
+                                <div className="font-semibold text-xs text-[var(--vellum-ink)] truncate">
                                   {displayName}
                                 </div>
-                                <div className="text-xs text-[#52525B] truncate font-mono">
+                                <div className="text-xs text-[var(--vellum-ink-secondary)] truncate font-mono">
                                   {email}
                                 </div>
                               </div>
@@ -297,7 +297,7 @@ export function WebmailContactsModal({
                                   onComposeTo(email);
                                   onClose();
                                 }}
-                                className="px-2 py-1 text-xs text-[var(--brand-primary,#2563eb)] hover:bg-[#EFF6FF] rounded flex items-center gap-1 border border-[#BFDBFE] transition-colors shrink-0"
+                                className="px-2 py-1 text-xs text-[var(--brand-primary,var(--brand-primary))] hover:bg-[var(--vellum-brand-soft)] rounded flex items-center gap-1 border border-[#BFDBFE] transition-colors shrink-0"
                                 title="Compose email to contact"
                               >
                                 <Mail className="w-3 h-3" />
@@ -316,12 +316,12 @@ export function WebmailContactsModal({
           </div>
 
           {/* Alphabet Index Quick Jump Rail (A~Z) */}
-          <div className="w-7 bg-[#FAF9F5] border-l border-[#EBE8E0] py-2 flex flex-col items-center justify-between text-xs text-[var(--vellum-ink-secondary)] font-semibold select-none shrink-0 overflow-y-auto">
+          <div className="w-7 bg-[var(--vellum-ground)] border-l border-[var(--vellum-border)] py-2 flex flex-col items-center justify-between text-xs text-[var(--vellum-ink-secondary)] font-semibold select-none shrink-0 overflow-y-auto">
             {ALPHABET.map((letter) => (
               <a
                 key={letter}
                 href={`#contact-group-${letter}`}
-                className="hover:text-[var(--brand-primary,#2563eb)] px-1 py-0.5"
+                className="hover:text-[var(--brand-primary,var(--brand-primary))] px-1 py-0.5"
               >
                 {letter}
               </a>

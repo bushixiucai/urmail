@@ -54,7 +54,7 @@ export function WebmailEditorTiptap({
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none focus:outline-none min-h-[220px] p-3 text-sm text-[#18181B]",
+          "prose prose-sm max-w-none focus:outline-none min-h-[220px] p-3 text-sm text-[var(--vellum-ink)]",
       },
     },
   });
@@ -145,14 +145,14 @@ export function WebmailEditorTiptap({
           value={content}
           onChange={(e) => onChange(e.target.value, e.target.value)}
           placeholder="Compose email in plain text..."
-          className="flex-1 w-full p-3 text-sm text-[#18181B] outline-none resize-none font-mono"
+          className="flex-1 w-full p-3 text-sm text-[var(--vellum-ink)] outline-none resize-none font-mono"
         />
-        <div className="h-9 px-3 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between text-xs text-[var(--vellum-ink-secondary)]">
+        <div className="h-9 px-3 border-t border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex items-center justify-between text-xs text-[var(--vellum-ink-secondary)]">
           <span className="text-xs">Plain Text Mode</span>
           <button
             type="button"
             onClick={onTogglePlainText}
-            className="text-xs text-[var(--brand-primary,#2563eb)] hover:underline"
+            className="text-xs text-[var(--brand-primary,var(--brand-primary))] hover:underline"
           >
             Switch to Rich Text
           </button>
@@ -182,13 +182,15 @@ export function WebmailEditorTiptap({
       </div>
 
       {/* Modern Bottom Toolbar */}
-      <div className="h-9 px-2 border-t border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between text-[var(--vellum-ink-secondary)] text-xs shrink-0 select-none">
+      <div className="h-9 px-2 border-t border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex items-center justify-between text-[var(--vellum-ink-secondary)] text-xs shrink-0 select-none">
         <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleBold().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("bold") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+              editor?.isActive("bold")
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
+                : ""
             }`}
             title="Bold (Ctrl+B)"
           >
@@ -197,8 +199,10 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleItalic().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("italic") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+              editor?.isActive("italic")
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
+                : ""
             }`}
             title="Italic (Ctrl+I)"
           >
@@ -207,22 +211,24 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleStrike().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("strike") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+              editor?.isActive("strike")
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
+                : ""
             }`}
             title="Strikethrough"
           >
             <Strikethrough className="w-3.5 h-3.5" />
           </button>
 
-          <div className="w-[1px] h-4 bg-[#EBE8E0] mx-1" />
+          <div className="w-[1px] h-4 bg-[var(--vellum-border)] mx-1" />
 
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleBulletList().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
               editor?.isActive("bulletList")
-                ? "bg-[#EBE8E0] text-[#18181B]"
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
                 : ""
             }`}
             title="Bullet List"
@@ -232,9 +238,9 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
               editor?.isActive("orderedList")
-                ? "bg-[#EBE8E0] text-[#18181B]"
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
                 : ""
             }`}
             title="Numbered List"
@@ -244,9 +250,9 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleBlockquote().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
               editor?.isActive("blockquote")
-                ? "bg-[#EBE8E0] text-[#18181B]"
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
                 : ""
             }`}
             title="Quote"
@@ -256,8 +262,10 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
-            className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
-              editor?.isActive("codeBlock") ? "bg-[#EBE8E0] text-[#18181B]" : ""
+            className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+              editor?.isActive("codeBlock")
+                ? "bg-[var(--vellum-border)] text-[var(--vellum-ink)]"
+                : ""
             }`}
             title="Code Block"
           >
@@ -269,7 +277,7 @@ export function WebmailEditorTiptap({
           <button
             type="button"
             onClick={onTogglePlainText}
-            className="flex items-center gap-1 text-xs hover:text-[#18181B] px-1.5 py-0.5 rounded hover:bg-[#EBE8E0]"
+            className="flex items-center gap-1 text-xs hover:text-[var(--vellum-ink)] px-1.5 py-0.5 rounded hover:bg-[var(--vellum-border)]"
             title="Switch to Plain Text Mode"
           >
             <FileCode className="w-3.5 h-3.5" />
