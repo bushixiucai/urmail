@@ -34,7 +34,7 @@ func TestStructuredRequestUsesV2Templates(t *testing.T) {
 	if _, err := StructuredRequest(OperationInput{Operation: "summarize", Body: ""}); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("empty body: %v", err)
 	}
-	if v := StructuredTemplateVersion("summarize"); v != 2 {
+	if v := StructuredTemplateVersion("summarize"); v != 3 {
 		t.Fatalf("template version: %d", v)
 	}
 	if v := StructuredTemplateVersion("nope"); v != 0 {

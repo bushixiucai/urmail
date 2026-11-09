@@ -30,6 +30,7 @@ func StructuredRequest(input OperationInput) (CompletionRequest, error) {
 		Body:           input.Body,
 		From:           input.From,
 		TargetLanguage: input.TargetLanguage,
+		LengthLimit:    input.LengthLimit,
 	}
 	key, ok := structuredTemplates[input.Operation]
 	if !ok {
