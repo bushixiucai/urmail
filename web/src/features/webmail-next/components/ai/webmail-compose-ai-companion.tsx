@@ -541,7 +541,7 @@ export function WebmailComposeAICompanion({
           data-testid="btn-apply-draft"
           onClick={() => onApply(activeVersion)}
           disabled={isLoading}
-          className="w-full py-1.5 bg-[var(--vellum-ink)] text-white hover:bg-[#27272C] text-xs font-semibold rounded shadow-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+          className="w-full py-1.5 bg-[var(--vellum-ink)] text-white hover:bg-[var(--vellum-ink-hover)] text-xs font-semibold rounded shadow-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
         >
           <Check className="w-3.5 h-3.5" />
           <span>{t("webmail_next.ai_apply_draft_btn")}</span>

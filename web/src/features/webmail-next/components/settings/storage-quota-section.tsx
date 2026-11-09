@@ -137,7 +137,7 @@ export function StorageQuotaSection() {
                 data-testid="quota-alert-callout"
                 className="p-3 bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg flex items-start gap-2 text-[#991B1B] text-xs"
               >
-                <AlertOctagon className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
+                <AlertOctagon className="w-4 h-4 shrink-0 mt-0.5 text-[var(--vellum-danger-strong)]" />
                 <div>
                   <span className="font-semibold">
                     {t(
@@ -145,7 +145,7 @@ export function StorageQuotaSection() {
                       "Critical Space Shortage",
                     )}
                   </span>
-                  <p className="mt-0.5 text-xs text-[#B91C1C]">
+                  <p className="mt-0.5 text-xs text-[var(--vellum-danger-text)]">
                     {t(
                       "settings.quota.alert_desc",
                       "Mailbox storage is critically low, which may lead to inbound message rejection. Please delete unnecessary messages or large attachments.",

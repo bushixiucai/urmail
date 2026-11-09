@@ -311,7 +311,7 @@ export function ForwardingSection() {
                 data-testid="btn-confirm-forwarding-hijack"
                 type="button"
                 onClick={executeSave}
-                className="px-3 py-1.5 text-xs bg-[#DC2626] text-white font-semibold rounded shadow-sm hover:bg-[#B91C1C]"
+                className="px-3 py-1.5 text-xs bg-[#DC2626] text-white font-semibold rounded shadow-sm hover:bg-[var(--vellum-danger-strong-hover)]"
               >
                 {t(
                   "settings.forwarding.confirm_btn",

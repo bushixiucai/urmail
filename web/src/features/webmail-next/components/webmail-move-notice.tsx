@@ -39,7 +39,7 @@ export function WebmailMoveNotice({
         <button
           type="button"
           data-testid="webmail-move-undo"
-          className="text-xs font-semibold underline hover:text-[#93C5FD]"
+          className="text-xs font-semibold underline hover:text-[var(--brand-primary)]"
           onClick={onUndo}
         >
           {t("webmail_next.undo_move")}
@@ -53,7 +53,7 @@ export function WebmailMoveNotice({
           <button
             type="button"
             data-testid="btn-create-sieve-rule"
-            className="text-xs font-semibold text-[#60A5FA] hover:text-[#93C5FD] underline"
+            className="text-xs font-semibold text-[var(--brand-primary)] hover:text-[var(--brand-primary)] underline"
             onClick={onSuggestRule}
           >
             {t("webmail_next.create_sieve_rule_action")}

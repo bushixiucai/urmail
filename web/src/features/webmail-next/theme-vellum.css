@@ -13,6 +13,7 @@
   --vellum-ink-tertiary: #52525b;
   --vellum-ink-read: var(--vellum-ink-secondary);
   --vellum-ink-disabled: #d6d3d1;
+  --vellum-ink-hover: #27272c;
   /* 行悬停值按批次 2 规格 2.1 注确认为 #f3f1ec（原 #f8f7f2）。 */
   --vellum-row-hover: #f3f1ec;
   --vellum-row-selected: #f3f1ec;
@@ -42,6 +43,7 @@
      信息类令牌（info）已删除（无消费方），信息场景归并 warning/danger。 */
   --vellum-brand-strong: #1d4ed8;
   --vellum-brand-soft: #eff6ff;
+  --vellum-brand-border: #bfdbfe;
   --vellum-warning-strong: #d97706;
   --vellum-ai-accent: #d97706;
   --vellum-ai-accent-strong: #b45309;
@@ -54,6 +56,7 @@
   --vellum-danger-border: #fecaca;
   --vellum-danger-text: #991b1b;
   --vellum-danger-strong: #dc2626;
+  --vellum-danger-strong-hover: #b91c1c;
   --vellum-success-fill: #f0fdf4;
   --vellum-success-border: #bbf7d0;
   --vellum-success-text: #166534;

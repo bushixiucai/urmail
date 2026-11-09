@@ -94,7 +94,7 @@ export function WebmailSearchFilterChips({
         <div
           key={chip.key}
           data-testid={`filter-chip-${chip.key}`}
-          className="flex items-center gap-1 px-2 py-0.5 bg-[var(--vellum-surface)] border border-[#BFDBFE] text-[var(--vellum-brand-strong)] rounded-full text-xs font-medium shadow-2xs"
+          className="flex items-center gap-1 px-2 py-0.5 bg-[var(--vellum-surface)] border border-[var(--vellum-brand-border)] text-[var(--vellum-brand-strong)] rounded-full text-xs font-medium shadow-2xs"
         >
           {chip.icon}
           <span className="truncate max-w-[200px]">{chip.label}</span>
