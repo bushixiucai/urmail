@@ -105,22 +105,27 @@ func TestPaginationStableUnderNewMail(t *testing.T) {
 }
 
 func TestBuildThreadsByReferences(t *testing.T) {
-	// Same participants: the subject fallback may merge UID 4 into the
-	// reply chain even though its In-Reply-To target is unknown.
+	// An orphan reply whose parent is unknown no longer merges by pure
+	// same-sender overlap (Tiger decision v0.6.20 C1); a References pointer
+	// to the root still merges it — References chains are strong grouping.
 	msgs := []MessageSummary{
 		{UID: 1, MessageID: "<a@x>", Subject: "Hi", From: []Address{{Email: "alice@x"}}},
 		{UID: 2, InReplyTo: "<a@x>", Subject: "Re: Hi", From: []Address{{Email: "alice@x"}}},
 		{UID: 3, MessageID: "<b@x>", Subject: "Other", From: []Address{{Email: "alice@x"}}},
 		{UID: 4, InReplyTo: "<missing@x>", MessageID: "<c@x>", Subject: "Re: Hi", From: []Address{{Email: "alice@x"}}},
+		{UID: 5, InReplyTo: "<missing@x>", References: []string{"<a@x>"}, MessageID: "<d@x>", Subject: "Re: Hi", From: []Address{{Email: "alice@x"}}},
 	}
 	threads := BuildThreads(msgs)
-	for _, uid := range []uint32{1, 2, 4} {
+	for _, uid := range []uint32{1, 2, 5} {
 		if threads[uid] != 1 {
 			t.Fatalf("uid %d threaded to %d, want 1", uid, threads[uid])
 		}
 	}
 	if threads[3] != 3 {
 		t.Fatalf("uid 3 threaded to %d, want 3", threads[3])
+	}
+	if threads[4] != 4 {
+		t.Fatalf("orphan reply uid 4 threaded to %d, want 4", threads[4])
 	}
 	ApplyThreads(msgs, threads)
 	if msgs[1].ThreadID != 1 || msgs[1].ThreadCount != 3 {

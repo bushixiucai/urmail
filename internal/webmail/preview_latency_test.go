@@ -72,7 +72,10 @@ func TestPreviewListLatencyMeasurement(t *testing.T) {
 				_, _ = io.WriteString(w, "* OK [UIDVALIDITY 7] selected\r\n"+tag+" OK\r\n")
 			case strings.Contains(line, "UID SEARCH"):
 				_, _ = io.WriteString(w, "* SEARCH "+itoaJoin(uids)+"\r\n"+tag+" OK\r\n")
-			case strings.Contains(line, "BODY.PEEK"):
+			// Only the preview bulk fetch counts (it partial-fetches TEXT);
+			// the summary fetch's BODY.PEEK[HEADER.FIELDS (REFERENCES)]
+			// item is part of the plain listing, not extra preview work.
+			case strings.Contains(line, "BODY.PEEK[TEXT]<"):
 				previewFetchCommands.Add(1)
 				writePreviewFetch(w, line, tag, bodies)
 			case strings.Contains(line, "UID FETCH"):

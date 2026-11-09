@@ -509,7 +509,9 @@ func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]Mess
 		return nil, err
 	}
 	tag := c.nextTag()
-	cmd := fmt.Sprintf("%s UID FETCH %s (UID FLAGS RFC822.SIZE ENVELOPE BODYSTRUCTURE)\r\n", tag, formatUIDSet(uids))
+	// HEADER.FIELDS (REFERENCES) joins the summary so the client threading
+	// path can walk full References chains when In-Reply-To is missing.
+	cmd := fmt.Sprintf("%s UID FETCH %s (UID FLAGS RFC822.SIZE ENVELOPE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (REFERENCES)])\r\n", tag, formatUIDSet(uids))
 	if _, err := io.WriteString(c.conn, cmd); err != nil {
 		return nil, err
 	}

@@ -58,7 +58,9 @@ func startPreviewServer(t *testing.T, searchUIDs []uint32, bodies map[uint32][]b
 				_, _ = io.WriteString(w, "* OK [UIDVALIDITY 7] selected\r\n"+tag+" OK select done\r\n")
 			case strings.Contains(line, "UID SEARCH"):
 				_, _ = io.WriteString(w, "* SEARCH "+itoaJoin(searchUIDs)+"\r\n"+tag+" OK search done\r\n")
-			case strings.Contains(line, "BODY.PEEK"):
+			// The summary fetch also carries a BODY.PEEK item (References
+			// for threading); only the preview bulk fetch has no ENVELOPE.
+			case strings.Contains(line, "BODY.PEEK") && !strings.Contains(line, "ENVELOPE"):
 				writePreviewFetch(w, line, tag, bodies)
 			case strings.Contains(line, "UID FETCH"):
 				for _, uid := range searchUIDs {
@@ -219,10 +221,12 @@ func TestListMessagesFillsPreviewWithSingleBulkFetch(t *testing.T) {
 	}
 
 	// Exactly one bulk fetch served all three snippets in a single command.
+	// (The summary fetch's BODY.PEEK[HEADER.FIELDS (REFERENCES)] item is not
+	// a preview fetch — bulk previews partial-fetch the TEXT section.)
 	collected := drainCommands(cmds, 500*time.Millisecond)
 	var bulk []string
 	for _, cmd := range collected {
-		if strings.Contains(cmd, "BODY.PEEK") {
+		if strings.Contains(cmd, "BODY.PEEK[TEXT]<") {
 			bulk = append(bulk, cmd)
 		}
 	}
@@ -244,7 +248,7 @@ func TestListMessagesWithoutPreviewSendsNoBulkFetch(t *testing.T) {
 	}
 	collected := drainCommands(cmds, 300*time.Millisecond)
 	for _, cmd := range collected {
-		if strings.Contains(cmd, "BODY.PEEK") {
+		if strings.Contains(cmd, "BODY.PEEK[TEXT]<") {
 			t.Fatalf("unexpected preview fetch: %q", cmd)
 		}
 	}
@@ -286,7 +290,7 @@ func TestListMessagesPreviewByteBudgets(t *testing.T) {
 	bulk := 0
 	wantBudget := previewPageBytes / MaxPageSize
 	for _, cmd := range collected {
-		if !strings.Contains(cmd, "BODY.PEEK") {
+		if !strings.Contains(cmd, "BODY.PEEK[TEXT]<") {
 			continue
 		}
 		bulk++
@@ -330,7 +334,7 @@ func TestListMessagesPreviewFetchFailureDegradesGracefully(t *testing.T) {
 				_, _ = io.WriteString(w, "* OK [UIDVALIDITY 7] selected\r\n"+tag+" OK\r\n")
 			case strings.Contains(line, "UID SEARCH"):
 				_, _ = io.WriteString(w, "* SEARCH 4\r\n"+tag+" OK\r\n")
-			case strings.Contains(line, "BODY.PEEK"):
+			case strings.Contains(line, "BODY.PEEK") && !strings.Contains(line, "ENVELOPE"):
 				_, _ = io.WriteString(w, tag+" NO server refuses partial fetch\r\n")
 			case strings.Contains(line, "UID FETCH"):
 				_, _ = io.WriteString(w, "* 1 FETCH (UID 4 FLAGS () RFC822.SIZE 10 ENVELOPE (NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL))\r\n"+tag+" OK\r\n")
@@ -401,7 +405,7 @@ func TestListMessagesPreviewIgnoresOversizedHeaders(t *testing.T) {
 	collected := drainCommands(cmds, 500*time.Millisecond)
 	bulk := 0
 	for _, cmd := range collected {
-		if !strings.Contains(cmd, "BODY.PEEK") {
+		if !strings.Contains(cmd, "BODY.PEEK[TEXT]<") {
 			continue
 		}
 		bulk++
