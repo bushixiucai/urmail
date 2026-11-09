@@ -99,7 +99,7 @@ export function WebmailHeader({
       data-testid="webmail-header"
       className="h-12 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-4 flex items-center justify-between select-none z-30 shrink-0"
     >
-      <div className="flex items-center gap-3 w-56 max-md:w-40">
+      <div className="flex items-center gap-3 w-56 max-md:w-auto">
         <button
           data-testid="rail-toggle-button"
           type="button"
