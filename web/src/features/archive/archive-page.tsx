@@ -6,8 +6,8 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/app/auth-context";
 import {
   ApiRequestError,
-  apiErrorSchema,
   getSessionToken,
+  parseApiErrorPayload,
   request,
 } from "@/lib/api/client";
 import { useApiErrorMessage } from "@/lib/api/use-api-error-message";
@@ -165,12 +165,12 @@ function ArchiveWorkspace() {
         signal,
       });
       if (!response.ok) {
-        const parsed = apiErrorSchema.safeParse(
+        const parsed = parseApiErrorPayload(
           await response.json().catch(() => null),
         );
         throw new ApiRequestError(
           response.status,
-          parsed.success ? parsed.data : { error: { code: "REQUEST_FAILED" } },
+          parsed ?? { error: { code: "REQUEST_FAILED" } },
         );
       }
       const blob = await response.blob();

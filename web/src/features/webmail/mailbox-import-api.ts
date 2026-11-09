@@ -1,4 +1,4 @@
-import { ApiRequestError, apiErrorSchema } from "@/lib/api/client";
+import { ApiRequestError, parseApiErrorPayload } from "@/lib/api/client";
 import { getMailboxToken, mailboxRequest } from "./mailbox-api";
 
 export const MAX_MAIL_IMPORT_BYTES = 20 * 1024 * 1024;
@@ -109,7 +109,7 @@ export async function downloadMailboxMbox(
   if (!response.ok) {
     let code = "MAIL_IMPORT_EXPORT_FAILED";
     try {
-      code = apiErrorSchema.parse(await response.json()).error.code;
+      code = parseApiErrorPayload(await response.json())?.error.code ?? code;
     } catch {
       /* Keep a bounded public failure code. */
     }

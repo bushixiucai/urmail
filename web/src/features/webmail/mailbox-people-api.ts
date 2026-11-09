@@ -1,4 +1,4 @@
-import { ApiRequestError, apiErrorSchema } from "@/lib/api/client";
+import { ApiRequestError, parseApiErrorPayload } from "@/lib/api/client";
 import {
   getMailboxToken,
   mailboxRequest,
@@ -218,16 +218,14 @@ export async function downloadPeopleFile(path: string, filename: string) {
     credentials: "same-origin",
   });
   if (!response.ok) {
-    const parsed = apiErrorSchema.safeParse(
+    const parsed = parseApiErrorPayload(
       await response.json().catch(() => null),
     );
     throw new ApiRequestError(
       response.status,
-      parsed.success
-        ? parsed.data
-        : {
-            error: { code: "REQUEST_FAILED", message: "error.REQUEST_FAILED" },
-          },
+      parsed ?? {
+        error: { code: "REQUEST_FAILED", message: "error.REQUEST_FAILED" },
+      },
     );
   }
   const objectUrl = URL.createObjectURL(await response.blob());

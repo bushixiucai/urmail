@@ -1,6 +1,6 @@
 import type { AIBudgetStatus } from "@/features/ai/ai-budget";
 export type { AIBudgetStatus };
-import { ApiRequestError, apiErrorSchema } from "@/lib/api/client";
+import { ApiRequestError, parseApiErrorPayload } from "@/lib/api/client";
 import { initViewportTracking, viewportHeaders } from "./viewport-headers";
 
 // UA/viewport contract headers for server-side mail adaptation (PR #43).
@@ -276,7 +276,9 @@ export async function mailboxRequest<T>(
   if (!response.ok) {
     let parsed;
     try {
-      parsed = apiErrorSchema.parse(await response.json());
+      parsed = parseApiErrorPayload(await response.json()) ?? {
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      };
     } catch {
       parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
@@ -712,7 +714,9 @@ export async function fetchAttachmentAsOutgoing(
   if (!response.ok) {
     let parsed;
     try {
-      parsed = apiErrorSchema.parse(await response.json());
+      parsed = parseApiErrorPayload(await response.json()) ?? {
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      };
     } catch {
       parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
@@ -759,7 +763,9 @@ export async function downloadAttachment(
   if (!response.ok) {
     let parsed;
     try {
-      parsed = apiErrorSchema.parse(await response.json());
+      parsed = parseApiErrorPayload(await response.json()) ?? {
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      };
     } catch {
       parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
@@ -1383,7 +1389,9 @@ export async function fetchMessageAsOutgoing(
   if (!response.ok) {
     let parsed;
     try {
-      parsed = apiErrorSchema.parse(await response.json());
+      parsed = parseApiErrorPayload(await response.json()) ?? {
+        error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
+      };
     } catch {
       parsed = {
         error: { code: "INTERNAL_ERROR", message: "error.INTERNAL_ERROR" },
