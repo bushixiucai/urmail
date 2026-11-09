@@ -81,11 +81,24 @@ type MessageSummary struct {
 	// MessageID / InReplyTo come from ENVELOPE and feed client-side threading.
 	MessageID string `json:"message_id,omitempty"`
 	InReplyTo string `json:"in_reply_to,omitempty"`
+	// To / Cc / References stay off the wire: they exist so the tightened
+	// subject fallback can tell a real conversation (a shared recipient)
+	// apart from pure same-sender broadcasts. The full Message already
+	// serializes To/Cc on the detail endpoint.
+	To         []Address `json:"-"`
+	Cc         []Address `json:"-"`
+	References []string  `json:"-"`
 	// ThreadID is the root UID of the message's thread; ThreadCount is the
 	// number of messages in that thread. Both are populated only when
 	// ListOpts.Thread is set.
 	ThreadID    uint32 `json:"thread_id,omitempty"`
 	ThreadCount int    `json:"thread_count,omitempty"`
+	// WeakAggregation marks giant threads (ThreadCount > 20, Tiger decision
+	// v0.6.20 C1): the UI aggregates only the newest window instead of one
+	// giant stack. EarlierCount is how many members fall outside that
+	// newest-20 window; both are zero unless WeakAggregation is set.
+	WeakAggregation bool `json:"weak_aggregation,omitempty"`
+	EarlierCount    int  `json:"earlier_count,omitempty"`
 	// Folder / FolderEnc tag cross-folder search results; empty on plain
 	// single-folder listings.
 	Folder    string `json:"folder,omitempty"`

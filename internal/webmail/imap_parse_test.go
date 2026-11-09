@@ -22,12 +22,18 @@ func TestParseEnvelope(t *testing.T) {
 
 func TestParseEnvelopeReplyTo(t *testing.T) {
 	env := "(\"17-Oct-2026 10:00:00 +0000\" \"Hello\" ((\"Alice\" NIL \"alice\" \"example.test\")) ((\"Alice\" NIL \"alice\" \"example.test\")) ((\"list\" NIL \"list\" \"example.test\")) ((\"Bob\" NIL \"bob\" \"example.test\")) NIL NIL NIL \"<id@example.test>\")"
-	_, from, replyTo, _ := parseEnvelopeParties(env)
+	_, from, to, cc, replyTo, _ := parseEnvelopeParties(env)
 	if len(from) != 1 || from[0].Email != "alice@example.test" {
 		t.Fatalf("from=%#v", from)
 	}
 	if len(replyTo) != 1 || replyTo[0].Email != "list@example.test" {
 		t.Fatalf("reply-to=%#v", replyTo)
+	}
+	if len(to) != 1 || to[0].Email != "bob@example.test" {
+		t.Fatalf("to=%#v", to)
+	}
+	if len(cc) != 0 {
+		t.Fatalf("cc=%#v", cc)
 	}
 }
 

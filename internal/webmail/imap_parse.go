@@ -13,7 +13,7 @@ import (
 // parseEnvelope extracts subject/from/date from an IMAP ENVELOPE s-expression.
 // ENVELOPE = (date subject from sender reply-to to cc bcc in-reply-to message-id)
 func parseEnvelope(s string) (subject string, from []Address, date time.Time) {
-	subject, from, _, date = parseEnvelopeParties(s)
+	subject, from, _, _, _, date = parseEnvelopeParties(s)
 	return subject, from, date
 }
 
@@ -38,20 +38,21 @@ func parseEnvelopeIDs(s string) (inReplyTo, messageID string) {
 	return inReplyTo, messageID
 }
 
-// parseEnvelopeParties also returns Reply-To. An empty Reply-To means the
-// sender did not set one; callers must not invent it from From.
-func parseEnvelopeParties(s string) (subject string, from, replyTo []Address, date time.Time) {
+// parseEnvelopeParties also returns the to/cc lists and Reply-To. An empty
+// Reply-To means the sender did not set one; callers must not invent it from
+// From. To/cc feed the threading subject fallback.
+func parseEnvelopeParties(s string) (subject string, from, to, cc, replyTo []Address, date time.Time) {
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "(") {
-		return "", nil, nil, time.Time{}
+		return "", nil, nil, nil, nil, time.Time{}
 	}
 	inner, ok := stripOuterParens(s)
 	if !ok {
-		return "", nil, nil, time.Time{}
+		return "", nil, nil, nil, nil, time.Time{}
 	}
 	items := splitTopLevel(inner)
 	if len(items) < 3 {
-		return "", nil, nil, time.Time{}
+		return "", nil, nil, nil, nil, time.Time{}
 	}
 	dateStr := nstring(items[0])
 	subject = decodeMIMEHeader(nstring(items[1]))
@@ -59,10 +60,16 @@ func parseEnvelopeParties(s string) (subject string, from, replyTo []Address, da
 	if len(items) > 4 {
 		replyTo = parseAddressList(items[4])
 	}
+	if len(items) > 5 {
+		to = parseAddressList(items[5])
+	}
+	if len(items) > 6 {
+		cc = parseAddressList(items[6])
+	}
 	if dateStr != "" {
 		date = parseIMAPDate(dateStr)
 	}
-	return subject, from, replyTo, date
+	return subject, from, to, cc, replyTo, date
 }
 
 func parseAddressList(s string) []Address {
@@ -165,7 +172,10 @@ func stripOuterParens(s string) (string, bool) {
 	return s[1 : len(s)-1], true
 }
 
-// splitTopLevel splits an IMAP list body on spaces outside quotes/parens.
+// splitTopLevel splits an IMAP list body on spaces outside quotes, parens
+// and square brackets. Brackets group BODY[...] section names (e.g.
+// BODY[HEADER.FIELDS (REFERENCES)]), whose inner parens must not reset the
+// nesting depth.
 func splitTopLevel(s string) []string {
 	var out []string
 	var b strings.Builder
@@ -200,10 +210,10 @@ func splitTopLevel(s string) []string {
 		case '"':
 			inQuote = true
 			b.WriteByte(ch)
-		case '(':
+		case '(', '[':
 			depth++
 			b.WriteByte(ch)
-		case ')':
+		case ')', ']':
 			if depth > 0 {
 				depth--
 			}
@@ -334,17 +344,58 @@ func summaryFromAttrs(attrs map[string]string) (MessageSummary, error) {
 	if err != nil {
 		return MessageSummary{}, fmt.Errorf("missing uid")
 	}
-	subject, from, date := parseEnvelope(attrs["ENVELOPE"])
+	subject, from, to, cc, _, date := parseEnvelopeParties(attrs["ENVELOPE"])
 	inReplyTo, messageID := parseEnvelopeIDs(attrs["ENVELOPE"])
 	return MessageSummary{
 		UID:            uid,
 		Subject:        subject,
 		From:           from,
+		To:             to,
+		Cc:             cc,
 		Date:           envelopeDate(date),
 		Flags:          parseFlags(attrs["FLAGS"]),
 		Size:           parseSize(attrs["RFC822.SIZE"]),
 		InReplyTo:      inReplyTo,
 		MessageID:      messageID,
+		References:     fetchReferences(attrs),
 		HasAttachments: bodyStructureHasAttachment(attrs["BODYSTRUCTURE"], 0),
 	}, nil
+}
+
+// fetchReferences pulls the References header out of the FETCH attrs. The
+// section key spelling varies slightly across servers (spacing inside the
+// brackets), so the lookup matches on the section prefix and field name.
+func fetchReferences(attrs map[string]string) []string {
+	for k, v := range attrs {
+		if !strings.HasPrefix(k, "BODY[") || !strings.Contains(k, "REFERENCES") {
+			continue
+		}
+		value, _, ok := readIMAPString(v)
+		if !ok {
+			value = nstring(v)
+		}
+		return parseMessageIDs(value)
+	}
+	return nil
+}
+
+// parseMessageIDs extracts every <...> token from a header field value
+// (References chains span folded lines; whitespace never falls inside a
+// msg-id).
+func parseMessageIDs(s string) []string {
+	var out []string
+	for {
+		start := strings.IndexByte(s, '<')
+		if start < 0 {
+			return out
+		}
+		end := strings.IndexByte(s[start:], '>')
+		if end < 0 {
+			return out
+		}
+		if id := s[start+1 : start+end]; id != "" {
+			out = append(out, id)
+		}
+		s = s[start+end+1:]
+	}
 }

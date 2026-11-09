@@ -55,20 +55,78 @@ func TestThreadSubjectFallbackFarApartDatesStaySeparate(t *testing.T) {
 	}
 }
 
-// Same subject and overlapping participants: the fallback merges them even
-// when the dates are far apart or missing.
-func TestThreadSubjectFallbackOverlappingParticipantsMerge(t *testing.T) {
+// Same subject and the same sole sender: pure same-sender overlap is not
+// conversation evidence any more (Tiger decision v0.6.20 C1), so two
+// broadcasts from one sender stay separate even under the same subject.
+func TestThreadSubjectFallbackSameSenderStaysSeparate(t *testing.T) {
 	msgs := []MessageSummary{
 		threadSummary(1, "Newsletter", "alice@example.test", threadDate(1)),
 		threadSummary(2, "Newsletter", "Alice@example.test", threadDate(25)),
 	}
 	threads := BuildThreads(msgs)
-	if threads[2] != 1 {
-		t.Fatalf("overlapping participants not merged: %v", threads)
+	if threads[2] != 2 {
+		t.Fatalf("pure same-sender messages merged: %v", threads)
 	}
 	ApplyThreads(msgs, threads)
-	if msgs[0].ThreadCount != 2 || msgs[1].ThreadCount != 2 {
+	if msgs[0].ThreadCount != 1 || msgs[1].ThreadCount != 1 {
 		t.Fatalf("counts wrong: %+v %+v", msgs[0], msgs[1])
+	}
+}
+
+// A shared recipient is conversation evidence: a reply whose References were
+// lost still merges with the message it answers, even far apart in time.
+func TestThreadSubjectFallbackSharedRecipientMerges(t *testing.T) {
+	msgs := []MessageSummary{
+		{UID: 1, Subject: "Quote", From: []Address{{Email: "alice@example.test"}}, Date: envelopeDate(threadDate(1))},
+		{UID: 2, Subject: "Re: Quote", From: []Address{{Email: "bob@example.test"}}, To: []Address{{Email: "alice@example.test"}}, Date: envelopeDate(threadDate(25))},
+	}
+	threads := BuildThreads(msgs)
+	if threads[2] != 1 {
+		t.Fatalf("shared-recipient reply not merged: %v", threads)
+	}
+}
+
+// System senders (bounce daemons, verifiers, auto-responders) never join the
+// subject fallback: same subject, same system sender, within the window
+// still stays separate (THREAD-UX-REVIEW F1 phantom threads).
+func TestThreadSystemSendersStaySeparate(t *testing.T) {
+	msgs := []MessageSummary{
+		threadSummary(1, "Undelivered Mail Returned to Sender", "MAILER-DAEMON@mx.example.test", threadDate(1)),
+		threadSummary(2, "Undelivered Mail Returned to Sender", "MAILER-DAEMON@mx.example.test", threadDate(2)),
+		threadSummary(3, "Your verification code", "noreply@tutu.to", threadDate(1)),
+		threadSummary(4, "Your verification code", "noreply@tutu.to", threadDate(2)),
+	}
+	threads := BuildThreads(msgs)
+	for _, uid := range []uint32{1, 2, 3, 4} {
+		if threads[uid] != uid {
+			t.Fatalf("system mail uid %d threaded to %d, want itself", uid, threads[uid])
+		}
+	}
+}
+
+// A bounce that answers a real message still threads to it: the reply chain
+// is strong grouping and is not touched by the system-sender exclusion.
+func TestThreadSystemSenderChainStillGroups(t *testing.T) {
+	msgs := []MessageSummary{
+		{UID: 1, MessageID: "<a@x>", Subject: "Hi", From: []Address{{Email: "alice@example.test"}}, Date: envelopeDate(threadDate(1))},
+		{UID: 2, MessageID: "<b@x>", InReplyTo: "<a@x>", Subject: "Undelivered Mail Returned to Sender", From: []Address{{Email: "MAILER-DAEMON@mx.example.test"}}, Date: envelopeDate(threadDate(1))},
+	}
+	threads := BuildThreads(msgs)
+	if threads[2] != 1 || threads[1] != 1 {
+		t.Fatalf("bounce chain split: %v", threads)
+	}
+}
+
+// References chains group even when In-Reply-To is missing (some clients and
+// bounce daemons fill References only).
+func TestThreadReferencesChainGroups(t *testing.T) {
+	msgs := []MessageSummary{
+		{UID: 1, MessageID: "<a@x>", Subject: "Hi", From: []Address{{Email: "alice@example.test"}}, Date: envelopeDate(threadDate(1))},
+		{UID: 2, MessageID: "<b@x>", References: []string{"<z@elsewhere>", "<a@x>"}, Subject: "Re: Hi", From: []Address{{Email: "bob@example.test"}}, Date: envelopeDate(threadDate(2))},
+	}
+	threads := BuildThreads(msgs)
+	if threads[2] != 1 || threads[1] != 1 {
+		t.Fatalf("references chain split: %v", threads)
 	}
 }
 
@@ -168,6 +226,25 @@ func TestApplyThreadsWithCountsUsesServerThreadSizes(t *testing.T) {
 		if msg.ThreadID != 7 || msg.ThreadCount != 9 {
 			t.Fatalf("server count wrong: %+v", msg)
 		}
+		if msg.WeakAggregation || msg.EarlierCount != 0 {
+			t.Fatalf("weak aggregation stamped below threshold: %+v", msg)
+		}
+	}
+}
+
+// Giant threads stamp WeakAggregation and EarlierCount (Tiger decision
+// v0.6.20 C1: newest-20 window plus an "earlier" summary bar). The count of
+// exactly 20 stays a hard thread.
+func TestApplyThreadsWithCountsWeakAggregation(t *testing.T) {
+	msgs := []MessageSummary{{UID: 7}, {UID: 8}}
+	roots := map[uint32]uint32{7: 7, 8: 8}
+	counts := map[uint32]int{7: 761, 8: 20}
+	ApplyThreadsWithCounts(msgs, roots, counts)
+	if !msgs[0].WeakAggregation || msgs[0].EarlierCount != 741 {
+		t.Fatalf("giant thread not weak-aggregated: %+v", msgs[0])
+	}
+	if msgs[1].WeakAggregation || msgs[1].EarlierCount != 0 {
+		t.Fatalf("20-member thread must stay hard: %+v", msgs[1])
 	}
 }
 

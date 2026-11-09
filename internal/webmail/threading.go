@@ -12,6 +12,69 @@ import (
 // apart in time are treated as unrelated even when the subject matches.
 const SubjectFallbackWindow = 7 * 24 * time.Hour
 
+// WeakAggregationThreshold bounds hard thread aggregation. Threads with more
+// members are stamped WeakAggregation=true and EarlierCount carries how many
+// members fall outside the newest window the UI aggregates (Tiger decision
+// v0.6.20 C1: giant threads render as newest-20 plus an "earlier" summary
+// bar instead of one unbounded stack).
+const WeakAggregationThreshold = 20
+
+// systemSenderLocalParts lists mailbox local parts whose senders count as
+// automated system mail (bounce daemons, verifiers, auto-responders). Mail
+// from these senders never joins the subject fallback, so daily notices and
+// bounces cannot grow phantom threads (THREAD-UX-REVIEW F1). Reply chains
+// still group them: References/In-Reply-To is the only strong grouping.
+var systemSenderLocalParts = map[string]struct{}{
+	"mailer-daemon":  {},
+	"noreply":        {},
+	"no-reply":       {},
+	"no_reply":       {},
+	"donotreply":     {},
+	"do-not-reply":   {},
+	"do_not_reply":   {},
+	"auto-reply":     {},
+	"autoreply":      {},
+	"auto_reply":     {},
+	"autoresponder":  {},
+	"auto-responder": {},
+}
+
+// isSystemSender reports whether the address belongs to an automated system
+// sender. Plus-addressing is stripped before comparing the local part.
+func isSystemSender(addr Address) bool {
+	local := strings.ToLower(strings.TrimSpace(addr.Email))
+	if at := strings.IndexByte(local, '@'); at >= 0 {
+		local = local[:at]
+	}
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+	_, ok := systemSenderLocalParts[local]
+	return ok
+}
+
+// hasNonSystemSender reports whether any sender of m is a human-operated
+// mailbox. The subject fallback only considers groups with at least one.
+func hasNonSystemSender(m MessageSummary) bool {
+	for _, addr := range m.From {
+		if !isSystemSender(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// groupHasNonSystemSender reports whether any member of the group has a
+// non-system sender.
+func groupHasNonSystemSender(group []MessageSummary) bool {
+	for _, m := range group {
+		if hasNonSystemSender(m) {
+			return true
+		}
+	}
+	return false
+}
+
 // Thread scopes report how complete the stamped thread counts are.
 //
 //   - ThreadScopeServer: the counts come from the IMAP THREAD response, which
@@ -48,13 +111,31 @@ func NormalizeThreadSubject(s string) string {
 }
 
 // threadParticipants returns the addresses that identify the people involved
-// in a message. MessageSummary carries From only (To/Cc live on the full
-// Message), so the fallback uses the sender set. Addresses compare
-// case-insensitively.
+// in a message: the sender plus every visible recipient (ENVELOPE To/Cc).
+// Addresses compare case-insensitively.
 func threadParticipants(m MessageSummary) map[string]struct{} {
-	if len(m.From) == 0 {
+	count := len(m.From) + len(m.To) + len(m.Cc)
+	if count == 0 {
 		return nil
 	}
+	out := make(map[string]struct{}, count)
+	add := func(addrs []Address) {
+		for _, addr := range addrs {
+			email := strings.ToLower(strings.TrimSpace(addr.Email))
+			if email == "" {
+				continue
+			}
+			out[email] = struct{}{}
+		}
+	}
+	add(m.From)
+	add(m.To)
+	add(m.Cc)
+	return out
+}
+
+// threadSenders returns only the sender addresses of m.
+func threadSenders(m MessageSummary) map[string]struct{} {
 	out := make(map[string]struct{}, len(m.From))
 	for _, addr := range m.From {
 		email := strings.ToLower(strings.TrimSpace(addr.Email))
@@ -66,17 +147,23 @@ func threadParticipants(m MessageSummary) map[string]struct{} {
 	return out
 }
 
-// participantsOverlap reports whether two participant sets share an address.
-// Two empty sets never overlap: a missing sender is not evidence that two
-// messages belong to the same conversation.
-func participantsOverlap(a, b map[string]struct{}) bool {
-	if len(a) == 0 || len(b) == 0 {
-		return false
-	}
-	for key := range a {
-		if _, ok := b[key]; ok {
-			return true
+// sharesNonSender reports whether m shares an address with the cluster that
+// is not merely the identical sender on both sides. Pure same-sender overlap
+// is not conversation evidence (Tiger decision v0.6.20 C1): broadcast mail
+// from one automated or repetitive sender must not merge by subject, while a
+// shared recipient (a reply whose References were lost) still merges.
+func sharesNonSender(clusterParticipants, clusterSenders map[string]struct{}, m MessageSummary) bool {
+	senders := threadSenders(m)
+	for key := range threadParticipants(m) {
+		if _, ok := clusterParticipants[key]; !ok {
+			continue
 		}
+		_, mSends := senders[key]
+		_, cSends := clusterSenders[key]
+		if mSends && cSends {
+			continue // same address on both sender sides: no evidence
+		}
+		return true
 	}
 	return false
 }
@@ -96,19 +183,29 @@ func withinFallbackWindow(a, b *time.Time) bool {
 }
 
 // threadCluster aggregates the fallback evidence of one candidate group: the
-// participants seen in the group and the dates of its dated messages.
+// participants and senders seen in the group and the dates of its dated
+// messages. Senders are kept apart so pure same-sender overlap can be
+// rejected.
 type threadCluster struct {
 	root         uint32
 	participants map[string]struct{}
+	senders      map[string]struct{}
 	dates        []*time.Time
 }
 
 // newThreadCluster builds the aggregate evidence of a message group.
 func newThreadCluster(root uint32, group []MessageSummary) *threadCluster {
-	cluster := &threadCluster{root: root, participants: make(map[string]struct{})}
+	cluster := &threadCluster{
+		root:         root,
+		participants: make(map[string]struct{}),
+		senders:      make(map[string]struct{}),
+	}
 	for _, m := range group {
 		for key := range threadParticipants(m) {
 			cluster.participants[key] = struct{}{}
+		}
+		for key := range threadSenders(m) {
+			cluster.senders[key] = struct{}{}
 		}
 		if m.Date != nil {
 			cluster.dates = append(cluster.dates, m.Date)
@@ -118,12 +215,12 @@ func newThreadCluster(root uint32, group []MessageSummary) *threadCluster {
 }
 
 // compatibleWith reports whether the given message group may join the
-// cluster under the tightened subject fallback. Two conditions qualify: the
-// participants overlap, or the two sides are at most SubjectFallbackWindow
-// apart in time.
+// cluster under the tightened subject fallback. Two conditions qualify: a
+// shared address that is not pure same-sender overlap, or the two sides
+// being at most SubjectFallbackWindow apart in time.
 func (c *threadCluster) compatibleWith(group []MessageSummary) bool {
 	for _, m := range group {
-		if participantsOverlap(c.participants, threadParticipants(m)) {
+		if sharesNonSender(c.participants, c.senders, m) {
 			return true
 		}
 		for _, d := range c.dates {
@@ -149,12 +246,19 @@ func (c *threadCluster) absorb(other *threadCluster) {
 // server does not advertise THREAD=REFERENCES. Group roots are the lowest
 // UID in the group so thread_id stays stable across pages.
 //
-// The subject fallback is deliberately narrow: messages sharing a normalized
-// subject are merged only when they look like the same conversation, i.e.
-// when their participants overlap or when they are at most
-// SubjectFallbackWindow apart. A missing Date never merges on subject alone.
-// Reply chains are never split by the fallback: it compares whole chain
-// groups, so a chain always stays one thread.
+// The reply chains are the only strong grouping: In-Reply-To joins the
+// immediate parent and References walks the full ancestor chain (some
+// clients and bounce daemons fill References without In-Reply-To).
+//
+// The subject fallback is deliberately narrow. Groups whose senders are all
+// automated system mail (bounce daemons, verifiers, auto-responders) never
+// join it, so daily notices cannot grow phantom threads. For the remaining
+// groups, messages sharing a normalized subject merge only when they look
+// like the same conversation — a shared address that is not the identical
+// sender on both sides, or at most SubjectFallbackWindow between them. A
+// missing Date never merges on subject alone. Reply chains are never split
+// by the fallback: it compares whole chain groups, so a chain always stays
+// one thread.
 func BuildThreads(msgs []MessageSummary) map[uint32]uint32 {
 	if len(msgs) == 0 {
 		return nil
@@ -191,11 +295,17 @@ func BuildThreads(msgs []MessageSummary) map[uint32]uint32 {
 			parent[ra] = rb
 		}
 	}
-	// 1) Reply chains.
+	// 1) Reply chains: the only strong grouping.
 	for _, m := range ordered {
 		self := find(m.UID)
 		if ref := strings.Trim(m.InReplyTo, "<>"); ref != "" {
 			if target, ok := idToUID[ref]; ok {
+				union(self, find(target))
+			}
+		}
+		for _, ref := range m.References {
+			ref = strings.Trim(ref, "<>")
+			if target, ok := idToUID[ref]; ok && target != m.UID {
 				union(self, find(target))
 			}
 		}
@@ -215,15 +325,19 @@ func BuildThreads(msgs []MessageSummary) map[uint32]uint32 {
 		if norm == "" {
 			continue
 		}
-		if buckets[norm] == nil {
-			buckets[norm] = make([]uint32, 0, 4)
+		root := find(m.UID)
+		if seen[norm] == nil {
 			seen[norm] = make(map[uint32]bool, 4)
 		}
-		root := find(m.UID)
 		if seen[norm][root] {
 			continue
 		}
 		seen[norm][root] = true
+		// Groups whose senders are all automated system mail never join the
+		// fallback: bounce sweeps and daily notices must not merge.
+		if !groupHasNonSystemSender(groups[root]) {
+			continue
+		}
 		buckets[norm] = append(buckets[norm], root)
 	}
 	for _, bucket := range buckets {
@@ -275,7 +389,9 @@ func ApplyThreads(msgs []MessageSummary, threads map[uint32]uint32) {
 // ApplyThreadsWithCounts stamps ThreadID/ThreadCount on msgs using the given
 // root mapping and the per-root counts. The server path uses it with the
 // member counts reported by the IMAP THREAD response: those count every
-// member of the thread, not only the loaded page.
+// member of the thread, not only the loaded page. Counts above
+// WeakAggregationThreshold additionally stamp WeakAggregation and
+// EarlierCount (the remainder beyond the newest-20 window).
 func ApplyThreadsWithCounts(msgs []MessageSummary, threads map[uint32]uint32, counts map[uint32]int) {
 	for i := range msgs {
 		root, ok := threads[msgs[i].UID]
@@ -284,6 +400,10 @@ func ApplyThreadsWithCounts(msgs []MessageSummary, threads map[uint32]uint32, co
 		}
 		msgs[i].ThreadID = root
 		msgs[i].ThreadCount = counts[root]
+		if counts[root] > WeakAggregationThreshold {
+			msgs[i].WeakAggregation = true
+			msgs[i].EarlierCount = counts[root] - WeakAggregationThreshold
+		}
 	}
 }
 
