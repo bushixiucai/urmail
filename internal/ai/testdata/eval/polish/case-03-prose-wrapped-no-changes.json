@@ -22,6 +22,16 @@
         "path": "tone",
         "op": "eq",
         "value": "neutral"
+      },
+      {
+        "path": "revised_text",
+        "op": "len_le",
+        "value": 150
+      },
+      {
+        "path": "revised_text",
+        "op": "not_contains",
+        "value": "finance handoff"
       }
     ]
   }
