@@ -1185,7 +1185,10 @@ export function WebmailNextWorkbench({
   );
 
   return (
-    <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[#FAF9F5] text-[#18181B] overflow-hidden select-none">
+    <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[#FAF9F5] text-[#18181B] overflow-hidden">
+      {/* select-none stays on navigation, list rows and controls (they opt in
+          individually); the reading-pane body must stay text-selectable for
+          copy, so the workbench root must not disable selection globally. */}
       {/* 1. Global Header */}
       <WebmailHeader
         onToggleRail={toggleRail}

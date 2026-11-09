@@ -30,6 +30,11 @@
   --vellum-color-danger: #dc2626;
   --vellum-color-info: #0284c7;
   --vellum-color-starred: var(--vellum-star);
+
+  /* 品牌主色：规格要求品牌色只从该令牌取（缺省 #2563EB）。
+     未读点、正在读 3px 指示条、列表焦点环等全链消费此值；
+     暗色值随批次 2 语义令牌迁移在此注册。 */
+  --brand-primary: #2563eb;
 }
 
 .webmail-vellum-root {

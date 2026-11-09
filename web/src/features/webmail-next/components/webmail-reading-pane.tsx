@@ -585,7 +585,7 @@ export function WebmailReadingPane({
       )}
       <div
         data-testid="mail-body-container"
-        className="text-sm text-[#18181B] leading-relaxed min-h-[220px]"
+        className="select-text text-sm text-[#18181B] leading-relaxed min-h-[220px]"
       >
         {message.html ? (
           <SanitizedHtmlFrame
@@ -599,15 +599,17 @@ export function WebmailReadingPane({
             }
           />
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-xs text-[#18181B] max-w-[65ch]">
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-[22px] text-[#18181B] max-w-[65ch]">
             {message.text || "(Empty message)"}
           </pre>
         )}
       </div>
       {message.attachments && message.attachments.length > 0 && (
         <div data-testid="attachments-container" className="pt-2">
-          <div className="text-xs font-semibold text-[var(--vellum-ink-secondary)] mb-3">
-            Attachments ({message.attachments.length})
+          <div className="text-xs font-semibold text-[var(--vellum-ink-secondary)] mb-3 select-none">
+            {t("webmail_next.attachments_count", {
+              count: message.attachments.length,
+            })}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {message.attachments.map((att) => (
@@ -827,8 +829,8 @@ export function WebmailReadingPane({
           data-testid="ai-unconfigured-modal"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
         >
-          <div className="bg-white dark:bg-[#1E1E22] rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4 border border-[#EBE8E0] dark:border-[#323238]">
-            <div className="text-sm font-semibold text-[#18181B] dark:text-[#F4F4F6]">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4 border border-[#EBE8E0]">
+            <div className="text-sm font-semibold text-[#18181B]">
               {t("page.webmail.ai_settings_title")}
             </div>
             <p className="text-xs text-[var(--vellum-ink-secondary)] leading-relaxed">
@@ -838,7 +840,7 @@ export function WebmailReadingPane({
               <button
                 type="button"
                 onClick={() => setShowUnconfiguredModal(false)}
-                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:bg-[#F3F1EC] dark:hover:bg-[#323238] rounded-md font-medium"
+                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:bg-[#F3F1EC] rounded-md font-medium"
               >
                 {t("page.webmail.ai_cancel")}
               </button>
