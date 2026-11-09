@@ -3072,5 +3072,12 @@
     "webmail_next.ai_consent_reauthorize_btn": "Re-authorize and Retry",
     "webmail_next.ai_shorter_summary_title": "One-line summary",
     "webmail_next.ai_no_todos": "No action items detected in email",
-    "webmail_next.thread_loaded_count": "Loaded {{loaded}} of {{total}}"
+    "webmail_next.thread_loaded_count": "Loaded {{loaded}} of {{total}}",
+    "webmail_next.thread_earlier_count": "{{count}} earlier messages",
+    "webmail_next.thread_load_earlier": "Load earlier {{step}}",
+    "webmail_next.thread_earlier_done": "Start of conversation",
+    "webmail_next.thread_earlier_error": "Couldn't load earlier messages",
+    "webmail_next.thread_retry": "Retry",
+    "webmail_next.thread_newer_count": "{{count}} newer messages",
+    "webmail_next.thread_load_newer": "Load newer messages"
 }

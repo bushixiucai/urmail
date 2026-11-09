@@ -340,3 +340,44 @@ describe("list header hotzones and no-wrap (B3-2/B3-3)", () => {
     );
   });
 });
+describe("thread pill routing (C1 D-D)", () => {
+  it("opens the stack instead of expanding when members are unloaded", () => {
+    const onSelectMessage = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={[mockMessages[1]]}
+        activeUid={null}
+        onSelectMessage={onSelectMessage}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    // uid 102 declares thread_count 2 but only itself is loaded: the pill
+    // must not inline-expand (0-child dead end) — it opens the stack.
+    fireEvent.click(screen.getByTestId("thread-toggle-1"));
+    expect(onSelectMessage).toHaveBeenCalledWith(102);
+    expect(screen.queryByTestId("mail-row-101")).toBeNull();
+  });
+
+  it("still inline-expands when every member is loaded", () => {
+    const onSelectMessage = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={onSelectMessage}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("thread-toggle-1"));
+    expect(onSelectMessage).not.toHaveBeenCalled();
+    expect(screen.getByTestId("mail-row-101")).toBeTruthy();
+  });
+});

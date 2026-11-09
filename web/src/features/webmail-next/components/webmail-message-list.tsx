@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -146,6 +146,17 @@ export function WebmailMessageList({
     () => setMoveOpen(false),
     bulkMoveButtonRef,
   );
+  // C1 D-D: loaded member count per thread_id, for the pill's
+  // "inline-expand vs open-stack" decision.
+  const loadedThreadCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const message of messages) {
+      if (message.thread_id != null) {
+        counts.set(message.thread_id, (counts.get(message.thread_id) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [messages]);
   // P1-1: one row context menu instance for the whole list.
   const [menuState, setMenuState] = useState<RowContextMenuState | null>(null);
   const itemsRef = useRef(items);
@@ -335,9 +346,16 @@ export function WebmailMessageList({
       }}
       onToggleThread={(event) => {
         event.stopPropagation();
-        if (item.threadId) {
-          rowActionsRef.current.toggleThreadExpand(item.threadId);
+        if (!item.threadId) return;
+        // D-D (C1): inline expansion only when every member of the thread
+        // is already loaded in the list; otherwise the pill opens the
+        // reading stack, which progressively loads the missing members.
+        const loaded = loadedThreadCounts.get(item.threadId) ?? 0;
+        if ((item.threadCount ?? 0) > loaded) {
+          rowActionsRef.current.onSelectMessage(item.uid);
+          return;
         }
+        rowActionsRef.current.toggleThreadExpand(item.threadId);
       }}
       onDelete={(event) => {
         event.stopPropagation();
