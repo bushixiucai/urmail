@@ -66,6 +66,25 @@ describe("WebmailReadingPane", () => {
     expect(screen.getByText("company.com")).toBeTruthy();
   });
 
+  it("renders a localised attachments heading and a spec-sized plain-text body", () => {
+    render(
+      <WebmailReadingPane
+        message={{ ...mockMessage, html: undefined, text: "Plain body text" }}
+        folderEnc="INBOX"
+      />,
+    );
+
+    // Heading is localised, never hardcoded English.
+    expect(screen.getByText("webmail_next.attachments_count")).toBeTruthy();
+    // Plain-text body meets the reading floor: 14px / 22px, selectable.
+    const pre = screen.getByTestId("mail-body-container").querySelector("pre");
+    expect(pre?.className).toContain("text-sm");
+    expect(pre?.className).toContain("leading-[22px]");
+    expect(screen.getByTestId("mail-body-container").className).toContain(
+      "select-text",
+    );
+  });
+
   it("renders attachment cards and handles download trigger", () => {
     render(<WebmailReadingPane message={mockMessage} folderEnc="INBOX" />);
 

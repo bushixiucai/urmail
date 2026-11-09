@@ -139,7 +139,7 @@ describe("WebmailNextWorkbench Layout", () => {
   });
 
   it("renders header, navigation rail, list, and reading pane", () => {
-    render(
+    const { container } = render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <WebmailNextWorkbench />
@@ -150,6 +150,9 @@ describe("WebmailNextWorkbench Layout", () => {
     expect(screen.getByTestId("webmail-navigation-rail")).toBeTruthy();
     expect(screen.getByTestId("webmail-message-list")).toBeTruthy();
     expect(screen.getByTestId("webmail-reading-pane")).toBeTruthy();
+    // The root must not disable text selection: message bodies are copyable.
+    const root = container.querySelector(".webmail-vellum-root");
+    expect(root?.className).not.toContain("select-none");
   });
 
   it("toggles rail collapse to mini mode", () => {

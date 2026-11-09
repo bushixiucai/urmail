@@ -469,13 +469,18 @@ export function WebmailMessageList({
               data-testid="sort-toggle-button"
               type="button"
               onClick={handleSortClick}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[#EBE8E0] hover:text-[#18181B]"
-              title={`Sort: ${sort || "date"} (${order})`}
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[#EBE8E0] hover:text-[#18181B] select-none"
+              title={t("webmail_next.sort_tooltip", {
+                field: t(`webmail_next.sort_field_${sort || "date"}`),
+                order: t(
+                  order === "asc"
+                    ? "webmail_next.sort_order_asc"
+                    : "webmail_next.sort_order_desc",
+                ),
+              })}
             >
               <ArrowDownUp className="w-3 h-3" />
-              <span className="capitalize">
-                {sort || t("webmail_next.sort_date")}
-              </span>
+              <span>{t(`webmail_next.sort_field_${sort || "date"}`)}</span>
             </button>
 
             {onRefresh && (

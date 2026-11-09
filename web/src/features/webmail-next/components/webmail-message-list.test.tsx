@@ -159,7 +159,13 @@ describe("WebmailMessageList", () => {
       />,
     );
 
-    const sortBtn = screen.getByTestId("sort-toggle-button");
+    // The visible label and tooltip are localised (no hardcoded "Date").
+    expect(screen.getByText("webmail_next.sort_field_date")).toBeTruthy();
+    const sortBtn = screen.getByTestId(
+      "sort-toggle-button",
+    ) as HTMLButtonElement;
+    expect(sortBtn.title).toBe("webmail_next.sort_tooltip");
+
     fireEvent.click(sortBtn);
     expect(onSortChange).toHaveBeenCalledWith("date", "asc");
   });
