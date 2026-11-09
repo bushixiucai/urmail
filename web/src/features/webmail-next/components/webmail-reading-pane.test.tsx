@@ -515,16 +515,21 @@ describe("SanitizedHtmlFrame auto height", () => {
     ).toBeTruthy();
   });
 
-  it("renders the red banner from score >= 0.6 with enumerated indicators and score", () => {
+  it("renders the red banner from message.phishing with score >= 0.6 (Backend #87 shape)", () => {
     const scored: MessageDetail = {
       ...mockMessage,
-      score: 0.99,
-      indicators: [
-        {
-          type: "suspicious_link",
-          evidence: "Link points to a look-alike domain",
-        },
-      ],
+      phishing: {
+        score: 0.99,
+        risk_level: "high",
+        reasons: ["Sender domain mismatch"],
+        analyzed_at: "2026-11-09T07:30:00Z",
+        indicators: [
+          {
+            type: "suspicious_link",
+            evidence: "Link points to a look-alike domain",
+          },
+        ],
+      },
     };
 
     render(<WebmailReadingPane message={scored} folderEnc="INBOX" />);
@@ -539,12 +544,41 @@ describe("SanitizedHtmlFrame auto height", () => {
     ).toBeTruthy();
   });
 
-  it("stays silent when score < 0.6 even if medium indicators exist", () => {
+  it("falls back to reasons when the verdict carries no indicators", () => {
+    const reasonsOnly: MessageDetail = {
+      ...mockMessage,
+      phishing: {
+        score: 0.91,
+        risk_level: "high",
+        reasons: [
+          "Requests credentials within 24 hours",
+          "Reply address differs from sender domain",
+        ],
+        indicators: [],
+        analyzed_at: "2026-11-09T07:30:00Z",
+      },
+    };
+
+    render(<WebmailReadingPane message={reasonsOnly} folderEnc="INBOX" />);
+
+    expect(screen.getByTestId("phishing-warning-banner")).toBeTruthy();
+    expect(
+      screen.getByText("Requests credentials within 24 hours"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Reply address differs from sender domain"),
+    ).toBeTruthy();
+  });
+
+  it("stays silent when message.phishing score < 0.6 even with indicators", () => {
     const medium: MessageDetail = {
       ...mockMessage,
-      score: 0.4,
-      risk_level: "medium",
-      indicators: [{ type: "urgent_pressure", evidence: "Act within 24h" }],
+      phishing: {
+        score: 0.4,
+        risk_level: "medium",
+        indicators: [{ type: "urgent_pressure", evidence: "Act within 24h" }],
+        analyzed_at: "2026-11-09T07:30:00Z",
+      },
     };
 
     render(<WebmailReadingPane message={medium} folderEnc="INBOX" />);

@@ -90,15 +90,14 @@ export interface MessageDetail extends MessageSummary {
   };
   security_notes?: string[];
   risk_level?: "low" | "medium" | "high" | "critical";
-  /**
-   * Phishing score exposed by the server-side pipeline (OpenAPI assist
-   * phishing shape: 0..1). `>= 0.6` renders the high-risk banner; anything
-   * below stays silent. `risk_score` is accepted as an alias while the
-   * message-API key name settles.
-   */
-  score?: number;
-  risk_score?: number;
   indicators?: MailboxAIIndicator[];
+  /**
+   * Persisted phishing_v2 verdict (Backend #87, internal/webmail/types.go
+   * PhishingFinding): present only after an analysis ran, key omitted for
+   * unanalyzed mail so the client stays silent. `score >= 0.6` renders the
+   * high-risk banner; anything below stays silent.
+   */
+  phishing?: MailboxPhishingFinding;
   uid_validity?: number;
   to?: MailboxAddress[];
   cc?: MailboxAddress[];
@@ -1105,6 +1104,17 @@ export interface MailboxAIIndicator {
     | "credential_request"
     | "other";
   evidence?: string;
+}
+
+/** Persisted phishing_v2 verdict on the message API (Backend #87). */
+export interface MailboxPhishingFinding {
+  /** 0..1; `>= 0.6` renders the high-risk banner. */
+  score?: number;
+  risk_level?: "low" | "medium" | "high" | "critical";
+  reasons?: string[];
+  indicators?: MailboxAIIndicator[];
+  /** Settlement time of the latest analysis (UTC). */
+  analyzed_at?: string;
 }
 
 export interface MailboxAIResult {

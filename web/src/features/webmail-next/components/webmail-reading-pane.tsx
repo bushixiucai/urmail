@@ -248,6 +248,7 @@ export function WebmailReadingPane({
   const [phishingCheck, setPhishingCheck] = useState<{
     score?: number;
     risk_level?: "low" | "medium" | "high" | "critical";
+    reasons?: string[];
     indicators?: MailboxAIIndicator[];
   } | null>(null);
   const [isRunningSecurityCheck, setIsRunningSecurityCheck] = useState(false);
@@ -579,6 +580,7 @@ export function WebmailReadingPane({
       setPhishingCheck({
         score: checkScore,
         risk_level: checkLevel,
+        reasons: resp.result.reasons,
         indicators: resp.result.indicators,
       });
       // score < 0.6 stays silent (no red banner); leave a quiet one-line
@@ -611,13 +613,14 @@ export function WebmailReadingPane({
   };
 
   // Red banner rule: score >= 0.6 renders, anything below stays silent.
-  // On-demand check results take precedence over server-side message fields;
-  // when the score is absent (previously analysed mail) the coarse risk_level
-  // decides, and mails without any risk keys render nothing at all.
-  const activeRiskScore =
-    phishingCheck?.score ?? message.score ?? message.risk_score;
-  const activeRiskLevel = phishingCheck?.risk_level ?? message.risk_level;
-  const activeIndicators = phishingCheck?.indicators ?? message.indicators;
+  // On-demand check results take precedence over the persisted verdict in
+  // message.phishing (Backend #87); when the score is absent the coarse
+  // risk_level decides, and mail without a phishing key renders nothing.
+  const activePhishing = phishingCheck ?? message.phishing;
+  const activeRiskScore = activePhishing?.score;
+  const activeRiskLevel = activePhishing?.risk_level ?? message.risk_level;
+  const activeIndicators = activePhishing?.indicators ?? message.indicators;
+  const activeReasons = activePhishing?.reasons;
   const isHighRisk =
     activeRiskScore !== undefined
       ? activeRiskScore >= 0.6
@@ -663,6 +666,15 @@ export function WebmailReadingPane({
                 ))}
               </ul>
             )}
+            {(!activeIndicators || activeIndicators.length === 0) &&
+              activeReasons &&
+              activeReasons.length > 0 && (
+                <ul className="list-disc list-inside space-y-0.5 opacity-90">
+                  {activeReasons.map((reason, i) => (
+                    <li key={i}>{reason}</li>
+                  ))}
+                </ul>
+              )}
           </div>
         </div>
       )}
