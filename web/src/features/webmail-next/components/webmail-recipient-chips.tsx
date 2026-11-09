@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { X, User } from "lucide-react";
+import { avatarInitial } from "../lib/avatar-initial";
 import {
   searchCorporateContacts,
   type CorporateContact,
@@ -201,7 +202,10 @@ export function WebmailRecipientChips({
                   {/* Avatar badge */}
                   <div className="w-7 h-7 rounded-full bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] font-bold text-xs flex items-center justify-center shrink-0">
                     {contact?.display_name?.trim() ? (
-                      contact.display_name.trim().charAt(0).toUpperCase()
+                      avatarInitial(
+                        contact.display_name,
+                        contact.emails?.[0]?.address,
+                      )
                     ) : (
                       <User className="w-3.5 h-3.5" />
                     )}
