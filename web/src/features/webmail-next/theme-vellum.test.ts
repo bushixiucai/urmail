@@ -36,6 +36,7 @@ describe("theme-vellum tokens", () => {
       "--vellum-warning-fill": "#fef3c7",
       "--vellum-warning-border": "#fde68a",
       "--vellum-warning-text": "#92400e",
+      "--vellum-warning-text-strong": "#b45309",
       "--vellum-danger-fill": "#fee2e2",
       "--vellum-danger-fill-soft": "#fef2f2",
       "--vellum-danger-border": "#fecaca",

@@ -162,7 +162,7 @@ export function ForwardingSection() {
 
           {success && (
             <div className="p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[#166534] text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-[#16A34A]" />
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--vellum-success-text)]" />
               <span>
                 {t(
                   "settings.forwarding.saved_success",

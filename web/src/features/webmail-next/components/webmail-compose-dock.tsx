@@ -390,7 +390,7 @@ export function WebmailComposeDock({
               {attachmentError && (
                 <div
                   data-testid="attachment-error-notice"
-                  className="px-4 py-1.5 bg-[#FEE2E2] border-b border-[#FECACA] flex items-center gap-2 text-xs text-[#DC2626]"
+                  className="px-4 py-1.5 bg-[var(--vellum-danger-fill)] border-b border-[var(--vellum-danger-border)] flex items-center gap-2 text-xs text-[var(--vellum-danger-strong)]"
                 >
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                   <span>{attachmentError}</span>
@@ -412,7 +412,7 @@ export function WebmailComposeDock({
                       <button
                         type="button"
                         onClick={() => handleRemoveAttachment(idx)}
-                        className="p-0.5 hover:text-[#DC2626]"
+                        className="p-0.5 hover:text-[var(--vellum-danger-strong)]"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -490,7 +490,7 @@ export function WebmailComposeDock({
                       clearDraft();
                       onClose();
                     }}
-                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[var(--vellum-border)] rounded transition-colors"
+                    className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-danger-strong)] hover:bg-[var(--vellum-border)] rounded transition-colors"
                     title="Discard Draft"
                   >
                     <Trash2 className="w-4 h-4" />

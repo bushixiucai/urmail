@@ -244,7 +244,7 @@ export function RemoteImagesSection({
         {success && (
           <div
             data-testid="privacy-status-success"
-            className="flex items-center gap-1.5 text-xs text-[#16A34A] pt-1"
+            className="flex items-center gap-1.5 text-xs text-[var(--vellum-success-text)] pt-1"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>{t("settings.privacy.saved", "Settings saved")}</span>

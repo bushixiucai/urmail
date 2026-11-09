@@ -229,7 +229,7 @@ export function WebmailContactsModal({
           )}
 
           {error && (
-            <div className="p-2 bg-[#FEF2F2] border border-[#FECACA] rounded text-[#991B1B] text-xs flex items-center gap-1.5">
+            <div className="p-2 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border)] rounded text-[var(--vellum-danger-text)] text-xs flex items-center gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>{error}</span>
             </div>
@@ -276,7 +276,7 @@ export function WebmailContactsModal({
                             className="p-2 bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg hover:border-[var(--vellum-ink-disabled)] transition-colors flex items-center justify-between gap-3"
                           >
                             <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-8 h-8 rounded-full bg-[#E0E7FF] text-[#3730A3] font-bold text-xs flex items-center justify-center shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] font-bold text-xs flex items-center justify-center shrink-0">
                                 {initial}
                               </div>
                               <div className="min-w-0">

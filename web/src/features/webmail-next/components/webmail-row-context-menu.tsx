@@ -182,7 +182,7 @@ export function WebmailRowContextMenu({
       )}
       {item(
         t("webmail_next.delete"),
-        <Trash2 className="w-3.5 h-3.5 text-[#DC2626]" />,
+        <Trash2 className="w-3.5 h-3.5 text-[var(--vellum-danger-strong)]" />,
         () => handlers.onDelete(uids),
         "ctx-delete",
       )}
