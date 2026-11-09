@@ -145,3 +145,36 @@ describe("WebmailHeader density toggle (B2-3)", () => {
     expect(toggle.getAttribute("aria-label")).toBe("webmail_next.density_menu");
   });
 });
+
+describe("WebmailHeader menu dismissal (B3-1)", () => {
+  it("closes the density menu on Escape and returns focus to the toggle", () => {
+    renderHeader();
+    const toggle = screen.getByTestId("webmail-density-toggle");
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("webmail-density-menu")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("webmail-density-menu")).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("closes the more menu on Escape and returns focus to the button", () => {
+    renderHeader();
+    const more = screen.getByTestId("webmail-more-btn");
+    fireEvent.click(more);
+    expect(screen.getByTestId("webmail-more-menu")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("webmail-more-menu")).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
+  it("keeps the more menu open on Escape pressed inside a child input of the container", () => {
+    renderHeader();
+    const more = screen.getByTestId("webmail-more-btn");
+    fireEvent.click(more);
+    // mousedown inside the container must not close (parity with old rule)
+    fireEvent.mouseDown(screen.getByTestId("webmail-more-menu"));
+    expect(screen.getByTestId("webmail-more-menu")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("webmail-more-menu")).toBeNull();
+  });
+});

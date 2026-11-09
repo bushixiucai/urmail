@@ -25,6 +25,7 @@ import {
 } from "./webmail-row-context-menu";
 import { useMessageThreading } from "../hooks/use-message-threading";
 import { useDelayedFlag } from "../hooks/use-delayed-flag";
+import { useDismissable } from "../hooks/use-dismissable";
 import { MailListSkeleton, SkeletonRow } from "./webmail-skeleton";
 import { WebmailEmptyState } from "./webmail-empty-state";
 import { useRangeSelection } from "../hooks/use-range-selection";
@@ -137,6 +138,14 @@ export function WebmailMessageList({
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
     useRangeSelection(items);
   const [moveOpen, setMoveOpen] = useState(false);
+  const bulkMoveRef = useRef<HTMLDivElement>(null);
+  const bulkMoveButtonRef = useRef<HTMLButtonElement>(null);
+  useDismissable(
+    moveOpen,
+    bulkMoveRef,
+    () => setMoveOpen(false),
+    bulkMoveButtonRef,
+  );
   // P1-1: one row context menu instance for the whole list.
   const [menuState, setMenuState] = useState<RowContextMenuState | null>(null);
   const itemsRef = useRef(items);
@@ -424,8 +433,9 @@ export function WebmailMessageList({
             >
               <Star className="w-3.5 h-3.5" />
             </button>
-            <div className="relative">
+            <div className="relative" ref={bulkMoveRef}>
               <button
+                ref={bulkMoveButtonRef}
                 type="button"
                 data-testid="bulk-move"
                 className="p-1 rounded hover:bg-white/10"
