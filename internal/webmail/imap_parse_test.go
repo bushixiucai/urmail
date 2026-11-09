@@ -52,6 +52,72 @@ func TestParseFetchAttrsAndSummary(t *testing.T) {
 	}
 }
 
+// THREAD-UX-REVIEW F3: single-digit-day sender dates (with or without a
+// trailing timezone comment) must parse instead of rendering as an em dash.
+func TestParseIMAPDateVariants(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string // RFC3339 in UTC, empty for unparsable
+	}{
+		{"Thu, 9 Oct 2026 20:31:41 +0800", "2026-10-09T12:31:41Z"},
+		{"Thu, 9 Oct 2026 20:31:41 +0800 (CST)", "2026-10-09T12:31:41Z"},
+		{"9 Oct 2026 20:31:41 +0800", "2026-10-09T12:31:41Z"},
+		{"Thu, 09 Oct 2026 20:31:41 +0800", "2026-10-09T12:31:41Z"},
+		{"09-Oct-2026 20:31:41 +0800", "2026-10-09T12:31:41Z"},
+		{"not a date", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := parseIMAPDate(tc.in)
+		if tc.want == "" {
+			if !got.IsZero() {
+				t.Fatalf("parseIMAPDate(%q) = %v, want zero", tc.in, got)
+			}
+			continue
+		}
+		if got.UTC().Format(time.RFC3339) != tc.want {
+			t.Fatalf("parseIMAPDate(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// THREAD-UX-REVIEW F4: garbled encoded-word headers must surface decoded
+// text, never the raw encoded-word.
+func TestAddressesFromHeaderEncodedWord(t *testing.T) {
+	// Well-formed display name: net/mail decodes it.
+	got := addressesFromHeader("=?utf-8?B?VFVUVS5UTw==?= <verify@tutu.to>")
+	if len(got) != 1 || got[0].Name != "TUTU.TO" || got[0].Email != "verify@tutu.to" {
+		t.Fatalf("well-formed: %#v", got)
+	}
+	// Encoded-word only, no addr-spec: salvaged as a display-only address.
+	got = addressesFromHeader("=?utf-8?B?VFVUVS5UTw==?=")
+	if len(got) != 1 || got[0].Name != "TUTU.TO" || got[0].Email != "" {
+		t.Fatalf("encoded-word only: %#v", got)
+	}
+	// Mixed: the good address survives its garbled sibling.
+	got = addressesFromHeader(`real@example.test, =?utf-8?B?VFVUVS5UTw==?=`)
+	if len(got) != 2 || got[0].Email != "real@example.test" || got[1].Name != "TUTU.TO" || got[1].Email != "" {
+		t.Fatalf("mixed: %#v", got)
+	}
+	if got := addressesFromHeader(""); got != nil {
+		t.Fatalf("empty: %#v", got)
+	}
+}
+
+// THREAD-UX-REVIEW F4: an ENVELOPE address with an encoded-word mailbox and
+// no host becomes a display-only address instead of being dropped.
+func TestParseAddressEncodedMailboxNoHost(t *testing.T) {
+	addr, ok := parseAddress(`(NIL NIL "=?utf-8?B?VFVUVS5UTw==?=" NIL)`)
+	if !ok || addr.Name != "TUTU.TO" || addr.Email != "" {
+		t.Fatalf("addr=%#v ok=%v", addr, ok)
+	}
+	// undisclosed-recipients style group addresses stay visible too.
+	addr, ok = parseAddress(`(NIL NIL "undisclosed-recipients" NIL)`)
+	if !ok || addr.Name != "undisclosed-recipients" || addr.Email != "" {
+		t.Fatalf("group addr=%#v ok=%v", addr, ok)
+	}
+}
+
 func TestParseMIMEBodyMultipart(t *testing.T) {
 	raw := "MIME-Version: 1.0\r\n" +
 		"Content-Type: multipart/mixed; boundary=bnd\r\n\r\n" +
