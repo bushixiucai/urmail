@@ -425,7 +425,7 @@ export function WebmailNavigationRail({
             <div
               className={`h-full transition-all duration-300 ${
                 quotaPercent > 95
-                  ? "bg-[#DC2626]"
+                  ? "bg-[var(--vellum-danger-strong)]"
                   : quotaPercent > 80
                     ? "bg-[var(--vellum-warning-strong)]"
                     : "bg-[var(--brand-primary,var(--brand-primary))]"

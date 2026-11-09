@@ -141,7 +141,7 @@ export function WebmailThreadStack({
             type="button"
             data-testid="thread-delete"
             onClick={onDeleteThread}
-            className="h-8 px-2.5 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] hover:text-[#DC2626] flex items-center gap-1.5"
+            className="h-8 px-2.5 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] hover:text-[var(--vellum-danger-strong)] flex items-center gap-1.5"
           >
             <Trash2 className="w-4 h-4" />
             <span>{t("webmail_next.delete")}</span>

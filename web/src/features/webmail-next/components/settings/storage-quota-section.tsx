@@ -166,7 +166,7 @@ export function StorageQuotaSection() {
                       "Approaching Storage Limit",
                     )}
                   </span>
-                  <p className="mt-0.5 text-xs text-[#B45309]">
+                  <p className="mt-0.5 text-xs text-[var(--vellum-warning-text-strong)]">
                     {t(
                       "settings.quota.warning_desc",
                       "Your mailbox is running out of space. Consider archiving or deleting older messages with large attachments.",
@@ -176,7 +176,7 @@ export function StorageQuotaSection() {
               </div>
             ) : (
               <div className="flex items-center gap-2 text-xs text-[#15803D]">
-                <CheckCircle2 className="w-4 h-4 text-[#16A34A]" />
+                <CheckCircle2 className="w-4 h-4 text-[var(--vellum-success-text)]" />
                 <span>
                   {t("settings.quota.healthy", "Storage space is healthy.")}
                 </span>

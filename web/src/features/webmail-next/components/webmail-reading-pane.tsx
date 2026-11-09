@@ -641,12 +641,12 @@ export function WebmailReadingPane({
     <>
       {isHighRisk && (
         // Decision ①b: v1 is light-only, so the banner has no dark variants —
-        // it must read #FEE2E2/#FECACA/#991B1B in every state.
+        // it must read var(--vellum-danger-fill)/var(--vellum-danger-border)/var(--vellum-danger-text) in every state.
         <div
           data-testid="phishing-warning-banner"
-          className="mb-4 p-3 bg-[#FEE2E2] border border-[#FECACA] rounded-lg text-xs text-[#991B1B] flex items-start gap-2.5"
+          className="mb-4 p-3 bg-[var(--vellum-danger-fill)] border border-[var(--vellum-danger-border)] rounded-lg text-xs text-[var(--vellum-danger-text)] flex items-start gap-2.5"
         >
-          <ShieldAlert className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+          <ShieldAlert className="w-4 h-4 text-[var(--vellum-danger-strong)] shrink-0 mt-0.5" />
           <div className="space-y-1">
             <div className="font-semibold">
               {t("webmail_next.ai_phishing_high_risk")}
@@ -720,7 +720,7 @@ export function WebmailReadingPane({
       {hasBlockedImages && (
         <div
           data-testid="remote-images-banner"
-          className="mb-3 p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[#92400E]"
+          className="mb-3 p-3 bg-[var(--vellum-warning-fill)] border border-[var(--vellum-warning-border)] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[var(--vellum-warning-text)]"
         >
           <div className="flex items-center gap-2 min-w-0">
             <ShieldAlert className="w-4 h-4 text-[var(--vellum-warning-strong)] shrink-0" />
@@ -733,7 +733,7 @@ export function WebmailReadingPane({
               data-testid="show-images-button"
               type="button"
               onClick={handleShowImages}
-              className="px-2 py-1 bg-white border border-[var(--vellum-warning-strong)]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
+              className="px-2 py-1 bg-white border border-[var(--vellum-warning-strong)]/30 text-[var(--vellum-warning-text)] font-medium rounded hover:bg-[var(--vellum-warning-fill)] transition-colors"
             >
               {t("webmail_next.show_images")}
             </button>
@@ -741,7 +741,7 @@ export function WebmailReadingPane({
               data-testid="always-trust-button"
               type="button"
               onClick={handleAlwaysTrust}
-              className="px-2 py-1 text-[#92400E] hover:underline transition-colors"
+              className="px-2 py-1 text-[var(--vellum-warning-text)] hover:underline transition-colors"
             >
               {t("webmail_next.always_trust_images")}
             </button>
@@ -896,7 +896,7 @@ export function WebmailReadingPane({
           <button
             type="button"
             onClick={() => onDelete?.(message.uid)}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] hover:bg-[var(--vellum-row-hover)] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-danger-strong)] hover:bg-[var(--vellum-row-hover)] transition-colors"
             aria-label={t("webmail_next.delete")}
             title={t("webmail_next.delete")}
           >
@@ -968,7 +968,7 @@ export function WebmailReadingPane({
                     disabled={contactAdded || isAddingContact}
                     className={`ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
                       contactAdded
-                        ? "text-[#16A34A] bg-[#DCFCE7]"
+                        ? "text-[var(--vellum-success-text)] bg-[var(--vellum-success-fill)]"
                         : "text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] hover:bg-[var(--vellum-border)]"
                     }`}
                     aria-label={
@@ -1044,7 +1044,7 @@ export function WebmailReadingPane({
                   setShowUnconfiguredModal(false);
                   onOpenAISettings?.();
                 }}
-                className="px-3 py-1.5 text-xs bg-[var(--brand-primary)] hover:bg-[#1D4ED8] text-white rounded-md font-semibold"
+                className="px-3 py-1.5 text-xs bg-[var(--brand-primary)] hover:bg-[var(--vellum-brand-strong)] text-white rounded-md font-semibold"
               >
                 {t("webmail_next.ai_go_to_settings")}
               </button>

@@ -203,7 +203,7 @@ export function WebmailSelectionPolish({
             data-testid="btn-selection-polish"
             disabled={isLoading}
             onClick={handlePolish}
-            className="flex items-center gap-1.5 font-medium hover:text-[#3B82F6] transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 font-medium hover:text-[var(--brand-primary)] transition-colors disabled:opacity-50"
           >
             {isLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -242,7 +242,7 @@ export function WebmailSelectionPolish({
                   type="button"
                   data-testid="btn-apply-polish"
                   onClick={handleApply}
-                  className="px-2 py-0.5 bg-[var(--brand-primary)] text-white rounded text-[12px] font-semibold hover:bg-[#1D4ED8] flex items-center gap-1 transition-colors"
+                  className="px-2 py-0.5 bg-[var(--brand-primary)] text-white rounded text-[12px] font-semibold hover:bg-[var(--vellum-brand-strong)] flex items-center gap-1 transition-colors"
                 >
                   <Check className="w-3 h-3" />
                   <span>{t("webmail_next.ai_apply_replace_btn")}</span>
@@ -252,7 +252,7 @@ export function WebmailSelectionPolish({
                 type="button"
                 onClick={onClose}
                 aria-label={t("webmail_next.close")}
-                className="p-1 hover:bg-[var(--vellum-border)] rounded text-[#71717A]"
+                className="p-1 hover:bg-[var(--vellum-border)] rounded text-[var(--vellum-ink-secondary)]"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -273,7 +273,7 @@ export function WebmailSelectionPolish({
                     onClose();
                     onOpenAISettings();
                   }}
-                  className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded text-xs font-medium hover:bg-[#1D4ED8] transition-colors"
+                  className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded text-xs font-medium hover:bg-[var(--vellum-brand-strong)] transition-colors"
                 >
                   {t("webmail_next.ai_go_to_settings")}
                 </button>
@@ -286,12 +286,12 @@ export function WebmailSelectionPolish({
             <div
               role="alert"
               data-testid="selection-polish-consent-stale-card"
-              className="p-2.5 rounded-lg border border-[#FDE68A] bg-[#FEF3C7] text-[#92400E] space-y-2"
+              className="p-2.5 rounded-lg border border-[var(--vellum-warning-border)] bg-[var(--vellum-warning-fill)] text-[var(--vellum-warning-text)] space-y-2"
             >
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--vellum-warning-strong)]" />
                 <div className="flex-1 space-y-1">
-                  <p className="font-semibold text-[var(--vellum-star)]">
+                  <p className="font-semibold text-[var(--vellum-warning-text-strong)]">
                     {t("webmail_next.ai_consent_stale_title")}
                   </p>
                   <p className="leading-relaxed">
@@ -319,7 +319,7 @@ export function WebmailSelectionPolish({
             <div
               role="alert"
               data-testid="selection-polish-error"
-              className="p-2 rounded bg-[#FEE2E2] text-[#991B1B] text-xs space-y-2"
+              className="p-2 rounded bg-[var(--vellum-danger-fill)] text-[var(--vellum-danger-text)] text-xs space-y-2"
             >
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -330,7 +330,7 @@ export function WebmailSelectionPolish({
                 data-testid="btn-polish-retry"
                 onClick={() => void handlePolish()}
                 disabled={isLoading}
-                className="px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                className="px-2.5 py-1 bg-[var(--vellum-danger-strong)] hover:bg-[#B91C1C] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>{t("webmail_next.ai_retry")}</span>
@@ -342,12 +342,12 @@ export function WebmailSelectionPolish({
           {revisedText !== null && (
             <div className="p-2 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded leading-relaxed select-text space-y-1">
               <div>
-                <span className="diff-del bg-[#FEE2E2] text-[#991B1B] line-through px-0.5 rounded mr-1">
+                <span className="diff-del bg-[var(--vellum-danger-fill)] text-[var(--vellum-danger-text)] line-through px-0.5 rounded mr-1">
                   {selectedText}
                 </span>
               </div>
               <div>
-                <span className="diff-add bg-[#DCFCE7] text-[#166534] font-medium px-0.5 rounded">
+                <span className="diff-add bg-[var(--vellum-success-fill)] text-[var(--vellum-success-text)] font-medium px-0.5 rounded">
                   {revisedText}
                 </span>
               </div>
@@ -363,7 +363,7 @@ export function WebmailSelectionPolish({
               <ul className="list-disc list-inside space-y-0.5 text-[12px] text-[var(--vellum-ink)]">
                 {changes.map((ch, idx) => (
                   <li key={idx}>
-                    <span className="font-medium text-[#71717A]">
+                    <span className="font-medium text-[var(--vellum-ink-secondary)]">
                       [{getChangeTypeLabel(ch.type)}]{" "}
                     </span>
                     <span>{ch.note}</span>

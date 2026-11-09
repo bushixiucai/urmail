@@ -76,9 +76,9 @@ class ErrorBoundaryClass extends Component<
       return (
         <div
           data-testid="webmail-error-boundary-fallback"
-          className="p-6 bg-[var(--vellum-ground)] border border-[#FECACA] rounded-xl text-center space-y-3 m-4 shadow-xs"
+          className="p-6 bg-[var(--vellum-ground)] border border-[var(--vellum-danger-border)] rounded-xl text-center space-y-3 m-4 shadow-xs"
         >
-          <div className="w-10 h-10 mx-auto rounded-full bg-[#FEF2F2] flex items-center justify-center text-[#DC2626]">
+          <div className="w-10 h-10 mx-auto rounded-full bg-[var(--vellum-danger-fill-soft)] flex items-center justify-center text-[var(--vellum-danger-strong)]">
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
@@ -89,7 +89,7 @@ class ErrorBoundaryClass extends Component<
               {desc}
             </p>
             {this.state.error && (
-              <p className="text-xs font-mono text-[#991B1B] bg-[#FEE2E2] px-2 py-1 rounded mt-2 inline-block max-w-full truncate">
+              <p className="text-xs font-mono text-[var(--vellum-danger-text)] bg-[var(--vellum-danger-fill)] px-2 py-1 rounded mt-2 inline-block max-w-full truncate">
                 {this.state.error.message}
               </p>
             )}

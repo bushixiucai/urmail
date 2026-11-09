@@ -142,13 +142,13 @@ export function WebmailRecipientChips({
           <div
             key={email}
             data-testid={`recipient-pill-${email}`}
-            className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-[var(--vellum-brand-soft)] text-[#1E40AF] rounded-full text-xs font-medium border border-[#DBEAFE]"
+            className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] rounded-full text-xs font-medium border border-[#DBEAFE]"
           >
             <span>{email}</span>
             <button
               type="button"
               onClick={() => handleRemove(email)}
-              className="p-0.5 rounded-full hover:bg-[#BFDBFE] text-[#1E40AF]"
+              className="p-0.5 rounded-full hover:bg-[#BFDBFE] text-[var(--vellum-brand-strong)]"
             >
               <X className="w-3 h-3" />
             </button>
@@ -194,12 +194,12 @@ export function WebmailRecipientChips({
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`px-3 py-2 cursor-pointer flex items-center gap-2 transition-colors ${
                     isSelected
-                      ? "bg-[var(--vellum-brand-soft)] text-[#1E40AF]"
+                      ? "bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)]"
                       : "hover:bg-[var(--vellum-ground)] text-[var(--vellum-ink)]"
                   }`}
                 >
                   {/* Avatar badge */}
-                  <div className="w-7 h-7 rounded-full bg-[#E0E7FF] text-[#3730A3] font-bold text-xs flex items-center justify-center shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] font-bold text-xs flex items-center justify-center shrink-0">
                     {contact?.display_name?.trim() ? (
                       contact.display_name.trim().charAt(0).toUpperCase()
                     ) : (
