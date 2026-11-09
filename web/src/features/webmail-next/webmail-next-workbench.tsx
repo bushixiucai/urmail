@@ -987,9 +987,9 @@ export function WebmailNextWorkbench({
           role="dialog"
           aria-modal="true"
           data-testid="folder-delete-dialog"
-          className="bg-[var(--vellum-surface,#ffffff)] border border-[var(--vellum-border,#EBE8E0)] rounded-lg p-4 w-80"
+          className="bg-[var(--vellum-surface,var(--vellum-surface))] border border-[var(--vellum-border,var(--vellum-border))] rounded-lg p-4 w-80"
         >
-          <p className="text-sm text-[#18181B]">
+          <p className="text-sm text-[var(--vellum-ink)]">
             {t("webmail_next.folder_delete_body", {
               folder: decodeFolderName(folderName),
             })}
@@ -1001,7 +1001,7 @@ export function WebmailNextWorkbench({
             <button
               type="button"
               data-testid="folder-delete-cancel"
-              className="text-xs px-3 py-1.5 rounded border border-[var(--vellum-border,#EBE8E0)]"
+              className="text-xs px-3 py-1.5 rounded border border-[var(--vellum-border,var(--vellum-border))]"
               onClick={onCancel}
             >
               {t("webmail_next.permanent_delete_cancel")}
@@ -1185,7 +1185,7 @@ export function WebmailNextWorkbench({
   );
 
   return (
-    <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[#FAF9F5] text-[#18181B] overflow-hidden">
+    <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[var(--vellum-ground)] text-[var(--vellum-ink)] overflow-hidden">
       {/* select-none stays on navigation, list rows and controls (they opt in
           individually); the reading-pane body must stay text-selectable for
           copy, so the workbench root must not disable selection globally. */}
@@ -1229,7 +1229,7 @@ export function WebmailNextWorkbench({
               setIsSettingsOpen(true);
             }}
           >
-            <Palmtree className="w-4 h-4 text-[#D97706] shrink-0" />
+            <Palmtree className="w-4 h-4 text-[var(--vellum-warning-strong)] shrink-0" />
             <span>
               {t(
                 "webmail_next.vacation_banner_active",
@@ -1249,7 +1249,7 @@ export function WebmailNextWorkbench({
             data-testid="btn-quick-dismiss-vacation"
             type="button"
             onClick={handleQuickDisableVacation}
-            className="text-xs font-semibold text-[#B45309] hover:text-[#78350F] underline ml-4 shrink-0"
+            className="text-xs font-semibold text-[var(--vellum-star)] hover:text-[#78350F] underline ml-4 shrink-0"
           >
             {t("webmail_next.vacation_quick_disable", "Turn off")}
           </button>
@@ -1285,7 +1285,7 @@ export function WebmailNextWorkbench({
         {/* Pane 2: Message List (380px on desktop; full width on mobile/tablet when browsing) */}
         <div
           data-testid="webmail-message-list-pane"
-          className={`h-full border-r border-[#EBE8E0] bg-[#FFFFFF] flex flex-col shrink-0 transition-all ${
+          className={`h-full border-r border-[var(--vellum-border)] bg-[var(--vellum-surface)] flex flex-col shrink-0 transition-all ${
             selectedUid
               ? "hidden md:flex md:w-[340px] lg:w-[380px]"
               : "flex-1 md:w-[340px] lg:w-[380px]"
@@ -1302,7 +1302,7 @@ export function WebmailNextWorkbench({
             <div
               data-testid="webmail-search-status"
               role="status"
-              className="px-3 py-1.5 text-xs border-b border-[#EBE8E0] bg-[#F6F4EE] text-[#18181B] flex items-center justify-between"
+              className="px-3 py-1.5 text-xs border-b border-[var(--vellum-border)] bg-[var(--vellum-surface-muted)] text-[var(--vellum-ink)] flex items-center justify-between"
             >
               <span>
                 {searchPhase === "slow"
@@ -1341,7 +1341,7 @@ export function WebmailNextWorkbench({
                   : (scheduledData?.items ?? []).map((item) => (
                       <div
                         key={item.id}
-                        className="py-2 border-b border-[#EBE8E0]"
+                        className="py-2 border-b border-[var(--vellum-border)]"
                       >
                         {item.send_at}
                       </div>
@@ -1444,7 +1444,7 @@ export function WebmailNextWorkbench({
         {/* Pane 3: Reading Pane (Adaptive flex-1; full width on mobile when selected) */}
         <div
           data-testid="webmail-reading-pane-wrapper"
-          className={`flex-1 h-full bg-[#FAF9F5] flex flex-col overflow-y-auto ${
+          className={`flex-1 h-full bg-[var(--vellum-ground)] flex flex-col overflow-y-auto ${
             selectedUid ? "flex" : "hidden md:flex"
           }`}
         >
@@ -1553,9 +1553,9 @@ export function WebmailNextWorkbench({
           <div
             role="dialog"
             data-testid="permanent-delete-dialog"
-            className="bg-white border border-[#EBE8E0] rounded-lg p-4 w-80"
+            className="bg-white border border-[var(--vellum-border)] rounded-lg p-4 w-80"
           >
-            <p className="text-sm text-[#18181B]">
+            <p className="text-sm text-[var(--vellum-ink)]">
               {t("webmail_next.permanent_delete_body")}
             </p>
             <div className="mt-4 flex justify-end gap-2">
@@ -1570,7 +1570,7 @@ export function WebmailNextWorkbench({
               <button
                 type="button"
                 data-testid="permanent-delete-confirm"
-                className="text-xs px-3 py-1.5 bg-[#18181B] text-white rounded"
+                className="text-xs px-3 py-1.5 bg-[var(--vellum-ink)] text-white rounded"
                 onClick={() => void confirmPermanentDelete()}
               >
                 {t("webmail_next.permanent_delete_confirm")}

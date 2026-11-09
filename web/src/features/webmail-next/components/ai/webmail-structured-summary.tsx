@@ -116,10 +116,10 @@ export function WebmailStructuredSummary({
       role="region"
       aria-live="polite"
       data-testid="structured-summary-card"
-      className="p-4 sm:p-5 mb-5 rounded-lg border border-[#EBE8E0] border-l-4 border-l-[#2563EB] bg-[#F6F4EE] transition-all"
+      className="p-4 sm:p-5 mb-5 rounded-lg border border-[var(--vellum-border)] border-l-4 border-l-[var(--brand-primary)] bg-[var(--vellum-surface-muted)] transition-all"
     >
       {/* 1. Top Meta Row: Language, Dates, Cache Hit, Dismiss */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#EBE8E0]">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--vellum-border)]">
         <div className="flex flex-wrap items-center gap-2">
           {language && (
             <span
@@ -157,7 +157,7 @@ export function WebmailStructuredSummary({
             data-testid="btn-dismiss-summary"
             type="button"
             onClick={onDismiss}
-            className="p-1 text-[#71717A] hover:text-[#18181B] rounded hover:bg-black/5 transition-colors"
+            className="p-1 text-[#71717A] hover:text-[var(--vellum-ink)] rounded hover:bg-black/5 transition-colors"
             aria-label={t("webmail_next.ai_dismiss")}
             title={t("webmail_next.ai_dismiss")}
           >
@@ -172,7 +172,7 @@ export function WebmailStructuredSummary({
           data-testid="ai-degraded-notice"
           className="mt-3 p-2.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-md text-xs text-[#92400E] flex items-center gap-2"
         >
-          <AlertTriangle className="w-4 h-4 shrink-0 text-[#D97706]" />
+          <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--vellum-warning-strong)]" />
           <span>{t("webmail_next.ai_degraded_notice")}</span>
         </div>
       )}
@@ -184,7 +184,7 @@ export function WebmailStructuredSummary({
           className="flex items-center justify-between py-6 text-xs text-[var(--vellum-ink-secondary)]"
         >
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-[#2563EB]" />
+            <Loader2 className="w-4 h-4 animate-spin text-[var(--brand-primary)]" />
             <span>{t("page.webmail.ai_generating")}</span>
           </div>
           {onCancel && (
@@ -227,7 +227,7 @@ export function WebmailStructuredSummary({
             (bullets.length > 0 || result.summary || result.text) && (
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold text-[#18181B]">
+                  <h4 className="text-xs font-bold text-[var(--vellum-ink)]">
                     {isShorterOp
                       ? t(
                           "webmail_next.ai_shorter_summary_title",
@@ -247,7 +247,7 @@ export function WebmailStructuredSummary({
                 {bullets.length > 0 ? (
                   <ul
                     data-testid="ai-key-points-list"
-                    className="list-disc list-inside space-y-1.5 text-xs text-[#18181B] leading-relaxed"
+                    className="list-disc list-inside space-y-1.5 text-xs text-[var(--vellum-ink)] leading-relaxed"
                   >
                     {bullets.map((bullet, idx) => (
                       <li key={idx} className="pl-1">
@@ -258,7 +258,7 @@ export function WebmailStructuredSummary({
                 ) : result.summary || result.text ? (
                   <p
                     data-testid="ai-fallback-text"
-                    className="text-xs text-[#18181B] leading-relaxed"
+                    className="text-xs text-[var(--vellum-ink)] leading-relaxed"
                   >
                     {result.summary || result.text}
                   </p>
@@ -273,12 +273,12 @@ export function WebmailStructuredSummary({
               className={`space-y-2 ${
                 !isTodosOp &&
                 (bullets.length > 0 || result.summary || result.text)
-                  ? "pt-3 border-t border-[#EBE8E0]"
+                  ? "pt-3 border-t border-[var(--vellum-border)]"
                   : ""
               }`}
             >
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#18181B] mb-2">
-                <CheckSquare className="w-3.5 h-3.5 text-[#2563EB]" />
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--vellum-ink)] mb-2">
+                <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
                 <span>
                   {t("webmail_next.ai_action_items_title")}
                   {todos.length > 0 ? ` (${todos.length})` : ""}
@@ -291,13 +291,13 @@ export function WebmailStructuredSummary({
                     return (
                       <label
                         key={idx}
-                        className="flex items-start gap-2.5 text-xs text-[#18181B] cursor-pointer hover:bg-black/5 p-1 rounded transition-colors"
+                        className="flex items-start gap-2.5 text-xs text-[var(--vellum-ink)] cursor-pointer hover:bg-black/5 p-1 rounded transition-colors"
                       >
                         <input
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => toggleTodo(idx)}
-                          className="mt-0.5 rounded border-[#D4D4D8] text-[#2563EB] focus:ring-[#2563EB]"
+                          className="mt-0.5 rounded border-[var(--vellum-ink-disabled)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
                         />
                         <span
                           className={`flex-1 leading-snug ${
@@ -346,26 +346,26 @@ export function WebmailStructuredSummary({
           {result.translated_text && (
             <div
               data-testid="ai-translation-block"
-              className="pt-3 border-t border-[#EBE8E0] text-xs space-y-1"
+              className="pt-3 border-t border-[var(--vellum-border)] text-xs space-y-1"
             >
-              <div className="font-semibold text-[#18181B] flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-[#2563EB]" />
+              <div className="font-semibold text-[var(--vellum-ink)] flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
                 <span>{t("webmail_next.ai_refine_translate")}</span>
               </div>
-              <p className="text-[#18181B] leading-relaxed whitespace-pre-wrap">
+              <p className="text-[var(--vellum-ink)] leading-relaxed whitespace-pre-wrap">
                 {result.translated_text}
               </p>
             </div>
           )}
 
           {/* 6. Refine Chips Row */}
-          <div className="pt-3 border-t border-[#EBE8E0] flex flex-wrap items-center gap-2">
+          <div className="pt-3 border-t border-[var(--vellum-border)] flex flex-wrap items-center gap-2">
             {onRefineStandard && (
               <button
                 data-testid="chip-refine-standard"
                 type="button"
                 onClick={onRefineStandard}
-                className="h-6 px-2.5 bg-white hover:bg-[#F3F1EC] border border-[#EBE8E0] rounded-full text-xs text-[#18181B] font-medium transition-colors"
+                className="h-6 px-2.5 bg-white hover:bg-[var(--vellum-row-hover)] border border-[var(--vellum-border)] rounded-full text-xs text-[var(--vellum-ink)] font-medium transition-colors"
               >
                 {t("webmail_next.ai_refine_standard")}
               </button>
@@ -375,7 +375,7 @@ export function WebmailStructuredSummary({
                 data-testid="chip-refine-shorter"
                 type="button"
                 onClick={onRefineShorter}
-                className="h-6 px-2.5 bg-white hover:bg-[#F3F1EC] border border-[#EBE8E0] rounded-full text-xs text-[#18181B] font-medium transition-colors"
+                className="h-6 px-2.5 bg-white hover:bg-[var(--vellum-row-hover)] border border-[var(--vellum-border)] rounded-full text-xs text-[var(--vellum-ink)] font-medium transition-colors"
               >
                 {t("webmail_next.ai_refine_shorter")}
               </button>
@@ -385,7 +385,7 @@ export function WebmailStructuredSummary({
                 data-testid="chip-refine-todos"
                 type="button"
                 onClick={onRefineTodos}
-                className="h-6 px-2.5 bg-white hover:bg-[#F3F1EC] border border-[#EBE8E0] rounded-full text-xs text-[#18181B] font-medium transition-colors"
+                className="h-6 px-2.5 bg-white hover:bg-[var(--vellum-row-hover)] border border-[var(--vellum-border)] rounded-full text-xs text-[var(--vellum-ink)] font-medium transition-colors"
               >
                 {t("webmail_next.ai_refine_todos")}
               </button>
@@ -395,7 +395,7 @@ export function WebmailStructuredSummary({
                 data-testid="chip-refine-translate"
                 type="button"
                 onClick={onRefineTranslate}
-                className="h-6 px-2.5 bg-white hover:bg-[#F3F1EC] border border-[#EBE8E0] rounded-full text-xs text-[#18181B] font-medium transition-colors"
+                className="h-6 px-2.5 bg-white hover:bg-[var(--vellum-row-hover)] border border-[var(--vellum-border)] rounded-full text-xs text-[var(--vellum-ink)] font-medium transition-colors"
               >
                 {t("webmail_next.ai_refine_translate")}
               </button>

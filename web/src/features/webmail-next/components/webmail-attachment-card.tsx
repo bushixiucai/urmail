@@ -46,20 +46,20 @@ export function WebmailAttachmentCard({
   return (
     <div
       data-testid={`attachment-card-${attachment.part_id}`}
-      className="flex items-center justify-between p-2 bg-white border border-[#EBE8E0] rounded-lg shadow-sm hover:border-[#D4D4D8] transition-all group"
+      className="flex items-center justify-between p-2 bg-white border border-[var(--vellum-border)] rounded-lg shadow-sm hover:border-[var(--vellum-ink-disabled)] transition-all group"
     >
       <div className="flex items-center gap-2 min-w-0 pr-2">
-        <div className="w-8 h-8 rounded bg-[#F6F4EE] flex items-center justify-center shrink-0 text-[var(--vellum-ink-secondary)]">
+        <div className="w-8 h-8 rounded bg-[var(--vellum-surface-muted)] flex items-center justify-center shrink-0 text-[var(--vellum-ink-secondary)]">
           <Icon className="w-4 h-4" />
         </div>
         <div className="min-w-0">
           <div
-            className="text-xs font-medium text-[#18181B] truncate"
+            className="text-xs font-medium text-[var(--vellum-ink)] truncate"
             title={attachment.filename}
           >
             {attachment.filename}
           </div>
-          <div className="text-xs text-[#52525B]">
+          <div className="text-xs text-[var(--vellum-ink-secondary)]">
             {formatSize(attachment.size)}
           </div>
         </div>
@@ -69,7 +69,7 @@ export function WebmailAttachmentCard({
         data-testid={`download-attachment-${attachment.part_id}`}
         href={downloadUrl}
         download={attachment.filename}
-        className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded hover:bg-[#F3F1EC] transition-colors"
+        className="p-1.5 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded hover:bg-[var(--vellum-row-hover)] transition-colors"
         title="Download Attachment"
       >
         <Download className="w-4 h-4" />

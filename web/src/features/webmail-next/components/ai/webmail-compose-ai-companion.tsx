@@ -214,13 +214,13 @@ export function WebmailComposeAICompanion({
     <aside
       data-testid="compose-ai-companion"
       aria-label={t("webmail_next.ai_companion_title")}
-      className="w-[380px] h-full flex flex-col bg-[#F6F4EE] border-l border-[#EBE8E0] shrink-0 overflow-hidden select-none"
+      className="w-[380px] h-full flex flex-col bg-[var(--vellum-surface-muted)] border-l border-[var(--vellum-border)] shrink-0 overflow-hidden select-none"
     >
       {/* Top Header */}
-      <div className="h-10 px-4 border-b border-[#EBE8E0] flex items-center justify-between shrink-0 bg-[#FAF9F5]">
+      <div className="h-10 px-4 border-b border-[var(--vellum-border)] flex items-center justify-between shrink-0 bg-[var(--vellum-ground)]">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#D97706]" />
-          <span className="text-xs font-semibold text-[#18181B]">
+          <Sparkles className="w-4 h-4 text-[var(--vellum-ai-accent)]" />
+          <span className="text-xs font-semibold text-[var(--vellum-ink)]">
             {t("webmail_next.ai_companion_title")}
           </span>
         </div>
@@ -234,7 +234,7 @@ export function WebmailComposeAICompanion({
             type="button"
             onClick={onClose}
             aria-label={t("webmail_next.close")}
-            className="p-1 hover:bg-[#EBE8E0] rounded text-[#71717A] hover:text-[#18181B] transition-colors"
+            className="p-1 hover:bg-[var(--vellum-border)] rounded text-[#71717A] hover:text-[var(--vellum-ink)] transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -261,9 +261,9 @@ export function WebmailComposeAICompanion({
             className="p-3 rounded-lg border border-[#FDE68A] bg-[#FEF3C7] text-[#92400E] text-xs space-y-2"
           >
             <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--vellum-warning-strong)]" />
               <div className="flex-1 space-y-1">
-                <p className="font-semibold text-[#B45309]">
+                <p className="font-semibold text-[var(--vellum-star)]">
                   {t(
                     "webmail_next.ai_consent_stale_title",
                     "Draft modified or authorization expired",
@@ -283,7 +283,7 @@ export function WebmailComposeAICompanion({
                 data-testid="btn-ai-consent-retry"
                 onClick={() => handleGenerate(lastInstruction)}
                 disabled={isLoading}
-                className="px-2.5 py-1 bg-[#D97706] hover:bg-[#B45309] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                className="px-2.5 py-1 bg-[var(--vellum-ai-accent)] hover:bg-[var(--vellum-ai-accent-strong)] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>
@@ -307,9 +307,9 @@ export function WebmailComposeAICompanion({
         {showUnconfigured && (
           <div
             data-testid="companion-unconfigured-card"
-            className="p-3 bg-white border border-[#EBE8E0] rounded-lg space-y-2 text-xs"
+            className="p-3 bg-white border border-[var(--vellum-border)] rounded-lg space-y-2 text-xs"
           >
-            <p className="text-[#18181B]">
+            <p className="text-[var(--vellum-ink)]">
               {t("webmail_next.ai_unconfigured_prompt")}
             </p>
             {onOpenAISettings && (
@@ -320,7 +320,7 @@ export function WebmailComposeAICompanion({
                   setShowUnconfigured(false);
                   onOpenAISettings();
                 }}
-                className="px-3 py-1 bg-[#2563EB] text-white rounded text-xs font-medium hover:bg-[#1D4ED8] transition-colors"
+                className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded text-xs font-medium hover:bg-[#1D4ED8] transition-colors"
               >
                 {t("webmail_next.ai_go_to_settings")}
               </button>
@@ -337,18 +337,18 @@ export function WebmailComposeAICompanion({
               data-testid={`version-card-${ver.id}`}
               className={`p-3 rounded-lg border transition-all ${
                 isActive
-                  ? "bg-white border-[#2563EB] shadow-sm"
-                  : "bg-white/60 border-[#EBE8E0]"
+                  ? "bg-white border-[var(--brand-primary)] shadow-sm"
+                  : "bg-white/60 border-[var(--vellum-border)]"
               }`}
             >
               {/* Version Card Header */}
               <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="text-xs font-semibold text-[#18181B] truncate">
+                <span className="text-xs font-semibold text-[var(--vellum-ink)] truncate">
                   {`v${ver.version} · ${ver.label}`}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {ver.cache_hit && (
-                    <span className="text-[12px] px-1.5 py-0.2 bg-[#EBE8E0] text-[#71717A] rounded">
+                    <span className="text-[12px] px-1.5 py-0.2 bg-[var(--vellum-border)] text-[#71717A] rounded">
                       {t("webmail_next.ai_cache_hit")}
                     </span>
                   )}
@@ -363,7 +363,7 @@ export function WebmailComposeAICompanion({
                       data-testid={`btn-rollback-${ver.id}`}
                       disabled={isLoading}
                       onClick={() => handleRollbackClick(idx)}
-                      className="text-[12px] font-medium text-[#2563EB] hover:text-[#1D4ED8] hover:bg-[#2563EB]/10 px-2 py-0.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
+                      className="text-[12px] font-medium text-[var(--brand-primary)] hover:text-[#1D4ED8] hover:bg-[var(--brand-primary)]/10 px-2 py-0.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>{t("webmail_next.ai_rollback_btn")}</span>
@@ -388,7 +388,7 @@ export function WebmailComposeAICompanion({
                   </div>
                   <div
                     data-testid="compose-diff-view"
-                    className="p-2 bg-[#FAF9F5] border border-[#EBE8E0] rounded text-xs leading-relaxed select-text font-sans max-h-48 overflow-y-auto whitespace-pre-wrap"
+                    className="p-2 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded text-xs leading-relaxed select-text font-sans max-h-48 overflow-y-auto whitespace-pre-wrap"
                   >
                     {diffChunks.map((chunk, cIdx) => {
                       if (chunk.type === "del") {
@@ -418,7 +418,7 @@ export function WebmailComposeAICompanion({
               ) : (
                 /* Plain body preview */
                 ver.body && (
-                  <div className="mb-2 p-2 bg-[#FAF9F5] border border-[#EBE8E0] rounded text-xs text-[#18181B] max-h-36 overflow-y-auto whitespace-pre-wrap select-text">
+                  <div className="mb-2 p-2 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded text-xs text-[var(--vellum-ink)] max-h-36 overflow-y-auto whitespace-pre-wrap select-text">
                     {ver.body}
                   </div>
                 )
@@ -427,16 +427,16 @@ export function WebmailComposeAICompanion({
               {/* Assumptions Review Block */}
               <details
                 data-testid="assumptions-card"
-                className="assumptions-card bg-white border border-dashed border-[#EBE8E0] rounded p-2 text-xs mb-2"
+                className="assumptions-card bg-white border border-dashed border-[var(--vellum-border)] rounded p-2 text-xs mb-2"
                 open
               >
-                <summary className="font-semibold text-[12px] text-[#52525B] flex items-center gap-1.5 cursor-pointer select-none">
-                  <Info className="w-3.5 h-3.5 text-[#52525B]" />
+                <summary className="font-semibold text-[12px] text-[var(--vellum-ink-secondary)] flex items-center gap-1.5 cursor-pointer select-none">
+                  <Info className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("webmail_next.ai_assumptions_title")}</span>
                 </summary>
                 {ver.assumptions && ver.assumptions.length > 0 ? (
                   <div className="mt-1.5 space-y-1">
-                    <ul className="list-disc list-inside space-y-0.5 text-[12px] text-[#18181B]">
+                    <ul className="list-disc list-inside space-y-0.5 text-[12px] text-[var(--vellum-ink)]">
                       {ver.assumptions.map((ass, aIdx) => (
                         <li key={aIdx}>{ass}</li>
                       ))}
@@ -454,9 +454,9 @@ export function WebmailComposeAICompanion({
 
               {/* Tone notes pill */}
               {ver.tone_notes && (
-                <div className="flex items-center gap-1.5 text-[12px] text-[#52525B]">
+                <div className="flex items-center gap-1.5 text-[12px] text-[var(--vellum-ink-secondary)]">
                   <span>{t("webmail_next.ai_tone_prefix")}</span>
-                  <span className="px-1.5 py-0.5 bg-[#EBE8E0] text-[#18181B] rounded text-[12px] font-medium">
+                  <span className="px-1.5 py-0.5 bg-[var(--vellum-border)] text-[var(--vellum-ink)] rounded text-[12px] font-medium">
                     {ver.tone_notes}
                   </span>
                 </div>
@@ -467,7 +467,7 @@ export function WebmailComposeAICompanion({
       </div>
 
       {/* Footer Interactive Actions */}
-      <div className="p-3 border-t border-[#EBE8E0] bg-[#FAF9F5] space-y-2 shrink-0">
+      <div className="p-3 border-t border-[var(--vellum-border)] bg-[var(--vellum-ground)] space-y-2 shrink-0">
         {/* Preset Chips */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
@@ -475,7 +475,7 @@ export function WebmailComposeAICompanion({
             data-testid="chip-formal"
             disabled={isLoading}
             onClick={() => handleChipClick(t("webmail_next.ai_chip_formal"))}
-            className="px-2 py-0.5 bg-white hover:bg-[#EBE8E0] border border-[#EBE8E0] rounded text-[12px] text-[#18181B] transition-colors disabled:opacity-50"
+            className="px-2 py-0.5 bg-white hover:bg-[var(--vellum-border)] border border-[var(--vellum-border)] rounded text-[12px] text-[var(--vellum-ink)] transition-colors disabled:opacity-50"
           >
             {t("webmail_next.ai_chip_formal")}
           </button>
@@ -484,7 +484,7 @@ export function WebmailComposeAICompanion({
             data-testid="chip-concise"
             disabled={isLoading}
             onClick={() => handleChipClick(t("webmail_next.ai_chip_concise"))}
-            className="px-2 py-0.5 bg-white hover:bg-[#EBE8E0] border border-[#EBE8E0] rounded text-[12px] text-[#18181B] transition-colors disabled:opacity-50"
+            className="px-2 py-0.5 bg-white hover:bg-[var(--vellum-border)] border border-[var(--vellum-border)] rounded text-[12px] text-[var(--vellum-ink)] transition-colors disabled:opacity-50"
           >
             {t("webmail_next.ai_chip_concise")}
           </button>
@@ -493,7 +493,7 @@ export function WebmailComposeAICompanion({
             data-testid="chip-friendly"
             disabled={isLoading}
             onClick={() => handleChipClick(t("webmail_next.ai_chip_friendly"))}
-            className="px-2 py-0.5 bg-white hover:bg-[#EBE8E0] border border-[#EBE8E0] rounded text-[12px] text-[#18181B] transition-colors disabled:opacity-50"
+            className="px-2 py-0.5 bg-white hover:bg-[var(--vellum-border)] border border-[var(--vellum-border)] rounded text-[12px] text-[var(--vellum-ink)] transition-colors disabled:opacity-50"
           >
             {t("webmail_next.ai_chip_friendly")}
           </button>
@@ -504,7 +504,7 @@ export function WebmailComposeAICompanion({
             onClick={() =>
               handleChipClick(t("webmail_next.ai_chip_translate_en"))
             }
-            className="px-2 py-0.5 bg-white hover:bg-[#EBE8E0] border border-[#EBE8E0] rounded text-[12px] text-[#18181B] transition-colors disabled:opacity-50"
+            className="px-2 py-0.5 bg-white hover:bg-[var(--vellum-border)] border border-[var(--vellum-border)] rounded text-[12px] text-[var(--vellum-ink)] transition-colors disabled:opacity-50"
           >
             {t("webmail_next.ai_chip_translate_en")}
           </button>
@@ -519,13 +519,13 @@ export function WebmailComposeAICompanion({
             onChange={(e) => setInstruction(e.target.value)}
             placeholder={t("webmail_next.ai_instruction_placeholder")}
             disabled={isLoading}
-            className="flex-1 min-w-0 px-2.5 py-1 text-xs bg-white border border-[#EBE8E0] rounded text-[#18181B] outline-none focus:border-[#2563EB] disabled:opacity-50"
+            className="flex-1 min-w-0 px-2.5 py-1 text-xs bg-white border border-[var(--vellum-border)] rounded text-[var(--vellum-ink)] outline-none focus:border-[var(--brand-primary)] disabled:opacity-50"
           />
           <button
             type="submit"
             data-testid="btn-submit-instruction"
             disabled={isLoading || !instruction.trim()}
-            className="p-1.5 bg-[#2563EB] text-white rounded hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors shrink-0"
+            className="p-1.5 bg-[var(--brand-primary)] text-white rounded hover:bg-[#1D4ED8] disabled:opacity-50 transition-colors shrink-0"
           >
             {isLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -541,7 +541,7 @@ export function WebmailComposeAICompanion({
           data-testid="btn-apply-draft"
           onClick={() => onApply(activeVersion)}
           disabled={isLoading}
-          className="w-full py-1.5 bg-[#18181B] text-white hover:bg-[#27272C] text-xs font-semibold rounded shadow-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+          className="w-full py-1.5 bg-[var(--vellum-ink)] text-white hover:bg-[#27272C] text-xs font-semibold rounded shadow-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
         >
           <Check className="w-3.5 h-3.5" />
           <span>{t("webmail_next.ai_apply_draft_btn")}</span>

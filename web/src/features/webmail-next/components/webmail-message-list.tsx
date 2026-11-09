@@ -318,12 +318,12 @@ export function WebmailMessageList({
   return (
     <div
       data-testid="webmail-message-list"
-      className="h-full flex flex-col bg-[#FFFFFF] overflow-hidden select-none"
+      className="h-full flex flex-col bg-[var(--vellum-surface)] overflow-hidden select-none"
     >
       {selectedUids.size > 0 ? (
         <div
           data-testid="webmail-bulk-bar"
-          className="h-10 px-3 border-b border-[#EBE8E0] bg-[#18181B] text-white flex items-center justify-between text-xs shrink-0"
+          className="h-10 px-3 border-b border-[var(--vellum-border)] bg-[var(--vellum-ink)] text-white flex items-center justify-between text-xs shrink-0"
         >
           <div className="flex items-center gap-2">
             <button
@@ -409,13 +409,13 @@ export function WebmailMessageList({
               {moveOpen && (
                 <div
                   data-testid="bulk-move-menu"
-                  className="absolute right-0 top-7 z-20 min-w-36 bg-white text-[#18181B] border border-[#EBE8E0] rounded shadow-lg py-1"
+                  className="absolute right-0 top-7 z-20 min-w-36 bg-white text-[var(--vellum-ink)] border border-[var(--vellum-border)] rounded shadow-lg py-1"
                 >
                   {moveFolders.map((folder) => (
                     <button
                       key={folder.name_enc}
                       type="button"
-                      className="block w-full text-left px-3 py-1.5 hover:bg-[#F6F4EE]"
+                      className="block w-full text-left px-3 py-1.5 hover:bg-[var(--vellum-surface-muted)]"
                       onClick={() => {
                         onBulkMove?.(selectedList, folder.name);
                         clearSelection();
@@ -431,13 +431,13 @@ export function WebmailMessageList({
           </div>
         </div>
       ) : (
-        <div className="h-10 px-3 border-b border-[#EBE8E0] bg-[#FAF9F5]/70 flex items-center justify-between text-xs text-[var(--vellum-ink-secondary)] shrink-0">
+        <div className="h-10 px-3 border-b border-[var(--vellum-border)] bg-[var(--vellum-ground)]/70 flex items-center justify-between text-xs text-[var(--vellum-ink-secondary)] shrink-0">
           <div className="flex items-center gap-2">
             <button
               data-testid="select-all-button"
               type="button"
               onClick={handleToggleSelectAll}
-              className="p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] transition-colors"
+              className="p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] transition-colors"
               aria-label={
                 isAllSelected
                   ? t("webmail_next.deselect_all")
@@ -445,14 +445,14 @@ export function WebmailMessageList({
               }
             >
               {isAllSelected ? (
-                <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary,#2563eb)]" />
+                <CheckSquare className="w-3.5 h-3.5 text-[var(--brand-primary,var(--brand-primary))]" />
               ) : (
                 <Square className="w-3.5 h-3.5" />
               )}
             </button>
             <span
               data-testid="folder-name-header"
-              className="font-semibold text-[#18181B]"
+              className="font-semibold text-[var(--vellum-ink)]"
             >
               {decodeFolderName(folderName)}
             </span>
@@ -469,7 +469,7 @@ export function WebmailMessageList({
               data-testid="sort-toggle-button"
               type="button"
               onClick={handleSortClick}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[#EBE8E0] hover:text-[#18181B] select-none"
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] select-none"
               title={t("webmail_next.sort_tooltip", {
                 field: t(`webmail_next.sort_field_${sort || "date"}`),
                 order: t(
@@ -488,7 +488,7 @@ export function WebmailMessageList({
                 type="button"
                 onClick={onRefresh}
                 disabled={isRefreshing}
-                className={`p-1 rounded hover:bg-[#EBE8E0] hover:text-[#18181B] ${
+                className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
                   isRefreshing ? "animate-spin" : ""
                 }`}
                 aria-label={t("webmail_next.refresh")}
@@ -512,7 +512,7 @@ export function WebmailMessageList({
               {Array.from({ length: 6 }, (_, index) => (
                 <div
                   key={index}
-                  className="mail-row-item border-b border-[#EBE8E0] bg-[#F6F4EE] animate-pulse"
+                  className="mail-row-item border-b border-[var(--vellum-border)] bg-[var(--vellum-surface-muted)] animate-pulse"
                 />
               ))}
             </div>
@@ -532,7 +532,7 @@ export function WebmailMessageList({
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className="px-3 py-1 rounded border border-[#EBE8E0] text-[#18181B] hover:bg-[#F6F4EE] transition-colors"
+                  className="px-3 py-1 rounded border border-[var(--vellum-border)] text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)] transition-colors"
                 >
                   {t("action.retry")}
                 </button>
@@ -582,7 +582,7 @@ export function WebmailMessageList({
           <div
             data-testid="list-page-skeleton"
             aria-busy="true"
-            className="mail-row-item border-b border-[#EBE8E0] bg-[#F6F4EE] animate-pulse"
+            className="mail-row-item border-b border-[var(--vellum-border)] bg-[var(--vellum-surface-muted)] animate-pulse"
           />
         )}
       </div>

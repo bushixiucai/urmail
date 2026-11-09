@@ -52,7 +52,7 @@ export function WebmailSecurityBadge({
         ) : isPass ? (
           <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
         ) : (
-          <Shield className="w-3.5 h-3.5 text-[#D97706]" />
+          <Shield className="w-3.5 h-3.5 text-[var(--vellum-warning-strong)]" />
         )}
         <span>
           {isHighRisk
@@ -66,16 +66,16 @@ export function WebmailSecurityBadge({
       {showDetails && (
         <div
           data-testid="security-details-popover"
-          className="absolute left-0 top-7 z-50 w-72 p-3 bg-white rounded-lg shadow-lg border border-[#EBE8E0] text-xs space-y-2"
+          className="absolute left-0 top-7 z-50 w-72 p-3 bg-white rounded-lg shadow-lg border border-[var(--vellum-border)] text-xs space-y-2"
         >
-          <div className="font-semibold text-[#18181B] pb-1 border-b border-[#F3F1EC]">
+          <div className="font-semibold text-[var(--vellum-ink)] pb-1 border-b border-[var(--vellum-row-hover)]">
             Security Details
           </div>
           {authentication && (
             <>
               <div className="flex justify-between text-[var(--vellum-ink-secondary)]">
                 <span>Domain:</span>
-                <span className="font-mono text-[#18181B]">
+                <span className="font-mono text-[var(--vellum-ink)]">
                   {authentication.domain || "N/A"}
                 </span>
               </div>
@@ -92,21 +92,21 @@ export function WebmailSecurityBadge({
                 </span>
               </div>
               {authentication.reason && (
-                <div className="text-xs text-[#52525B]">
+                <div className="text-xs text-[var(--vellum-ink-secondary)]">
                   {authentication.reason}
                 </div>
               )}
             </>
           )}
           {riskLevel && (
-            <div className="flex justify-between text-[var(--vellum-ink-secondary)] pt-1 border-t border-[#F3F1EC]">
+            <div className="flex justify-between text-[var(--vellum-ink-secondary)] pt-1 border-t border-[var(--vellum-row-hover)]">
               <span>Risk Level:</span>
               <span
                 className={`font-semibold ${
                   riskLevel === "low"
                     ? "text-[#16A34A]"
                     : riskLevel === "medium"
-                      ? "text-[#D97706]"
+                      ? "text-[var(--vellum-warning-strong)]"
                       : "text-[#DC2626]"
                 }`}
               >
@@ -115,7 +115,7 @@ export function WebmailSecurityBadge({
             </div>
           )}
           {indicators && indicators.length > 0 && (
-            <div className="pt-1 border-t border-[#F3F1EC]">
+            <div className="pt-1 border-t border-[var(--vellum-row-hover)]">
               <div className="text-[var(--vellum-ink-secondary)] font-medium mb-1">
                 Indicators:
               </div>

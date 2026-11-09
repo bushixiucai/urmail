@@ -15,10 +15,10 @@ export function WebmailAICueStrip({
   return (
     <div
       data-testid="ai-cue-strip"
-      className="h-10 px-4 bg-[#F6F4EE] border border-[#EBE8E0] rounded-lg mb-4 flex items-center justify-between"
+      className="h-10 px-4 bg-[var(--vellum-surface-muted)] border border-[var(--vellum-border)] rounded-lg mb-4 flex items-center justify-between"
     >
-      <div className="flex items-center gap-2 text-xs text-[#18181B]">
-        <span className="text-[#D97706]">
+      <div className="flex items-center gap-2 text-xs text-[var(--vellum-ink)]">
+        <span className="text-[var(--vellum-ai-accent)]">
           <Sparkles className="w-4 h-4" />
         </span>
         <span>{t("webmail_next.ai_cue_long_mail")}</span>
@@ -29,7 +29,7 @@ export function WebmailAICueStrip({
           type="button"
           onClick={onTriggerSummary}
           disabled={isLoading}
-          className="h-7 px-3 bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors"
+          className="h-7 px-3 bg-[var(--brand-primary)] hover:bg-[#1D4ED8] disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors"
         >
           <span>{t("webmail_next.ai_cue_trigger_btn")}</span>
         </button>

@@ -32,7 +32,7 @@ export function WebmailMoveNotice({
     <div
       role="status"
       data-testid="webmail-move-notice"
-      className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 bg-[#18181B] text-white text-sm px-4 py-2 rounded-md shadow-lg"
+      className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 bg-[var(--vellum-ink)] text-white text-sm px-4 py-2 rounded-md shadow-lg"
     >
       <span>{message}</span>
       {onUndo && (

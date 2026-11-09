@@ -185,8 +185,8 @@ export function WebmailNavigationRail({
   const itemClass = (active: boolean) =>
     `w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors ${
       active
-        ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold"
-        : "text-[#18181B] hover:bg-[#F3F1EC]"
+        ? "bg-[var(--vellum-brand-soft)] text-[var(--brand-primary,var(--brand-primary))] font-semibold"
+        : "text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)]"
     }`;
 
   const dropHandlers = (folderEnc: string) =>
@@ -245,7 +245,7 @@ export function WebmailNavigationRail({
     <aside
       data-testid="webmail-navigation-rail"
       data-collapsed={isCollapsed ? "true" : "false"}
-      className={`border-r border-[#EBE8E0] bg-[#FAF9F5] flex flex-col justify-between transition-all duration-200 shrink-0 select-none ${
+      className={`border-r border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex flex-col justify-between transition-all duration-200 shrink-0 select-none ${
         isCollapsed ? "w-16 items-center" : "w-56"
       }`}
     >
@@ -254,7 +254,7 @@ export function WebmailNavigationRail({
           data-testid="webmail-compose-button"
           type="button"
           onClick={onCompose}
-          className={`w-full flex items-center justify-center gap-2 bg-[var(--brand-primary,#2563eb)] text-white font-medium rounded-lg hover:brightness-105 active:brightness-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB] focus-visible:outline-offset-2 ${
+          className={`w-full flex items-center justify-center gap-2 bg-[var(--brand-primary,var(--brand-primary))] text-white font-medium rounded-lg hover:brightness-105 active:brightness-95 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-primary)] focus-visible:outline-offset-2 ${
             isCollapsed ? "h-10 px-0" : "h-10 px-4"
           }`}
           aria-label={t("webmail_next.compose")}
@@ -296,7 +296,7 @@ export function WebmailNavigationRail({
                     {unread > 0 && (
                       <span
                         data-testid="inbox-unread-badge"
-                        className="px-1.5 py-0.5 rounded-full text-xs bg-[#2563eb] text-white font-bold leading-none"
+                        className="px-1.5 py-0.5 rounded-full text-xs bg-[var(--brand-primary)] text-white font-bold leading-none"
                       >
                         {unread}
                       </span>
@@ -333,7 +333,7 @@ export function WebmailNavigationRail({
                   if (event.key === "Enter") void submitRename();
                   if (event.key === "Escape") setRenaming(null);
                 }}
-                className="w-full px-2 py-1.5 rounded-md border border-[var(--brand-primary,#2563eb)] text-xs bg-white"
+                className="w-full px-2 py-1.5 rounded-md border border-[var(--brand-primary,var(--brand-primary))] text-xs bg-white"
                 aria-label={t("webmail_next.rename_folder")}
               />
             ) : (
@@ -392,7 +392,7 @@ export function WebmailNavigationRail({
                     setCreateName("");
                   }
                 }}
-                className="w-full px-2 py-1.5 rounded-md border border-[var(--brand-primary,#2563eb)] text-xs bg-white"
+                className="w-full px-2 py-1.5 rounded-md border border-[var(--brand-primary,var(--brand-primary))] text-xs bg-white"
               />
             ) : (
               <button
@@ -402,7 +402,7 @@ export function WebmailNavigationRail({
                   setCreateName("");
                   setCreateOpen(true);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-[var(--vellum-ink-secondary)] hover:bg-[#F3F1EC] hover:text-[#18181B]"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-row-hover)] hover:text-[var(--vellum-ink)]"
               >
                 <FolderPlus className="w-4 h-4 shrink-0" />
                 <span className="truncate">{t("webmail_next.new_folder")}</span>
@@ -415,20 +415,20 @@ export function WebmailNavigationRail({
       {showQuota && !isCollapsed && (
         <div
           data-testid="webmail-quota-bar"
-          className="p-4 border-t border-[#EBE8E0] bg-[#FFFFFF]/60"
+          className="p-4 border-t border-[var(--vellum-border)] bg-[var(--vellum-surface)]/60"
         >
           <div className="flex justify-between items-center text-xs text-[var(--vellum-ink-secondary)] mb-1.5 font-medium">
             <span>{t("webmail_next.storage")}</span>
             <span>{quotaPercent}%</span>
           </div>
-          <div className="w-full h-1.5 bg-[#EBE8E0] rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-[var(--vellum-border)] rounded-full overflow-hidden">
             <div
               className={`h-full transition-all duration-300 ${
                 quotaPercent > 95
                   ? "bg-[#DC2626]"
                   : quotaPercent > 80
-                    ? "bg-[#D97706]"
-                    : "bg-[var(--brand-primary,#2563eb)]"
+                    ? "bg-[var(--vellum-warning-strong)]"
+                    : "bg-[var(--brand-primary,var(--brand-primary))]"
               }`}
               style={{ width: `${Math.min(100, Math.max(0, quotaPercent))}%` }}
             />
@@ -441,10 +441,10 @@ export function WebmailNavigationRail({
       {showQuota && isCollapsed && (
         <div
           data-testid="webmail-quota-bar-mini"
-          className="p-3 border-t border-[#EBE8E0] flex justify-center"
+          className="p-3 border-t border-[var(--vellum-border)] flex justify-center"
           title={quotaText}
         >
-          <div className="w-2.5 h-2.5 rounded-full bg-[var(--brand-primary,#2563eb)]" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[var(--brand-primary,var(--brand-primary))]" />
         </div>
       )}
 

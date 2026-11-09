@@ -76,14 +76,16 @@ class ErrorBoundaryClass extends Component<
       return (
         <div
           data-testid="webmail-error-boundary-fallback"
-          className="p-6 bg-[#FAF9F5] border border-[#FECACA] rounded-xl text-center space-y-3 m-4 shadow-xs"
+          className="p-6 bg-[var(--vellum-ground)] border border-[#FECACA] rounded-xl text-center space-y-3 m-4 shadow-xs"
         >
           <div className="w-10 h-10 mx-auto rounded-full bg-[#FEF2F2] flex items-center justify-center text-[#DC2626]">
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-[#18181B]">{title}</h4>
-            <p className="text-xs text-[#52525B] mt-1 max-w-md mx-auto">
+            <h4 className="text-sm font-bold text-[var(--vellum-ink)]">
+              {title}
+            </h4>
+            <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1 max-w-md mx-auto">
               {desc}
             </p>
             {this.state.error && (
@@ -97,7 +99,7 @@ class ErrorBoundaryClass extends Component<
               data-testid="btn-error-boundary-retry"
               type="button"
               onClick={this.reset}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-md shadow-xs hover:brightness-105 active:brightness-95 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-primary,var(--brand-primary))] text-white text-xs font-semibold rounded-md shadow-xs hover:brightness-105 active:brightness-95 transition-all"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>{retryText}</span>
