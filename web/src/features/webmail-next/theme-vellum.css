@@ -14,6 +14,18 @@
   --vellum-ink-read: var(--vellum-ink-secondary);
   --vellum-ink-disabled: #d6d3d1;
   --vellum-ink-hover: #27272c;
+  /* settings 目录令牌迁移（A3，v0.6.20）新增：值取自迁移前 settings 硬编码色，
+     命名沿用既有语义后缀；UIUX 复核后可重命名（单点注册，改动仅此文件）。 */
+  --vellum-border-strong: #d4d4d8;
+  --vellum-border-inset: #e5e7eb;
+  --vellum-surface-inset: #f3f4f6;
+  --vellum-ink-strong: #3f3f46;
+  --vellum-ink-muted: #6b7280;
+  --vellum-danger-border-strong: #fca5a5;
+  --vellum-danger-accent: #f87171;
+  --vellum-success-text-strong: #15803d;
+  --vellum-warning-fill-soft: #fffbeb;
+  --vellum-warning-text-deep: #78350f;
   /* 行悬停值按批次 2 规格 2.1 注确认为 #f3f1ec（原 #f8f7f2）。 */
   --vellum-row-hover: #f3f1ec;
   --vellum-row-selected: #f3f1ec;

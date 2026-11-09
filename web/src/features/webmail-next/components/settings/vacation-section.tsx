@@ -118,12 +118,12 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
 
   return (
     <div className="space-y-6" data-testid="vacation-section">
-      <div className="border-b border-[#EBE8E0] pb-4">
-        <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-          <Palmtree className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+      <div className="border-b border-[var(--vellum-border)] pb-4">
+        <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+          <Palmtree className="w-5 h-5 text-[var(--brand-primary)]" />
           <span>{t("settings.vacation.title", "Vacation Autoresponder")}</span>
         </h3>
-        <p className="text-xs text-[#52525B] mt-1">
+        <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
           {t(
             "settings.vacation.subtitle",
             "Automatically send an out-of-office autoreply during holidays or leave.",
@@ -138,14 +138,14 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
       ) : (
         <form onSubmit={handleSave} className="space-y-5 max-w-xl">
           {error && (
-            <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-[#991B1B] text-xs flex items-center gap-2">
+            <div className="p-3 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border)] rounded-lg text-[var(--vellum-danger-text)] text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[#166534] text-xs flex items-center gap-2">
+            <div className="p-3 bg-[var(--vellum-success-fill)] border border-[var(--vellum-success-border)] rounded-lg text-[var(--vellum-color-success)] text-xs flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--vellum-success-text)]" />
               <span>
                 {t(
@@ -157,9 +157,9 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
           )}
 
           {/* Master Toggle */}
-          <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl flex items-center justify-between">
+          <div className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl flex items-center justify-between">
             <div>
-              <span className="text-xs font-semibold text-[#18181B]">
+              <span className="text-xs font-semibold text-[var(--vellum-ink)]">
                 {t(
                   "settings.vacation.enable_toggle",
                   "Enable Vacation Autoresponder",
@@ -185,7 +185,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                 onChange={(e) => setEnabled(e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-[#EBE8E0] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--brand-primary,#2563eb)]" />
+              <div className="w-11 h-6 bg-[var(--vellum-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--brand-primary)]" />
             </label>
           </div>
 
@@ -197,7 +197,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
             {/* Date Range Fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1">
+                <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("settings.vacation.start_date", "Start Date")}</span>
                 </label>
@@ -206,12 +206,12 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                   type="date"
                   value={from}
                   onChange={(e) => setFrom(e.target.value)}
-                  className="w-full h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                  className="w-full h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1">
+                <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("settings.vacation.end_date", "End Date")}</span>
                 </label>
@@ -220,14 +220,14 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                   type="date"
                   value={until}
                   onChange={(e) => setUntil(e.target.value)}
-                  className="w-full h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                  className="w-full h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
                 />
               </div>
             </div>
 
             {/* Response Subject */}
             <div>
-              <label className="block text-xs font-semibold text-[#3F3F46] mb-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
                 {t("settings.vacation.subject", "Response Subject")}
               </label>
               <input
@@ -239,13 +239,13 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                   "settings.vacation.default_subject",
                   "Out of Office: Thank you for your email",
                 )}
-                className="w-full h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                className="w-full h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
               />
             </div>
 
             {/* Message Body */}
             <div>
-              <label className="block text-xs font-semibold text-[#3F3F46] mb-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
                 {t("settings.vacation.message", "Auto-reply Message")}
               </label>
               <textarea
@@ -257,13 +257,13 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                   "settings.vacation.default_message",
                   "I am out of the office with limited access to email. I will respond to your message upon my return.",
                 )}
-                className="w-full p-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                className="w-full p-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
               />
             </div>
 
             {/* Response Frequency (days) */}
             <div>
-              <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                 <span>
                   {t(
@@ -279,7 +279,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
                 max={30}
                 value={days}
                 onChange={(e) => setDays(Number(e.target.value))}
-                className="w-24 h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                className="w-24 h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
               />
               <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
                 {t(
@@ -294,7 +294,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
             data-testid="btn-save-vacation"
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
+            className="px-4 py-2 bg-[var(--brand-primary)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
           >
             <Save className="w-3.5 h-3.5" />
             <span>

@@ -179,14 +179,14 @@ export function IdentitiesSignaturesSection() {
 
   return (
     <div className="space-y-6" data-testid="identities-signatures-section">
-      <div className="border-b border-[#EBE8E0] pb-4">
-        <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-          <PenTool className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+      <div className="border-b border-[var(--vellum-border)] pb-4">
+        <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+          <PenTool className="w-5 h-5 text-[var(--brand-primary)]" />
           <span>
             {t("settings.identities.title", "Identities & Signatures")}
           </span>
         </h3>
-        <p className="text-xs text-[#52525B] mt-1">
+        <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
           {t(
             "settings.identities.subtitle",
             "Configure display names, aliases, and tailored HTML/text signatures for each sending address.",
@@ -201,14 +201,14 @@ export function IdentitiesSignaturesSection() {
       ) : (
         <form onSubmit={handleSave} className="space-y-5 max-w-2xl">
           {error && (
-            <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-[#991B1B] text-xs flex items-center gap-2">
+            <div className="p-3 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border)] rounded-lg text-[var(--vellum-danger-text)] text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[#166534] text-xs flex items-center gap-2">
+            <div className="p-3 bg-[var(--vellum-success-fill)] border border-[var(--vellum-success-border)] rounded-lg text-[var(--vellum-color-success)] text-xs flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--vellum-success-text)]" />
               <span>
                 {t(
@@ -221,7 +221,7 @@ export function IdentitiesSignaturesSection() {
 
           {/* Identity Address Dropdown */}
           <div>
-            <label className="block text-xs font-semibold text-[#3F3F46] mb-1 flex items-center gap-1.5">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t("settings.identities.select_identity", "Sending Identity")}
@@ -231,7 +231,7 @@ export function IdentitiesSignaturesSection() {
               data-testid="select-identity"
               value={currentAddress}
               onChange={(e) => handleSelectIdentity(e.target.value)}
-              className="w-full max-w-sm h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+              className="w-full max-w-sm h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
             >
               {identities.map((id) => (
                 <option key={id.address} value={id.address}>
@@ -244,7 +244,7 @@ export function IdentitiesSignaturesSection() {
 
           {/* Display Name */}
           <div>
-            <label className="block text-xs font-semibold text-[#3F3F46] mb-1">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
               {t("settings.identities.display_name", "Display Name")}
             </label>
             <input
@@ -253,26 +253,26 @@ export function IdentitiesSignaturesSection() {
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="e.g. Tiger Wang"
-              className="w-full max-w-sm h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+              className="w-full max-w-sm h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
             />
           </div>
 
           {/* Signature Editor */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[#3F3F46]">
+              <label className="text-xs font-semibold text-[var(--vellum-ink-strong)]">
                 {t("settings.identities.signature_editor", "Email Signature")}
               </label>
 
               {/* Editor Tabs: Visual / HTML Source */}
-              <div className="flex items-center gap-1 text-xs bg-[#EBE8E0] p-0.5 rounded">
+              <div className="flex items-center gap-1 text-xs bg-[var(--vellum-border)] p-0.5 rounded">
                 <button
                   type="button"
                   onClick={() => setEditorMode("visual")}
                   className={`px-2 py-0.5 rounded transition-colors ${
                     editorMode === "visual"
-                      ? "bg-[#FFFFFF] text-[#18181B] font-semibold shadow-xs"
-                      : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+                      ? "bg-[var(--vellum-surface)] text-[var(--vellum-ink)] font-semibold shadow-xs"
+                      : "text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                   }`}
                 >
                   <Type className="w-3 h-3 inline mr-1" />
@@ -283,8 +283,8 @@ export function IdentitiesSignaturesSection() {
                   onClick={() => setEditorMode("html")}
                   className={`px-2 py-0.5 rounded transition-colors ${
                     editorMode === "html"
-                      ? "bg-[#FFFFFF] text-[#18181B] font-semibold shadow-xs"
-                      : "text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+                      ? "bg-[var(--vellum-surface)] text-[var(--vellum-ink)] font-semibold shadow-xs"
+                      : "text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                   }`}
                 >
                   <Code className="w-3 h-3 inline mr-1" />
@@ -294,11 +294,11 @@ export function IdentitiesSignaturesSection() {
             </div>
 
             {/* Quick formatting toolbar */}
-            <div className="flex items-center gap-1 p-1 bg-[#F6F4EE] border border-[#EBE8E0] rounded-t-md text-xs">
+            <div className="flex items-center gap-1 p-1 bg-[var(--vellum-surface-muted)] border border-[var(--vellum-border)] rounded-t-md text-xs">
               <button
                 type="button"
                 onClick={() => handleFormatText("<b>", "</b>")}
-                className="p-1 hover:bg-[#EBE8E0] rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+                className="p-1 hover:bg-[var(--vellum-border)] rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                 title="Bold"
               >
                 <Bold className="w-3.5 h-3.5" />
@@ -306,7 +306,7 @@ export function IdentitiesSignaturesSection() {
               <button
                 type="button"
                 onClick={() => handleFormatText("<i>", "</i>")}
-                className="p-1 hover:bg-[#EBE8E0] rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+                className="p-1 hover:bg-[var(--vellum-border)] rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                 title="Italic"
               >
                 <Italic className="w-3.5 h-3.5" />
@@ -314,7 +314,7 @@ export function IdentitiesSignaturesSection() {
               <button
                 type="button"
                 onClick={() => handleFormatText('<a href="https://">', "</a>")}
-                className="p-1 hover:bg-[#EBE8E0] rounded text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+                className="p-1 hover:bg-[var(--vellum-border)] rounded text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                 title="Insert Link"
               >
                 <LinkIcon className="w-3.5 h-3.5" />
@@ -335,7 +335,7 @@ export function IdentitiesSignaturesSection() {
                     "settings.identities.signature_placeholder",
                     "Best regards,\nTiger Wang\nEmail: tiger@urmail.cn",
                   )}
-                  className="w-full p-3 text-xs rounded-b-md border border-t-0 border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)] font-sans"
+                  className="w-full p-3 text-xs rounded-b-md border border-t-0 border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)] font-sans"
                 />
               </div>
             ) : (
@@ -344,14 +344,14 @@ export function IdentitiesSignaturesSection() {
                 value={signatureHtml}
                 onChange={(e) => setSignatureHtml(e.target.value)}
                 rows={5}
-                className="w-full p-3 text-xs rounded-b-md border border-t-0 border-[#D4D4D8] bg-[#FFFFFF] font-mono text-[#18181B] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                className="w-full p-3 text-xs rounded-b-md border border-t-0 border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] font-mono text-[var(--vellum-ink)] focus:outline-none focus:border-[var(--brand-primary)]"
               />
             )}
           </div>
 
           {/* Live Signature Bottom Preview Box */}
-          <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#3F3F46]">
+          <div className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--vellum-ink-strong)]">
               <Eye className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t(
@@ -360,7 +360,7 @@ export function IdentitiesSignaturesSection() {
                 )}
               </span>
             </div>
-            <div className="p-3 bg-[#FFFFFF] border border-[#EBE8E0] rounded-lg text-xs">
+            <div className="p-3 bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg text-xs">
               <div className="text-[var(--vellum-ink-secondary)] select-none text-xs mb-2">
                 ---{" "}
                 {t(
@@ -375,7 +375,7 @@ export function IdentitiesSignaturesSection() {
               {signatureHtml ? (
                 <div
                   data-testid="signature-rendered-preview"
-                  className="text-xs text-[#18181B]"
+                  className="text-xs text-[var(--vellum-ink)]"
                   dangerouslySetInnerHTML={{
                     __html: sanitizeHtmlMail(signatureHtml, {
                       allowRemoteImages: true,
@@ -398,7 +398,7 @@ export function IdentitiesSignaturesSection() {
             data-testid="btn-save-identity"
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
+            className="px-4 py-2 bg-[var(--brand-primary)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
           >
             <Save className="w-3.5 h-3.5" />
             <span>
