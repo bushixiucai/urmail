@@ -36,6 +36,8 @@ afterEach(() => {
 describe("WebmailSelectionPolish", () => {
   const defaultProps = {
     selectedText: "找对方退回了",
+    draftBody:
+      "王经理您好：\n\n关于上次对账的差异，我们找对方退回了。\n\n顺颂商祺",
     position: { top: 100, left: 200 },
     onReplace: vi.fn(),
     onClose: vi.fn(),
@@ -75,9 +77,23 @@ describe("WebmailSelectionPolish", () => {
         expect.objectContaining({
           operation: "polish",
           selection: "找对方退回了",
+          draft: "找对方退回了",
+          body: defaultProps.draftBody,
         }),
       );
     });
+
+    // The server rejects polish requests with an empty body, and the preview
+    // must carry exactly the same input as the confirmed run.
+    const previewInput = vi.mocked(mailboxApi.previewMailboxAI).mock
+      .calls[0][1] as {
+      body?: string;
+      draft?: string;
+      selection?: string;
+    };
+    expect(previewInput.body).toBe(defaultProps.draftBody);
+    expect(previewInput.draft).toBe("找对方退回了");
+    expect(previewInput.selection).toBe("找对方退回了");
 
     await waitFor(() => {
       expect(screen.getByTestId("selection-diff-popover")).toBeTruthy();
@@ -163,6 +179,89 @@ describe("WebmailSelectionPolish", () => {
 
     expect(screen.getByText("已获供货方全额对账冲销")).toBeTruthy();
     expect(mailboxApi.previewMailboxAI).toHaveBeenCalledTimes(2);
+    expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the selection as body when the draft body is unavailable", async () => {
+    vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValueOnce({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "test-digest",
+    } as mailboxApi.MailboxAITarget);
+    vi.mocked(mailboxApi.runMailboxAI).mockResolvedValueOnce({
+      result: { revised_text: "已获供货方全额对账冲销", changes: [] },
+    });
+
+    render(<WebmailSelectionPolish {...defaultProps} draftBody="" />);
+
+    fireEvent.click(screen.getByTestId("btn-selection-polish"));
+
+    await waitFor(() => {
+      expect(mailboxApi.runMailboxAI).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: "polish",
+          draft: "找对方退回了",
+          body: "找对方退回了",
+        }),
+      );
+    });
+  });
+
+  it("shows the concrete server reason and a retry action instead of a generic failure", async () => {
+    vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "test-digest",
+    } as mailboxApi.MailboxAITarget);
+
+    vi.mocked(mailboxApi.runMailboxAI)
+      .mockRejectedValueOnce({
+        status: 400,
+        code: "INVALID_PARAMS",
+      })
+      .mockResolvedValueOnce({
+        result: { revised_text: "已获供货方全额对账冲销", changes: [] },
+      });
+
+    render(<WebmailSelectionPolish {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId("btn-selection-polish"));
+
+    const errorCard = await screen.findByTestId("selection-polish-error");
+    expect(errorCard).toBeTruthy();
+    expect(screen.getByText("error.INVALID_PARAMS")).toBeTruthy();
+    expect(screen.getByTestId("btn-polish-retry")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("btn-polish-retry"));
+
+    await waitFor(() => {
+      expect(screen.getByText("已获供货方全额对账冲销")).toBeTruthy();
+    });
+    expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows an actionable consent card only after the silent 409 retry also fails", async () => {
+    vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "test-digest",
+    } as mailboxApi.MailboxAITarget);
+
+    vi.mocked(mailboxApi.runMailboxAI).mockRejectedValue({
+      status: 409,
+      code: "AI_CONTENT_CONSENT_STALE",
+    });
+
+    render(<WebmailSelectionPolish {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId("btn-selection-polish"));
+
+    const staleCard = await screen.findByTestId(
+      "selection-polish-consent-stale-card",
+    );
+    expect(staleCard).toBeTruthy();
+    expect(screen.getByTestId("btn-polish-consent-retry")).toBeTruthy();
+    expect(screen.queryByTestId("selection-polish-error")).toBeNull();
     expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(2);
   });
 });

@@ -1175,6 +1175,12 @@ export function runMailboxAI(
     subject?: string;
     instruction?: string;
     selection?: string;
+    /**
+     * The draft text under review. Required by the server for polish without a
+     * message source (compose drafts): body carries the surrounding draft and
+     * this field carries the exact text to refine.
+     */
+    draft?: string;
     target_language?: string;
     length_limit?: number;
   } & Partial<MailboxAISource>,

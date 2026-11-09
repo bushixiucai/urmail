@@ -284,6 +284,11 @@ export function WebmailReadingPane({
         setShowUnconfiguredModal(true);
         return;
       }
+      // selection means "the text the user actually selected": the server
+      // requires it to be a literal substring of its own plain-text rendering
+      // of the message, otherwise it rejects the call with AI_SOURCE_CHANGED.
+      // Reading-pane operations act on the whole message, so selection stays
+      // unset and the server derives the body from the live message itself.
       const input = {
         operation: op,
         configuration_digest: target.configuration_digest,
@@ -294,7 +299,6 @@ export function WebmailReadingPane({
         uid_validity: message.uid_validity,
         body: plainText,
         subject: message.subject || "",
-        selection: plainText,
         length_limit: options?.lengthLimit,
         target_language: options?.targetLang || "zh-CN",
       };
