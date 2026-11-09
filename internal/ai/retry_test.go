@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -28,6 +29,9 @@ func (s *retryStub) Complete(_ context.Context, req CompletionRequest) (Completi
 	s.requests = append(s.requests, req)
 	if i < len(s.errs) && s.errs[i] != nil {
 		return CompletionResponse{}, s.errs[i]
+	}
+	if i >= len(s.responses) {
+		return CompletionResponse{}, nil
 	}
 	return s.responses[i], nil
 }
@@ -89,13 +93,60 @@ func TestCompleteValidatedDegrade(t *testing.T) {
 	}
 }
 
-// TestCompleteValidatedProviderError pins that provider failures stay
-// errors (the handler keeps its AI_UNAVAILABLE path) and mark the meta as
-// provider_unavailable without producing a result.
-func TestCompleteValidatedProviderError(t *testing.T) {
-	stub := &retryStub{errs: []error{ErrInvalidResponse}}
+// TestCompleteValidatedProviderErrorDegrades pins the DEF-B contract
+// (CHANGELOG #65): a provider error on the structured call is never
+// retried as structured and never surfaced as a hard failure — the
+// pipeline degrades through the plain-text fallback resend and the user
+// gets a labeled usable answer with reason provider_unavailable.
+func TestCompleteValidatedProviderErrorDegrades(t *testing.T) {
+	stub := &retryStub{
+		errs: []error{errors.New("provider connection failed")},
+		// Index 0 is consumed by the failed structured attempt; the
+		// fallback resend is call number two.
+		responses: []CompletionResponse{{}, {Content: "plain fallback answer", UsageKnown: true, PromptTokens: 9, OutputTokens: 4}},
+	}
+	payload, usage, meta, err := CompleteValidated(context.Background(), stub, "summarize", CompletionRequest{}, StructuredParams(OperationInput{Operation: "summarize", Body: "b"}))
+	if err != nil {
+		t.Fatalf("provider error must degrade, not fail: %v", err)
+	}
+	if !meta.Degraded || meta.DegradeReason != DegradeProviderUnavailable {
+		t.Fatalf("meta=%+v, want degraded/provider_unavailable", meta)
+	}
+	if meta.TemplateVersion != fallbackTemplateVersion {
+		t.Fatalf("template version %d, want the fallback generation", meta.TemplateVersion)
+	}
+	var got struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("payload %s: %v", payload, err)
+	}
+	if got.Text != "plain fallback answer" {
+		t.Fatalf("degraded text %q", got.Text)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("calls=%d, want 2 (one structured attempt + one fallback resend)", stub.calls)
+	}
+	if !usage.Known {
+		t.Fatalf("fallback usage must keep the total known")
+	}
+}
+
+// TestCompleteValidatedProviderHardDown pins the hard boundary of the
+// contract: when even the plain-text fallback resend cannot reach the
+// provider, the pipeline returns an error (the handler answers 502
+// AI_UNAVAILABLE) — there is no usable answer left to degrade to. No
+// structured retry happens in between.
+func TestCompleteValidatedProviderHardDown(t *testing.T) {
+	stub := &retryStub{errs: []error{errors.New("timeout"), errors.New("still down")}}
 	_, _, meta, err := CompleteValidated(context.Background(), stub, "summarize", CompletionRequest{}, StructuredParams(OperationInput{Operation: "summarize", Body: "b"}))
-	if err == nil || !meta.Degraded || meta.DegradeReason != DegradeProviderUnavailable || stub.calls != 1 {
-		t.Fatalf("err=%v meta=%+v calls=%d", err, meta, stub.calls)
+	if err == nil {
+		t.Fatalf("provider fully down must stay an error")
+	}
+	if !meta.Degraded || meta.DegradeReason != DegradeProviderUnavailable {
+		t.Fatalf("meta=%+v", meta)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("calls=%d, want 2 (one structured attempt + one fallback resend, no more)", stub.calls)
 	}
 }

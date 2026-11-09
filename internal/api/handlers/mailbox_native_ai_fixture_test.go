@@ -214,6 +214,11 @@ type nativeAIFixtureModel struct {
 	// respond optionally overrides the canned answer; the second return
 	// value reports whether the override handled the request.
 	respond func(request ai.CompletionRequest) (string, bool)
+	// fail optionally rejects the request with a provider error before
+	// the canned answers are consulted (DEF-B: structured JSON mode
+	// fails on the provider side while the plain-text fallback resend
+	// still works).
+	fail func(request ai.CompletionRequest) bool
 }
 
 func (*nativeAIFixtureModel) Name() string { return "deterministic-test-provider" }
@@ -224,6 +229,9 @@ func (model *nativeAIFixtureModel) Complete(ctx context.Context, request ai.Comp
 	case <-time.After(100 * time.Millisecond):
 	}
 	model.calls.Add(1)
+	if model.fail != nil && model.fail(request) {
+		return ai.CompletionResponse{}, ai.ErrProviderError
+	}
 	if model.respond != nil {
 		if content, ok := model.respond(request); ok {
 			return ai.CompletionResponse{Content: content, PromptTokens: 12, OutputTokens: 18, TotalTokens: 30, UsageKnown: true}, nil

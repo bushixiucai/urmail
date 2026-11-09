@@ -1,0 +1,32 @@
+{
+  "input": {
+    "operation": "translate",
+    "body": "Team,\n\nAhead of the v0.6.13 release window on Friday, here is the rollout checklist.\n\n1. Freeze the main branch at 18:00 UTC and cut the release tag from the green commit.\n2. The deployment runs in two phases: phase A installs the new binary and holds the fence, phase B records readiness and flips traffic. Do not break the fence manually.\n3. After the flip, watch the render-cache hit ratio for ten minutes; a ratio below 40 percent for three consecutive minutes means the warmup job did not fire and needs a manual trigger.\n4. The mailbox quota panel now reads from the usage ledger; if the numbers look stale, restart the aggregation worker before opening an incident.\n\nThe storage team confirmed the offsite replica is in sync as of this morning, so the restore drill can proceed next week without a fresh snapshot.\n\nRegards,\nRelease Engineering",
+    "target_language": "zh-CN"
+  },
+  "mock_output": "{\"translated_text\": \"团队：\\n\\n在周五 v0.6.13 发布窗口到来之前，以下是上线清单。\\n\\n1. 在 18:00 UTC 冻结 main 分支，并从绿色提交切出发布标签。\\n2. 部署分两个阶段执行：阶段 A 安装新二进制并保持围栏，阶段 B 记录就绪状态并切换流量。不要手动破坏围栏。\\n3. 切换后，连续十分钟观察渲染缓存命中率；如果连续三分钟低于 40%，说明预热任务没有触发，需要手动触发。\\n4. 邮箱配额面板现在从用量台账读取；如果数字看起来过期，请先重启聚合工作进程，再决定是否开事故。\\n\\n存储团队确认异地副本截至今天上午已同步，因此下周可以无需新快照直接进行恢复演练。\\n\\n此致，\\n发布工程组\", \"detected_source\": \"en\"}",
+  "expect": {
+    "checks": [
+      {
+        "path": "translated_text",
+        "op": "contains",
+        "value": "v0.6.13"
+      },
+      {
+        "path": "translated_text",
+        "op": "contains",
+        "value": "18:00 UTC"
+      },
+      {
+        "path": "translated_text",
+        "op": "contains",
+        "value": "40%"
+      },
+      {
+        "path": "detected_source",
+        "op": "eq",
+        "value": "en"
+      }
+    ]
+  }
+}
