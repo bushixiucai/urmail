@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -516,6 +517,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if !h.verifyResultSource(c, sess, req, digest) {
 			return
 		}
+		h.evictPhishingRender(sess, principal, input.Operation, meta)
 		c.JSON(200, assistEnvelope(result, meta))
 		return
 	}
@@ -528,7 +530,19 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if !h.verifyResultSource(c, sess, req, digest) {
 		return
 	}
+	h.evictPhishingRender(sess, principal, input.Operation, meta)
 	c.JSON(200, assistEnvelope(result, meta))
+}
+
+// evictPhishingRender drops the cached GetMessage renderings of the
+// analyzed message so the persisted verdict shows up on the next open
+// instead of after the render TTL. No-op for non-phishing operations,
+// degraded answers (no verdict to show) and non-message scopes.
+func (h *NativeMailboxAI) evictPhishingRender(sess webmail.Session, principal store.PlatformConsumeMailboxTicketRow, operation string, meta ai.ResultMeta) {
+	if operation != "phishing" || meta.Degraded || principal.MessageUid <= 0 || principal.UidValidity <= 0 || principal.MessageUid > math.MaxUint32 || principal.UidValidity > math.MaxUint32 {
+		return
+	}
+	h.Native.RenderCache.InvalidateMessage(sess.MailboxID, principal.Folder, uint32(principal.MessageUid), uint32(principal.UidValidity))
 }
 
 // assistEnvelope is the assist response contract (TECH §5): the structured

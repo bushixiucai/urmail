@@ -493,6 +493,7 @@ type Querier interface {
 	// Platform-side archive writes. The archive pipe runs outside a tenant
 	// transaction, so these queries live in a platform_*.sql file.
 	PlatformGetMailboxByAddress(ctx context.Context, address string) (PlatformGetMailboxByAddressRow, error)
+	PlatformGetMailboxPhishingFinding(ctx context.Context, arg PlatformGetMailboxPhishingFindingParams) (PlatformGetMailboxPhishingFindingRow, error)
 	PlatformGetMailboxQuota(ctx context.Context, arg PlatformGetMailboxQuotaParams) (PlatformGetMailboxQuotaRow, error)
 	PlatformGetMailboxScheduledSend(ctx context.Context, arg PlatformGetMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformGetMailboxScheduledSendAddress(ctx context.Context, arg PlatformGetMailboxScheduledSendAddressParams) (string, error)
@@ -784,6 +785,7 @@ type Querier interface {
 	PlatformUpsertBrand(ctx context.Context, arg PlatformUpsertBrandParams) (PlatformUpsertBrandRow, error)
 	PlatformUpsertBrandSetting(ctx context.Context, arg PlatformUpsertBrandSettingParams) error
 	PlatformUpsertChannel(ctx context.Context, arg PlatformUpsertChannelParams) (Channels, error)
+	PlatformUpsertMailboxPhishingFinding(ctx context.Context, arg PlatformUpsertMailboxPhishingFindingParams) error
 	PlatformUpsertSetting(ctx context.Context, arg PlatformUpsertSettingParams) error
 	PlatformUsageMailboxes(ctx context.Context) ([]PlatformUsageMailboxesRow, error)
 	PlatformVerifyBrandHostProof(ctx context.Context, arg PlatformVerifyBrandHostProofParams) (int64, error)

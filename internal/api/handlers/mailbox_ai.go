@@ -315,8 +315,31 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if status != "completed" {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
+	// v0.6.15: persist the phishing verdict so the message API can surface
+	// the red-bar data again after reopening. Message-scoped analyses only;
+	// the write is best-effort — a persistence failure must not eat the
+	// user's already-billed answer, the counter records the gap instead.
+	if input.Operation == "phishing" && principal.Folder != "" && principal.UidValidity > 0 && principal.MessageUid > 0 {
+		if err := persistPhishingFinding(settleCtx, s.Pool, principal, hash, result); err != nil {
+			ai.PhishingPersistFailuresTotal.Inc()
+		}
+	}
 	s.ResultCache.Put(input.Operation, version, hash, result, meta)
 	return result, meta, nil
+}
+
+// persistPhishingFinding upserts the phishing_v2 verdict inside the
+// mailbox-scoped RLS transaction the finding tables require.
+func persistPhishingFinding(ctx context.Context, pool *db.Pool, principal store.PlatformConsumeMailboxTicketRow, digest string, result json.RawMessage) error {
+	tx, err := pool.MailboxTx(ctx, principal.TenantID, principal.MailboxID)
+	if err != nil {
+		return err
+	}
+	if err = store.New(tx).PlatformUpsertMailboxPhishingFinding(ctx, store.PlatformUpsertMailboxPhishingFindingParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, Folder: principal.Folder, UidValidity: principal.UidValidity, Uid: principal.MessageUid, InputDigest: digest, Result: result}); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // AIConfigurationHandler exposes only redacted configuration and usage to panel administrators.

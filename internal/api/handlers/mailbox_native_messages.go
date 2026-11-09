@@ -1,21 +1,26 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"mime"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mailauth"
 	"github.com/bushixiucai/urmail/internal/rendercache"
+	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -258,6 +263,15 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 	}
 	if msg.Authentication.Status == "" {
 		msg.Authentication = mailauth.Result{Status: "unknown", Reason: "receive_proof_missing"}
+	}
+	// Persisted phishing verdict (v0.6.15): present only after an AI
+	// phishing analysis ran for this exact mailbox location. A findings
+	// lookup failure degrades silently — the mail body keeps rendering
+	// without the red-bar data rather than failing the read.
+	if h.Pool != nil {
+		if finding := lookupPhishingFinding(c.Request.Context(), h.Pool, session, folder, msg.UIDValidity, uint32(uid)); finding != nil {
+			msg.Phishing = finding
+		}
 	}
 	if msg.Attachments == nil {
 		msg.Attachments = []webmail.AttachmentMeta{}
@@ -670,6 +684,55 @@ func (h *MailboxNativeHandler) GetRawMessage(c *gin.Context) {
 	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	c.Header("X-UIDValidity", strconv.FormatUint(uint64(validity), 10))
 	c.Data(http.StatusOK, "message/rfc822", raw)
+}
+
+// lookupPhishingFinding reads the persisted phishing_v2 verdict for one
+// mailbox location inside the mailbox-scoped RLS transaction the finding
+// table requires; nil means "no verdict" (unanalyzed, undecodable, or the
+// lookup failed).
+func lookupPhishingFinding(ctx context.Context, pool *db.Pool, session webmail.Session, folder string, uidValidity, uid uint32) *webmail.PhishingFinding {
+	tx, err := pool.MailboxTx(ctx, session.TenantID, session.MailboxID)
+	if err != nil {
+		return nil
+	}
+	row, err := store.New(tx).PlatformGetMailboxPhishingFinding(ctx, store.PlatformGetMailboxPhishingFindingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Folder: folder, UidValidity: int64(uidValidity), Uid: int64(uid)})
+	_ = tx.Rollback(ctx)
+	if err != nil {
+		return nil
+	}
+	return phishingFindingFromPayload(row.Result, row.UpdatedAt.Time)
+}
+
+// phishingFindingFromPayload decodes a persisted phishing_v2 payload.
+// Rows without a decodable score (older or foreign payloads) yield nil so
+// the message API omits the key instead of showing a broken verdict.
+func phishingFindingFromPayload(raw []byte, analyzedAt time.Time) *webmail.PhishingFinding {
+	var payload struct {
+		Score      *float64 `json:"score"`
+		RiskLevel  string   `json:"risk_level"`
+		Reasons    []string `json:"reasons"`
+		Indicators []struct {
+			Type     string `json:"type"`
+			Evidence string `json:"evidence"`
+		} `json:"indicators"`
+	}
+	if json.Unmarshal(raw, &payload) != nil || payload.Score == nil || math.IsNaN(*payload.Score) || math.IsInf(*payload.Score, 0) {
+		return nil
+	}
+	finding := &webmail.PhishingFinding{
+		Score:      *payload.Score,
+		RiskLevel:  payload.RiskLevel,
+		Reasons:    payload.Reasons,
+		Indicators: []webmail.PhishingIndicator{},
+		AnalyzedAt: analyzedAt.UTC(),
+	}
+	if finding.Reasons == nil {
+		finding.Reasons = []string{}
+	}
+	for _, indicator := range payload.Indicators {
+		finding.Indicators = append(finding.Indicators, webmail.PhishingIndicator{Type: indicator.Type, Evidence: indicator.Evidence})
+	}
+	return finding
 }
 
 // ImportMessage refuses the legacy raw write without a reviewed durable receipt.

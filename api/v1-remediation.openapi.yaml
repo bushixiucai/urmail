@@ -4044,7 +4044,7 @@ paths:
       - {name: name, in: path, required: true, schema: {type: string}}
       - {name: uid, in: path, required: true, schema: {type: integer, minimum: 1, maximum: 4294967295}}
       responses:
-        '200': {description: 'Message includes uid_validity, To/Cc/Bcc, plain/HTML bodies and attachment metadata. Untrusted HTML requires isolated rendering with remote resources blocked.'}
+        '200': {description: 'Message includes uid_validity, To/Cc/Bcc, plain/HTML bodies and attachment metadata. Untrusted HTML requires isolated rendering with remote resources blocked. Messages analyzed by the AI phishing operation carry a phishing object ({score, risk_level, reasons, indicators, analyzed_at}); unanalyzed messages omit the key.'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '502': {$ref: '#/components/responses/Error'}

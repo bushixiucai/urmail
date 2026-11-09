@@ -133,6 +133,25 @@ type AttachmentMeta struct {
 	ContentID string `json:"content_id,omitempty"`
 }
 
+// PhishingIndicator is one evidence-backed signal from a phishing_v2
+// analysis; Type uses the internal/ai indicator enum.
+type PhishingIndicator struct {
+	Type     string `json:"type"`
+	Evidence string `json:"evidence"`
+}
+
+// PhishingFinding is the persisted verdict of a phishing_v2 analysis for
+// one message (the AI assist operation). Present only after an analysis
+// ran; unanalyzed messages omit the key so the client stays silent.
+type PhishingFinding struct {
+	Score      float64             `json:"score"`
+	RiskLevel  string              `json:"risk_level"`
+	Reasons    []string            `json:"reasons"`
+	Indicators []PhishingIndicator `json:"indicators"`
+	// AnalyzedAt is the settlement time of the latest analysis (UTC).
+	AnalyzedAt time.Time `json:"analyzed_at"`
+}
+
 // Message is a single message body view for the lean inbox.
 type Message struct {
 	Authentication mailauth.Result `json:"authentication"`
@@ -145,6 +164,10 @@ type Message struct {
 	Text        string           `json:"text,omitempty"`
 	HTML        string           `json:"html,omitempty"`
 	Attachments []AttachmentMeta `json:"attachments"`
+	// Phishing carries the persisted phishing_v2 verdict when the message
+	// has been analyzed via the AI assist operation; nil (key omitted)
+	// for unanalyzed mail.
+	Phishing *PhishingFinding `json:"phishing,omitempty"`
 	// Notes are render-time sanitization tokens (see sanitize_html.go);
 	// the original message in IMAP is never modified.
 	Notes []string `json:"notes,omitempty"`

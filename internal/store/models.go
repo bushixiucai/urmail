@@ -535,6 +535,19 @@ type MailboxAiDrafts struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type MailboxAiPhishingFindings struct {
+	ID          int64              `json:"id"`
+	TenantID    int64              `json:"tenant_id"`
+	MailboxID   int64              `json:"mailbox_id"`
+	Folder      string             `json:"folder"`
+	UidValidity int64              `json:"uid_validity"`
+	Uid         int64              `json:"uid"`
+	InputDigest string             `json:"input_digest"`
+	Result      []byte             `json:"result"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MailboxAliases struct {
 	ID           int64              `json:"id"`
 	TenantID     int64              `json:"tenant_id"`

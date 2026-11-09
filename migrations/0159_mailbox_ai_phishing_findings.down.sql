@@ -1,0 +1,1 @@
+DROP TABLE mailbox_ai_phishing_findings;

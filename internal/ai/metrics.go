@@ -35,6 +35,14 @@ var (
 		Help: "Assist results served from the operation result cache instead of a provider call.",
 	})
 
+	// PhishingPersistFailuresTotal counts phishing verdict persistences
+	// that failed after a successful analysis. Such verdicts stay invisible
+	// to the message API until the message is analyzed again.
+	PhishingPersistFailuresTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "urmail_ai_phishing_persist_failures_total",
+		Help: "Phishing verdict persistences that failed after a successful analysis.",
+	})
+
 	// BreakerTransitionsTotal counts circuit breaker state transitions.
 	BreakerTransitionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "urmail_ai_breaker_transitions_total",
