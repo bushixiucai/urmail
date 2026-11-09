@@ -133,4 +133,36 @@ describe("WebmailSelectionPolish", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("silently retries on first 409 error and recovers without error state", async () => {
+    vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "test-digest",
+    } as mailboxApi.MailboxAITarget);
+
+    vi.mocked(mailboxApi.runMailboxAI)
+      .mockRejectedValueOnce({
+        status: 409,
+        code: "AI_CONTENT_CONSENT_STALE",
+      })
+      .mockResolvedValueOnce({
+        result: {
+          revised_text: "已获供货方全额对账冲销",
+          changes: [],
+        },
+      });
+
+    render(<WebmailSelectionPolish {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId("btn-selection-polish"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("selection-diff-popover")).toBeTruthy();
+    });
+
+    expect(screen.getByText("已获供货方全额对账冲销")).toBeTruthy();
+    expect(mailboxApi.previewMailboxAI).toHaveBeenCalledTimes(2);
+    expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(2);
+  });
 });

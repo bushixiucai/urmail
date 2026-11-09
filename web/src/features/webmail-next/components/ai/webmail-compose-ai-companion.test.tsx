@@ -84,8 +84,18 @@ describe("WebmailComposeAICompanion", () => {
     fireEvent.click(formalChip);
 
     await waitFor(() => {
+      expect(mailboxApi.previewMailboxAI).toHaveBeenCalledTimes(1);
       expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(1);
     });
+
+    const previewCall = vi.mocked(mailboxApi.previewMailboxAI).mock
+      .calls[0]![1] as { request_key: string };
+    expect(mailboxApi.runMailboxAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content_digest: "test-content-digest",
+        request_key: previewCall.request_key,
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId("compose-diff-view")).toBeTruthy();
@@ -230,7 +240,7 @@ describe("WebmailComposeAICompanion", () => {
     expect(onOpenAISettings).toHaveBeenCalledTimes(1);
   });
 
-  it("renders actionable consent stale card on 409 and supports re-authorizing and retrying", async () => {
+  it("silently retries preview and run on first 409 without showing error card", async () => {
     vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValue({
       enabled: true,
       allowed: true,
@@ -238,6 +248,59 @@ describe("WebmailComposeAICompanion", () => {
     } as mailboxApi.MailboxAITarget);
 
     vi.mocked(mailboxApi.runMailboxAI)
+      .mockRejectedValueOnce({
+        status: 409,
+        code: "AI_CONTENT_CONSENT_STALE",
+      })
+      .mockResolvedValueOnce({
+        result: {
+          subject: "Test Subject",
+          body: "Silently recovered draft after 409",
+          assumptions: [],
+        },
+        degraded: false,
+        cache_hit: false,
+      });
+
+    render(
+      <WebmailComposeAICompanion
+        currentSubject="Test Subject"
+        currentBody="Initial Body"
+        onRollback={vi.fn()}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("chip-formal"));
+
+    await waitFor(() => {
+      // Must not show error card because silent retry succeeded
+      expect(screen.queryByTestId("companion-consent-stale-card")).toBeNull();
+      expect(screen.getByTestId("compose-diff-view")).toBeTruthy();
+      expect(screen.getByTestId("compose-diff-view").textContent).toContain(
+        "recovered draft",
+      );
+    });
+
+    // Both previewMailboxAI and runMailboxAI were called twice (initial + silent retry)
+    expect(mailboxApi.previewMailboxAI).toHaveBeenCalledTimes(2);
+    expect(mailboxApi.runMailboxAI).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders actionable consent stale card when silent retry also fails on 409, and supports re-authorizing and retrying", async () => {
+    vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "test-digest",
+    } as mailboxApi.MailboxAITarget);
+
+    // Initial run fails 409, silent retry fails 409, then user retry succeeds
+    vi.mocked(mailboxApi.runMailboxAI)
+      .mockRejectedValueOnce({
+        status: 409,
+        code: "AI_CONTENT_CONSENT_STALE",
+      })
       .mockRejectedValueOnce({
         status: 409,
         code: "AI_CONTENT_CONSENT_STALE",

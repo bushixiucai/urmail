@@ -95,29 +95,54 @@ export function WebmailComposeAICompanion({
         return;
       }
 
-      const input = {
-        operation: (isReply ? "draft_reply" : "draft_new") as
-          "draft_reply" | "draft_new",
-        configuration_digest: target.configuration_digest || "",
-        confirmed: true,
-        request_key: crypto.randomUUID(),
-        subject: activeVersion.subject || currentSubject,
-        body: activeVersion.body || currentBody,
-        instruction: textInstruction,
+      const requestKey = crypto.randomUUID();
+
+      const executeTwoStepGeneration = async (currentTarget: {
+        configuration_digest?: string;
+      }): Promise<MailboxAIAssistResponse> => {
+        const input = {
+          operation: (isReply ? "draft_reply" : "draft_new") as
+            "draft_reply" | "draft_new",
+          configuration_digest: currentTarget.configuration_digest || "",
+          confirmed: true,
+          request_key: requestKey,
+          subject: activeVersion.subject || currentSubject,
+          body: activeVersion.body || currentBody,
+          instruction: textInstruction,
+        };
+
+        // Step 1: preview_only=true to obtain fresh content_digest
+        const preview = await previewMailboxAI("assist", input);
+
+        // Step 2: confirmed=true formal run with matching parameters, same request_key, and content_digest
+        return await runMailboxAI({
+          ...input,
+          content_digest: preview.content_digest,
+        });
       };
 
-      let contentDigest = "";
+      let response: MailboxAIAssistResponse;
       try {
-        const preview = await previewMailboxAI("assist", input);
-        contentDigest = preview.content_digest;
-      } catch {
-        // Continue or let runMailboxAI throw
-      }
+        response = await executeTwoStepGeneration(target);
+      } catch (firstErr: unknown) {
+        const apiErr = firstErr as {
+          status?: number;
+          code?: string;
+          error?: { code?: string };
+        };
+        const isStale =
+          apiErr?.status === 409 ||
+          apiErr?.code === "AI_CONTENT_CONSENT_STALE" ||
+          apiErr?.error?.code === "AI_CONTENT_CONSENT_STALE";
 
-      const response: MailboxAIAssistResponse = await runMailboxAI({
-        ...input,
-        content_digest: contentDigest,
-      });
+        if (isStale) {
+          // Recovery path: silently re-run preview -> run once before showing error
+          const freshTarget = await fetchMailboxAITarget();
+          response = await executeTwoStepGeneration(freshTarget);
+        } else {
+          throw firstErr;
+        }
+      }
 
       const nextVerNum = versions.length + 1;
       const newVer: ComposeAIVersion = {
@@ -336,8 +361,9 @@ export function WebmailComposeAICompanion({
                     <button
                       type="button"
                       data-testid={`btn-rollback-${ver.id}`}
+                      disabled={isLoading}
                       onClick={() => handleRollbackClick(idx)}
-                      className="text-[11px] font-medium text-[#2563EB] hover:text-[#1D4ED8] hover:bg-[#2563EB]/10 px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                      className="text-[11px] font-medium text-[#2563EB] hover:text-[#1D4ED8] hover:bg-[#2563EB]/10 px-2 py-0.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>{t("webmail_next.ai_rollback_btn")}</span>

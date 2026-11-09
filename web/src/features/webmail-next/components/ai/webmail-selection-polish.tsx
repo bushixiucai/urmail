@@ -6,6 +6,7 @@ import {
   previewMailboxAI,
   runMailboxAI,
   type MailboxAIChange,
+  type MailboxAIAssistResponse,
 } from "@/features/webmail/mailbox-api";
 
 export interface WebmailSelectionPolishProps {
@@ -55,26 +56,47 @@ export function WebmailSelectionPolish({
         return;
       }
 
-      const input = {
-        operation: "polish" as const,
-        selection: selectedText,
-        configuration_digest: target.configuration_digest || "",
-        confirmed: true,
-        request_key: crypto.randomUUID(),
+      const requestKey = crypto.randomUUID();
+
+      const executePolish = async (
+        currentTarget: typeof target,
+      ): Promise<MailboxAIAssistResponse> => {
+        const input = {
+          operation: "polish" as const,
+          selection: selectedText,
+          configuration_digest: currentTarget.configuration_digest || "",
+          confirmed: true,
+          request_key: requestKey,
+        };
+
+        const preview = await previewMailboxAI("assist", input);
+        return await runMailboxAI({
+          ...input,
+          content_digest: preview.content_digest,
+        });
       };
 
-      let contentDigest = "";
+      let response: MailboxAIAssistResponse;
       try {
-        const preview = await previewMailboxAI("assist", input);
-        contentDigest = preview.content_digest;
-      } catch {
-        // Fallback or let runMailboxAI throw
-      }
+        response = await executePolish(target);
+      } catch (firstErr: unknown) {
+        const apiErr = firstErr as {
+          status?: number;
+          code?: string;
+          error?: { code?: string };
+        };
+        const isStale =
+          apiErr?.status === 409 ||
+          apiErr?.code === "AI_CONTENT_CONSENT_STALE" ||
+          apiErr?.error?.code === "AI_CONTENT_CONSENT_STALE";
 
-      const response = await runMailboxAI({
-        ...input,
-        content_digest: contentDigest,
-      });
+        if (isStale) {
+          const freshTarget = await fetchMailboxAITarget();
+          response = await executePolish(freshTarget);
+        } else {
+          throw firstErr;
+        }
+      }
 
       const revised =
         response.result.revised_text || response.result.text || selectedText;
