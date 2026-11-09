@@ -102,8 +102,13 @@ func TestMailboxAIDegradesWhenStructuredCallFails(t *testing.T) {
 			"folder_enc":           webmail.EncodeFolderName("INBOX"),
 			"uid":                  5,
 			"uid_validity":         9,
-			"selection":            "The invoice total is 42 euros, payable by Friday.",
-			"target_language":      "zh-CN",
+			// Selection must be a literal substring of the fixture message body
+			// ("The October invoice total is 42 euros. Payment is due on Friday.
+			// Please confirm the bank details independently.") or the Assist
+			// selection guard rejects with 409 AI_SOURCE_CHANGED before the
+			// pipeline runs.
+			"selection":       "The October invoice total is 42 euros.",
+			"target_language": "zh-CN",
 		}
 	}
 	decode := func(w *httptest.ResponseRecorder, requestKey string) {
