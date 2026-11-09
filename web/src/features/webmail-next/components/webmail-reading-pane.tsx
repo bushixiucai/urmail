@@ -15,6 +15,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useDelayedFlag } from "../hooks/use-delayed-flag";
+import { avatarInitial } from "../lib/avatar-initial";
 import { ReadingSkeleton, SkeletonBlock } from "./webmail-skeleton";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
@@ -172,6 +173,23 @@ function SanitizedHtmlFrame({
   useEffect(() => {
     setFrameHeight(FRAME_MIN_HEIGHT);
   }, [html]);
+
+  // F4: the debounced height write can still land in the same frame that
+  // the observer fired in, which raises Chrome's benign "ResizeObserver
+  // loop" notification on every message open. Suppress exactly that
+  // notification (both historical wordings) while the pane is mounted.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isLoopNotice = (message: string) =>
+      message ===
+        "ResizeObserver loop completed with undelivered notifications." ||
+      message === "ResizeObserver loop limit exceeded";
+    const handleError = (event: ErrorEvent) => {
+      if (isLoopNotice(event.message)) event.preventDefault();
+    };
+    window.addEventListener("error", handleError);
+    return () => window.removeEventListener("error", handleError);
+  }, []);
 
   if (html == null) {
     return (
@@ -915,7 +933,7 @@ export function WebmailReadingPane({
           <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-[var(--vellum-border)]">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-[var(--brand-primary,var(--brand-primary))] text-white font-bold text-sm flex items-center justify-center shrink-0">
-                {(senderName || "?").charAt(0).toUpperCase()}
+                {avatarInitial(senderName, senderEmail)}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">

@@ -15,6 +15,7 @@ import type {
   MessageSummary,
 } from "@/features/webmail/mailbox-api";
 import { formatFullDate, formatListDate } from "../lib/format-list-date";
+import { avatarInitial } from "../lib/avatar-initial";
 
 export interface ThreadStackProps {
   members: MessageSummary[];
@@ -40,7 +41,9 @@ function senderName(m: MessageSummary): string {
 }
 
 function senderInitial(m: MessageSummary): string {
-  return senderName(m).charAt(0).toUpperCase();
+  const from = m.from?.[0];
+  // F4: encoded-word junk in the display name must not render as tofu.
+  return avatarInitial(senderName(m), from?.email?.split("@")[0]);
 }
 
 /**
