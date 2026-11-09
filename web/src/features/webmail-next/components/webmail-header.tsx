@@ -12,6 +12,7 @@ import {
   Check,
 } from "lucide-react";
 import type { DensityMode } from "../types";
+import { useIsMobileViewport } from "../hooks/use-is-mobile-viewport";
 import {
   WebmailAdvancedSearchPopover,
   type AdvancedSearchParams,
@@ -60,6 +61,8 @@ export function WebmailHeader({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const densityRef = useRef<HTMLDivElement>(null);
   const [densityOpen, setDensityOpen] = useState(false);
+  // B2-3：<md 视口密度按钮 icon-only（顶栏高度有限，防「舒适」折行）。
+  const mobileViewport = useIsMobileViewport();
   const densityLabel: Record<DensityMode, string> = {
     comfortable: t("webmail_next.density_comfortable"),
     compact: t("webmail_next.density_compact"),
@@ -168,11 +171,14 @@ export function WebmailHeader({
             aria-haspopup="menu"
             aria-expanded={densityOpen}
             onClick={() => setDensityOpen((open) => !open)}
-            className="flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-[var(--vellum-border)] text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
+            title={mobileViewport ? densityLabel[density] : undefined}
+            className={`flex items-center text-xs rounded border border-[var(--vellum-border)] text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors ${
+              mobileViewport ? "h-11 w-11 justify-center" : "gap-1.5 px-2 py-1"
+            }`}
             aria-label={t("webmail_next.density_menu")}
           >
             <LayoutList className="w-3.5 h-3.5" />
-            <span>{densityLabel[density]}</span>
+            {!mobileViewport && <span>{densityLabel[density]}</span>}
           </button>
           {densityOpen && (
             <div

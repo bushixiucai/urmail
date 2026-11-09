@@ -91,6 +91,8 @@ interface WebmailMessageListProps {
   onClearSearch?: () => void;
   /** B2-2 空态动作：发起写信。 */
   onCompose?: () => void;
+  /** B2-3：批量选择数量变化上报（移动端写信 FAB 让位批量条）。 */
+  onSelectionCountChange?: (count: number) => void;
 }
 
 export function WebmailMessageList({
@@ -128,6 +130,7 @@ export function WebmailMessageList({
   isSearchView = false,
   onClearSearch,
   onCompose,
+  onSelectionCountChange,
 }: WebmailMessageListProps) {
   const { t } = useTranslation();
   const { items, toggleThreadExpand } = useMessageThreading(messages);
@@ -249,6 +252,11 @@ export function WebmailMessageList({
     });
   }, [onBindSelection, toggleSelect, clearSelection, selectedUids]);
 
+  // B2-3：批量条激活状态上报（<md 批量条固定底部时 FAB 上移让位）。
+  useEffect(() => {
+    onSelectionCountChange?.(selectedUids.size);
+  }, [onSelectionCountChange, selectedUids]);
+
   const handleToggleSelectAll = () => {
     if (isAllSelected) clearSelection();
     else selectAll();
@@ -343,7 +351,7 @@ export function WebmailMessageList({
       {selectedUids.size > 0 ? (
         <div
           data-testid="webmail-bulk-bar"
-          className="h-10 px-3 border-b border-[var(--vellum-border)] bg-[var(--vellum-ink)] text-white flex items-center justify-between text-xs shrink-0"
+          className="h-10 px-3 border-b border-[var(--vellum-border)] bg-[var(--vellum-ink)] text-white flex items-center justify-between text-xs shrink-0 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:border-b-0 max-md:border-t"
         >
           <div className="flex items-center gap-2">
             <button
