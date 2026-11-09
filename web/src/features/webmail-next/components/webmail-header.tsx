@@ -85,7 +85,7 @@ export function WebmailHeader({
       data-testid="webmail-header"
       className="h-12 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-4 flex items-center justify-between select-none z-30 shrink-0"
     >
-      <div className="flex items-center gap-3 w-56">
+      <div className="flex items-center gap-3 w-56 max-md:w-40">
         <button
           data-testid="rail-toggle-button"
           type="button"
@@ -96,9 +96,11 @@ export function WebmailHeader({
         >
           <PanelLeft className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)] tracking-tight">
-          <div className="w-2 h-2 rounded-full bg-[var(--brand-primary,var(--brand-primary))]" />
-          <span>{brand?.name || t("webmail_next.brand_name")}</span>
+        <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)] tracking-tight min-w-0">
+          <div className="w-2 h-2 rounded-full bg-[var(--brand-primary,var(--brand-primary))] shrink-0" />
+          <span className="truncate whitespace-nowrap">
+            {brand?.name || t("webmail_next.brand_name")}
+          </span>
         </div>
       </div>
 

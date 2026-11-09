@@ -297,7 +297,7 @@ export function WebmailContactsModal({
                                   onComposeTo(email);
                                   onClose();
                                 }}
-                                className="px-2 py-1 text-xs text-[var(--brand-primary,var(--brand-primary))] hover:bg-[var(--vellum-brand-soft)] rounded flex items-center gap-1 border border-[#BFDBFE] transition-colors shrink-0"
+                                className="px-2 py-1 text-xs text-[var(--brand-primary,var(--brand-primary))] hover:bg-[var(--vellum-brand-soft)] rounded flex items-center gap-1 border border-[var(--vellum-brand-border)] transition-colors shrink-0"
                                 title="Compose email to contact"
                               >
                                 <Mail className="w-3 h-3" />

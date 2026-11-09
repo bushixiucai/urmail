@@ -441,7 +441,7 @@ export function SieveRulesSection({
                     onClick={() => handleToggleRule(idx)}
                     className={`px-2 py-0.5 text-xs font-semibold rounded border transition-colors ${
                       !rule.disabled
-                        ? "bg-[#EFF6FF] border-[#BFDBFE] text-[#2563EB]"
+                        ? "bg-[var(--vellum-brand-soft)] border-[var(--vellum-brand-border)] text-[var(--brand-primary)]"
                         : "bg-[#F3F4F6] border-[#E5E7EB] text-[#6B7280]"
                     }`}
                   >

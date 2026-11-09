@@ -330,7 +330,7 @@ export function WebmailSelectionPolish({
                 data-testid="btn-polish-retry"
                 onClick={() => void handlePolish()}
                 disabled={isLoading}
-                className="px-2.5 py-1 bg-[var(--vellum-danger-strong)] hover:bg-[#B91C1C] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                className="px-2.5 py-1 bg-[var(--vellum-danger-strong)] hover:bg-[var(--vellum-danger-strong-hover)] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>{t("webmail_next.ai_retry")}</span>

@@ -142,13 +142,13 @@ export function WebmailRecipientChips({
           <div
             key={email}
             data-testid={`recipient-pill-${email}`}
-            className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] rounded-full text-xs font-medium border border-[#DBEAFE]"
+            className="flex items-center gap-1 pl-2 pr-1 py-0.5 bg-[var(--vellum-brand-soft)] text-[var(--vellum-brand-strong)] rounded-full text-xs font-medium border border-[var(--vellum-brand-border)]"
           >
             <span>{email}</span>
             <button
               type="button"
               onClick={() => handleRemove(email)}
-              className="p-0.5 rounded-full hover:bg-[#BFDBFE] text-[var(--vellum-brand-strong)]"
+              className="p-0.5 rounded-full hover:bg-[var(--vellum-brand-border)] text-[var(--vellum-brand-strong)]"
             >
               <X className="w-3 h-3" />
             </button>

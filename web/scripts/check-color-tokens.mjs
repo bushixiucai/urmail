@@ -30,6 +30,7 @@ const hexOut = sh("grep", [
   TARGET,
   "--include=*.tsx",
   "--exclude-dir=settings",
+  "--exclude=*.test.*",
 ]);
 const hexTotal = hexOut.split("\n").filter(Boolean).length;
 
