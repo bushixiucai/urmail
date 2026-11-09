@@ -118,7 +118,7 @@ export function WebmailHeader({
         </div>
       </div>
 
-      <div className="flex-1 max-w-xl mx-4 relative">
+      <div className="flex-1 min-w-0 max-w-xl mx-4 relative">
         <div className="relative w-full">
           <Search className="w-4 h-4 text-[var(--vellum-ink-secondary)] absolute left-3 top-2.5 pointer-events-none" />
           <input
@@ -134,7 +134,7 @@ export function WebmailHeader({
               }
             }}
             placeholder={t("webmail.header.search_placeholder")}
-            className="w-full h-8 pl-9 pr-16 bg-[var(--vellum-surface-muted)] rounded-full text-xs text-[var(--vellum-ink)] border border-transparent focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none transition-all"
+            className="w-full min-w-0 h-8 pl-9 pr-16 bg-[var(--vellum-surface-muted)] rounded-full text-xs text-[var(--vellum-ink)] border border-transparent focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none transition-all"
           />
           {onOpenAdvancedSearch && (
             <button
