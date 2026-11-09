@@ -2,6 +2,25 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.13] - 2026-11-09
+
+v0.6.12 生产验收（QA 定向复验）缺陷修复批次 + CI 加固。无数据库迁移（schema 158 不变）。
+
+### AI 缺陷修复（QA v0.6.12 验收产出，六项全修）
+
+- **结果缓存键补 per-op 选项**（#76）：「更简短」chip 带 `length_limit=100` 仍命中默认摘要缓存返回旧 5 条要点——归一化操作参数纳入缓存键，同操作不同参数必为不同键
+- **provider 错误走降级契约**（#78）：translate 两次 502 AI_UNAVAILABLE 双层根因——provider 结构化调用打满 30s 客户端超时（生产 ai_usage_requests id16/17 status=uncertain 实证，provider 从未返回）+ `CompleteValidated` 违反「provider 错误不重试直接降级」契约硬返 502。修复：provider 错误改走纯文本 fallback resend（成功→200 `degraded=true, degrade_reason=provider_unavailable`），fallback 也失败才是 502 硬终态；translate 调用预算 30s→90s（`ai.OperationCallTimeout` per-op）；评估集 27→28（translate 长文稳定用例）；HTTP e2e 钉住「structured 失败→200 degraded」「降级结果不缓存」
+- **写信两步 consent 契约**（#77 #79）：`draft_new` 409 AI_CONTENT_CONSENT_STALE 根因=前端一步直发不带 `content_digest`（契约要求 preview_only=true 拿 digest → confirmed=true+digest，digest 绑定全部输入字段+folder/uid 字节级比对）。实现两步流（preview→run）、输入冻结+静默重走 preview、同 request_key、409 静默恢复（不再弹「生成失败」）——起草/diff/回退/采纳全链恢复可用
+- **连通测试填充模型下拉**（#77）：按 UX SPEC [Settings-3]，`/ai/models` 成功后由文本框升级为模型列表
+- **todos 卡标题随操作走**（#77）+ **线程文案「已加载 N / 共 M 封」**（#77，v0.6.11 遗留口径项）
+- **配额可观测与零扣减实证**：`ai.CacheHitsTotal` 计数器；缓存命中零扣减经三重验证（代码路径命中即 return 先于扣减 / 口径 calls_used=台账行数 / 生产对照 QA≥6 请求 vs 台账 5 行精确吻合）
+
+### CI 加固（#80）
+
+- **offsite flake 根修**：testdb 集群 bootstrap 锁改 `pg_try_advisory_lock` 重试循环（100ms→2s 退避），锁等待专享 3 分钟预算（总 5 分钟）；MigrateTo 无界锁收紧；unlock 独立 15s context 防泄漏。实测复现旧缺陷（持锁 120s→旧代码 90.01s FAIL「lock cluster bootstrap: deadline exceeded」，正是单跑绿/并行挂的形状）→新代码 2m1.8s 正常取得 fixture
+- **DSN 防呆**：`testdb.RequireDatabaseURL`——测试域近似名（URMAIL_TEST_DSN 等 6 个）直接 FAIL 并点名改名，根除「本地变量名写错静默 skip、本地绿 CI 红」；泛用名仅 CI 显式 REQUIRE=1 时 FAIL，不误杀合法无 PG 单测
+- offsite 旅程 deadline 移到 fixture 之后起算（锁排队不再静默吃预算）；agentd manifest.json 工作区污染兜底入库
+
 ## [0.6.12] - 2026-11-09
 
 双主线：**AI 邮件处理（重点功能，全链路工程化）** + **服务端渲染管线系统性收口**。无数据库迁移（schema 158 不变）。
