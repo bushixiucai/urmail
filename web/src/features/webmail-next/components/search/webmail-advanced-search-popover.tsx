@@ -10,6 +10,7 @@ import {
   Folder,
 } from "lucide-react";
 import type { MailboxFolder } from "@/features/webmail/mailbox-api";
+import { useDismissable } from "../../hooks/use-dismissable";
 
 export interface AdvancedSearchParams {
   from?: string;
@@ -27,6 +28,8 @@ export interface AdvancedSearchParams {
 interface WebmailAdvancedSearchPopoverProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Trigger button in the header; receives focus back on Escape. */
+  triggerRef?: React.RefObject<HTMLButtonElement | null>;
   folders: MailboxFolder[];
   onApplySearch: (params: AdvancedSearchParams) => void;
   initialParams?: AdvancedSearchParams;
@@ -37,6 +40,7 @@ const EMPTY_PARAMS: AdvancedSearchParams = {};
 export function WebmailAdvancedSearchPopover({
   isOpen,
   onClose,
+  triggerRef,
   folders,
   onApplySearch,
   initialParams = EMPTY_PARAMS,
@@ -82,23 +86,8 @@ export function WebmailAdvancedSearchPopover({
     }
   }, [initialParams]);
 
-  // Click outside to close
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    };
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isOpen, onClose]);
+  // Click outside or Escape to close (B3-1)
+  useDismissable(isOpen, popoverRef, onClose, triggerRef);
 
   if (!isOpen) return null;
 

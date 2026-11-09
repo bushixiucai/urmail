@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePublicBrand } from "@/components/brand/public-brand";
 import {
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { DensityMode } from "../types";
 import { useIsMobileViewport } from "../hooks/use-is-mobile-viewport";
+import { useDismissable } from "../hooks/use-dismissable";
 import {
   WebmailAdvancedSearchPopover,
   type AdvancedSearchParams,
@@ -61,9 +62,12 @@ export function WebmailHeader({
   const brand = usePublicBrand();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const densityRef = useRef<HTMLDivElement>(null);
+  const densityButtonRef = useRef<HTMLButtonElement>(null);
   const [densityOpen, setDensityOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const advSearchButtonRef = useRef<HTMLButtonElement>(null);
   // B2-3：<md 视口密度按钮 icon-only（顶栏高度有限，防「舒适」折行）。
   const mobileViewport = useIsMobileViewport();
   const densityLabel: Record<DensityMode, string> = {
@@ -72,27 +76,14 @@ export function WebmailHeader({
     list_only: t("webmail_next.density_list_only"),
   };
 
-  useEffect(() => {
-    if (!densityOpen) return;
-    const close = (event: MouseEvent) => {
-      if (!densityRef.current?.contains(event.target as Node)) {
-        setDensityOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [densityOpen]);
+  useDismissable(
+    densityOpen,
+    densityRef,
+    () => setDensityOpen(false),
+    densityButtonRef,
+  );
 
-  useEffect(() => {
-    if (!moreOpen) return;
-    const close = (event: MouseEvent) => {
-      if (!moreRef.current?.contains(event.target as Node)) {
-        setMoreOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [moreOpen]);
+  useDismissable(moreOpen, moreRef, () => setMoreOpen(false), moreButtonRef);
 
   return (
     <header
@@ -138,6 +129,7 @@ export function WebmailHeader({
           />
           {onOpenAdvancedSearch && (
             <button
+              ref={advSearchButtonRef}
               data-testid="btn-open-advanced-search"
               type="button"
               onClick={onOpenAdvancedSearch}
@@ -156,6 +148,7 @@ export function WebmailHeader({
               <WebmailAdvancedSearchPopover
                 isOpen={isAdvancedSearchOpen}
                 onClose={onCloseAdvancedSearch}
+                triggerRef={advSearchButtonRef}
                 folders={folders}
                 initialParams={searchParams}
                 onApplySearch={onApplyAdvancedSearch}
@@ -182,6 +175,7 @@ export function WebmailHeader({
         )}
         <div className="relative" ref={densityRef}>
           <button
+            ref={densityButtonRef}
             data-testid="webmail-density-toggle"
             type="button"
             aria-haspopup="menu"
@@ -249,6 +243,7 @@ export function WebmailHeader({
         {(onOpenContacts || onOpenSettings) && (
           <div className="relative md:hidden" ref={moreRef}>
             <button
+              ref={moreButtonRef}
               data-testid="webmail-more-btn"
               type="button"
               aria-haspopup="menu"
