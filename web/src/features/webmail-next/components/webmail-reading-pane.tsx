@@ -7,6 +7,8 @@ import {
   Trash2,
   Star,
   ShieldAlert,
+  ShieldCheck,
+  Loader2,
   ArrowLeft,
   UserPlus,
   Check,
@@ -27,6 +29,7 @@ import {
   previewMailboxAI,
   runMailboxAI,
   type MailboxAIAssistResponse,
+  type MailboxAIIndicator,
   type MessageDetail,
   type MessageSummary,
 } from "@/features/webmail/mailbox-api";
@@ -241,14 +244,31 @@ export function WebmailReadingPane({
   const [showUnconfiguredModal, setShowUnconfiguredModal] = useState(false);
   const summaryAbortControllerRef = useRef<AbortController | null>(null);
 
+  // On-demand phishing/safety check (assist op=phishing, two-step contract).
+  const [phishingCheck, setPhishingCheck] = useState<{
+    score?: number;
+    risk_level?: "low" | "medium" | "high" | "critical";
+    indicators?: MailboxAIIndicator[];
+  } | null>(null);
+  const [isRunningSecurityCheck, setIsRunningSecurityCheck] = useState(false);
+  const [securityCheckNote, setSecurityCheckNote] = useState<string | null>(
+    null,
+  );
+  const securityCheckAbortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     summaryAbortControllerRef.current?.abort();
+    securityCheckAbortControllerRef.current?.abort();
     setSummaryResponse(null);
     setSummaryOp("standard");
     setIsGeneratingSummary(false);
     setSummaryError(null);
     setIsSummaryDismissed(false);
     setShowUnconfiguredModal(false);
+    // Un-analyzed mail stays completely silent: drop any on-demand result.
+    setPhishingCheck(null);
+    setSecurityCheckNote(null);
+    setIsRunningSecurityCheck(false);
   }, [message?.uid]);
 
   const handleGenerateSummary = async (options?: {
@@ -470,14 +490,138 @@ export function WebmailReadingPane({
     }
   };
 
-  const isHighRisk =
-    message.risk_level === "high" ||
-    message.risk_level === "critical" ||
-    Boolean(
-      message.indicators &&
-      message.indicators.length > 0 &&
-      message.risk_level !== "low",
+  const isConsentStaleError = (err: unknown): boolean => {
+    const apiErr = err as {
+      status?: number;
+      code?: string;
+      error?: { code?: string };
+    };
+    const code = apiErr?.code || apiErr?.error?.code || "";
+    return (
+      apiErr?.status === 409 ||
+      code === "AI_CONTENT_CONSENT_STALE" ||
+      code === "AI_CLOUD_CONSENT_STALE"
     );
+  };
+
+  // On-demand phishing/safety check for mails the server has not analysed.
+  // Same two-step contract as every other assist call: preview_only first to
+  // obtain content_digest, then one confirmed run with the same request_key;
+  // a 409 consent-stale silently re-runs the pair once before surfacing.
+  const handleRunSecurityCheck = async () => {
+    if (!message || !message.uid || isRunningSecurityCheck) return;
+    securityCheckAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    securityCheckAbortControllerRef.current = controller;
+
+    setIsRunningSecurityCheck(true);
+    setSecurityCheckNote(null);
+
+    const plainText =
+      message.text ||
+      (message.html ? message.html.replace(/<[^>]+>/g, " ").trim() : "");
+
+    try {
+      const target = await fetchMailboxAITarget(controller.signal);
+      if (!target.configuration_digest) {
+        setShowUnconfiguredModal(true);
+        return;
+      }
+
+      const input = {
+        operation: "phishing" as const,
+        configuration_digest: target.configuration_digest,
+        confirmed: true,
+        request_key: `security-${crypto.randomUUID()}`,
+        folder_enc: folderEnc,
+        uid: message.uid,
+        uid_validity: message.uid_validity,
+        body: plainText,
+        subject: message.subject || "",
+      };
+
+      const executeCheck = async (digest: string) => {
+        const preview = await previewMailboxAI(
+          "assist",
+          { ...input, configuration_digest: digest },
+          controller.signal,
+        );
+        return await runMailboxAI(
+          {
+            ...input,
+            configuration_digest: digest,
+            content_digest: preview.content_digest,
+          },
+          controller.signal,
+        );
+      };
+
+      let resp: MailboxAIAssistResponse;
+      try {
+        resp = await executeCheck(target.configuration_digest);
+      } catch (firstErr: unknown) {
+        if (!isConsentStaleError(firstErr)) throw firstErr;
+        const fresh = await fetchMailboxAITarget(controller.signal);
+        if (!fresh.configuration_digest) {
+          setShowUnconfiguredModal(true);
+          return;
+        }
+        resp = await executeCheck(fresh.configuration_digest);
+      }
+
+      if (controller.signal.aborted) return;
+      const checkScore = resp.result.score;
+      const checkLevel = resp.result.risk_level;
+      const checkHigh =
+        checkScore !== undefined
+          ? checkScore >= 0.6
+          : checkLevel === "high" || checkLevel === "critical";
+      setPhishingCheck({
+        score: checkScore,
+        risk_level: checkLevel,
+        indicators: resp.result.indicators,
+      });
+      // score < 0.6 stays silent (no red banner); leave a quiet one-line
+      // acknowledgement next to the trigger so the click is not a no-op.
+      // High-risk results speak through the red banner instead.
+      setSecurityCheckNote(
+        checkHigh ? null : t("webmail_next.security_check_clear"),
+      );
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      const apiErr = err as {
+        code?: string;
+        error?: { code?: string };
+      };
+      const code = apiErr?.code || apiErr?.error?.code || "";
+      if (code === "AI_UNCONFIGURED" || code === "AI_DISABLED") {
+        setShowUnconfiguredModal(true);
+      } else {
+        setSecurityCheckNote(
+          t(`error.${code}`, {
+            defaultValue: t("page.webmail.ai_failed"),
+          }),
+        );
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsRunningSecurityCheck(false);
+      }
+    }
+  };
+
+  // Red banner rule: score >= 0.6 renders, anything below stays silent.
+  // On-demand check results take precedence over server-side message fields;
+  // when the score is absent (previously analysed mail) the coarse risk_level
+  // decides, and mails without any risk keys render nothing at all.
+  const activeRiskScore =
+    phishingCheck?.score ?? message.score ?? message.risk_score;
+  const activeRiskLevel = phishingCheck?.risk_level ?? message.risk_level;
+  const activeIndicators = phishingCheck?.indicators ?? message.indicators;
+  const isHighRisk =
+    activeRiskScore !== undefined
+      ? activeRiskScore >= 0.6
+      : activeRiskLevel === "high" || activeRiskLevel === "critical";
 
   const messageTextLength =
     (message.text?.length ?? 0) ||
@@ -502,9 +646,16 @@ export function WebmailReadingPane({
             <div className="font-semibold">
               {t("webmail_next.ai_phishing_high_risk")}
             </div>
-            {message.indicators && message.indicators.length > 0 && (
+            {activeRiskScore !== undefined && (
+              <div className="opacity-80" data-testid="phishing-risk-score">
+                {t("webmail_next.ai_phishing_score", {
+                  score: activeRiskScore.toFixed(2),
+                })}
+              </div>
+            )}
+            {activeIndicators && activeIndicators.length > 0 && (
               <ul className="list-disc list-inside space-y-0.5 opacity-90">
-                {message.indicators.map((ind, i) => (
+                {activeIndicators.map((ind, i) => (
                   <li key={i}>
                     <span className="font-medium">{ind.type}</span>
                     {ind.evidence ? `: ${ind.evidence}` : ""}
@@ -764,9 +915,38 @@ export function WebmailReadingPane({
                   </span>
                   <WebmailSecurityBadge
                     authentication={message.authentication}
-                    riskLevel={message.risk_level}
-                    indicators={message.indicators}
+                    riskLevel={activeRiskLevel}
+                    indicators={activeIndicators}
                   />
+                  {/* On-demand phishing/safety check entry: un-analysed mail
+                      renders nothing until the user asks for a check. */}
+                  <button
+                    data-testid="btn-security-check"
+                    type="button"
+                    onClick={() => void handleRunSecurityCheck()}
+                    disabled={isRunningSecurityCheck}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B] hover:bg-[#EBE8E0] transition-colors disabled:opacity-50 select-none"
+                    title={t("page.webmail.ai_quick_security")}
+                    aria-label={t("page.webmail.ai_quick_security")}
+                  >
+                    {isRunningSecurityCheck ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {t("page.webmail.ai_quick_security")}
+                    </span>
+                  </button>
+                  {securityCheckNote && (
+                    <span
+                      role="status"
+                      data-testid="security-check-note"
+                      className="text-xs text-[var(--vellum-ink-secondary)]"
+                    >
+                      {securityCheckNote}
+                    </span>
+                  )}
                   <button
                     data-testid="btn-add-contact"
                     type="button"
