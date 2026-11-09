@@ -32,6 +32,9 @@ type draftJournalIMAP struct {
 
 func (*draftJournalIMAP) EnsureDraftsFolder(context.Context) (string, error) { return "Drafts", nil }
 func (*draftJournalIMAP) Close() error                                       { return nil }
+func (*draftJournalIMAP) GetThreadMembers(context.Context, string, uint32, webmail.ThreadMembersOpts) (webmail.ThreadMembersResult, error) {
+	return webmail.ThreadMembersResult{}, nil
+}
 
 type draftJournalDialer struct{ client webmail.Client }
 

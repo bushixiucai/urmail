@@ -192,6 +192,9 @@ func (f *fakeIMAPClient) MoveToTrash(_ context.Context, _ string, uids []uint32)
 	return "Trash", nil
 }
 func (f *fakeIMAPClient) Close() error { return nil }
+func (f *fakeIMAPClient) GetThreadMembers(context.Context, string, uint32, webmail.ThreadMembersOpts) (webmail.ThreadMembersResult, error) {
+	return webmail.ThreadMembersResult{}, nil
+}
 
 type fakeDialer struct {
 	wantAddress string

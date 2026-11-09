@@ -36,6 +36,9 @@ type importIMAPFixture struct {
 }
 
 func (c *importIMAPFixture) Close() error { return nil }
+func (c *importIMAPFixture) GetThreadMembers(context.Context, string, uint32, webmail.ThreadMembersOpts) (webmail.ThreadMembersResult, error) {
+	return webmail.ThreadMembersResult{}, nil
+}
 func (c *importIMAPFixture) FolderUIDValidity(context.Context, string) (uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

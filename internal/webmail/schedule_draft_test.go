@@ -55,7 +55,10 @@ func (f *fakeDraftClient) SaveDraft(context.Context, string, Outgoing, uint32, u
 	return DraftSaveResult{}, nil
 }
 func (f *fakeDraftClient) FolderUIDValidity(context.Context, string) (uint32, error) { return 1, nil }
-func (f *fakeDraftClient) Close() error                                              { return nil }
+func (f *fakeDraftClient) GetThreadMembers(context.Context, string, uint32, ThreadMembersOpts) (ThreadMembersResult, error) {
+	return ThreadMembersResult{}, nil
+}
+func (f *fakeDraftClient) Close() error { return nil }
 
 func TestOutgoingFromDraft(t *testing.T) {
 	client := &fakeDraftClient{

@@ -57,6 +57,9 @@ type Client interface {
 	SaveSentCopy(ctx context.Context, raw []byte) (DraftSaveResult, error)
 	// MoveToTrash moves UIDs into Trash without expunging them.
 	MoveToTrash(ctx context.Context, folder string, uids []uint32) (string, error)
+	// GetThreadMembers resolves the cross-folder member list of the thread
+	// containing (folder, uid); see THREAD-MEMBERS-API-CONTRACT.md.
+	GetThreadMembers(ctx context.Context, folder string, uid uint32, opts ThreadMembersOpts) (ThreadMembersResult, error)
 	Close() error
 }
 
