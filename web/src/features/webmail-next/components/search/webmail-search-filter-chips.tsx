@@ -102,7 +102,7 @@ export function WebmailSearchFilterChips({
             data-testid={`btn-remove-chip-${chip.key}`}
             type="button"
             onClick={() => onRemoveParam(chip.key)}
-            className="p-0.5 rounded-full hover:bg-[#DBEAFE] text-[var(--vellum-brand-strong)]"
+            className="p-0.5 rounded-full hover:bg-[var(--vellum-brand-border)] text-[var(--vellum-brand-strong)]"
             title="Remove filter"
           >
             <X className="w-3 h-3" />
