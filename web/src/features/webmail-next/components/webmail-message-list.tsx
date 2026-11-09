@@ -252,6 +252,15 @@ export function WebmailMessageList({
           total: totalCount ?? messages.length,
         })
       : "";
+  // md 档列宽有限，隐藏「已加载」前缀只留数字区间（B3-2 防列头折行）。
+  const loadedLabelShort =
+    messages.length > 0
+      ? t("webmail_next.loaded_range_short", {
+          from: 1,
+          to: messages.length,
+          total: totalCount ?? messages.length,
+        })
+      : "";
 
   useEffect(() => {
     onBindSelection?.({
@@ -367,7 +376,7 @@ export function WebmailMessageList({
               data-testid="select-all-button"
               type="button"
               onClick={handleToggleSelectAll}
-              className="p-1 rounded hover:bg-white/10"
+              className="p-1.5 rounded hover:bg-white/10"
               aria-label={
                 isAllSelected
                   ? t("webmail_next.deselect_all")
@@ -391,7 +400,7 @@ export function WebmailMessageList({
             <button
               type="button"
               data-testid="bulk-archive"
-              className="p-1 rounded hover:bg-white/10"
+              className="p-1.5 rounded hover:bg-white/10"
               aria-label={t("webmail_next.bulk_archive")}
               onClick={() => runBulk(onBulkArchive)}
             >
@@ -400,7 +409,7 @@ export function WebmailMessageList({
             <button
               type="button"
               data-testid="bulk-trash"
-              className="p-1 rounded hover:bg-white/10"
+              className="p-1.5 rounded hover:bg-white/10"
               aria-label={t("webmail_next.bulk_trash")}
               onClick={() => runBulk(onBulkTrash)}
             >
@@ -409,7 +418,7 @@ export function WebmailMessageList({
             <button
               type="button"
               data-testid="bulk-read"
-              className="p-1 rounded hover:bg-white/10"
+              className="p-1.5 rounded hover:bg-white/10"
               aria-label={t("webmail_next.bulk_read")}
               onClick={() => runBulk(onBulkRead)}
             >
@@ -418,7 +427,7 @@ export function WebmailMessageList({
             <button
               type="button"
               data-testid="bulk-unread"
-              className="p-1 rounded hover:bg-white/10"
+              className="p-1.5 rounded hover:bg-white/10"
               aria-label={t("webmail_next.bulk_unread")}
               onClick={() => runBulk(onBulkUnread)}
             >
@@ -427,7 +436,7 @@ export function WebmailMessageList({
             <button
               type="button"
               data-testid="bulk-star"
-              className="p-1 rounded hover:bg-white/10"
+              className="p-1.5 rounded hover:bg-white/10"
               aria-label={t("webmail_next.bulk_star")}
               onClick={() => runBulk(onBulkStar)}
             >
@@ -438,7 +447,7 @@ export function WebmailMessageList({
                 ref={bulkMoveButtonRef}
                 type="button"
                 data-testid="bulk-move"
-                className="p-1 rounded hover:bg-white/10"
+                className="p-1.5 rounded hover:bg-white/10"
                 aria-label={t("webmail_next.bulk_move")}
                 onClick={() => setMoveOpen((open) => !open)}
               >
@@ -470,12 +479,12 @@ export function WebmailMessageList({
         </div>
       ) : (
         <div className="h-10 px-3 border-b border-[var(--vellum-border)] bg-[var(--vellum-ground)]/70 flex items-center justify-between text-xs text-[var(--vellum-ink-secondary)] shrink-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               data-testid="select-all-button"
               type="button"
               onClick={handleToggleSelectAll}
-              className="p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] transition-colors"
+              className="p-1.5 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] transition-colors"
               aria-label={
                 isAllSelected
                   ? t("webmail_next.deselect_all")
@@ -490,24 +499,25 @@ export function WebmailMessageList({
             </button>
             <span
               data-testid="folder-name-header"
-              className="font-semibold text-[var(--vellum-ink)]"
+              className="font-semibold text-[var(--vellum-ink)] truncate whitespace-nowrap shrink-0"
             >
               {decodeFolderName(folderName)}
             </span>
             <span
               data-testid="loaded-range"
-              className="text-xs text-[var(--vellum-ink-secondary)]"
+              className="min-w-0 truncate whitespace-nowrap text-xs text-[var(--vellum-ink-secondary)]"
             >
-              {loadedLabel}
+              <span className="hidden lg:inline">{loadedLabel}</span>
+              <span className="lg:hidden">{loadedLabelShort}</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               data-testid="sort-toggle-button"
               type="button"
               onClick={handleSortClick}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] select-none"
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] select-none shrink-0 whitespace-nowrap"
               title={t("webmail_next.sort_tooltip", {
                 field: t(`webmail_next.sort_field_${sort || "date"}`),
                 order: t(
@@ -526,12 +536,12 @@ export function WebmailMessageList({
                 type="button"
                 onClick={onRefresh}
                 disabled={isRefreshing}
-                className={`p-1 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
+                className={`p-1.5 rounded hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] ${
                   isRefreshing ? "animate-spin" : ""
                 }`}
                 aria-label={t("webmail_next.refresh")}
               >
-                <RefreshCw className="w-3 h-3" />
+                <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
