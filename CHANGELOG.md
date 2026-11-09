@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.16] - 2026-11-09
+
+UIUX 批次 1 验证回票修复（暗色决策①b 收尾）。无数据库迁移。
+
+- **theme-provider 缺省模式锁 light**：缺省 `mode` 落 `"system"` 跟随 OS 深色切换 `html.dark`，而应用无主题设置入口，系统深色用户被动进入红条 dark 变体+浅色外壳的半暗割裂态，与决策①b（应用级暗色 v1 不支持）冲突——未持久化/非法值/`"system"` 一律 clamp 为 light，仅显式 `"dark"` 激活（OS 监听保留休眠，供 v2 主题功能复用）（#90）
+- 钓鱼红条 3 处 `dark:` 死变体清理（暗色下不可达）
+- 测试同步：深色 OS 下缺省 light、非法值回 light
+
 ## [0.6.15] - 2026-11-09
 
 UIUX 评审批次 1 + 钓鱼红条接线。含数据库迁移（0159，新表 mailbox_ai_phishing_findings）。
