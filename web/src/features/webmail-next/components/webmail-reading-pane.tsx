@@ -14,6 +14,8 @@ import {
   Check,
   Mail,
 } from "lucide-react";
+import { useDelayedFlag } from "../hooks/use-delayed-flag";
+import { ReadingSkeleton, SkeletonBlock } from "./webmail-skeleton";
 import { WebmailSecurityBadge } from "./webmail-security-badge";
 import { WebmailAttachmentCard } from "./webmail-attachment-card";
 import { WebmailAICueStrip } from "./ai/webmail-ai-cue-strip";
@@ -176,11 +178,11 @@ function SanitizedHtmlFrame({
       <div
         data-testid="mail-html-skeleton"
         aria-busy="true"
-        className="animate-pulse space-y-3"
+        className="vellum-skeleton-fade space-y-3"
       >
-        <div className="h-3 w-2/3 rounded bg-[var(--vellum-border)]" />
-        <div className="h-3 w-1/2 rounded bg-[var(--vellum-border)]" />
-        <div className="h-24 w-full rounded bg-[var(--vellum-border)]" />
+        <SkeletonBlock className="h-3 w-2/3" />
+        <SkeletonBlock className="h-3 w-1/2" />
+        <SkeletonBlock className="h-24 w-full" />
       </div>
     );
   }
@@ -228,6 +230,8 @@ export function WebmailReadingPane({
   onOpenAISettings,
 }: WebmailReadingPaneProps) {
   const { t } = useTranslation();
+  // B2-2 防闪：详情请求 in-flight >300ms 才渲染阅读区骨架。
+  const showReadingSkeleton = useDelayedFlag(isLoading, 300);
   const [localManualGranted, setLocalManualGranted] = useState(false);
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [contactAdded, setContactAdded] = useState(false);
@@ -403,22 +407,16 @@ export function WebmailReadingPane({
     };
   }, [useWorker, message?.html, message?.uid, isImageAllowed]);
 
-  if (isLoading) {
+  if (showReadingSkeleton) {
     return (
       <div
         data-testid="webmail-reading-pane"
         className="flex-1 h-full bg-[var(--vellum-ground)] p-6"
       >
-        <div
-          data-testid="reading-skeleton"
-          aria-busy="true"
-          aria-label={t("webmail_next.loading_message")}
-          className="animate-pulse space-y-3"
-        >
-          <div className="h-4 w-2/3 rounded bg-[var(--vellum-border)]" />
-          <div className="h-3 w-1/3 rounded bg-[var(--vellum-border)]" />
-          <div className="h-24 w-full rounded bg-[var(--vellum-border)]" />
-        </div>
+        <ReadingSkeleton
+          testId="reading-skeleton"
+          label={t("webmail_next.loading_message")}
+        />
       </div>
     );
   }
