@@ -122,6 +122,26 @@
   animation: webmail-drawer-in 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* 批次 2 B2-2：骨架块一次性淡入，无 pulse 循环（PHASE3 规格明令无闪光）。
+   块本身只有底色与圆角，动效统一由本类承担。 */
+@keyframes vellum-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.vellum-skeleton-fade {
+  animation: vellum-fade-in 200ms ease-out;
+}
+
+.vellum-skeleton-block {
+  border-radius: var(--vellum-radius-sm);
+  background-color: var(--vellum-surface-muted);
+}
+
 @keyframes webmail-drawer-in {
   from {
     transform: translateX(16px);

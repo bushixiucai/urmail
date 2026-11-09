@@ -1352,6 +1352,9 @@ export function WebmailNextWorkbench({
                 folderName={folderDisplayName}
                 messages={messages}
                 activeUid={selectedUid}
+                isSearchView={searchDraft.trim() !== ""}
+                onClearSearch={() => setSearchDraft("")}
+                onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
                 onSelectMessage={(uid) => openMessage(uid)}
                 totalCount={messageTotal}
