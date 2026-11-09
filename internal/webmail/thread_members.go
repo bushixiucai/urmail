@@ -219,8 +219,10 @@ func threadSortDate(m MessageSummary) time.Time {
 	return *m.Date
 }
 
-// threadWindow picks the [start,end) slice for the requested window.
-func threadWindow(members []MessageSummary, folder string, uid uint32, opts ThreadMembersOpts, total int) (int, int, error) {
+// threadWindow picks the [start,end) slice for the requested window. The
+// anchor member itself is located by opts.AnchorUID, so the queried uid is
+// only carried by the callers' member lookup.
+func threadWindow(members []MessageSummary, folder string, _ uint32, opts ThreadMembersOpts, total int) (int, int, error) {
 	switch {
 	case opts.Before != "":
 		beforeFolder, beforeUID, err := parseThreadCursor(opts.Before)
