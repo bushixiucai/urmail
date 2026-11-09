@@ -278,7 +278,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if tx.Commit(ctx) != nil {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, ai.OperationCallTimeout(input.Operation))
 	defer cancel()
 	request.Model = cfg.Model
 	result, usage, meta, callErr := ai.CompleteValidated(callCtx, provider, input.Operation, request, ai.StructuredParams(input))

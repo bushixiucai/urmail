@@ -121,8 +121,9 @@ func loadEvalCases(t *testing.T) map[string][]namedEvalCase {
 }
 
 // TestAIEvalCoverage pins the fixture set itself: every structured
-// operation carries exactly three graded cases, and only known
-// operations appear.
+// operation carries exactly three graded cases, translate carries a
+// fourth (the long-release stability case added with DEF-B), and only
+// known operations appear.
 func TestAIEvalCoverage(t *testing.T) {
 	grouped := loadEvalCases(t)
 	total := 0
@@ -130,13 +131,17 @@ func TestAIEvalCoverage(t *testing.T) {
 		if !isEvalOperation(op) {
 			t.Fatalf("unknown operation directory %q", op)
 		}
-		if len(cases) != 3 {
-			t.Fatalf("operation %s has %d cases, want 3", op, len(cases))
+		want := 3
+		if op == "translate" {
+			want = 4
+		}
+		if len(cases) != want {
+			t.Fatalf("operation %s has %d cases, want %d", op, len(cases), want)
 		}
 		total += len(cases)
 	}
-	if total != 27 {
-		t.Fatalf("fixture total %d, want 27 (9 operations x 3)", total)
+	if total != 28 {
+		t.Fatalf("fixture total %d, want 28 (9 operations x 3, translate +1)", total)
 	}
 	for _, op := range evalOperations {
 		if len(grouped[op]) == 0 {
