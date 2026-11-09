@@ -129,6 +129,10 @@ export function WebmailEditorTiptap({
     }
   };
 
+  // Plain-text snapshot of the draft: the polish request needs the whole draft
+  // body as context, and the assist endpoint rejects an empty body.
+  const draftPlainText = isPlainText ? content : editor?.getText() || content;
+
   if (isPlainText) {
     return (
       <div
@@ -157,6 +161,7 @@ export function WebmailEditorTiptap({
         {polishSelection && (
           <WebmailSelectionPolish
             selectedText={polishSelection.text}
+            draftBody={draftPlainText}
             position={polishSelection.position}
             onReplace={handleReplaceSelection}
             onClose={() => setPolishSelection(null)}
@@ -276,6 +281,7 @@ export function WebmailEditorTiptap({
       {polishSelection && (
         <WebmailSelectionPolish
           selectedText={polishSelection.text}
+          draftBody={draftPlainText}
           position={polishSelection.position}
           onReplace={handleReplaceSelection}
           onClose={() => setPolishSelection(null)}

@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Sparkles, Check, Loader2, X, AlertTriangle } from "lucide-react";
+import {
+  Sparkles,
+  Check,
+  Loader2,
+  X,
+  AlertTriangle,
+  RotateCcw,
+} from "lucide-react";
 import {
   fetchMailboxAITarget,
   previewMailboxAI,
@@ -11,6 +18,12 @@ import {
 
 export interface WebmailSelectionPolishProps {
   selectedText: string;
+  /**
+   * Plain text of the draft the selection belongs to. The assist endpoint
+   * rejects polish requests whose body is empty, so the surrounding draft
+   * travels as `body` while the selection travels as `draft`.
+   */
+  draftBody?: string;
   position: { top: number; left: number };
   onReplace: (revisedText: string) => void;
   onClose: () => void;
@@ -19,6 +32,7 @@ export interface WebmailSelectionPolishProps {
 
 export function WebmailSelectionPolish({
   selectedText,
+  draftBody,
   position,
   onReplace,
   onClose,
@@ -29,6 +43,7 @@ export function WebmailSelectionPolish({
   const [revisedText, setRevisedText] = useState<string | null>(null);
   const [changes, setChanges] = useState<MailboxAIChange[]>([]);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [isConsentStale, setIsConsentStale] = useState(false);
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [showUnconfigured, setShowUnconfigured] = useState(false);
 
@@ -46,6 +61,10 @@ export function WebmailSelectionPolish({
     if (!selectedText.trim()) return;
     setIsLoading(true);
     setErrorNotice(null);
+    setIsConsentStale(false);
+    setShowUnconfigured(false);
+    setRevisedText(null);
+    setChanges([]);
 
     try {
       const target = await fetchMailboxAITarget();
@@ -57,6 +76,9 @@ export function WebmailSelectionPolish({
       }
 
       const requestKey = crypto.randomUUID();
+      // The server validates that body is non-empty and refines `draft`; the
+      // whole draft gives the model the surrounding context.
+      const requestBody = draftBody?.trim() ? draftBody : selectedText;
 
       const executePolish = async (
         currentTarget: typeof target,
@@ -64,6 +86,8 @@ export function WebmailSelectionPolish({
         const input = {
           operation: "polish" as const,
           selection: selectedText,
+          draft: selectedText,
+          body: requestBody,
           configuration_digest: currentTarget.configuration_digest || "",
           confirmed: true,
           request_key: requestKey,
@@ -109,17 +133,24 @@ export function WebmailSelectionPolish({
         code?: string;
         error?: { code?: string };
       };
+      const code = apiErr?.code || apiErr?.error?.code || "";
       const isStale =
         apiErr?.status === 409 ||
-        apiErr?.code === "AI_CONTENT_CONSENT_STALE" ||
-        apiErr?.error?.code === "AI_CONTENT_CONSENT_STALE";
+        code === "AI_CONTENT_CONSENT_STALE" ||
+        code === "AI_CLOUD_CONSENT_STALE";
 
       if (isStale) {
+        setIsConsentStale(true);
+      } else if (code === "AI_UNCONFIGURED" || code === "AI_DISABLED") {
+        setShowUnconfigured(true);
+      } else if (code) {
+        // Surface the concrete server reason (e.g. INVALID_PARAMS,
+        // AI_SOURCE_CHANGED, AI_PROVIDER_UNAVAILABLE) instead of swallowing it
+        // into a generic failure, so the user knows what to act on.
         setErrorNotice(
-          t(
-            "error.AI_CONTENT_CONSENT_STALE",
-            "Content or sources changed. Preview and confirm again.",
-          ),
+          t(`error.${code}`, {
+            defaultValue: t("page.webmail.ai_generation_failed"),
+          }),
         );
       } else {
         setErrorNotice(t("page.webmail.ai_generation_failed"));
@@ -250,14 +281,60 @@ export function WebmailSelectionPolish({
             </div>
           )}
 
-          {/* Error Notice */}
-          {errorNotice && (
+          {/* Consent stale: silent retry already failed, offer an explicit one */}
+          {isConsentStale && (
             <div
               role="alert"
-              className="p-2 rounded bg-[#FEE2E2] dark:bg-[rgba(239,68,68,0.2)] text-[#991B1B] dark:text-[#F87171] text-xs flex items-center gap-2"
+              data-testid="selection-polish-consent-stale-card"
+              className="p-2.5 rounded-lg border border-[#FDE68A] dark:border-[#B45309] bg-[#FEF3C7] dark:bg-[rgba(245,158,11,0.2)] text-[#92400E] dark:text-[#FDE68A] space-y-2"
             >
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              <span>{errorNotice}</span>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#D97706]" />
+                <div className="flex-1 space-y-1">
+                  <p className="font-semibold text-[#B45309] dark:text-[#FCD34D]">
+                    {t("webmail_next.ai_consent_stale_title")}
+                  </p>
+                  <p className="leading-relaxed">
+                    {t("error.AI_CONTENT_CONSENT_STALE")}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="btn-polish-consent-retry"
+                  onClick={() => void handlePolish()}
+                  disabled={isLoading}
+                  className="px-2.5 py-1 bg-[#D97706] hover:bg-[#B45309] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{t("webmail_next.ai_consent_reauthorize_btn")}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Concrete failure reason with a retry action */}
+          {errorNotice && !isConsentStale && (
+            <div
+              role="alert"
+              data-testid="selection-polish-error"
+              className="p-2 rounded bg-[#FEE2E2] dark:bg-[rgba(239,68,68,0.2)] text-[#991B1B] dark:text-[#F87171] text-xs space-y-2"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span className="flex-1">{errorNotice}</span>
+              </div>
+              <button
+                type="button"
+                data-testid="btn-polish-retry"
+                onClick={() => void handlePolish()}
+                disabled={isLoading}
+                className="px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>{t("webmail_next.ai_retry")}</span>
+              </button>
             </div>
           )}
 

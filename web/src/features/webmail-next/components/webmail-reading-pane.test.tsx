@@ -414,6 +414,60 @@ describe("SanitizedHtmlFrame auto height", () => {
     expect(screen.getByText("Key contract term 1")).toBeTruthy();
     expect(screen.getByText("Sign contract")).toBeTruthy();
     expect(screen.getByTestId("ai-cache-hit")).toBeTruthy();
+
+    // Reading operations act on the whole message: the server derives the body
+    // from the live message and rejects any selection that is not an exact
+    // substring of its own plain-text rendering (409 AI_SOURCE_CHANGED).
+    const previewInput = vi.mocked(mailboxApi.previewMailboxAI).mock
+      .calls[0][1] as Record<string, unknown>;
+    expect(previewInput).not.toHaveProperty("selection");
+    expect(previewInput.uid).toBe(mockMessage.uid);
+    const runInput = vi.mocked(mailboxApi.runMailboxAI).mock
+      .calls[0][0] as Record<string, unknown>;
+    expect(runInput).not.toHaveProperty("selection");
+    expect(runInput.content_digest).toBe("content-digest-456");
+  });
+
+  it("omits selection for HTML-only long messages so the summary chain is accepted", async () => {
+    const mailboxApi = await import("@/features/webmail/mailbox-api");
+    vi.spyOn(mailboxApi, "fetchMailboxAITarget").mockClear().mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "cfg-digest-123",
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-4o",
+      provider: "openai",
+    });
+    vi.spyOn(mailboxApi, "previewMailboxAI")
+      .mockClear()
+      .mockResolvedValue({ content_digest: "content-digest-789" });
+    vi.spyOn(mailboxApi, "runMailboxAI")
+      .mockClear()
+      .mockResolvedValue({
+        result: { bullets: ["HTML-only summary bullet"] },
+      });
+
+    // HTML-only message: no plain-text part, and the rendered markup carries a
+    // long inline <style> block (the Infura template shape).
+    const htmlOnlyMessage: MessageDetail = {
+      ...mockMessage,
+      uid: 37929,
+      text: undefined,
+      html: `<style>${".urmail-vp{color:#fff;background:#121212}" + "a".repeat(1600)}</style><div class="urmail-vp">Hello from the newsletter</div>`,
+    };
+
+    render(<WebmailReadingPane message={htmlOnlyMessage} folderEnc="INBOX" />);
+
+    fireEvent.click(screen.getByTestId("btn-trigger-summary"));
+
+    await screen.findByTestId("structured-summary-card");
+
+    const previewInput = vi.mocked(mailboxApi.previewMailboxAI).mock
+      .calls[0][1] as Record<string, unknown>;
+    expect(previewInput).not.toHaveProperty("selection");
+    const runInput = vi.mocked(mailboxApi.runMailboxAI).mock
+      .calls[0][0] as Record<string, unknown>;
+    expect(runInput).not.toHaveProperty("selection");
   });
 
   it("displays phishing warning banner with indicators when risk_level is high", () => {
