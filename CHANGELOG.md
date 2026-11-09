@@ -2,6 +2,15 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.14] - 2026-11-09
+
+v0.6.13 定向复测两项前端缺陷快速修复 + 安全徽章判读定案。无数据库迁移（schema 158 不变）。
+
+- **摘要类操作不再误传 selection**（#82）：HTML-only 邮件 AI 读信全链 409 AI_SOURCE_CHANGED——前端把整份渲染文本（Infura 信 15023 字）当作 selection 传入，服务端 strings.Contains(原文, selection) 必败、provider 未被调用。修复：selection 语义收窄为「用户真实选区」，摘要类操作（摘要/待办/关键日期/翻译/更简短 chips）一律不传，仅选区润色携带
+- **选区润色请求补契约字段**（#82）：润色 400 INVALID_PARAMS——请求缺 body/draft（服务端空 Body 拒绝），popover 只弹「生成失败」。修复：润色请求带当前草稿纯文本（editor-tiptap 新增 draftBody 透传，空草稿回退选中文本）+ draft=选中文本；popover 按服务端错误码展示具体原因并可重试（409 静默重试仍失败才出 consent 卡）
+- **安全徽章判读定案**（无代码变更）：红色高危条来自 Webmail 按需「钓鱼/安全检查」操作（投递链路不跑 AI）；琥珀条=认证证明缺失的设计行为（本地直注无 milter 证明、Sieve 转发副本按策略剥证明，均非回归）；钓鱼判定只采信管线 score（≥0.6=high、≥0.85=critical），模型枚举不采信
+- **translate 502 复核定案**：v0.6.13 的 90s 翻译预算已生效（时序证据：结算时刻早于 30s 预算应到期点，ctx 未触发 deadline），502 为 provider 侧 ~29.5s 网关超时+fallback 快败的外部抖动，双失败硬终态契约按设计走完；硬失败台账可见（callErr 先结算再返回）
+
 ## [0.6.13] - 2026-11-09
 
 v0.6.12 生产验收（QA 定向复验）缺陷修复批次 + CI 加固。无数据库迁移（schema 158 不变）。
