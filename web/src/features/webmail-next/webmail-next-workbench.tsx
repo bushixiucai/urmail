@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Palmtree } from "lucide-react";
+import { Palmtree, Pencil } from "lucide-react";
 import { WebmailHeader } from "./components/webmail-header";
 import { WebmailNavigationRail } from "./components/webmail-navigation-rail";
 import { WebmailMessageList } from "./components/webmail-message-list";
@@ -37,6 +37,7 @@ import { WebmailSearchFilterChips } from "./components/search/webmail-search-fil
 import { WebmailContactsModal } from "./components/contacts/webmail-contacts-modal";
 import { WebmailErrorBoundary } from "./components/webmail-error-boundary";
 import { useWebmailPreferences } from "./use-webmail-preferences";
+import { useIsMobileViewport } from "./hooks/use-is-mobile-viewport";
 import {
   listFolders,
   listMessages,
@@ -192,7 +193,26 @@ export function WebmailNextWorkbench({
     { from?: string; folder?: string } | undefined
   >(undefined);
 
-  const { density, setDensity } = useWebmailPreferences();
+  const { density, setDensity, hasExplicitDensity } = useWebmailPreferences();
+  // B2-3：移动端且用户从未显式选过密度时，默认抬到 comfortable（行高
+  // 52px 触控达标 ≥44px）；显式设置优先于视口默认，桌面端不受影响。
+  const isMobileViewport = useIsMobileViewport();
+  const effectiveDensity =
+    isMobileViewport && !hasExplicitDensity ? "comfortable" : density;
+  // B2-3: keep the <html> density class in sync with the effective density
+  // (global CSS row heights in theme-vellum.css key off this class, and the
+  // per-row Tailwind heights lose to it on specificity).
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove(
+      "density-compact",
+      "density-comfortable",
+      "density-list_only",
+    );
+    root.classList.add(`density-${effectiveDensity}`);
+  }, [effectiveDensity]);
+  // B2-3：列表批量条激活时写信 FAB 上移让位（批量条 <md 固定底部）。
+  const [bulkActive, setBulkActive] = useState(false);
 
   // 1a. Fetch mailbox settings for account preferences (allow_all_remote_images)
   const { data: mailboxSettings, refetch: refetchSettings } = useQuery({
@@ -1200,7 +1220,7 @@ export function WebmailNextWorkbench({
         searchQuery={searchDraft}
         onSearchChange={setSearchDraft}
         onSubmitSearch={submitSearch}
-        density={density}
+        density={effectiveDensity}
         onSetDensity={setDensity}
         isRefreshing={isRefetching}
         onOpenSettings={() => {
@@ -1360,7 +1380,8 @@ export function WebmailNextWorkbench({
                 loadError={listError instanceof Error ? listError : null}
                 onNearEnd={loadMore}
                 onLoadedUids={rememberLoadedUids}
-                density={density}
+                density={effectiveDensity}
+                onSelectionCountChange={(count) => setBulkActive(count > 0)}
                 sort={sortKey}
                 order={sortOrder}
                 onSortChange={(key, ord) => {
@@ -1500,6 +1521,25 @@ export function WebmailNextWorkbench({
           </WebmailErrorBoundary>
         </div>
       </div>
+
+      {/* B2-3: mobile compose FAB (hidden when dock open; yields up when bulk bar active) */}
+      {isMobileViewport && !isComposeOpen && (
+        <button
+          type="button"
+          data-testid="mobile-compose-fab"
+          aria-label={t("webmail_next.compose")}
+          onClick={() => openCompose([], "")}
+          className="fixed z-40 w-14 h-14 rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity md:hidden"
+          style={{
+            right: "16px",
+            bottom: `calc(${bulkActive ? 64 : 16}px + env(safe-area-inset-bottom))`,
+            backgroundColor: "var(--brand-primary)",
+            boxShadow: "var(--elev-toast)",
+          }}
+        >
+          <Pencil className="w-6 h-6" />
+        </button>
+      )}
 
       {/* 3. Floating Compose Dock */}
       <WebmailComposeDock
