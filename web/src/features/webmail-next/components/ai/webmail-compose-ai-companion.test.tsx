@@ -20,6 +20,10 @@ vi.mock("@/features/webmail/mailbox-api", async () => {
   return {
     ...actual,
     fetchMailboxAITarget: vi.fn(),
+    previewMailboxAI: vi.fn().mockResolvedValue({
+      content_digest: "test-content-digest",
+      messages: [],
+    }),
     runMailboxAI: vi.fn(),
   };
 });
@@ -224,5 +228,58 @@ describe("WebmailComposeAICompanion", () => {
 
     fireEvent.click(screen.getByTestId("btn-go-to-settings"));
     expect(onOpenAISettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders actionable consent stale card on 409 and supports re-authorizing and retrying", async () => {
+    vi.mocked(mailboxApi.fetchMailboxAITarget).mockResolvedValue({
+      enabled: true,
+      allowed: true,
+      configuration_digest: "test-digest",
+    } as mailboxApi.MailboxAITarget);
+
+    vi.mocked(mailboxApi.runMailboxAI)
+      .mockRejectedValueOnce({
+        status: 409,
+        code: "AI_CONTENT_CONSENT_STALE",
+      })
+      .mockResolvedValueOnce({
+        result: {
+          subject: "Test Subject",
+          body: "Recovered draft after consent refresh",
+          assumptions: [],
+        },
+        degraded: false,
+        cache_hit: false,
+      });
+
+    render(
+      <WebmailComposeAICompanion
+        currentSubject="Test Subject"
+        currentBody="Initial Body"
+        onRollback={vi.fn()}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("chip-formal"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("companion-consent-stale-card")).toBeTruthy();
+      expect(
+        screen.getByText("webmail_next.ai_consent_stale_title"),
+      ).toBeTruthy();
+    });
+
+    // Click retry
+    fireEvent.click(screen.getByTestId("btn-ai-consent-retry"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("companion-consent-stale-card")).toBeNull();
+      expect(screen.getByTestId("compose-diff-view")).toBeTruthy();
+      expect(screen.getByTestId("compose-diff-view").textContent).toContain(
+        "draft after consent refresh",
+      );
+    });
   });
 });

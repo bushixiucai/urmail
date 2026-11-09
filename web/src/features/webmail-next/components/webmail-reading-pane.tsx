@@ -232,6 +232,9 @@ export function WebmailReadingPane({
   // AI Summary & Security State
   const [summaryResponse, setSummaryResponse] =
     useState<MailboxAIAssistResponse | null>(null);
+  const [summaryOp, setSummaryOp] = useState<
+    "standard" | "shorter" | "todos" | "translate"
+  >("standard");
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [isSummaryDismissed, setIsSummaryDismissed] = useState(false);
@@ -241,6 +244,7 @@ export function WebmailReadingPane({
   useEffect(() => {
     summaryAbortControllerRef.current?.abort();
     setSummaryResponse(null);
+    setSummaryOp("standard");
     setIsGeneratingSummary(false);
     setSummaryError(null);
     setIsSummaryDismissed(false);
@@ -261,6 +265,15 @@ export function WebmailReadingPane({
     setSummaryError(null);
 
     const op = options?.operation || "summarize";
+    const currentSummaryOp =
+      options?.operation === "todos"
+        ? "todos"
+        : options?.operation === "translate"
+          ? "translate"
+          : options?.lengthLimit
+            ? "shorter"
+            : "standard";
+    setSummaryOp(currentSummaryOp);
     const plainText =
       message.text ||
       (message.html ? message.html.replace(/<[^>]+>/g, " ").trim() : "");
@@ -511,6 +524,7 @@ export function WebmailReadingPane({
             isLoading={isGeneratingSummary}
             error={summaryError}
             messageUid={message.uid}
+            activeOperation={summaryOp}
             onDismiss={() => {
               summaryAbortControllerRef.current?.abort();
               setIsSummaryDismissed(true);

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   fetchMailboxAITarget,
+  previewMailboxAI,
   runMailboxAI,
   type MailboxAIAssistResponse,
 } from "@/features/webmail/mailbox-api";
@@ -69,6 +70,10 @@ export function WebmailComposeAICompanion({
   const [isLoading, setIsLoading] = useState(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [showUnconfigured, setShowUnconfigured] = useState(false);
+  const [isConsentStale, setIsConsentStale] = useState(false);
+  const [lastInstruction, setLastInstruction] = useState<string | undefined>(
+    undefined,
+  );
 
   const activeVersion = versions[activeIndex] || versions[0];
   const previousVersion = activeIndex > 0 ? versions[activeIndex - 1] : null;
@@ -77,7 +82,9 @@ export function WebmailComposeAICompanion({
     const textInstruction = (customInstruction ?? instruction).trim();
     if (!textInstruction && !currentBody) return;
 
+    setLastInstruction(textInstruction);
     setErrorNotice(null);
+    setIsConsentStale(false);
     setIsLoading(true);
 
     try {
@@ -88,14 +95,28 @@ export function WebmailComposeAICompanion({
         return;
       }
 
-      const response: MailboxAIAssistResponse = await runMailboxAI({
-        operation: isReply ? "draft_reply" : "draft_new",
+      const input = {
+        operation: (isReply ? "draft_reply" : "draft_new") as
+          "draft_reply" | "draft_new",
         configuration_digest: target.configuration_digest || "",
         confirmed: true,
         request_key: crypto.randomUUID(),
         subject: activeVersion.subject || currentSubject,
         body: activeVersion.body || currentBody,
         instruction: textInstruction,
+      };
+
+      let contentDigest = "";
+      try {
+        const preview = await previewMailboxAI("assist", input);
+        contentDigest = preview.content_digest;
+      } catch {
+        // Continue or let runMailboxAI throw
+      }
+
+      const response: MailboxAIAssistResponse = await runMailboxAI({
+        ...input,
+        content_digest: contentDigest,
       });
 
       const nextVerNum = versions.length + 1;
@@ -119,8 +140,27 @@ export function WebmailComposeAICompanion({
       setVersions((prev) => [...prev, newVer]);
       setActiveIndex(versions.length);
       setInstruction("");
-    } catch {
-      setErrorNotice(t("page.webmail.ai_generation_failed"));
+    } catch (err: unknown) {
+      const apiErr = err as {
+        status?: number;
+        code?: string;
+        error?: { code?: string };
+      };
+      const isStale =
+        apiErr?.status === 409 ||
+        apiErr?.code === "AI_CONTENT_CONSENT_STALE" ||
+        apiErr?.error?.code === "AI_CONTENT_CONSENT_STALE";
+
+      if (isStale) {
+        setIsConsentStale(true);
+      } else if (
+        apiErr?.code === "AI_UNCONFIGURED" ||
+        apiErr?.error?.code === "AI_UNCONFIGURED"
+      ) {
+        setShowUnconfigured(true);
+      } else {
+        setErrorNotice(t("page.webmail.ai_generation_failed"));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -186,6 +226,56 @@ export function WebmailComposeAICompanion({
           >
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span className="flex-1">{errorNotice}</span>
+          </div>
+        )}
+
+        {isConsentStale && (
+          <div
+            role="alert"
+            data-testid="companion-consent-stale-card"
+            className="p-3 rounded-lg border border-[#FDE68A] dark:border-[#B45309] bg-[#FEF3C7] dark:bg-[rgba(245,158,11,0.2)] text-[#92400E] dark:text-[#FDE68A] text-xs space-y-2"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
+              <div className="flex-1 space-y-1">
+                <p className="font-semibold text-[#B45309] dark:text-[#FCD34D]">
+                  {t(
+                    "webmail_next.ai_consent_stale_title",
+                    "Draft modified or authorization expired",
+                  )}
+                </p>
+                <p className="leading-relaxed text-[#92400E] dark:text-[#FDE68A]">
+                  {t(
+                    "webmail_next.ai_consent_stale_desc",
+                    "Draft content or context changed before drafting. Please re-authorize to continue.",
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                data-testid="btn-ai-consent-retry"
+                onClick={() => handleGenerate(lastInstruction)}
+                disabled={isLoading}
+                className="px-2.5 py-1 bg-[#D97706] hover:bg-[#B45309] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>
+                  {t(
+                    "webmail_next.ai_consent_reauthorize_btn",
+                    "Re-authorize and Retry",
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsConsentStale(false)}
+                className="px-2 py-1 text-[#92400E] dark:text-[#FDE68A] hover:underline"
+              >
+                {t("common.cancel", "Cancel")}
+              </button>
+            </div>
           </div>
         )}
 

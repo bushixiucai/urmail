@@ -271,7 +271,7 @@ describe("WebmailStructuredSummary", () => {
       ...mockSuccessResponse,
       result: {
         ...mockSuccessResponse.result,
-        translated_text: "这是一段完整的中文对照翻译内容。",
+        translated_text: "Translated content here.",
       },
     };
 
@@ -285,6 +285,53 @@ describe("WebmailStructuredSummary", () => {
     );
 
     expect(screen.getByTestId("ai-translation-block")).toBeTruthy();
-    expect(screen.getByText("这是一段完整的中文对照翻译内容。")).toBeTruthy();
+    expect(screen.getByText("Translated content here.")).toBeTruthy();
+  });
+
+  it("omits key points and renders empty notice when activeOperation is todos with no todos", () => {
+    const noTodosResponse: MailboxAIAssistResponse = {
+      ...mockSuccessResponse,
+      result: {
+        ...mockSuccessResponse.result,
+        todos: [],
+        bullets: ["Point 1", "Point 2"],
+      },
+    };
+
+    render(
+      <WebmailStructuredSummary
+        response={noTodosResponse}
+        isLoading={false}
+        messageUid={101}
+        activeOperation="todos"
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    // Key points must NOT be rendered when activeOperation="todos"
+    expect(screen.queryByTestId("ai-key-points-list")).toBeNull();
+    // Action items block should be rendered
+    expect(screen.getByTestId("ai-todo-list")).toBeTruthy();
+    // Empty state should be visible
+    expect(screen.getByTestId("ai-todos-empty")).toBeTruthy();
+    expect(screen.getByTestId("ai-todos-empty").textContent).toBe(
+      "webmail_next.ai_no_todos",
+    );
+  });
+
+  it("renders shorter summary title when activeOperation is shorter", () => {
+    render(
+      <WebmailStructuredSummary
+        response={mockSuccessResponse}
+        isLoading={false}
+        messageUid={101}
+        activeOperation="shorter"
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("webmail_next.ai_shorter_summary_title"),
+    ).toBeTruthy();
   });
 });

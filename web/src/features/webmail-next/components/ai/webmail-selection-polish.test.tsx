@@ -20,6 +20,10 @@ vi.mock("@/features/webmail/mailbox-api", async () => {
   return {
     ...actual,
     fetchMailboxAITarget: vi.fn(),
+    previewMailboxAI: vi.fn().mockResolvedValue({
+      content_digest: "test-content-digest",
+      messages: [],
+    }),
     runMailboxAI: vi.fn(),
   };
 });

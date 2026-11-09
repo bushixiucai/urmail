@@ -5,8 +5,12 @@ import type { MessageSummary } from "@/features/webmail/mailbox-api";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (k: string, opts?: Record<string, unknown>) =>
-      k.replace("{{count}}", String(opts?.count ?? "")),
+    t: (k: string, opts?: Record<string, unknown>) => {
+      if (k === "webmail_next.thread_loaded_count") {
+        return `Loaded ${opts?.loaded} of ${opts?.total}`;
+      }
+      return k.replace("{{count}}", String(opts?.count ?? ""));
+    },
   }),
 }));
 
@@ -157,6 +161,9 @@ describe("WebmailThreadStack", () => {
     expect(screen.getByTestId("thread-mark-read")).toBeTruthy();
     expect(screen.getByTestId("thread-archive")).toBeTruthy();
     expect(screen.getByTestId("thread-delete")).toBeTruthy();
+    expect(screen.getByTestId("thread-count-label").textContent).toBe(
+      "Loaded 3 of 3",
+    );
     expect(screen.getByTestId("thread-stack").getAttribute("aria-label")).toBe(
       "webmail_next.thread_stack_label",
     );

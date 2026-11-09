@@ -3044,5 +3044,13 @@
   "webmail_next.ai_diff_heading": "当前稿 vs 上一稿差异 (Diff View):",
   "webmail_next.ai_tone_prefix": "语气标注:",
   "webmail_next.suggest_sieve_rule": "是否为发件人创建自动归档 Sieve 规则？",
-  "webmail_next.create_sieve_rule_action": "创建规则"
+  "webmail_next.create_sieve_rule_action": "创建规则",
+  "settings.ai.select_from_list": "从列表选择",
+  "settings.ai.manual_input": "手动输入",
+  "webmail_next.ai_consent_stale_title": "草稿变动或授权过期",
+  "webmail_next.ai_consent_stale_desc": "当前草稿内容或上下文在起草前已更新，请重新授权后继续。",
+  "webmail_next.ai_consent_reauthorize_btn": "重新授权并重试",
+  "webmail_next.ai_shorter_summary_title": "一句话精炼",
+  "webmail_next.ai_no_todos": "未在邮件中检测到待办事项",
+  "webmail_next.thread_loaded_count": "已加载 {{loaded}} / 共 {{total}} 封"
 }

@@ -16,6 +16,7 @@ export interface WebmailStructuredSummaryProps {
   isLoading?: boolean;
   error?: string | null;
   messageUid: number;
+  activeOperation?: "standard" | "shorter" | "todos" | "translate" | string;
   onDismiss: () => void;
   onRetry?: () => void;
   onRefineStandard?: () => void;
@@ -30,6 +31,7 @@ export function WebmailStructuredSummary({
   isLoading,
   error,
   messageUid,
+  activeOperation,
   onDismiss,
   onRetry,
   onRefineStandard,
@@ -98,6 +100,8 @@ export function WebmailStructuredSummary({
   const keyDates = result?.key_dates ?? [];
   const bullets = result?.bullets ?? [];
   const language = result?.language || result?.detected_source;
+  const isTodosOp = activeOperation === "todos";
+  const isShorterOp = activeOperation === "shorter";
   const isCacheHit = Boolean(response?.cache_hit);
   const isDegraded = Boolean(response?.degraded);
   const confidenceScore =
@@ -219,94 +223,122 @@ export function WebmailStructuredSummary({
       {!isLoading && !error && result && (
         <div className="pt-3 space-y-4">
           {/* Key Points */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-bold text-[#18181B] dark:text-[#F4F4F6]">
-                {t("webmail_next.ai_key_points_title")}
-              </h4>
-              {confidenceScore != null && (
-                <span className="text-xs text-[var(--vellum-ink-secondary)]">
-                  {t("webmail_next.ai_confidence", { score: confidenceScore })}
-                </span>
-              )}
-            </div>
+          {!isTodosOp &&
+            (bullets.length > 0 || result.summary || result.text) && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-[#18181B] dark:text-[#F4F4F6]">
+                    {isShorterOp
+                      ? t(
+                          "webmail_next.ai_shorter_summary_title",
+                          "One-line summary",
+                        )
+                      : t("webmail_next.ai_key_points_title")}
+                  </h4>
+                  {confidenceScore != null && (
+                    <span className="text-xs text-[var(--vellum-ink-secondary)]">
+                      {t("webmail_next.ai_confidence", {
+                        score: confidenceScore,
+                      })}
+                    </span>
+                  )}
+                </div>
 
-            {bullets.length > 0 ? (
-              <ul
-                data-testid="ai-key-points-list"
-                className="list-disc list-inside space-y-1.5 text-xs text-[#18181B] dark:text-[#E4E4E7] leading-relaxed"
-              >
-                {bullets.map((bullet, idx) => (
-                  <li key={idx} className="pl-1">
-                    {bullet}
-                  </li>
-                ))}
-              </ul>
-            ) : result.summary || result.text ? (
-              <p
-                data-testid="ai-fallback-text"
-                className="text-xs text-[#18181B] dark:text-[#E4E4E7] leading-relaxed"
-              >
-                {result.summary || result.text}
-              </p>
-            ) : null}
-          </div>
+                {bullets.length > 0 ? (
+                  <ul
+                    data-testid="ai-key-points-list"
+                    className="list-disc list-inside space-y-1.5 text-xs text-[#18181B] dark:text-[#E4E4E7] leading-relaxed"
+                  >
+                    {bullets.map((bullet, idx) => (
+                      <li key={idx} className="pl-1">
+                        {bullet}
+                      </li>
+                    ))}
+                  </ul>
+                ) : result.summary || result.text ? (
+                  <p
+                    data-testid="ai-fallback-text"
+                    className="text-xs text-[#18181B] dark:text-[#E4E4E7] leading-relaxed"
+                  >
+                    {result.summary || result.text}
+                  </p>
+                ) : null}
+              </div>
+            )}
 
           {/* Action Items / Todos */}
-          {todos.length > 0 && (
+          {(isTodosOp || todos.length > 0) && (
             <div
               data-testid="ai-todo-list"
-              className="pt-3 border-t border-[#EBE8E0] dark:border-[#323238] space-y-2"
+              className={`space-y-2 ${
+                !isTodosOp &&
+                (bullets.length > 0 || result.summary || result.text)
+                  ? "pt-3 border-t border-[#EBE8E0] dark:border-[#323238]"
+                  : ""
+              }`}
             >
               <div className="flex items-center gap-1.5 text-xs font-bold text-[#18181B] dark:text-[#F4F4F6] mb-2">
                 <CheckSquare className="w-3.5 h-3.5 text-[#2563EB]" />
                 <span>
-                  {t("webmail_next.ai_action_items_title")} ({todos.length})
+                  {t("webmail_next.ai_action_items_title")}
+                  {todos.length > 0 ? ` (${todos.length})` : ""}
                 </span>
               </div>
-              <div className="space-y-1.5">
-                {todos.map((todo, idx) => {
-                  const isChecked = checkedTodos[idx] || false;
-                  return (
-                    <label
-                      key={idx}
-                      className="flex items-start gap-2.5 text-xs text-[#18181B] dark:text-[#E4E4E7] cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 p-1 rounded transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleTodo(idx)}
-                        className="mt-0.5 rounded border-[#D4D4D8] text-[#2563EB] focus:ring-[#2563EB]"
-                      />
-                      <span
-                        className={`flex-1 leading-snug ${
-                          isChecked
-                            ? "line-through text-[var(--vellum-ink-secondary)]"
-                            : ""
-                        }`}
+              {todos.length > 0 ? (
+                <div className="space-y-1.5">
+                  {todos.map((todo, idx) => {
+                    const isChecked = checkedTodos[idx] || false;
+                    return (
+                      <label
+                        key={idx}
+                        className="flex items-start gap-2.5 text-xs text-[#18181B] dark:text-[#E4E4E7] cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 p-1 rounded transition-colors"
                       >
-                        {todo.task}
-                      </span>
-                      {(todo.due_date || todo.assignee) && (
-                        <span className="text-[11px] text-[var(--vellum-ink-secondary)] shrink-0">
-                          {todo.due_date && todo.assignee
-                            ? t("webmail_next.ai_due_date_with_assignee", {
-                                assignee: todo.assignee,
-                                date: todo.due_date,
-                              })
-                            : todo.due_date
-                              ? t("webmail_next.ai_due_date", {
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleTodo(idx)}
+                          className="mt-0.5 rounded border-[#D4D4D8] text-[#2563EB] focus:ring-[#2563EB]"
+                        />
+                        <span
+                          className={`flex-1 leading-snug ${
+                            isChecked
+                              ? "line-through text-[var(--vellum-ink-secondary)]"
+                              : ""
+                          }`}
+                        >
+                          {todo.task}
+                        </span>
+                        {(todo.due_date || todo.assignee) && (
+                          <span className="text-[11px] text-[var(--vellum-ink-secondary)] shrink-0">
+                            {todo.due_date && todo.assignee
+                              ? t("webmail_next.ai_due_date_with_assignee", {
+                                  assignee: todo.assignee,
                                   date: todo.due_date,
                                 })
-                              : t("webmail_next.ai_assignee", {
-                                  assignee: todo.assignee,
-                                })}
-                        </span>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
+                              : todo.due_date
+                                ? t("webmail_next.ai_due_date", {
+                                    date: todo.due_date,
+                                  })
+                                : t("webmail_next.ai_assignee", {
+                                    assignee: todo.assignee,
+                                  })}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p
+                  data-testid="ai-todos-empty"
+                  className="text-xs text-[var(--vellum-ink-secondary)] py-1"
+                >
+                  {t(
+                    "webmail_next.ai_no_todos",
+                    "No action items detected in email",
+                  )}
+                </p>
+              )}
             </div>
           )}
 

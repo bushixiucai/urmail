@@ -241,9 +241,18 @@ describe("AiSettingsSection", () => {
       expect(screen.getByTestId("test-connection-result")).toBeTruthy();
     });
 
-    // Auto-populates first model if empty
-    const modelInput = screen.getByTestId("input-ai-model") as HTMLInputElement;
-    expect(modelInput.value).toBe("gpt-4o");
+    // Filled models dropdown with first model selected
+    const modelSelect = screen.getByTestId(
+      "select-ai-model",
+    ) as HTMLSelectElement;
+    expect(modelSelect.value).toBe("gpt-4o");
+    expect(screen.getByText("gpt-4o-mini")).toBeTruthy();
+
+    // Toggle to manual input and back
+    fireEvent.click(screen.getByText("Manual input"));
+    expect(screen.getByTestId("input-ai-model")).toBeTruthy();
+    fireEvent.click(screen.getByText("Select from list"));
+    expect(screen.getByTestId("select-ai-model")).toBeTruthy();
   });
 
   it("handles test connection failure gracefully", async () => {

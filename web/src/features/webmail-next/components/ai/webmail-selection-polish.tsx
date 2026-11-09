@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Loader2, X, AlertTriangle } from "lucide-react";
 import {
   fetchMailboxAITarget,
+  previewMailboxAI,
   runMailboxAI,
   type MailboxAIChange,
 } from "@/features/webmail/mailbox-api";
@@ -54,12 +55,25 @@ export function WebmailSelectionPolish({
         return;
       }
 
-      const response = await runMailboxAI({
-        operation: "polish",
+      const input = {
+        operation: "polish" as const,
         selection: selectedText,
         configuration_digest: target.configuration_digest || "",
         confirmed: true,
         request_key: crypto.randomUUID(),
+      };
+
+      let contentDigest = "";
+      try {
+        const preview = await previewMailboxAI("assist", input);
+        contentDigest = preview.content_digest;
+      } catch {
+        // Fallback or let runMailboxAI throw
+      }
+
+      const response = await runMailboxAI({
+        ...input,
+        content_digest: contentDigest,
       });
 
       const revised =
@@ -67,8 +81,27 @@ export function WebmailSelectionPolish({
       setRevisedText(revised);
       setChanges(response.result.changes || []);
       setIsPopoverOpen(true);
-    } catch {
-      setErrorNotice(t("page.webmail.ai_generation_failed"));
+    } catch (err: unknown) {
+      const apiErr = err as {
+        status?: number;
+        code?: string;
+        error?: { code?: string };
+      };
+      const isStale =
+        apiErr?.status === 409 ||
+        apiErr?.code === "AI_CONTENT_CONSENT_STALE" ||
+        apiErr?.error?.code === "AI_CONTENT_CONSENT_STALE";
+
+      if (isStale) {
+        setErrorNotice(
+          t(
+            "error.AI_CONTENT_CONSENT_STALE",
+            "Content or sources changed. Preview and confirm again.",
+          ),
+        );
+      } else {
+        setErrorNotice(t("page.webmail.ai_generation_failed"));
+      }
       setIsPopoverOpen(true);
     } finally {
       setIsLoading(false);
