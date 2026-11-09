@@ -44,6 +44,11 @@ type Params struct {
 	TargetLanguage string
 	// MaxLength caps a generated summary in characters; 0 = unlimited.
 	MaxLength int
+	// LengthLimit is the per-operation output length option from the
+	// client (DEF-A): for summarize it caps each bullet in characters.
+	// 0 = template default. Precondition: already passed through
+	// ai.NormalizeLengthLimit.
+	LengthLimit int
 }
 
 // Message is one chat message of an assembled request.

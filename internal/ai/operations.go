@@ -21,6 +21,31 @@ type OperationInput struct {
 	Body           string `json:"body"`
 	From           string `json:"from,omitempty"`
 	TargetLanguage string `json:"target_language,omitempty"`
+	// LengthLimit is the per-operation output length option (DEF-A): the
+	// summarize "shorter" control sends it as a per-bullet character cap.
+	// It rides the digest folded over the whole input, so two calls that
+	// differ only here are different cache keys. Normalize it with
+	// NormalizeLengthLimit before storing or hashing.
+	LengthLimit int `json:"length_limit,omitempty"`
+}
+
+// LengthLimitCeiling bounds the summarize length option; anything above
+// clamps down so a stray client value cannot stretch the prompt.
+const LengthLimitCeiling = 1000
+
+// NormalizeLengthLimit folds raw client length options onto the canonical
+// form: negative values mean "use the default" (0), values above the
+// ceiling clamp to it. Only the normalized value may enter prompt
+// assembly or a cache digest, so "-5" and "0" can never split one cache
+// entry in two.
+func NormalizeLengthLimit(raw int) int {
+	if raw < 0 {
+		return 0
+	}
+	if raw > LengthLimitCeiling {
+		return LengthLimitCeiling
+	}
+	return raw
 }
 
 // BuildOperation creates one bounded suggestion-only model request. Prompt
@@ -37,6 +62,7 @@ func BuildOperation(input OperationInput) (CompletionRequest, error) {
 		Body:           input.Body,
 		From:           input.From,
 		TargetLanguage: input.TargetLanguage,
+		LengthLimit:    input.LengthLimit,
 	})
 	if err != nil {
 		// Unknown operations and missing parameters were always request

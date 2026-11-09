@@ -1,6 +1,9 @@
 package templates
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Structured (v2) generation of the assist operations (TECH §2). These
 // templates carry the new output schemas — bullets/key_dates for summarize,
@@ -30,11 +33,18 @@ func init() {
 
 	Register(Template{
 		Operation: "summarize_v2",
-		Version:   2,
+		Version:   3,
 		JSONMode:  true,
 		MaxTokens: 2048,
-		System: func(_ Params) string {
-			return structuredSchema("Summarize the key facts strictly from the email text. Never fabricate facts, dates, people or deadlines; if facts are absent or ambiguous, leave the corresponding lists empty.",
+		System: func(p Params) string {
+			constraint := "Summarize the key facts strictly from the email text. Never fabricate facts, dates, people or deadlines; if facts are absent or ambiguous, leave the corresponding lists empty."
+			// DEF-A length option: the client's "shorter" control caps
+			// every bullet. A cap shortens wording, not coverage — the
+			// bullet count and the no-fabrication rule stay untouched.
+			if p.LengthLimit > 0 {
+				constraint += fmt.Sprintf(" Each bullet in \"bullets\" must be at most %d characters long; shorten the wording of every bullet, never drop facts to fit.", p.LengthLimit)
+			}
+			return structuredSchema(constraint,
 				`{"bullets":["key point"],"todos":[{"task":"action item","assignee":"name or null","due_date":"date or null"}],"key_dates":[{"date":"YYYY-MM-DD","label":"what happens"}],"language":"BCP 47 tag of the email body language"}`)
 		},
 		User: envelope(nil, emailContent),
