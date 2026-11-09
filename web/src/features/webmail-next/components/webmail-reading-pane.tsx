@@ -930,8 +930,10 @@ export function WebmailReadingPane({
                     riskLevel={activeRiskLevel}
                     indicators={activeIndicators}
                   />
-                  {/* On-demand phishing/safety check entry: un-analysed mail
-                      renders nothing until the user asks for a check. */}
+                  {/* On-demand phishing/safety check entry: the button is
+                      always visible on every message (verified or already
+                      analysed too) as a user-triggered action; only the
+                      results (banner / notes) render after a check has run. */}
                   <button
                     data-testid="btn-security-check"
                     type="button"

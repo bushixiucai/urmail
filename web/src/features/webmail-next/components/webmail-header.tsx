@@ -127,7 +127,7 @@ export function WebmailHeader({
               data-testid="btn-open-advanced-search"
               type="button"
               onClick={onOpenAdvancedSearch}
-              className="absolute right-1 top-1 flex h-6 w-6 min-h-6 min-w-6 items-center justify-center text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded"
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded"
               aria-label={t("webmail_next.advanced_filter")}
               title={t("webmail_next.advanced_filter")}
             >
@@ -157,7 +157,7 @@ export function WebmailHeader({
             type="button"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className={`p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors ${
+            className={`flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors ${
               isRefreshing ? "animate-spin" : ""
             }`}
             aria-label={t("webmail_next.refresh")}
@@ -213,7 +213,7 @@ export function WebmailHeader({
             data-testid="webmail-contacts-btn"
             type="button"
             onClick={onOpenContacts}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
+            className="flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("contacts.title")}
             title={t("contacts.title")}
           >
@@ -225,7 +225,7 @@ export function WebmailHeader({
             data-testid="webmail-settings-btn"
             type="button"
             onClick={onOpenSettings}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
+            className="flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("webmail_next.settings")}
             title={t("webmail_next.settings")}
           >
