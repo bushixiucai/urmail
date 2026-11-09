@@ -10,6 +10,7 @@ import {
   Settings,
   BookUser,
   Check,
+  MoreHorizontal,
 } from "lucide-react";
 import type { DensityMode } from "../types";
 import { useIsMobileViewport } from "../hooks/use-is-mobile-viewport";
@@ -61,6 +62,8 @@ export function WebmailHeader({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const densityRef = useRef<HTMLDivElement>(null);
   const [densityOpen, setDensityOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   // B2-3：<md 视口密度按钮 icon-only（顶栏高度有限，防「舒适」折行）。
   const mobileViewport = useIsMobileViewport();
   const densityLabel: Record<DensityMode, string> = {
@@ -80,12 +83,23 @@ export function WebmailHeader({
     return () => document.removeEventListener("mousedown", close);
   }, [densityOpen]);
 
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!moreRef.current?.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [moreOpen]);
+
   return (
     <header
       data-testid="webmail-header"
       className="h-12 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-4 flex items-center justify-between select-none z-30 shrink-0"
     >
-      <div className="flex items-center gap-3 w-56 max-md:w-40">
+      <div className="flex items-center gap-3 w-56 max-md:w-auto">
         <button
           data-testid="rail-toggle-button"
           type="button"
@@ -98,13 +112,13 @@ export function WebmailHeader({
         </button>
         <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)] tracking-tight min-w-0">
           <div className="w-2 h-2 rounded-full bg-[var(--brand-primary,var(--brand-primary))] shrink-0" />
-          <span className="truncate whitespace-nowrap">
+          <span className="truncate whitespace-nowrap max-md:hidden">
             {brand?.name || t("webmail_next.brand_name")}
           </span>
         </div>
       </div>
 
-      <div className="flex-1 max-w-xl mx-4 relative">
+      <div className="flex-1 min-w-0 max-w-xl mx-4 relative">
         <div className="relative w-full">
           <Search className="w-4 h-4 text-[var(--vellum-ink-secondary)] absolute left-3 top-2.5 pointer-events-none" />
           <input
@@ -120,7 +134,7 @@ export function WebmailHeader({
               }
             }}
             placeholder={t("webmail.header.search_placeholder")}
-            className="w-full h-8 pl-9 pr-16 bg-[var(--vellum-surface-muted)] rounded-full text-xs text-[var(--vellum-ink)] border border-transparent focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none transition-all"
+            className="w-full min-w-0 h-8 pl-9 pr-16 bg-[var(--vellum-surface-muted)] rounded-full text-xs text-[var(--vellum-ink)] border border-transparent focus:bg-white focus:border-[var(--brand-primary,var(--brand-primary))] focus:outline-none transition-all"
           />
           {onOpenAdvancedSearch && (
             <button
@@ -150,7 +164,7 @@ export function WebmailHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 max-md:gap-1">
         {onRefresh && (
           <button
             data-testid="webmail-refresh-btn"
@@ -213,7 +227,7 @@ export function WebmailHeader({
             data-testid="webmail-contacts-btn"
             type="button"
             onClick={onOpenContacts}
-            className="flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
+            className="max-md:hidden flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("contacts.title")}
             title={t("contacts.title")}
           >
@@ -225,12 +239,66 @@ export function WebmailHeader({
             data-testid="webmail-settings-btn"
             type="button"
             onClick={onOpenSettings}
-            className="flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
+            className="max-md:hidden flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("webmail_next.settings")}
             title={t("webmail_next.settings")}
           >
             <Settings className="w-4 h-4" />
           </button>
+        )}
+        {(onOpenContacts || onOpenSettings) && (
+          <div className="relative md:hidden" ref={moreRef}>
+            <button
+              data-testid="webmail-more-btn"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((open) => !open)}
+              className="flex items-center justify-center min-w-11 min-h-11 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
+              aria-label={t("webmail_next.more_actions")}
+              title={t("webmail_next.more_actions")}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {moreOpen && (
+              <div
+                role="menu"
+                data-testid="webmail-more-menu"
+                className="absolute right-0 top-11 z-40 min-w-40 bg-white border border-[var(--vellum-border)] rounded-md shadow-lg py-1"
+              >
+                {onOpenContacts && (
+                  <button
+                    data-testid="webmail-more-contacts"
+                    type="button"
+                    role="menuitem"
+                    className="w-full flex items-center gap-2 px-3 h-11 text-xs text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)]"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onOpenContacts();
+                    }}
+                  >
+                    <BookUser className="w-4 h-4" />
+                    {t("contacts.title")}
+                  </button>
+                )}
+                {onOpenSettings && (
+                  <button
+                    data-testid="webmail-more-settings"
+                    type="button"
+                    role="menuitem"
+                    className="w-full flex items-center gap-2 px-3 h-11 text-xs text-[var(--vellum-ink)] hover:bg-[var(--vellum-surface-muted)]"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onOpenSettings();
+                    }}
+                  >
+                    <Settings className="w-4 h-4" />
+                    {t("webmail_next.settings")}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </header>
