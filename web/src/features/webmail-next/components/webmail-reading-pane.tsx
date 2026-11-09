@@ -723,7 +723,7 @@ export function WebmailReadingPane({
           className="mb-3 p-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 sm:gap-3 text-xs text-[#92400E]"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <ShieldAlert className="w-4 h-4 text-[var(--vellum-color-warning)] shrink-0" />
+            <ShieldAlert className="w-4 h-4 text-[var(--vellum-warning-strong)] shrink-0" />
             <span className="break-words leading-relaxed">
               {t("webmail_next.remote_images_blocked")}
             </span>
@@ -733,7 +733,7 @@ export function WebmailReadingPane({
               data-testid="show-images-button"
               type="button"
               onClick={handleShowImages}
-              className="px-2 py-1 bg-white border border-[var(--vellum-color-warning)]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
+              className="px-2 py-1 bg-white border border-[var(--vellum-warning-strong)]/30 text-[#92400E] font-medium rounded hover:bg-[#FFFBEB] transition-colors"
             >
               {t("webmail_next.show_images")}
             </button>

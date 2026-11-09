@@ -18,7 +18,7 @@ export function WebmailAICueStrip({
       className="h-10 px-4 bg-[var(--vellum-surface-muted)] border border-[var(--vellum-border)] rounded-lg mb-4 flex items-center justify-between"
     >
       <div className="flex items-center gap-2 text-xs text-[var(--vellum-ink)]">
-        <span className="text-[var(--vellum-color-warning)]">
+        <span className="text-[var(--vellum-ai-accent)]">
           <Sparkles className="w-4 h-4" />
         </span>
         <span>{t("webmail_next.ai_cue_long_mail")}</span>

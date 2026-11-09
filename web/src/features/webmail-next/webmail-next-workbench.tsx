@@ -1229,7 +1229,7 @@ export function WebmailNextWorkbench({
               setIsSettingsOpen(true);
             }}
           >
-            <Palmtree className="w-4 h-4 text-[var(--vellum-color-warning)] shrink-0" />
+            <Palmtree className="w-4 h-4 text-[var(--vellum-warning-strong)] shrink-0" />
             <span>
               {t(
                 "webmail_next.vacation_banner_active",

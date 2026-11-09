@@ -172,7 +172,7 @@ export function WebmailStructuredSummary({
           data-testid="ai-degraded-notice"
           className="mt-3 p-2.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-md text-xs text-[#92400E] flex items-center gap-2"
         >
-          <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--vellum-color-warning)]" />
+          <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--vellum-warning-strong)]" />
           <span>{t("webmail_next.ai_degraded_notice")}</span>
         </div>
       )}

@@ -52,7 +52,7 @@ export function WebmailSecurityBadge({
         ) : isPass ? (
           <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
         ) : (
-          <Shield className="w-3.5 h-3.5 text-[var(--vellum-color-warning)]" />
+          <Shield className="w-3.5 h-3.5 text-[var(--vellum-warning-strong)]" />
         )}
         <span>
           {isHighRisk
@@ -106,7 +106,7 @@ export function WebmailSecurityBadge({
                   riskLevel === "low"
                     ? "text-[#16A34A]"
                     : riskLevel === "medium"
-                      ? "text-[var(--vellum-color-warning)]"
+                      ? "text-[var(--vellum-warning-strong)]"
                       : "text-[#DC2626]"
                 }`}
               >

@@ -42,6 +42,9 @@
      信息类令牌（info）已删除（无消费方），信息场景归并 warning/danger。 */
   --vellum-brand-strong: #1d4ed8;
   --vellum-brand-soft: #eff6ff;
+  --vellum-warning-strong: #d97706;
+  --vellum-ai-accent: #d97706;
+  --vellum-ai-accent-strong: #b45309;
   --vellum-warning-fill: #fef3c7;
   --vellum-warning-border: #fde68a;
   --vellum-warning-text: #92400e;

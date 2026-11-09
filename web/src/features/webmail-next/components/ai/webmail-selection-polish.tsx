@@ -208,7 +208,7 @@ export function WebmailSelectionPolish({
             {isLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <Sparkles className="w-3.5 h-3.5 text-[var(--vellum-color-warning)]" />
+              <Sparkles className="w-3.5 h-3.5 text-[var(--vellum-ai-accent)]" />
             )}
             <span>{t("webmail_next.ai_selection_polish_btn")}</span>
           </button>
@@ -289,7 +289,7 @@ export function WebmailSelectionPolish({
               className="p-2.5 rounded-lg border border-[#FDE68A] bg-[#FEF3C7] text-[#92400E] space-y-2"
             >
               <div className="flex items-start gap-2">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--vellum-color-warning)]" />
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--vellum-warning-strong)]" />
                 <div className="flex-1 space-y-1">
                   <p className="font-semibold text-[var(--vellum-star)]">
                     {t("webmail_next.ai_consent_stale_title")}
@@ -305,7 +305,7 @@ export function WebmailSelectionPolish({
                   data-testid="btn-polish-consent-retry"
                   onClick={() => void handlePolish()}
                   disabled={isLoading}
-                  className="px-2.5 py-1 bg-[var(--vellum-color-warning)] hover:bg-[var(--vellum-star)] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                  className="px-2.5 py-1 bg-[var(--vellum-ai-accent)] hover:bg-[var(--vellum-ai-accent-strong)] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
                 >
                   <RotateCcw className="w-3 h-3" />
                   <span>{t("webmail_next.ai_consent_reauthorize_btn")}</span>

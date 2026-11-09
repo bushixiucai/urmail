@@ -219,7 +219,7 @@ export function WebmailComposeAICompanion({
       {/* Top Header */}
       <div className="h-10 px-4 border-b border-[var(--vellum-border)] flex items-center justify-between shrink-0 bg-[var(--vellum-ground)]">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[var(--vellum-color-warning)]" />
+          <Sparkles className="w-4 h-4 text-[var(--vellum-ai-accent)]" />
           <span className="text-xs font-semibold text-[var(--vellum-ink)]">
             {t("webmail_next.ai_companion_title")}
           </span>
@@ -261,7 +261,7 @@ export function WebmailComposeAICompanion({
             className="p-3 rounded-lg border border-[#FDE68A] bg-[#FEF3C7] text-[#92400E] text-xs space-y-2"
           >
             <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--vellum-color-warning)]" />
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--vellum-warning-strong)]" />
               <div className="flex-1 space-y-1">
                 <p className="font-semibold text-[var(--vellum-star)]">
                   {t(
@@ -283,7 +283,7 @@ export function WebmailComposeAICompanion({
                 data-testid="btn-ai-consent-retry"
                 onClick={() => handleGenerate(lastInstruction)}
                 disabled={isLoading}
-                className="px-2.5 py-1 bg-[var(--vellum-color-warning)] hover:bg-[var(--vellum-star)] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                className="px-2.5 py-1 bg-[var(--vellum-ai-accent)] hover:bg-[var(--vellum-ai-accent-strong)] text-white rounded font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>

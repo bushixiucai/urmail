@@ -427,7 +427,7 @@ export function WebmailNavigationRail({
                 quotaPercent > 95
                   ? "bg-[#DC2626]"
                   : quotaPercent > 80
-                    ? "bg-[var(--vellum-color-warning)]"
+                    ? "bg-[var(--vellum-warning-strong)]"
                     : "bg-[var(--brand-primary,var(--brand-primary))]"
               }`}
               style={{ width: `${Math.min(100, Math.max(0, quotaPercent))}%` }}

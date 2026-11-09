@@ -470,7 +470,7 @@ export function WebmailComposeDock({
                     }`}
                     title={t("webmail_next.ai_companion_toggle")}
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--vellum-color-warning)]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--vellum-ai-accent)]" />
                     <span>{t("webmail_next.ai_companion_btn")}</span>
                   </button>
                 </div>
