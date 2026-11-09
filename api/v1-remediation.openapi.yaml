@@ -5936,6 +5936,12 @@ paths:
                   type: string
                 target_language:
                   type: string
+                length_limit:
+                  type: integer
+                  minimum: 0
+                  maximum: 1000
+                  default: 0
+                  description: Per-operation output length option (DEF-A). For summarize it caps every summary bullet in characters; 0 or omitted uses the template default. Negative values are treated as 0 and larger values clamp to 1000. Part of the result-cache key.
               required:
               - operation
               - configuration_digest

@@ -91,6 +91,10 @@ type nativeAIInput struct {
 	Subject             string  `json:"subject"`
 	Instruction         string  `json:"instruction"`
 	Language            string  `json:"target_language"`
+	// LengthLimit is the per-operation output length option (DEF-A): the
+	// summarize "shorter" chip sends it and it must reach both the prompt
+	// and the result-cache digest. Normalized before use.
+	LengthLimit int `json:"length_limit"`
 }
 
 type userAICustomConfig struct {
@@ -412,7 +416,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 	if !h.requireTarget(c, sess, req.ConfigurationDigest, req.Confirmed || req.PreviewOnly) {
 		return
 	}
-	input := ai.OperationInput{Operation: req.Operation, Body: req.Body, Subject: req.Subject, TargetLanguage: req.Language, Instruction: req.Instruction, Draft: req.Draft}
+	input := ai.OperationInput{Operation: req.Operation, Body: req.Body, Subject: req.Subject, TargetLanguage: req.Language, Instruction: req.Instruction, Draft: req.Draft, LengthLimit: ai.NormalizeLengthLimit(req.LengthLimit)}
 	principal := store.PlatformConsumeMailboxTicketRow{TenantID: sess.TenantID, MailboxID: sess.MailboxID, SessionHash: sess.TokenHash, Address: sess.Address, Scope: "ai_compose"}
 	var digest string
 	if req.UID != 0 {

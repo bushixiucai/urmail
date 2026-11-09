@@ -44,7 +44,7 @@ func TestCompleteValidatedRetry(t *testing.T) {
 		{Content: "```json\n" + validSummarize + "\n```", UsageKnown: true, PromptTokens: 12, OutputTokens: 7},
 	}}
 	payload, usage, meta, err := CompleteValidated(context.Background(), stub, "summarize", CompletionRequest{Messages: []Message{{Role: "system", Content: "s"}, {Role: "user", Content: "c"}}}, StructuredParams(OperationInput{Operation: "summarize", Body: "b"}))
-	if err != nil || meta.Degraded || meta.TemplateVersion != 2 {
+	if err != nil || meta.Degraded || meta.TemplateVersion != 3 {
 		t.Fatalf("payload=%s err=%v meta=%+v", payload, err, meta)
 	}
 	if stub.calls != 2 || usage.PromptTokens != 22 || usage.OutputTokens != 12 || !usage.Known {
