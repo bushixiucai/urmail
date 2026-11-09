@@ -100,8 +100,9 @@ export function WebmailThreadStack({
     return maxServerCount > ordered.length ? maxServerCount : ordered.length;
   }, [members, ordered.length]);
 
-  const countLabel = t("webmail_next.thread_messages_count", {
-    count: totalThreadCount,
+  const countLabel = t("webmail_next.thread_loaded_count", {
+    loaded: ordered.length,
+    total: totalThreadCount,
   });
 
   return (

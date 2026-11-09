@@ -3044,5 +3044,13 @@
   "webmail_next.ai_diff_heading": "Current vs previous revision (Diff View):",
   "webmail_next.ai_tone_prefix": "Tone notes:",
   "webmail_next.suggest_sieve_rule": "Create automatic Sieve archiving rule for sender?",
-  "webmail_next.create_sieve_rule_action": "Create rule"
+  "webmail_next.create_sieve_rule_action": "Create rule",
+  "settings.ai.select_from_list": "Select from list",
+  "settings.ai.manual_input": "Manual input",
+  "webmail_next.ai_consent_stale_title": "Draft modified or authorization expired",
+  "webmail_next.ai_consent_stale_desc": "Draft content or context changed before drafting. Please re-authorize to continue.",
+  "webmail_next.ai_consent_reauthorize_btn": "Re-authorize and Retry",
+  "webmail_next.ai_shorter_summary_title": "One-line summary",
+  "webmail_next.ai_no_todos": "No action items detected in email",
+  "webmail_next.thread_loaded_count": "Loaded {{loaded}} of {{total}}"
 }

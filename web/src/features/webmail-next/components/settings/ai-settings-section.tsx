@@ -46,6 +46,7 @@ export function AiSettingsSection() {
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [manualModelInput, setManualModelInput] = useState(false);
 
   const loadAll = async () => {
     try {
@@ -117,8 +118,13 @@ export function AiSettingsSection() {
 
       const loadedModels = res.models || [];
       setAvailableModels(loadedModels);
-      if (!model && loadedModels.length > 0) {
-        setModel(loadedModels[0]);
+      if (loadedModels.length > 0) {
+        setManualModelInput(false);
+        if (!model || !loadedModels.includes(model)) {
+          setModel(loadedModels[0]);
+        }
+      } else {
+        setManualModelInput(true);
       }
       setTestResult({
         ok: true,
@@ -128,6 +134,8 @@ export function AiSettingsSection() {
         }),
       });
     } catch {
+      setAvailableModels([]);
+      setManualModelInput(true);
       setTestResult({
         ok: false,
         message: t(
@@ -489,27 +497,69 @@ export function AiSettingsSection() {
               <div className="sm:col-span-2 space-y-2">
                 <div className="flex items-end gap-2">
                   <div className="flex-1 space-y-1">
-                    <label
-                      htmlFor="ai-model-input"
-                      className="font-medium text-[#18181B] dark:text-[#F4F4F6]"
-                    >
-                      {t("page.webmail.ai_model_label", "Model Name")}
-                    </label>
-                    <input
-                      id="ai-model-input"
-                      data-testid="input-ai-model"
-                      list="ai-models-datalist"
-                      placeholder={t(
-                        "page.webmail.ai_model_placeholder",
-                        "e.g. gpt-4o or deepseek-chat",
+                    <div className="flex items-center justify-between">
+                      <label
+                        htmlFor={
+                          availableModels.length > 0 && !manualModelInput
+                            ? "ai-model-select"
+                            : "ai-model-input"
+                        }
+                        className="font-medium text-[#18181B] dark:text-[#F4F4F6]"
+                      >
+                        {t("page.webmail.ai_model_label", "Model Name")}
+                      </label>
+                      {availableModels.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setManualModelInput(!manualModelInput)}
+                          className="text-[11px] text-[var(--brand-primary,#2563eb)] hover:underline"
+                        >
+                          {manualModelInput
+                            ? t(
+                                "settings.ai.select_from_list",
+                                "Select from list",
+                              )
+                            : t("settings.ai.manual_input", "Manual input")}
+                        </button>
                       )}
-                      value={model}
-                      onChange={(e) => {
-                        setModel(e.target.value);
-                        setSuccess(false);
-                      }}
-                      className="h-9 w-full rounded-md border border-[#EBE8E0] dark:border-[#323238] bg-[#FFFFFF] dark:bg-[#1E1E22] px-3 font-mono text-xs text-[#18181B] dark:text-[#F4F4F6] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
-                    />
+                    </div>
+                    {availableModels.length > 0 && !manualModelInput ? (
+                      <select
+                        id="ai-model-select"
+                        data-testid="select-ai-model"
+                        value={model}
+                        onChange={(e) => {
+                          setModel(e.target.value);
+                          setSuccess(false);
+                        }}
+                        className="h-9 w-full rounded-md border border-[#EBE8E0] dark:border-[#323238] bg-[#FFFFFF] dark:bg-[#1E1E22] px-3 font-mono text-xs text-[#18181B] dark:text-[#F4F4F6] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
+                      >
+                        {model && !availableModels.includes(model) && (
+                          <option value={model}>{model}</option>
+                        )}
+                        {availableModels.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id="ai-model-input"
+                        data-testid="input-ai-model"
+                        list="ai-models-datalist"
+                        placeholder={t(
+                          "page.webmail.ai_model_placeholder",
+                          "e.g. gpt-4o or deepseek-chat",
+                        )}
+                        value={model}
+                        onChange={(e) => {
+                          setModel(e.target.value);
+                          setSuccess(false);
+                        }}
+                        className="h-9 w-full rounded-md border border-[#EBE8E0] dark:border-[#323238] bg-[#FFFFFF] dark:bg-[#1E1E22] px-3 font-mono text-xs text-[#18181B] dark:text-[#F4F4F6] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
+                      />
+                    )}
                     <datalist id="ai-models-datalist">
                       {availableModels.map((m) => (
                         <option key={m} value={m} />
