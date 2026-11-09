@@ -228,16 +228,39 @@ func addressesFromHeader(raw string) []Address {
 	if raw == "" {
 		return nil
 	}
-	list, err := mail.ParseAddressList(raw)
-	if err != nil || len(list) == 0 {
-		return nil
+	if list, err := mail.ParseAddressList(raw); err == nil && len(list) > 0 {
+		out := make([]Address, 0, len(list))
+		for _, a := range list {
+			if a == nil || a.Address == "" {
+				continue
+			}
+			out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+		}
+		if len(out) > 0 {
+			return out
+		}
 	}
-	out := make([]Address, 0, len(list))
-	for _, a := range list {
-		if a == nil || a.Address == "" {
+	// Malformed headers must not blank the whole field (THREAD-UX-REVIEW F4:
+	// garbled senders put an encoded-word where the addr-spec belongs, and
+	// the raw undecoded text leaked into the UI). Salvage fragment by
+	// fragment; a fragment that still carries no usable addr-spec survives
+	// as a display-only address carrying the DECODED text, never the raw
+	// encoded-word.
+	var out []Address
+	for _, frag := range strings.Split(raw, ",") {
+		frag = strings.TrimSpace(frag)
+		if frag == "" {
 			continue
 		}
-		out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+		if a, err := mail.ParseAddress(frag); err == nil && a.Address != "" {
+			out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+			continue
+		}
+		decoded := strings.TrimSpace(decodeMIMEHeader(frag))
+		if decoded == "" {
+			continue
+		}
+		out = append(out, Address{Name: decoded, Email: ""})
 	}
 	return out
 }

@@ -95,10 +95,16 @@ func parseAddress(s string) (Address, bool) {
 		return Address{}, false
 	}
 	name := decodeMIMEHeader(nstring(parts[0]))
-	mailbox := nstring(parts[2])
+	mailbox := decodeMIMEHeader(nstring(parts[2]))
 	host := nstring(parts[3])
-	if mailbox == "" || host == "" {
+	if mailbox == "" {
 		return Address{}, false
+	}
+	if host == "" {
+		// Encoded-word garbage where the addr-spec belongs (THREAD-UX-REVIEW
+		// F4): keep the decoded text as a display-only address instead of
+		// dropping the sender entirely.
+		return Address{Name: strings.TrimSpace(mailbox), Email: ""}, true
 	}
 	return Address{Name: name, Email: mailbox + "@" + host}, true
 }
@@ -143,11 +149,21 @@ func envelopeDate(t time.Time) *time.Time {
 }
 
 func parseIMAPDate(s string) time.Time {
+	// A trailing timezone comment ("… +0800 (CST)") is informational and
+	// breaks every strict layout below; drop it (THREAD-UX-REVIEW F3:
+	// single-digit-day sender dates rendered as em dash).
+	if idx := strings.LastIndex(s, " ("); idx >= 0 && strings.HasSuffix(s, ")") {
+		s = s[:idx]
+	}
 	layouts := []string{
 		"02-Jan-2006 15:04:05 -0700",
 		"2-Jan-2006 15:04:05 -0700",
 		time.RFC1123Z,
+		// Single-digit day with a weekday: RFC1123Z only accepts the
+		// zero-padded form, yet it is the common real-world Date header.
+		"Mon, 2 Jan 2006 15:04:05 -0700",
 		time.RFC1123,
+		"2 Jan 2006 15:04:05 -0700",
 	}
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, s); err == nil {
