@@ -144,6 +144,23 @@ func (c *Cache) InvalidateMailbox(mailboxID int64) {
 	}
 }
 
+// InvalidateMessage drops every rendering of one message, across the
+// load_images/UA/viewport dimensions — used when server-side state that
+// the rendering embeds (e.g. the persisted phishing verdict) changes
+// under an existing cache key.
+func (c *Cache) InvalidateMessage(mailboxID int64, folder string, uid, uidValidity uint32) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.entries {
+		if key.MailboxID == mailboxID && key.Folder == folder && key.UID == uid && key.UIDValidity == uidValidity {
+			delete(c.entries, key)
+		}
+	}
+}
+
 func (c *Cache) evictOldestLocked() {
 	var oldest Key
 	var oldestAt time.Time

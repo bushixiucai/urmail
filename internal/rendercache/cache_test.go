@@ -100,3 +100,44 @@ func TestCacheEvictsWhenFull(t *testing.T) {
 		t.Fatal("oldest not evicted")
 	}
 }
+
+// TestCacheInvalidateMessage pins the per-message eviction used when
+// server-side state embedded in a rendering (the persisted phishing
+// verdict) changes: every dimension variant of that message is dropped,
+// other messages and mailboxes stay cached, and a nil cache is a no-op.
+func TestCacheInvalidateMessage(t *testing.T) {
+	c := New()
+	base := Key{MailboxID: 3, Folder: "INBOX", UID: 5, UIDValidity: 9}
+	variants := make([]Key, 0, 4)
+	variants = append(variants, base)
+	for _, mutate := range []func(*Key){
+		func(k *Key) { k.LoadImages = true },
+		func(k *Key) { k.UAClass = "mobile" },
+		func(k *Key) { k.ViewportBucket = "narrow" },
+	} {
+		variant := base
+		mutate(&variant)
+		variants = append(variants, variant)
+	}
+	otherMessage := base
+	otherMessage.UID = 6
+	otherMailbox := base
+	otherMailbox.MailboxID = 4
+	for _, key := range append(append([]Key{}, variants...), otherMessage, otherMailbox) {
+		c.Put(key, []byte{byte(key.UID)})
+	}
+	c.InvalidateMessage(3, "INBOX", 5, 9)
+	for _, key := range variants {
+		if _, ok := c.Get(key); ok {
+			t.Fatalf("variant %+v still cached after InvalidateMessage", key)
+		}
+	}
+	if _, ok := c.Get(otherMessage); !ok {
+		t.Fatal("other message of the same mailbox was evicted")
+	}
+	if _, ok := c.Get(otherMailbox); !ok {
+		t.Fatal("other mailbox was evicted")
+	}
+	var nilCache *Cache
+	nilCache.InvalidateMessage(3, "INBOX", 5, 9)
+}
