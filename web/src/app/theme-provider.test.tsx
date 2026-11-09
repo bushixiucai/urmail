@@ -54,19 +54,29 @@ afterEach(() => {
   document.documentElement.classList.remove("dark");
   document.documentElement.style.colorScheme = "";
 });
-it("follows system changes but explicit light overrides a dark OS", () => {
+it("defaults to light on a dark OS; only an explicit dark activates dark", () => {
   const view = mount();
   expect(document.documentElement.classList.contains("dark")).toBe(false);
+  // Decision ①b: v1 is light-only — a dark OS must not flip the app via
+  // "system"; the OS change event is ignored while no explicit choice exists.
   dark = true;
   media.dispatchEvent(new Event("change"));
-  expect(document.documentElement.classList.contains("dark")).toBe(true);
-  fireEvent.change(view.getByLabelText("Theme mode"), {
-    target: { value: "light" },
-  });
   expect(document.documentElement.classList.contains("dark")).toBe(false);
   expect(document.documentElement.style.colorScheme).toBe("light");
-  media.dispatchEvent(new Event("change"));
+  // Explicitly choosing "system" also stays light under the dark OS.
+  fireEvent.change(view.getByLabelText("Theme mode"), {
+    target: { value: "system" },
+  });
   expect(document.documentElement.classList.contains("dark")).toBe(false);
+  // Only an explicit "dark" activates dark, and OS flips then stop mattering.
+  fireEvent.change(view.getByLabelText("Theme mode"), {
+    target: { value: "dark" },
+  });
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+  expect(document.documentElement.style.colorScheme).toBe("dark");
+  dark = false;
+  media.dispatchEvent(new Event("change"));
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
 });
 it("restores a persisted explicit mode on remount and synchronizes other tabs", () => {
   const view = mount();
@@ -103,8 +113,9 @@ it("rejects invalid persisted modes and releases the media listener", () => {
   localStorage.setItem(THEME_STORAGE_KEY, "invalid");
   const release = vi.spyOn(media, "removeEventListener");
   const view = mount();
+  // Invalid persisted values clamp to "light" (decision ①b), not "system".
   expect((view.getByLabelText("Theme mode") as HTMLSelectElement).value).toBe(
-    "system",
+    "light",
   );
   view.unmount();
   expect(release).toHaveBeenCalledWith("change", expect.any(Function));
