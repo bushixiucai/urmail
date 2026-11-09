@@ -195,7 +195,7 @@ func NewTestApplyManager(tempDir string, cfg *config.Config) (*ApplyManager, err
 		return nil
 	}
 	var testManifest applyManifest
-	if raw, err := os.ReadFile(filepath.Join(m.root, "manifest.json")); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(m.stateDir(), "manifest.json")); err == nil {
 		if err = json.Unmarshal(raw, &testManifest); err == nil {
 			m.status = testManifest.Status
 			m.paths = testManifest.Paths
@@ -242,7 +242,7 @@ func NewApplyManager(cfg *config.Config) (*ApplyManager, error) {
 		return nil, err
 	}
 	var manifest applyManifest
-	if raw, err := os.ReadFile(filepath.Join(m.root, "manifest.json")); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(m.stateDir(), "manifest.json")); err == nil {
 		if err = json.Unmarshal(raw, &manifest); err != nil {
 			return nil, fmt.Errorf("read generation manifest: %w", err)
 		}
@@ -1305,6 +1305,33 @@ func (m *ApplyManager) writeBackupManifest(manifest applyManifest) error {
 	return err
 }
 
+// stateDir returns the directory that holds the agent's state files
+// (generation manifest and friends). Production always sets root to
+// StateRoot. A manager without a root (unit tests) gets a private
+// temporary directory: without this guard the state file path degraded
+// to a relative path and the manifest landed in the package directory,
+// leaving an untracked manifest.json behind in the working tree.
+func (m *ApplyManager) stateDir() string {
+	if m.root != "" {
+		return m.root
+	}
+	fallbackStateDirOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "urmail-agent-state-")
+		if err != nil {
+			fallbackStateDir = filepath.Join(os.TempDir(), "urmail-agent-state")
+			return
+		}
+		fallbackStateDir = dir
+	})
+	return fallbackStateDir
+}
+
+// fallbackStateDir backs stateDir for root-less managers.
+var (
+	fallbackStateDirOnce sync.Once
+	fallbackStateDir     string
+)
+
 func (m *ApplyManager) saveJSON(name string, v any) error {
 	if name == "manifest.json" {
 		m.publish()
@@ -1313,7 +1340,8 @@ func (m *ApplyManager) saveJSON(name string, v any) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(m.root, ".state-*")
+	dir := m.stateDir()
+	f, err := os.CreateTemp(dir, ".state-*")
 	if err != nil {
 		return err
 	}
@@ -1330,10 +1358,10 @@ func (m *ApplyManager) saveJSON(name string, v any) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(path, filepath.Join(m.root, name))
+		err = os.Rename(path, filepath.Join(dir, name))
 	}
 	if err == nil {
-		err = syncDir(m.root)
+		err = syncDir(dir)
 	}
 	return err
 }

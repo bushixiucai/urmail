@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -25,14 +26,149 @@ import (
 
 const bootstrapLock = int64(7750360020)
 
+// bootstrapLockWait bounds how long a fixture waits for the cluster-wide
+// bootstrap lock. The lock is a single cluster-wide rendezvous shared by
+// every package and every fixture, so a parallel full-suite run queues on
+// it. The wait is generous enough to outlast a queue of fixtures but short
+// enough that a genuinely stuck lock fails the test with a clear message
+// instead of consuming the whole package timeout.
+const bootstrapLockWait = 3 * time.Minute
+
+// bootstrapTimeout bounds the lock wait plus the bootstrap itself.
+const bootstrapTimeout = bootstrapLockWait + 2*time.Minute
+
+// testDatabaseURLEnv is the only environment variable that points the
+// integration fixtures at a PostgreSQL cluster.
+const testDatabaseURLEnv = "URMAIL_TEST_DATABASE_URL"
+
+// requireDatabaseURLEnv opts a job into the mandatory-DSN rule: when it is
+// set, a missing URMAIL_TEST_DATABASE_URL is a failure instead of a skip.
+// The CI integration job sets it; the plain unit-test job does not, because
+// it deliberately runs without a database.
+const requireDatabaseURLEnv = "URMAIL_TEST_REQUIRE_DATABASE"
+
+// lookalikeDatabaseURLEnvs are test-scoped variables that look like the
+// fixture DSN but are not. A renamed variable used to skip every
+// integration test silently, which turns a broken CI setup into a green
+// run. Only test-scoped names belong here: production and development
+// variables such as URMAIL_DATABASE_URL are set on purpose by
+// scripts/dev.sh and the installer.
+var lookalikeDatabaseURLEnvs = []string{
+	"URMAIL_TEST_DSN",
+	"URMAIL_TEST_DATABASE_DSN",
+	"URMAIL_TEST_DATABASE_URI",
+	"URMAIL_TEST_DB_URL",
+	"URMAIL_TEST_POSTGRES_URL",
+	"URMAIL_TEST_PG_URL",
+}
+
+// genericDatabaseURLEnvs are shared names that also point at the production
+// or development database. They are only a mistake when the run insists on
+// a fixture DSN, so they are reported there and not on a developer machine.
+var genericDatabaseURLEnvs = []string{
+	"DATABASE_URL",
+	"URMAIL_DATABASE_URL",
+}
+
+// testDatabaseURL resolves the fixture DSN. It returns an error when the
+// environment is wrong (a lookalike variable is set, or a job that requires
+// the database has no variable) and an empty DSN without an error only for a
+// local run that simply has no cluster configured.
+func testDatabaseURL() (string, error) {
+	dsn := os.Getenv(testDatabaseURLEnv)
+	if dsn != "" {
+		return dsn, nil
+	}
+	for _, name := range lookalikeDatabaseURLEnvs {
+		if os.Getenv(name) != "" {
+			return "", fmt.Errorf("%s is set but %s is not: integration fixtures need the DSN in %s (rename the variable)",
+				name, testDatabaseURLEnv, testDatabaseURLEnv)
+		}
+	}
+	if os.Getenv(requireDatabaseURLEnv) == "" {
+		return "", nil
+	}
+	for _, name := range genericDatabaseURLEnvs {
+		if os.Getenv(name) != "" {
+			return "", fmt.Errorf("%s is set but %s is not: this run requires a fixture DSN in %s",
+				name, testDatabaseURLEnv, testDatabaseURLEnv)
+		}
+	}
+	return "", fmt.Errorf("%s is not set but %s is: integration fixtures are mandatory for this run",
+		testDatabaseURLEnv, requireDatabaseURLEnv)
+}
+
+// resolveTestDatabaseURL returns the fixture DSN or fails the test with an
+// actionable message. A missing variable is only a skip for a local run
+// that has no cluster; a lookalike variable or a job that requires the
+// database without the variable fails instead, so a renamed variable can
+// never turn the integration suite into a no-op.
+func resolveTestDatabaseURL(t testing.TB) string {
+	t.Helper()
+	dsn, err := testDatabaseURL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dsn == "" {
+		t.Skipf("%s is not set; skipping PostgreSQL integration", testDatabaseURLEnv)
+	}
+	return dsn
+}
+
+// RequireDatabaseURL returns the fixture DSN for a test outside this
+// package. It applies the same guard as New: a lookalike variable or a
+// job that requires the database fails the test instead of skipping it.
+func RequireDatabaseURL(t testing.TB) string {
+	t.Helper()
+	return resolveTestDatabaseURL(t)
+}
+
+// unlockBootstrap releases the cluster-wide bootstrap lock. It uses its own
+// short context so a bootstrap that ran out of time still releases the
+// lock instead of leaking it into the next fixture.
+func unlockBootstrap(admin *pgx.Conn, lock int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, err := admin.Exec(ctx, "SELECT pg_advisory_unlock($1)", lock)
+	return err
+}
+
+// lockBootstrap takes the cluster-wide bootstrap lock. The lock is
+// advisory and shared by every package and every fixture, so under a
+// parallel full-suite run the queue can be long: wait for it with a
+// bounded retry loop on a dedicated deadline instead of inheriting the
+// short connection timeout, which used to abort healthy runs with
+// "lock cluster bootstrap: context deadline exceeded".
+func lockBootstrap(ctx context.Context, admin *pgx.Conn, lock int64, wait time.Duration) error {
+	deadline := time.Now().Add(wait)
+	backoff := 100 * time.Millisecond
+	for {
+		var locked bool
+		if err := admin.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lock).Scan(&locked); err != nil {
+			return err
+		}
+		if locked {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("cluster bootstrap lock still held by another fixture after %s", wait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 2*time.Second {
+			backoff *= 2
+		}
+	}
+}
+
 // New creates and bootstraps an isolated database, without applying migrations.
 // Cleanup drops only this fixture, after later-registered pool cleanups run.
 func New(t testing.TB) string {
 	t.Helper()
-	dsn := os.Getenv("URMAIL_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("URMAIL_TEST_DATABASE_URL is not set; skipping PostgreSQL integration")
-	}
+	dsn := resolveTestDatabaseURL(t)
 	config, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal("invalid PostgreSQL integration configuration")
@@ -84,12 +220,19 @@ func New(t testing.TB) string {
 		t.Fatal("fixture URL does not target its owned database")
 	}
 	// Every package rendezvouses on postgres: advisory locks are database-local,
-	// while the roles changed by Bootstrap are cluster-wide.
-	if _, err = admin.Exec(ctx, "SELECT pg_advisory_lock($1)", bootstrapLock); err != nil {
+	// while the roles changed by Bootstrap are cluster-wide. The lock wait and
+	// the bootstrap itself get their own generous deadline: under a parallel
+	// full-suite run the queue for this single cluster-wide lock is longer
+	// than the connect/create budget above, and the old shared context
+	// aborted healthy runs with "lock cluster bootstrap: context deadline
+	// exceeded".
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), bootstrapTimeout)
+	defer bootstrapCancel()
+	if err = lockBootstrap(bootstrapCtx, admin, bootstrapLock, bootstrapLockWait); err != nil {
 		t.Fatalf("lock cluster bootstrap: %v", err)
 	}
-	bootstrapErr := db.Bootstrap(ctx, target.String())
-	_, unlockErr := admin.Exec(ctx, "SELECT pg_advisory_unlock($1)", bootstrapLock)
+	bootstrapErr := db.Bootstrap(bootstrapCtx, target.String())
+	unlockErr := unlockBootstrap(admin, bootstrapLock)
 	if bootstrapErr != nil {
 		t.Fatalf("bootstrap owned integration database: %v", bootstrapErr)
 	}
@@ -119,10 +262,14 @@ func MigrateTo(t testing.TB, dsn string, version uint) {
 		t.Fatal(err)
 	}
 	defer func() { _ = admin.Close(ctx) }()
-	if _, err = admin.Exec(ctx, "SELECT pg_advisory_lock($1)", bootstrapLock); err != nil {
-		t.Fatal(err)
+	// Same cluster-wide rendezvous as New, with the same bounded wait: a
+	// historical fixture must not hang forever on the lock.
+	lockCtx, lockCancel := context.WithTimeout(ctx, bootstrapTimeout)
+	defer lockCancel()
+	if err = lockBootstrap(lockCtx, admin, bootstrapLock, bootstrapLockWait); err != nil {
+		t.Fatalf("lock cluster bootstrap: %v", err)
 	}
-	defer func() { _, _ = admin.Exec(ctx, "SELECT pg_advisory_unlock($1)", bootstrapLock) }()
+	defer func() { _ = unlockBootstrap(admin, bootstrapLock) }()
 	// Historical schema 0042 predates retirement. These are fixture-only,
 	// inert owners; current bootstrap and production permissions stay unchanged.
 	if version >= 42 {
