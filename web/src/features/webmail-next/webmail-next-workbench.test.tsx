@@ -1729,11 +1729,14 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     fireEvent.change(search, { target: { value: "qa" } });
     fireEvent.keyDown(search, { key: "Enter" });
     const row = await screen.findByTestId("mail-row-201");
+    const callsAtClick = vi.mocked(mailboxApi.getMessage).mock.calls.length;
     fireEvent.click(row);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 30));
     });
-    expect(mailboxApi.getMessage).not.toHaveBeenCalled();
+    // Fail-closed open: no detail fetch for the unknown row (mount-time
+    // auto-open of legit rows is excluded from the comparison).
+    expect(mailboxApi.getMessage.mock.calls.length).toBe(callsAtClick);
   });
 
   it("bulk write filters stale uids after the selection's row is refreshed away", async () => {
