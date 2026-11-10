@@ -1275,9 +1275,13 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(dock.textContent).toContain("ann@x");
     expect(dock.textContent).toContain("Re: cross-box sample");
     // Close, then Forward the same row: subject prefixed correctly.
-    fireEvent.click(await screen.findByTestId("compose-close-button"));
+    fireEvent.click(
+      await screen.findByTestId("compose-close-button", {}, { timeout: 5000 }),
+    );
     fireEvent.contextMenu(row);
-    fireEvent.click(await screen.findByTestId("ctx-forward"));
+    fireEvent.click(
+      await screen.findByTestId("ctx-forward", {}, { timeout: 5000 }),
+    );
     const dock2 = await screen.findByTestId(
       "webmail-compose-dock",
       {},

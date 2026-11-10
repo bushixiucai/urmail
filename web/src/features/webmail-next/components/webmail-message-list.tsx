@@ -36,6 +36,20 @@ import type {
 import type { DensityMode, WebmailItem } from "../types";
 import { decodeFolderName } from "../lib/folder-names";
 
+/** Cross-folder result rows from other boxes are excluded from selection
+ * and folder-scoped quick actions so bulk ops can never touch a same-
+ * numeric-uid copy in the browsing folder (QA/UIUX review). */
+function isForeignRow(
+  item: { folderEnc?: string },
+  activeFolderEnc?: string,
+): boolean {
+  return (
+    activeFolderEnc != null &&
+    item.folderEnc != null &&
+    item.folderEnc !== activeFolderEnc
+  );
+}
+
 /** Payload type for dragging UIDs from the list onto a folder. */
 export const MAILBOX_DRAG_TYPE = "application/x-urmail-mailbox-uids";
 
@@ -143,15 +157,16 @@ export function WebmailMessageList({
   onSelectionCountChange,
 }: WebmailMessageListProps) {
   const { t } = useTranslation();
-  const { items, toggleThreadExpand } = useMessageThreading(messages);
+  const { items, toggleThreadExpand } = useMessageThreading(
+    messages,
+    activeFolderEnc,
+  );
   // Cross-folder result sets can carry the same numeric uid from two
   // boxes. Folder-scoped selection/bulk actions must only ever see rows
   // of the browsing folder (UIUX ①).
-  const isForeignRow = (item: WebmailItem) =>
-    activeFolderEnc != null &&
-    item.folderEnc != null &&
-    item.folderEnc !== activeFolderEnc;
-  const selectableItems = items.filter((item) => !isForeignRow(item));
+  const selectableItems = items.filter((item) =>
+    !isForeignRow(item, activeFolderEnc),
+  );
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
     useRangeSelection(selectableItems);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -208,7 +223,7 @@ export function WebmailMessageList({
       // folder-scoped surface, so it may only open for a UNIQUE row of the
       // browsing folder (a same-uid foreign copy must never be targeted).
       const matches = itemsRef.current.filter((it) => it.uid === resolved);
-      if (matches.length !== 1 || isForeignRow(matches[0])) {
+      if (matches.length !== 1 || isForeignRow(matches[0], activeFolderEnc)) {
         event.preventDefault();
         return;
       }
@@ -375,7 +390,7 @@ export function WebmailMessageList({
         rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc)
       }
       onToggleCheck={(event) => {
-        if (isForeignRow(item)) return; // folder-scoped selection only
+        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped
         rowActionsRef.current.toggleSelect(
           item.uid,
           event.shiftKey,
@@ -384,7 +399,7 @@ export function WebmailMessageList({
       }}
       onToggleStar={(event) => {
         event.stopPropagation();
-        if (isForeignRow(item)) return; // folder-scoped op
+        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped op
         rowActionsRef.current.onToggleStar?.(item.uid);
       }}
       onToggleThread={(event) => {
@@ -404,16 +419,16 @@ export function WebmailMessageList({
       }}
       onDelete={(event) => {
         event.stopPropagation();
-        if (isForeignRow(item)) return; // folder-scoped op
+        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped op
         rowActionsRef.current.onDeleteMessage?.(item.uid);
       }}
       onToggleRead={(event) => {
         event.stopPropagation();
-        if (isForeignRow(item)) return; // folder-scoped op
+        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped op
         rowActionsRef.current.onToggleRead?.(item.uid);
       }}
       onContextMenu={(x, y) => {
-        if (isForeignRow(item)) return; // menu actions are folder-scoped
+        if (isForeignRow(item, activeFolderEnc)) return; // menu actions are folder-scoped
         rowActionsRef.current.openContextMenu(item.uid, x, y);
       }}
       onDragStartUids={(fallbackUids) => {

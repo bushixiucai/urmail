@@ -6,13 +6,19 @@ import type { WebmailItem } from "../types";
 /** Composite grouping identity: thread_id is a per-folder root UID and two
  * boxes can legally share the same numeric id (Backend audit). Rows without
  * folder_enc keep legacy single-box grouping semantics. */
-function groupKeyOf(m: MessageSummary): string {
-  return m.folder_enc != null
-    ? `${m.folder_enc}:${m.thread_id ?? 0}`
-    : `legacy:${m.thread_id ?? 0}`;
+function groupKeyOf(m: MessageSummary, knownFolderEnc?: string): string {
+  // Known browsing folder fills the identity for legacy rows that omit
+  // folder_enc (Backend: single-box lists omit it); rows WITH folder_enc
+  // always use their own box. Unknown source without any folder context
+  // falls back to the legacy single-box key (compat).
+  const box = m.folder_enc ?? knownFolderEnc ?? "legacy";
+  return `${box}:${m.thread_id ?? 0}`;
 }
 
-export function useMessageThreading(messages: MessageSummary[]) {
+export function useMessageThreading(
+  messages: MessageSummary[],
+  knownFolderEnc?: string,
+) {
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(
     new Set(),
   );
@@ -38,7 +44,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
     for (const msg of messages) {
       if (!msg) continue;
       if (msg.thread_id && msg.thread_count && msg.thread_count > 1) {
-        const gk = groupKeyOf(msg);
+        const gk = groupKeyOf(msg, knownFolderEnc);
         const group = threadGroups.get(gk) || [];
         group.push(msg);
         threadGroups.set(gk, group);
@@ -73,7 +79,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
         threadId: m.thread_id,
         threadCount: isChild ? undefined : m.thread_count,
         threadVerification: m.thread_verification,
-        threadGroupKey: groupKeyOf(m),
+        threadGroupKey: groupKeyOf(m, knownFolderEnc),
         isThreadChild: isChild || undefined,
         folder: m.folder,
         folderEnc: m.folder_enc,
@@ -88,7 +94,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
           new Date(b?.date || 0).getTime() - new Date(a?.date || 0).getTime(),
       );
       const root = sorted[0];
-      const groupKey = groupKeyOf(root);
+      const groupKey = groupKeyOf(root, knownFolderEnc);
       const isExpanded = expandedThreadIds.has(groupKey);
 
       const maxServerCount = Math.max(
@@ -134,7 +140,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
     }
 
     return result;
-  }, [messages, expandedThreadIds]);
+  }, [messages, knownFolderEnc, expandedThreadIds]);
 
   return {
     items,

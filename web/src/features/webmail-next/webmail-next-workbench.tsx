@@ -1026,13 +1026,14 @@ export function WebmailNextWorkbench({
   // INBOX must reply to the INBOX copy).
   const contextRow = (uid: number, folderEnc?: string) => {
     if (folderEnc != null) {
-      const exact = messages.find(
+      // Known target box: exact match or NOTHING — never substitute a
+      // same-uid copy from another box (UIUX release blocker).
+      return messages.find(
         (m: MessageSummary) =>
           m.uid === uid &&
           ((m as { folder_enc?: string }).folder_enc ?? activeFolder) ===
             folderEnc,
       );
-      if (exact) return exact;
     }
     return messages.find((m: MessageSummary) => m.uid === uid);
   };
