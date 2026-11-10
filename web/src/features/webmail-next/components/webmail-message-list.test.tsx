@@ -138,7 +138,7 @@ describe("WebmailMessageList", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("mail-row-103"));
-    expect(onSelect).toHaveBeenCalledWith(103);
+    expect(onSelect).toHaveBeenCalledWith(103, undefined);
     expect(
       screen.getByTestId("mail-row-103").getAttribute("data-selected"),
     ).toBe("false");
@@ -223,7 +223,7 @@ describe("WebmailMessageList", () => {
     );
     fireEvent.click(screen.getByTestId("mail-row-103"));
     expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledWith(103);
+    expect(second).toHaveBeenCalledWith(103, undefined);
   });
 
   it("renders decoded folder name in list header when passed b64 encoded folderName", () => {
@@ -358,7 +358,7 @@ describe("thread pill routing (C1 D-D)", () => {
     // uid 102 declares thread_count 2 but only itself is loaded: the pill
     // must not inline-expand (0-child dead end) — it opens the stack.
     fireEvent.click(screen.getByTestId("thread-toggle-1"));
-    expect(onSelectMessage).toHaveBeenCalledWith(102);
+    expect(onSelectMessage).toHaveBeenCalledWith(102, undefined);
     expect(screen.queryByTestId("mail-row-101")).toBeNull();
   });
 

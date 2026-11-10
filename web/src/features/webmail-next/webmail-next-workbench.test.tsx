@@ -1021,6 +1021,126 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     );
   });
 
+  it("keeps the members query anchored when a stack member is not in the list", async () => {
+    // Thread carries a Sent member (uid 200) that has NO list row.
+    const MEMBER_200 = {
+      ...SENT_148,
+      uid: 200,
+      subject: "Sent-only member",
+      thread_id: undefined,
+    };
+    vi.mocked(fetchThreadMembers).mockResolvedValue({
+      thread_id: 148,
+      total: 3,
+      unread_count: 0,
+      scope: "server",
+      messages: [INBOX_148, SENT_148, MEMBER_200] as never,
+      has_more_older: false,
+      oldest: "INBOX:148",
+    });
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers200 = await screen.findAllByTestId(/^thread-card-header-200$/);
+    fireEvent.click(headers200[0]);
+    await waitFor(() =>
+      expect(fetchThreadMembers).toHaveBeenLastCalledWith(
+        "Sent",
+        200,
+        expect.anything(),
+      ),
+    );
+    // The stack must still render all three cards (context not lost).
+    await waitFor(() =>
+      expect(screen.getAllByTestId(/^thread-card-\d+$/)).toHaveLength(3),
+    );
+  });
+
+  it("survives the list row disappearing after delete and keeps undo context", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValueOnce({
+      moved: 1,
+      to: "Trash",
+      destination_uids: [900],
+      destination_uid_validity: 11,
+    } as never);
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    // After the delete, the list no longer contains the INBOX row.
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[0]); // expand INBOX row
+    fireEvent.click(await screen.findByTestId("thread-card-delete-148"));
+    // Relay moves to the Sent copy; anchored via stackOrigin although the
+    // INBOX list row is gone.
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+    const calls = vi.mocked(fetchThreadMembers).mock.calls;
+    const last = calls[calls.length - 1];
+    expect(last?.[0]).toBe("Sent");
+    expect(last?.[1]).toBe(148);
+    // Undo context still offered and refreshes members.
+    expect(await screen.findByTestId("webmail-move-undo")).toBeTruthy();
+  });
+
+  it("keeps remote-image grants box-scoped for the same uid", async () => {
+    vi.mocked(mailboxApi.getMessage).mockImplementation(((
+      folder: string,
+      uid: number,
+      opts?: { loadImages?: boolean },
+    ) =>
+      Promise.resolve({
+        uid,
+        subject: `detail ${uid}`,
+        from: [{ name: "S", email: "s@x" }],
+        to: [],
+        date: "2026-11-06T10:00:00Z",
+        flags: [],
+        size: 1,
+        html: "<p>with <img src='https://tracker.com/p.png'/></p>",
+        notes: opts?.loadImages ? [] : ["remote_images_blocked"],
+        attachments: [],
+        folder,
+      })) as never);
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    // Grant images on the INBOX copy.
+    await waitFor(() =>
+      expect(screen.getByTestId("show-images-button")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByTestId("show-images-button"));
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.objectContaining({ loadImages: true }),
+      ),
+    );
+    // Switch to the Sent copy: the grant must NOT carry over.
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[1]);
+    await waitFor(() => {
+      const sentCalls = vi
+        .mocked(mailboxApi.getMessage)
+        .mock.calls.filter(([folder]) => folder === "Sent");
+      expect(sentCalls.length).toBeGreaterThan(0);
+      for (const [, , opts] of sentCalls) {
+        expect(
+          (opts as { loadImages?: boolean } | undefined)?.loadImages,
+        ).not.toBe(true);
+      }
+    });
+  });
+
   it("a list click while the Sent copy is expanded still opens the INBOX copy", async () => {
     renderWorkbench();
     await screen.findByTestId("mail-row-148");

@@ -55,7 +55,8 @@ interface WebmailMessageListProps {
   messages: MessageSummary[];
   activeUid: number | null;
   cursorUid?: number | null;
-  onSelectMessage: (uid: number) => void;
+  /** folderEnc disambiguates same-uid rows in cross-folder result sets. */
+  onSelectMessage: (uid: number, folderEnc?: string) => void;
   density: DensityMode;
   sort: MailboxSortKey;
   order: "asc" | "desc";
@@ -332,7 +333,9 @@ export function WebmailMessageList({
       isActive={activeUid === item.uid}
       isCursor={cursorUid === item.uid}
       density={density}
-      onSelect={() => rowActionsRef.current.onSelectMessage(item.uid)}
+      onSelect={() =>
+        rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc)
+      }
       onToggleCheck={(event) => {
         rowActionsRef.current.toggleSelect(
           item.uid,
@@ -352,7 +355,7 @@ export function WebmailMessageList({
         // reading stack, which progressively loads the missing members.
         const loaded = loadedThreadCounts.get(item.threadId) ?? 0;
         if ((item.threadCount ?? 0) > loaded) {
-          rowActionsRef.current.onSelectMessage(item.uid);
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
           return;
         }
         rowActionsRef.current.toggleThreadExpand(item.threadId);

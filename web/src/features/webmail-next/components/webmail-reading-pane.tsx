@@ -453,9 +453,11 @@ export function WebmailReadingPane({
   const [workerHtml, setWorkerHtml] = useState<string | null>(null);
 
   useEffect(() => {
+    // Reset on the FULL identity (folder+uid): switching between the same
+    // numeric uid in two boxes must not carry the image grant over (QA).
     setLocalManualGranted(false);
     setContactAdded(false);
-  }, [message?.uid]);
+  }, [message?.uid, folderEnc]);
 
   useEffect(() => {
     if (!useWorker || !message?.html) {

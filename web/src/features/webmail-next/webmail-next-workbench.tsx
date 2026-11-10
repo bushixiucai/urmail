@@ -183,6 +183,13 @@ export function WebmailNextWorkbench({
   );
   const currentReadKey =
     selectedUid === null ? null : `${readingFolder}:${selectedUid}`;
+
+  // Origin of the last opened stack member that is not a loaded list row
+  // (keeps the members query anchored; contract §1 any-member origin).
+  const [stackOrigin, setStackOrigin] = useState<{
+    uid: number;
+    folder_enc: string;
+  } | null>(null);
   // Null until a successful preference event. The event value is applied
   // synchronously; a later settings GET may confirm it only for this generation.
   const [confirmedGlobalAllow, setConfirmedGlobalAllow] = useState<
@@ -592,6 +599,19 @@ export function WebmailNextWorkbench({
     const member = findStackMember(uid, folderEnc);
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
+    // Remember non-list stack origins so the members query stays anchored
+    // after collapsing/refetch; clear once a list row provides the anchor.
+    if (
+      folderEnc != null &&
+      !messages.some(
+        (item) =>
+          item.uid === uid && (item.folder_enc ?? activeFolder) === folderEnc,
+      )
+    ) {
+      setStackOrigin({ uid, folder_enc: folderEnc });
+    } else {
+      setStackOrigin(null);
+    }
     setCursorUid(uid);
     setReadingFolder(
       member?.folder_enc || folderEnc || message?.folder_enc || activeFolder,
@@ -789,6 +809,13 @@ export function WebmailNextWorkbench({
     // cross-box members (Sent) are flagged through their own folder.
     const member = findStackMember(uid, folderEncHint);
     if (member) {
+      // Write safety: a member whose folder is unknown (malformed/legacy
+      // members payload, no list row) must never default to the origin
+      // box — refuse instead of risking the wrong copy (Backend audit).
+      const isLoadedRow = messages.some(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+      );
+      if (member.folder_enc == null && !isLoadedRow) return;
       const folderEnc = member.folder_enc ?? activeFolder;
       const isStarred = member.flags.includes("\\Flagged");
       await flagMessages(folderEnc, {
@@ -884,6 +911,12 @@ export function WebmailNextWorkbench({
     // through its own folder+uid — the origin-folder move would 404 or,
     // with a same-numbered uid, hit the wrong message.
     const member = findStackMember(uid, folderEncHint);
+    // Same write-safety rule as star: no folder, no write (unless the uid
+    // resolves to a loaded row of the browsing folder).
+    const isLoadedRow = messages.some(
+      (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+    );
+    if (member && member.folder_enc == null && !isLoadedRow) return;
     const folderEnc = member?.folder_enc ?? folderEncHint ?? activeFolder;
     void (async () => {
       if (folderEnc !== activeFolder) {
@@ -1315,7 +1348,11 @@ export function WebmailNextWorkbench({
   const selectedRow = useMemo(() => {
     if (selectedUid === null) return null;
     // Cross-folder search can hold the same numeric uid from two boxes —
-    // anchor on the row whose folder matches the one being read.
+    // anchor on the row whose folder matches the one being read. A stack
+    // member that is NOT in the loaded list still anchors the members
+    // query via stackOrigin: any known member (folder+uid) is a valid
+    // origin (contract §1), so the stack survives opening a Sent-only
+    // member (QA review).
     return (
       messages.find(
         (m) =>
@@ -1323,22 +1360,34 @@ export function WebmailNextWorkbench({
           (m.folder_enc ?? activeFolder) === readingFolder,
       ) ??
       messages.find((m) => m.uid === selectedUid) ??
-      null
+      (stackOrigin !== null &&
+      stackOrigin.uid === selectedUid &&
+      (stackOrigin.folder_enc ?? activeFolder) === readingFolder
+        ? ({
+            uid: stackOrigin.uid,
+            folder_enc: stackOrigin.folder_enc,
+          } as (typeof messages)[number])
+        : null)
     );
-  }, [messages, selectedUid, readingFolder, activeFolder]);
+  }, [messages, stackOrigin, selectedUid, readingFolder, activeFolder]);
   const threadApi = useThreadMembers({
     originFolderEnc:
       selectedRow?.folder_enc ?? (selectedRow ? activeFolder : null),
-    originUid: selectedRow?.thread_id ?? null,
+    // Any known member anchors the thread query; list rows expose the
+    // in-folder root as thread_id, stack-only members anchor on their uid.
+    originUid: selectedRow?.thread_id ?? selectedRow?.uid ?? null,
     anchorUid: selectedRow?.uid ?? null,
-    /* DEF-4 (Tiger decision 2): entry gates on thread_id presence only.
-       Cross-box conversations keep thread_count=1 in the list (subject
-       fallback is in-folder only), so the old count>1 condition never
-       fired the members API and Sent members were unreachable. The
-       members endpoint (3-folder scan) returns the real total; a
-       single-member thread yields total=1 and the downstream single-pane
-       path stays intact (contract §4/§8). */
-    enabled: Boolean(selectedRow && selectedRow.thread_id),
+    /* DEF-4 (Tiger decision 2): entry gates on thread_id presence for
+       LIST rows (unverified rows omit it and must never fetch members).
+       A stack-only member (not present in the loaded list) anchors the
+       query via its own folder+uid — any known member is a valid origin
+       (contract §1) — so the stack keeps working after the list row is
+       gone (QA/UIUX review). */
+    enabled: Boolean(
+      selectedRow &&
+      (selectedRow.thread_id != null ||
+        (stackOrigin != null && stackOrigin.uid === selectedUid)),
+    ),
   });
   const useApiMembers = !threadApi.isError && threadApi.members.length > 0;
   const stackMembers: MessageSummary[] = useApiMembers
@@ -1554,7 +1603,9 @@ export function WebmailNextWorkbench({
                 onClearSearch={() => setSearchDraft("")}
                 onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
-                onSelectMessage={(uid) => openMessage(uid)}
+                onSelectMessage={(uid, folderEnc) =>
+                  openMessage(uid, folderEnc)
+                }
                 totalCount={messageTotal}
                 isLoadingMore={isFetchingNextPage}
                 isInitialLoading={isListLoading}

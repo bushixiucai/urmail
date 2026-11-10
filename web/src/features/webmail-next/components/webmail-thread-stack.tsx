@@ -113,12 +113,23 @@ export function WebmailThreadStack({
     [members],
   );
 
+  const ambiguousUids = useMemo(() => {
+    const seen = new Map<number, number>();
+    for (const m of ordered) {
+      seen.set(m.uid, (seen.get(m.uid) ?? 0) + 1);
+    }
+    return new Set(
+      [...seen.entries()].filter(([, n]) => n > 1).map(([uid]) => uid),
+    );
+  }, [ordered]);
   const isExpandedMember = useCallback(
-    (m: MessageSummary): boolean =>
-      expandedKey != null
-        ? threadMemberKey(m) === expandedKey
-        : m.uid === expandedUid,
-    [expandedKey, expandedUid],
+    (m: MessageSummary): boolean => {
+      if (expandedKey != null) return threadMemberKey(m) === expandedKey;
+      // Bare-uid fallback is only safe when the uid identifies ONE card —
+      // otherwise two same-uid members would both render expanded (QA).
+      return m.uid === expandedUid && !ambiguousUids.has(m.uid);
+    },
+    [expandedKey, expandedUid, ambiguousUids],
   );
   const expandedIndex = ordered.findIndex(isExpandedMember);
 
