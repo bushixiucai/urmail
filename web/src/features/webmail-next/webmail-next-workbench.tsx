@@ -858,13 +858,10 @@ export function WebmailNextWorkbench({
 
   const flagUids = async (uids: number[], add: string[], remove: string[]) => {
     if (uids.length === 0 || isScheduledView) return;
-    // Stale-selection filter: only uids still present for the browsing
-    // folder may be flagged (Backend audit: no same-uid cross-box writes).
-    uids = uids.filter((uid) =>
-      messages.some(
-        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
-      ),
-    );
+    // Stale-selection filter via the shared predicate: only uids still
+    // present for the browsing folder may be flagged (no same-uid
+    // cross-box writes).
+    uids = uids.filter((uid) => currentFolderUidAllowed(uid, activeFolder));
     if (uids.length === 0) return;
     await flagMessages(activeFolder, {
       uids,
@@ -950,11 +947,9 @@ export function WebmailNextWorkbench({
     // list data for the browsing folder; vanished/unknown uids are dropped
     // so a background refresh can never re-enable a folder-scoped write
     // against a same-uid copy in another box (Backend audit).
-    uids = uids.filter((uid) =>
-      messages.some(
-        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
-      ),
-    );
+    // Stale-selection filter via the shared predicate (Backend rec):
+    // vanished/unknown uids are dropped before any folder-scoped write.
+    uids = uids.filter((uid) => currentFolderUidAllowed(uid, activeFolder));
     if (uids.length === 0 || isScheduledView) return;
     if (flag === "\\Trash" && isTrashMailbox(folders, activeFolder)) {
       setPendingPermanentUids(uids);
@@ -1140,19 +1135,26 @@ export function WebmailNextWorkbench({
   };
 
   /** Exact-or-nothing validation for folder-scoped menu writes. */
+  /** Shared single-uid provenance predicate (Backend rec): a uid passes
+   * only if it still resolves to the browsing folder in CURRENT data, its
+   * folder is known (cross-folder rows without folder_enc are unknown and
+   * rejected), and no conflicting same-uid copy exists in another box. */
+  const currentFolderUidAllowed = (
+    uid: number,
+    sourceFolderEnc?: string,
+  ): boolean => {
+    const enc = sourceFolderEnc ?? activeFolder;
+    if (enc !== activeFolder) return false; // writes are folder-scoped
+    const rows = messages.filter((m) => m.uid === uid);
+    if (rows.length === 0) return false;
+    return rows.every((m) =>
+      m.folder_enc != null ? m.folder_enc === enc : !isCrossFolder,
+    );
+  };
+
   const contextWritesAllowed = (uids: number[], folderEnc?: string) => {
-    const enc = folderEnc ?? activeFolder;
-    if (enc !== activeFolder) return false; // bulk paths are folder-scoped
-    return uids.every((uid) => {
-      const rows = messages.filter((m) => m.uid === uid);
-      if (rows.length === 0) return false;
-      // fail-closed: a folderless row may borrow the browsing box ONLY in
-      // a trusted single-box list; in cross-folder context its provenance
-      // is unknown and it must never receive a folder-scoped write.
-      return rows.every((m) =>
-        m.folder_enc != null ? m.folder_enc === enc : !isCrossFolder,
-      );
-    });
+    const sourceFolderEnc = folderEnc ?? activeFolder;
+    return uids.every((uid) => currentFolderUidAllowed(uid, sourceFolderEnc));
   };
 
   /** Move UIDs to an arbitrary folder by enc; same pipeline as bulk move. */
@@ -1165,12 +1167,11 @@ export function WebmailNextWorkbench({
     // exist for the browsing folder; vanished/unknown uids are dropped so
     // a background refresh can never re-enable a folder-scoped write
     // against a same-uid copy in another box (Backend audit).
+    // Stale-selection filter via the shared predicate (drag/drop + move
+    // end): vanished/unknown uids are dropped before the request.
     targets = targets.filter((uid) =>
-      messages.some(
-        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
-      ),
+      currentFolderUidAllowed(uid, activeFolder),
     );
-    if (targets.length === 0 || isScheduledView || !listValidity) return;
     const source = activeFolder;
     if (source === folder.name_enc) return;
     if (
