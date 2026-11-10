@@ -253,6 +253,14 @@ func (c *imapConn) ListFolders(ctx context.Context) ([]Folder, error) {
 	}
 }
 
+// discard closes an interrupted command stream without sending another command.
+func (c *imapConn) discard() {
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
+}
+
 func (c *imapConn) Close() error {
 	if c.conn == nil {
 		return nil

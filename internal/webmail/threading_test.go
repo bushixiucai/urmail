@@ -324,6 +324,7 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 		r := bufio.NewReader(conn)
 		_, _ = io.WriteString(w, "* OK ready\r\n")
 		_ = w.Flush()
+		searches, fetches := 0, 0
 		for {
 			line, readErr := r.ReadString('\n')
 			if readErr != nil {
@@ -346,18 +347,30 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 					_, _ = r.ReadString('\n') // client must close, not send fallback
 					return
 				}
-				if threadResponse == "" {
+				switch threadResponse {
+				case "__refine_disconnect__":
+					_, _ = io.WriteString(w, "* THREAD (4 3 2)(1)\r\n"+tag+" OK thread done\r\n")
+				case "":
 					_, _ = io.WriteString(w, tag+" NO UID THREAD unsupported\r\n")
-				} else {
+				default:
 					_, _ = io.WriteString(w, "* THREAD "+threadResponse+"\r\n"+tag+" OK thread done\r\n")
 				}
 			case strings.Contains(line, "UID SEARCH"):
+				searches++
+				if threadResponse == "__count_stall__" && searches == 2 {
+					_, _ = r.ReadString('\n')
+					return
+				}
 				parts := make([]string, 0, len(msgs))
 				for _, m := range msgs {
 					parts = append(parts, strconv.FormatUint(uint64(m.uid), 10))
 				}
 				_, _ = io.WriteString(w, "* SEARCH "+strings.Join(parts, " ")+"\r\n"+tag+" OK search done\r\n")
 			case strings.Contains(line, "UID FETCH"):
+				fetches++
+				if threadResponse == "__refine_disconnect__" && fetches == 2 {
+					return
+				}
 				for _, m := range msgs {
 					_, _ = io.WriteString(w, fmt.Sprintf(
 						"* %d FETCH (UID %d FLAGS (\\Seen) RFC822.SIZE 128 ENVELOPE %s BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 12 1))\r\n",

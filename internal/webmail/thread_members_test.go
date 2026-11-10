@@ -26,6 +26,21 @@ func TestThreadMembersMarksMissingAuxiliaryFolderBounded(t *testing.T) {
 	}
 }
 
+func TestThreadMembersAuxiliaryTransportFailure(t *testing.T) {
+	for _, fault := range []string{"disconnect", "stall"} {
+		t.Run(fault, func(t *testing.T) {
+			folders := map[string][]memberMessage{"Sent": {{uid: 1, subject: "test", from: "a@example.test"}}}
+			client := dialTestClient(t, startMemberIMAPServerFault(t, folders, fault))
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			_, err := client.GetThreadMembers(ctx, "Sent", 1, ThreadMembersOpts{})
+			if err == nil || client.(*imapConn).conn != nil {
+				t.Fatalf("interrupted scan must fail and close connection: %v", err)
+			}
+		})
+	}
+}
+
 // memberMessage is one message served by the multi-folder fake IMAP server.
 type memberMessage struct {
 	uid        uint32
@@ -80,6 +95,10 @@ func prefixAngle(ids []string) []string {
 // folder, UID SEARCH and UID FETCH answer with that folder's set, and LIST
 // advertises \Sent so the scan resolves it.
 func startMemberIMAPServer(t *testing.T, folders map[string][]memberMessage) string {
+	return startMemberIMAPServerFault(t, folders, "")
+}
+
+func startMemberIMAPServerFault(t *testing.T, folders map[string][]memberMessage, fault string) string {
 	t.Helper()
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -120,6 +139,12 @@ func startMemberIMAPServer(t *testing.T, folders map[string][]memberMessage) str
 				_, _ = io.WriteString(w, resp+tag+" OK list done\r\n")
 			case strings.Contains(line, "SELECT"):
 				current = unquoteIMAPName(lastField(line))
+				if current == "INBOX" && fault != "" {
+					if fault == "stall" {
+						_, _ = r.ReadString('\n')
+					}
+					return
+				}
 				if _, ok := folders[current]; !ok {
 					_, _ = io.WriteString(w, tag+" NO no such folder\r\n")
 					break

@@ -51,6 +51,11 @@ func (c *imapConn) refineSystemThreads(ctx context.Context, page []MessageSummar
 	sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
 	summaries, err := c.uidFetchSummaries(ctx, uids)
 	if err != nil || len(summaries) != len(uids) {
+		if err != nil {
+			// No more commands are needed for this list response. Do not leave
+			// a potentially interrupted FETCH stream available for reuse.
+			c.discard()
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

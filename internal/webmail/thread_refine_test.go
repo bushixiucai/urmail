@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+func TestInterruptedCountAndRefinementCloseConnection(t *testing.T) {
+	for _, mode := range []string{"__count_stall__", "__refine_disconnect__"} {
+		t.Run(mode, func(t *testing.T) {
+			client := dialTestClient(t, startThreadIMAPServer(t, threadFixtureMessages(), mode))
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			result, err := client.ListMessages(ctx, "INBOX", ListOpts{Limit: 1, Thread: true})
+			if mode == "__count_stall__" && err == nil {
+				t.Fatal("canceled count returned success")
+			}
+			if mode == "__refine_disconnect__" && (err != nil || result.Messages[0].ThreadVerification != "unverified") {
+				t.Fatalf("unexpected refinement result: %+v, %v", result, err)
+			}
+			if client.(*imapConn).conn != nil {
+				t.Fatal("interrupted connection remained open")
+			}
+		})
+	}
+}
+
 func TestThreadTransportFailureClosesConnection(t *testing.T) {
 	for _, mode := range []string{"__disconnect__", "__stall__"} {
 		t.Run(mode, func(t *testing.T) {

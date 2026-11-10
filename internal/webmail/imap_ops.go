@@ -133,6 +133,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if opts.Thread {
 		folderUIDs, countErr = c.uidSearch(ctx, "")
 		if ctx.Err() != nil {
+			c.discard()
 			return ListResult{}, ctx.Err()
 		}
 		var rejected imapCommandRejected
@@ -540,7 +541,7 @@ func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bo
 			return validity, nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return 0, fmt.Errorf("%s", strings.TrimSpace(line))
+			return 0, imapCommandRejected(strings.TrimSpace(line))
 		}
 	}
 }
@@ -610,7 +611,7 @@ func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]Mess
 			break
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("%s", line)
+			return nil, imapCommandRejected(line)
 		}
 	}
 	out := make([]MessageSummary, 0, len(uids))

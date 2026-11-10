@@ -2,6 +2,7 @@ package webmail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -79,9 +80,25 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 		return ThreadMembersResult{}, err
 	}
 	bounded := false
+	// Only tagged failures leave the stream synchronized for another folder.
+	scanError := func(err error) error {
+		if ctx.Err() != nil {
+			c.discard()
+			return ctx.Err()
+		}
+		var rejected imapCommandRejected
+		if !errors.As(err, &rejected) {
+			c.discard()
+			return err
+		}
+		return nil
+	}
 	combined := make([]MessageSummary, 0, 64)
 	for _, name := range scanFolders {
 		if err := c.selectFolder(ctx, name); err != nil {
+			if fatal := scanError(err); fatal != nil {
+				return ThreadMembersResult{}, fatal
+			}
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
@@ -90,6 +107,9 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 		}
 		uids, err := c.uidSearch(ctx, "")
 		if err != nil {
+			if fatal := scanError(err); fatal != nil {
+				return ThreadMembersResult{}, fatal
+			}
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
@@ -102,6 +122,9 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 		}
 		sums, err := c.uidFetchSummaries(ctx, uids)
 		if err != nil {
+			if fatal := scanError(err); fatal != nil {
+				return ThreadMembersResult{}, fatal
+			}
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
