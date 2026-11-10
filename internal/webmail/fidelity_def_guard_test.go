@@ -12,20 +12,20 @@ func TestDecodeMIMEHeaderPerWordDegradation(t *testing.T) {
 	if got := decodeMIMEHeader("=?gb2312?B?xOO6ww==?="); got != "你好" {
 		t.Fatalf("legal gb2312 = %q", got)
 	}
-	// A word with illegal bytes is dropped, not leaked.
+	// An illegal byte decodes to a replacement character, not a raw word.
 	if got := decodeMIMEHeader("=?gb2312?B?/w==?="); strings.Contains(got, "=?") {
 		t.Fatalf("illegal word leaked raw form: %q", got)
 	}
 	// Literal text around a broken word survives.
-	if got := decodeMIMEHeader("Alice =?gb2312?B?/w==?= Bob"); got != "Alice  Bob" && got != "Alice Bob" {
+	if got := decodeMIMEHeader("Alice =?gb2312?B?/w==?= Bob"); got != "Alice � Bob" {
 		t.Fatalf("mixed literal = %q", got)
 	}
 	// A good word next to a broken one still decodes.
-	if got := decodeMIMEHeader("=?utf-8?B?5oiR?==?gb2312?B?/w==?="); got != "我" {
+	if got := decodeMIMEHeader("=?utf-8?B?5oiR?==?gb2312?B?/w==?="); got != "我�" {
 		t.Fatalf("good word next to broken one = %q", got)
 	}
 	// Plain text passes through untouched.
-	if got := decodeMIMEHeader("Plain Name"); got != "Plain Name" {
+	if got := decodeMIMEHeader("Plain � Name"); got != "Plain � Name" {
 		t.Fatalf("plain = %q", got)
 	}
 }

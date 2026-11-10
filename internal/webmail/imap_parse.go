@@ -149,8 +149,8 @@ var looseEncodedWordRE = regexp.MustCompile(`(?i)=\?[^?\s]{0,80}(\?[bBqQ]\?)?[^?
 // whole-header failure (unsupported charset label, or one word with illegal
 // bytes — DEF-7: a broken gb2312 display name used to leak the raw
 // encoded-word to the UI) falls back to decoding word-by-word; leftover
-// near-encoded-word fragments and unrecoverable-byte markers are scrubbed
-// rather than leaked.
+// near-encoded-word fragments are scrubbed after a decode failure; replacement
+// characters are preserved as content or evidence of decoding loss.
 func decodeMIMEHeader(s string) string {
 	if s == "" {
 		return ""
@@ -169,10 +169,9 @@ func decodeMIMEHeader(s string) string {
 		})
 		out = looseEncodedWordRE.ReplaceAllString(out, "")
 	}
-	// Some charset transforms substitute unrecoverable bytes with U+FFFD
-	// instead of erroring; those markers are mojibake, never content, and
-	// render as tofu in the UI.
-	return strings.ReplaceAll(out, "�", "")
+	// Preserve replacement characters: they may be literal content, or the
+	// only indication that a charset decoder encountered invalid bytes.
+	return out
 }
 
 // envelopeDate maps an unparsable ENVELOPE date to a nil pointer so the JSON
