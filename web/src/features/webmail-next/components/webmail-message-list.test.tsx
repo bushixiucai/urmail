@@ -138,7 +138,7 @@ describe("WebmailMessageList", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("mail-row-103"));
-    expect(onSelect).toHaveBeenCalledWith(103);
+    expect(onSelect).toHaveBeenCalledWith(103, undefined);
     expect(
       screen.getByTestId("mail-row-103").getAttribute("data-selected"),
     ).toBe("false");
@@ -223,7 +223,7 @@ describe("WebmailMessageList", () => {
     );
     fireEvent.click(screen.getByTestId("mail-row-103"));
     expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledWith(103);
+    expect(second).toHaveBeenCalledWith(103, undefined);
   });
 
   it("renders decoded folder name in list header when passed b64 encoded folderName", () => {
@@ -358,7 +358,7 @@ describe("thread pill routing (C1 D-D)", () => {
     // uid 102 declares thread_count 2 but only itself is loaded: the pill
     // must not inline-expand (0-child dead end) — it opens the stack.
     fireEvent.click(screen.getByTestId("thread-toggle-1"));
-    expect(onSelectMessage).toHaveBeenCalledWith(102);
+    expect(onSelectMessage).toHaveBeenCalledWith(102, undefined);
     expect(screen.queryByTestId("mail-row-101")).toBeNull();
   });
 
@@ -379,5 +379,321 @@ describe("thread pill routing (C1 D-D)", () => {
     fireEvent.click(screen.getByTestId("thread-toggle-1"));
     expect(onSelectMessage).not.toHaveBeenCalled();
     expect(screen.getByTestId("mail-row-101")).toBeTruthy();
+  });
+});
+
+describe("cross-folder same-uid list identity (QA/UIUX review)", () => {
+  const dupRows = [
+    {
+      uid: 148,
+      subject: "cross-box sample",
+      from: [{ name: "Ann", email: "ann@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "Re: cross-box sample",
+      from: [{ name: "Me", email: "me@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as never;
+
+  it("renders both same-uid rows with unique keys and passes each row's folderEnc", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onSelect = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        activeFolderEnc="b64.SU5CT1g"
+        messages={dupRows}
+        activeUid={null}
+        onSelectMessage={onSelect}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    const rows = screen.getAllByTestId("mail-row-148");
+    expect(rows).toHaveLength(2);
+    fireEvent.click(rows[0]);
+    expect(onSelect).toHaveBeenLastCalledWith(148, "b64.SU5CT1g");
+    fireEvent.click(rows[1]);
+    expect(onSelect).toHaveBeenLastCalledWith(148, "b64.U2VudA");
+    const duplicateKeyWarnings = errorSpy.mock.calls.filter((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(duplicateKeyWarnings).toHaveLength(0);
+    errorSpy.mockRestore();
+  });
+
+  it("does not let a foreign-box row join the folder-scoped selection", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        activeFolderEnc="b64.SU5CT1g"
+        messages={dupRows}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    const rows = screen.getAllByTestId("mail-row-148");
+    const checkForeign = rows[1].querySelector(
+      '[data-testid^="row-check"], input[type="checkbox"], button',
+    );
+    if (checkForeign) {
+      fireEvent.click(checkForeign);
+    }
+    // Foreign row must not produce a selection event for INBOX bulk ops.
+    expect(onSelectionCountChange).not.toHaveBeenCalledWith(1);
+  });
+});
+
+describe("entry-matrix guards (QA/UIUX static review round 8)", () => {
+  const rows = [
+    {
+      uid: 148,
+      subject: "cross-box sample",
+      from: [{ name: "Ann", email: "ann@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "Re: cross-box sample",
+      from: [{ name: "Me", email: "me@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as never;
+
+  const baseProps = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: true,
+    messages: rows,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+  };
+
+  it("select-all only selects rows of the browsing folder", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...baseProps}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("select-all-button"));
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+  });
+
+  it("shift-range never pulls foreign-box rows into the selection", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...baseProps}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    const checks = screen.getAllByTestId("mail-check-148");
+    fireEvent.click(checks[0]);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+    fireEvent.click(checks[1], { shiftKey: true });
+    // Foreign row must not extend the selection beyond the browsing folder.
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+  });
+
+  it("row quick actions are inert for foreign-box rows", () => {
+    const onToggleStar = vi.fn();
+    const onDeleteMessage = vi.fn();
+    const onToggleRead = vi.fn();
+    render(
+      <WebmailMessageList
+        {...baseProps}
+        onSelectMessage={vi.fn()}
+        onToggleStar={onToggleStar}
+        onDeleteMessage={onDeleteMessage}
+        onToggleRead={onToggleRead}
+      />,
+    );
+    const sentRow = screen.getAllByTestId("mail-row-148")[1];
+    const buttons = sentRow.querySelectorAll("button");
+    buttons.forEach((b) => fireEvent.click(b));
+    expect(onToggleStar).not.toHaveBeenCalled();
+    expect(onDeleteMessage).not.toHaveBeenCalled();
+    expect(onToggleRead).not.toHaveBeenCalled();
+  });
+});
+
+describe("keyboard & mixed select-all (QA sequence ③④)", () => {
+  const rows2 = [
+    {
+      uid: 148,
+      subject: "inbox copy",
+      from: [{ name: "A", email: "a@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "sent copy",
+      from: [{ name: "M", email: "m@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as never;
+
+  const props = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    messages: rows2,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+  };
+
+  it("Shift+F10 never opens the menu for an ambiguous same-uid row", () => {
+    const handlers = {
+      onOpen: vi.fn(),
+      onReply: vi.fn(),
+      onReplyAll: vi.fn(),
+      onForward: vi.fn(),
+      onToggleStar: vi.fn(),
+      onToggleRead: vi.fn(),
+      onDelete: vi.fn(),
+      onMove: vi.fn(),
+    };
+    render(
+      <WebmailMessageList
+        {...props}
+        onSelectMessage={vi.fn()}
+        onDeleteMessage={vi.fn()}
+        contextHandlers={handlers as never}
+      />,
+    );
+    const rows = screen.getAllByTestId("mail-row-148");
+    (rows[1] as HTMLElement).focus(); // Sent copy — foreign in INBOX view
+    fireEvent.keyDown(window, { key: "F10", shiftKey: true });
+    expect(handlers.onOpen).not.toHaveBeenCalled();
+    expect(handlers.onReply).not.toHaveBeenCalled();
+    expect(handlers.onDelete).not.toHaveBeenCalled();
+    // And no menu surface is rendered at all.
+    expect(document.querySelector("[role='menu']")).toBeNull();
+  });
+
+  it("Shift+F10 opens the menu for the unique browsing-folder row", () => {
+    const handlers = { onOpen: vi.fn() };
+    const single = [
+      {
+        uid: 148,
+        subject: "inbox copy",
+        from: [{ name: "A", email: "a@x" }],
+        date: "2026-11-06T10:00:00Z",
+        flags: [],
+        size: 1,
+        folder: "INBOX",
+        folder_enc: "b64.SU5CT1g",
+      },
+    ] as never;
+    render(
+      <WebmailMessageList
+        {...props}
+        messages={single}
+        onSelectMessage={vi.fn()}
+        contextHandlers={handlers as never}
+      />,
+    );
+    const row = screen.getByTestId("mail-row-148");
+    row.focus();
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true, bubbles: true });
+    expect(handlers.onOpen).not.toHaveBeenCalled(); // onOpen fires on click
+    expect(document.querySelector("[role='menu']")).toBeTruthy();
+  });
+
+  it("select-all toggles against the selectable set only", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...props}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    const selectAll = screen.getByTestId("select-all-button");
+    fireEvent.click(selectAll);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+    fireEvent.click(selectAll);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("single-box select-all still selects every row", () => {
+    const single = [
+      {
+        uid: 148,
+        subject: "inbox copy",
+        from: [{ name: "A", email: "a@x" }],
+        date: "2026-11-06T10:00:00Z",
+        flags: [],
+        size: 1,
+      },
+      {
+        uid: 149,
+        subject: "second",
+        from: [{ name: "A", email: "a@x" }],
+        date: "2026-11-06T09:00:00Z",
+        flags: [],
+        size: 1,
+      },
+    ] as never;
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...props}
+        activeFolderEnc={undefined}
+        messages={single}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("select-all-button"));
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(2);
   });
 });

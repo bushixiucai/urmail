@@ -15,6 +15,11 @@ import { WebmailShortcutHelp } from "./components/webmail-shortcut-help";
 import { WebmailMoveNotice } from "./components/webmail-move-notice";
 import { useMailboxShortcuts } from "./hooks/use-mailbox-shortcuts";
 import { useThreadMembers } from "./hooks/use-thread-members";
+import { threadMemberKey } from "./lib/thread-members-api";
+import {
+  nextStackMemberAfterDelete,
+  resolveStackMember,
+} from "./lib/thread-relay";
 import type { ThreadSummaryState } from "./components/webmail-thread-summary-bar";
 import type { SelectionApi } from "./components/webmail-message-list";
 import {
@@ -128,6 +133,12 @@ export function WebmailNextWorkbench({
   const [readingFolder, setReadingFolder] = useState(initialFolder);
   const loadedUidsRef = useRef<number[]>([]);
   const [cursorUid, setCursorUid] = useState<number | null>(null);
+  // Composite cursor identity: numeric uid is per-folder and cross-folder
+  // results can hold the same uid from two boxes (QA sequence: j must be
+  // able to walk past the first same-uid copy to reach later rows).
+  const [cursorFolderEnc, setCursorFolderEnc] = useState<string | null>(null);
+  // Cross-folder row without its own folder identity: unknown provenance.
+  // Never infer the browsing box for it (gate/fallback/members).
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [moveNoticeToken, setMoveNoticeToken] = useState(0);
@@ -171,9 +182,21 @@ export function WebmailNextWorkbench({
   // 2. Monotonic policy generation counter
   // 3. Explicit per-message manual consent (cleared on UID change)
   const [policyGeneration, setPolicyGeneration] = useState(1);
-  const [manualAuthorizedUid, setManualAuthorizedUid] = useState<number | null>(
+  // Composite (folder:uid) — the same numeric uid may be read from two
+  // boxes in one thread; a bare-uid grant would leak across copies.
+  const [manualAuthorizedKey, setManualAuthorizedKey] = useState<string | null>(
     null,
   );
+  const currentReadKey =
+    selectedUid === null ? null : `${readingFolder}:${selectedUid}`;
+
+  // Origin of the last opened stack member that is not a loaded list row
+  // (keeps the members query anchored; contract §1 any-member origin).
+  const [stackOrigin, setStackOrigin] = useState<{
+    uid: number;
+    folder_enc: string;
+    fromStack: boolean;
+  } | null>(null);
   // Null until a successful preference event. The event value is applied
   // synchronously; a later settings GET may confirm it only for this generation.
   const [confirmedGlobalAllow, setConfirmedGlobalAllow] = useState<
@@ -538,12 +561,16 @@ export function WebmailNextWorkbench({
 
   const messageListData = messagePages?.pages[0];
   const messages = useMemo(() => {
-    const seen = new Set<number>();
+    // Composite dedupe (folder_enc:uid): cross-folder results can legally
+    // carry INBOX 148 and Sent 148 — dropping by bare uid would erase the
+    // INBOX row whenever the Sent copy is listed first (QA repro).
+    const seen = new Set<string>();
     const out: MessageSummary[] = [];
     for (const page of messagePages?.pages ?? []) {
       for (const message of page.messages ?? []) {
-        if (seen.has(message.uid)) continue;
-        seen.add(message.uid);
+        const key = `${message.folder_enc ?? ""}:${message.uid}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         out.push(message);
       }
     }
@@ -574,16 +601,52 @@ export function WebmailNextWorkbench({
     setSearchPhase("idle");
   };
 
-  const openMessage = (uid: number) => {
-    // Member-first resolution (DEF-4 follow-up): a stack card may be a
-    // cross-box member (Sent) whose numeric uid also exists in the origin
-    // folder — resolving through the members payload guarantees the
-    // detail is read from the member's own folder.
-    const member = stackMembers.find((m) => m.uid === uid);
-    const message = member ?? messages.find((item) => item.uid === uid);
+  // Exact composite lookup: numeric uids are per-folder and the same
+  // thread may legally contain INBOX 148 AND Sent 148 — resolving only by
+  // uid can pick the wrong member. Stack callers pass folderEnc.
+  const findStackMember = (uid: number, folderEnc?: string) =>
+    resolveStackMember(stackMembers, uid, folderEnc, activeFolder);
+  const openMessage = (
+    uid: number,
+    folderEnc?: string,
+    fromStack = false,
+    unknownProvenance = false,
+  ) => {
+    // Fail-closed FIRST, before any state change: an unknown-provenance
+    // row (cross-folder, no folder identity) cannot be safely resolved to
+    // a mailbox copy — refuse to open it without polluting the previous
+    // reading session (QA probe: star pollution confirmed on 11090cde).
+    if (unknownProvenance) {
+      return;
+    }
+    const member = findStackMember(uid, folderEnc);
+    const message =
+      member ?? messages.find((item) => item.uid === uid) ?? undefined;
+    // Remember folder-anchored origins so the members query stays anchored
+    // even if the list row is refreshed away (UIUX review). List opens
+    // anchor only for VERIFIED rows (thread_id) so a refresh that removes
+    // the row keeps the thread context; unverified rows never anchor and
+    // never open the members gate (QA sequence ①).
+    if (fromStack && folderEnc != null) {
+      setStackOrigin({ uid, folder_enc: folderEnc, fromStack: true });
+    } else {
+      const rowFolder = folderEnc ?? activeFolder;
+      const listRow = messages.find(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === rowFolder,
+      );
+      if (listRow?.thread_id != null) {
+        setStackOrigin({ uid, folder_enc: rowFolder, fromStack: false });
+      } else {
+        setStackOrigin(null);
+      }
+    }
     setCursorUid(uid);
-    setReadingFolder(member?.folder_enc || message?.folder_enc || activeFolder);
+    setReadingFolder(
+      member?.folder_enc || folderEnc || message?.folder_enc || activeFolder,
+    );
     setSelectedUid(uid);
+    setCursorUid(uid);
+    setCursorFolderEnc(folderEnc ?? null);
   };
 
   // Derive authorization source for currently selected message:
@@ -592,7 +655,7 @@ export function WebmailNextWorkbench({
   // - "global" if account settings have allow_all_remote_images === true
   // - "none" otherwise (fail-closed default)
   const isCurrentManualGranted = Boolean(
-    selectedUid !== null && manualAuthorizedUid === selectedUid,
+    currentReadKey !== null && manualAuthorizedKey === currentReadKey,
   );
 
   const authSource: "global" | "manual" | "none" = isCurrentManualGranted
@@ -670,7 +733,8 @@ export function WebmailNextWorkbench({
     }
     if (
       detailResult.authSource === "manual" &&
-      manualAuthorizedUid !== selectedUid
+      manualAuthorizedKey !==
+        (selectedUid === null ? null : `${readingFolder}:${selectedUid}`)
     ) {
       return null;
     }
@@ -681,13 +745,24 @@ export function WebmailNextWorkbench({
     authSource,
     isGlobalImagesAllowed,
     policyGeneration,
-    manualAuthorizedUid,
+    manualAuthorizedKey,
+    readingFolder,
   ]);
 
-  // Reset manual authorization on UID change
+  // Closing the pane or switching folders ends the previous thread
+  // context; a stale origin must never authorize members for an unrelated
+  // (possibly unverified) row of the same numeric uid (QA sequence ②).
   useEffect(() => {
-    setManualAuthorizedUid(null);
+    if (selectedUid === null) setStackOrigin(null);
   }, [selectedUid]);
+  useEffect(() => {
+    setStackOrigin(null);
+  }, [activeFolder]);
+
+  // Reset manual authorization on message/folder change
+  useEffect(() => {
+    setManualAuthorizedKey(null);
+  }, [selectedUid, readingFolder]);
 
   // Automatically select the first message on wide screen if none selected
   useEffect(() => {
@@ -696,8 +771,28 @@ export function WebmailNextWorkbench({
       selectedUid === null &&
       window.innerWidth >= 1024
     ) {
-      setReadingFolder(messages[0].folder_enc || activeFolder);
-      setSelectedUid(messages[0].uid);
+      // Auto-select skips unknown-provenance rows (cross-folder without
+      // folder identity): refusing to open avoids a wrong same-uid detail
+      // fetch (PM item 4).
+      const firstKnown = messages.find((m) =>
+        isCrossFolder ? m.folder_enc != null : true,
+      );
+      if (!firstKnown) return;
+      setReadingFolder(firstKnown.folder_enc || activeFolder);
+      // Verified auto-selected rows keep the thread context anchored even
+      // if a later refresh removes the row (QA sequence ①); unverified
+      // rows never anchor (gate stays closed). firstKnown fields drive
+      // everything — unknown first rows are skipped above.
+      if (firstKnown.thread_id != null) {
+        setStackOrigin({
+          uid: firstKnown.uid,
+          folder_enc: firstKnown.folder_enc || activeFolder,
+          fromStack: false,
+        });
+      } else {
+        setStackOrigin(null);
+      }
+      setSelectedUid(firstKnown.uid);
     }
   }, [messages, selectedUid, activeFolder]);
 
@@ -740,11 +835,15 @@ export function WebmailNextWorkbench({
     void moveMessages(pending.destinationEnc, {
       uids: pending.destinationUids,
       to: pending.sourceEnc,
+      uid_validity: pending.destinationUidValidity,
     })
       .then(() => {
         if (moveTokenRef.current !== token) return;
         setMoveNotice(null);
         refetchMessages();
+        // Same-uid cross-box undo restores into the member's own folder —
+        // the stack payload must be refetched too (UIUX review).
+        threadApi.refetch();
       })
       .catch(() => {
         if (moveTokenRef.current !== token) return;
@@ -754,6 +853,11 @@ export function WebmailNextWorkbench({
 
   const flagUids = async (uids: number[], add: string[], remove: string[]) => {
     if (uids.length === 0 || isScheduledView) return;
+    // Stale-selection filter via the shared predicate: only uids still
+    // present for the browsing folder may be flagged (no same-uid
+    // cross-box writes).
+    uids = uids.filter((uid) => currentFolderUidAllowed(uid, activeFolder));
+    if (uids.length === 0) return;
     await flagMessages(activeFolder, {
       uids,
       add,
@@ -764,12 +868,28 @@ export function WebmailNextWorkbench({
     if (selectedUid !== null && uids.includes(selectedUid)) refetchDetail();
   };
 
-  const handleToggleStar = async (uid: number) => {
-    // §11-5 stack scope: resolve exclusively within the members payload so
-    // a same-numbered uid in another folder can never be mis-targeted;
+  const handleToggleStar = async (uid: number, folderEncHint?: string) => {
+    // Unknown provenance: no folder to address a write to (Backend audit).
+    if (derivedUnknown) return;
+    // §11-5 stack scope: resolve only by the full (folder, uid) identity
+    // so a same-numbered uid in another folder can never be mis-targeted;
     // cross-box members (Sent) are flagged through their own folder.
-    const member = stackMembers.find((m) => m.uid === uid);
+    const member = findStackMember(uid, folderEncHint);
     if (member) {
+      // Write safety: a member whose folder is unknown (malformed/legacy
+      // members payload, no list row) must never default to the origin
+      // box — refuse instead of risking the wrong copy (Backend audit).
+      // API members without a folder never inherit the browsing box just
+      // because a same-numbered list row exists (PM provenance rule).
+      const fromApiMembers =
+        useApiMembers && threadApi.members.some((m) => m.uid === uid);
+      const isLoadedRow =
+        !fromApiMembers &&
+        messages.some(
+          (m) =>
+            m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+        );
+      if (member.folder_enc == null && !isLoadedRow) return;
       const folderEnc = member.folder_enc ?? activeFolder;
       const isStarred = member.flags.includes("\\Flagged");
       await flagMessages(folderEnc, {
@@ -817,7 +937,14 @@ export function WebmailNextWorkbench({
     labelKey: string,
     explicit?: number[],
   ) => {
-    const uids = targetUids(explicit);
+    let uids = targetUids(explicit);
+    // Stale-selection filter: every uid must still exist in the current
+    // list data for the browsing folder; vanished/unknown uids are dropped
+    // so a background refresh can never re-enable a folder-scoped write
+    // against a same-uid copy in another box (Backend audit).
+    // Stale-selection filter via the shared predicate (Backend rec):
+    // vanished/unknown uids are dropped before any folder-scoped write.
+    uids = uids.filter((uid) => currentFolderUidAllowed(uid, activeFolder));
     if (uids.length === 0 || isScheduledView) return;
     if (flag === "\\Trash" && isTrashMailbox(folders, activeFolder)) {
       setPendingPermanentUids(uids);
@@ -860,12 +987,23 @@ export function WebmailNextWorkbench({
     }
   };
 
-  const handleDeleteMessage = (uid: number) => {
+  const handleDeleteMessage = (uid: number, folderEncHint?: string) => {
+    if (derivedUnknown) return;
     // §11-5 stack scope: a member from another folder (Sent) is trashed
     // through its own folder+uid — the origin-folder move would 404 or,
     // with a same-numbered uid, hit the wrong message.
-    const member = stackMembers.find((m) => m.uid === uid);
-    const folderEnc = member?.folder_enc ?? activeFolder;
+    const member = findStackMember(uid, folderEncHint);
+    // Same write-safety rule as star: no folder, no write (unless the uid
+    // resolves to a loaded row of the browsing folder).
+    const fromApiMembers =
+      useApiMembers && threadApi.members.some((m) => m.uid === uid);
+    const isLoadedRow =
+      !fromApiMembers &&
+      messages.some(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+      );
+    if (member && member.folder_enc == null && !isLoadedRow) return;
+    const folderEnc = member?.folder_enc ?? folderEncHint ?? activeFolder;
     void (async () => {
       if (folderEnc !== activeFolder) {
         if (isTrashMailbox(folders, folderEnc)) {
@@ -902,52 +1040,116 @@ export function WebmailNextWorkbench({
       }
       // §11-5 expansion relay: deleting a stack card expands the next newer
       // member (else the previous one) and moves focus to its header.
-      const idx = stackMembers.findIndex((m) => m.uid === uid);
-      if (idx >= 0 && stackMembers.length > 1 && selectedUid === uid) {
-        const next = stackMembers[idx + 1] ?? stackMembers[idx - 1];
-        if (next && next.uid !== uid) {
-          openMessage(next.uid);
-          setThreadFocusUid(next.uid);
+      // Composite identity: a same-uid sibling in another folder is a
+      // DIFFERENT card and must still be relayed to (QA blocker on #122).
+      const deletedMember = member ?? { uid, folder_enc: undefined };
+      // Only relay when the card removed is the one being READ (same uid
+      // in another folder may be expanded simultaneously-feasible data).
+      if (
+        stackMembers.length > 1 &&
+        selectedUid === uid &&
+        readingFolder === folderEnc
+      ) {
+        const next = nextStackMemberAfterDelete(stackMembers, {
+          uid,
+          folder_enc: deletedMember.folder_enc,
+        });
+        if (next) {
+          openMessage(next.uid, next.folder_enc, true);
+          setThreadFocusKey(threadMemberKey(next));
+          setThreadFocusNonce((n) => n + 1);
         }
       }
     })();
   };
 
   // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
-  const contextRow = (uid: number) =>
-    messages.find((m: MessageSummary) => m.uid === uid);
+  // Composite resolution anchored on the RIGHT-CLICKED row's own folder —
+  // never on the box being read (UIUX: reading Sent then right-clicking
+  // INBOX must reply to the INBOX copy).
+  const contextRow = (uid: number, folderEnc?: string) => {
+    if (folderEnc != null) {
+      // Known target box: exact match or NOTHING — never substitute a
+      // same-uid copy from another box (UIUX release blocker).
+      return messages.find(
+        (m: MessageSummary) =>
+          m.uid === uid &&
+          ((m as { folder_enc?: string }).folder_enc ?? activeFolder) ===
+            folderEnc,
+      );
+    }
+    return messages.find((m: MessageSummary) => m.uid === uid);
+  };
 
   const contextHandlers: RowContextMenuActionHandlers = {
-    onOpen: (uid) => {
-      const msg = contextRow(uid);
+    onOpen: (uid, folderEnc) => {
+      const msg = contextRow(uid, folderEnc);
       if (!msg) return;
-      openMessage(uid);
+      openMessage(uid, folderEnc);
     },
-    onReply: (uid) => {
-      const msg = contextRow(uid);
+    onReply: (uid, folderEnc) => {
+      const msg = contextRow(uid, folderEnc);
       if (msg)
         handleReply({ from: msg.from, subject: msg.subject } as MessageDetail);
     },
-    onForward: (uid) => {
-      const msg = contextRow(uid);
+    onForward: (uid, folderEnc) => {
+      const msg = contextRow(uid, folderEnc);
       if (msg) handleForward({ subject: msg.subject } as MessageDetail);
     },
-    onArchive: (uids) =>
+    // Folder-scoped write guards: the menu captured the right-clicked
+    // row's folder at open time; at CLICK time every target must still
+    // resolve exact-or-nothing in the BROWSING folder. A background
+    // refresh that removed the row (leaving another box's same-uid copy)
+    // must turn these into no-ops (Backend audit).
+    onArchive: (uids, folderEnc) => {
+      if (!contextWritesAllowed(uids, folderEnc)) return;
       void handleMoveSpecial(
         "\\Archive",
         "Archive",
         "webmail_next.folder_archive",
         uids,
-      ),
-    onDelete: (uids) =>
+      );
+    },
+    onDelete: (uids, folderEnc) => {
+      if (!contextWritesAllowed(uids, folderEnc)) return;
       void handleMoveSpecial(
         "\\Trash",
         "Trash",
         "webmail_next.folder_trash",
         uids,
-      ),
-    onToggleRead: (uid) => void handleToggleRead(uid),
-    onMoveTo: (uids, folder) => void handleMoveToFolder(folder, uids),
+      );
+    },
+    onToggleRead: (uid, folderEnc) => {
+      if (!contextWritesAllowed([uid], folderEnc)) return;
+      void handleToggleRead(uid);
+    },
+    onMoveTo: (uids, folder, folderEnc) => {
+      if (!contextWritesAllowed(uids, folderEnc)) return;
+      void handleMoveToFolder(folder, uids);
+    },
+  };
+
+  /** Exact-or-nothing validation for folder-scoped menu writes. */
+  /** Shared single-uid provenance predicate (Backend rec): a uid passes
+   * only if it still resolves to the browsing folder in CURRENT data, its
+   * folder is known (cross-folder rows without folder_enc are unknown and
+   * rejected), and no conflicting same-uid copy exists in another box. */
+  const currentFolderUidAllowed = (
+    uid: number,
+    sourceFolderEnc?: string,
+  ): boolean => {
+    const enc = sourceFolderEnc ?? activeFolder;
+    if (enc !== activeFolder) return false; // writes are folder-scoped
+    const rows = messages.filter((m) => m.uid === uid);
+    if (rows.length === 0) return false;
+    return rows.every((m) =>
+      m.folder_enc != null ? m.folder_enc === enc : !isCrossFolder,
+    );
+  };
+
+  const contextWritesAllowed = (uids: number[], folderEnc?: string) => {
+    const sourceFolderEnc = folderEnc ?? activeFolder;
+    return uids.every((uid) => currentFolderUidAllowed(uid, sourceFolderEnc));
   };
 
   /** Move UIDs to an arbitrary folder by enc; same pipeline as bulk move. */
@@ -955,7 +1157,13 @@ export function WebmailNextWorkbench({
     folder: ContextMenuFolder | { name: string; name_enc: string },
     uids?: number[],
   ) => {
-    const targets = targetUids(uids);
+    let targets = uids ?? targetUids();
+    // Stale-selection filter via the shared predicate (drag/drop + move
+    // end): vanished/unknown uids are dropped before the request.
+    targets = targets.filter((uid) =>
+      currentFolderUidAllowed(uid, activeFolder),
+    );
+    // Restore original early-exit guards (empty/scheduled/no validity).
     if (targets.length === 0 || isScheduledView || !listValidity) return;
     const source = activeFolder;
     if (source === folder.name_enc) return;
@@ -1176,12 +1384,34 @@ export function WebmailNextWorkbench({
       : messages.map((message) => message.uid);
 
   const moveCursor = (delta: number) => {
-    const uids = loadedUids();
-    if (uids.length === 0) return;
-    const current = cursorUid ?? uids[0];
-    const index = Math.max(0, uids.indexOf(current));
-    const next = uids[Math.min(uids.length - 1, Math.max(0, index + delta))];
-    setCursorUid(next);
+    // Entry-based navigation: cross-folder results can hold the same
+    // numeric uid from two boxes, and a bare-uid indexOf would stick on
+    // the first copy, making j unable to advance past it (QA/UIUX).
+    const entries = messages.map((message) => ({
+      uid: message.uid,
+      folder_enc: message.folder_enc,
+    }));
+    if (entries.length === 0) return;
+    const currentKey = `${cursorFolderEnc ?? ""}:${cursorUid ?? ""}`;
+    let index = entries.findIndex(
+      (e) => `${e.folder_enc ?? ""}:${e.uid}` === currentKey,
+    );
+    if (index < 0) {
+      // Prefer the entry of the folder being read when the cursor identity
+      // is unset; an unset cursor starts just outside the list edge.
+      const reading = entries.findIndex(
+        (e) =>
+          e.uid === cursorUid &&
+          (e.folder_enc ?? activeFolder) === readingFolder,
+      );
+      index = reading >= 0 ? reading : delta > 0 ? 0 : entries.length - 1;
+    }
+    const next =
+      entries[Math.min(entries.length - 1, Math.max(0, index + delta))];
+    setCursorUid(next.uid);
+    setCursorFolderEnc(
+      next.folder_enc ?? (isCrossFolder ? null : activeFolder),
+    );
   };
 
   const focusSearch = () => {
@@ -1195,26 +1425,66 @@ export function WebmailNextWorkbench({
       if (action === "cursor-next") moveCursor(1);
       else if (action === "cursor-prev") moveCursor(-1);
       else if (action === "open") {
-        const uid = cursorUid ?? loadedUids()[0];
-        if (uid != null) openMessage(uid);
+        if (cursorUid != null) {
+          // Unknown-provenance cursor rows (cross-folder, no folder) are
+          // refused by openMessage itself; pass the flag through.
+          openMessage(
+            cursorUid,
+            cursorFolderEnc ?? undefined,
+            false,
+            isCrossFolder && cursorFolderEnc == null,
+          );
+        } else {
+          // First-row fallback must also skip unknown-provenance rows:
+          // they are refused and must not fetch a guessed same-uid detail.
+          const first = loadedUids().find(
+            (uid) =>
+              !(
+                isCrossFolder &&
+                messages.some((m) => m.uid === uid && m.folder_enc == null)
+              ),
+          );
+          if (first != null) openMessage(first);
+        }
       } else if (action === "toggle-check") {
         const uid = cursorUid ?? loadedUids()[0];
-        if (uid != null) selectionRef.current?.toggle(uid, false, false);
+        if (uid == null) return;
+        // Folder-scoped selection: a foreign-box cursor row must not
+        // toggle the browsing folder's same-numbered mail, and an unknown
+        // provenance row must never enter the selection at all.
+        if (cursorFolderEnc != null && cursorFolderEnc !== activeFolder) {
+          return;
+        }
+        if (
+          isCrossFolder &&
+          messages.some((m) => m.uid === uid && m.folder_enc == null)
+        ) {
+          return;
+        }
+        selectionRef.current?.toggle(uid, false, false);
       } else if (action === "archive") {
+        // Shortcut writes resolve their targets through the SAME folder
+        // validation as menu writes: an unknown/foreign cursor or stale
+        // selection must not fall back to the browsing box (Backend audit).
+        if (!contextWritesAllowed(targetUids())) return;
         void handleMoveSpecial(
           "\\Archive",
           "Archive",
           "webmail_next.folder_archive",
         );
       } else if (action === "trash") {
+        if (!contextWritesAllowed(targetUids())) return;
         void handleMoveSpecial("\\Trash", "Trash", "webmail_next.folder_trash");
       } else if (action === "toggle-star") {
         const uids = targetUids();
+        if (!contextWritesAllowed(uids)) return;
         if (uids.length === 1) void handleToggleStar(uids[0]);
         else void flagUids(uids, ["\\Flagged"], []);
       } else if (action === "mark-read") {
+        if (!contextWritesAllowed(targetUids())) return;
         void flagUids(targetUids(), ["\\Seen"], []);
       } else if (action === "mark-unread") {
+        if (!contextWritesAllowed(targetUids())) return;
         void flagUids(targetUids(), [], ["\\Seen"]);
       } else if (action === "reply" && messageDetail)
         handleReply(messageDetail);
@@ -1241,6 +1511,7 @@ export function WebmailNextWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       cursorUid,
+      cursorFolderEnc,
       messageDetail,
       inboxEnc,
       isHelpOpen,
@@ -1263,16 +1534,75 @@ export function WebmailNextWorkbench({
   // Members of the selected message's thread that are present in the
   // currently loaded list pages (oldest → newest). Used by the reading
   // pane stack; count may be < server thread_count until PR-6 lands.
+  // Data-derived provenance protection: keyboard reopen/auto-select/pill/
+  // refresh can lose the openMessage flag, so the unknown state is ALSO
+  // derived from CURRENT data (folderless row + cross-folder context).
+  const derivedUnknown = useMemo(() => {
+    if (selectedUid === null || !isCrossFolder) return false;
+    // A trusted STACK origin (fromStack, folder matches what is being
+    // read) legitimizes the copy even without folder_enc — a folderless
+    // same-uid row must never disable legal stack-only navigation
+    // (Backend contract §1).
+    if (
+      stackOrigin?.fromStack === true &&
+      stackOrigin.uid === selectedUid &&
+      (stackOrigin.folder_enc ?? activeFolder) === readingFolder
+    )
+      return false;
+    const row =
+      messages.find(
+        (m) =>
+          m.uid === selectedUid &&
+          (m.folder_enc ?? activeFolder) === readingFolder,
+      ) ?? messages.find((m) => m.uid === selectedUid);
+    return row != null && row.folder_enc == null;
+  }, [
+    messages,
+    stackOrigin,
+    selectedUid,
+    readingFolder,
+    activeFolder,
+    isCrossFolder,
+  ]);
+
   const threadMembers = useMemo(() => {
     if (selectedUid === null) return [] as MessageSummary[];
-    const selected = messages.find((m) => m.uid === selectedUid);
+    if (derivedUnknown) {
+      // Unknown provenance (derived): no fallback stack at all.
+      return [] as MessageSummary[];
+    }
+    // STRICT composite selection: (readingFolder, uid) only; a folder-less
+    // row is accepted solely in the single-box case (reading the browsing
+    // folder). Substituting another box's same-uid row here would build
+    // the §8 fallback stack from an unverified thread (Backend audit).
+    const selected =
+      messages.find(
+        (m) =>
+          m.uid === selectedUid &&
+          (m.folder_enc ?? activeFolder) === readingFolder,
+      ) ??
+      (readingFolder === activeFolder
+        ? messages.find((m) => m.uid === selectedUid && m.folder_enc == null)
+        : undefined);
     if (!selected?.thread_id) return selected ? [selected] : [];
-    const siblings = messages.filter((m) => m.thread_id === selected.thread_id);
+    // §8 fallback stack is a SINGLE-BOX safety net only: a selected row
+    // from another box (or mixed compat data) never spawns a stack from
+    // the loaded list — the reading pane stays single-message instead of
+    // reusing an untrusted thread context (QA compat probe).
+    const selectedBox = selected.folder_enc ?? activeFolder;
+    if (selectedBox !== activeFolder) {
+      return [selected];
+    }
+    const siblings = messages.filter(
+      (m) =>
+        m.thread_id === selected.thread_id &&
+        (m.folder_enc ?? activeFolder) === selectedBox,
+    );
     return siblings.sort(
       (a, b) =>
         new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
     );
-  }, [messages, selectedUid]);
+  }, [messages, derivedUnknown, selectedUid, readingFolder, activeFolder]);
   const threadMemberUids = useMemo(
     () => threadMembers.map((m) => m.uid),
     [threadMembers],
@@ -1281,26 +1611,88 @@ export function WebmailNextWorkbench({
   // C1: cross-folder thread members (THREAD-MEMBERS-API-CONTRACT v1).
   // Anchored on the selected row's root; on error the stack falls back to
   // the loaded-page members above (§8), never going blank.
-  const selectedRow = useMemo(
-    () =>
-      selectedUid === null
-        ? null
-        : (messages.find((m) => m.uid === selectedUid) ?? null),
-    [messages, selectedUid],
-  );
+  const selectedRowInfo = useMemo(() => {
+    if (selectedUid === null) return null;
+    // Cross-folder search can hold the same numeric uid from two boxes —
+    // anchor on the row whose folder matches the one being read. A stack
+    // member that is NOT in the loaded list still anchors the members
+    // query via stackOrigin: any known member (folder+uid) is a valid
+    // origin (contract §1), so the stack survives opening a Sent-only
+    // member (QA review).
+    const exact = messages.find(
+      (m) =>
+        m.uid === selectedUid &&
+        (m.folder_enc ?? activeFolder) === readingFolder,
+    );
+    if (exact) return { row: exact, anchoredByOrigin: false };
+    // The stack origin wins over a same-uid row of ANOTHER box: opening
+    // Sent 148 while the INBOX 148 row still exists must anchor on Sent.
+    if (
+      stackOrigin !== null &&
+      stackOrigin.uid === selectedUid &&
+      (stackOrigin.folder_enc ?? activeFolder) === readingFolder
+    ) {
+      return {
+        row: {
+          uid: stackOrigin.uid,
+          folder_enc: stackOrigin.folder_enc,
+        } as MessageSummary,
+        anchoredByOrigin: true,
+      };
+    }
+    // Bare-uid fallback only for LEGACY rows without any folder identity
+    // (single-box compat). A row that carries folder_enc is a different
+    // box's copy when it did not match exactly — substituting it would send
+    // the members query to the wrong box (UIUX precise sequence).
+    const legacy =
+      readingFolder === activeFolder
+        ? (messages.find(
+            (m) => m.uid === selectedUid && m.folder_enc == null,
+          ) ?? null)
+        : null;
+    return legacy ? { row: legacy, anchoredByOrigin: false } : null;
+  }, [messages, stackOrigin, selectedUid, readingFolder, activeFolder]);
+  const selectedRow = selectedRowInfo?.row ?? null;
+  const selectedRowAnchoredByOrigin =
+    selectedRowInfo?.anchoredByOrigin ?? false;
   const threadApi = useThreadMembers({
     originFolderEnc:
       selectedRow?.folder_enc ?? (selectedRow ? activeFolder : null),
-    originUid: selectedRow?.thread_id ?? null,
+    // Any known member anchors the thread query; list rows expose the
+    // in-folder root as thread_id, stack-only members anchor on their uid.
+    originUid: selectedRow?.thread_id ?? selectedRow?.uid ?? null,
     anchorUid: selectedRow?.uid ?? null,
-    /* DEF-4 (Tiger decision 2): entry gates on thread_id presence only.
-       Cross-box conversations keep thread_count=1 in the list (subject
-       fallback is in-folder only), so the old count>1 condition never
-       fired the members API and Sent members were unreachable. The
-       members endpoint (3-folder scan) returns the real total; a
-       single-member thread yields total=1 and the downstream single-pane
-       path stays intact (contract §4/§8). */
-    enabled: Boolean(selectedRow && selectedRow.thread_id),
+    /* DEF-4 (Tiger decision 2): entry gates on thread_id presence for
+       LIST rows (unverified rows omit it and must never fetch members).
+       A stack-only member (not present in the loaded list) anchors the
+       query via its own folder+uid — any known member is a valid origin
+       (contract §1) — so the stack keeps working after the list row is
+       gone (QA/UIUX review). */
+    /* Gate on the CURRENT reading copy's thread_id only: after a refresh
+     * that returns the row without thread_id (unverified) or removes it,
+     * members must NOT re-fire via a historical origin (QA/PM ruling —
+     * safe end is acceptable). stackOrigin now feeds only cursor/anchor
+     * bookkeeping, not the gate. */
+    /* Gate: enabled for the CURRENT copy with thread_id (verified list
+     * rows), and for members opened FROM THE STACK (their own folder+uid
+     * is a verifiable origin, contract §1). Historical origins must not
+     * re-fire members: a refresh that returns the row without thread_id
+     * (unverified) or removes it safely ENDS the query (QA/PM ruling —
+     * safe end acceptable, no historical-origin re-fire). */
+    /* Gate: current copy with thread_id (verified list rows), or a
+     * STACK-ORIGIN open whose folder matches what is being read (the
+     * member itself is a verifiable origin, contract §1). A refresh that
+     * returns the row without thread_id (unverified) or removes it safely
+     * ENDS the query — no historical list-origin re-fire (QA/PM ruling). */
+    enabled: Boolean(
+      !derivedUnknown &&
+      selectedRow &&
+      (selectedRow.thread_id != null ||
+        (selectedRowAnchoredByOrigin &&
+          stackOrigin?.fromStack === true &&
+          stackOrigin.uid === selectedUid &&
+          (stackOrigin.folder_enc ?? activeFolder) === readingFolder)),
+    ),
   });
   const useApiMembers = !threadApi.isError && threadApi.members.length > 0;
   const stackMembers: MessageSummary[] = useApiMembers
@@ -1324,10 +1716,24 @@ export function WebmailNextWorkbench({
   const threadUnreadCount = useApiMembers
     ? threadApi.unreadCount
     : stackMembers.filter((m) => !(m.flags || []).includes("\\Seen")).length;
-  // §11-5 expansion relay focus target (cleared when the thread changes).
-  const [threadFocusUid, setThreadFocusUid] = useState<number | null>(null);
+  // Composite identity of the expanded member (null → uid fallback).
+  const expandedStackMember = stackMembers.find(
+    (m) =>
+      m.uid === selectedUid && (m.folder_enc ?? activeFolder) === readingFolder,
+  );
+  const threadExpandedKey =
+    expandedStackMember?.folder_enc != null
+      ? threadMemberKey(expandedStackMember)
+      : null;
+  const sentFolderName = folders.find((f) => f.flags?.includes("\\Sent"))?.name;
+
+  // §11-5 expansion relay focus target, composite keyed (cleared on
+  // thread changes).
+  const [threadFocusKey, setThreadFocusKey] = useState<string | null>(null);
+  // A same-key re-relay must still move focus: the nonce forces the effect.
+  const [threadFocusNonce, setThreadFocusNonce] = useState(0);
   useEffect(() => {
-    setThreadFocusUid(null);
+    setThreadFocusKey(null);
   }, [selectedRow?.thread_id, selectedRow?.folder_enc]);
 
   return (
@@ -1496,13 +1902,19 @@ export function WebmailNextWorkbench({
             ) : (
               <WebmailMessageList
                 folderName={folderDisplayName}
+                activeFolderEnc={activeFolder}
+                readingFolderEnc={readingFolder}
+                isCrossFolder={isCrossFolder}
                 messages={messages}
                 activeUid={selectedUid}
                 isSearchView={searchDraft.trim() !== ""}
                 onClearSearch={() => setSearchDraft("")}
                 onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
-                onSelectMessage={(uid) => openMessage(uid)}
+                cursorFolderEnc={cursorFolderEnc}
+                onSelectMessage={(uid, folderEnc, unknownProvenance) =>
+                  openMessage(uid, folderEnc, false, unknownProvenance)
+                }
                 totalCount={messageTotal}
                 isLoadingMore={isFetchingNextPage}
                 isInitialLoading={isListLoading}
@@ -1548,35 +1960,11 @@ export function WebmailNextWorkbench({
                 onBulkUnread={(uids) => void flagUids(uids, [], ["\\Seen"])}
                 onBulkStar={(uids) => void flagUids(uids, ["\\Flagged"], [])}
                 onBulkMove={(uids, folderName) => {
-                  if (!listValidity) return;
                   const destination = folders.find(
                     (folder) => folder.name === folderName,
                   );
-                  void moveMessages(activeFolder, {
-                    uids,
-                    to: folderName,
-                    uid_validity: listValidity,
-                  }).then((response) => {
-                    selectionRef.current?.clear();
-                    refetchMessages();
-                    const targetMsg = messages.find((m: MessageSummary) =>
-                      uids.includes(m.uid),
-                    );
-                    const sender = targetMsg?.from?.[0]?.email || "";
-                    const ruleSuggestion = sender
-                      ? { sender, folder: decodeFolderName(folderName) }
-                      : null;
-                    showMoved(
-                      decodeFolderName(folderName),
-                      moveUndoFromResponse(
-                        activeFolder,
-                        destination?.name_enc ?? "",
-                        uids,
-                        response,
-                      ),
-                      ruleSuggestion,
-                    );
-                  });
+                  if (!destination) return;
+                  void handleMoveToFolder(destination, uids);
                 }}
                 onBindSelection={(api) => {
                   selectionRef.current = api;
@@ -1608,7 +1996,10 @@ export function WebmailNextWorkbench({
               threadMembers={stackMembers}
               threadTotal={useApiMembers ? threadApi.total : undefined}
               threadUnreadCount={threadUnreadCount}
-              threadFocusUid={threadFocusUid}
+              threadExpandedKey={threadExpandedKey}
+              threadFocusKey={threadFocusKey}
+              threadFocusNonce={threadFocusNonce}
+              threadSentFolderName={sentFolderName}
               threadEarlierCount={useApiMembers ? threadApi.earlierCount : 0}
               threadNewerCount={useApiMembers ? threadApi.newerCount : 0}
               threadSummaryState={
@@ -1627,8 +2018,12 @@ export function WebmailNextWorkbench({
               onForward={handleForward}
               onDelete={handleDeleteMessage}
               onToggleStar={handleToggleStar}
-              onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
-              onExpandThreadUid={(uid) => openMessage(uid)}
+              onLoadRemoteImages={(uid) =>
+                setManualAuthorizedKey(`${readingFolder}:${uid}`)
+              }
+              onExpandThreadUid={(uid, folderEnc) =>
+                openMessage(uid, folderEnc, true)
+              }
               onOpenAISettings={() => {
                 setSettingsTab("ai");
                 setIsSettingsOpen(true);

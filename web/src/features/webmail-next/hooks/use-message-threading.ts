@@ -3,18 +3,37 @@ import { useMemo, useState, useCallback } from "react";
 import type { MessageSummary } from "@/features/webmail/mailbox-api";
 import type { WebmailItem } from "../types";
 
-export function useMessageThreading(messages: MessageSummary[]) {
-  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<number>>(
+/** Composite grouping identity: thread_id is a per-folder root UID and two
+ * boxes can legally share the same numeric id (Backend audit). Rows without
+ * folder_enc keep legacy single-box grouping semantics. */
+function groupKeyOf(m: MessageSummary, knownFolderEnc?: string): string {
+  // Known browsing folder fills the identity for legacy rows that omit
+  // folder_enc (Backend: single-box lists omit it); rows WITH folder_enc
+  // always use their own box. Unknown source without any folder context
+  // falls back to the legacy single-box key (compat).
+  const box = m.folder_enc ?? knownFolderEnc ?? "legacy";
+  return `${box}:${m.thread_id ?? 0}`;
+}
+
+export function useMessageThreading(
+  messages: MessageSummary[],
+  knownFolderEnc?: string,
+  /** Cross-folder/search context: a row without folder_enc has UNKNOWN
+   * provenance — it must stay standalone (no grouping by bare thread_id).
+   * Single-box callers keep the legacy "assume browsing box" behavior. */
+  unknownProvenanceIsStandalone = false,
+) {
+  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(
     new Set(),
   );
 
-  const toggleThreadExpand = useCallback((threadId: number) => {
+  const toggleThreadExpand = useCallback((key: string) => {
     setExpandedThreadIds((prev) => {
       const next = new Set(prev);
-      if (next.has(threadId)) {
-        next.delete(threadId);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(threadId);
+        next.add(key);
       }
       return next;
     });
@@ -23,15 +42,25 @@ export function useMessageThreading(messages: MessageSummary[]) {
   const items = useMemo<WebmailItem[]>(() => {
     if (!Array.isArray(messages)) return [];
 
-    const threadGroups = new Map<number, MessageSummary[]>();
+    const threadGroups = new Map<string, MessageSummary[]>();
     const standalones: MessageSummary[] = [];
 
     for (const msg of messages) {
       if (!msg) continue;
+      if (
+        unknownProvenanceIsStandalone &&
+        msg.folder_enc == null &&
+        knownFolderEnc == null
+      ) {
+        // Unknown provenance in a mixed context: never group.
+        standalones.push(msg);
+        continue;
+      }
       if (msg.thread_id && msg.thread_count && msg.thread_count > 1) {
-        const group = threadGroups.get(msg.thread_id) || [];
+        const gk = groupKeyOf(msg, knownFolderEnc);
+        const group = threadGroups.get(gk) || [];
         group.push(msg);
-        threadGroups.set(msg.thread_id, group);
+        threadGroups.set(gk, group);
       } else {
         standalones.push(msg);
       }
@@ -63,6 +92,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
         threadId: m.thread_id,
         threadCount: isChild ? undefined : m.thread_count,
         threadVerification: m.thread_verification,
+        threadGroupKey: groupKeyOf(m, knownFolderEnc),
         isThreadChild: isChild || undefined,
         folder: m.folder,
         folderEnc: m.folder_enc,
@@ -70,14 +100,15 @@ export function useMessageThreading(messages: MessageSummary[]) {
     };
 
     // Process threads: take the top message as representative
-    for (const [threadId, msgs] of threadGroups.entries()) {
+    for (const [, msgs] of threadGroups.entries()) {
       // Sort msgs newest first
       const sorted = [...msgs].sort(
         (a, b) =>
           new Date(b?.date || 0).getTime() - new Date(a?.date || 0).getTime(),
       );
       const root = sorted[0];
-      const isExpanded = expandedThreadIds.has(threadId);
+      const groupKey = groupKeyOf(root, knownFolderEnc);
+      const isExpanded = expandedThreadIds.has(groupKey);
 
       const maxServerCount = Math.max(
         ...msgs.map((m) => m.thread_count ?? 0),
@@ -88,6 +119,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
 
       const parentItem = toWebmailItem(root);
       parentItem.threadCount = totalCount;
+      parentItem.threadGroupKey = groupKey;
       parentItem.isThreadExpanded = isExpanded;
       parentItem.childUids = sorted.slice(1).map((c) => c.uid);
 
@@ -121,7 +153,12 @@ export function useMessageThreading(messages: MessageSummary[]) {
     }
 
     return result;
-  }, [messages, expandedThreadIds]);
+  }, [
+    messages,
+    knownFolderEnc,
+    unknownProvenanceIsStandalone,
+    expandedThreadIds,
+  ]);
 
   return {
     items,

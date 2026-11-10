@@ -36,6 +36,31 @@ import type {
 import type { DensityMode, WebmailItem } from "../types";
 import { decodeFolderName } from "../lib/folder-names";
 
+/** Cross-folder result rows from other boxes are excluded from selection
+ * and folder-scoped quick actions so bulk ops can never touch a same-
+ * numeric-uid copy in the browsing folder (QA/UIUX review). */
+/** Cross-folder/search row WITHOUT its own folder identity has UNKNOWN
+ * provenance: it must not group, be selected, be written to, or open a
+ * context menu. Only a trusted single-box view may borrow the browsing
+ * box; isCrossFolder rows NEVER infer it (UIUX unified rule). */
+function isUnknownProvenance(
+  item: { folderEnc?: string },
+  isCrossFolder: boolean,
+): boolean {
+  return isCrossFolder && item.folderEnc == null;
+}
+
+function isForeignRow(
+  item: { folderEnc?: string },
+  activeFolderEnc?: string,
+): boolean {
+  return (
+    activeFolderEnc != null &&
+    item.folderEnc != null &&
+    item.folderEnc !== activeFolderEnc
+  );
+}
+
 /** Payload type for dragging UIDs from the list onto a folder. */
 export const MAILBOX_DRAG_TYPE = "application/x-urmail-mailbox-uids";
 
@@ -52,10 +77,26 @@ interface MoveFolder {
 
 interface WebmailMessageListProps {
   folderName: string;
+  /** Encoded browsing folder — disambiguates same-uid rows in cross-folder
+   * result sets (selection is folder-scoped). */
+  activeFolderEnc?: string;
+  /** Folder currently being read (search results may differ) — drives the
+   * active-row highlight. */
+  readingFolderEnc?: string;
+  /** Composite cursor identity (folder of the cursor entry). */
+  cursorFolderEnc?: string | null;
+  /** True for cross-folder (mixed) search results — rows without
+   * folder_enc there have UNKNOWN provenance (defensive boundary). */
+  isCrossFolder?: boolean;
   messages: MessageSummary[];
   activeUid: number | null;
   cursorUid?: number | null;
-  onSelectMessage: (uid: number) => void;
+  /** folderEnc disambiguates same-uid rows in cross-folder result sets. */
+  onSelectMessage: (
+    uid: number,
+    folderEnc?: string,
+    unknownProvenance?: boolean,
+  ) => void;
   density: DensityMode;
   sort: MailboxSortKey;
   order: "asc" | "desc";
@@ -98,6 +139,10 @@ interface WebmailMessageListProps {
 
 export function WebmailMessageList({
   folderName,
+  activeFolderEnc,
+  readingFolderEnc,
+  cursorFolderEnc,
+  isCrossFolder = false,
   messages,
   activeUid,
   cursorUid = null,
@@ -134,9 +179,21 @@ export function WebmailMessageList({
   onSelectionCountChange,
 }: WebmailMessageListProps) {
   const { t } = useTranslation();
-  const { items, toggleThreadExpand } = useMessageThreading(messages);
+  const { items, toggleThreadExpand } = useMessageThreading(
+    messages,
+    isCrossFolder ? undefined : activeFolderEnc,
+    isCrossFolder,
+  );
+  // Cross-folder result sets can carry the same numeric uid from two
+  // boxes. Folder-scoped selection/bulk actions must only ever see rows
+  // of the browsing folder (UIUX ①).
+  const selectableItems = items.filter(
+    (item) =>
+      !isForeignRow(item, activeFolderEnc) &&
+      !isUnknownProvenance(item, isCrossFolder),
+  );
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
-    useRangeSelection(items);
+    useRangeSelection(selectableItems);
   const [moveOpen, setMoveOpen] = useState(false);
   const bulkMoveRef = useRef<HTMLDivElement>(null);
   const bulkMoveButtonRef = useRef<HTMLButtonElement>(null);
@@ -162,10 +219,41 @@ export function WebmailMessageList({
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  const openContextMenu = (uid: number, x: number, y: number) => {
-    const target = itemsRef.current.find((item) => item.uid === uid);
-    if (!target) return;
-    setMenuState({ uid, x, y, isUnread: target.isUnread });
+  const openContextMenu = (
+    uid: number,
+    x: number,
+    y: number,
+    folderEnc?: string,
+  ) => {
+    // Composite identity: with same-uid rows from two boxes present, the
+    // right-clicked ROW decides the target copy (QA/UIUX).
+    const candidates = itemsRef.current.filter((item) => item.uid === uid);
+    const target = folderEnc
+      ? candidates.find(
+          (item) => (item.folderEnc ?? activeFolderEnc) === folderEnc,
+        )
+      : // No captured folder: a SINGLE folder-less row is accepted only in
+        // a trusted single-box view. In cross-folder/search context its
+        // provenance is unknown — never infer the browsing box, refuse.
+        candidates.length === 1 &&
+          candidates[0].folderEnc == null &&
+          !isCrossFolder
+        ? candidates[0]
+        : undefined;
+    if (!target) {
+      return;
+    }
+    setMenuState({
+      uid,
+      // Bind the menu to the row's known folder at OPEN time. A legacy
+      // row may borrow the browsing box ONLY in a trusted single-box view;
+      // in search/mixed context its box is unknowable (menu refused above
+      // unless the row itself carried folder_enc).
+      folder_enc: target.folderEnc ?? activeFolderEnc,
+      x,
+      y,
+      isUnread: target.isUnread,
+    });
   };
 
   // P1-1 keyboard parity: Shift+F10 or the Menu key opens the menu on the
@@ -187,18 +275,45 @@ export function WebmailMessageList({
         ? uid
         : (cursorUid ?? itemsRef.current[0]?.uid);
       if (resolved == null || !contextHandlers) return;
+      // Keyboard parity with the pointer foreign-row guard: the menu is a
+      // folder-scoped surface, so it may only open for a UNIQUE row of the
+      // browsing folder (a same-uid foreign copy must never be targeted).
+      const matches = itemsRef.current.filter((it) => it.uid === resolved);
+      if (
+        matches.length !== 1 ||
+        isForeignRow(matches[0], activeFolderEnc) ||
+        isUnknownProvenance(matches[0], isCrossFolder)
+      ) {
+        event.preventDefault();
+        return;
+      }
       const anchor = document.querySelector<HTMLElement>(
         `[data-testid='mail-row-${resolved}']`,
       );
       const rect = anchor?.getBoundingClientRect();
       event.preventDefault();
-      openContextMenu(resolved, rect?.left ?? 80, (rect?.bottom ?? 80) + 4);
+      const keyboardFolderEnc = matches[0].folderEnc ?? activeFolderEnc;
+      openContextMenu(
+        resolved,
+        rect?.left ?? 80,
+        (rect?.bottom ?? 80) + 4,
+        keyboardFolderEnc,
+      );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cursorUid, contextHandlers]);
+  }, [
+    cursorUid,
+    contextHandlers,
+    activeFolderEnc,
+    isCrossFolder,
+    openContextMenu,
+  ]);
 
-  const isAllSelected = items.length > 0 && selectedUids.size === items.length;
+  // Keep the denominator identical to the selectable set so a mixed
+  // cross-folder list can still be fully deselected (QA sequence ④).
+  const isAllSelected =
+    selectableItems.length > 0 && selectedUids.size === selectableItems.length;
   const selectedList = [...selectedUids];
   const parentRef = useRef<HTMLDivElement>(null);
   const rowHeight =
@@ -325,15 +440,41 @@ export function WebmailMessageList({
     openContextMenu,
   };
 
+  const rowKey = (item: WebmailItem) => `${item.folderEnc ?? ""}:${item.uid}`;
+  // Highlight follows the full identity: the row's own folder (or the
+  // browsing folder when it carries none) must equal the folder being
+  // read (readingFolderEnc falls back to the browsing folder).
+  const highlightEnc = readingFolderEnc ?? activeFolderEnc;
+  const isRowActive = (item: WebmailItem) => {
+    if (activeUid !== item.uid) return false;
+    if (highlightEnc == null) return true;
+    const rowEnc = item.folderEnc ?? activeFolderEnc;
+    return rowEnc == null || rowEnc === highlightEnc;
+  };
   const renderMessageRow = (item: WebmailItem) => (
     <WebmailMessageRow
       item={item}
-      isSelected={selectedUids.has(item.uid)}
-      isActive={activeUid === item.uid}
-      isCursor={cursorUid === item.uid}
+      isSelected={selectedUids.has(item.uid) && !isForeignRow(item)}
+      isActive={isRowActive(item)}
+      isCursor={
+        cursorUid === item.uid &&
+        (cursorFolderEnc == null ||
+          (item.folderEnc ?? activeFolderEnc) === cursorFolderEnc)
+      }
       density={density}
-      onSelect={() => rowActionsRef.current.onSelectMessage(item.uid)}
+      onSelect={() => {
+        if (isUnknownProvenance(item, isCrossFolder)) {
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc, true);
+        } else {
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
+        }
+      }}
       onToggleCheck={(event) => {
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped
         rowActionsRef.current.toggleSelect(
           item.uid,
           event.shiftKey,
@@ -342,6 +483,11 @@ export function WebmailMessageList({
       }}
       onToggleStar={(event) => {
         event.stopPropagation();
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped op
         rowActionsRef.current.onToggleStar?.(item.uid);
       }}
       onToggleThread={(event) => {
@@ -352,23 +498,48 @@ export function WebmailMessageList({
         // reading stack, which progressively loads the missing members.
         const loaded = loadedThreadCounts.get(item.threadId) ?? 0;
         if ((item.threadCount ?? 0) > loaded) {
-          rowActionsRef.current.onSelectMessage(item.uid);
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
           return;
         }
-        rowActionsRef.current.toggleThreadExpand(item.threadId);
+        rowActionsRef.current.toggleThreadExpand(
+          item.threadGroupKey ?? String(item.threadId),
+        );
       }}
       onDelete={(event) => {
         event.stopPropagation();
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped op
         rowActionsRef.current.onDeleteMessage?.(item.uid);
       }}
       onToggleRead={(event) => {
         event.stopPropagation();
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped op
         rowActionsRef.current.onToggleRead?.(item.uid);
       }}
-      onContextMenu={(x, y) =>
-        rowActionsRef.current.openContextMenu(item.uid, x, y)
-      }
+      onContextMenu={(x, y) => {
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // menu actions are folder-scoped
+        rowActionsRef.current.openContextMenu(item.uid, x, y, item.folderEnc);
+      }}
       onDragStartUids={(fallbackUids) => {
+        // Folder-scoped move may only start from a row whose box is known
+        // (foreign/unknown provenance must never start a write chain).
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        ) {
+          return [];
+        }
         // Dragging a member of the selection carries the whole selection;
         // otherwise it carries just this row.
         const uids = selectedUids.has(item.uid)
@@ -633,7 +804,7 @@ export function WebmailMessageList({
               if (!item) return null;
               return (
                 <div
-                  key={item.uid}
+                  key={rowKey(item)}
                   style={{
                     position: "absolute",
                     top: 0,
@@ -650,7 +821,7 @@ export function WebmailMessageList({
           </div>
         ) : (
           items.map((item) => (
-            <div key={item.uid} className="contents">
+            <div key={rowKey(item)} className="contents">
               {renderMessageRow(item)}
             </div>
           ))

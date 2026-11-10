@@ -31,7 +31,7 @@ describe("useMessageThreading (DEF-2)", () => {
 
     // Expand the thread
     act(() => {
-      result.current.toggleThreadExpand(42);
+      result.current.toggleThreadExpand("legacy:42");
     });
 
     // Parent + 5 children = 6 visible items

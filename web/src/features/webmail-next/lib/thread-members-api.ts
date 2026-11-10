@@ -10,6 +10,18 @@ import { mailboxRequest } from "@/features/webmail/mailbox-api";
 
 export const THREAD_LOAD_STEP = 20;
 
+/**
+ * Stable member identity across folders: numeric uids are only unique per
+ * folder (Sent 148 and INBOX 148 are different mails and may sit in the
+ * SAME thread), so every stack key/ref/callback must carry folder+uid.
+ */
+export function threadMemberKey(m: {
+  folder_enc?: string;
+  uid: number;
+}): string {
+  return `${m.folder_enc ?? ""}:${m.uid}`;
+}
+
 export interface ThreadMemberSummary extends MessageSummary {
   /** Owning folder of this member (Sent members carry their own path). */
   folder: string;

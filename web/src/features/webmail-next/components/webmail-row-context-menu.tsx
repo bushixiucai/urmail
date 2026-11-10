@@ -21,19 +21,26 @@ export interface ContextMenuFolder {
 
 export interface RowContextMenuState {
   uid: number;
+  /** Owning folder of the right-clicked row — part of the menu identity
+   * so same-numeric-uid rows in other boxes are never confused. */
+  folder_enc?: string;
   x: number;
   y: number;
   isUnread: boolean;
 }
 
 export interface RowContextMenuActionHandlers {
-  onOpen: (uid: number) => void;
-  onReply: (uid: number) => void;
-  onForward: (uid: number) => void;
-  onArchive: (uids: number[]) => void;
-  onDelete: (uids: number[]) => void;
-  onToggleRead: (uid: number) => void;
-  onMoveTo: (uids: number[], folder: ContextMenuFolder) => void;
+  onOpen: (uid: number, folderEnc?: string) => void;
+  onReply: (uid: number, folderEnc?: string) => void;
+  onForward: (uid: number, folderEnc?: string) => void;
+  onArchive: (uids: number[], folderEnc?: string) => void;
+  onDelete: (uids: number[], folderEnc?: string) => void;
+  onToggleRead: (uid: number, folderEnc?: string) => void;
+  onMoveTo: (
+    uids: number[],
+    folder: ContextMenuFolder,
+    folderEnc?: string,
+  ) => void;
 }
 
 interface WebmailRowContextMenuProps {
@@ -155,19 +162,19 @@ export function WebmailRowContextMenu({
       {item(
         t("webmail_next.open_message"),
         <ExternalLink className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onOpen(state.uid),
+        () => handlers.onOpen(state.uid, state.folder_enc),
         "ctx-open",
       )}
       {item(
         t("webmail_next.reply"),
         <Reply className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onReply(state.uid),
+        () => handlers.onReply(state.uid, state.folder_enc),
         "ctx-reply",
       )}
       {item(
         t("webmail_next.forward"),
         <Forward className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onForward(state.uid),
+        () => handlers.onForward(state.uid, state.folder_enc),
         "ctx-forward",
       )}
       <div
@@ -177,13 +184,13 @@ export function WebmailRowContextMenu({
       {item(
         t("webmail_next.bulk_archive"),
         <Archive className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onArchive(uids),
+        () => handlers.onArchive(uids, state.folder_enc),
         "ctx-archive",
       )}
       {item(
         t("webmail_next.delete"),
         <Trash2 className="w-3.5 h-3.5 text-[var(--vellum-danger-strong)]" />,
-        () => handlers.onDelete(uids),
+        () => handlers.onDelete(uids, state.folder_enc),
         "ctx-delete",
       )}
       {item(
@@ -195,7 +202,7 @@ export function WebmailRowContextMenu({
         ) : (
           <Mail className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
         ),
-        () => handlers.onToggleRead(state.uid),
+        () => handlers.onToggleRead(state.uid, state.folder_enc),
         "ctx-toggle-read",
       )}
       <div
@@ -249,7 +256,9 @@ export function WebmailRowContextMenu({
                 data-testid={`ctx-move-${folder.name_enc}`}
                 className={itemClass}
                 onClick={() =>
-                  runAndClose(() => handlers.onMoveTo(uids, folder))
+                  runAndClose(() =>
+                    handlers.onMoveTo(uids, folder, state.folder_enc),
+                  )
                 }
               >
                 <span className="truncate">

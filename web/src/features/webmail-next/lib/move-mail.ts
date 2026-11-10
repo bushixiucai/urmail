@@ -6,13 +6,19 @@ export interface MoveDeps {
   move: (
     sourceEnc: string,
     body: { uids: number[]; to: string; uid_validity?: number },
-  ) => Promise<{ destination_uids?: number[] }>;
+  ) => Promise<{
+    destination_uids?: number[];
+    destination_uid_validity?: number;
+  }>;
   reloadFolders: () => Promise<MailboxFolder[]>;
 }
 
 export interface MoveUndo {
   sourceEnc: string;
   destinationEnc: string;
+  /** COPYUID uid_validity of the destination box — the move API forces
+   * uid_validity, so undo must echo the destination generation. */
+  destinationUidValidity: number;
   destinationUids: number[];
 }
 
@@ -21,21 +27,29 @@ export function moveUndoFromResponse(
   sourceEnc: string,
   destinationEnc: string,
   requestedUids: number[],
-  response: { destination_uids?: number[] } | null | undefined,
+  response:
+    | { destination_uids?: number[]; destination_uid_validity?: number }
+    | null
+    | undefined,
 ): MoveUndo | null {
   const destinationUids = response?.destination_uids;
+  const destinationUidValidity = response?.destination_uid_validity;
   if (
     !sourceEnc ||
     !destinationEnc ||
     requestedUids.length === 0 ||
     !destinationUids ||
-    destinationUids.length !== requestedUids.length
+    destinationUids.length !== requestedUids.length ||
+    // Undo is only offered when BOTH the COPYUID uids and the destination
+    // generation are verifiable (Backend contract, #122 undo).
+    !destinationUidValidity
   ) {
     return null;
   }
   return {
     sourceEnc,
     destinationEnc,
+    destinationUidValidity,
     destinationUids: [...destinationUids],
   };
 }

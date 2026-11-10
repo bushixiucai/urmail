@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -17,6 +23,7 @@ import type {
 } from "@/features/webmail/mailbox-api";
 import { formatFullDate, formatListDate } from "../lib/format-list-date";
 import { avatarInitial } from "../lib/avatar-initial";
+import { threadMemberKey } from "../lib/thread-members-api";
 
 export interface ThreadStackProps {
   members: MessageSummary[];
@@ -26,20 +33,29 @@ export interface ThreadStackProps {
   unreadCount?: number;
   /** The message currently expanded (body shown). */
   expandedUid: number;
+  /** Composite identity (folder_enc:uid) of the expanded member when it
+   * is unambiguous (same-thread same-uid across folders); falls back to
+   * expandedUid when null. */
+  expandedKey?: string | null;
   /** Full detail for the expanded message (null while loading). */
   expandedDetail: MessageDetail | null;
   isDetailLoading?: boolean;
   /** Rendered body for the expanded card (iframe / plain text). */
   bodySlot: React.ReactNode;
-  onExpand: (uid: number) => void;
+  onExpand: (uid: number, folderEnc?: string) => void;
   onReply: (msg: MessageDetail) => void;
   onReplyAll: (msg: MessageDetail) => void;
   onForward: (msg: MessageDetail) => void;
   /** §11-5 single-message actions (expanded card header). */
-  onToggleStar?: (uid: number) => void;
-  onDelete?: (uid: number) => void;
-  /** §11-5 expansion relay: focus the card header of this uid when set. */
-  focusUid?: number | null;
+  onToggleStar?: (uid: number, folderEnc?: string) => void;
+  onDelete?: (uid: number, folderEnc?: string) => void;
+  /** §11-5 expansion relay: focus the card header with this composite
+   * key (folder_enc:uid) when set. */
+  focusKey?: string | null;
+  /** Increments per relay; same-key repeats still move the focus. */
+  focusNonce?: number;
+  /** Name of the Sent folder (\Sent flag) for the §11-4 cross-box badge. */
+  sentFolderName?: string;
   onMarkThreadRead: () => void;
   onArchiveThread: () => void;
   onDeleteThread: () => void;
@@ -65,6 +81,7 @@ export function WebmailThreadStack({
   totalOverride,
   unreadCount,
   expandedUid,
+  expandedKey,
   expandedDetail,
   isDetailLoading,
   bodySlot,
@@ -74,15 +91,17 @@ export function WebmailThreadStack({
   onForward,
   onToggleStar,
   onDelete,
-  focusUid,
+  focusKey,
+  focusNonce,
+  sentFolderName,
   onMarkThreadRead,
   onArchiveThread,
   onDeleteThread,
 }: ThreadStackProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n?.language;
-  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const headerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const headerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Spec: oldest → newest in the stack.
   const ordered = useMemo(
@@ -94,51 +113,82 @@ export function WebmailThreadStack({
     [members],
   );
 
-  const expandedIndex = ordered.findIndex((m) => m.uid === expandedUid);
+  const ambiguousUids = useMemo(() => {
+    const seen = new Map<number, number>();
+    for (const m of ordered) {
+      seen.set(m.uid, (seen.get(m.uid) ?? 0) + 1);
+    }
+    return new Set(
+      [...seen.entries()].filter(([, n]) => n > 1).map(([uid]) => uid),
+    );
+  }, [ordered]);
+  const isExpandedMember = useCallback(
+    (m: MessageSummary): boolean => {
+      if (expandedKey != null) return threadMemberKey(m) === expandedKey;
+      // Bare-uid fallback is only safe when the uid identifies ONE card —
+      // otherwise two same-uid members would both render expanded (QA).
+      return m.uid === expandedUid && !ambiguousUids.has(m.uid);
+    },
+    [expandedKey, expandedUid, ambiguousUids],
+  );
+  const expandedIndex = ordered.findIndex(isExpandedMember);
 
   useEffect(() => {
-    const el = cardRefs.current.get(expandedUid);
+    const target = ordered.find(isExpandedMember);
+    const el = target
+      ? cardRefs.current.get(threadMemberKey(target))
+      : undefined;
     // jsdom test doubles have no scrollIntoView.
     el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, [expandedUid]);
+    // Deliberately not keyed on `ordered`: "load earlier" prepends must not
+    // trigger a smooth scroll that fights the DEF-5 anchoring compensation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedUid, expandedKey]);
 
   // §11-5 focus management: the expansion relay (delete → expand neighbor)
   // moves keyboard focus onto the newly expanded card's header.
   useEffect(() => {
-    if (focusUid == null) return;
-    headerRefs.current.get(focusUid)?.focus();
-  }, [focusUid]);
+    if (focusKey == null) return;
+    headerRefs.current.get(focusKey)?.focus();
+  }, [focusKey, focusNonce]);
 
   // §11-3 scroll anchoring: when older pages are prepended ("加载更早"),
   // the expanded card's offsetTop grows by the inserted height; shifting
   // scrollTop by the same delta keeps the reading position visually still
   // (±3px acceptance). Expanded-card changes are ignored (intended jumps).
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const anchorSnapRef = useRef<{ uid: number | null; top: number } | null>(
+  const anchorSnapRef = useRef<{ key: string | null; top: number } | null>(
     null,
   );
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
-    const card =
-      expandedUid != null ? cardRefs.current.get(expandedUid) : undefined;
+    const target = ordered.find(isExpandedMember);
+    const card = target
+      ? cardRefs.current.get(threadMemberKey(target))
+      : undefined;
+    const key = target ? threadMemberKey(target) : null;
     const snap = anchorSnapRef.current;
-    if (scroller && card && snap && snap.uid === expandedUid) {
+    if (scroller && card && snap && key != null && snap.key === key) {
       const delta = card.offsetTop - snap.top;
       if (delta > 0) scroller.scrollTop += delta;
     }
     anchorSnapRef.current =
-      card && expandedUid != null
-        ? { uid: expandedUid, top: card.offsetTop }
-        : null;
-  }, [members, expandedUid]);
+      card && key != null ? { key, top: card.offsetTop } : null;
+  }, [ordered, isExpandedMember]);
 
   const goPrev = () => {
     if (expandedIndex <= 0) return;
-    onExpand(ordered[expandedIndex - 1].uid);
+    onExpand(
+      ordered[expandedIndex - 1].uid,
+      ordered[expandedIndex - 1].folder_enc,
+    );
   };
   const goNext = () => {
     if (expandedIndex < 0 || expandedIndex >= ordered.length - 1) return;
-    onExpand(ordered[expandedIndex + 1].uid);
+    onExpand(
+      ordered[expandedIndex + 1].uid,
+      ordered[expandedIndex + 1].folder_enc,
+    );
   };
 
   const totalThreadCount = useMemo(() => {
@@ -288,10 +338,17 @@ export function WebmailThreadStack({
           />
 
           {ordered.map((member) => {
-            const isExpanded = member.uid === expandedUid;
+            const memberCardKey = threadMemberKey(member);
+            const isExpanded = isExpandedMember(member);
+            const isSentMember =
+              sentFolderName != null &&
+              (member.folder ?? "").toLowerCase() ===
+                sentFolderName.toLowerCase();
             const unread = !(member.flags || []).includes("\\Seen");
             const isStarred = (member.flags || []).includes("\\Flagged");
-            const name = senderName(member);
+            const name = isSentMember
+              ? t("webmail_next.sent_self")
+              : senderName(member);
             const shortDate = formatListDate(member.date, locale, {
               yesterday: t("webmail_next.date_yesterday"),
             });
@@ -303,19 +360,26 @@ export function WebmailThreadStack({
 
             return (
               <div
-                key={member.uid}
+                key={memberCardKey}
                 ref={(el) => {
-                  if (el) cardRefs.current.set(member.uid, el);
-                  else cardRefs.current.delete(member.uid);
+                  if (el) cardRefs.current.set(memberCardKey, el);
+                  else cardRefs.current.delete(memberCardKey);
                 }}
                 data-testid={`thread-card-${member.uid}`}
                 data-expanded={isExpanded ? "true" : "false"}
                 className="relative bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-lg"
               >
-                {/* Avatar over the timeline */}
+                {/* Avatar over the timeline (§11-4: Sent members get a
+                    brand ring marking "me") */}
                 <div
                   aria-hidden
-                  className="absolute left-[12px] top-[10px] w-7 h-7 rounded-full bg-[var(--vellum-border)] text-[var(--vellum-ink)] text-xs font-[650] flex items-center justify-center ring-2 ring-[var(--vellum-surface)] z-10"
+                  data-testid={`thread-card-avatar-${memberCardKey}`}
+                  data-sent={isSentMember ? "true" : undefined}
+                  className={`absolute left-[12px] top-[10px] w-7 h-7 rounded-full bg-[var(--vellum-border)] text-[var(--vellum-ink)] text-xs font-[650] flex items-center justify-center z-10 ${
+                    isSentMember
+                      ? "ring-2 ring-[var(--brand-primary)]"
+                      : "ring-2 ring-[var(--vellum-surface)]"
+                  }`}
                 >
                   {senderInitial(member)}
                 </div>
@@ -324,16 +388,16 @@ export function WebmailThreadStack({
                   role="button"
                   tabIndex={0}
                   ref={(el) => {
-                    if (el) headerRefs.current.set(member.uid, el);
-                    else headerRefs.current.delete(member.uid);
+                    if (el) headerRefs.current.set(memberCardKey, el);
+                    else headerRefs.current.delete(memberCardKey);
                   }}
                   data-testid={`thread-card-header-${member.uid}`}
                   aria-expanded={isExpanded}
-                  onClick={() => onExpand(member.uid)}
+                  onClick={() => onExpand(member.uid, member.folder_enc)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      onExpand(member.uid);
+                      onExpand(member.uid, member.folder_enc);
                     }
                   }}
                   className="w-full h-12 pl-4 sm:pl-12 pr-3 flex items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-primary)] focus-visible:outline-offset-[-2px] rounded-lg cursor-pointer select-none"
@@ -347,6 +411,14 @@ export function WebmailThreadStack({
                   >
                     {name}
                   </span>
+                  {isSentMember && (
+                    <span
+                      data-testid={`thread-card-sent-${memberCardKey}`}
+                      className="h-4 px-1 rounded text-[11px] font-medium text-[var(--vellum-ink-secondary)] bg-[var(--vellum-surface-muted)] shrink-0"
+                    >
+                      {t("webmail_next.sent_badge")}
+                    </span>
+                  )}
                   {!isExpanded && (
                     <span className="truncate flex-1 text-xs text-[var(--vellum-ink-secondary)]">
                       {snippet}
@@ -409,7 +481,9 @@ export function WebmailThreadStack({
                               ? t("webmail_next.starred")
                               : t("webmail_next.not_starred")
                           }
-                          onClick={() => onToggleStar(member.uid)}
+                          onClick={() =>
+                            onToggleStar(member.uid, member.folder_enc)
+                          }
                           className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${
                             isStarred
                               ? "text-[var(--vellum-star)] hover:bg-[var(--vellum-row-hover)]"
@@ -429,7 +503,9 @@ export function WebmailThreadStack({
                           data-testid={`thread-card-delete-${member.uid}`}
                           aria-label={t("webmail_next.delete")}
                           title={t("webmail_next.delete")}
-                          onClick={() => onDelete(member.uid)}
+                          onClick={() =>
+                            onDelete(member.uid, member.folder_enc)
+                          }
                           className="h-8 w-8 rounded-md flex items-center justify-center text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-row-hover)] hover:text-[var(--vellum-danger-strong)] transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />

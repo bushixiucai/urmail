@@ -56,8 +56,15 @@ interface WebmailReadingPaneProps {
   threadTotal?: number;
   /** Origin-folder unread count for the subject-bar badge (§11-1). */
   threadUnreadCount?: number;
-  /** §11-5 expansion relay: focus this card's header after deletion. */
-  threadFocusUid?: number | null;
+  /** Composite identity (folder_enc:uid) of the expanded member (§11-5
+   * same-uid cross-box safety); null falls back to uid matching. */
+  threadExpandedKey?: string | null;
+  /** §11-5 expansion relay: focus this card's header (composite key). */
+  threadFocusKey?: string | null;
+  /** Bumps on every relay so a repeated same-key target still re-focuses. */
+  threadFocusNonce?: number;
+  /** Sent folder name for the §11-4 cross-box badge. */
+  threadSentFolderName?: string;
   /** total - loaded - newer; drives the giant-thread summary bar. */
   threadEarlierCount?: number;
   /** Unloaded newer members (deep anchor); renders the bottom entry. */
@@ -71,12 +78,12 @@ interface WebmailReadingPaneProps {
   onReply?: (msg: MessageDetail) => void;
   onReplyAll?: (msg: MessageDetail) => void;
   onForward?: (msg: MessageDetail) => void;
-  onDelete?: (uid: number) => void;
-  onToggleStar?: (uid: number) => void;
+  onDelete?: (uid: number, folderEnc?: string) => void;
+  onToggleStar?: (uid: number, folderEnc?: string) => void;
   onLoadRemoteImages?: (uid: number) => void;
   onAlwaysTrustSender?: (senderEmail: string) => void;
   /** Switch the expanded stack card (loads that UID's detail). */
-  onExpandThreadUid?: (uid: number) => void;
+  onExpandThreadUid?: (uid: number, folderEnc?: string) => void;
   onMarkThreadRead?: () => void;
   onArchiveThread?: () => void;
   onDeleteThread?: () => void;
@@ -265,7 +272,10 @@ export function WebmailReadingPane({
   threadMembers,
   threadTotal,
   threadUnreadCount,
-  threadFocusUid,
+  threadExpandedKey,
+  threadFocusKey,
+  threadFocusNonce,
+  threadSentFolderName,
   threadEarlierCount,
   threadNewerCount,
   threadSummaryState,
@@ -443,9 +453,11 @@ export function WebmailReadingPane({
   const [workerHtml, setWorkerHtml] = useState<string | null>(null);
 
   useEffect(() => {
+    // Reset on the FULL identity (folder+uid): switching between the same
+    // numeric uid in two boxes must not carry the image grant over (QA).
     setLocalManualGranted(false);
     setContactAdded(false);
-  }, [message?.uid]);
+  }, [message?.uid, folderEnc]);
 
   useEffect(() => {
     if (!useWorker || !message?.html) {
@@ -883,17 +895,20 @@ export function WebmailReadingPane({
           members={threadMembers}
           totalOverride={threadTotal}
           unreadCount={threadUnreadCount}
-          focusUid={threadFocusUid}
+          expandedKey={threadExpandedKey}
+          focusKey={threadFocusKey}
+          focusNonce={threadFocusNonce}
+          sentFolderName={threadSentFolderName}
           expandedUid={message.uid}
           expandedDetail={message}
           isDetailLoading={isLoading}
           bodySlot={bodySlot}
-          onExpand={(uid) => onExpandThreadUid?.(uid)}
+          onExpand={(uid, folderEnc) => onExpandThreadUid?.(uid, folderEnc)}
           onReply={(msg) => onReply?.(msg)}
           onReplyAll={(msg) => onReplyAll?.(msg)}
           onForward={(msg) => onForward?.(msg)}
-          onToggleStar={(uid) => onToggleStar?.(uid)}
-          onDelete={(uid) => onDelete?.(uid)}
+          onToggleStar={(uid, folderEnc) => onToggleStar?.(uid, folderEnc)}
+          onDelete={(uid, folderEnc) => onDelete?.(uid, folderEnc)}
           onMarkThreadRead={() => onMarkThreadRead?.()}
           onArchiveThread={() => onArchiveThread?.()}
           onDeleteThread={() => onDeleteThread?.()}
