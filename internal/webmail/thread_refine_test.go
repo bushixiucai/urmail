@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -66,13 +67,40 @@ func TestThreadTransportFailureClosesConnection(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected transport or cancellation error")
 			}
-			if mode == "__stall__" && !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("expected cancellation, got %v", err)
+			var netErr net.Error
+			if mode == "__stall__" && !errors.Is(err, context.DeadlineExceeded) && (!errors.As(err, &netErr) || !netErr.Timeout()) {
+				t.Fatalf("expected deadline or network timeout, got %v", err)
+			}
+			if !client.(*imapConn).closed {
+				t.Fatal("interrupted connection was not closed")
 			}
 			if _, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 1}); err == nil {
 				t.Fatal("closed connection accepted another operation")
 			}
 		})
+	}
+}
+
+func TestThreadExplicitCancellationClosesConnection(t *testing.T) {
+	calls := make(chan struct{}, 1)
+	client := dialTestClient(t, startThreadIMAPServerObserved(t, threadFixtureMessages(), "__stall__", calls))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.ListMessages(ctx, "INBOX", ListOpts{Limit: 1, Thread: true})
+		result <- err
+	}()
+	<-calls
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", err)
+	}
+	if !client.(*imapConn).closed {
+		t.Fatal("canceled connection was not closed")
+	}
+	if _, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 1}); err == nil {
+		t.Fatal("closed connection accepted another operation")
 	}
 }
 
