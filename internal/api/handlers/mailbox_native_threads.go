@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bushixiucai/urmail/internal/webmail"
 	"github.com/gin-gonic/gin"
+
+	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
 // ThreadMembers serves GET /api/v1/mailbox/folders/:name/messages/:uid/thread
