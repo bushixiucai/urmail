@@ -284,7 +284,7 @@ func TestNetDialerFlagsMoveDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The fake server never emits COPYUID: move succeeds but the mapping is unknown.
-	if destinations != nil {
+	if destinations.DestinationUIDs != nil || destinations.DestinationUIDValidity != 0 {
 		t.Fatalf("expected nil destinations without COPYUID, got %v", destinations)
 	}
 	if err := client.DeleteMessages(context.Background(), "INBOX", []uint32{3}, true); err != nil {
