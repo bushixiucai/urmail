@@ -1140,12 +1140,12 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     // No substitution: the members query stays ended (count unchanged) and
     // the last target never switches to another box's copy.
     expect(vi.mocked(fetchThreadMembers).mock.calls.length).toBe(callsBefore);
-    const lastCall =
-      vi.mocked(fetchThreadMembers).mock.calls[
-        vi.mocked(fetchThreadMembers).mock.calls.length - 1
-      ];
-    expect(lastCall?.[0]).not.toBe("Sent");
-    expect(lastCall?.[1]).not.toBe(148);
+    const calls = vi.mocked(fetchThreadMembers).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    if (lastCall) {
+      expect(lastCall[0]).not.toBe("Sent");
+      expect(lastCall[1]).not.toBe(148);
+    }
   });
 
   it("never fires members for an unverified row that carries a folder_enc", async () => {
