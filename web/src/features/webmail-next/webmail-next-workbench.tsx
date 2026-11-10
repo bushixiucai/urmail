@@ -595,14 +595,14 @@ export function WebmailNextWorkbench({
   // uid can pick the wrong member. Stack callers pass folderEnc.
   const findStackMember = (uid: number, folderEnc?: string) =>
     resolveStackMember(stackMembers, uid, folderEnc, activeFolder);
-  const openMessage = (uid: number, folderEnc?: string) => {
+  const openMessage = (uid: number, folderEnc?: string, fromStack = false) => {
     const member = findStackMember(uid, folderEnc);
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
     // Remember folder-anchored origins so the members query stays anchored
     // even if the list row is refreshed away (UIUX review); list opens
     // without a folder hint clear it and rely on the row again.
-    if (folderEnc != null) {
+    if (fromStack && folderEnc != null) {
       setStackOrigin({ uid, folder_enc: folderEnc });
     } else {
       setStackOrigin(null);
@@ -807,9 +807,16 @@ export function WebmailNextWorkbench({
       // Write safety: a member whose folder is unknown (malformed/legacy
       // members payload, no list row) must never default to the origin
       // box — refuse instead of risking the wrong copy (Backend audit).
-      const isLoadedRow = messages.some(
-        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
-      );
+      // API members without a folder never inherit the browsing box just
+      // because a same-numbered list row exists (PM provenance rule).
+      const fromApiMembers =
+        useApiMembers && threadApi.members.some((m) => m.uid === uid);
+      const isLoadedRow =
+        !fromApiMembers &&
+        messages.some(
+          (m) =>
+            m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+        );
       if (member.folder_enc == null && !isLoadedRow) return;
       const folderEnc = member.folder_enc ?? activeFolder;
       const isStarred = member.flags.includes("\\Flagged");
@@ -908,9 +915,13 @@ export function WebmailNextWorkbench({
     const member = findStackMember(uid, folderEncHint);
     // Same write-safety rule as star: no folder, no write (unless the uid
     // resolves to a loaded row of the browsing folder).
-    const isLoadedRow = messages.some(
-      (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
-    );
+    const fromApiMembers =
+      useApiMembers && threadApi.members.some((m) => m.uid === uid);
+    const isLoadedRow =
+      !fromApiMembers &&
+      messages.some(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+      );
     if (member && member.folder_enc == null && !isLoadedRow) return;
     const folderEnc = member?.folder_enc ?? folderEncHint ?? activeFolder;
     void (async () => {
@@ -964,7 +975,7 @@ export function WebmailNextWorkbench({
           folder_enc: deletedMember.folder_enc,
         });
         if (next) {
-          openMessage(next.uid, next.folder_enc);
+          openMessage(next.uid, next.folder_enc, true);
           setThreadFocusKey(threadMemberKey(next));
           setThreadFocusNonce((n) => n + 1);
         }
@@ -1388,7 +1399,9 @@ export function WebmailNextWorkbench({
     enabled: Boolean(
       selectedRow &&
       (selectedRow.thread_id != null ||
-        (stackOrigin != null && stackOrigin.uid === selectedUid)),
+        (stackOrigin != null &&
+          stackOrigin.uid === selectedUid &&
+          (stackOrigin.folder_enc ?? activeFolder) === readingFolder)),
     ),
   });
   const useApiMembers = !threadApi.isError && threadApi.members.length > 0;
@@ -1600,6 +1613,7 @@ export function WebmailNextWorkbench({
               <WebmailMessageList
                 folderName={folderDisplayName}
                 activeFolderEnc={activeFolder}
+                readingFolderEnc={readingFolder}
                 messages={messages}
                 activeUid={selectedUid}
                 isSearchView={searchDraft.trim() !== ""}
@@ -1607,7 +1621,7 @@ export function WebmailNextWorkbench({
                 onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
                 onSelectMessage={(uid, folderEnc) =>
-                  openMessage(uid, folderEnc)
+                  openMessage(uid, folderEnc, false)
                 }
                 totalCount={messageTotal}
                 isLoadingMore={isFetchingNextPage}
@@ -1740,7 +1754,7 @@ export function WebmailNextWorkbench({
                 setManualAuthorizedKey(`${readingFolder}:${uid}`)
               }
               onExpandThreadUid={(uid, folderEnc) =>
-                openMessage(uid, folderEnc)
+                openMessage(uid, folderEnc, true)
               }
               onOpenAISettings={() => {
                 setSettingsTab("ai");

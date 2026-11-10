@@ -462,3 +462,92 @@ describe("cross-folder same-uid list identity (QA/UIUX review)", () => {
     expect(onSelectionCountChange).not.toHaveBeenCalledWith(1);
   });
 });
+
+describe("entry-matrix guards (QA/UIUX static review round 8)", () => {
+  const rows = [
+    {
+      uid: 148,
+      subject: "cross-box sample",
+      from: [{ name: "Ann", email: "ann@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "Re: cross-box sample",
+      from: [{ name: "Me", email: "me@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as never;
+
+  const baseProps = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    messages: rows,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+  };
+
+  it("select-all only selects rows of the browsing folder", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...baseProps}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("select-all-button"));
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+  });
+
+  it("shift-range never pulls foreign-box rows into the selection", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...baseProps}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    const checks = screen.getAllByTestId("mail-check-148");
+    fireEvent.click(checks[0]);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+    fireEvent.click(checks[1], { shiftKey: true });
+    // Foreign row must not extend the selection beyond the browsing folder.
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+  });
+
+  it("row quick actions are inert for foreign-box rows", () => {
+    const onToggleStar = vi.fn();
+    const onDeleteMessage = vi.fn();
+    const onToggleRead = vi.fn();
+    render(
+      <WebmailMessageList
+        {...baseProps}
+        onSelectMessage={vi.fn()}
+        onToggleStar={onToggleStar}
+        onDeleteMessage={onDeleteMessage}
+        onToggleRead={onToggleRead}
+      />,
+    );
+    const sentRow = screen.getAllByTestId("mail-row-148")[1];
+    const buttons = sentRow.querySelectorAll("button");
+    buttons.forEach((b) => fireEvent.click(b));
+    expect(onToggleStar).not.toHaveBeenCalled();
+    expect(onDeleteMessage).not.toHaveBeenCalled();
+    expect(onToggleRead).not.toHaveBeenCalled();
+  });
+});

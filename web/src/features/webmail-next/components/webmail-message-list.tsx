@@ -53,8 +53,11 @@ interface MoveFolder {
 interface WebmailMessageListProps {
   folderName: string;
   /** Encoded browsing folder — disambiguates same-uid rows in cross-folder
-   * result sets (list display/selection identity, QA/UIUX review). */
+   * result sets (selection is folder-scoped). */
   activeFolderEnc?: string;
+  /** Folder currently being read (search results may differ) — drives the
+   * active-row highlight. */
+  readingFolderEnc?: string;
   messages: MessageSummary[];
   activeUid: number | null;
   cursorUid?: number | null;
@@ -103,6 +106,7 @@ interface WebmailMessageListProps {
 export function WebmailMessageList({
   folderName,
   activeFolderEnc,
+  readingFolderEnc,
   messages,
   activeUid,
   cursorUid = null,
@@ -140,8 +144,16 @@ export function WebmailMessageList({
 }: WebmailMessageListProps) {
   const { t } = useTranslation();
   const { items, toggleThreadExpand } = useMessageThreading(messages);
+  // Cross-folder result sets can carry the same numeric uid from two
+  // boxes. Folder-scoped selection/bulk actions must only ever see rows
+  // of the browsing folder (UIUX ①).
+  const isForeignRow = (item: WebmailItem) =>
+    activeFolderEnc != null &&
+    item.folderEnc != null &&
+    item.folderEnc !== activeFolderEnc;
+  const selectableItems = items.filter((item) => !isForeignRow(item));
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
-    useRangeSelection(items);
+    useRangeSelection(selectableItems);
   const [moveOpen, setMoveOpen] = useState(false);
   const bulkMoveRef = useRef<HTMLDivElement>(null);
   const bulkMoveButtonRef = useRef<HTMLButtonElement>(null);
@@ -331,18 +343,16 @@ export function WebmailMessageList({
   };
 
   const rowKey = (item: WebmailItem) => `${item.folderEnc ?? ""}:${item.uid}`;
-  // Cross-folder results can carry the same numeric uid from two boxes:
-  // highlight only the row of the folder being browsed, and never let a
-  // foreign row toggle selection that bulk actions would apply to the
-  // browsing folder's same-numbered mail.
-  const isForeignRow = (item: WebmailItem) =>
-    activeFolderEnc != null &&
-    item.folderEnc != null &&
-    item.folderEnc !== activeFolderEnc;
-  const isRowActive = (item: WebmailItem) =>
-    activeUid === item.uid &&
-    (activeFolderEnc == null ||
-      (item.folderEnc ?? activeFolderEnc) === activeFolderEnc);
+  // Highlight follows the full identity: the row's own folder (or the
+  // browsing folder when it carries none) must equal the folder being
+  // read (readingFolderEnc falls back to the browsing folder).
+  const highlightEnc = readingFolderEnc ?? activeFolderEnc;
+  const isRowActive = (item: WebmailItem) => {
+    if (activeUid !== item.uid) return false;
+    if (highlightEnc == null) return true;
+    const rowEnc = item.folderEnc ?? activeFolderEnc;
+    return rowEnc == null || rowEnc === highlightEnc;
+  };
   const renderMessageRow = (item: WebmailItem) => (
     <WebmailMessageRow
       item={item}
@@ -363,6 +373,7 @@ export function WebmailMessageList({
       }}
       onToggleStar={(event) => {
         event.stopPropagation();
+        if (isForeignRow(item)) return; // folder-scoped op
         rowActionsRef.current.onToggleStar?.(item.uid);
       }}
       onToggleThread={(event) => {
@@ -380,15 +391,18 @@ export function WebmailMessageList({
       }}
       onDelete={(event) => {
         event.stopPropagation();
+        if (isForeignRow(item)) return; // folder-scoped op
         rowActionsRef.current.onDeleteMessage?.(item.uid);
       }}
       onToggleRead={(event) => {
         event.stopPropagation();
+        if (isForeignRow(item)) return; // folder-scoped op
         rowActionsRef.current.onToggleRead?.(item.uid);
       }}
-      onContextMenu={(x, y) =>
-        rowActionsRef.current.openContextMenu(item.uid, x, y)
-      }
+      onContextMenu={(x, y) => {
+        if (isForeignRow(item)) return; // menu actions are folder-scoped
+        rowActionsRef.current.openContextMenu(item.uid, x, y);
+      }}
       onDragStartUids={(fallbackUids) => {
         // Dragging a member of the selection carries the whole selection;
         // otherwise it carries just this row.

@@ -1065,6 +1065,63 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(fetchThreadMembers).not.toHaveBeenCalled();
   });
 
+  it("never fires members for an unverified row that carries a folder_enc", async () => {
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [
+        {
+          uid: 301,
+          subject: "unverified with folder_enc",
+          from: [{ name: "M", email: "m@x" }],
+          date: "2026-11-06T10:00:00Z",
+          flags: [],
+          size: 1,
+          folder: "INBOX",
+          folder_enc: "b64.SU5CT1g",
+          thread_verification: "unverified",
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-301");
+    fireEvent.click(row);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "b64.SU5CT1g",
+        301,
+        expect.anything(),
+      ),
+    );
+    expect(fetchThreadMembers).not.toHaveBeenCalled();
+  });
+
+  it("highlight follows the folder being read, not the browsing folder", async () => {
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[1]); // read Sent copy
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+    // The INBOX list row shares the uid but is a different mail.
+    expect(screen.getByTestId("mail-row-148").getAttribute("data-active")).toBe(
+      "false",
+    );
+    fireEvent.click(screen.getByTestId("mail-row-148"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("mail-row-148").getAttribute("data-active"),
+      ).toBe("true"),
+    );
+  });
+
   it("keeps the Sent anchor after the list refresh removes its row", async () => {
     renderWorkbench();
     await screen.findByTestId("mail-row-148");
