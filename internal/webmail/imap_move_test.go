@@ -127,16 +127,25 @@ func TestMoveMessagesUntaggedCOPYUID(t *testing.T) {
 }
 
 func TestMoveMessagesConflictingCOPYUIDDoesNotOfferUndo(t *testing.T) {
-	addr, _ := startUIDPlusMoveServer(t, "* OK [COPYUID 42 5 11] Moved\r\n* OK [COPYUID 42 5 12] Moved")
-	client := dialTestClient(t, addr)
-	destinations, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
-	if err != nil || destinations.DestinationUIDs != nil || destinations.DestinationUIDValidity != 0 {
-		t.Fatalf("conflicting mapping must not offer undo: destinations=%v error=%v", destinations, err)
+	for _, response := range []string{
+		"* OK [COPYUID 42 5 11] Moved\r\n* OK [COPYUID 42 5 12] Moved",
+		"* OK [COPYUID 42 5 11] Moved\r\n* OK [COPYUID 999999999 999999 999999] Moved",
+		"* OK [COPYUID 42 5 11] Moved__TAGGED__[COPYUID 42 5 12] Moved",
+	} {
+		t.Run(response, func(t *testing.T) {
+			addr, _ := startUIDPlusMoveServer(t, response)
+			client := dialTestClient(t, addr)
+			destinations, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+			if err != nil || destinations.DestinationUIDs != nil || destinations.DestinationUIDValidity != 0 {
+				t.Fatalf("conflicting mapping must not offer undo: destinations=%v error=%v", destinations, err)
+			}
+		})
 	}
 }
 
 func TestMoveMessagesMalformedConflictingCOPYUIDOmitsUndo(t *testing.T) {
 	for _, response := range []string{
+		"* OK [COPYUID 42 5 11] Moved\r\n* OK [COPYUID\t42 5 12] Moved",
 		"* OK [COPYUID 42 5 11] Moved__TAGGED__[COPYUID\t42 5 12] Moved",
 		"* OK [COPYUID\t42 5 12] Moved__TAGGED__[COPYUID 42 5 11] Moved",
 		"* OK [COPYUID] Moved__TAGGED__[COPYUID 42 5 11] Moved",
