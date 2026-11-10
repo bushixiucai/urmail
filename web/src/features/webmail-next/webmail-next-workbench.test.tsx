@@ -1235,69 +1235,77 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     );
   });
 
-  it("mixed cross-folder search keeps both same-uid rows and routes Reply/Forward correctly", { timeout: 45000 }, async () => {
-    // QA repro: Sent 148 listed BEFORE INBOX 148 — bare-uid dedupe used to
-    // erase the INBOX row entirely.
-    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
-      folders: [
-        { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
-        { name: "Sent", name_enc: "Sent", delimiter: "/" },
-        { name: "Trash", name_enc: "Trash", delimiter: "/" },
-      ] as never,
-    });
-    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
-      messages: [SENT_148, INBOX_148],
-      total: 2,
-      q: "",
-    });
-    renderWorkbench();
-    // Trigger cross-folder search.
-    const search = screen.getByTestId("webmail-search-input");
-    fireEvent.change(search, { target: { value: "cross-box" } });
-    fireEvent.keyDown(search, { key: "Enter" });
-    // Threaded search view groups the two copies into one conversation row
-    // ("Ann (2)") — the composite dedupe must NOT have erased the INBOX
-    // row from the group (sender summary contains both copies' data).
-    const row = await screen.findByTestId("mail-row-148");
-    expect(row.textContent).toContain("(2)");
-    // Right-click the group row while reading INBOX (contextRow resolves
-    // by folder+uid) → Reply targets ann@x with the INBOX subject.
-    fireEvent.contextMenu(row);
-    const reply = await screen.findByTestId("ctx-reply");
-    fireEvent.click(reply);
-    const dock = await screen.findByTestId(
-      "webmail-compose-dock",
-      {},
-      {
-        timeout: 5000,
-      },
-    );
-    expect(dock.textContent).toContain("ann@x");
-    expect(dock.textContent).toContain("Re: cross-box sample");
-    // Close, then Forward the same row: subject prefixed correctly.
-    fireEvent.click(
-      await screen.findByTestId("compose-close-button", {}, { timeout: 5000 }),
-    );
-    // Re-query the row AFTER the refresh re-render: the old node reference
-    // is detached and events on it never reach the list handlers.
-    const freshRow = await screen.findByTestId(
-      "mail-row-148",
-      {},
-      { timeout: 5000 },
-    );
-    fireEvent.contextMenu(freshRow);
-    fireEvent.click(
-      await screen.findByTestId("ctx-forward", {}, { timeout: 5000 }),
-    );
-    const dock2 = await screen.findByTestId(
-      "webmail-compose-dock",
-      {},
-      {
-        timeout: 5000,
-      },
-    );
-    expect(dock2.textContent).toContain("Fwd: cross-box sample");
-  });
+  it(
+    "mixed cross-folder search keeps both same-uid rows and routes Reply/Forward correctly",
+    { timeout: 45000 },
+    async () => {
+      // QA repro: Sent 148 listed BEFORE INBOX 148 — bare-uid dedupe used to
+      // erase the INBOX row entirely.
+      vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+        folders: [
+          { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
+          { name: "Sent", name_enc: "Sent", delimiter: "/" },
+          { name: "Trash", name_enc: "Trash", delimiter: "/" },
+        ] as never,
+      });
+      vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+        messages: [SENT_148, INBOX_148],
+        total: 2,
+        q: "",
+      });
+      renderWorkbench();
+      // Trigger cross-folder search.
+      const search = screen.getByTestId("webmail-search-input");
+      fireEvent.change(search, { target: { value: "cross-box" } });
+      fireEvent.keyDown(search, { key: "Enter" });
+      // Threaded search view groups the two copies into one conversation row
+      // ("Ann (2)") — the composite dedupe must NOT have erased the INBOX
+      // row from the group (sender summary contains both copies' data).
+      const row = await screen.findByTestId("mail-row-148");
+      expect(row.textContent).toContain("(2)");
+      // Right-click the group row while reading INBOX (contextRow resolves
+      // by folder+uid) → Reply targets ann@x with the INBOX subject.
+      fireEvent.contextMenu(row);
+      const reply = await screen.findByTestId("ctx-reply");
+      fireEvent.click(reply);
+      const dock = await screen.findByTestId(
+        "webmail-compose-dock",
+        {},
+        {
+          timeout: 5000,
+        },
+      );
+      expect(dock.textContent).toContain("ann@x");
+      expect(dock.textContent).toContain("Re: cross-box sample");
+      // Close, then Forward the same row: subject prefixed correctly.
+      fireEvent.click(
+        await screen.findByTestId(
+          "compose-close-button",
+          {},
+          { timeout: 5000 },
+        ),
+      );
+      // Re-query the row AFTER the refresh re-render: the old node reference
+      // is detached and events on it never reach the list handlers.
+      const freshRow = await screen.findByTestId(
+        "mail-row-148",
+        {},
+        { timeout: 5000 },
+      );
+      fireEvent.contextMenu(freshRow);
+      fireEvent.click(
+        await screen.findByTestId("ctx-forward", {}, { timeout: 5000 }),
+      );
+      const dock2 = await screen.findByTestId(
+        "webmail-compose-dock",
+        {},
+        {
+          timeout: 5000,
+        },
+      );
+      expect(dock2.textContent).toContain("Fwd: cross-box sample");
+    },
+  );
 
   it("keeps the members query anchored when a stack member is not in the list", async () => {
     // Thread carries a Sent member (uid 200) that has NO list row.
