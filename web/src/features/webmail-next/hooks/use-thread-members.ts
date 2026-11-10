@@ -114,7 +114,12 @@ export function useThreadMembers({
   });
 
   const { data, isLoading, isError, error, fetchPreviousPage, refetch } = query;
-  const { members, initial, oldestPage } = flattenPages(data);
+  // With the gate closed (anchor gone / no verified thread_id) the cached
+  // pages must NOT keep feeding the UI: stale members would render a dead
+  // stack and enable actions against an unverified context (Backend/QA).
+  const { members, initial, oldestPage } = canLoad
+    ? flattenPages(data)
+    : { members: [], initial: undefined, oldestPage: undefined };
 
   const hasMoreOlder = oldestPage?.has_more_older ?? true;
   const total = initial?.total ?? members.length;
@@ -125,7 +130,7 @@ export function useThreadMembers({
   const earlierCount = Math.max(total - loadedCount - newerCount, 0);
 
   const loadEarlier = () => {
-    if (!hasMoreOlder || query.isFetchingPreviousPage) return;
+    if (!canLoad || !hasMoreOlder || query.isFetchingPreviousPage) return;
     void fetchPreviousPage();
   };
 
@@ -143,7 +148,10 @@ export function useThreadMembers({
     error,
     isLoadingEarlier: query.isFetchingPreviousPage,
     loadEarlier,
-    loadNewer: () => setAnchorMode("latest"),
+    loadNewer: () => {
+      if (!canLoad) return;
+      setAnchorMode("latest");
+    },
     refetch: () => {
       void refetch();
     },

@@ -1201,6 +1201,51 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(last?.[1]).toBe(148);
   });
 
+  it("ends the stale stack when the refreshed row loses its thread_id", async () => {
+    // Verified INBOX 148 row auto-selected with a live stack; a refresh
+    // then returns the SAME row WITHOUT thread_id (unverified). The gate
+    // closes AND the cached members must stop feeding the UI — the stale
+    // stack cards disappear (Backend/QA stale-cache probe).
+    renderWorkbench();
+    await waitFor(() =>
+      expect(fetchThreadMembers).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId(/^thread-card-\d+$/).length).toBeGreaterThan(
+        1,
+      ),
+    );
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [
+        {
+          ...INBOX_148,
+          thread_id: undefined,
+          thread_count: undefined,
+          thread_verification: "unverified",
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
+    await waitFor(() =>
+      expect(
+        vi.mocked(mailboxApi.listMessages).mock.calls.length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+    // Cached members must not keep a dead stack on screen.
+    await waitFor(() =>
+      expect(screen.queryByTestId("thread-stack")).toBeNull(),
+    );
+    expect(screen.queryByTestId(/^thread-card-\d+$/)).toBeNull();
+  });
+
   it("safely ends the query instead of substituting a foreign same-uid row", async () => {
     // Unverified INBOX row (no thread_id) opened from the list; refresh
     // removes it while a verified Sent 148 row remains. No stackOrigin and
