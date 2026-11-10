@@ -588,19 +588,61 @@ describe("keyboard & mixed select-all (QA sequence ③④)", () => {
   };
 
   it("Shift+F10 never opens the menu for an ambiguous same-uid row", () => {
+    const handlers = {
+      onOpen: vi.fn(),
+      onReply: vi.fn(),
+      onReplyAll: vi.fn(),
+      onForward: vi.fn(),
+      onToggleStar: vi.fn(),
+      onToggleRead: vi.fn(),
+      onDelete: vi.fn(),
+      onMove: vi.fn(),
+    };
     render(
       <WebmailMessageList
         {...props}
         onSelectMessage={vi.fn()}
         onDeleteMessage={vi.fn()}
-        contextHandlers={undefined}
+        contextHandlers={handlers as never}
       />,
     );
     const rows = screen.getAllByTestId("mail-row-148");
-    (rows[1] as HTMLElement).focus();
+    (rows[1] as HTMLElement).focus(); // Sent copy — foreign in INBOX view
     fireEvent.keyDown(window, { key: "F10", shiftKey: true });
-    // No row-context-menu testids should appear for the foreign/ambiguous row.
-    expect(screen.queryAllByTestId(/^row-context-menu/)).toHaveLength(0);
+    expect(handlers.onOpen).not.toHaveBeenCalled();
+    expect(handlers.onReply).not.toHaveBeenCalled();
+    expect(handlers.onDelete).not.toHaveBeenCalled();
+    // And no menu surface is rendered at all.
+    expect(document.querySelector("[role='menu']")).toBeNull();
+  });
+
+  it("Shift+F10 opens the menu for the unique browsing-folder row", () => {
+    const handlers = { onOpen: vi.fn() };
+    const single = [
+      {
+        uid: 148,
+        subject: "inbox copy",
+        from: [{ name: "A", email: "a@x" }],
+        date: "2026-11-06T10:00:00Z",
+        flags: [],
+        size: 1,
+        folder: "INBOX",
+        folder_enc: "b64.SU5CT1g",
+      },
+    ] as never;
+    render(
+      <WebmailMessageList
+        {...props}
+        messages={single}
+        onSelectMessage={vi.fn()}
+        contextHandlers={handlers as never}
+      />,
+    );
+    const row = screen.getByTestId("mail-row-148");
+    row.focus();
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true, bubbles: true });
+    expect(handlers.onOpen).not.toHaveBeenCalled(); // onOpen fires on click
+    expect(document.querySelector("[role='menu']")).toBeTruthy();
   });
 
   it("select-all toggles against the selectable set only", () => {

@@ -746,8 +746,18 @@ export function WebmailNextWorkbench({
       selectedUid === null &&
       window.innerWidth >= 1024
     ) {
-      setStackOrigin(null); // auto-selection never inherits an old origin
       setReadingFolder(messages[0].folder_enc || activeFolder);
+      // Verified auto-selected rows keep the thread context anchored even
+      // if a later refresh removes the row (QA sequence ①); unverified
+      // rows never anchor (gate stays closed).
+      if (messages[0].thread_id != null) {
+        setStackOrigin({
+          uid: messages[0].uid,
+          folder_enc: messages[0].folder_enc || activeFolder,
+        });
+      } else {
+        setStackOrigin(null);
+      }
       setSelectedUid(messages[0].uid);
     }
   }, [messages, selectedUid, activeFolder]);
@@ -1005,8 +1015,15 @@ export function WebmailNextWorkbench({
   };
 
   // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
+  // Composite resolution: with Sent-first ordering, a bare-uid find would
+  // hand the Sent sender/subject to an INBOX row's Reply (QA blocker).
   const contextRow = (uid: number) =>
-    messages.find((m: MessageSummary) => m.uid === uid);
+    messages.find(
+      (m: MessageSummary) =>
+        m.uid === uid &&
+        ((m as { folder_enc?: string }).folder_enc ?? activeFolder) ===
+          readingFolder,
+    ) ?? messages.find((m: MessageSummary) => m.uid === uid);
 
   const contextHandlers: RowContextMenuActionHandlers = {
     onOpen: (uid) => {
