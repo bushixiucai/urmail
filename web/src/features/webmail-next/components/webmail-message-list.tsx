@@ -205,20 +205,26 @@ export function WebmailMessageList({
   ) => {
     // Composite identity: with same-uid rows from two boxes present, the
     // right-clicked ROW decides the target copy (QA/UIUX).
-    const target =
-      itemsRef.current.find(
-        (item) =>
-          item.uid === uid &&
-          (folderEnc == null ||
-            (item.folderEnc ?? activeFolderEnc) === folderEnc),
-      ) ?? itemsRef.current.find((item) => item.uid === uid);
+    const candidates = itemsRef.current.filter((item) => item.uid === uid);
+    const target = folderEnc
+      ? candidates.find(
+          (item) => (item.folderEnc ?? activeFolderEnc) === folderEnc,
+        )
+      : // No captured folder: accept only a SINGLE folder-less row (legacy
+        // single-box). Ambiguous/foreign provenance must NOT open the menu
+        // — a cross-folder result set cannot prove the row's box.
+        candidates.length === 1 && candidates[0].folderEnc == null
+        ? candidates[0]
+        : undefined;
     if (!target) return;
     setMenuState({
       uid,
-      // Bind the menu to the row's known folder at OPEN time; legacy rows
-      // without folder_enc belong to the browsing box — capturing it here
-      // lets a later refresh refuse a stale same-uid target instead of
-      // silently falling back to another box's copy (QA stale probe).
+      // Bind the menu to the row's known folder at OPEN time; a legacy
+      // row without folder_enc belongs to the browsing box — capturing it
+      // here lets a later refresh refuse a stale same-uid target instead
+      // of silently falling back to another box's copy (QA stale probe:
+      // refusal requires a bound folder; an unbound menu would instead
+      // open the other box's mail).
       folder_enc: target.folderEnc ?? activeFolderEnc,
       x,
       y,

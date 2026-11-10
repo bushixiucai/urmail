@@ -1453,7 +1453,19 @@ export function WebmailNextWorkbench({
   // pane stack; count may be < server thread_count until PR-6 lands.
   const threadMembers = useMemo(() => {
     if (selectedUid === null) return [] as MessageSummary[];
-    const selected = messages.find((m) => m.uid === selectedUid);
+    // STRICT composite selection: (readingFolder, uid) only; a folder-less
+    // row is accepted solely in the single-box case (reading the browsing
+    // folder). Substituting another box's same-uid row here would build
+    // the §8 fallback stack from an unverified thread (Backend audit).
+    const selected =
+      messages.find(
+        (m) =>
+          m.uid === selectedUid &&
+          (m.folder_enc ?? activeFolder) === readingFolder,
+      ) ??
+      (readingFolder === activeFolder
+        ? messages.find((m) => m.uid === selectedUid && m.folder_enc == null)
+        : undefined);
     if (!selected?.thread_id) return selected ? [selected] : [];
     // §8 fallback stack is a SINGLE-BOX safety net only: a selected row
     // from another box (or mixed compat data) never spawns a stack from
@@ -1472,7 +1484,7 @@ export function WebmailNextWorkbench({
       (a, b) =>
         new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
     );
-  }, [messages, selectedUid]);
+  }, [messages, selectedUid, readingFolder, activeFolder]);
   const threadMemberUids = useMemo(
     () => threadMembers.map((m) => m.uid),
     [threadMembers],

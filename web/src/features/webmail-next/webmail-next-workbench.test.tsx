@@ -1270,6 +1270,39 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
   });
 
+  it("fallback never builds a stack from another box's rows (strict reading identity)", async () => {
+    // Members API fails; the loaded list holds INBOX 148 and Sent 148. The
+    // user reads the SENT copy — the §8 fallback must NOT assemble an
+    // INBOX row group for it (selected identity is readingFolder+uid).
+    vi.mocked(fetchThreadMembers).mockRejectedValue(new Error("members down"));
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [INBOX_148, SENT_148],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const rows = await screen.findAllByTestId("mail-row-148");
+    expect(rows).toHaveLength(2);
+    // Pick the Sent copy by its subject (render order is data order).
+    const sentRow = rows.find((r) =>
+      r.textContent?.includes("Re: cross-box sample"),
+    );
+    expect(sentRow).toBeTruthy();
+    fireEvent.click(sentRow as HTMLElement);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+    // No fallback stack / thread cards for the foreign selection.
+    expect(screen.queryByTestId("thread-stack")).toBeNull();
+    expect(screen.queryAllByTestId(/^thread-card-\d+$/)).toHaveLength(0);
+  });
+
   it("ends the stale stack when the refreshed row loses its thread_id", async () => {
     // Verified INBOX 148 row auto-selected with a live stack; a refresh
     // then returns the SAME row WITHOUT thread_id (unverified). The gate
