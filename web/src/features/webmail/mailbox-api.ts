@@ -53,6 +53,11 @@ export interface MessageSummary {
   /** Root UID of the message's thread and size of the loaded group. */
   thread_id?: number;
   thread_count?: number;
+  /** Degraded-contract marker (#119): the server could not verify this
+   * candidate group; thread_id/thread_count are omitted for the row and
+   * it must be rendered/handled as a single, independently-addressable
+   * mail with a "conversation unverified" hint. */
+  thread_verification?: "unverified";
   /** Cross-folder search results are tagged with their source mailbox. */
   folder?: string;
   folder_enc?: string;

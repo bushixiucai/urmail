@@ -3074,6 +3074,7 @@
     "webmail_next.ai_no_todos": "未在邮件中检测到待办事项",
     "webmail_next.thread_loaded_count": "已加载 {{loaded}} / 共 {{total}} 封",
     "webmail_next.thread_unread_badge": "{{count}} 封未读",
+    "webmail_next.thread_unverified_hint": "会话暂未核验",
     "webmail_next.thread_earlier_count": "更早的 {{count}} 封",
     "webmail_next.thread_load_earlier": "加载更早 {{step}} 封",
     "webmail_next.thread_earlier_done": "已是会话最早一封",

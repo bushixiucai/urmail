@@ -41,3 +41,26 @@ describe("useMessageThreading (DEF-2)", () => {
     expect(result.current.items[0].childUids).toHaveLength(5);
   });
 });
+
+describe("#119 degraded contract: thread_verification", () => {
+  it("plumbs thread_verification to the row item without fabricating group fields", () => {
+    const { result } = renderHook(() =>
+      useMessageThreading([
+        {
+          uid: 501,
+          subject: "bounce candidate",
+          from: [{ name: "Mailer", email: "md@x" }],
+          date: "2026-11-06T09:00:00Z",
+          flags: [],
+          size: 1,
+          thread_verification: "unverified",
+        } as MessageSummary,
+      ]),
+    );
+    const items = result.current.items;
+    expect(items).toHaveLength(1);
+    expect(items[0].threadVerification).toBe("unverified");
+    expect(items[0].threadId).toBeUndefined();
+    expect(items[0].threadCount).toBeUndefined();
+  });
+});

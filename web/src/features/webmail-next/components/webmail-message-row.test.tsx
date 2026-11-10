@@ -100,3 +100,52 @@ describe("webmailMessageRowPropsAreEqual", () => {
     expect(screen.getByLabelText("webmail_next.delete")).toBeTruthy();
   });
 });
+
+describe("#119 unverified hint", () => {
+  const baseItem = {
+    uid: 900,
+    subject: "bounce candidate",
+    sender: "Mailer",
+    senderEmail: "md@x",
+    date: "2026-11-06T09:00:00Z",
+    isUnread: false,
+    isStarred: false,
+    hasAttachments: false,
+    size: 1,
+    snippet: "",
+  };
+  const noop = () => {};
+
+  it("renders the unverified hint without a thread pill", () => {
+    render(
+      <WebmailMessageRow
+        item={{ ...baseItem, threadVerification: "unverified" } as never}
+        density="comfortable"
+        isSelected={false}
+        isActive={false}
+        onSelect={noop}
+        onToggleCheck={noop}
+        onToggleStar={noop}
+        onToggleThread={noop}
+      />,
+    );
+    expect(screen.getByTestId("thread-unverified-900")).toBeTruthy();
+    expect(screen.queryByTestId(/^thread-toggle-/)).toBeNull();
+  });
+
+  it("omits the hint for normal rows", () => {
+    render(
+      <WebmailMessageRow
+        item={baseItem as never}
+        density="comfortable"
+        isSelected={false}
+        isActive={false}
+        onSelect={noop}
+        onToggleCheck={noop}
+        onToggleStar={noop}
+        onToggleThread={noop}
+      />,
+    );
+    expect(screen.queryByTestId("thread-unverified-900")).toBeNull();
+  });
+});

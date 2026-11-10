@@ -257,6 +257,18 @@ function WebmailMessageRowView({
             </button>
           )}
 
+          {/* #119 degraded contract: the server could not verify this
+              candidate group — no pill, no stack entry; a quiet hint only. */}
+          {item.threadVerification === "unverified" && (
+            <span
+              data-testid={`thread-unverified-${item.uid}`}
+              title={t("webmail_next.thread_unverified_hint")}
+              className="h-4 px-1 rounded-full text-[11px] text-[var(--vellum-ink-secondary)] border border-dashed border-[var(--vellum-border)] flex items-center shrink-0"
+            >
+              {t("webmail_next.thread_unverified_hint")}
+            </span>
+          )}
+
           <span
             className={`truncate flex-1 min-w-0 ${
               isChild ? childLine1 : metrics.line1
@@ -343,6 +355,7 @@ export function webmailMessageRowPropsAreEqual(
     a.isThreadExpanded === b.isThreadExpanded &&
     a.isThreadChild === b.isThreadChild &&
     a.isLastThreadChild === b.isLastThreadChild &&
+    a.threadVerification === b.threadVerification &&
     a.folder === b.folder &&
     prev.isSelected === next.isSelected &&
     prev.isActive === next.isActive &&
