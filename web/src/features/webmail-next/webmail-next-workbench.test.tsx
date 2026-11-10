@@ -1021,6 +1021,80 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     );
   });
 
+  it("anchors on the Sent copy even while the INBOX same-uid row is still listed", async () => {
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[1]); // expand Sent
+    await waitFor(() => {
+      const calls = vi.mocked(fetchThreadMembers).mock.calls;
+      const last = calls[calls.length - 1];
+      expect(last?.[0]).toBe("Sent");
+      expect(last?.[1]).toBe(148);
+    });
+  });
+
+  it("never fires the members API for an unverified list row", async () => {
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [
+        {
+          uid: 300,
+          subject: "unverified bounce",
+          from: [{ name: "M", email: "m@x" }],
+          date: "2026-11-06T10:00:00Z",
+          flags: [],
+          size: 1,
+          thread_verification: "unverified",
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-300");
+    fireEvent.click(row);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        300,
+        expect.anything(),
+      ),
+    );
+    expect(fetchThreadMembers).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Sent anchor after the list refresh removes its row", async () => {
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[1]); // open Sent copy (row 148 INBOX still listed)
+    await waitFor(() => {
+      const calls = vi.mocked(fetchThreadMembers).mock.calls;
+      expect(calls[calls.length - 1]?.[0]).toBe("Sent");
+    });
+    // Refresh removes every list row.
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [],
+      total: 0,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
+    await waitFor(() => {
+      const calls = vi.mocked(fetchThreadMembers).mock.calls;
+      const last = calls[calls.length - 1];
+      expect(last?.[0]).toBe("Sent");
+      expect(last?.[1]).toBe(148);
+    });
+    // Stack context did not collapse.
+    expect(screen.getAllByTestId(/^thread-card-\d+$/).length).toBeGreaterThan(
+      1,
+    );
+  });
+
   it("keeps the members query anchored when a stack member is not in the list", async () => {
     // Thread carries a Sent member (uid 200) that has NO list row.
     const MEMBER_200 = {

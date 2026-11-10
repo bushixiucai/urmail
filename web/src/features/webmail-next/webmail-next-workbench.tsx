@@ -599,15 +599,10 @@ export function WebmailNextWorkbench({
     const member = findStackMember(uid, folderEnc);
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
-    // Remember non-list stack origins so the members query stays anchored
-    // after collapsing/refetch; clear once a list row provides the anchor.
-    if (
-      folderEnc != null &&
-      !messages.some(
-        (item) =>
-          item.uid === uid && (item.folder_enc ?? activeFolder) === folderEnc,
-      )
-    ) {
+    // Remember folder-anchored origins so the members query stays anchored
+    // even if the list row is refreshed away (UIUX review); list opens
+    // without a folder hint clear it and rely on the row again.
+    if (folderEnc != null) {
       setStackOrigin({ uid, folder_enc: folderEnc });
     } else {
       setStackOrigin(null);
@@ -1353,22 +1348,29 @@ export function WebmailNextWorkbench({
     // query via stackOrigin: any known member (folder+uid) is a valid
     // origin (contract §1), so the stack survives opening a Sent-only
     // member (QA review).
-    return (
-      messages.find(
-        (m) =>
-          m.uid === selectedUid &&
-          (m.folder_enc ?? activeFolder) === readingFolder,
-      ) ??
-      messages.find((m) => m.uid === selectedUid) ??
-      (stackOrigin !== null &&
+    const exact = messages.find(
+      (m) =>
+        m.uid === selectedUid &&
+        (m.folder_enc ?? activeFolder) === readingFolder,
+    );
+    if (exact) return exact;
+    // The stack origin wins over a same-uid row of ANOTHER box: opening
+    // Sent 148 while the INBOX 148 row still exists must anchor on Sent.
+    if (
+      stackOrigin !== null &&
       stackOrigin.uid === selectedUid &&
       (stackOrigin.folder_enc ?? activeFolder) === readingFolder
-        ? ({
-            uid: stackOrigin.uid,
-            folder_enc: stackOrigin.folder_enc,
-          } as (typeof messages)[number])
-        : null)
-    );
+    ) {
+      return {
+        uid: stackOrigin.uid,
+        folder_enc: stackOrigin.folder_enc,
+      } as (typeof messages)[number];
+    }
+    // Bare-uid fallback is legitimate only for the browsing folder itself
+    // (legacy rows without folder_enc); never for another box.
+    return readingFolder === activeFolder
+      ? (messages.find((m) => m.uid === selectedUid) ?? null)
+      : null;
   }, [messages, stackOrigin, selectedUid, readingFolder, activeFolder]);
   const threadApi = useThreadMembers({
     originFolderEnc:
@@ -1597,6 +1599,7 @@ export function WebmailNextWorkbench({
             ) : (
               <WebmailMessageList
                 folderName={folderDisplayName}
+                activeFolderEnc={activeFolder}
                 messages={messages}
                 activeUid={selectedUid}
                 isSearchView={searchDraft.trim() !== ""}

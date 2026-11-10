@@ -381,3 +381,84 @@ describe("thread pill routing (C1 D-D)", () => {
     expect(screen.getByTestId("mail-row-101")).toBeTruthy();
   });
 });
+
+describe("cross-folder same-uid list identity (QA/UIUX review)", () => {
+  const dupRows = [
+    {
+      uid: 148,
+      subject: "cross-box sample",
+      from: [{ name: "Ann", email: "ann@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "Re: cross-box sample",
+      from: [{ name: "Me", email: "me@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as never;
+
+  it("renders both same-uid rows with unique keys and passes each row's folderEnc", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onSelect = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        activeFolderEnc="b64.SU5CT1g"
+        messages={dupRows}
+        activeUid={null}
+        onSelectMessage={onSelect}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    const rows = screen.getAllByTestId("mail-row-148");
+    expect(rows).toHaveLength(2);
+    fireEvent.click(rows[0]);
+    expect(onSelect).toHaveBeenLastCalledWith(148, "b64.SU5CT1g");
+    fireEvent.click(rows[1]);
+    expect(onSelect).toHaveBeenLastCalledWith(148, "b64.U2VudA");
+    const duplicateKeyWarnings = errorSpy.mock.calls.filter((args) =>
+      String(args[0]).includes("same key"),
+    );
+    expect(duplicateKeyWarnings).toHaveLength(0);
+    errorSpy.mockRestore();
+  });
+
+  it("does not let a foreign-box row join the folder-scoped selection", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        activeFolderEnc="b64.SU5CT1g"
+        messages={dupRows}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    const rows = screen.getAllByTestId("mail-row-148");
+    const checkForeign = rows[1].querySelector(
+      '[data-testid^="row-check"], input[type="checkbox"], button',
+    );
+    if (checkForeign) {
+      fireEvent.click(checkForeign);
+    }
+    // Foreign row must not produce a selection event for INBOX bulk ops.
+    expect(onSelectionCountChange).not.toHaveBeenCalledWith(1);
+  });
+});

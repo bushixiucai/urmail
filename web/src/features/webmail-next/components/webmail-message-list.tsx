@@ -52,6 +52,9 @@ interface MoveFolder {
 
 interface WebmailMessageListProps {
   folderName: string;
+  /** Encoded browsing folder — disambiguates same-uid rows in cross-folder
+   * result sets (list display/selection identity, QA/UIUX review). */
+  activeFolderEnc?: string;
   messages: MessageSummary[];
   activeUid: number | null;
   cursorUid?: number | null;
@@ -99,6 +102,7 @@ interface WebmailMessageListProps {
 
 export function WebmailMessageList({
   folderName,
+  activeFolderEnc,
   messages,
   activeUid,
   cursorUid = null,
@@ -326,17 +330,31 @@ export function WebmailMessageList({
     openContextMenu,
   };
 
+  const rowKey = (item: WebmailItem) => `${item.folderEnc ?? ""}:${item.uid}`;
+  // Cross-folder results can carry the same numeric uid from two boxes:
+  // highlight only the row of the folder being browsed, and never let a
+  // foreign row toggle selection that bulk actions would apply to the
+  // browsing folder's same-numbered mail.
+  const isForeignRow = (item: WebmailItem) =>
+    activeFolderEnc != null &&
+    item.folderEnc != null &&
+    item.folderEnc !== activeFolderEnc;
+  const isRowActive = (item: WebmailItem) =>
+    activeUid === item.uid &&
+    (activeFolderEnc == null ||
+      (item.folderEnc ?? activeFolderEnc) === activeFolderEnc);
   const renderMessageRow = (item: WebmailItem) => (
     <WebmailMessageRow
       item={item}
-      isSelected={selectedUids.has(item.uid)}
-      isActive={activeUid === item.uid}
+      isSelected={selectedUids.has(item.uid) && !isForeignRow(item)}
+      isActive={isRowActive(item)}
       isCursor={cursorUid === item.uid}
       density={density}
       onSelect={() =>
         rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc)
       }
       onToggleCheck={(event) => {
+        if (isForeignRow(item)) return; // folder-scoped selection only
         rowActionsRef.current.toggleSelect(
           item.uid,
           event.shiftKey,
@@ -636,7 +654,7 @@ export function WebmailMessageList({
               if (!item) return null;
               return (
                 <div
-                  key={item.uid}
+                  key={rowKey(item)}
                   style={{
                     position: "absolute",
                     top: 0,
@@ -653,7 +671,7 @@ export function WebmailMessageList({
           </div>
         ) : (
           items.map((item) => (
-            <div key={item.uid} className="contents">
+            <div key={rowKey(item)} className="contents">
               {renderMessageRow(item)}
             </div>
           ))
