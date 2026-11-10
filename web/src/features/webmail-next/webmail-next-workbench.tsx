@@ -575,9 +575,14 @@ export function WebmailNextWorkbench({
   };
 
   const openMessage = (uid: number) => {
-    const message = messages.find((item) => item.uid === uid);
+    // Member-first resolution (DEF-4 follow-up): a stack card may be a
+    // cross-box member (Sent) whose numeric uid also exists in the origin
+    // folder — resolving through the members payload guarantees the
+    // detail is read from the member's own folder.
+    const member = stackMembers.find((m) => m.uid === uid);
+    const message = member ?? messages.find((item) => item.uid === uid);
     setCursorUid(uid);
-    setReadingFolder(message?.folder_enc || activeFolder);
+    setReadingFolder(member?.folder_enc || message?.folder_enc || activeFolder);
     setSelectedUid(uid);
   };
 
@@ -760,11 +765,27 @@ export function WebmailNextWorkbench({
   };
 
   const handleToggleStar = async (uid: number) => {
-    // §11-5: stack cards may hold cross-box members (Sent) that are not in
-    // the loaded list pages — fall back to the thread members payload.
-    const msg =
-      messages.find((m: MessageSummary) => m.uid === uid) ??
-      stackMembers.find((m) => m.uid === uid);
+    // §11-5 stack scope: resolve exclusively within the members payload so
+    // a same-numbered uid in another folder can never be mis-targeted;
+    // cross-box members (Sent) are flagged through their own folder.
+    const member = stackMembers.find((m) => m.uid === uid);
+    if (member) {
+      const folderEnc = member.folder_enc ?? activeFolder;
+      const isStarred = member.flags.includes("\\Flagged");
+      await flagMessages(folderEnc, {
+        uids: [uid],
+        add: isStarred ? [] : ["\\Flagged"],
+        remove: isStarred ? ["\\Flagged"] : [],
+        uid_validity: member.uid_validity,
+      });
+      threadApi.refetch();
+      if (folderEnc === activeFolder) {
+        refetchMessages();
+        if (selectedUid !== null && uid === selectedUid) refetchDetail();
+      }
+      return;
+    }
+    const msg = messages.find((m: MessageSummary) => m.uid === uid);
     if (!msg) return;
     const isStarred = msg.flags.includes("\\Flagged");
     await flagUids(
@@ -772,9 +793,6 @@ export function WebmailNextWorkbench({
       isStarred ? [] : ["\\Flagged"],
       isStarred ? ["\\Flagged"] : [],
     );
-    if (!messages.some((m: MessageSummary) => m.uid === uid)) {
-      threadApi.refetch();
-    }
   };
 
   const handleToggleRead = async (uid: number) => {
@@ -843,21 +861,56 @@ export function WebmailNextWorkbench({
   };
 
   const handleDeleteMessage = (uid: number) => {
-    void handleMoveSpecial("\\Trash", "Trash", "webmail_next.folder_trash", [
-      uid,
-    ]);
-    // §11-5 expansion relay: deleting a stack card expands the next newer
-    // member (else the previous one) and moves focus to its header.
-    const idx = stackMembers.findIndex((m) => m.uid === uid);
-    if (idx >= 0 && stackMembers.length > 1 && selectedUid === uid) {
-      const next = stackMembers[idx + 1] ?? stackMembers[idx - 1];
-      if (next && next.uid !== uid) {
-        openMessage(next.uid);
-        setThreadFocusUid(next.uid);
+    // §11-5 stack scope: a member from another folder (Sent) is trashed
+    // through its own folder+uid — the origin-folder move would 404 or,
+    // with a same-numbered uid, hit the wrong message.
+    const member = stackMembers.find((m) => m.uid === uid);
+    const folderEnc = member?.folder_enc ?? activeFolder;
+    void (async () => {
+      if (folderEnc !== activeFolder) {
+        if (isTrashMailbox(folders, folderEnc)) {
+          setPendingPermanentUids([uid]);
+          return;
+        }
+        const moved = await moveToSpecialFolder(
+          folders,
+          folderEnc,
+          [uid],
+          member?.uid_validity,
+          "\\Trash",
+          "webmail_next.folder_trash",
+          {
+            createFolder: (name) => createMailboxFolder(name),
+            move: (source, body) => moveMessages(source, body),
+            reloadFolders: async () => {
+              const result = await refetchFolders();
+              return result.data?.folders ?? folders;
+            },
+          },
+        );
+        if (!moved) return;
+        showMoved(t("webmail_next.folder_trash"), moved.undo);
+        threadApi.refetch();
+      } else {
+        await handleMoveSpecial(
+          "\\Trash",
+          "Trash",
+          "webmail_next.folder_trash",
+          [uid],
+        );
+        threadApi.refetch();
       }
-    }
-    // The moved member must leave the stack payload (§11-5 checklist).
-    threadApi.refetch();
+      // §11-5 expansion relay: deleting a stack card expands the next newer
+      // member (else the previous one) and moves focus to its header.
+      const idx = stackMembers.findIndex((m) => m.uid === uid);
+      if (idx >= 0 && stackMembers.length > 1 && selectedUid === uid) {
+        const next = stackMembers[idx + 1] ?? stackMembers[idx - 1];
+        if (next && next.uid !== uid) {
+          openMessage(next.uid);
+          setThreadFocusUid(next.uid);
+        }
+      }
+    })();
   };
 
   // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
