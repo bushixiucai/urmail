@@ -1269,7 +1269,7 @@ export function WebmailNextWorkbench({
             data-testid="btn-quick-dismiss-vacation"
             type="button"
             onClick={handleQuickDisableVacation}
-            className="text-xs font-semibold text-[var(--vellum-warning-text-strong)] hover:text-[#78350F] underline ml-4 shrink-0"
+            className="text-xs font-semibold text-[var(--vellum-warning-text-strong)] hover:text-[var(--vellum-warning-text-deep)] underline ml-4 shrink-0"
           >
             {t("webmail_next.vacation_quick_disable", "Turn off")}
           </button>

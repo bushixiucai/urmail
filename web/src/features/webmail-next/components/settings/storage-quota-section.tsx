@@ -62,13 +62,13 @@ export function StorageQuotaSection() {
 
   return (
     <div className="space-y-6" data-testid="storage-quota-section">
-      <div className="border-b border-[#EBE8E0] pb-4 flex items-center justify-between">
+      <div className="border-b border-[var(--vellum-border)] pb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-            <HardDrive className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+          <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+            <HardDrive className="w-5 h-5 text-[var(--brand-primary)]" />
             <span>{t("settings.quota.title", "Storage & Quota")}</span>
           </h3>
-          <p className="text-xs text-[#52525B] mt-1">
+          <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
             {t(
               "settings.quota.subtitle",
               "Monitor your mailbox capacity, message storage, and attachment limits.",
@@ -79,7 +79,7 @@ export function StorageQuotaSection() {
           type="button"
           onClick={fetchQuota}
           disabled={loading}
-          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#F6F4EE] hover:text-[#18181B] transition-colors"
+          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-surface-muted)] hover:text-[var(--vellum-ink)] transition-colors"
           title={t("common.refresh", "Refresh")}
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
@@ -87,7 +87,7 @@ export function StorageQuotaSection() {
       </div>
 
       {error ? (
-        <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-[#991B1B] text-xs">
+        <div className="p-3 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border)] rounded-lg text-[var(--vellum-danger-text)] text-xs">
           {error}
         </div>
       ) : loading ? (
@@ -97,13 +97,13 @@ export function StorageQuotaSection() {
       ) : (
         <div className="space-y-6 max-w-xl">
           {/* Main Progress Bar Card */}
-          <div className="p-5 bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl space-y-4 shadow-sm">
+          <div className="p-5 bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-xl space-y-4 shadow-sm">
             <div className="flex justify-between items-baseline">
-              <span className="text-xs font-semibold text-[#18181B]">
+              <span className="text-xs font-semibold text-[var(--vellum-ink)]">
                 {t("settings.quota.used_label", "Used Storage")}
               </span>
               <div className="text-right">
-                <span className="text-lg font-bold text-[#18181B]">
+                <span className="text-lg font-bold text-[var(--vellum-ink)]">
                   {percent}%
                 </span>
                 <span className="text-xs text-[var(--vellum-ink-secondary)] ml-2">
@@ -117,15 +117,15 @@ export function StorageQuotaSection() {
             </div>
 
             {/* Dual layer progress bar */}
-            <div className="w-full h-3 bg-[#EBE8E0] rounded-full overflow-hidden p-0.5">
+            <div className="w-full h-3 bg-[var(--vellum-border)] rounded-full overflow-hidden p-0.5">
               <div
                 data-testid="quota-progress-bar"
                 className={`h-full rounded-full transition-all duration-500 ${
                   isAlert
-                    ? "bg-[#DC2626]"
+                    ? "bg-[var(--vellum-color-danger)]"
                     : isWarning
-                      ? "bg-[#D97706]"
-                      : "bg-[var(--brand-primary,#2563eb)]"
+                      ? "bg-[var(--vellum-color-warning)]"
+                      : "bg-[var(--brand-primary)]"
                 }`}
                 style={{ width: `${percent}%` }}
               />
@@ -135,7 +135,7 @@ export function StorageQuotaSection() {
             {isAlert ? (
               <div
                 data-testid="quota-alert-callout"
-                className="p-3 bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg flex items-start gap-2 text-[#991B1B] text-xs"
+                className="p-3 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border-strong)] rounded-lg flex items-start gap-2 text-[var(--vellum-danger-text)] text-xs"
               >
                 <AlertOctagon className="w-4 h-4 shrink-0 mt-0.5 text-[var(--vellum-danger-strong)]" />
                 <div>
@@ -156,9 +156,9 @@ export function StorageQuotaSection() {
             ) : isWarning ? (
               <div
                 data-testid="quota-warning-callout"
-                className="p-3 bg-[#FFFBEB] border border-[#FDE68A] rounded-lg flex items-start gap-2 text-[#92400E] text-xs"
+                className="p-3 bg-[var(--vellum-warning-fill-soft)] border border-[var(--vellum-warning-border)] rounded-lg flex items-start gap-2 text-[var(--vellum-warning-text)] text-xs"
               >
-                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[var(--vellum-color-warning)]" />
                 <div>
                   <span className="font-semibold">
                     {t(
@@ -175,7 +175,7 @@ export function StorageQuotaSection() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs text-[#15803D]">
+              <div className="flex items-center gap-2 text-xs text-[var(--vellum-success-text-strong)]">
                 <CheckCircle2 className="w-4 h-4 text-[var(--vellum-success-text)]" />
                 <span>
                   {t("settings.quota.healthy", "Storage space is healthy.")}
@@ -185,8 +185,8 @@ export function StorageQuotaSection() {
           </div>
 
           {/* Attachment and Send Limits Note */}
-          <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl space-y-2">
-            <h4 className="text-xs font-semibold text-[#18181B] flex items-center gap-1.5">
+          <div className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl space-y-2">
+            <h4 className="text-xs font-semibold text-[var(--vellum-ink)] flex items-center gap-1.5">
               <Paperclip className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t(
@@ -195,7 +195,7 @@ export function StorageQuotaSection() {
                 )}
               </span>
             </h4>
-            <ul className="text-xs text-[#52525B] space-y-1 list-disc list-inside">
+            <ul className="text-xs text-[var(--vellum-ink-secondary)] space-y-1 list-disc list-inside">
               <li>
                 {t(
                   "settings.quota.limit_total_attachment",

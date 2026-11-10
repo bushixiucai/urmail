@@ -134,12 +134,12 @@ export function ForwardingSection() {
 
   return (
     <div className="space-y-6" data-testid="forwarding-section">
-      <div className="border-b border-[#EBE8E0] pb-4">
-        <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-          <Forward className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+      <div className="border-b border-[var(--vellum-border)] pb-4">
+        <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+          <Forward className="w-5 h-5 text-[var(--brand-primary)]" />
           <span>{t("settings.forwarding.title", "Email Auto-Forwarding")}</span>
         </h3>
-        <p className="text-xs text-[#52525B] mt-1">
+        <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
           {t(
             "settings.forwarding.subtitle",
             "Automatically redirect inbound messages to an external email destination.",
@@ -154,14 +154,14 @@ export function ForwardingSection() {
       ) : (
         <form onSubmit={handlePreSave} className="space-y-5 max-w-xl">
           {error && (
-            <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-[#991B1B] text-xs flex items-center gap-2">
+            <div className="p-3 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border)] rounded-lg text-[var(--vellum-danger-text)] text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[#166534] text-xs flex items-center gap-2">
+            <div className="p-3 bg-[var(--vellum-success-fill)] border border-[var(--vellum-success-border)] rounded-lg text-[var(--vellum-color-success)] text-xs flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--vellum-success-text)]" />
               <span>
                 {t(
@@ -173,9 +173,9 @@ export function ForwardingSection() {
           )}
 
           {/* Master Toggle */}
-          <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl flex items-center justify-between">
+          <div className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl flex items-center justify-between">
             <div>
-              <span className="text-xs font-semibold text-[#18181B]">
+              <span className="text-xs font-semibold text-[var(--vellum-ink)]">
                 {t(
                   "settings.forwarding.enable_toggle",
                   "Enable Automatic Forwarding",
@@ -201,7 +201,7 @@ export function ForwardingSection() {
                 onChange={(e) => setEnabled(e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-[#EBE8E0] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--brand-primary,#2563eb)]" />
+              <div className="w-11 h-6 bg-[var(--vellum-border)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--brand-primary)]" />
             </label>
           </div>
 
@@ -212,7 +212,7 @@ export function ForwardingSection() {
           >
             {/* Target Address */}
             <div>
-              <label className="block text-xs font-semibold text-[#3F3F46] mb-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
                 {t(
                   "settings.forwarding.target_address",
                   "Forward Inbound Mail To",
@@ -224,7 +224,7 @@ export function ForwardingSection() {
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
                 placeholder="colleague@domain.com"
-                className="w-full h-9 px-3 text-xs rounded-md border border-[#D4D4D8] bg-[#FFFFFF] focus:outline-none focus:border-[var(--brand-primary,#2563eb)]"
+                className="w-full h-9 px-3 text-xs rounded-md border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)] focus:outline-none focus:border-[var(--brand-primary)]"
               />
             </div>
 
@@ -236,11 +236,11 @@ export function ForwardingSection() {
                 id="keep-copy-checkbox"
                 checked={keepCopy}
                 onChange={(e) => setKeepCopy(e.target.checked)}
-                className="mt-0.5 rounded border-[#D4D4D8] text-[var(--brand-primary,#2563eb)] focus:ring-[var(--brand-primary,#2563eb)]"
+                className="mt-0.5 rounded border-[var(--vellum-border-strong)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
               />
               <label
                 htmlFor="keep-copy-checkbox"
-                className="text-xs text-[#3F3F46] cursor-pointer"
+                className="text-xs text-[var(--vellum-ink-strong)] cursor-pointer"
               >
                 <span className="font-semibold">
                   {t(
@@ -262,7 +262,7 @@ export function ForwardingSection() {
             data-testid="btn-save-forwarding"
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
+            className="px-4 py-2 bg-[var(--brand-primary)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
           >
             <Save className="w-3.5 h-3.5" />
             <span>
@@ -280,10 +280,10 @@ export function ForwardingSection() {
           data-testid="forwarding-confirm-modal"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
         >
-          <div className="bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center gap-2 text-[#DC2626]">
+          <div className="bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-center gap-2 text-[var(--vellum-color-danger)]">
               <ShieldAlert className="w-5 h-5" />
-              <h4 className="text-sm font-bold text-[#18181B]">
+              <h4 className="text-sm font-bold text-[var(--vellum-ink)]">
                 {t(
                   "settings.forwarding.security_alert_title",
                   "Security Confirmation",
@@ -291,7 +291,7 @@ export function ForwardingSection() {
               </h4>
             </div>
 
-            <p className="text-xs text-[#52525B] leading-relaxed">
+            <p className="text-xs text-[var(--vellum-ink-secondary)] leading-relaxed">
               {t(
                 "settings.forwarding.security_alert_text",
                 "All inbound messages will be automatically forwarded to the specified destination ({{target}}). Please confirm that this address is fully trusted and authorized by you.",
@@ -303,7 +303,7 @@ export function ForwardingSection() {
               <button
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
-                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B] rounded border border-[#EBE8E0]"
+                className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] rounded border border-[var(--vellum-border)]"
               >
                 {t("common.cancel", "Cancel")}
               </button>

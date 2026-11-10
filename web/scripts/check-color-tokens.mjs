@@ -1,5 +1,5 @@
 // CI 守门：webmail-next 硬编码色值迁移进度断言（WEBMAIL-BATCH2-SPEC.md 2.3 R3/R4）
-// - R3: 6 位 hex 总数阈值 < 140（settings 目录豁免至令牌体系稳定，下批次解除）
+// - R3: 6 位 hex 总数阈值 < 140（settings 目录豁免已于 v0.6.20 A3 解除，全量计数）
 // - R4: `dark:` 前缀类保持 0（#90 已清零，决策①b v1 无应用级暗色）
 // - R5 白名单：theme-vellum.css（.css 不在扫描范围）、邮件正文模板/iframe（当前无此文件）
 // 用法: node scripts/check-color-tokens.mjs  （接入 npm run lint）
@@ -23,25 +23,28 @@ function sh(cmd, args, opts = {}) {
   });
 }
 
-// R3: 硬编码 hex 计数（settings 目录豁免）
-const hexOut = sh("grep", [
-  "-rhoE",
-  "#[0-9A-Fa-f]{6}",
-  TARGET,
-  "--include=*.tsx",
-  "--exclude-dir=settings",
-  "--exclude=*.test.*",
-]);
+// R3: 硬编码 hex 计数（settings 豁免已解除，A3 全量纳入；零匹配时 grep exit 1）
+let hexOut = "";
+try {
+  hexOut = sh("grep", [
+    "-rhoE",
+    "#[0-9A-Fa-f]{6}",
+    TARGET,
+    "--include=*.tsx",
+    "--exclude=*.test.*",
+  ]);
+} catch {
+  hexOut = "";
+}
 const hexTotal = hexOut.split("\n").filter(Boolean).length;
 
-// 逐文件计数，便于超限时定位
-const fileOut = sh("grep", [
-  "-rcE",
-  "#[0-9A-Fa-f]{6}",
-  TARGET,
-  "--include=*.tsx",
-  "--exclude-dir=settings",
-]);
+// 逐文件计数，便于超限时定位（零匹配 → 空表）
+let fileOut = "";
+try {
+  fileOut = sh("grep", ["-rcE", "#[0-9A-Fa-f]{6}", TARGET, "--include=*.tsx"]);
+} catch {
+  fileOut = "";
+}
 const perFile = fileOut
   .split("\n")
   .filter((l) => !l.endsWith(":0"))
@@ -83,7 +86,7 @@ if (darkTotal !== 0) {
 }
 
 console.log(
-  `[check-color-tokens] hex=${hexTotal} (阈值<${MAX_HEX + 1}, settings 豁免) dark:${darkTotal}=0 ✓`,
+  `[check-color-tokens] hex=${hexTotal} (阈值<${MAX_HEX + 1}, settings 已并网) dark:${darkTotal}=0 ✓`,
 );
 if (failures.length > 0) {
   console.error("[check-color-tokens] FAIL");

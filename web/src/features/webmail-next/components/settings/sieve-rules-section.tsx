@@ -159,13 +159,13 @@ export function SieveRulesSection({
 
   return (
     <div className="space-y-6" data-testid="sieve-rules-section">
-      <div className="border-b border-[#EBE8E0] pb-4 flex items-center justify-between">
+      <div className="border-b border-[var(--vellum-border)] pb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-            <Filter className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+          <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+            <Filter className="w-5 h-5 text-[var(--brand-primary)]" />
             <span>{t("settings.rules.title", "Filters & Sieve Rules")}</span>
           </h3>
-          <p className="text-xs text-[#52525B] mt-1">
+          <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
             {t(
               "settings.rules.subtitle",
               "Manage incoming email dispatch rules, automated folder sorting, and spam discarding.",
@@ -176,7 +176,7 @@ export function SieveRulesSection({
           data-testid="btn-add-rule"
           type="button"
           onClick={() => setIsAdding((prev) => !prev)}
-          className="px-3 py-1.5 bg-[#FFFFFF] border border-[#D4D4D8] hover:bg-[#FAF9F5] text-xs font-semibold rounded-md flex items-center gap-1.5 text-[#18181B] transition-colors shadow-xs"
+          className="px-3 py-1.5 bg-[var(--vellum-surface)] border border-[var(--vellum-border-strong)] hover:bg-[var(--vellum-ground)] text-xs font-semibold rounded-md flex items-center gap-1.5 text-[var(--vellum-ink)] transition-colors shadow-xs"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>
@@ -188,14 +188,14 @@ export function SieveRulesSection({
       </div>
 
       {error && (
-        <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-[#991B1B] text-xs flex items-center gap-2">
+        <div className="p-3 bg-[var(--vellum-danger-fill-soft)] border border-[var(--vellum-danger-border)] rounded-lg text-[var(--vellum-danger-text)] text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[#166534] text-xs flex items-center gap-2">
+        <div className="p-3 bg-[var(--vellum-success-fill)] border border-[var(--vellum-success-border)] rounded-lg text-[var(--vellum-color-success)] text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--vellum-success-text)]" />
           <span>
             {t(
@@ -211,15 +211,15 @@ export function SieveRulesSection({
         <form
           onSubmit={handleCreateRule}
           data-testid="new-rule-form"
-          className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl space-y-4"
+          className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl space-y-4"
         >
-          <h4 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+          <h4 className="text-xs font-bold text-[var(--vellum-ink)] uppercase tracking-wider">
             {t("settings.rules.wizard_title", "Rule Configuration Wizard")}
           </h4>
 
           {/* Condition section */}
           <div className="space-y-2">
-            <span className="text-xs font-semibold text-[#3F3F46]">
+            <span className="text-xs font-semibold text-[var(--vellum-ink-strong)]">
               1.{" "}
               {t(
                 "settings.rules.condition_header",
@@ -232,7 +232,7 @@ export function SieveRulesSection({
                 onChange={(e) =>
                   setNewMatchType(e.target.value as "all" | "any")
                 }
-                className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-[#FFFFFF]"
+                className="h-8 px-2 text-xs rounded border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)]"
               >
                 <option value="all">
                   {t("settings.rules.match_all", "All conditions (AND)")}
@@ -249,7 +249,7 @@ export function SieveRulesSection({
                     e.target.value as "subject" | "from" | "to" | "cc",
                   )
                 }
-                className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-[#FFFFFF]"
+                className="h-8 px-2 text-xs rounded border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)]"
               >
                 <option value="from">{t("settings.rules.from", "From")}</option>
                 <option value="to">{t("settings.rules.to", "To")}</option>
@@ -264,7 +264,7 @@ export function SieveRulesSection({
                 onChange={(e) =>
                   setNewMatch(e.target.value as "contains" | "is")
                 }
-                className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-[#FFFFFF]"
+                className="h-8 px-2 text-xs rounded border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)]"
               >
                 <option value="contains">
                   {t("settings.rules.contains", "contains")}
@@ -283,14 +283,14 @@ export function SieveRulesSection({
                   "e.g. newsletter, alert",
                 )}
                 required
-                className="h-8 px-3 text-xs rounded border border-[#D4D4D8] bg-[#FFFFFF]"
+                className="h-8 px-3 text-xs rounded border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)]"
               />
             </div>
           </div>
 
           {/* Action section */}
           <div className="space-y-2">
-            <span className="text-xs font-semibold text-[#3F3F46]">
+            <span className="text-xs font-semibold text-[var(--vellum-ink-strong)]">
               2. {t("settings.rules.action_header", "Then perform action")}
             </span>
             <div className="flex flex-wrap items-center gap-3">
@@ -301,7 +301,7 @@ export function SieveRulesSection({
                     e.target.value as "fileinto" | "keep" | "discard",
                   )
                 }
-                className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-[#FFFFFF]"
+                className="h-8 px-2 text-xs rounded border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)]"
               >
                 <option value="fileinto">
                   {t("settings.rules.fileinto", "Move to folder (fileinto)")}
@@ -318,7 +318,7 @@ export function SieveRulesSection({
                 <select
                   value={newFolder}
                   onChange={(e) => setNewFolder(e.target.value)}
-                  className="h-8 px-2 text-xs rounded border border-[#D4D4D8] bg-[#FFFFFF]"
+                  className="h-8 px-2 text-xs rounded border border-[var(--vellum-border-strong)] bg-[var(--vellum-surface)]"
                 >
                   {folders.map((f) => (
                     <option key={f.name_enc} value={f.name_enc}>
@@ -334,14 +334,14 @@ export function SieveRulesSection({
             <button
               data-testid="btn-create-rule-submit"
               type="submit"
-              className="px-3 py-1.5 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded shadow-sm hover:brightness-105"
+              className="px-3 py-1.5 bg-[var(--brand-primary)] text-white text-xs font-semibold rounded shadow-sm hover:brightness-105"
             >
               {t("settings.rules.add_rule_btn", "Add to Rule Pipeline")}
             </button>
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[#18181B]"
+              className="px-3 py-1.5 text-xs text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
             >
               {t("common.cancel", "Cancel")}
             </button>
@@ -355,8 +355,8 @@ export function SieveRulesSection({
           {t("common.loading", "Loading sieve rules...")}
         </div>
       ) : rules.length === 0 ? (
-        <div className="p-8 text-center bg-[#FFFFFF] border border-[#EBE8E0] rounded-xl text-[var(--vellum-ink-secondary)] text-xs">
-          <Filter className="w-8 h-8 text-[#D4D4D8] mx-auto mb-2" />
+        <div className="p-8 text-center bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-xl text-[var(--vellum-ink-secondary)] text-xs">
+          <Filter className="w-8 h-8 text-[var(--vellum-border-strong)] mx-auto mb-2" />
           <p>
             {t("settings.rules.no_rules", "No custom Sieve filters defined.")}
           </p>
@@ -371,10 +371,10 @@ export function SieveRulesSection({
               <div
                 key={idx}
                 data-testid={`rule-row-${idx}`}
-                className={`p-3 bg-[#FFFFFF] border rounded-lg flex items-center justify-between gap-3 transition-colors ${
+                className={`p-3 bg-[var(--vellum-surface)] border rounded-lg flex items-center justify-between gap-3 transition-colors ${
                   rule.disabled
-                    ? "border-[#EBE8E0] opacity-60 bg-[#FAF9F5]"
-                    : "border-[#EBE8E0]"
+                    ? "border-[var(--vellum-border)] opacity-60 bg-[var(--vellum-ground)]"
+                    : "border-[var(--vellum-border)]"
                 }`}
               >
                 {/* Priority Handlers */}
@@ -383,7 +383,7 @@ export function SieveRulesSection({
                     type="button"
                     onClick={() => handleMoveRule(idx, "up")}
                     disabled={isFirst}
-                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] disabled:opacity-20"
+                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] disabled:opacity-20"
                     title="Move up"
                   >
                     <ArrowUp className="w-3.5 h-3.5" />
@@ -392,7 +392,7 @@ export function SieveRulesSection({
                     type="button"
                     onClick={() => handleMoveRule(idx, "down")}
                     disabled={isLast}
-                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[#18181B] disabled:opacity-20"
+                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)] disabled:opacity-20"
                     title="Move down"
                   >
                     <ArrowDown className="w-3.5 h-3.5" />
@@ -404,15 +404,17 @@ export function SieveRulesSection({
 
                 {/* Rule details summary */}
                 <div className="flex-1 min-w-0 flex items-center gap-2 text-xs">
-                  <span className="font-semibold text-[#18181B] uppercase text-xs bg-[#F6F4EE] px-1.5 py-0.5 rounded">
+                  <span className="font-semibold text-[var(--vellum-ink)] uppercase text-xs bg-[var(--vellum-surface-muted)] px-1.5 py-0.5 rounded">
                     {rule.header}
                   </span>
-                  <span className="text-[#52525B]">{rule.match}:</span>
-                  <span className="font-mono text-[#18181B] font-medium truncate max-w-xs">
+                  <span className="text-[var(--vellum-ink-secondary)]">
+                    {rule.match}:
+                  </span>
+                  <span className="font-mono text-[var(--vellum-ink)] font-medium truncate max-w-xs">
                     "{rule.value}"
                   </span>
                   <span className="text-[var(--vellum-ink-secondary)]">➔</span>
-                  <span className="flex items-center gap-1 text-xs font-semibold text-[#2563EB]">
+                  <span className="flex items-center gap-1 text-xs font-semibold text-[var(--brand-primary)]">
                     {rule.action === "fileinto" ? (
                       <>
                         <FolderInput className="w-3.5 h-3.5" />
@@ -420,8 +422,10 @@ export function SieveRulesSection({
                       </>
                     ) : rule.action === "discard" ? (
                       <>
-                        <Ban className="w-3.5 h-3.5 text-[#DC2626]" />
-                        <span className="text-[#DC2626]">Discard</span>
+                        <Ban className="w-3.5 h-3.5 text-[var(--vellum-color-danger)]" />
+                        <span className="text-[var(--vellum-color-danger)]">
+                          Discard
+                        </span>
                       </>
                     ) : (
                       <>
@@ -442,7 +446,7 @@ export function SieveRulesSection({
                     className={`px-2 py-0.5 text-xs font-semibold rounded border transition-colors ${
                       !rule.disabled
                         ? "bg-[var(--vellum-brand-soft)] border-[var(--vellum-brand-border)] text-[var(--brand-primary)]"
-                        : "bg-[#F3F4F6] border-[#E5E7EB] text-[#6B7280]"
+                        : "bg-[var(--vellum-surface-inset)] border-[var(--vellum-border-inset)] text-[var(--vellum-ink-muted)]"
                     }`}
                   >
                     {!rule.disabled ? "ACTIVE" : "DISABLED"}
@@ -450,7 +454,7 @@ export function SieveRulesSection({
                   <button
                     type="button"
                     onClick={() => handleDeleteRule(idx)}
-                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[#DC2626] rounded transition-colors"
+                    className="p-1 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-color-danger)] rounded transition-colors"
                     title="Delete rule"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -468,7 +472,7 @@ export function SieveRulesSection({
           type="button"
           onClick={handleSaveAll}
           disabled={saving}
-          className="px-4 py-2 bg-[var(--brand-primary,#2563eb)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
+          className="px-4 py-2 bg-[var(--brand-primary)] text-white text-xs font-semibold rounded-md shadow-sm hover:brightness-105 active:brightness-95 disabled:opacity-50 transition-all flex items-center gap-1.5"
         >
           <Save className="w-3.5 h-3.5" />
           <span>

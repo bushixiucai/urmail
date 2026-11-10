@@ -238,9 +238,9 @@ export function AiSettingsSection() {
         className="animate-pulse space-y-4"
         aria-busy="true"
       >
-        <div className="h-6 w-1/3 rounded bg-[#EBE8E0]" />
-        <div className="h-4 w-1/2 rounded bg-[#EBE8E0]" />
-        <div className="h-32 w-full rounded-lg bg-[#EBE8E0]" />
+        <div className="h-6 w-1/3 rounded bg-[var(--vellum-border)]" />
+        <div className="h-4 w-1/2 rounded bg-[var(--vellum-border)]" />
+        <div className="h-32 w-full rounded-lg bg-[var(--vellum-border)]" />
       </div>
     );
   }
@@ -248,15 +248,15 @@ export function AiSettingsSection() {
   return (
     <div className="space-y-6" data-testid="ai-settings-section">
       {/* Header */}
-      <div className="border-b border-[#EBE8E0] pb-4 flex items-center justify-between">
+      <div className="border-b border-[var(--vellum-border)] pb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+          <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[var(--brand-primary)]" />
             <span>
               {t("settings.ai.title", "AI Control & Model Configuration")}
             </span>
           </h3>
-          <p className="text-xs text-[#52525B] mt-1">
+          <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
             {t(
               "settings.ai.subtitle",
               "Configure personal BYOK model credentials or review managed AI quota.",
@@ -267,7 +267,7 @@ export function AiSettingsSection() {
           type="button"
           onClick={loadAll}
           disabled={loading || saving}
-          className="p-1.5 rounded text-[#52525B] hover:bg-[#EBE8E0] transition-colors"
+          className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-border)] transition-colors"
           title={t("common.refresh", "Refresh")}
           aria-label={t("common.refresh", "Refresh")}
         >
@@ -279,7 +279,7 @@ export function AiSettingsSection() {
       {error && (
         <div
           role="alert"
-          className="p-3 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] flex items-start gap-2.5 text-xs text-[#991B1B]"
+          className="p-3 rounded-lg border border-[var(--vellum-danger-border-strong)] bg-[var(--vellum-danger-fill-soft)] flex items-start gap-2.5 text-xs text-[var(--vellum-danger-text)]"
         >
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{error}</span>
@@ -289,7 +289,7 @@ export function AiSettingsSection() {
       {success && (
         <div
           role="status"
-          className="p-3 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] flex items-center gap-2.5 text-xs text-[#166534]"
+          className="p-3 rounded-lg border border-[var(--vellum-success-border)] bg-[var(--vellum-success-fill)] flex items-center gap-2.5 text-xs text-[var(--vellum-color-success)]"
         >
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>
@@ -299,12 +299,12 @@ export function AiSettingsSection() {
       )}
 
       {/* Billing Attribution Banner */}
-      <div className="p-3 rounded-lg bg-[#FAF9F5] border border-[#EBE8E0] text-xs space-y-1">
-        <p className="font-semibold text-[#18181B] flex items-center justify-between">
+      <div className="p-3 rounded-lg bg-[var(--vellum-ground)] border border-[var(--vellum-border)] text-xs space-y-1">
+        <p className="font-semibold text-[var(--vellum-ink)] flex items-center justify-between">
           <span>
             {t("page.webmail.ai_service_selection", "Service Selection")}
           </span>
-          <span className="font-normal text-[#52525B]">
+          <span className="font-normal text-[var(--vellum-ink-secondary)]">
             {useCustom
               ? t(
                   "page.webmail.ai_billing_personal",
@@ -316,7 +316,7 @@ export function AiSettingsSection() {
                 )}
           </span>
         </p>
-        <p className="text-[#52525B]">
+        <p className="text-[var(--vellum-ink-secondary)]">
           {useCustom
             ? t(
                 "page.webmail.ai_quota_personal_unlimited",
@@ -330,7 +330,7 @@ export function AiSettingsSection() {
       </div>
 
       {/* BYOK Toggle */}
-      <div className="p-4 rounded-xl border border-[#EBE8E0] bg-[#FFFFFF] space-y-4">
+      <div className="p-4 rounded-xl border border-[var(--vellum-border)] bg-[var(--vellum-surface)] space-y-4">
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -340,16 +340,16 @@ export function AiSettingsSection() {
               setUseCustom(e.target.checked);
               setSuccess(false);
             }}
-            className="h-4 w-4 rounded border-gray-300 text-[var(--brand-primary,#2563eb)] focus:ring-[var(--brand-primary,#2563eb)] accent-[var(--brand-primary,#2563eb)]"
+            className="h-4 w-4 rounded border-gray-300 text-[var(--brand-primary)] focus:ring-[var(--brand-primary)] accent-[var(--brand-primary)]"
           />
           <div>
-            <span className="text-sm font-medium text-[#18181B]">
+            <span className="text-sm font-medium text-[var(--vellum-ink)]">
               {t(
                 "page.webmail.ai_use_custom",
                 "Use Personal AI Configuration (BYOK - Bring Your Own Key)",
               )}
             </span>
-            <p className="text-xs text-[#52525B] mt-0.5">
+            <p className="text-xs text-[var(--vellum-ink-secondary)] mt-0.5">
               {t(
                 "page.webmail.ai_use_custom_desc",
                 "Bring your own AI credentials. Usage is billed to your provider account.",
@@ -360,13 +360,13 @@ export function AiSettingsSection() {
 
         {/* BYOK Configuration Form */}
         {useCustom && (
-          <div className="pt-4 border-t border-[#EBE8E0] space-y-4">
+          <div className="pt-4 border-t border-[var(--vellum-border)] space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               {/* Provider */}
               <div className="space-y-1">
                 <label
                   htmlFor="ai-provider-select"
-                  className="font-medium text-[#18181B]"
+                  className="font-medium text-[var(--vellum-ink)]"
                 >
                   {t("page.webmail.ai_provider_label", "Provider")}
                 </label>
@@ -380,7 +380,7 @@ export function AiSettingsSection() {
                     );
                     setSuccess(false);
                   }}
-                  className="h-9 w-full rounded-md border border-[#EBE8E0] bg-[#FFFFFF] px-3 text-xs text-[#18181B] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
+                  className="h-9 w-full rounded-md border border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-3 text-xs text-[var(--vellum-ink)] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary)]"
                 >
                   <option value="openai">
                     {t(
@@ -402,7 +402,7 @@ export function AiSettingsSection() {
               <div className="space-y-1">
                 <label
                   htmlFor="ai-endpoint-input"
-                  className="font-medium text-[#18181B]"
+                  className="font-medium text-[var(--vellum-ink)]"
                 >
                   {t("page.webmail.ai_endpoint", "API Endpoint")}
                 </label>
@@ -420,29 +420,31 @@ export function AiSettingsSection() {
                     setEndpoint(e.target.value);
                     setSuccess(false);
                   }}
-                  className={`h-9 w-full rounded-md border px-3 text-xs text-[#18181B] bg-[#FFFFFF] focus:outline-hidden focus:ring-1 ${
+                  className={`h-9 w-full rounded-md border px-3 text-xs text-[var(--vellum-ink)] bg-[var(--vellum-surface)] focus:outline-hidden focus:ring-1 ${
                     endpointError
-                      ? "border-[#F87171] focus:ring-[#F87171]"
-                      : "border-[#EBE8E0] focus:ring-[var(--brand-primary,#2563eb)]"
+                      ? "border-[var(--vellum-danger-accent)] focus:ring-[var(--vellum-danger-accent)]"
+                      : "border-[var(--vellum-border)] focus:ring-[var(--brand-primary)]"
                   }`}
                 />
                 {endpointError && (
-                  <p className="text-[11px] text-[#DC2626]">{endpointError}</p>
+                  <p className="text-[11px] text-[var(--vellum-color-danger)]">
+                    {endpointError}
+                  </p>
                 )}
               </div>
 
               {/* API Key (Write-Only Security Contract) */}
               <div className="sm:col-span-2 space-y-1">
-                <label className="font-medium text-[#18181B]">
+                <label className="font-medium text-[var(--vellum-ink)]">
                   {t("page.webmail.ai_api_key", "API Key")}
                 </label>
 
                 {keyConfigured ? (
                   <div
                     data-testid="key-configured-block"
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4]"
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-[var(--vellum-success-border)] bg-[var(--vellum-success-fill)]"
                   >
-                    <div className="flex items-center gap-2 text-xs font-medium text-[#166534]">
+                    <div className="flex items-center gap-2 text-xs font-medium text-[var(--vellum-color-success)]">
                       <CheckCircle2 className="w-4 h-4 text-[var(--vellum-success-text)]" />
                       <span data-testid="badge-key-configured">
                         {t(
@@ -455,7 +457,7 @@ export function AiSettingsSection() {
                       type="button"
                       data-testid="btn-clear-ai-key"
                       onClick={handleClearKey}
-                      className="px-2.5 py-1 text-xs font-semibold rounded text-[#DC2626] hover:bg-[#FEE2E2] transition-colors"
+                      className="px-2.5 py-1 text-xs font-semibold rounded text-[var(--vellum-color-danger)] hover:bg-[var(--vellum-danger-fill)] transition-colors"
                     >
                       {t("settings.ai.clear_key_btn", "Clear Key")}
                     </button>
@@ -473,12 +475,12 @@ export function AiSettingsSection() {
                         setClearApiKey(false);
                         setSuccess(false);
                       }}
-                      className="h-9 w-full rounded-md border border-[#EBE8E0] bg-[#FFFFFF] pl-3 pr-9 font-mono text-xs text-[#18181B] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
+                      className="h-9 w-full rounded-md border border-[var(--vellum-border)] bg-[var(--vellum-surface)] pl-3 pr-9 font-mono text-xs text-[var(--vellum-ink)] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary)]"
                     />
                     <button
                       type="button"
                       onClick={() => setShowKey(!showKey)}
-                      className="absolute right-2.5 top-2 text-[#52525B] hover:text-[#18181B]"
+                      className="absolute right-2.5 top-2 text-[var(--vellum-ink-secondary)] hover:text-[var(--vellum-ink)]"
                       aria-label={showKey ? "Hide key" : "Show key"}
                     >
                       {showKey ? (
@@ -502,7 +504,7 @@ export function AiSettingsSection() {
                             ? "ai-model-select"
                             : "ai-model-input"
                         }
-                        className="font-medium text-[#18181B]"
+                        className="font-medium text-[var(--vellum-ink)]"
                       >
                         {t("page.webmail.ai_model_label", "Model Name")}
                       </label>
@@ -510,7 +512,7 @@ export function AiSettingsSection() {
                         <button
                           type="button"
                           onClick={() => setManualModelInput(!manualModelInput)}
-                          className="text-[11px] text-[var(--brand-primary,#2563eb)] hover:underline"
+                          className="text-[11px] text-[var(--brand-primary)] hover:underline"
                         >
                           {manualModelInput
                             ? t(
@@ -530,7 +532,7 @@ export function AiSettingsSection() {
                           setModel(e.target.value);
                           setSuccess(false);
                         }}
-                        className="h-9 w-full rounded-md border border-[#EBE8E0] bg-[#FFFFFF] px-3 font-mono text-xs text-[#18181B] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
+                        className="h-9 w-full rounded-md border border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-3 font-mono text-xs text-[var(--vellum-ink)] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary)]"
                       >
                         {model && !availableModels.includes(model) && (
                           <option value={model}>{model}</option>
@@ -555,7 +557,7 @@ export function AiSettingsSection() {
                           setModel(e.target.value);
                           setSuccess(false);
                         }}
-                        className="h-9 w-full rounded-md border border-[#EBE8E0] bg-[#FFFFFF] px-3 font-mono text-xs text-[#18181B] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary,#2563eb)]"
+                        className="h-9 w-full rounded-md border border-[var(--vellum-border)] bg-[var(--vellum-surface)] px-3 font-mono text-xs text-[var(--vellum-ink)] focus:outline-hidden focus:ring-1 focus:ring-[var(--brand-primary)]"
                       />
                     )}
                     <datalist id="ai-models-datalist">
@@ -570,9 +572,9 @@ export function AiSettingsSection() {
                     data-testid="btn-test-ai-models"
                     onClick={handleTestConnection}
                     disabled={testing}
-                    className="h-9 px-3 rounded-md bg-[#FAF9F5] border border-[#EBE8E0] hover:bg-[#EBE8E0] text-xs font-medium text-[#18181B] flex items-center gap-1.5 transition-colors disabled:opacity-50 shrink-0"
+                    className="h-9 px-3 rounded-md bg-[var(--vellum-ground)] border border-[var(--vellum-border)] hover:bg-[var(--vellum-border)] text-xs font-medium text-[var(--vellum-ink)] flex items-center gap-1.5 transition-colors disabled:opacity-50 shrink-0"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--brand-primary,#2563eb)]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
                     <span>
                       {testing
                         ? t("settings.ai.testing_connection", "Testing...")
@@ -585,7 +587,9 @@ export function AiSettingsSection() {
                   <p
                     data-testid="test-connection-result"
                     className={`text-xs flex items-center gap-1.5 ${
-                      testResult.ok ? "text-[#166534]" : "text-[#DC2626]"
+                      testResult.ok
+                        ? "text-[var(--vellum-color-success)]"
+                        : "text-[var(--vellum-color-danger)]"
                     }`}
                   >
                     {testResult.ok ? (
@@ -605,56 +609,56 @@ export function AiSettingsSection() {
       {/* Quota & Budget Info Card */}
       <div
         data-testid="ai-budget-container"
-        className="p-4 rounded-xl border border-[#EBE8E0] bg-[#FAF9F5] space-y-3"
+        className="p-4 rounded-xl border border-[var(--vellum-border)] bg-[var(--vellum-ground)] space-y-3"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-[var(--brand-primary,#2563eb)]" />
-            <h4 className="text-xs font-semibold text-[#18181B]">
+            <Zap className="w-4 h-4 text-[var(--brand-primary)]" />
+            <h4 className="text-xs font-semibold text-[var(--vellum-ink)]">
               {t("settings.ai.budget_title", "AI Quota & Budget")}
             </h4>
           </div>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#EBE8E0] text-[#52525B]">
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--vellum-border)] text-[var(--vellum-ink-secondary)]">
             {budget?.cost_currency || "USD"}
           </span>
         </div>
 
         {budget?.entitlement ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-            <div className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#EBE8E0]">
-              <span className="text-[#52525B] block text-[11px]">
+            <div className="p-2.5 rounded-lg bg-[var(--vellum-surface)] border border-[var(--vellum-border)]">
+              <span className="text-[var(--vellum-ink-secondary)] block text-[11px]">
                 {t("page.webmail.ai_quota_status", "Quota Status")}
               </span>
-              <span className="font-semibold text-[#18181B]">
+              <span className="font-semibold text-[var(--vellum-ink)]">
                 {budget.entitlement.available
                   ? t("page.webmail.ai_quota_normal", "Active")
                   : t("page.webmail.ai_quota_exhausted", "Exhausted")}
               </span>
             </div>
 
-            <div className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#EBE8E0]">
-              <span className="text-[#52525B] block text-[11px]">
+            <div className="p-2.5 rounded-lg bg-[var(--vellum-surface)] border border-[var(--vellum-border)]">
+              <span className="text-[var(--vellum-ink-secondary)] block text-[11px]">
                 {t("ai.quota.mailbox_calls", "Mailbox Calls")}
               </span>
-              <span className="font-semibold text-[#18181B]">
+              <span className="font-semibold text-[var(--vellum-ink)]">
                 {budget.entitlement.mailbox_calls_used != null
                   ? `${budget.entitlement.mailbox_calls_used} / ${budget.entitlement.mailbox_call_limit}`
                   : `${budget.entitlement.calls_used} / ${budget.entitlement.call_limit}`}
               </span>
             </div>
 
-            <div className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#EBE8E0] col-span-2 sm:col-span-1">
-              <span className="text-[#52525B] block text-[11px]">
+            <div className="p-2.5 rounded-lg bg-[var(--vellum-surface)] border border-[var(--vellum-border)] col-span-2 sm:col-span-1">
+              <span className="text-[var(--vellum-ink-secondary)] block text-[11px]">
                 {t("ai.quota.concurrency", "Concurrency Limit")}
               </span>
-              <span className="font-semibold text-[#18181B]">
+              <span className="font-semibold text-[var(--vellum-ink)]">
                 {budget.entitlement.concurrent_reserved} /{" "}
                 {budget.entitlement.concurrency_limit}
               </span>
             </div>
           </div>
         ) : (
-          <p className="text-xs text-[#52525B]">
+          <p className="text-xs text-[var(--vellum-ink-secondary)]">
             {t(
               "settings.ai.unconfigured_guide",
               "No personal AI key is configured. System will use enterprise managed service (if authorized).",
@@ -670,7 +674,7 @@ export function AiSettingsSection() {
           data-testid="btn-save-ai-settings"
           onClick={handleSave}
           disabled={saving || Boolean(endpointError)}
-          className="h-9 px-5 bg-[var(--brand-primary,#2563eb)] hover:bg-[#1D4ED8] text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          className="h-9 px-5 bg-[var(--brand-primary)] hover:bg-[var(--vellum-brand-strong)] text-white text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors disabled:opacity-50"
         >
           {saving ? (
             <>

@@ -183,18 +183,18 @@ export function WebmailSettingsDrawer({
       className="fixed inset-0 z-[500] flex justify-end bg-black/40 select-none"
     >
       {/* Drawer Panel: Slide in from right (Desktop 760px, Mobile full) */}
-      <div className="webmail-settings-panel w-full sm:max-w-3xl h-full bg-[#FFFFFF] flex flex-col border-l border-[#EBE8E0] overflow-hidden">
+      <div className="webmail-settings-panel w-full sm:max-w-3xl h-full bg-[var(--vellum-surface)] flex flex-col border-l border-[var(--vellum-border)] overflow-hidden">
         {/* Header */}
-        <div className="h-14 px-6 border-b border-[#EBE8E0] bg-[#FAF9F5] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 font-bold text-base text-[#18181B]">
-            <SettingsIcon className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+        <div className="h-14 px-6 border-b border-[var(--vellum-border)] bg-[var(--vellum-ground)] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 font-bold text-base text-[var(--vellum-ink)]">
+            <SettingsIcon className="w-5 h-5 text-[var(--brand-primary)]" />
             <span>{t("settings.drawer_title", "Mailbox Settings")}</span>
           </div>
           <button
             data-testid="btn-close-settings-drawer"
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[#EBE8E0] hover:text-[#18181B] transition-colors"
+            className="p-1.5 rounded text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-border)] hover:text-[var(--vellum-ink)] transition-colors"
             aria-label={t("webmail_next.close")}
             title={t("webmail_next.close")}
           >
@@ -207,7 +207,7 @@ export function WebmailSettingsDrawer({
           {/* Subnav Rail */}
           <nav
             data-testid="settings-subnav"
-            className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-[#EBE8E0] bg-[#FAF9F5]/70 p-3 flex sm:flex-col gap-1 shrink-0 overflow-x-auto sm:overflow-x-visible"
+            className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-[var(--vellum-border)] bg-[var(--vellum-ground)]/70 p-3 flex sm:flex-col gap-1 shrink-0 overflow-x-auto sm:overflow-x-visible"
           >
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -220,14 +220,14 @@ export function WebmailSettingsDrawer({
                   onClick={() => setActiveTab(item.key)}
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-colors shrink-0 ${
                     isActive
-                      ? "bg-[#EFF6FF] text-[var(--brand-primary,#2563eb)] font-semibold shadow-xs"
-                      : "text-[#3F3F46] hover:bg-[#EBE8E0]/60 hover:text-[#18181B]"
+                      ? "bg-[var(--vellum-brand-soft)] text-[var(--brand-primary)] font-semibold shadow-xs"
+                      : "text-[var(--vellum-ink-strong)] hover:bg-[var(--vellum-border)]/60 hover:text-[var(--vellum-ink)]"
                   }`}
                 >
                   <Icon
                     className={`w-4 h-4 shrink-0 ${
                       isActive
-                        ? "text-[var(--brand-primary,#2563eb)]"
+                        ? "text-[var(--brand-primary)]"
                         : "text-[var(--vellum-ink-secondary)]"
                     }`}
                   />
@@ -240,7 +240,7 @@ export function WebmailSettingsDrawer({
           {/* Active Tab Content Area */}
           <div
             data-testid="settings-tab-content"
-            className="flex-1 p-6 overflow-y-auto bg-[#FFFFFF]"
+            className="flex-1 p-6 overflow-y-auto bg-[var(--vellum-surface)]"
           >
             <Suspense
               fallback={
@@ -249,8 +249,8 @@ export function WebmailSettingsDrawer({
                   aria-busy="true"
                   className="animate-pulse space-y-3"
                 >
-                  <div className="h-4 w-1/3 rounded bg-[#EBE8E0]" />
-                  <div className="h-24 w-full rounded bg-[#EBE8E0]" />
+                  <div className="h-4 w-1/3 rounded bg-[var(--vellum-border)]" />
+                  <div className="h-24 w-full rounded bg-[var(--vellum-border)]" />
                 </div>
               }
             >

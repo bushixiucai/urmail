@@ -148,9 +148,9 @@ export function RemoteImagesSection({
 
   return (
     <div className="space-y-6" data-testid="remote-images-section">
-      <div className="border-b border-[#EBE8E0] pb-4">
-        <h3 className="text-base font-semibold text-[#18181B] flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-[var(--brand-primary,#2563eb)]" />
+      <div className="border-b border-[var(--vellum-border)] pb-4">
+        <h3 className="text-base font-semibold text-[var(--vellum-ink)] flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-[var(--brand-primary)]" />
           <span>{t("settings.privacy.title", "Privacy & Remote Content")}</span>
         </h3>
         <p className="text-xs text-[var(--vellum-ink-secondary)] mt-1">
@@ -164,11 +164,11 @@ export function RemoteImagesSection({
       {/* Privacy Warning Banner */}
       <div
         data-testid="privacy-warning-banner"
-        className="p-4 bg-[#FEF3C7]/40 border border-[#FDE68A] rounded-xl flex items-start gap-3 text-xs text-[#92400E]"
+        className="p-4 bg-[var(--vellum-warning-fill)]/40 border border-[var(--vellum-warning-border)] rounded-xl flex items-start gap-3 text-xs text-[var(--vellum-warning-text)]"
       >
-        <ShieldAlert className="w-5 h-5 text-[#D97706] shrink-0 mt-0.5" />
+        <ShieldAlert className="w-5 h-5 text-[var(--vellum-color-warning)] shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <h4 className="font-semibold text-[#78350F]">
+          <h4 className="font-semibold text-[var(--vellum-warning-text-deep)]">
             {t("settings.privacy.warning_title", "Privacy Advisory")}
           </h4>
           <p className="leading-relaxed">
@@ -181,12 +181,12 @@ export function RemoteImagesSection({
       </div>
 
       {/* Main Switch Card */}
-      <div className="p-4 bg-[#FAF9F5] border border-[#EBE8E0] rounded-xl space-y-3">
+      <div className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div className="flex-1 space-y-1">
             <span
               id="remote-images-switch-label"
-              className="text-sm font-semibold text-[#18181B] block"
+              className="text-sm font-semibold text-[var(--vellum-ink)] block"
             >
               {t(
                 "settings.privacy.remote_images_title",
@@ -216,10 +216,12 @@ export function RemoteImagesSection({
                 handleToggle();
               }
             }}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-[var(--brand-primary,#2563eb)] focus:ring-offset-2 ${
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-[var(--brand-primary)] focus:ring-offset-2 ${
               loading || saving ? "opacity-50 cursor-not-allowed" : ""
             } ${
-              isEnabled ? "bg-[var(--brand-primary,#2563eb)]" : "bg-[#D4D4D8]"
+              isEnabled
+                ? "bg-[var(--brand-primary)]"
+                : "bg-[var(--vellum-border-strong)]"
             }`}
           >
             <span
@@ -234,7 +236,7 @@ export function RemoteImagesSection({
         {saving && (
           <div
             data-testid="privacy-status-saving"
-            className="flex items-center gap-1.5 text-xs text-[#2563EB] pt-1"
+            className="flex items-center gap-1.5 text-xs text-[var(--brand-primary)] pt-1"
           >
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>{t("settings.privacy.saving", "Saving settings...")}</span>
@@ -254,7 +256,7 @@ export function RemoteImagesSection({
         {isConflict && (
           <div
             data-testid="privacy-status-conflict"
-            className="flex items-center gap-1.5 text-xs text-[#DC2626] pt-1"
+            className="flex items-center gap-1.5 text-xs text-[var(--vellum-color-danger)] pt-1"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>{error}</span>
@@ -264,7 +266,7 @@ export function RemoteImagesSection({
         {error && !isConflict && (
           <div
             data-testid="privacy-status-error"
-            className="flex items-center gap-1.5 text-xs text-[#DC2626] pt-1"
+            className="flex items-center gap-1.5 text-xs text-[var(--vellum-color-danger)] pt-1"
           >
             <AlertCircle className="w-3.5 h-3.5" />
             <span>{error}</span>
