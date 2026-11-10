@@ -490,6 +490,7 @@ describe("entry-matrix guards (QA/UIUX static review round 8)", () => {
   const baseProps = {
     folderName: "Inbox",
     activeFolderEnc: "b64.SU5CT1g",
+    isCrossFolder: true,
     messages: rows,
     activeUid: null,
     density: "comfortable" as const,

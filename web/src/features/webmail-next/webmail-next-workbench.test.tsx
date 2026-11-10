@@ -1646,6 +1646,144 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
   });
 
+  it("refuses to fetch details for an unknown-provenance row (fail-closed open)", async () => {
+    // Cross-folder row with NO folder identity: opening it must not fetch
+    // a wrong same-uid message from the browsing box (Backend audit).
+    const unknown = {
+      uid: 201,
+      subject: "Unknown unique",
+      from: [{ name: "S", email: "s@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+    };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown],
+      total: 1,
+      q: "qa",
+    } as never);
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    const row = await screen.findByTestId("mail-row-201");
+    const callsAtClick = vi.mocked(mailboxApi.getMessage).mock.calls.length;
+    fireEvent.click(row);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    // Fail-closed open: no detail fetch for the unknown row (mount-time
+    // auto-open of legit rows is excluded from the comparison).
+    expect(mailboxApi.getMessage.mock.calls.length).toBe(callsAtClick);
+  });
+
+  it("bulk archive drops unknown-provenance rows (zero-write)", async () => {
+    // Unknown rows (cross-folder, no folder identity) can never enter the
+    // folder-scoped selection; bulk archive therefore sends nothing.
+    const unknown = {
+      uid: 201,
+      subject: "Unknown unique",
+      from: [{ name: "S", email: "s@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+    };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown],
+      total: 1,
+      q: "qa",
+    } as never);
+    vi.mocked(mailboxApi.moveMessages).mockClear();
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await screen.findByTestId("mail-row-201");
+    // Unknown row cannot be selected: no bulk bar appears.
+    fireEvent.click(screen.getByTestId("mail-check-201"));
+    expect(screen.queryByTestId("webmail-bulk-bar")).toBeNull();
+    // And a forced select-all must not select the unknown row either.
+    fireEvent.click(screen.getByTestId("select-all-button"));
+    expect(screen.queryByTestId("bulk-selected-label")).toBeNull();
+    expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
+  });
+
+  it("refuses to fetch details for an unknown-provenance row (fail-closed open)", async () => {
+    // Cross-folder row with NO folder identity: opening it must not fetch
+    // a wrong same-uid message from the browsing box (Backend audit).
+    const unknown = {
+      uid: 201,
+      subject: "Unknown unique",
+      from: [{ name: "S", email: "s@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+    };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown],
+      total: 1,
+      q: "qa",
+    } as never);
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    const row = await screen.findByTestId("mail-row-201");
+    fireEvent.click(row);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(mailboxApi.getMessage).not.toHaveBeenCalled();
+  });
+
+  it("bulk write filters stale uids after the selection's row is refreshed away", async () => {
+    // Selection holds INBOX 148; a background refresh swaps the list to
+    // Sent-only and rerenders. Bulk archive must drop the vanished uid —
+    // zero request, never a same-uid write against the Sent copy
+    // (Backend audit).
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [
+        { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
+        { name: "Sent", name_enc: "Sent", delimiter: "/" },
+        {
+          name: "Archive",
+          name_enc: "Archive",
+          delimiter: "/",
+          flags: ["\\\Archive"],
+        },
+        {
+          name: "Trash",
+          name_enc: "Trash",
+          delimiter: "/",
+          flags: ["\\\Trash"],
+        },
+      ] as never,
+    });
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [INBOX_148],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    fireEvent.click(screen.getByTestId("mail-check-148"));
+    // Refresh for real so the list memo updates (INBOX row gone).
+    fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("mail-row-148")).toBeNull(),
+    );
+    const callsAtBulkClick = vi.mocked(mailboxApi.moveMessages).mock.calls
+      .length;
+    vi.mocked(mailboxApi.moveMessages).mockClear();
+    fireEvent.click(await screen.findByTestId("bulk-archive"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
+  });
+
   it("safely ends the query instead of substituting a foreign same-uid row", async () => {
     // Unverified INBOX row (no thread_id) opened from the list; refresh
     // removes it while a verified Sent 148 row remains. No stackOrigin and
