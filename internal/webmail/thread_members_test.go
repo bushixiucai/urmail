@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+func TestThreadMembersMarksMissingAuxiliaryFolderBounded(t *testing.T) {
+	folders := map[string][]memberMessage{
+		"Sent": {{uid: 1, subject: "test", from: "a@example.test", messageID: "<a@x>"}},
+	}
+	client := dialTestClient(t, startMemberIMAPServer(t, folders))
+	result, err := client.GetThreadMembers(context.Background(), "Sent", 1, ThreadMembersOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Scope != "bounded" || result.Total != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 // memberMessage is one message served by the multi-folder fake IMAP server.
 type memberMessage struct {
 	uid        uint32

@@ -85,6 +85,7 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
+			bounded = true
 			continue // a vanished auxiliary folder must not sink the query
 		}
 		uids, err := c.uidSearch(ctx, "")
@@ -92,6 +93,7 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
+			bounded = true
 			continue
 		}
 		if len(uids) > ThreadScanFolderBound {
@@ -103,7 +105,11 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
+			bounded = true
 			continue
+		}
+		if len(sums) != len(uids) {
+			bounded = true
 		}
 		for i := range sums {
 			sums[i].Folder = name
@@ -220,12 +226,13 @@ func (c *imapConn) threadScanFolders(ctx context.Context, anchor string) ([]stri
 	}
 	add("INBOX")
 	folders, err := c.ListFolders(ctx)
-	if err == nil {
-		for _, f := range folders {
-			if hasFlag(f.Flags, `\Sent`) {
-				add(f.Name)
-				break
-			}
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range folders {
+		if hasFlag(f.Flags, `\Sent`) {
+			add(f.Name)
+			break
 		}
 	}
 	return out, nil
