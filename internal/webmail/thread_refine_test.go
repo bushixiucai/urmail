@@ -29,7 +29,7 @@ func TestRefineBudgetIndependentOfPageOrder(t *testing.T) {
 
 func TestListUnverifiedLargeGroupKeepsEveryRow(t *testing.T) {
 	msgs := make([]fakeThreadMessage, maxThreadRefineMessages+1)
-	var ids []string
+	ids := make([]string, 0, len(msgs))
 	for i := range msgs {
 		uid := uint32(i + 1)
 		msgs[i] = fakeThreadMessage{uid: uid, subject: "same", from: "a@example.test", messageID: fmt.Sprintf("<%d@x>", uid)}
