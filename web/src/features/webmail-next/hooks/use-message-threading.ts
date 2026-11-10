@@ -18,6 +18,10 @@ function groupKeyOf(m: MessageSummary, knownFolderEnc?: string): string {
 export function useMessageThreading(
   messages: MessageSummary[],
   knownFolderEnc?: string,
+  /** Cross-folder/search context: a row without folder_enc has UNKNOWN
+   * provenance — it must stay standalone (no grouping by bare thread_id).
+   * Single-box callers keep the legacy "assume browsing box" behavior. */
+  unknownProvenanceIsStandalone = false,
 ) {
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(
     new Set(),
@@ -43,6 +47,15 @@ export function useMessageThreading(
 
     for (const msg of messages) {
       if (!msg) continue;
+      if (
+        unknownProvenanceIsStandalone &&
+        msg.folder_enc == null &&
+        knownFolderEnc == null
+      ) {
+        // Unknown provenance in a mixed context: never group.
+        standalones.push(msg);
+        continue;
+      }
       if (msg.thread_id && msg.thread_count && msg.thread_count > 1) {
         const gk = groupKeyOf(msg, knownFolderEnc);
         const group = threadGroups.get(gk) || [];
@@ -140,7 +153,12 @@ export function useMessageThreading(
     }
 
     return result;
-  }, [messages, knownFolderEnc, expandedThreadIds]);
+  }, [
+    messages,
+    knownFolderEnc,
+    unknownProvenanceIsStandalone,
+    expandedThreadIds,
+  ]);
 
   return {
     items,

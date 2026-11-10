@@ -74,6 +74,9 @@ interface WebmailMessageListProps {
   readingFolderEnc?: string;
   /** Composite cursor identity (folder of the cursor entry). */
   cursorFolderEnc?: string | null;
+  /** True for cross-folder (mixed) search results — rows without
+   * folder_enc there have UNKNOWN provenance (defensive boundary). */
+  isCrossFolder?: boolean;
   messages: MessageSummary[];
   activeUid: number | null;
   cursorUid?: number | null;
@@ -124,6 +127,7 @@ export function WebmailMessageList({
   activeFolderEnc,
   readingFolderEnc,
   cursorFolderEnc,
+  isCrossFolder = false,
   messages,
   activeUid,
   cursorUid = null,
@@ -162,7 +166,8 @@ export function WebmailMessageList({
   const { t } = useTranslation();
   const { items, toggleThreadExpand } = useMessageThreading(
     messages,
-    activeFolderEnc,
+    isCrossFolder ? undefined : activeFolderEnc,
+    isCrossFolder,
   );
   // Cross-folder result sets can carry the same numeric uid from two
   // boxes. Folder-scoped selection/bulk actions must only ever see rows
@@ -210,21 +215,23 @@ export function WebmailMessageList({
       ? candidates.find(
           (item) => (item.folderEnc ?? activeFolderEnc) === folderEnc,
         )
-      : // No captured folder: accept only a SINGLE folder-less row (legacy
-        // single-box). Ambiguous/foreign provenance must NOT open the menu
-        // — a cross-folder result set cannot prove the row's box.
-        candidates.length === 1 && candidates[0].folderEnc == null
+      : // No captured folder: a SINGLE folder-less row is accepted only in
+        // a trusted single-box view. In cross-folder/search context its
+        // provenance is unknown — never infer the browsing box, refuse.
+        candidates.length === 1 &&
+          candidates[0].folderEnc == null &&
+          !isCrossFolder
         ? candidates[0]
         : undefined;
-    if (!target) return;
+    if (!target) {
+      return;
+    }
     setMenuState({
       uid,
-      // Bind the menu to the row's known folder at OPEN time; a legacy
-      // row without folder_enc belongs to the browsing box — capturing it
-      // here lets a later refresh refuse a stale same-uid target instead
-      // of silently falling back to another box's copy (QA stale probe:
-      // refusal requires a bound folder; an unbound menu would instead
-      // open the other box's mail).
+      // Bind the menu to the row's known folder at OPEN time. A legacy
+      // row may borrow the browsing box ONLY in a trusted single-box view;
+      // in search/mixed context its box is unknowable (menu refused above
+      // unless the row itself carried folder_enc).
       folder_enc: target.folderEnc ?? activeFolderEnc,
       x,
       y,

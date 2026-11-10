@@ -1303,6 +1303,93 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(screen.queryAllByTestId(/^thread-card-\d+$/)).toHaveLength(0);
   });
 
+  it("strict fallback also holds with the reversed layout ordering (Sent first)", async () => {
+    // Same-uid pair rendered SENT first; the user reads INBOX. The §8
+    // fallback must select by (readingFolder,uid) — never the first row.
+    vi.mocked(fetchThreadMembers).mockRejectedValue(new Error("members down"));
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [SENT_148, INBOX_148],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const rows = await screen.findAllByTestId("mail-row-148");
+    expect(rows).toHaveLength(2);
+    // The mount-time auto-selection may legitimately open the FIRST row
+    // (Sent in this ordering); clear the log, re-query the row (fresh node)
+    // and click the INBOX copy deliberately.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    vi.mocked(mailboxApi.getMessage).mockClear();
+    const inboxRow = screen
+      .getAllByTestId("mail-row-148")
+      .find(
+        (r) =>
+          r.textContent?.includes("cross-box sample") &&
+          !r.textContent?.includes("Re: cross-box sample"),
+      );
+    fireEvent.click(inboxRow as HTMLElement);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+    expect(mailboxApi.getMessage).not.toHaveBeenCalledWith(
+      "Sent",
+      148,
+      expect.anything(),
+    );
+    expect(screen.queryByTestId("thread-stack")).toBeNull();
+  });
+
+  it("switching the reading box keeps the fallback on the new box only", async () => {
+    vi.mocked(fetchThreadMembers).mockRejectedValue(new Error("members down"));
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [INBOX_148, SENT_148],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const rows = await screen.findAllByTestId("mail-row-148");
+    // Read Sent first, then switch to the INBOX copy.
+    const sentRow = rows.find((r) =>
+      r.textContent?.includes("Re: cross-box sample"),
+    );
+    fireEvent.click(sentRow as HTMLElement);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+    expect(screen.queryByTestId("thread-stack")).toBeNull();
+    const inboxRow = screen
+      .getAllByTestId("mail-row-148")
+      .find(
+        (r) =>
+          r.textContent?.includes("cross-box sample") &&
+          !r.textContent?.includes("Re: cross-box sample"),
+      );
+    fireEvent.click(inboxRow as HTMLElement);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+    // No cross-box fallback stack in either reading state.
+    expect(screen.queryByTestId("thread-stack")).toBeNull();
+  });
+
   it("ends the stale stack when the refreshed row loses its thread_id", async () => {
     // Verified INBOX 148 row auto-selected with a live stack; a refresh
     // then returns the SAME row WITHOUT thread_id (unverified). The gate

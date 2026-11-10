@@ -1785,6 +1785,7 @@ export function WebmailNextWorkbench({
                 folderName={folderDisplayName}
                 activeFolderEnc={activeFolder}
                 readingFolderEnc={readingFolder}
+                isCrossFolder={isCrossFolder}
                 messages={messages}
                 activeUid={selectedUid}
                 isSearchView={searchDraft.trim() !== ""}
