@@ -137,6 +137,9 @@ export function WebmailNextWorkbench({
   // results can hold the same uid from two boxes (QA sequence: j must be
   // able to walk past the first same-uid copy to reach later rows).
   const [cursorFolderEnc, setCursorFolderEnc] = useState<string | null>(null);
+  // Cross-folder row without its own folder identity: unknown provenance.
+  // Never infer the browsing box for it (gate/fallback/members).
+  const [readingUnknown, setReadingUnknown] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [moveNoticeToken, setMoveNoticeToken] = useState(0);
@@ -604,7 +607,13 @@ export function WebmailNextWorkbench({
   // uid can pick the wrong member. Stack callers pass folderEnc.
   const findStackMember = (uid: number, folderEnc?: string) =>
     resolveStackMember(stackMembers, uid, folderEnc, activeFolder);
-  const openMessage = (uid: number, folderEnc?: string, fromStack = false) => {
+  const openMessage = (
+    uid: number,
+    folderEnc?: string,
+    fromStack = false,
+    unknownProvenance = false,
+  ) => {
+    setReadingUnknown(unknownProvenance);
     const member = findStackMember(uid, folderEnc);
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
@@ -1453,6 +1462,10 @@ export function WebmailNextWorkbench({
   // pane stack; count may be < server thread_count until PR-6 lands.
   const threadMembers = useMemo(() => {
     if (selectedUid === null) return [] as MessageSummary[];
+    if (readingUnknown) {
+      // Unknown provenance: no fallback stack at all.
+      return [] as MessageSummary[];
+    }
     // STRICT composite selection: (readingFolder, uid) only; a folder-less
     // row is accepted solely in the single-box case (reading the browsing
     // folder). Substituting another box's same-uid row here would build
@@ -1484,7 +1497,7 @@ export function WebmailNextWorkbench({
       (a, b) =>
         new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
     );
-  }, [messages, selectedUid, readingFolder, activeFolder]);
+  }, [messages, readingUnknown, selectedUid, readingFolder, activeFolder]);
   const threadMemberUids = useMemo(
     () => threadMembers.map((m) => m.uid),
     [threadMembers],
@@ -1567,6 +1580,7 @@ export function WebmailNextWorkbench({
      * returns the row without thread_id (unverified) or removes it safely
      * ENDS the query — no historical list-origin re-fire (QA/PM ruling). */
     enabled: Boolean(
+      !readingUnknown &&
       selectedRow &&
       (selectedRow.thread_id != null ||
         (selectedRowAnchoredByOrigin &&
@@ -1793,8 +1807,8 @@ export function WebmailNextWorkbench({
                 onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
                 cursorFolderEnc={cursorFolderEnc}
-                onSelectMessage={(uid, folderEnc) =>
-                  openMessage(uid, folderEnc, false)
+                onSelectMessage={(uid, folderEnc, unknownProvenance) =>
+                  openMessage(uid, folderEnc, false, unknownProvenance)
                 }
                 totalCount={messageTotal}
                 isLoadingMore={isFetchingNextPage}

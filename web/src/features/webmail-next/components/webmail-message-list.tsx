@@ -39,6 +39,17 @@ import { decodeFolderName } from "../lib/folder-names";
 /** Cross-folder result rows from other boxes are excluded from selection
  * and folder-scoped quick actions so bulk ops can never touch a same-
  * numeric-uid copy in the browsing folder (QA/UIUX review). */
+/** Cross-folder/search row WITHOUT its own folder identity has UNKNOWN
+ * provenance: it must not group, be selected, be written to, or open a
+ * context menu. Only a trusted single-box view may borrow the browsing
+ * box; isCrossFolder rows NEVER infer it (UIUX unified rule). */
+function isUnknownProvenance(
+  item: { folderEnc?: string },
+  isCrossFolder: boolean,
+): boolean {
+  return isCrossFolder && item.folderEnc == null;
+}
+
 function isForeignRow(
   item: { folderEnc?: string },
   activeFolderEnc?: string,
@@ -81,7 +92,11 @@ interface WebmailMessageListProps {
   activeUid: number | null;
   cursorUid?: number | null;
   /** folderEnc disambiguates same-uid rows in cross-folder result sets. */
-  onSelectMessage: (uid: number, folderEnc?: string) => void;
+  onSelectMessage: (
+    uid: number,
+    folderEnc?: string,
+    unknownProvenance?: boolean,
+  ) => void;
   density: DensityMode;
   sort: MailboxSortKey;
   order: "asc" | "desc";
@@ -173,7 +188,9 @@ export function WebmailMessageList({
   // boxes. Folder-scoped selection/bulk actions must only ever see rows
   // of the browsing folder (UIUX ①).
   const selectableItems = items.filter(
-    (item) => !isForeignRow(item, activeFolderEnc),
+    (item) =>
+      !isForeignRow(item, activeFolderEnc) &&
+      !isUnknownProvenance(item, isCrossFolder),
   );
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
     useRangeSelection(selectableItems);
@@ -262,7 +279,11 @@ export function WebmailMessageList({
       // folder-scoped surface, so it may only open for a UNIQUE row of the
       // browsing folder (a same-uid foreign copy must never be targeted).
       const matches = itemsRef.current.filter((it) => it.uid === resolved);
-      if (matches.length !== 1 || isForeignRow(matches[0], activeFolderEnc)) {
+      if (
+        matches.length !== 1 ||
+        isForeignRow(matches[0], activeFolderEnc) ||
+        isUnknownProvenance(matches[0], isCrossFolder)
+      ) {
         event.preventDefault();
         return;
       }
@@ -435,11 +456,19 @@ export function WebmailMessageList({
           (item.folderEnc ?? activeFolderEnc) === cursorFolderEnc)
       }
       density={density}
-      onSelect={() =>
-        rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc)
-      }
+      onSelect={() => {
+        if (isUnknownProvenance(item, isCrossFolder)) {
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc, true);
+        } else {
+          rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
+        }
+      }}
       onToggleCheck={(event) => {
-        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped
         rowActionsRef.current.toggleSelect(
           item.uid,
           event.shiftKey,
@@ -448,7 +477,11 @@ export function WebmailMessageList({
       }}
       onToggleStar={(event) => {
         event.stopPropagation();
-        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped op
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped op
         rowActionsRef.current.onToggleStar?.(item.uid);
       }}
       onToggleThread={(event) => {
@@ -468,16 +501,28 @@ export function WebmailMessageList({
       }}
       onDelete={(event) => {
         event.stopPropagation();
-        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped op
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped op
         rowActionsRef.current.onDeleteMessage?.(item.uid);
       }}
       onToggleRead={(event) => {
         event.stopPropagation();
-        if (isForeignRow(item, activeFolderEnc)) return; // folder-scoped op
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // folder-scoped op
         rowActionsRef.current.onToggleRead?.(item.uid);
       }}
       onContextMenu={(x, y) => {
-        if (isForeignRow(item, activeFolderEnc)) return; // menu actions are folder-scoped
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        )
+          return; // menu actions are folder-scoped
         rowActionsRef.current.openContextMenu(item.uid, x, y, item.folderEnc);
       }}
       onDragStartUids={(fallbackUids) => {

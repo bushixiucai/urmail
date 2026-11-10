@@ -1091,6 +1091,183 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     });
   });
 
+  it("QA mixed unknown rows remain standalone and pointer menu refuses unique and collision", async () => {
+    const unknown = {
+      ...INBOX_148,
+      folder: undefined,
+      folder_enc: undefined,
+      subject: "Unknown collision",
+    };
+    const unique = { ...unknown, uid: 201, subject: "Unknown unique" };
+    const known = { ...SENT_148, subject: "Known collision" };
+    vi.mocked(fetchThreadMembers).mockRejectedValue(new Error("offline"));
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown, unique, known],
+      total: 3,
+      q: "qa",
+    } as never);
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2),
+    );
+    expect(screen.getByTestId("mail-row-201").textContent).not.toContain("(3)");
+    const row = screen
+      .getAllByTestId("mail-row-148")
+      .find((r) => r.textContent?.includes("Unknown collision"))!;
+    expect(row.textContent).not.toContain("(2)");
+    fireEvent.contextMenu(row);
+    expect(screen.queryByTestId("webmail-row-context-menu")).toBeNull();
+    fireEvent.contextMenu(screen.getByTestId("mail-row-201"));
+    expect(screen.queryByTestId("webmail-row-context-menu")).toBeNull();
+    fireEvent.click(row);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.queryByTestId("thread-stack")).toBeNull();
+  });
+
+  it("QA mixed unknown unique row must refuse keyboard context writes", async () => {
+    const unknown = {
+      ...INBOX_148,
+      uid: 201,
+      folder: undefined,
+      folder_enc: undefined,
+      subject: "Unknown unique",
+      thread_id: undefined,
+      thread_count: undefined,
+    };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown],
+      total: 1,
+      q: "qa",
+    } as never);
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    const row = await screen.findByTestId("mail-row-201");
+    fireEvent.click(row);
+    fireEvent.keyDown(window, { key: "ContextMenu" });
+    expect(screen.queryByTestId("webmail-row-context-menu")).toBeNull();
+  });
+
+  it.each(["keyboard", "star", "read", "delete", "checkbox", "all"])(
+    "QA unknown %s action stays zero-write",
+    async (action) => {
+      // QA observed on d2600 that quick actions/selection DID write for an
+      // unknown-provenance row; the unified rule now must keep every entry
+      // inert. Same fixtures as QA's probes, assertions flipped to the
+      // required behavior (zero writes / no selection / no menu).
+      const unknown = {
+        ...INBOX_148,
+        uid: 201,
+        folder: undefined,
+        folder_enc: undefined,
+        subject: "Unknown unique",
+        thread_id: undefined,
+        thread_count: undefined,
+        flags: ["\\Seen"],
+      };
+      vi.mocked(mailboxApi.flagMessages)
+        .mockReset()
+        .mockResolvedValue({ updated: 1 } as never);
+      vi.mocked(mailboxApi.moveMessages)
+        .mockReset()
+        .mockResolvedValue({ moved: 1, to: "Trash" } as never);
+      vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+        messages: [unknown],
+        total: 1,
+        q: "qa",
+      } as never);
+      renderWorkbench();
+      const search = screen.getByTestId("webmail-search-input");
+      fireEvent.change(search, { target: { value: "qa" } });
+      fireEvent.keyDown(search, { key: "Enter" });
+      const row = await screen.findByTestId("mail-row-201");
+      if (action === "keyboard") {
+        fireEvent.click(row);
+        fireEvent.keyDown(window, { key: "ContextMenu" });
+        expect(screen.queryByTestId("webmail-row-context-menu")).toBeNull();
+      } else if (action === "checkbox" || action === "all") {
+        fireEvent.click(
+          screen.getByTestId(
+            action === "all" ? "select-all-button" : "mail-check-201",
+          ),
+        );
+        expect(
+          screen.getByTestId("mail-check-201").getAttribute("aria-pressed"),
+        ).toBe("false");
+      } else {
+        const label =
+          action === "star"
+            ? "webmail_next.not_starred"
+            : action === "read"
+              ? "webmail_next.mark_unread"
+              : "webmail_next.delete";
+        fireEvent.click(
+          row.querySelector(`[aria-label="${label}"]`) as HTMLElement,
+        );
+        // Zero-write for unknown provenance, via either side-effect path.
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 30));
+        });
+        expect(vi.mocked(mailboxApi.flagMessages).mock.calls.length).toBe(0);
+        expect(vi.mocked(mailboxApi.moveMessages).mock.calls.length).toBe(0);
+      }
+    },
+  );
+
+  it("QA legacy in-folder search groups and accepts menu", async () => {
+    const legacy = { ...INBOX_148, folder: undefined, folder_enc: undefined };
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [legacy, { ...legacy, uid: 149 }],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    fireEvent.click(screen.getByTestId("btn-open-advanced-search"));
+    fireEvent.change(screen.getByTestId("search-select-folder"), {
+      target: { value: "INBOX" },
+    });
+    fireEvent.change(screen.getByTestId("search-input-subject"), {
+      target: { value: "sample" },
+    });
+    fireEvent.click(screen.getByTestId("btn-submit-advanced-search"));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(mailboxApi.listMessages)
+          .mock.calls.some((c) => JSON.stringify(c).includes("sample")),
+      ).toBe(true),
+    );
+    const row = await screen.findByTestId("mail-row-148");
+    expect(row.textContent).toContain("(2)");
+    fireEvent.contextMenu(row);
+    expect(screen.getByTestId("webmail-row-context-menu")).toBeTruthy();
+  });
+
+  it("QA legacy single folder rows group and allow context menu", async () => {
+    const legacy = { ...INBOX_148, folder: undefined, folder_enc: undefined };
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [legacy, { ...legacy, uid: 149 }],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-148");
+    expect(row.textContent).toContain("(2)");
+    fireEvent.contextMenu(row);
+    expect(screen.getByTestId("webmail-row-context-menu")).toBeTruthy();
+  });
+
   it("opens the INBOX copy from a list click (no hint prefers browsing folder)", async () => {
     renderWorkbench();
     const row = await screen.findByTestId("mail-row-148");
