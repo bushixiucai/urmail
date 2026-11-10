@@ -619,12 +619,6 @@ export function WebmailNextWorkbench({
     if (unknownProvenance) {
       return;
     }
-    // Fail-closed: an unknown-provenance row (cross-folder, no folder
-    // identity) cannot be safely resolved to any mailbox copy — refuse to
-    // open it instead of fetching a wrong same-uid message (Backend).
-    if (unknownProvenance) {
-      return;
-    }
     const member = findStackMember(uid, folderEnc);
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
@@ -787,17 +781,18 @@ export function WebmailNextWorkbench({
       setReadingFolder(firstKnown.folder_enc || activeFolder);
       // Verified auto-selected rows keep the thread context anchored even
       // if a later refresh removes the row (QA sequence ①); unverified
-      // rows never anchor (gate stays closed).
+      // rows never anchor (gate stays closed). firstKnown fields drive
+      // everything — unknown first rows are skipped above.
       if (firstKnown.thread_id != null) {
         setStackOrigin({
-          uid: messages[0].uid,
-          folder_enc: messages[0].folder_enc || activeFolder,
+          uid: firstKnown.uid,
+          folder_enc: firstKnown.folder_enc || activeFolder,
           fromStack: false,
         });
       } else {
         setStackOrigin(null);
       }
-      setSelectedUid(messages[0].uid);
+      setSelectedUid(firstKnown.uid);
     }
   }, [messages, selectedUid, activeFolder]);
 
@@ -1163,15 +1158,13 @@ export function WebmailNextWorkbench({
     uids?: number[],
   ) => {
     let targets = targetUids(uids);
-    // Stale-selection filter (drag/drop + move end): every uid must still
-    // exist for the browsing folder; vanished/unknown uids are dropped so
-    // a background refresh can never re-enable a folder-scoped write
-    // against a same-uid copy in another box (Backend audit).
     // Stale-selection filter via the shared predicate (drag/drop + move
     // end): vanished/unknown uids are dropped before the request.
     targets = targets.filter((uid) =>
       currentFolderUidAllowed(uid, activeFolder),
     );
+    // Restore original early-exit guards (empty/scheduled/no validity).
+    if (targets.length === 0 || isScheduledView || !listValidity) return;
     const source = activeFolder;
     if (source === folder.name_enc) return;
     if (
