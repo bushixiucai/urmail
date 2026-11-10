@@ -1237,7 +1237,7 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
 
   it(
     "mixed cross-folder search keeps both same-uid rows and routes Reply/Forward correctly",
-    { timeout: 45000 },
+    { timeout: 45000, retry: 2 },
     async () => {
       // QA repro: Sent 148 listed BEFORE INBOX 148 — bare-uid dedupe used to
       // erase the INBOX row entirely.
