@@ -221,7 +221,7 @@ export function WebmailSettingsDrawer({
                   className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-colors shrink-0 ${
                     isActive
                       ? "bg-[var(--vellum-brand-soft)] text-[var(--brand-primary)] font-semibold shadow-xs"
-                      : "text-[var(--vellum-ink-strong)] hover:bg-[var(--vellum-border)]/60 hover:text-[var(--vellum-ink)]"
+                      : "text-[var(--vellum-ink-emphasis)] hover:bg-[var(--vellum-border)]/60 hover:text-[var(--vellum-ink)]"
                   }`}
                 >
                   <Icon

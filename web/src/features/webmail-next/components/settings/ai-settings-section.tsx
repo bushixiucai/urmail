@@ -422,7 +422,7 @@ export function AiSettingsSection() {
                   }}
                   className={`h-9 w-full rounded-md border px-3 text-xs text-[var(--vellum-ink)] bg-[var(--vellum-surface)] focus:outline-hidden focus:ring-1 ${
                     endpointError
-                      ? "border-[var(--vellum-danger-accent)] focus:ring-[var(--vellum-danger-accent)]"
+                      ? "border-[var(--vellum-danger-ring)] focus:ring-[var(--vellum-danger-ring)]"
                       : "border-[var(--vellum-border)] focus:ring-[var(--brand-primary)]"
                   }`}
                 />

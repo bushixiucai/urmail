@@ -197,7 +197,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
             {/* Date Range Fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1">
+                <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("settings.vacation.start_date", "Start Date")}</span>
                 </label>
@@ -211,7 +211,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1">
+                <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                   <span>{t("settings.vacation.end_date", "End Date")}</span>
                 </label>
@@ -227,7 +227,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
 
             {/* Response Subject */}
             <div>
-              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
                 {t("settings.vacation.subject", "Response Subject")}
               </label>
               <input
@@ -245,7 +245,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
 
             {/* Message Body */}
             <div>
-              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
                 {t("settings.vacation.message", "Auto-reply Message")}
               </label>
               <textarea
@@ -263,7 +263,7 @@ export function VacationSection({ onVacationUpdated }: VacationSectionProps) {
 
             {/* Response Frequency (days) */}
             <div>
-              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
                 <span>
                   {t(

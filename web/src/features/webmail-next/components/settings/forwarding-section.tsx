@@ -212,7 +212,7 @@ export function ForwardingSection() {
           >
             {/* Target Address */}
             <div>
-              <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+              <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
                 {t(
                   "settings.forwarding.target_address",
                   "Forward Inbound Mail To",
@@ -240,7 +240,7 @@ export function ForwardingSection() {
               />
               <label
                 htmlFor="keep-copy-checkbox"
-                className="text-xs text-[var(--vellum-ink-strong)] cursor-pointer"
+                className="text-xs text-[var(--vellum-ink-emphasis)] cursor-pointer"
               >
                 <span className="font-semibold">
                   {t(

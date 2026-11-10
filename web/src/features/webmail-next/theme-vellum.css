@@ -1,5 +1,10 @@
 /* web/src/features/webmail-next/theme-vellum.css */
 
+/* 语义后缀词表（role × part，UIUX 2026-11-10 复核口径）：
+   strong=更艳（同 role 内更强的一档）／deep=更深（暗一档的文本色）／
+   muted=仅说明性辅助文字（防消费漂移：muted 不得用于主内容）。
+   后缀只表达同 role 内的档位关系，不引入新 role；新 role 走单点注册。 */
+
 :root {
   /* 方向 A：Classic Vellum & Ink (羊皮纸墨) 基底 */
   --vellum-ground: #faf9f5;
@@ -14,15 +19,15 @@
   --vellum-ink-read: var(--vellum-ink-secondary);
   --vellum-ink-disabled: #d6d3d1;
   --vellum-ink-hover: #27272c;
-  /* settings 目录令牌迁移（A3，v0.6.20）新增：值取自迁移前 settings 硬编码色，
-     命名沿用既有语义后缀；UIUX 复核后可重命名（单点注册，改动仅此文件）。 */
+  /* settings 目录令牌迁移（A3，v0.6.20）新增：值取自迁移前 settings 硬编码色；
+     ink-emphasis/danger-ring 为 UIUX 复核裁定命名（2026-11-10），单点注册。 */
   --vellum-border-strong: #d4d4d8;
   --vellum-border-inset: #e5e7eb;
   --vellum-surface-inset: #f3f4f6;
-  --vellum-ink-strong: #3f3f46;
+  --vellum-ink-emphasis: #3f3f46;
   --vellum-ink-muted: #6b7280;
   --vellum-danger-border-strong: #fca5a5;
-  --vellum-danger-accent: #f87171;
+  --vellum-danger-ring: #f87171;
   --vellum-success-text-strong: #15803d;
   --vellum-warning-fill-soft: #fffbeb;
   --vellum-warning-text-deep: #78350f;

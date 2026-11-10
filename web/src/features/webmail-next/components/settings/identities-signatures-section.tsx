@@ -221,7 +221,7 @@ export function IdentitiesSignaturesSection() {
 
           {/* Identity Address Dropdown */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1 flex items-center gap-1.5">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t("settings.identities.select_identity", "Sending Identity")}
@@ -244,7 +244,7 @@ export function IdentitiesSignaturesSection() {
 
           {/* Display Name */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
               {t("settings.identities.display_name", "Display Name")}
             </label>
             <input
@@ -260,7 +260,7 @@ export function IdentitiesSignaturesSection() {
           {/* Signature Editor */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[var(--vellum-ink-strong)]">
+              <label className="text-xs font-semibold text-[var(--vellum-ink-emphasis)]">
                 {t("settings.identities.signature_editor", "Email Signature")}
               </label>
 
@@ -351,7 +351,7 @@ export function IdentitiesSignaturesSection() {
 
           {/* Live Signature Bottom Preview Box */}
           <div className="p-4 bg-[var(--vellum-ground)] border border-[var(--vellum-border)] rounded-xl space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--vellum-ink-strong)]">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--vellum-ink-emphasis)]">
               <Eye className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />
               <span>
                 {t(
