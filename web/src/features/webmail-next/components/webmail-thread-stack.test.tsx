@@ -94,7 +94,7 @@ describe("WebmailThreadStack", () => {
     const onExpand = vi.fn();
     renderStack({ onExpand });
     fireEvent.click(screen.getByTestId("thread-card-header-201"));
-    expect(onExpand).toHaveBeenCalledWith(201);
+    expect(onExpand).toHaveBeenCalledWith(201, undefined);
   });
 
   it("disables prev at the oldest card and next at the newest", () => {
@@ -133,9 +133,9 @@ describe("WebmailThreadStack", () => {
     const onExpand = vi.fn();
     const { rerender } = renderStack({ expandedUid: 202, onExpand });
     fireEvent.click(screen.getByTestId("thread-prev"));
-    expect(onExpand).toHaveBeenLastCalledWith(201);
+    expect(onExpand).toHaveBeenLastCalledWith(201, undefined);
     fireEvent.click(screen.getByTestId("thread-next"));
-    expect(onExpand).toHaveBeenLastCalledWith(203);
+    expect(onExpand).toHaveBeenLastCalledWith(203, undefined);
 
     rerender(
       <WebmailThreadStack
@@ -227,9 +227,9 @@ describe("§11-5 single-message actions", () => {
     expect(screen.getByTestId("thread-card-delete-203")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("thread-card-star-203"));
-    expect(onToggleStar).toHaveBeenCalledWith(203);
+    expect(onToggleStar).toHaveBeenCalledWith(203, undefined);
     fireEvent.click(screen.getByTestId("thread-card-delete-203"));
-    expect(onDelete).toHaveBeenCalledWith(203);
+    expect(onDelete).toHaveBeenCalledWith(203, undefined);
   });
 
   it("reflects the starred state via fill and aria-pressed", () => {
@@ -257,11 +257,80 @@ describe("§11-5 single-message actions", () => {
         onMarkThreadRead={vi.fn()}
         onArchiveThread={vi.fn()}
         onDeleteThread={vi.fn()}
-        focusUid={202}
+        focusKey=":202"
       />,
     );
     expect(document.activeElement).toBe(
       screen.getByTestId("thread-card-header-202"),
     );
+  });
+});
+
+describe("same-uid cross-box identity (release blocker)", () => {
+  // Numeric uids are per-folder: INBOX 148 and Sent 148 are DIFFERENT
+  // mails that may legally sit in the SAME thread.
+  const dup = [
+    {
+      uid: 148,
+      subject: "cross-box sample",
+      from: [{ name: "Ann", email: "ann@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "Re: cross-box sample",
+      from: [{ name: "Me", email: "me@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as unknown as MessageSummary[];
+
+  it("renders both cards and dispatches expand/star/delete with the right folder", () => {
+    const onExpand = vi.fn();
+    const onToggleStar = vi.fn();
+    const onDelete = vi.fn();
+    renderStack({
+      members: dup,
+      expandedUid: 148,
+      expandedKey: "b64.U2VudA:148",
+      onExpand,
+      onToggleStar,
+      onDelete,
+      sentFolderName: "Sent",
+    });
+    const cards = screen.getAllByTestId(/^thread-card-\d+$/);
+    expect(cards).toHaveLength(2);
+    const headers = screen.getAllByTestId(/^thread-card-header-\d+$/);
+    expect(headers).toHaveLength(2);
+    // Only the Sent member is expanded (composite key wins over uid).
+    expect(
+      headers.filter((h) => h.getAttribute("aria-expanded") === "true"),
+    ).toHaveLength(1);
+    fireEvent.click(headers[0]);
+    expect(onExpand).toHaveBeenLastCalledWith(148, "b64.SU5CT1g");
+    fireEvent.click(headers[1]);
+    expect(onExpand).toHaveBeenLastCalledWith(148, "b64.U2VudA");
+    const star = screen.getAllByTestId(/^thread-card-star-148$/);
+    expect(star).toHaveLength(1);
+    fireEvent.click(star[0]);
+    expect(onToggleStar).toHaveBeenLastCalledWith(148, "b64.U2VudA");
+    fireEvent.click(screen.getByTestId("thread-card-delete-148"));
+    expect(onDelete).toHaveBeenLastCalledWith(148, "b64.U2VudA");
+  });
+
+  it("shows the Sent badge only on the Sent member (§11-4)", () => {
+    renderStack({
+      members: dup,
+      expandedKey: "b64.U2VudA:148",
+      sentFolderName: "Sent",
+    });
+    expect(screen.getAllByTestId(/^thread-card-sent-/).length).toBe(1);
   });
 });

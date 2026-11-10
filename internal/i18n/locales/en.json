@@ -3073,6 +3073,8 @@
     "webmail_next.ai_shorter_summary_title": "One-line summary",
     "webmail_next.ai_no_todos": "No action items detected in email",
     "webmail_next.thread_loaded_count": "Loaded {{loaded}} of {{total}}",
+    "webmail_next.sent_self": "Me",
+    "webmail_next.sent_badge": "Sent",
     "webmail_next.thread_unread_badge": "{{count}} unread",
     "webmail_next.thread_unverified_hint": "Conversation unverified",
     "webmail_next.thread_earlier_count": "{{count}} earlier messages",

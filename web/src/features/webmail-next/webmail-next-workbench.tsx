@@ -15,6 +15,7 @@ import { WebmailShortcutHelp } from "./components/webmail-shortcut-help";
 import { WebmailMoveNotice } from "./components/webmail-move-notice";
 import { useMailboxShortcuts } from "./hooks/use-mailbox-shortcuts";
 import { useThreadMembers } from "./hooks/use-thread-members";
+import { threadMemberKey } from "./lib/thread-members-api";
 import type { ThreadSummaryState } from "./components/webmail-thread-summary-bar";
 import type { SelectionApi } from "./components/webmail-message-list";
 import {
@@ -574,15 +575,23 @@ export function WebmailNextWorkbench({
     setSearchPhase("idle");
   };
 
-  const openMessage = (uid: number) => {
-    // Member-first resolution (DEF-4 follow-up): a stack card may be a
-    // cross-box member (Sent) whose numeric uid also exists in the origin
-    // folder — resolving through the members payload guarantees the
-    // detail is read from the member's own folder.
-    const member = stackMembers.find((m) => m.uid === uid);
-    const message = member ?? messages.find((item) => item.uid === uid);
+  // Exact composite lookup: numeric uids are per-folder and the same
+  // thread may legally contain INBOX 148 AND Sent 148 — resolving only by
+  // uid can pick the wrong member. Stack callers pass folderEnc.
+  const findStackMember = (uid: number, folderEnc?: string) =>
+    stackMembers.find(
+      (m) =>
+        m.uid === uid &&
+        (folderEnc == null || (m.folder_enc ?? activeFolder) === folderEnc),
+    );
+  const openMessage = (uid: number, folderEnc?: string) => {
+    const member = findStackMember(uid, folderEnc);
+    const message =
+      member ?? messages.find((item) => item.uid === uid) ?? undefined;
     setCursorUid(uid);
-    setReadingFolder(member?.folder_enc || message?.folder_enc || activeFolder);
+    setReadingFolder(
+      member?.folder_enc || folderEnc || message?.folder_enc || activeFolder,
+    );
     setSelectedUid(uid);
   };
 
@@ -764,11 +773,11 @@ export function WebmailNextWorkbench({
     if (selectedUid !== null && uids.includes(selectedUid)) refetchDetail();
   };
 
-  const handleToggleStar = async (uid: number) => {
-    // §11-5 stack scope: resolve exclusively within the members payload so
-    // a same-numbered uid in another folder can never be mis-targeted;
+  const handleToggleStar = async (uid: number, folderEncHint?: string) => {
+    // §11-5 stack scope: resolve only by the full (folder, uid) identity
+    // so a same-numbered uid in another folder can never be mis-targeted;
     // cross-box members (Sent) are flagged through their own folder.
-    const member = stackMembers.find((m) => m.uid === uid);
+    const member = findStackMember(uid, folderEncHint);
     if (member) {
       const folderEnc = member.folder_enc ?? activeFolder;
       const isStarred = member.flags.includes("\\Flagged");
@@ -860,12 +869,12 @@ export function WebmailNextWorkbench({
     }
   };
 
-  const handleDeleteMessage = (uid: number) => {
+  const handleDeleteMessage = (uid: number, folderEncHint?: string) => {
     // §11-5 stack scope: a member from another folder (Sent) is trashed
     // through its own folder+uid — the origin-folder move would 404 or,
     // with a same-numbered uid, hit the wrong message.
-    const member = stackMembers.find((m) => m.uid === uid);
-    const folderEnc = member?.folder_enc ?? activeFolder;
+    const member = findStackMember(uid, folderEncHint);
+    const folderEnc = member?.folder_enc ?? folderEncHint ?? activeFolder;
     void (async () => {
       if (folderEnc !== activeFolder) {
         if (isTrashMailbox(folders, folderEnc)) {
@@ -906,8 +915,8 @@ export function WebmailNextWorkbench({
       if (idx >= 0 && stackMembers.length > 1 && selectedUid === uid) {
         const next = stackMembers[idx + 1] ?? stackMembers[idx - 1];
         if (next && next.uid !== uid) {
-          openMessage(next.uid);
-          setThreadFocusUid(next.uid);
+          openMessage(next.uid, next.folder_enc);
+          setThreadFocusKey(threadMemberKey(next));
         }
       }
     })();
@@ -1324,10 +1333,22 @@ export function WebmailNextWorkbench({
   const threadUnreadCount = useApiMembers
     ? threadApi.unreadCount
     : stackMembers.filter((m) => !(m.flags || []).includes("\\Seen")).length;
-  // §11-5 expansion relay focus target (cleared when the thread changes).
-  const [threadFocusUid, setThreadFocusUid] = useState<number | null>(null);
+  // Composite identity of the expanded member (null → uid fallback).
+  const expandedStackMember = stackMembers.find(
+    (m) =>
+      m.uid === selectedUid && (m.folder_enc ?? activeFolder) === readingFolder,
+  );
+  const threadExpandedKey =
+    expandedStackMember?.folder_enc != null
+      ? threadMemberKey(expandedStackMember)
+      : null;
+  const sentFolderName = folders.find((f) => f.flags?.includes("\\Sent"))?.name;
+
+  // §11-5 expansion relay focus target, composite keyed (cleared on
+  // thread changes).
+  const [threadFocusKey, setThreadFocusKey] = useState<string | null>(null);
   useEffect(() => {
-    setThreadFocusUid(null);
+    setThreadFocusKey(null);
   }, [selectedRow?.thread_id, selectedRow?.folder_enc]);
 
   return (
@@ -1608,7 +1629,9 @@ export function WebmailNextWorkbench({
               threadMembers={stackMembers}
               threadTotal={useApiMembers ? threadApi.total : undefined}
               threadUnreadCount={threadUnreadCount}
-              threadFocusUid={threadFocusUid}
+              threadExpandedKey={threadExpandedKey}
+              threadFocusKey={threadFocusKey}
+              threadSentFolderName={sentFolderName}
               threadEarlierCount={useApiMembers ? threadApi.earlierCount : 0}
               threadNewerCount={useApiMembers ? threadApi.newerCount : 0}
               threadSummaryState={
