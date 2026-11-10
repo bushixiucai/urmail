@@ -219,7 +219,7 @@ export function SieveRulesSection({
 
           {/* Condition section */}
           <div className="space-y-2">
-            <span className="text-xs font-semibold text-[var(--vellum-ink-strong)]">
+            <span className="text-xs font-semibold text-[var(--vellum-ink-emphasis)]">
               1.{" "}
               {t(
                 "settings.rules.condition_header",
@@ -290,7 +290,7 @@ export function SieveRulesSection({
 
           {/* Action section */}
           <div className="space-y-2">
-            <span className="text-xs font-semibold text-[var(--vellum-ink-strong)]">
+            <span className="text-xs font-semibold text-[var(--vellum-ink-emphasis)]">
               2. {t("settings.rules.action_header", "Then perform action")}
             </span>
             <div className="flex flex-wrap items-center gap-3">

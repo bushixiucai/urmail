@@ -170,7 +170,7 @@ export function AccountSecuritySection() {
 
           {/* Current Password */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
               {t("settings.security.current_password", "Current Password")}
             </label>
             <div className="relative">
@@ -199,7 +199,7 @@ export function AccountSecuritySection() {
 
           {/* New Password */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
               {t("settings.security.new_password", "New Password")}
             </label>
             <div className="relative">
@@ -263,7 +263,7 @@ export function AccountSecuritySection() {
 
           {/* Confirm Password */}
           <div>
-            <label className="block text-xs font-semibold text-[var(--vellum-ink-strong)] mb-1">
+            <label className="block text-xs font-semibold text-[var(--vellum-ink-emphasis)] mb-1">
               {t("settings.security.confirm_password", "Confirm New Password")}
             </label>
             <input
