@@ -152,6 +152,7 @@ func (d NetDialer) Dial(ctx context.Context, address, password string) (Client, 
 type imapConn struct {
 	authenticationSecrets mailauth.Secrets
 	conn                  net.Conn
+	closed                bool
 	r                     *bufio.Reader
 	tag                   int
 	timeout               time.Duration
@@ -220,7 +221,8 @@ func (c *imapConn) commandCaptureOK(ctx context.Context, verb string, args ...st
 }
 
 // ListFolders runs LIST "" "*" and parses untagged LIST responses.
-func (c *imapConn) ListFolders(ctx context.Context) ([]Folder, error) {
+func (c *imapConn) ListFolders(ctx context.Context) (_ []Folder, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
@@ -248,19 +250,35 @@ func (c *imapConn) ListFolders(ctx context.Context) ([]Folder, error) {
 			return WithEncodedNames(folders), nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("%s", line)
+			return nil, imapCommandRejected(line)
 		}
 	}
 }
 
+// finishIMAPError discards streams interrupted before a tagged completion.
+func (c *imapConn) finishIMAPError(ctx context.Context, err error) {
+	var rejected imapCommandRejected
+	if err != nil && (ctx.Err() != nil || !errors.As(err, &rejected)) {
+		c.discard()
+	}
+}
+
+// discard closes an interrupted command stream without sending another command.
+func (c *imapConn) discard() {
+	if !c.closed && c.conn != nil {
+		_ = c.conn.Close()
+	}
+	c.closed = true
+}
+
 func (c *imapConn) Close() error {
-	if c.conn == nil {
+	if c.closed || c.conn == nil {
 		return nil
 	}
 	_ = c.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 	_, _ = io.WriteString(c.conn, c.nextTag()+" LOGOUT\r\n")
 	err := c.conn.Close()
-	c.conn = nil
+	c.closed = true
 	return err
 }
 

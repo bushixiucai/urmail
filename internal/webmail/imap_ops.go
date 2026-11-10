@@ -3,6 +3,7 @@ package webmail
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/mail"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/mailauth"
 )
+
+// maxServerThreadFolderMessages is a conservative temporary count guard;
+// even smaller folders can contain expensive References headers.
+const maxServerThreadFolderMessages = 300
 
 // ListMessages SELECTs the folder, computes the ordered UID sequence, then
 // FETCHes one cursor-anchored page.
@@ -63,6 +68,11 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 			}
 			ordered, serverSorted = uids, true
 			matched = len(uids)
+		} else if c.closed {
+			if ctx.Err() != nil {
+				return ListResult{}, ctx.Err()
+			}
+			return ListResult{}, sortErr
 		}
 	}
 	if ordered == nil {
@@ -121,6 +131,22 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if len(page) == 0 {
 		return ListResult{UIDValidity: c.selectedUIDValidity, Messages: []MessageSummary{}, Total: total, Sort: opts.SortBy, ServerSorted: serverSorted}, nil
 	}
+	// Establish the risk before fetching the page: if counting fails, a
+	// successful subsequent page FETCH is required before degrading safely.
+	var folderUIDs []uint32
+	var countErr error
+	if opts.Thread {
+		folderUIDs, countErr = c.uidSearch(ctx, "")
+		if ctx.Err() != nil {
+			c.discard()
+			return ListResult{}, ctx.Err()
+		}
+		var rejected imapCommandRejected
+		if countErr != nil && !errors.As(countErr, &rejected) {
+			c.discard()
+			return ListResult{}, countErr
+		}
+	}
 	summaries, err := c.uidFetchSummaries(ctx, page)
 	if err != nil {
 		return ListResult{}, err
@@ -128,7 +154,9 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if opts.Preview {
 		// One batched command downloads the page's snippets; failures only
 		// leave the previews empty (see preview_fetch.go).
-		c.attachPreviews(ctx, summaries)
+		if err := c.attachPreviews(ctx, summaries); err != nil {
+			return ListResult{}, err
+		}
 	}
 
 	threadMode := ""
@@ -136,14 +164,45 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if opts.Thread {
 		threadMode = "client"
 		threadScope = ThreadScopeFolder
-		if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
+		// Count the entire folder, not just a filtered search. This guard
+		// does not bound header byte sizes in smaller folders.
+		if countErr != nil || len(folderUIDs) > maxServerThreadFolderMessages {
+			threadScope = "unverified"
+			for i := range summaries {
+				summaries[i].ThreadVerification = "unverified"
+			}
+		} else if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
+			unverified, err := c.refineSystemThreads(ctx, summaries, roots, counts)
+			if err != nil {
+				return ListResult{}, err
+			}
 			// The THREAD response carries every member of every thread, so the
 			// counts are folder-wide: a thread whose members are spread over
 			// several pages reports the same total on each of them.
 			ApplyThreadsWithCounts(summaries, roots, counts)
 			threadMode = "server"
 			threadScope = ThreadScopeServer
+			for i := range summaries {
+				if unverified[roots[summaries[i].UID]] {
+					summaries[i].ThreadID = 0
+					summaries[i].ThreadCount = 0
+					summaries[i].WeakAggregation = false
+					summaries[i].EarlierCount = 0
+					summaries[i].ThreadVerification = "unverified"
+					threadScope = "unverified"
+				}
+			}
 		} else {
+			var rejected imapCommandRejected
+			if threadErr != nil && !errors.As(threadErr, &rejected) {
+				// A failed read/write leaves the command stream unsynchronized.
+				// Close without LOGOUT and never issue a fallback on this socket.
+				c.discard()
+				if ctx.Err() != nil {
+					return ListResult{}, ctx.Err()
+				}
+				return ListResult{}, threadErr
+			}
 			// Client path: count over a bounded scan of the filtered set so
 			// the counts do not depend on the page that was loaded.
 			set := allSummaries
@@ -234,7 +293,7 @@ func addressesFromHeader(raw string) []Address {
 			if a == nil || a.Address == "" {
 				continue
 			}
-			out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+			out = append(out, Address{Name: decodeMIMEHeader(a.Name), Email: strings.ToLower(a.Address)})
 		}
 		if len(out) > 0 {
 			return out
@@ -253,7 +312,7 @@ func addressesFromHeader(raw string) []Address {
 			continue
 		}
 		if a, err := mail.ParseAddress(frag); err == nil && a.Address != "" {
-			out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+			out = append(out, Address{Name: decodeMIMEHeader(a.Name), Email: strings.ToLower(a.Address)})
 			continue
 		}
 		decoded := strings.TrimSpace(decodeMIMEHeader(frag))
@@ -449,7 +508,8 @@ func (c *imapConn) FolderUIDValidity(ctx context.Context, folder string) (uint32
 	return validity, nil
 }
 
-func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bool) (uint32, error) {
+func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bool) (_ uint32, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -487,12 +547,13 @@ func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bo
 			return validity, nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return 0, fmt.Errorf("%s", strings.TrimSpace(line))
+			return 0, imapCommandRejected(strings.TrimSpace(line))
 		}
 	}
 }
 
-func (c *imapConn) uidSearch(ctx context.Context, criteria string) ([]uint32, error) {
+func (c *imapConn) uidSearch(ctx context.Context, criteria string) (_ []uint32, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
@@ -520,12 +581,13 @@ func (c *imapConn) uidSearch(ctx context.Context, criteria string) ([]uint32, er
 			return parseUIDSearch(lines), nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("%s", line)
+			return nil, imapCommandRejected(line)
 		}
 	}
 }
 
-func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]MessageSummary, error) {
+func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) (_ []MessageSummary, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
@@ -557,7 +619,7 @@ func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]Mess
 			break
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("%s", line)
+			return nil, imapCommandRejected(line)
 		}
 	}
 	out := make([]MessageSummary, 0, len(uids))

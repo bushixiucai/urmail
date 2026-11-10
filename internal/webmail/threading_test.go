@@ -304,6 +304,10 @@ func (m fakeThreadMessage) envelope() string {
 // and UID FETCH for the given messages. When threadResponse is empty the
 // server rejects UID THREAD so that the client threading path runs.
 func startThreadIMAPServer(t *testing.T, msgs []fakeThreadMessage, threadResponse string) string {
+	return startThreadIMAPServerObserved(t, msgs, threadResponse, nil)
+}
+
+func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threadResponse string, threadCalls chan<- struct{}) string {
 	t.Helper()
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -320,6 +324,7 @@ func startThreadIMAPServer(t *testing.T, msgs []fakeThreadMessage, threadRespons
 		r := bufio.NewReader(conn)
 		_, _ = io.WriteString(w, "* OK ready\r\n")
 		_ = w.Flush()
+		searches, fetches := 0, 0
 		for {
 			line, readErr := r.ReadString('\n')
 			if readErr != nil {
@@ -332,18 +337,51 @@ func startThreadIMAPServer(t *testing.T, msgs []fakeThreadMessage, threadRespons
 			tag := fields[0]
 			switch {
 			case strings.Contains(line, "UID THREAD"):
-				if threadResponse == "" {
+				if threadCalls != nil {
+					threadCalls <- struct{}{}
+				}
+				if threadResponse == "__disconnect__" {
+					return
+				}
+				if threadResponse == "__stall__" {
+					_, _ = r.ReadString('\n') // client must close, not send fallback
+					return
+				}
+				switch threadResponse {
+				case "__refine_disconnect__", "__preview_no__":
+					_, _ = io.WriteString(w, "* THREAD (4 3 2)(1)\r\n"+tag+" OK thread done\r\n")
+				case "":
 					_, _ = io.WriteString(w, tag+" NO UID THREAD unsupported\r\n")
-				} else {
+				default:
 					_, _ = io.WriteString(w, "* THREAD "+threadResponse+"\r\n"+tag+" OK thread done\r\n")
 				}
 			case strings.Contains(line, "UID SEARCH"):
+				searches++
+				if (threadResponse == "__count_stall__" && searches == 2) || (threadResponse == "__initial_search_stall__" && searches == 1) {
+					_, _ = r.ReadString('\n')
+					return
+				}
 				parts := make([]string, 0, len(msgs))
 				for _, m := range msgs {
 					parts = append(parts, strconv.FormatUint(uint64(m.uid), 10))
 				}
 				_, _ = io.WriteString(w, "* SEARCH "+strings.Join(parts, " ")+"\r\n"+tag+" OK search done\r\n")
 			case strings.Contains(line, "UID FETCH"):
+				fetches++
+				if threadResponse == "__page_stall__" && fetches == 1 {
+					_, _ = r.ReadString('\n')
+					return
+				}
+				if fetches == 2 && threadResponse == "__preview_disconnect__" {
+					return
+				}
+				if fetches == 2 && threadResponse == "__preview_no__" {
+					_, _ = io.WriteString(w, tag+" NO preview unavailable\r\n")
+					break
+				}
+				if threadResponse == "__refine_disconnect__" && fetches == 2 {
+					return
+				}
 				for _, m := range msgs {
 					_, _ = io.WriteString(w, fmt.Sprintf(
 						"* %d FETCH (UID %d FLAGS (\\Seen) RFC822.SIZE 128 ENVELOPE %s BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 12 1))\r\n",
@@ -351,6 +389,10 @@ func startThreadIMAPServer(t *testing.T, msgs []fakeThreadMessage, threadRespons
 				}
 				_, _ = io.WriteString(w, tag+" OK fetch done\r\n")
 			case strings.Contains(line, "SELECT"):
+				if threadResponse == "__select_stall__" {
+					_, _ = r.ReadString('\n')
+					return
+				}
 				_, _ = io.WriteString(w, "* OK [UIDVALIDITY 7] selected\r\n"+tag+" OK select done\r\n")
 			default:
 				_, _ = io.WriteString(w, tag+" OK\r\n")

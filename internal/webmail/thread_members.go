@@ -2,6 +2,7 @@ package webmail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -76,22 +77,47 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 	}
 	scanFolders, err := c.threadScanFolders(ctx, folder)
 	if err != nil {
+		c.discard()
+		if ctx.Err() != nil {
+			return ThreadMembersResult{}, ctx.Err()
+		}
 		return ThreadMembersResult{}, err
 	}
 	bounded := false
+	// Only tagged failures leave the stream synchronized for another folder.
+	scanError := func(err error) error {
+		if ctx.Err() != nil {
+			c.discard()
+			return ctx.Err()
+		}
+		var rejected imapCommandRejected
+		if !errors.As(err, &rejected) {
+			c.discard()
+			return err
+		}
+		return nil
+	}
 	combined := make([]MessageSummary, 0, 64)
 	for _, name := range scanFolders {
 		if err := c.selectFolder(ctx, name); err != nil {
+			if fatal := scanError(err); fatal != nil {
+				return ThreadMembersResult{}, fatal
+			}
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
+			bounded = true
 			continue // a vanished auxiliary folder must not sink the query
 		}
 		uids, err := c.uidSearch(ctx, "")
 		if err != nil {
+			if fatal := scanError(err); fatal != nil {
+				return ThreadMembersResult{}, fatal
+			}
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
+			bounded = true
 			continue
 		}
 		if len(uids) > ThreadScanFolderBound {
@@ -100,10 +126,17 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 		}
 		sums, err := c.uidFetchSummaries(ctx, uids)
 		if err != nil {
+			if fatal := scanError(err); fatal != nil {
+				return ThreadMembersResult{}, fatal
+			}
 			if name == folder {
 				return ThreadMembersResult{}, err
 			}
+			bounded = true
 			continue
+		}
+		if len(sums) != len(uids) {
+			bounded = true
 		}
 		for i := range sums {
 			sums[i].Folder = name
@@ -115,44 +148,78 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 	if len(combined) == 0 {
 		return ThreadMembersResult{}, ErrThreadMemberNotFound
 	}
+	// Window order first: (date asc, folder, uid) over the real summaries.
+	// The threading pass below runs on synthetic ids, so the member list is
+	// expressed as indexes into this ordered slice.
+	sortThreadMembers(combined)
 
-	threads := BuildThreadsFolderScoped(combined)
-	root, ok := threads[uid]
+	// F-1/DEF-4: UIDs are per-folder namespaces — an INBOX uid 1 and a Sent
+	// uid 1 are different messages, and threading on the raw UID unioned
+	// unrelated threads whose uid numbers happened to collide. Run the
+	// grouping on dense synthetic ids (index+1) over the combined set.
+	synth := make([]MessageSummary, len(combined))
+	for i := range combined {
+		synth[i] = combined[i]
+		synth[i].UID = uint32(i) + 1
+	}
+	threads := BuildThreadsFolderScoped(synth)
+	anchorIdx := -1
+	for i := range combined {
+		if combined[i].Folder == folder && combined[i].UID == uid {
+			anchorIdx = i
+			break
+		}
+	}
+	if anchorIdx < 0 {
+		return ThreadMembersResult{}, ErrThreadMemberNotFound
+	}
+	rootSynth, ok := threads[uint32(anchorIdx)+1]
 	if !ok {
 		return ThreadMembersResult{}, ErrThreadMemberNotFound
 	}
+	rootIdx := int(rootSynth) - 1
 	counts := make(map[uint32]int, 8)
-	for _, m := range combined {
-		counts[threads[m.UID]]++
+	for i := range synth {
+		counts[threads[synth[i].UID]]++
 	}
-	members := make([]MessageSummary, 0, counts[root])
-	for _, m := range combined {
-		if threads[m.UID] == root {
-			members = append(members, m)
+	memberIdxs := make([]int, 0, counts[rootSynth])
+	for i := range synth {
+		if threads[synth[i].UID] == rootSynth {
+			memberIdxs = append(memberIdxs, i)
 		}
 	}
-	sortThreadMembers(members)
-	ApplyThreadsWithCounts(members, threads, counts)
+	// combined is already date-ordered, so memberIdxs is too.
+	total := len(memberIdxs)
+	realThreadID := combined[rootIdx].UID
 
-	total := len(members)
-	start, end, err := threadWindow(members, folder, uid, opts, total)
+	start, end, err := threadWindow(memberIdxs, combined, folder, uid, opts, total)
 	if err != nil {
 		return ThreadMembersResult{}, err
 	}
-	window := members[start:end]
-	if window == nil {
-		window = []MessageSummary{}
+	window := make([]MessageSummary, 0, end-start)
+	for _, idx := range memberIdxs[start:end] {
+		m := combined[idx]
+		// Stamp with the real uid spaces: ThreadID is the root member's uid
+		// (opaque identity for the client), counts mirror the list path
+		// including the weak-aggregation rule.
+		m.ThreadID = realThreadID
+		m.ThreadCount = total
+		if total > WeakAggregationThreshold {
+			m.WeakAggregation = true
+			m.EarlierCount = total - WeakAggregationThreshold
+		}
+		window = append(window, m)
 	}
 
 	unread := 0
-	for _, m := range members {
-		if m.Folder == folder && !hasFlag(m.Flags, `\Seen`) {
+	for _, idx := range memberIdxs {
+		if combined[idx].Folder == folder && !hasFlag(combined[idx].Flags, `\Seen`) {
 			unread++
 		}
 	}
 
 	out := ThreadMembersResult{
-		ThreadID:     root,
+		ThreadID:     realThreadID,
 		Total:        total,
 		UnreadCount:  unread,
 		Scope:        "folder",
@@ -165,7 +232,8 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 		out.Scope = "bounded"
 	}
 	if out.HasMoreOlder {
-		out.Oldest = threadCursor(members[start].Folder, members[start].UID)
+		oldest := combined[memberIdxs[start]]
+		out.Oldest = threadCursor(oldest.Folder, oldest.UID)
 	}
 	return out, nil
 }
@@ -185,12 +253,13 @@ func (c *imapConn) threadScanFolders(ctx context.Context, anchor string) ([]stri
 	}
 	add("INBOX")
 	folders, err := c.ListFolders(ctx)
-	if err == nil {
-		for _, f := range folders {
-			if hasFlag(f.Flags, `\Sent`) {
-				add(f.Name)
-				break
-			}
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range folders {
+		if hasFlag(f.Flags, `\Sent`) {
+			add(f.Name)
+			break
 		}
 	}
 	return out, nil
@@ -219,17 +288,18 @@ func threadSortDate(m MessageSummary) time.Time {
 	return *m.Date
 }
 
-// threadWindow picks the [start,end) slice for the requested window. The
+// threadWindow picks the [start,end) slice over memberIdxs for the
+// requested window; combined supplies the real (folder, uid) lookups. The
 // anchor member itself is located by opts.AnchorUID, so the queried uid is
 // only carried by the callers' member lookup.
-func threadWindow(members []MessageSummary, folder string, _ uint32, opts ThreadMembersOpts, total int) (int, int, error) {
+func threadWindow(memberIdxs []int, combined []MessageSummary, folder string, _ uint32, opts ThreadMembersOpts, total int) (int, int, error) {
 	switch {
 	case opts.Before != "":
 		beforeFolder, beforeUID, err := parseThreadCursor(opts.Before)
 		if err != nil {
 			return 0, 0, ErrInvalidThreadCursor
 		}
-		p := indexOfThreadMember(members, beforeFolder, beforeUID)
+		p := indexOfThreadMemberIdx(memberIdxs, combined, beforeFolder, beforeUID)
 		if p < 0 {
 			return 0, 0, ErrInvalidThreadCursor
 		}
@@ -239,7 +309,7 @@ func threadWindow(members []MessageSummary, folder string, _ uint32, opts Thread
 		}
 		return start, p, nil
 	case opts.AnchorUID != 0:
-		p := indexOfThreadMember(members, folder, opts.AnchorUID)
+		p := indexOfThreadMemberIdx(memberIdxs, combined, folder, opts.AnchorUID)
 		if p < 0 {
 			return 0, 0, ErrThreadMemberNotFound
 		}
@@ -263,10 +333,10 @@ func threadWindow(members []MessageSummary, folder string, _ uint32, opts Thread
 	}
 }
 
-func indexOfThreadMember(members []MessageSummary, folder string, uid uint32) int {
-	for i := range members {
-		if members[i].UID == uid && members[i].Folder == folder {
-			return i
+func indexOfThreadMemberIdx(memberIdxs []int, combined []MessageSummary, folder string, uid uint32) int {
+	for pos, idx := range memberIdxs {
+		if combined[idx].UID == uid && combined[idx].Folder == folder {
+			return pos
 		}
 	}
 	return -1

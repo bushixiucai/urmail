@@ -92,9 +92,14 @@ func (c *Cache) GetLoose(key Key) (Entry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for k, entry := range c.entries {
+		// Every render-relevant dimension must match exactly; uid_validity
+		// is the only tolerated difference (see the method contract). The
+		// M1 buckets (ColorScheme/TextScale) participate too — a loose
+		// match across them served light renders to dark users (QA F-3).
 		if k.MailboxID != key.MailboxID || k.Folder != key.Folder ||
 			k.UID != key.UID || k.LoadImages != key.LoadImages ||
-			k.UAClass != key.UAClass || k.ViewportBucket != key.ViewportBucket {
+			k.UAClass != key.UAClass || k.ViewportBucket != key.ViewportBucket ||
+			k.ColorScheme != key.ColorScheme || k.TextScale != key.TextScale {
 			continue
 		}
 		entry, ok := c.freshLocked(k, entry)

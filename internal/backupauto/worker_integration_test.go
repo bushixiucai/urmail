@@ -38,6 +38,49 @@ func (r fakeRunner) RunBackup(_ context.Context, stamp string) ([]LocalArtifact,
 	return artifacts, ScopeComplete, true, nil
 }
 
+type advancingRunner struct {
+	fakeRunner
+	advance func()
+}
+
+func (r advancingRunner) RunBackup(ctx context.Context, stamp string) ([]LocalArtifact, string, bool, error) {
+	artifacts, scope, consistent, err := r.fakeRunner.RunBackup(ctx, stamp)
+	r.advance()
+	return artifacts, scope, consistent, err
+}
+
+func TestWorkerCrossSecondRecordsOffsiteManifest(t *testing.T) {
+	platform, _ := testdb.OpenMigrated(t)
+	ctx := context.Background()
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC().Truncate(time.Second)
+	current := start
+	worker := &Worker{
+		Pool: platform,
+		Runner: advancingRunner{fakeRunner: fakeRunner{Dir: t.TempDir()}, advance: func() {
+			current = start.Add(2 * time.Second)
+		}},
+		Store: newMemoryStore(), Recipient: identity.Recipient().String(),
+		OffsiteURI: "s3://test-bucket/backups", Now: func() time.Time { return current },
+	}
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var uid, state, manifestName, runError string
+	if err := platform.Pool.QueryRow(ctx, "SELECT run_uid,state,manifest_name,COALESCE(error,'') FROM backup_runs").Scan(&uid, &state, &manifestName, &runError); err != nil {
+		t.Fatal(err)
+	}
+	if state != StateSuccess || manifestName != ManifestName(StampFor(start)) {
+		t.Fatalf("cross-second backup: run_uid=%s state=%s manifest=%q error=%q", uid, state, manifestName, runError)
+	}
+	if worker.offsiteNote != "" {
+		t.Fatalf("cross-second offsite failed: run_uid=%s error=%q", uid, runError)
+	}
+}
+
 func TestBackupRunsStateTransitions(t *testing.T) {
 	platform, _ := testdb.OpenMigrated(t)
 	ctx := context.Background()
@@ -140,15 +183,19 @@ func TestWorkerFullPipelineRecordsSuccess(t *testing.T) {
 	if err := worker.RunOnce(ctx); err != nil {
 		t.Fatalf("full pipeline: %v", err)
 	}
-	var state, manifestName string
-	if err := platform.Pool.QueryRow(ctx, "SELECT state,manifest_name FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&state, &manifestName); err != nil {
+	var state, manifestName, runUID, runError string
+	if err := platform.Pool.QueryRow(ctx, "SELECT run_uid,state,manifest_name,COALESCE(error,'') FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&runUID, &state, &manifestName, &runError); err != nil {
 		t.Fatal(err)
 	}
+	var initialRuns int
+	if err := platform.Pool.QueryRow(ctx, "SELECT count(*) FROM backup_runs").Scan(&initialRuns); err != nil || initialRuns != 1 {
+		t.Fatalf("expected exactly this run; count=%d err=%v", initialRuns, err)
+	}
 	if state != StateSuccess {
-		t.Fatalf("pipeline must record success, got %q", state)
+		t.Fatalf("pipeline must record success, got %q; run_uid=%s error=%q", state, runUID, runError)
 	}
 	if manifestName == "" {
-		t.Fatal("success row must record the manifest name")
+		t.Fatalf("success row must record the manifest name; run_uid=%s error=%q", runUID, runError)
 	}
 
 	// A second immediate run must be suppressed by the interval guard.
