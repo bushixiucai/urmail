@@ -777,11 +777,18 @@ export function WebmailNextWorkbench({
       selectedUid === null &&
       window.innerWidth >= 1024
     ) {
-      setReadingFolder(messages[0].folder_enc || activeFolder);
+      // Auto-select skips unknown-provenance rows (cross-folder without
+      // folder identity): refusing to open avoids a wrong same-uid detail
+      // fetch (PM item 4).
+      const firstKnown = messages.find((m) =>
+        isCrossFolder ? m.folder_enc != null : true,
+      );
+      if (!firstKnown) return;
+      setReadingFolder(firstKnown.folder_enc || activeFolder);
       // Verified auto-selected rows keep the thread context anchored even
       // if a later refresh removes the row (QA sequence ①); unverified
       // rows never anchor (gate stays closed).
-      if (messages[0].thread_id != null) {
+      if (firstKnown.thread_id != null) {
         setStackOrigin({
           uid: messages[0].uid,
           folder_enc: messages[0].folder_enc || activeFolder,
@@ -1153,7 +1160,16 @@ export function WebmailNextWorkbench({
     folder: ContextMenuFolder | { name: string; name_enc: string },
     uids?: number[],
   ) => {
-    const targets = targetUids(uids);
+    let targets = targetUids(uids);
+    // Stale-selection filter (drag/drop + move end): every uid must still
+    // exist for the browsing folder; vanished/unknown uids are dropped so
+    // a background refresh can never re-enable a folder-scoped write
+    // against a same-uid copy in another box (Backend audit).
+    targets = targets.filter((uid) =>
+      messages.some(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+      ),
+    );
     if (targets.length === 0 || isScheduledView || !listValidity) return;
     const source = activeFolder;
     if (source === folder.name_enc) return;
@@ -1512,6 +1528,16 @@ export function WebmailNextWorkbench({
   // derived from CURRENT data (folderless row + cross-folder context).
   const derivedUnknown = useMemo(() => {
     if (selectedUid === null || !isCrossFolder) return false;
+    // A trusted STACK origin (fromStack, folder matches what is being
+    // read) legitimizes the copy even without folder_enc — a folderless
+    // same-uid row must never disable legal stack-only navigation
+    // (Backend contract §1).
+    if (
+      stackOrigin?.fromStack === true &&
+      stackOrigin.uid === selectedUid &&
+      (stackOrigin.folder_enc ?? activeFolder) === readingFolder
+    )
+      return false;
     const row =
       messages.find(
         (m) =>
@@ -1519,7 +1545,14 @@ export function WebmailNextWorkbench({
           (m.folder_enc ?? activeFolder) === readingFolder,
       ) ?? messages.find((m) => m.uid === selectedUid);
     return row != null && row.folder_enc == null;
-  }, [messages, selectedUid, readingFolder, activeFolder, isCrossFolder]);
+  }, [
+    messages,
+    stackOrigin,
+    selectedUid,
+    readingFolder,
+    activeFolder,
+    isCrossFolder,
+  ]);
 
   const threadMembers = useMemo(() => {
     if (selectedUid === null) return [] as MessageSummary[];
