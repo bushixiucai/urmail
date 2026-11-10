@@ -153,6 +153,7 @@ export function useThreadMembers({
       setAnchorMode("latest");
     },
     refetch: () => {
+      if (!canLoad) return; // no manual refetch against a disabled gate
       void refetch();
     },
   };

@@ -1059,22 +1059,52 @@ export function WebmailNextWorkbench({
       const msg = contextRow(uid, folderEnc);
       if (msg) handleForward({ subject: msg.subject } as MessageDetail);
     },
-    onArchive: (uids) =>
+    // Folder-scoped write guards: the menu captured the right-clicked
+    // row's folder at open time; at CLICK time every target must still
+    // resolve exact-or-nothing in the BROWSING folder. A background
+    // refresh that removed the row (leaving another box's same-uid copy)
+    // must turn these into no-ops (Backend audit).
+    onArchive: (uids, folderEnc) => {
+      if (!contextWritesAllowed(uids, folderEnc)) return;
       void handleMoveSpecial(
         "\\Archive",
         "Archive",
         "webmail_next.folder_archive",
         uids,
-      ),
-    onDelete: (uids) =>
+      );
+    },
+    onDelete: (uids, folderEnc) => {
+      if (!contextWritesAllowed(uids, folderEnc)) return;
       void handleMoveSpecial(
         "\\Trash",
         "Trash",
         "webmail_next.folder_trash",
         uids,
-      ),
-    onToggleRead: (uid) => void handleToggleRead(uid),
-    onMoveTo: (uids, folder) => void handleMoveToFolder(folder, uids),
+      );
+    },
+    onToggleRead: (uid, folderEnc) => {
+      if (!contextWritesAllowed([uid], folderEnc)) return;
+      void handleToggleRead(uid);
+    },
+    onMoveTo: (uids, folder, folderEnc) => {
+      if (!contextWritesAllowed(uids, folderEnc)) return;
+      void handleMoveToFolder(folder, uids);
+    },
+  };
+
+  /** Exact-or-nothing validation for folder-scoped menu writes. */
+  const contextWritesAllowed = (uids: number[], folderEnc?: string) => {
+    const enc = folderEnc ?? activeFolder;
+    if (enc !== activeFolder) return false; // bulk paths are folder-scoped
+    return uids.every(
+      (uid) =>
+        messages.some(
+          (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === enc,
+        ) &&
+        !messages.some(
+          (m) => m.uid === uid && (m.folder_enc ?? activeFolder) !== enc,
+        ),
+    );
   };
 
   /** Move UIDs to an arbitrary folder by enc; same pipeline as bulk move. */
@@ -1425,7 +1455,12 @@ export function WebmailNextWorkbench({
     if (selectedUid === null) return [] as MessageSummary[];
     const selected = messages.find((m) => m.uid === selectedUid);
     if (!selected?.thread_id) return selected ? [selected] : [];
-    const siblings = messages.filter((m) => m.thread_id === selected.thread_id);
+    const siblings = messages.filter(
+      (m) =>
+        m.thread_id === selected.thread_id &&
+        (m.folder_enc ?? activeFolder) ===
+          (selected.folder_enc ?? readingFolder),
+    );
     return siblings.sort(
       (a, b) =>
         new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),

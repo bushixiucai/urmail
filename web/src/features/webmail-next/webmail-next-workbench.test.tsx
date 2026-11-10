@@ -1201,6 +1201,75 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(last?.[1]).toBe(148);
   });
 
+  it("refuses stale menu writes when the row vanishes and a same-uid copy remains", async () => {
+    // Open the menu on the INBOX copy, then a BACKGROUND refresh (mock
+    // swap + invalidate) replaces it with the Sent copy only. Archive,
+    // Delete and Read must all become no-ops — never another box's mail.
+    vi.mocked(mailboxApi.moveMessages).mockClear();
+    vi.mocked(mailboxApi.flagMessages).mockClear();
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-148");
+    fireEvent.contextMenu(row);
+    await screen.findByTestId("ctx-archive");
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [SENT_148],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["webmail"] });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("mail-row-148").textContent).toContain(
+        "Re: cross-box sample",
+      ),
+    );
+    fireEvent.click(screen.getByTestId("ctx-archive"));
+    expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
+  });
+
+  it("menu archive writes for the existing row (positive control)", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockClear();
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-148");
+    fireEvent.contextMenu(row);
+    fireEvent.click(await screen.findByTestId("ctx-archive"));
+    await waitFor(() =>
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith(
+        "INBOX",
+        expect.objectContaining({ uids: [148], to: "Archive" }),
+      ),
+    );
+  });
+
+  it("refuses stale menu delete/read after the row vanishes", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockClear();
+    vi.mocked(mailboxApi.flagMessages).mockClear();
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-148");
+    fireEvent.contextMenu(row);
+    await screen.findByTestId("ctx-delete");
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [SENT_148],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["webmail"] });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("mail-row-148").textContent).toContain(
+        "Re: cross-box sample",
+      ),
+    );
+    fireEvent.click(screen.getByTestId("ctx-delete"));
+    expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
+  });
+
   it("ends the stale stack when the refreshed row loses its thread_id", async () => {
     // Verified INBOX 148 row auto-selected with a live stack; a refresh
     // then returns the SAME row WITHOUT thread_id (unverified). The gate
