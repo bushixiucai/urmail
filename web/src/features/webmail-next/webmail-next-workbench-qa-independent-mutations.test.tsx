@@ -84,10 +84,21 @@ describe("automatic INBOX origin on refresh", () => {
       folders: [
         { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
         { name: "Sent", name_enc: "Sent", delimiter: "/" },
-        { name: "Archive", name_enc: "Archive", delimiter: "/", special_use: "\\Archive" },
-        { name: "Trash", name_enc: "Trash", delimiter: "/", special_use: "\\Trash" },
+        {
+          name: "Archive",
+          name_enc: "Archive",
+          delimiter: "/",
+          special_use: "\\Archive",
+        },
+        {
+          name: "Trash",
+          name_enc: "Trash",
+          delimiter: "/",
+          special_use: "\\Trash",
+        },
         { name: "Projects", name_enc: "Projects", delimiter: "/" },
-      ],
+        // QA fixtures carry special_use; MailboxFolder does not type it.
+      ] as never,
     });
     vi.mocked(mailboxApi.moveMessages).mockResolvedValue({} as never);
     vi.mocked(mailboxApi.flagMessages).mockResolvedValue({} as never);
@@ -167,57 +178,128 @@ describe("automatic INBOX origin on refresh", () => {
       ).toContain("INBOX body 148"),
     );
   }
-  it.each(["archive", "delete", "toggle-read", "move"])("stale INBOX %s", async (action) => {
-    const client = setup();
-    await initialSelection();
-    const { thread_id: _i, thread_count: _ic, ...searchInbox } = inbox;
-    const { thread_id: _s, thread_count: _sc, ...searchSent } = sent;
-    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({messages: [searchInbox, searchSent], total: 2, q: "origin"});
-    const input = screen.getByTestId("webmail-search-input");
-    fireEvent.change(input, {target: {value: "origin"}});
-    fireEvent.keyDown(input, {key: "Enter"});
-    await waitFor(() => expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2));
-    const row = screen.getAllByTestId("mail-row-148").find(r => r.textContent?.includes("Inbox origin"));
-    expect(row).toBeTruthy();
-    fireEvent.contextMenu(row!);
-    expect(screen.getByTestId("ctx-archive")).toBeTruthy();
-    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({messages: [searchSent], total: 1, q: "origin"});
-    await act(async () => { await client.invalidateQueries({queryKey: ["webmail"]}); });
-    await waitFor(() => { expect(screen.getAllByTestId("mail-row-148")).toHaveLength(1); expect(screen.getByTestId("mail-row-148").textContent).toContain("Sent same uid"); });
-    const menu = screen.queryByTestId(`ctx-${action}`);
-    console.log("QA sequence", action, "two folder rows -> INBOX context -> refresh Sent only -> menu", !!menu);
-    if (menu) {
-      fireEvent.click(menu);
-      if (action === "move" && screen.queryByTestId("ctx-move-Projects")) fireEvent.click(screen.getByTestId("ctx-move-Projects"));
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
-    }
-    console.log("QA mutations", action, JSON.stringify({move: vi.mocked(mailboxApi.moveMessages).mock.calls, flag: vi.mocked(mailboxApi.flagMessages).mock.calls, create: vi.mocked(mailboxApi.createMailboxFolder).mock.calls, menuClosed: !screen.queryByTestId("ctx-archive")}));
-    expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
-    expect(mailboxApi.flagMessages).not.toHaveBeenCalled();
-    expect(mailboxApi.createMailboxFolder).not.toHaveBeenCalled();
-  });
+  it.each(["archive", "delete", "toggle-read", "move"])(
+    "stale INBOX %s",
+    async (action) => {
+      const client = setup();
+      await initialSelection();
+      const { thread_id: _i, thread_count: _ic, ...searchInbox } = inbox;
+      const { thread_id: _s, thread_count: _sc, ...searchSent } = sent;
+      vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+        messages: [searchInbox, searchSent],
+        total: 2,
+        q: "origin",
+      });
+      const input = screen.getByTestId("webmail-search-input");
+      fireEvent.change(input, { target: { value: "origin" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() =>
+        expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2),
+      );
+      const row = screen
+        .getAllByTestId("mail-row-148")
+        .find((r) => r.textContent?.includes("Inbox origin"));
+      expect(row).toBeTruthy();
+      fireEvent.contextMenu(row!);
+      expect(screen.getByTestId("ctx-archive")).toBeTruthy();
+      vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+        messages: [searchSent],
+        total: 1,
+        q: "origin",
+      });
+      await act(async () => {
+        await client.invalidateQueries({ queryKey: ["webmail"] });
+      });
+      await waitFor(() => {
+        expect(screen.getAllByTestId("mail-row-148")).toHaveLength(1);
+        expect(screen.getByTestId("mail-row-148").textContent).toContain(
+          "Sent same uid",
+        );
+      });
+      const menu = screen.queryByTestId(`ctx-${action}`);
+      console.log(
+        "QA sequence",
+        action,
+        "two folder rows -> INBOX context -> refresh Sent only -> menu",
+        !!menu,
+      );
+      if (menu) {
+        fireEvent.click(menu);
+        if (action === "move" && screen.queryByTestId("ctx-move-Projects"))
+          fireEvent.click(screen.getByTestId("ctx-move-Projects"));
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+      }
+      console.log(
+        "QA mutations",
+        action,
+        JSON.stringify({
+          move: vi.mocked(mailboxApi.moveMessages).mock.calls,
+          flag: vi.mocked(mailboxApi.flagMessages).mock.calls,
+          create: vi.mocked(mailboxApi.createMailboxFolder).mock.calls,
+          menuClosed: !screen.queryByTestId("ctx-archive"),
+        }),
+      );
+      expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
+      expect(mailboxApi.flagMessages).not.toHaveBeenCalled();
+      expect(mailboxApi.createMailboxFolder).not.toHaveBeenCalled();
+    },
+  );
   it("probes disabled gate fallback with compatibility search thread metadata", async () => {
     const client = setup();
     await initialSelection();
-    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({messages: [inbox, sent, sentMember], total: 3, q: "origin"});
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [inbox, sent, sentMember],
+      total: 3,
+      q: "origin",
+    });
     const input = screen.getByTestId("webmail-search-input");
-    fireEvent.change(input, {target: {value: "origin"}});
-    fireEvent.keyDown(input, {key: "Enter"});
-    await waitFor(() => expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2));
-    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({messages: [sent, sentMember], total: 2, q: "origin"});
+    fireEvent.change(input, { target: { value: "origin" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2),
+    );
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [sent, sentMember],
+      total: 2,
+      q: "origin",
+    });
     vi.mocked(fetchThreadMembers).mockClear();
-    await act(async () => { await client.invalidateQueries({queryKey: ["webmail", "messages"]}); });
-    await waitFor(() => expect(screen.getAllByTestId("mail-row-148")).toHaveLength(1));
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
-    console.log("QA fallback", JSON.stringify({calls: vi.mocked(fetchThreadMembers).mock.calls, oldCard149: !!screen.queryByTestId("thread-card-149"), sentCard148: !!screen.queryByTestId("thread-card-148"), sentCard888: !!screen.queryByTestId("thread-card-888")}));
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["webmail", "messages"] });
+    });
+    await waitFor(() =>
+      expect(screen.getAllByTestId("mail-row-148")).toHaveLength(1),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    console.log(
+      "QA fallback",
+      JSON.stringify({
+        calls: vi.mocked(fetchThreadMembers).mock.calls,
+        oldCard149: !!screen.queryByTestId("thread-card-149"),
+        sentCard148: !!screen.queryByTestId("thread-card-148"),
+        sentCard888: !!screen.queryByTestId("thread-card-888"),
+      }),
+    );
     expect(fetchThreadMembers).not.toHaveBeenCalled();
     expect(screen.queryByTestId("thread-card-149")).toBeNull();
     const star = screen.queryByTestId("thread-card-star-148");
     console.log("QA fallback star available", !!star);
     if (star) {
       fireEvent.click(star);
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
-      console.log("QA fallback star requests", JSON.stringify({flag: vi.mocked(mailboxApi.flagMessages).mock.calls, members: vi.mocked(fetchThreadMembers).mock.calls}));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      console.log(
+        "QA fallback star requests",
+        JSON.stringify({
+          flag: vi.mocked(mailboxApi.flagMessages).mock.calls,
+          members: vi.mocked(fetchThreadMembers).mock.calls,
+        }),
+      );
     }
   });
 });
