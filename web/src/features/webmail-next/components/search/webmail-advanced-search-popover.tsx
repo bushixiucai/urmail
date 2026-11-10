@@ -125,6 +125,16 @@ export function WebmailAdvancedSearchPopover({
     <div
       ref={popoverRef}
       data-testid="advanced-search-popover"
+      /* DEF-6: Escape must close the popover even if some other window
+         listener swallows the event before the global hook sees it —
+         handle it at the root too (inputs bubble up here). */
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+          triggerRef?.current?.focus();
+        }
+      }}
       className="absolute right-0 top-full mt-2 w-[420px] bg-[var(--vellum-surface)] border border-[var(--vellum-border)] rounded-xl shadow-2xl z-40 p-5 space-y-4 select-none text-xs"
     >
       <div className="flex items-center justify-between border-b border-[var(--vellum-border)] pb-2">

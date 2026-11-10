@@ -1559,7 +1559,11 @@ export function WebmailNextWorkbench({
               threadEarlierCount={useApiMembers ? threadApi.earlierCount : 0}
               threadNewerCount={useApiMembers ? threadApi.newerCount : 0}
               threadSummaryState={
-                useApiMembers ? threadSummaryState : undefined
+                threadApi.isError
+                  ? "error"
+                  : useApiMembers
+                    ? threadSummaryState
+                    : undefined
               }
               onLoadThreadEarlier={threadApi.loadEarlier}
               onLoadThreadNewer={threadApi.loadNewer}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -108,6 +108,29 @@ export function WebmailThreadStack({
     if (focusUid == null) return;
     headerRefs.current.get(focusUid)?.focus();
   }, [focusUid]);
+
+  // §11-3 scroll anchoring: when older pages are prepended ("加载更早"),
+  // the expanded card's offsetTop grows by the inserted height; shifting
+  // scrollTop by the same delta keeps the reading position visually still
+  // (±3px acceptance). Expanded-card changes are ignored (intended jumps).
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const anchorSnapRef = useRef<{ uid: number | null; top: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    const card =
+      expandedUid != null ? cardRefs.current.get(expandedUid) : undefined;
+    const snap = anchorSnapRef.current;
+    if (scroller && card && snap && snap.uid === expandedUid) {
+      const delta = card.offsetTop - snap.top;
+      if (delta > 0) scroller.scrollTop += delta;
+    }
+    anchorSnapRef.current =
+      card && expandedUid != null
+        ? { uid: expandedUid, top: card.offsetTop }
+        : null;
+  }, [members, expandedUid]);
 
   const goPrev = () => {
     if (expandedIndex <= 0) return;
@@ -252,7 +275,11 @@ export function WebmailThreadStack({
       </div>
 
       {/* Card stack */}
-      <div className="flex-1 overflow-y-auto bg-[var(--vellum-ground)] px-3 sm:px-6 py-3 sm:py-4">
+      <div
+        ref={scrollRef}
+        data-testid="thread-stack-scroll"
+        className="flex-1 overflow-y-auto bg-[var(--vellum-ground)] px-3 sm:px-6 py-3 sm:py-4"
+      >
         <div className="relative max-w-[720px] mx-auto space-y-2">
           {/* Timeline (decorative) */}
           <div

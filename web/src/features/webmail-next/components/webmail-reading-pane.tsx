@@ -226,24 +226,33 @@ function SanitizedHtmlFrame({
     );
   }
   return (
-    <iframe
-      ref={frameRef}
-      data-testid="mail-html-frame"
-      title={title}
-      // allow-same-origin (alone, never with allow-scripts) so the parent
-      // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
-      // the document inert, preserving the XSS defense line.
-      sandbox="allow-same-origin"
-      referrerPolicy="no-referrer"
-      className="w-full rounded border-0 bg-transparent"
-      style={{
-        height: frameHeight,
-        minHeight: FRAME_MIN_HEIGHT,
-        transition: "height 160ms ease-out",
-      }}
-      onLoad={handleLoad}
-      srcDoc={html}
-    />
+    /* §11-6 mail-body-bucket: every HTML body renders on a defined white
+       surface so mail-native dark backgrounds stay inside the bucket and
+       never bleed onto the card (vellum) — plain-text path has no bucket. */
+    <div
+      data-testid="mail-body-bucket"
+      data-mail-body-bucket="true"
+      className="rounded-lg bg-white p-3 sm:p-4 max-w-full"
+    >
+      <iframe
+        ref={frameRef}
+        data-testid="mail-html-frame"
+        title={title}
+        // allow-same-origin (alone, never with allow-scripts) so the parent
+        // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
+        // the document inert, preserving the XSS defense line.
+        sandbox="allow-same-origin"
+        referrerPolicy="no-referrer"
+        className="w-full rounded border-0 bg-transparent"
+        style={{
+          height: frameHeight,
+          minHeight: FRAME_MIN_HEIGHT,
+          transition: "height 160ms ease-out",
+        }}
+        onLoad={handleLoad}
+        srcDoc={html}
+      />
+    </div>
   );
 }
 
