@@ -2,8 +2,44 @@ package webmail
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 )
+
+func TestListUnverifiedLargeGroupKeepsEveryRow(t *testing.T) {
+	msgs := make([]fakeThreadMessage, maxThreadRefineMessages+1)
+	var ids []string
+	for i := range msgs {
+		uid := uint32(i + 1)
+		msgs[i] = fakeThreadMessage{uid: uid, subject: "same", from: "a@example.test", messageID: fmt.Sprintf("<%d@x>", uid)}
+		ids = append(ids, fmt.Sprint(uid))
+	}
+	client := dialTestClient(t, startThreadIMAPServer(t, msgs, "("+strings.Join(ids, " ")+")"))
+	var cursor uint32
+	seen := make(map[uint32]bool)
+	for i := 0; i < 3; i++ {
+		result, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 2, Thread: true, CursorUID: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Messages) != 2 || result.ThreadScope != "unverified" {
+			t.Fatalf("page: %+v", result)
+		}
+		for _, m := range result.Messages {
+			if seen[m.UID] || m.ThreadID != 0 || m.ThreadCount != 0 || m.ThreadVerification != "unverified" {
+				t.Fatalf("bad row: %+v", m)
+			}
+			seen[m.UID] = true
+			encoded, err := json.Marshal(m)
+			if err != nil || strings.Contains(string(encoded), `"thread_id"`) || strings.Contains(string(encoded), `"thread_count"`) {
+				t.Fatalf("bad wire row %s: %v", encoded, err)
+			}
+		}
+		cursor = result.NextCursor
+	}
+}
 
 func TestListRefinesSystemThreadsAcrossPages(t *testing.T) {
 	msgs := []fakeThreadMessage{

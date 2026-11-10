@@ -2,27 +2,45 @@ package webmail
 
 import (
 	"context"
-	"fmt"
 	"sort"
 )
 
-// maxThreadRefineMessages bounds the additional headers fetched per list call.
-// An oversized or incomplete group fails the request rather than returning
-// server counts as though they had been checked.
+// maxThreadRefineMessages bounds the number of summaries checked per request.
+// Allocation is based on the complete server thread map, not the current page.
 const maxThreadRefineMessages = 2000
 
 // refineSystemThreads checks complete server groups represented on this page.
-// Every page containing a group fetches the same full group, so the split and
-// its counts do not depend on which page contains a system sender.
-func (c *imapConn) refineSystemThreads(ctx context.Context, page []MessageSummary, roots map[uint32]uint32, counts map[uint32]int) error {
+// Groups outside a stable global budget, or whose FETCH fails, are returned
+// separately as unverified. A later successful request may verify them.
+func (c *imapConn) refineSystemThreads(ctx context.Context, page []MessageSummary, roots map[uint32]uint32, counts map[uint32]int) (map[uint32]bool, error) {
+	groupRoots := make([]uint32, 0, len(counts))
+	for root, count := range counts {
+		if count > 1 {
+			groupRoots = append(groupRoots, root)
+		}
+	}
+	sort.Slice(groupRoots, func(i, j int) bool { return groupRoots[i] < groupRoots[j] })
+	eligible := make(map[uint32]bool)
+	remaining := maxThreadRefineMessages
+	for _, root := range groupRoots {
+		if counts[root] <= remaining {
+			eligible[root] = true
+			remaining -= counts[root]
+		}
+	}
 	selected := make(map[uint32]bool)
+	unverified := make(map[uint32]bool)
 	for _, m := range page {
 		if root, ok := roots[m.UID]; ok && counts[root] > 1 {
-			selected[root] = true
+			if eligible[root] {
+				selected[root] = true
+			} else {
+				unverified[root] = true
+			}
 		}
 	}
 	if len(selected) == 0 {
-		return nil
+		return unverified, nil
 	}
 	var uids []uint32
 	for uid, root := range roots {
@@ -30,16 +48,16 @@ func (c *imapConn) refineSystemThreads(ctx context.Context, page []MessageSummar
 			uids = append(uids, uid)
 		}
 	}
-	if len(uids) > maxThreadRefineMessages {
-		return fmt.Errorf("thread verification exceeds %d messages", maxThreadRefineMessages)
-	}
 	sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
 	summaries, err := c.uidFetchSummaries(ctx, uids)
-	if err != nil {
-		return fmt.Errorf("thread verification: %w", err)
-	}
-	if len(summaries) != len(uids) {
-		return fmt.Errorf("thread verification: incomplete summaries")
+	if err != nil || len(summaries) != len(uids) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		for root := range selected {
+			unverified[root] = true
+		}
+		return unverified, nil
 	}
 	groups := make(map[uint32][]MessageSummary)
 	for _, m := range summaries {
@@ -68,5 +86,5 @@ func (c *imapConn) refineSystemThreads(ctx context.Context, page []MessageSummar
 			counts[newRoot]++
 		}
 	}
-	return nil
+	return unverified, nil
 }

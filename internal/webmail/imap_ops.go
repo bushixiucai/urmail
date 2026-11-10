@@ -137,7 +137,8 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		threadMode = "client"
 		threadScope = ThreadScopeFolder
 		if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
-			if err := c.refineSystemThreads(ctx, summaries, roots, counts); err != nil {
+			unverified, err := c.refineSystemThreads(ctx, summaries, roots, counts)
+			if err != nil {
 				return ListResult{}, err
 			}
 			// The THREAD response carries every member of every thread, so the
@@ -146,6 +147,16 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 			ApplyThreadsWithCounts(summaries, roots, counts)
 			threadMode = "server"
 			threadScope = ThreadScopeServer
+			for i := range summaries {
+				if unverified[roots[summaries[i].UID]] {
+					summaries[i].ThreadID = 0
+					summaries[i].ThreadCount = 0
+					summaries[i].WeakAggregation = false
+					summaries[i].EarlierCount = 0
+					summaries[i].ThreadVerification = "unverified"
+					threadScope = "unverified"
+				}
+			}
 		} else {
 			// Client path: count over a bounded scan of the filtered set so
 			// the counts do not depend on the page that was loaded.
