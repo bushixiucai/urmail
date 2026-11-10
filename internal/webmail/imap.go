@@ -210,8 +210,22 @@ func (c *imapConn) commandCaptureOK(ctx context.Context, verb string, args ...st
 	var copyUID string
 	conflictingCopyUID := false
 	captureCopyUID := func(text string) {
-		const prefix = "[COPYUID "
-		if len(text) < len(prefix) || !strings.EqualFold(text[:len(prefix)], prefix) {
+		const keyword = "[COPYUID"
+		const prefix = keyword + " "
+		if len(text) < len(keyword) || !strings.EqualFold(text[:len(keyword)], keyword) {
+			return
+		}
+		if len(text) == len(keyword) {
+			conflictingCopyUID = true
+			return
+		}
+		next := text[len(keyword)]
+		if next != ' ' {
+			// An atom character continues a different code name, such as COPYUIDX.
+			// A non-atom delimiter makes this an apparent but malformed COPYUID.
+			if next <= 0x20 || next >= 0x7f || strings.ContainsRune("(){%*\\\"]", rune(next)) {
+				conflictingCopyUID = true
+			}
 			return
 		}
 		end := strings.IndexByte(text, ']')

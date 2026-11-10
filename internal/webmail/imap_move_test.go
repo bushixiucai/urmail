@@ -45,6 +45,9 @@ func startUIDPlusMoveServer(t *testing.T, moveSuffix string) (addr string, cmds 
 			if strings.Contains(line, "UID MOVE") {
 				if strings.HasPrefix(moveSuffix, "* ") {
 					switch {
+					case strings.Contains(moveSuffix, "__TAGGED__"):
+						parts := strings.SplitN(moveSuffix, "__TAGGED__", 2)
+						_, _ = io.WriteString(w, parts[0]+"\r\n"+tag+" OK "+parts[1]+"\r\n")
 					case strings.HasSuffix(moveSuffix, "__REJECT__"):
 						_, _ = io.WriteString(w, strings.TrimSuffix(moveSuffix, "__REJECT__")+"\r\n"+tag+" NO Move rejected\r\n")
 					case strings.HasSuffix(moveSuffix, "__OKAY__"):
@@ -129,6 +132,38 @@ func TestMoveMessagesConflictingCOPYUIDDoesNotOfferUndo(t *testing.T) {
 	destinations, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
 	if err != nil || destinations.DestinationUIDs != nil || destinations.DestinationUIDValidity != 0 {
 		t.Fatalf("conflicting mapping must not offer undo: destinations=%v error=%v", destinations, err)
+	}
+}
+
+func TestMoveMessagesMalformedConflictingCOPYUIDOmitsUndo(t *testing.T) {
+	for _, response := range []string{
+		"* OK [COPYUID 42 5 11] Moved__TAGGED__[COPYUID\t42 5 12] Moved",
+		"* OK [COPYUID\t42 5 12] Moved__TAGGED__[COPYUID 42 5 11] Moved",
+		"* OK [COPYUID] Moved__TAGGED__[COPYUID 42 5 11] Moved",
+		"* OK [COPYUID 42 5 11] Moved__TAGGED__[COPYUID(42 5 12)] Moved",
+		"* OK [COPYUID(42 5 12)] Moved__TAGGED__[COPYUID 42 5 11] Moved",
+	} {
+		t.Run(response, func(t *testing.T) {
+			addr, _ := startUIDPlusMoveServer(t, response)
+			client := dialTestClient(t, addr)
+			result, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+			if err != nil || result.DestinationUIDs != nil || result.DestinationUIDValidity != 0 {
+				t.Fatalf("malformed mapping must omit undo: result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestMoveMessagesUnrelatedResponseDoesNotSuppressCOPYUID(t *testing.T) {
+	for _, tagged := range []string{"Notice [COPYUID\t42 5 12]", "[COPYUIDX 42 5 12] Notice"} {
+		t.Run(tagged, func(t *testing.T) {
+			addr, _ := startUIDPlusMoveServer(t, "* OK [COPYUID 42 5 11] Moved__TAGGED__"+tagged)
+			client := dialTestClient(t, addr)
+			result, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+			if err != nil || result.DestinationUIDValidity != 42 || len(result.DestinationUIDs) != 1 || result.DestinationUIDs[0] != 11 {
+				t.Fatalf("unrelated text suppressed mapping: result=%+v err=%v", result, err)
+			}
+		})
 	}
 }
 
