@@ -1221,11 +1221,14 @@ export function WebmailNextWorkbench({
       selectedRow?.folder_enc ?? (selectedRow ? activeFolder : null),
     originUid: selectedRow?.thread_id ?? null,
     anchorUid: selectedRow?.uid ?? null,
-    enabled: Boolean(
-      selectedRow &&
-      selectedRow.thread_id &&
-      (selectedRow.thread_count ?? 0) > 1,
-    ),
+    /* DEF-4 (Tiger decision 2): entry gates on thread_id presence only.
+       Cross-box conversations keep thread_count=1 in the list (subject
+       fallback is in-folder only), so the old count>1 condition never
+       fired the members API and Sent members were unreachable. The
+       members endpoint (3-folder scan) returns the real total; a
+       single-member thread yields total=1 and the downstream single-pane
+       path stays intact (contract §4/§8). */
+    enabled: Boolean(selectedRow && selectedRow.thread_id),
   });
   const useApiMembers = !threadApi.isError && threadApi.members.length > 0;
   const stackMembers: MessageSummary[] = useApiMembers
