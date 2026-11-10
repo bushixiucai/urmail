@@ -760,7 +760,11 @@ export function WebmailNextWorkbench({
   };
 
   const handleToggleStar = async (uid: number) => {
-    const msg = messages.find((m: MessageSummary) => m.uid === uid);
+    // §11-5: stack cards may hold cross-box members (Sent) that are not in
+    // the loaded list pages — fall back to the thread members payload.
+    const msg =
+      messages.find((m: MessageSummary) => m.uid === uid) ??
+      stackMembers.find((m) => m.uid === uid);
     if (!msg) return;
     const isStarred = msg.flags.includes("\\Flagged");
     await flagUids(
@@ -768,6 +772,9 @@ export function WebmailNextWorkbench({
       isStarred ? [] : ["\\Flagged"],
       isStarred ? ["\\Flagged"] : [],
     );
+    if (!messages.some((m: MessageSummary) => m.uid === uid)) {
+      threadApi.refetch();
+    }
   };
 
   const handleToggleRead = async (uid: number) => {
@@ -839,6 +846,18 @@ export function WebmailNextWorkbench({
     void handleMoveSpecial("\\Trash", "Trash", "webmail_next.folder_trash", [
       uid,
     ]);
+    // §11-5 expansion relay: deleting a stack card expands the next newer
+    // member (else the previous one) and moves focus to its header.
+    const idx = stackMembers.findIndex((m) => m.uid === uid);
+    if (idx >= 0 && stackMembers.length > 1 && selectedUid === uid) {
+      const next = stackMembers[idx + 1] ?? stackMembers[idx - 1];
+      if (next && next.uid !== uid) {
+        openMessage(next.uid);
+        setThreadFocusUid(next.uid);
+      }
+    }
+    // The moved member must leave the stack payload (§11-5 checklist).
+    threadApi.refetch();
   };
 
   // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
@@ -1248,6 +1267,15 @@ export function WebmailNextWorkbench({
       : !threadApi.hasMoreOlder
         ? "done"
         : "idle";
+  // §11-1 unread badge: server count when available, loaded members otherwise.
+  const threadUnreadCount = useApiMembers
+    ? threadApi.unreadCount
+    : stackMembers.filter((m) => !(m.flags || []).includes("\\Seen")).length;
+  // §11-5 expansion relay focus target (cleared when the thread changes).
+  const [threadFocusUid, setThreadFocusUid] = useState<number | null>(null);
+  useEffect(() => {
+    setThreadFocusUid(null);
+  }, [selectedRow?.thread_id, selectedRow?.folder_enc]);
 
   return (
     <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[var(--vellum-ground)] text-[var(--vellum-ink)] overflow-hidden">
@@ -1526,6 +1554,8 @@ export function WebmailNextWorkbench({
               isManualRemoteImagesAllowed={isCurrentManualGranted}
               threadMembers={stackMembers}
               threadTotal={useApiMembers ? threadApi.total : undefined}
+              threadUnreadCount={threadUnreadCount}
+              threadFocusUid={threadFocusUid}
               threadEarlierCount={useApiMembers ? threadApi.earlierCount : 0}
               threadNewerCount={useApiMembers ? threadApi.newerCount : 0}
               threadSummaryState={

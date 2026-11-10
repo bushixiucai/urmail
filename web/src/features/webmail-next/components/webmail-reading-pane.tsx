@@ -54,6 +54,10 @@ interface WebmailReadingPaneProps {
   threadMembers?: MessageSummary[];
   /** Contract total for the stack count label (cross-box, all pages). */
   threadTotal?: number;
+  /** Origin-folder unread count for the subject-bar badge (§11-1). */
+  threadUnreadCount?: number;
+  /** §11-5 expansion relay: focus this card's header after deletion. */
+  threadFocusUid?: number | null;
   /** total - loaded - newer; drives the giant-thread summary bar. */
   threadEarlierCount?: number;
   /** Unloaded newer members (deep anchor); renders the bottom entry. */
@@ -251,6 +255,8 @@ export function WebmailReadingPane({
   isManualRemoteImagesAllowed = false,
   threadMembers,
   threadTotal,
+  threadUnreadCount,
+  threadFocusUid,
   threadEarlierCount,
   threadNewerCount,
   threadSummaryState,
@@ -867,6 +873,8 @@ export function WebmailReadingPane({
         <WebmailThreadStack
           members={threadMembers}
           totalOverride={threadTotal}
+          unreadCount={threadUnreadCount}
+          focusUid={threadFocusUid}
           expandedUid={message.uid}
           expandedDetail={message}
           isDetailLoading={isLoading}
@@ -875,6 +883,8 @@ export function WebmailReadingPane({
           onReply={(msg) => onReply?.(msg)}
           onReplyAll={(msg) => onReplyAll?.(msg)}
           onForward={(msg) => onForward?.(msg)}
+          onToggleStar={(uid) => onToggleStar?.(uid)}
+          onDelete={(uid) => onDelete?.(uid)}
           onMarkThreadRead={() => onMarkThreadRead?.()}
           onArchiveThread={() => onArchiveThread?.()}
           onDeleteThread={() => onDeleteThread?.()}
