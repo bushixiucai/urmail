@@ -304,6 +304,10 @@ func (m fakeThreadMessage) envelope() string {
 // and UID FETCH for the given messages. When threadResponse is empty the
 // server rejects UID THREAD so that the client threading path runs.
 func startThreadIMAPServer(t *testing.T, msgs []fakeThreadMessage, threadResponse string) string {
+	return startThreadIMAPServerObserved(t, msgs, threadResponse, nil)
+}
+
+func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threadResponse string, threadCalls chan<- struct{}) string {
 	t.Helper()
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -332,6 +336,9 @@ func startThreadIMAPServer(t *testing.T, msgs []fakeThreadMessage, threadRespons
 			tag := fields[0]
 			switch {
 			case strings.Contains(line, "UID THREAD"):
+				if threadCalls != nil {
+					threadCalls <- struct{}{}
+				}
 				if threadResponse == "" {
 					_, _ = io.WriteString(w, tag+" NO UID THREAD unsupported\r\n")
 				} else {

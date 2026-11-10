@@ -35,7 +35,8 @@ func TestListUnverifiedLargeGroupKeepsEveryRow(t *testing.T) {
 		msgs[i] = fakeThreadMessage{uid: uid, subject: "same", from: "a@example.test", messageID: fmt.Sprintf("<%d@x>", uid)}
 		ids = append(ids, fmt.Sprint(uid))
 	}
-	client := dialTestClient(t, startThreadIMAPServer(t, msgs, "("+strings.Join(ids, " ")+")"))
+	threadCalls := make(chan struct{}, 4)
+	client := dialTestClient(t, startThreadIMAPServerObserved(t, msgs, "("+strings.Join(ids, " ")+")", threadCalls))
 	var cursor uint32
 	seen := make(map[uint32]bool)
 	for i := 0; i < 3; i++ {
@@ -57,6 +58,11 @@ func TestListUnverifiedLargeGroupKeepsEveryRow(t *testing.T) {
 			}
 		}
 		cursor = result.NextCursor
+	}
+	select {
+	case <-threadCalls:
+		t.Fatal("large folder sent UID THREAD")
+	default:
 	}
 }
 

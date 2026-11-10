@@ -121,6 +121,16 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if len(page) == 0 {
 		return ListResult{UIDValidity: c.selectedUIDValidity, Messages: []MessageSummary{}, Total: total, Sort: opts.SortBy, ServerSorted: serverSorted}, nil
 	}
+	// Establish the risk before fetching the page: if counting fails, a
+	// successful subsequent page FETCH is required before degrading safely.
+	var folderUIDs []uint32
+	var countErr error
+	if opts.Thread {
+		folderUIDs, countErr = c.uidSearch(ctx, "")
+		if ctx.Err() != nil {
+			return ListResult{}, ctx.Err()
+		}
+	}
 	summaries, err := c.uidFetchSummaries(ctx, page)
 	if err != nil {
 		return ListResult{}, err
@@ -136,7 +146,14 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if opts.Thread {
 		threadMode = "client"
 		threadScope = ThreadScopeFolder
-		if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
+		// Count the entire folder, not just a filtered search. This guard
+		// does not bound header byte sizes in smaller folders.
+		if countErr != nil || len(folderUIDs) > MaxSortScan {
+			threadScope = "unverified"
+			for i := range summaries {
+				summaries[i].ThreadVerification = "unverified"
+			}
+		} else if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
 			unverified, err := c.refineSystemThreads(ctx, summaries, roots, counts)
 			if err != nil {
 				return ListResult{}, err
