@@ -72,6 +72,8 @@ interface WebmailMessageListProps {
   /** Folder currently being read (search results may differ) — drives the
    * active-row highlight. */
   readingFolderEnc?: string;
+  /** Composite cursor identity (folder of the cursor entry). */
+  cursorFolderEnc?: string | null;
   messages: MessageSummary[];
   activeUid: number | null;
   cursorUid?: number | null;
@@ -121,6 +123,7 @@ export function WebmailMessageList({
   folderName,
   activeFolderEnc,
   readingFolderEnc,
+  cursorFolderEnc,
   messages,
   activeUid,
   cursorUid = null,
@@ -384,7 +387,11 @@ export function WebmailMessageList({
       item={item}
       isSelected={selectedUids.has(item.uid) && !isForeignRow(item)}
       isActive={isRowActive(item)}
-      isCursor={cursorUid === item.uid}
+      isCursor={
+        cursorUid === item.uid &&
+        (cursorFolderEnc == null ||
+          (item.folderEnc ?? activeFolderEnc) === cursorFolderEnc)
+      }
       density={density}
       onSelect={() =>
         rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc)

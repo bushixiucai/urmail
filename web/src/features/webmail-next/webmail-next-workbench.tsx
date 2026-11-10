@@ -133,6 +133,10 @@ export function WebmailNextWorkbench({
   const [readingFolder, setReadingFolder] = useState(initialFolder);
   const loadedUidsRef = useRef<number[]>([]);
   const [cursorUid, setCursorUid] = useState<number | null>(null);
+  // Composite cursor identity: numeric uid is per-folder and cross-folder
+  // results can hold the same uid from two boxes (QA sequence: j must be
+  // able to walk past the first same-uid copy to reach later rows).
+  const [cursorFolderEnc, setCursorFolderEnc] = useState<string | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [moveNoticeToken, setMoveNoticeToken] = useState(0);
@@ -1019,8 +1023,6 @@ export function WebmailNextWorkbench({
   };
 
   // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
-  // Composite resolution: with Sent-first ordering, a bare-uid find would
-  // hand the Sent sender/subject to an INBOX row's Reply (QA blocker).
   // Composite resolution anchored on the RIGHT-CLICKED row's own folder —
   // never on the box being read (UIUX: reading Sent then right-clicking
   // INBOX must reply to the INBOX copy).
@@ -1305,10 +1307,13 @@ export function WebmailNextWorkbench({
       folder_enc: message.folder_enc,
     }));
     if (entries.length === 0) return;
-    let index = entries.findIndex((e) => e.uid === cursorUid);
+    const currentKey = `${cursorFolderEnc ?? ""}:${cursorUid ?? ""}`;
+    let index = entries.findIndex(
+      (e) => `${e.folder_enc ?? ""}:${e.uid}` === currentKey,
+    );
     if (index < 0) {
-      // Prefer the entry of the folder being read when the bare uid is
-      // ambiguous; an unset cursor starts just outside the list edge.
+      // Prefer the entry of the folder being read when the cursor identity
+      // is unset; an unset cursor starts just outside the list edge.
       const reading = entries.findIndex(
         (e) =>
           e.uid === cursorUid &&
@@ -1319,6 +1324,7 @@ export function WebmailNextWorkbench({
     const next =
       entries[Math.min(entries.length - 1, Math.max(0, index + delta))];
     setCursorUid(next.uid);
+    setCursorFolderEnc(next.folder_enc ?? activeFolder);
   };
 
   const focusSearch = () => {
@@ -1332,11 +1338,21 @@ export function WebmailNextWorkbench({
       if (action === "cursor-next") moveCursor(1);
       else if (action === "cursor-prev") moveCursor(-1);
       else if (action === "open") {
-        const uid = cursorUid ?? loadedUids()[0];
-        if (uid != null) openMessage(uid);
+        if (cursorUid != null) {
+          openMessage(cursorUid, cursorFolderEnc ?? undefined);
+        } else {
+          const first = loadedUids()[0];
+          if (first != null) openMessage(first);
+        }
       } else if (action === "toggle-check") {
         const uid = cursorUid ?? loadedUids()[0];
-        if (uid != null) selectionRef.current?.toggle(uid, false, false);
+        if (uid == null) return;
+        // Folder-scoped selection: a foreign-box cursor row must not
+        // toggle the browsing folder's same-numbered mail.
+        if (cursorFolderEnc != null && cursorFolderEnc !== activeFolder) {
+          return;
+        }
+        selectionRef.current?.toggle(uid, false, false);
       } else if (action === "archive") {
         void handleMoveSpecial(
           "\\Archive",
@@ -1690,6 +1706,7 @@ export function WebmailNextWorkbench({
                 onClearSearch={() => setSearchDraft("")}
                 onCompose={() => openCompose([], "")}
                 cursorUid={cursorUid}
+                cursorFolderEnc={cursorFolderEnc}
                 onSelectMessage={(uid, folderEnc) =>
                   openMessage(uid, folderEnc, false)
                 }
