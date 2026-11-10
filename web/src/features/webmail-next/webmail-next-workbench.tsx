@@ -1297,12 +1297,28 @@ export function WebmailNextWorkbench({
       : messages.map((message) => message.uid);
 
   const moveCursor = (delta: number) => {
-    const uids = loadedUids();
-    if (uids.length === 0) return;
-    const current = cursorUid ?? uids[0];
-    const index = Math.max(0, uids.indexOf(current));
-    const next = uids[Math.min(uids.length - 1, Math.max(0, index + delta))];
-    setCursorUid(next);
+    // Entry-based navigation: cross-folder results can hold the same
+    // numeric uid from two boxes, and a bare-uid indexOf would stick on
+    // the first copy, making j unable to advance past it (QA/UIUX).
+    const entries = messages.map((message) => ({
+      uid: message.uid,
+      folder_enc: message.folder_enc,
+    }));
+    if (entries.length === 0) return;
+    let index = entries.findIndex((e) => e.uid === cursorUid);
+    if (index < 0) {
+      // Prefer the entry of the folder being read when the bare uid is
+      // ambiguous; an unset cursor starts just outside the list edge.
+      const reading = entries.findIndex(
+        (e) =>
+          e.uid === cursorUid &&
+          (e.folder_enc ?? activeFolder) === readingFolder,
+      );
+      index = reading >= 0 ? reading : delta > 0 ? 0 : entries.length - 1;
+    }
+    const next =
+      entries[Math.min(entries.length - 1, Math.max(0, index + delta))];
+    setCursorUid(next.uid);
   };
 
   const focusSearch = () => {

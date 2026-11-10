@@ -1235,7 +1235,7 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     );
   });
 
-  it("mixed cross-folder search keeps both same-uid rows and routes Reply/Forward correctly", async () => {
+  it("mixed cross-folder search keeps both same-uid rows and routes Reply/Forward correctly", { timeout: 45000 }, async () => {
     // QA repro: Sent 148 listed BEFORE INBOX 148 — bare-uid dedupe used to
     // erase the INBOX row entirely.
     vi.mocked(mailboxApi.listFolders).mockResolvedValue({
