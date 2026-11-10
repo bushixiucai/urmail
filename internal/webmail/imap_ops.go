@@ -137,6 +137,9 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		threadMode = "client"
 		threadScope = ThreadScopeFolder
 		if roots, counts, threadErr := c.uidThread(ctx, criteria); threadErr == nil && len(roots) > 0 {
+			if err := c.refineSystemThreads(ctx, summaries, roots, counts); err != nil {
+				return ListResult{}, err
+			}
 			// The THREAD response carries every member of every thread, so the
 			// counts are folder-wide: a thread whose members are spread over
 			// several pages reports the same total on each of them.
