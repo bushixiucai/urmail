@@ -21,15 +21,18 @@ export interface ContextMenuFolder {
 
 export interface RowContextMenuState {
   uid: number;
+  /** Owning folder of the right-clicked row — part of the menu identity
+   * so same-numeric-uid rows in other boxes are never confused. */
+  folder_enc?: string;
   x: number;
   y: number;
   isUnread: boolean;
 }
 
 export interface RowContextMenuActionHandlers {
-  onOpen: (uid: number) => void;
-  onReply: (uid: number) => void;
-  onForward: (uid: number) => void;
+  onOpen: (uid: number, folderEnc?: string) => void;
+  onReply: (uid: number, folderEnc?: string) => void;
+  onForward: (uid: number, folderEnc?: string) => void;
   onArchive: (uids: number[]) => void;
   onDelete: (uids: number[]) => void;
   onToggleRead: (uid: number) => void;
@@ -155,19 +158,19 @@ export function WebmailRowContextMenu({
       {item(
         t("webmail_next.open_message"),
         <ExternalLink className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onOpen(state.uid),
+        () => handlers.onOpen(state.uid, state.folder_enc),
         "ctx-open",
       )}
       {item(
         t("webmail_next.reply"),
         <Reply className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onReply(state.uid),
+        () => handlers.onReply(state.uid, state.folder_enc),
         "ctx-reply",
       )}
       {item(
         t("webmail_next.forward"),
         <Forward className="w-3.5 h-3.5 text-[var(--vellum-ink-secondary)]" />,
-        () => handlers.onForward(state.uid),
+        () => handlers.onForward(state.uid, state.folder_enc),
         "ctx-forward",
       )}
       <div

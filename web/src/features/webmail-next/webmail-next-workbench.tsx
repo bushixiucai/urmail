@@ -1021,27 +1021,35 @@ export function WebmailNextWorkbench({
   // --- P1-1: row context menu — reuses the P0 semantic handlers. ---
   // Composite resolution: with Sent-first ordering, a bare-uid find would
   // hand the Sent sender/subject to an INBOX row's Reply (QA blocker).
-  const contextRow = (uid: number) =>
-    messages.find(
-      (m: MessageSummary) =>
-        m.uid === uid &&
-        ((m as { folder_enc?: string }).folder_enc ?? activeFolder) ===
-          readingFolder,
-    ) ?? messages.find((m: MessageSummary) => m.uid === uid);
+  // Composite resolution anchored on the RIGHT-CLICKED row's own folder —
+  // never on the box being read (UIUX: reading Sent then right-clicking
+  // INBOX must reply to the INBOX copy).
+  const contextRow = (uid: number, folderEnc?: string) => {
+    if (folderEnc != null) {
+      const exact = messages.find(
+        (m: MessageSummary) =>
+          m.uid === uid &&
+          ((m as { folder_enc?: string }).folder_enc ?? activeFolder) ===
+            folderEnc,
+      );
+      if (exact) return exact;
+    }
+    return messages.find((m: MessageSummary) => m.uid === uid);
+  };
 
   const contextHandlers: RowContextMenuActionHandlers = {
-    onOpen: (uid) => {
-      const msg = contextRow(uid);
+    onOpen: (uid, folderEnc) => {
+      const msg = contextRow(uid, folderEnc);
       if (!msg) return;
-      openMessage(uid);
+      openMessage(uid, folderEnc);
     },
-    onReply: (uid) => {
-      const msg = contextRow(uid);
+    onReply: (uid, folderEnc) => {
+      const msg = contextRow(uid, folderEnc);
       if (msg)
         handleReply({ from: msg.from, subject: msg.subject } as MessageDetail);
     },
-    onForward: (uid) => {
-      const msg = contextRow(uid);
+    onForward: (uid, folderEnc) => {
+      const msg = contextRow(uid, folderEnc);
       if (msg) handleForward({ subject: msg.subject } as MessageDetail);
     },
     onArchive: (uids) =>

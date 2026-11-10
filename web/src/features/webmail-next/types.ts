@@ -39,6 +39,9 @@ export interface WebmailItem {
   /** #119 degraded contract: set for rows whose candidate group the
    * server could not verify (thread_id/thread_count omitted for them). */
   threadVerification?: "unverified";
+  /** Composite grouping key (folder_enc:thread_id) — stable toggle identity
+   * for same-numeric-id threads across folders. */
+  threadGroupKey?: string;
   folder?: string;
   folderEnc?: string;
 }

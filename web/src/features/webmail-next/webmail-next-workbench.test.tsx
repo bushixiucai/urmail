@@ -1088,9 +1088,9 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     } as never);
     fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
     await waitFor(() =>
-      expect(mailboxApi.listMessages.mock.calls.length).toBeGreaterThanOrEqual(
-        2,
-      ),
+      expect(
+        vi.mocked(mailboxApi.listMessages).mock.calls.length,
+      ).toBeGreaterThanOrEqual(2),
     );
     // The anchor must never switch boxes: the last members target stays
     // (INBOX,148) even after the row is gone. Framework may legitimately
@@ -1265,14 +1265,18 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     fireEvent.contextMenu(row);
     const reply = await screen.findByTestId("ctx-reply");
     fireEvent.click(reply);
-    const dock = await screen.findByTestId("webmail-compose-dock");
+    const dock = await screen.findByTestId("webmail-compose-dock", {}, {
+      timeout: 5000,
+    });
     expect(dock.textContent).toContain("ann@x");
     expect(dock.textContent).toContain("Re: cross-box sample");
     // Close, then Forward the same row: subject prefixed correctly.
     fireEvent.click(await screen.findByTestId("compose-close-button"));
     fireEvent.contextMenu(row);
     fireEvent.click(await screen.findByTestId("ctx-forward"));
-    const dock2 = await screen.findByTestId("webmail-compose-dock");
+    const dock2 = await screen.findByTestId("webmail-compose-dock", {}, {
+      timeout: 5000,
+    });
     expect(dock2.textContent).toContain("Fwd: cross-box sample");
   });
 

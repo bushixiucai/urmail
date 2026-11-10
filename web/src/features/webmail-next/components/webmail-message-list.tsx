@@ -398,7 +398,9 @@ export function WebmailMessageList({
           rowActionsRef.current.onSelectMessage(item.uid, item.folderEnc);
           return;
         }
-        rowActionsRef.current.toggleThreadExpand(item.threadId);
+        rowActionsRef.current.toggleThreadExpand(
+          item.threadGroupKey ?? String(item.threadId),
+        );
       }}
       onDelete={(event) => {
         event.stopPropagation();
