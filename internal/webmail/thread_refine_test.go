@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+func TestRefineBudgetIndependentOfPageOrder(t *testing.T) {
+	roots := make(map[uint32]uint32)
+	counts := map[uint32]int{1: 1001, 1002: 1000}
+	for uid := uint32(1); uid <= 2001; uid++ {
+		root := uint32(1)
+		if uid >= 1002 {
+			root = 1002
+		}
+		roots[uid] = root
+	}
+	// The second group cannot fit the global budget even when requested first.
+	for _, uid := range []uint32{1002, 2001, 1500} {
+		unverified, err := (*imapConn)(nil).refineSystemThreads(context.Background(), []MessageSummary{{UID: uid}}, roots, counts)
+		if err != nil || !unverified[1002] {
+			t.Fatalf("uid %d: %v %v", uid, unverified, err)
+		}
+	}
+}
+
 func TestListUnverifiedLargeGroupKeepsEveryRow(t *testing.T) {
 	msgs := make([]fakeThreadMessage, maxThreadRefineMessages+1)
 	var ids []string
