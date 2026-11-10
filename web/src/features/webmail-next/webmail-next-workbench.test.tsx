@@ -2067,6 +2067,39 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     );
   });
 
+  it("Enter on an unknown-provenance cursor row is refused (j/Enter sequence)", async () => {
+    // QA exact sequence: cross-folder search → j lands on the folderless
+    // unknown row → Enter must NOT fetch a guessed same-uid detail.
+    const unknown = {
+      uid: 202,
+      subject: "Unknown unique",
+      from: [{ name: "S", email: "s@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+    };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown],
+      total: 1,
+      q: "qa",
+    } as never);
+    vi.mocked(mailboxApi.getMessage).mockClear();
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    const row = await screen.findByTestId("mail-row-202");
+    fireEvent.click(row);
+    const callsAtOpen = vi.mocked(mailboxApi.getMessage).mock.calls.length;
+    fireEvent.keyDown(window, { key: "Enter" });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(vi.mocked(mailboxApi.getMessage).mock.calls.length).toBe(
+      callsAtOpen,
+    );
+  });
+
   it("safely ends the query instead of substituting a foreign same-uid row", async () => {
     // Unverified INBOX row (no thread_id) opened from the list; refresh
     // removes it while a verified Sent 148 row remains. No stackOrigin and

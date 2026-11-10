@@ -1424,9 +1424,24 @@ export function WebmailNextWorkbench({
       else if (action === "cursor-prev") moveCursor(-1);
       else if (action === "open") {
         if (cursorUid != null) {
-          openMessage(cursorUid, cursorFolderEnc ?? undefined);
+          // Unknown-provenance cursor rows (cross-folder, no folder) are
+          // refused by openMessage itself; pass the flag through.
+          openMessage(
+            cursorUid,
+            cursorFolderEnc ?? undefined,
+            false,
+            isCrossFolder && cursorFolderEnc == null,
+          );
         } else {
-          const first = loadedUids()[0];
+          // First-row fallback must also skip unknown-provenance rows:
+          // they are refused and must not fetch a guessed same-uid detail.
+          const first = loadedUids().find(
+            (uid) =>
+              !(
+                isCrossFolder &&
+                messages.some((m) => m.uid === uid && m.folder_enc == null)
+              ),
+          );
           if (first != null) openMessage(first);
         }
       } else if (action === "toggle-check") {
