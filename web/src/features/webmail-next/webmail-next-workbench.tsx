@@ -614,6 +614,12 @@ export function WebmailNextWorkbench({
     unknownProvenance = false,
   ) => {
     setReadingUnknown(unknownProvenance);
+    // Fail-closed: an unknown-provenance row (cross-folder, no folder
+    // identity) cannot be safely resolved to any mailbox copy — refuse to
+    // open it instead of fetching a wrong same-uid message (Backend).
+    if (unknownProvenance) {
+      return;
+    }
     const member = findStackMember(uid, folderEnc);
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
@@ -840,6 +846,14 @@ export function WebmailNextWorkbench({
 
   const flagUids = async (uids: number[], add: string[], remove: string[]) => {
     if (uids.length === 0 || isScheduledView) return;
+    // Stale-selection filter: only uids still present for the browsing
+    // folder may be flagged (Backend audit: no same-uid cross-box writes).
+    uids = uids.filter((uid) =>
+      messages.some(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+      ),
+    );
+    if (uids.length === 0) return;
     await flagMessages(activeFolder, {
       uids,
       add,
@@ -851,6 +865,8 @@ export function WebmailNextWorkbench({
   };
 
   const handleToggleStar = async (uid: number, folderEncHint?: string) => {
+    // Unknown provenance: no folder to address a write to (Backend audit).
+    if (effectiveReadingUnknown) return;
     // §11-5 stack scope: resolve only by the full (folder, uid) identity
     // so a same-numbered uid in another folder can never be mis-targeted;
     // cross-box members (Sent) are flagged through their own folder.
@@ -917,7 +933,16 @@ export function WebmailNextWorkbench({
     labelKey: string,
     explicit?: number[],
   ) => {
-    const uids = targetUids(explicit);
+    let uids = targetUids(explicit);
+    // Stale-selection filter: every uid must still exist in the current
+    // list data for the browsing folder; vanished/unknown uids are dropped
+    // so a background refresh can never re-enable a folder-scoped write
+    // against a same-uid copy in another box (Backend audit).
+    uids = uids.filter((uid) =>
+      messages.some(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === activeFolder,
+      ),
+    );
     if (uids.length === 0 || isScheduledView) return;
     if (flag === "\\Trash" && isTrashMailbox(folders, activeFolder)) {
       setPendingPermanentUids(uids);
@@ -961,6 +986,7 @@ export function WebmailNextWorkbench({
   };
 
   const handleDeleteMessage = (uid: number, folderEncHint?: string) => {
+    if (effectiveReadingUnknown) return;
     // §11-5 stack scope: a member from another folder (Sent) is trashed
     // through its own folder+uid — the origin-folder move would 404 or,
     // with a same-numbered uid, hit the wrong message.
