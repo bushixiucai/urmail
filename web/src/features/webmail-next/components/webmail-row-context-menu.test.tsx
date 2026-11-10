@@ -63,7 +63,7 @@ describe("webmail row context menu", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("ctx-archive"));
-    expect(handlers.onArchive).toHaveBeenCalledWith([7]);
+    expect(handlers.onArchive).toHaveBeenCalledWith([7], undefined);
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -78,10 +78,14 @@ describe("webmail row context menu", () => {
     );
     fireEvent.click(screen.getByTestId("ctx-move"));
     fireEvent.click(screen.getByTestId("ctx-move-Projects"));
-    expect(handlers.onMoveTo).toHaveBeenCalledWith([7], {
-      name: "Projects",
-      name_enc: "Projects",
-    });
+    expect(handlers.onMoveTo).toHaveBeenCalledWith(
+      [7],
+      {
+        name: "Projects",
+        name_enc: "Projects",
+      },
+      undefined,
+    );
   });
 
   it("closes on Escape and on outside click", () => {
