@@ -54,6 +54,10 @@ interface WebmailReadingPaneProps {
   threadMembers?: MessageSummary[];
   /** Contract total for the stack count label (cross-box, all pages). */
   threadTotal?: number;
+  /** Origin-folder unread count for the subject-bar badge (§11-1). */
+  threadUnreadCount?: number;
+  /** §11-5 expansion relay: focus this card's header after deletion. */
+  threadFocusUid?: number | null;
   /** total - loaded - newer; drives the giant-thread summary bar. */
   threadEarlierCount?: number;
   /** Unloaded newer members (deep anchor); renders the bottom entry. */
@@ -222,24 +226,33 @@ function SanitizedHtmlFrame({
     );
   }
   return (
-    <iframe
-      ref={frameRef}
-      data-testid="mail-html-frame"
-      title={title}
-      // allow-same-origin (alone, never with allow-scripts) so the parent
-      // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
-      // the document inert, preserving the XSS defense line.
-      sandbox="allow-same-origin"
-      referrerPolicy="no-referrer"
-      className="w-full rounded border-0 bg-transparent"
-      style={{
-        height: frameHeight,
-        minHeight: FRAME_MIN_HEIGHT,
-        transition: "height 160ms ease-out",
-      }}
-      onLoad={handleLoad}
-      srcDoc={html}
-    />
+    /* §11-6 mail-body-bucket: every HTML body renders on a defined white
+       surface so mail-native dark backgrounds stay inside the bucket and
+       never bleed onto the card (vellum) — plain-text path has no bucket. */
+    <div
+      data-testid="mail-body-bucket"
+      data-mail-body-bucket="true"
+      className="rounded-lg bg-white p-3 sm:p-4 max-w-full"
+    >
+      <iframe
+        ref={frameRef}
+        data-testid="mail-html-frame"
+        title={title}
+        // allow-same-origin (alone, never with allow-scripts) so the parent
+        // can measure the srcdoc body; the sanitizer-injected CSP meta keeps
+        // the document inert, preserving the XSS defense line.
+        sandbox="allow-same-origin"
+        referrerPolicy="no-referrer"
+        className="w-full rounded border-0 bg-transparent"
+        style={{
+          height: frameHeight,
+          minHeight: FRAME_MIN_HEIGHT,
+          transition: "height 160ms ease-out",
+        }}
+        onLoad={handleLoad}
+        srcDoc={html}
+      />
+    </div>
   );
 }
 
@@ -251,6 +264,8 @@ export function WebmailReadingPane({
   isManualRemoteImagesAllowed = false,
   threadMembers,
   threadTotal,
+  threadUnreadCount,
+  threadFocusUid,
   threadEarlierCount,
   threadNewerCount,
   threadSummaryState,
@@ -867,6 +882,8 @@ export function WebmailReadingPane({
         <WebmailThreadStack
           members={threadMembers}
           totalOverride={threadTotal}
+          unreadCount={threadUnreadCount}
+          focusUid={threadFocusUid}
           expandedUid={message.uid}
           expandedDetail={message}
           isDetailLoading={isLoading}
@@ -875,6 +892,8 @@ export function WebmailReadingPane({
           onReply={(msg) => onReply?.(msg)}
           onReplyAll={(msg) => onReplyAll?.(msg)}
           onForward={(msg) => onForward?.(msg)}
+          onToggleStar={(uid) => onToggleStar?.(uid)}
+          onDelete={(uid) => onDelete?.(uid)}
           onMarkThreadRead={() => onMarkThreadRead?.()}
           onArchiveThread={() => onArchiveThread?.()}
           onDeleteThread={() => onDeleteThread?.()}

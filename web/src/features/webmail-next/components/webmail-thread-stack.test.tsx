@@ -178,3 +178,90 @@ describe("WebmailThreadStack", () => {
     expect(onReply.mock.calls[0]![0].uid).toBe(202);
   });
 });
+
+describe("§11-1 subject bar", () => {
+  it("shows the expanded message subject with server total badge", () => {
+    renderStack({ totalOverride: 761, unreadCount: 3 });
+    const bar = screen.getByTestId("thread-subject-bar");
+    expect(bar).toBeTruthy();
+    expect(bar.textContent).toContain("Re: Project Status Update");
+    expect(screen.getByTestId("thread-total-badge").textContent).toBe("761");
+    const unread = screen.getByTestId("thread-unread-badge");
+    expect(unread.textContent).toBe("3");
+    expect(unread.getAttribute("aria-label")).toBe(
+      "webmail_next.thread_unread_badge",
+    );
+  });
+
+  it("hides the unread badge when nothing is unread", () => {
+    renderStack({ unreadCount: 0 });
+    expect(screen.queryByTestId("thread-unread-badge")).toBeNull();
+  });
+
+  it("degrades to a fallback subject when none is available", () => {
+    renderStack({
+      members: members.map((m) => ({ ...m, subject: "" })),
+      expandedDetail: { subject: "" } as never,
+    });
+    expect(screen.getByTestId("thread-subject-bar").textContent).toContain(
+      "page.webmail.no_subject",
+    );
+  });
+});
+
+describe("§11-5 single-message actions", () => {
+  it("shows Star with aria-pressed and Delete only on the expanded card", () => {
+    const onToggleStar = vi.fn();
+    const onDelete = vi.fn();
+    const unstarred = members.map((m) =>
+      m.uid === 203
+        ? { ...m, flags: m.flags.filter((f) => f !== "\\Flagged") }
+        : m,
+    );
+    renderStack({ members: unstarred, onToggleStar, onDelete });
+    expect(
+      screen.getByTestId("thread-card-star-203").getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(screen.queryByTestId("thread-card-star-202")).toBeNull();
+    expect(screen.queryByTestId("thread-card-delete-202")).toBeNull();
+    expect(screen.getByTestId("thread-card-delete-203")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("thread-card-star-203"));
+    expect(onToggleStar).toHaveBeenCalledWith(203);
+    fireEvent.click(screen.getByTestId("thread-card-delete-203"));
+    expect(onDelete).toHaveBeenCalledWith(203);
+  });
+
+  it("reflects the starred state via fill and aria-pressed", () => {
+    const starred = members.map((m) =>
+      m.uid === 203 ? { ...m, flags: [...m.flags, "\\Flagged"] } : m,
+    );
+    renderStack({ members: starred, onToggleStar: vi.fn() });
+    const star = screen.getByTestId("thread-card-star-203");
+    expect(star.getAttribute("aria-pressed")).toBe("true");
+    expect(star.querySelector("svg")?.getAttribute("class")).toContain("fill-");
+  });
+
+  it("focuses the relayed card header when focusUid is set", () => {
+    const { rerender } = renderStack({ expandedUid: 202, focusUid: null });
+    rerender(
+      <WebmailThreadStack
+        members={members}
+        expandedUid={202}
+        expandedDetail={detail}
+        bodySlot={<div data-testid="stack-body">BODY</div>}
+        onExpand={vi.fn()}
+        onReply={vi.fn()}
+        onReplyAll={vi.fn()}
+        onForward={vi.fn()}
+        onMarkThreadRead={vi.fn()}
+        onArchiveThread={vi.fn()}
+        onDeleteThread={vi.fn()}
+        focusUid={202}
+      />,
+    );
+    expect(document.activeElement).toBe(
+      screen.getByTestId("thread-card-header-202"),
+    );
+  });
+});

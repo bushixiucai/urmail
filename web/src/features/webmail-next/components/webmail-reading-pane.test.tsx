@@ -762,3 +762,34 @@ describe("SanitizedHtmlFrame auto height", () => {
     expect(onOpenAISettings).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("§11-6 mail body bucket (DEF-3)", () => {
+  it("wraps the html iframe in a white bucket", () => {
+    const serverMessage: MessageDetail = {
+      ...mockMessage,
+      html: '<p style="background:#121212;color:#fff">dark mail</p>',
+    };
+    render(<WebmailReadingPane message={serverMessage} folderEnc="INBOX" />);
+    const bucket = screen.getByTestId("mail-body-bucket");
+    expect(bucket).toBeTruthy();
+    expect(bucket.className).toContain("bg-white");
+    expect(
+      bucket.querySelector('[data-testid="mail-html-frame"]'),
+    ).toBeTruthy();
+    const frame = bucket.querySelector('[data-testid="mail-html-frame"]');
+    expect(frame?.getAttribute("srcDoc") ?? "").toContain("dark mail");
+  });
+
+  it("keeps the plain-text path bare (no bucket)", () => {
+    const textMessage: MessageDetail = {
+      ...mockMessage,
+      html: "",
+      text: "plain body",
+    };
+    render(<WebmailReadingPane message={textMessage} folderEnc="INBOX" />);
+    expect(screen.queryByTestId("mail-body-bucket")).toBeNull();
+    expect(screen.getByTestId("webmail-reading-pane").textContent).toContain(
+      "plain body",
+    );
+  });
+});

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -8,6 +8,7 @@ import {
   MailOpen,
   Reply,
   ReplyAll,
+  Star,
   Trash2,
 } from "lucide-react";
 import type {
@@ -21,6 +22,8 @@ export interface ThreadStackProps {
   members: MessageSummary[];
   /** Contract total (cross-box, all pages); falls back to member data. */
   totalOverride?: number;
+  /** Unread count across origin-folder members (0 → badge hidden). */
+  unreadCount?: number;
   /** The message currently expanded (body shown). */
   expandedUid: number;
   /** Full detail for the expanded message (null while loading). */
@@ -32,6 +35,11 @@ export interface ThreadStackProps {
   onReply: (msg: MessageDetail) => void;
   onReplyAll: (msg: MessageDetail) => void;
   onForward: (msg: MessageDetail) => void;
+  /** §11-5 single-message actions (expanded card header). */
+  onToggleStar?: (uid: number) => void;
+  onDelete?: (uid: number) => void;
+  /** §11-5 expansion relay: focus the card header of this uid when set. */
+  focusUid?: number | null;
   onMarkThreadRead: () => void;
   onArchiveThread: () => void;
   onDeleteThread: () => void;
@@ -55,6 +63,7 @@ function senderInitial(m: MessageSummary): string {
 export function WebmailThreadStack({
   members,
   totalOverride,
+  unreadCount,
   expandedUid,
   expandedDetail,
   isDetailLoading,
@@ -63,6 +72,9 @@ export function WebmailThreadStack({
   onReply,
   onReplyAll,
   onForward,
+  onToggleStar,
+  onDelete,
+  focusUid,
   onMarkThreadRead,
   onArchiveThread,
   onDeleteThread,
@@ -70,6 +82,7 @@ export function WebmailThreadStack({
   const { t, i18n } = useTranslation();
   const locale = i18n?.language;
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const headerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Spec: oldest → newest in the stack.
   const ordered = useMemo(
@@ -88,6 +101,36 @@ export function WebmailThreadStack({
     // jsdom test doubles have no scrollIntoView.
     el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }, [expandedUid]);
+
+  // §11-5 focus management: the expansion relay (delete → expand neighbor)
+  // moves keyboard focus onto the newly expanded card's header.
+  useEffect(() => {
+    if (focusUid == null) return;
+    headerRefs.current.get(focusUid)?.focus();
+  }, [focusUid]);
+
+  // §11-3 scroll anchoring: when older pages are prepended ("加载更早"),
+  // the expanded card's offsetTop grows by the inserted height; shifting
+  // scrollTop by the same delta keeps the reading position visually still
+  // (±3px acceptance). Expanded-card changes are ignored (intended jumps).
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const anchorSnapRef = useRef<{ uid: number | null; top: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    const card =
+      expandedUid != null ? cardRefs.current.get(expandedUid) : undefined;
+    const snap = anchorSnapRef.current;
+    if (scroller && card && snap && snap.uid === expandedUid) {
+      const delta = card.offsetTop - snap.top;
+      if (delta > 0) scroller.scrollTop += delta;
+    }
+    anchorSnapRef.current =
+      card && expandedUid != null
+        ? { uid: expandedUid, top: card.offsetTop }
+        : null;
+  }, [members, expandedUid]);
 
   const goPrev = () => {
     if (expandedIndex <= 0) return;
@@ -112,6 +155,16 @@ export function WebmailThreadStack({
     total: totalThreadCount,
   });
 
+  // §11-1 subject bar: expanded message's subject, falling back to the
+  // newest member; unread badge renders only when there is unread mail.
+  const subject =
+    expandedDetail?.subject ||
+    (expandedIndex >= 0
+      ? ordered[expandedIndex]?.subject
+      : ordered[ordered.length - 1]?.subject) ||
+    t("page.webmail.no_subject");
+  const unreadBadgeCount = unreadCount ?? 0;
+
   return (
     <div
       data-testid="thread-stack"
@@ -120,6 +173,39 @@ export function WebmailThreadStack({
         count: totalThreadCount,
       })}
     >
+      {/* §11-1 subject bar — sits above the action bar (header = 96px). */}
+      <div
+        data-testid="thread-subject-bar"
+        className="h-12 px-4 border-b border-[var(--vellum-border)] bg-[var(--vellum-surface)] flex items-center gap-2 shrink-0"
+      >
+        <h2
+          className="text-sm font-[650] text-[var(--vellum-ink)] truncate min-w-0 flex-1"
+          title={subject}
+        >
+          {subject}
+        </h2>
+        <span
+          data-testid="thread-total-badge"
+          title={countLabel}
+          className="shrink-0 h-5 px-2 rounded-full bg-[var(--vellum-surface-muted)] text-[var(--vellum-ink-secondary)] text-[11px] font-semibold leading-5 text-center"
+        >
+          {totalThreadCount}
+        </span>
+        {unreadBadgeCount > 0 && (
+          <span
+            data-testid="thread-unread-badge"
+            aria-label={t("webmail_next.thread_unread_badge", {
+              count: unreadBadgeCount,
+            })}
+            title={t("webmail_next.thread_unread_badge", {
+              count: unreadBadgeCount,
+            })}
+            className="shrink-0 h-5 px-2 rounded-full bg-[var(--brand-primary)] text-white text-[11px] font-semibold leading-5 text-center"
+          >
+            {unreadBadgeCount}
+          </span>
+        )}
+      </div>
       {/* Thread action bar — sticky top */}
       <div
         data-testid="thread-action-bar"
@@ -189,7 +275,11 @@ export function WebmailThreadStack({
       </div>
 
       {/* Card stack */}
-      <div className="flex-1 overflow-y-auto bg-[var(--vellum-ground)] px-3 sm:px-6 py-3 sm:py-4">
+      <div
+        ref={scrollRef}
+        data-testid="thread-stack-scroll"
+        className="flex-1 overflow-y-auto bg-[var(--vellum-ground)] px-3 sm:px-6 py-3 sm:py-4"
+      >
         <div className="relative max-w-[720px] mx-auto space-y-2">
           {/* Timeline (decorative) */}
           <div
@@ -200,6 +290,7 @@ export function WebmailThreadStack({
           {ordered.map((member) => {
             const isExpanded = member.uid === expandedUid;
             const unread = !(member.flags || []).includes("\\Seen");
+            const isStarred = (member.flags || []).includes("\\Flagged");
             const name = senderName(member);
             const shortDate = formatListDate(member.date, locale, {
               yesterday: t("webmail_next.date_yesterday"),
@@ -232,6 +323,10 @@ export function WebmailThreadStack({
                 <div
                   role="button"
                   tabIndex={0}
+                  ref={(el) => {
+                    if (el) headerRefs.current.set(member.uid, el);
+                    else headerRefs.current.delete(member.uid);
+                  }}
                   data-testid={`thread-card-header-${member.uid}`}
                   aria-expanded={isExpanded}
                   onClick={() => onExpand(member.uid)}
@@ -271,7 +366,9 @@ export function WebmailThreadStack({
                         className="h-8 px-2 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] flex items-center gap-1"
                       >
                         <Reply className="w-4 h-4" />
-                        <span>{t("webmail_next.reply")}</span>
+                        <span className="hidden sm:inline">
+                          {t("webmail_next.reply")}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -280,7 +377,9 @@ export function WebmailThreadStack({
                         className="h-8 px-2 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] flex items-center gap-1"
                       >
                         <ReplyAll className="w-4 h-4" />
-                        <span>{t("webmail_next.reply_all")}</span>
+                        <span className="hidden sm:inline">
+                          {t("webmail_next.reply_all")}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -289,8 +388,53 @@ export function WebmailThreadStack({
                         className="h-8 px-2 rounded-md text-xs font-medium text-[var(--vellum-ink)] hover:bg-[var(--vellum-row-hover)] flex items-center gap-1"
                       >
                         <Forward className="w-4 h-4" />
-                        <span>{t("webmail_next.forward")}</span>
+                        <span className="hidden sm:inline">
+                          {t("webmail_next.forward")}
+                        </span>
                       </button>
+                      {/* §11-5 single-message actions: Star (dual-state)
+                          and Delete, icon-only below sm (≥24px hit area). */}
+                      {onToggleStar && (
+                        <button
+                          type="button"
+                          data-testid={`thread-card-star-${member.uid}`}
+                          aria-pressed={isStarred}
+                          aria-label={
+                            isStarred
+                              ? t("webmail_next.starred")
+                              : t("webmail_next.not_starred")
+                          }
+                          title={
+                            isStarred
+                              ? t("webmail_next.starred")
+                              : t("webmail_next.not_starred")
+                          }
+                          onClick={() => onToggleStar(member.uid)}
+                          className={`h-8 w-8 rounded-md flex items-center justify-center transition-colors ${
+                            isStarred
+                              ? "text-[var(--vellum-star)] hover:bg-[var(--vellum-row-hover)]"
+                              : "text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-row-hover)] hover:text-[var(--vellum-star)]"
+                          }`}
+                        >
+                          <Star
+                            className={`w-4 h-4 ${
+                              isStarred ? "fill-[var(--vellum-star)]" : ""
+                            }`}
+                          />
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          type="button"
+                          data-testid={`thread-card-delete-${member.uid}`}
+                          aria-label={t("webmail_next.delete")}
+                          title={t("webmail_next.delete")}
+                          onClick={() => onDelete(member.uid)}
+                          className="h-8 w-8 rounded-md flex items-center justify-center text-[var(--vellum-ink-secondary)] hover:bg-[var(--vellum-row-hover)] hover:text-[var(--vellum-danger-strong)] transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </span>
                   )}
 

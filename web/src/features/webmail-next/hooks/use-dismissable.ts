@@ -23,7 +23,23 @@ export function useDismissable(
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
-        triggerRef?.current?.focus();
+        // Return focus to the trigger. If the trigger is display:none
+        // (e.g. the md:hidden ⋯ menu on desktop) focus() is a silent
+        // no-op and the browser drops focus on <body> — after the close
+        // re-render, re-focus only when the trigger is actually visible
+        // (QA Frontend-N1).
+        const trigger = triggerRef?.current;
+        trigger?.focus();
+        requestAnimationFrame(() => {
+          if (
+            (document.activeElement === null ||
+              document.activeElement === document.body) &&
+            triggerRef?.current &&
+            triggerRef.current.offsetParent !== null
+          ) {
+            triggerRef.current.focus();
+          }
+        });
       }
     };
     window.addEventListener("mousedown", handleMouseDown, true);
