@@ -204,6 +204,14 @@ export function WebmailMessageList({
         ? uid
         : (cursorUid ?? itemsRef.current[0]?.uid);
       if (resolved == null || !contextHandlers) return;
+      // Keyboard parity with the pointer foreign-row guard: the menu is a
+      // folder-scoped surface, so it may only open for a UNIQUE row of the
+      // browsing folder (a same-uid foreign copy must never be targeted).
+      const matches = itemsRef.current.filter((it) => it.uid === resolved);
+      if (matches.length !== 1 || isForeignRow(matches[0])) {
+        event.preventDefault();
+        return;
+      }
       const anchor = document.querySelector<HTMLElement>(
         `[data-testid='mail-row-${resolved}']`,
       );
@@ -215,7 +223,10 @@ export function WebmailMessageList({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [cursorUid, contextHandlers]);
 
-  const isAllSelected = items.length > 0 && selectedUids.size === items.length;
+  // Keep the denominator identical to the selectable set so a mixed
+  // cross-folder list can still be fully deselected (QA sequence ④).
+  const isAllSelected =
+    selectableItems.length > 0 && selectedUids.size === selectableItems.length;
   const selectedList = [...selectedUids];
   const parentRef = useRef<HTMLDivElement>(null);
   const rowHeight =

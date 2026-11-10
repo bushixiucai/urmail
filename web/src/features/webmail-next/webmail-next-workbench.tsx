@@ -600,12 +600,22 @@ export function WebmailNextWorkbench({
     const message =
       member ?? messages.find((item) => item.uid === uid) ?? undefined;
     // Remember folder-anchored origins so the members query stays anchored
-    // even if the list row is refreshed away (UIUX review); list opens
-    // without a folder hint clear it and rely on the row again.
+    // even if the list row is refreshed away (UIUX review). List opens
+    // anchor only for VERIFIED rows (thread_id) so a refresh that removes
+    // the row keeps the thread context; unverified rows never anchor and
+    // never open the members gate (QA sequence ①).
     if (fromStack && folderEnc != null) {
       setStackOrigin({ uid, folder_enc: folderEnc });
     } else {
-      setStackOrigin(null);
+      const rowFolder = folderEnc ?? activeFolder;
+      const listRow = messages.find(
+        (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === rowFolder,
+      );
+      if (listRow?.thread_id != null) {
+        setStackOrigin({ uid, folder_enc: rowFolder });
+      } else {
+        setStackOrigin(null);
+      }
     }
     setCursorUid(uid);
     setReadingFolder(
@@ -714,6 +724,16 @@ export function WebmailNextWorkbench({
     readingFolder,
   ]);
 
+  // Closing the pane or switching folders ends the previous thread
+  // context; a stale origin must never authorize members for an unrelated
+  // (possibly unverified) row of the same numeric uid (QA sequence ②).
+  useEffect(() => {
+    if (selectedUid === null) setStackOrigin(null);
+  }, [selectedUid]);
+  useEffect(() => {
+    setStackOrigin(null);
+  }, [activeFolder]);
+
   // Reset manual authorization on message/folder change
   useEffect(() => {
     setManualAuthorizedKey(null);
@@ -726,6 +746,7 @@ export function WebmailNextWorkbench({
       selectedUid === null &&
       window.innerWidth >= 1024
     ) {
+      setStackOrigin(null); // auto-selection never inherits an old origin
       setReadingFolder(messages[0].folder_enc || activeFolder);
       setSelectedUid(messages[0].uid);
     }
@@ -1377,10 +1398,13 @@ export function WebmailNextWorkbench({
         folder_enc: stackOrigin.folder_enc,
       } as (typeof messages)[number];
     }
-    // Bare-uid fallback is legitimate only for the browsing folder itself
-    // (legacy rows without folder_enc); never for another box.
+    // Bare-uid fallback only for LEGACY rows without any folder identity
+    // (single-box compat). A row that carries folder_enc is a different
+    // box's copy when it did not match exactly — substituting it would send
+    // the members query to the wrong box (UIUX precise sequence).
     return readingFolder === activeFolder
-      ? (messages.find((m) => m.uid === selectedUid) ?? null)
+      ? (messages.find((m) => m.uid === selectedUid && m.folder_enc == null) ??
+          null)
       : null;
   }, [messages, stackOrigin, selectedUid, readingFolder, activeFolder]);
   const threadApi = useThreadMembers({

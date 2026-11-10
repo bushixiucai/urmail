@@ -551,3 +551,106 @@ describe("entry-matrix guards (QA/UIUX static review round 8)", () => {
     expect(onToggleRead).not.toHaveBeenCalled();
   });
 });
+
+describe("keyboard & mixed select-all (QA sequence ③④)", () => {
+  const rows2 = [
+    {
+      uid: 148,
+      subject: "inbox copy",
+      from: [{ name: "A", email: "a@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "INBOX",
+      folder_enc: "b64.SU5CT1g",
+    },
+    {
+      uid: 148,
+      subject: "sent copy",
+      from: [{ name: "M", email: "m@x" }],
+      date: "2026-11-06T11:00:00Z",
+      flags: [],
+      size: 1,
+      folder: "Sent",
+      folder_enc: "b64.U2VudA",
+    },
+  ] as never;
+
+  const props = {
+    folderName: "Inbox",
+    activeFolderEnc: "b64.SU5CT1g",
+    messages: rows2,
+    activeUid: null,
+    density: "comfortable" as const,
+    sort: "date" as const,
+    order: "desc" as const,
+    onSortChange: vi.fn(),
+  };
+
+  it("Shift+F10 never opens the menu for an ambiguous same-uid row", () => {
+    render(
+      <WebmailMessageList
+        {...props}
+        onSelectMessage={vi.fn()}
+        onDeleteMessage={vi.fn()}
+        contextHandlers={undefined}
+      />,
+    );
+    const rows = screen.getAllByTestId("mail-row-148");
+    (rows[1] as HTMLElement).focus();
+    fireEvent.keyDown(window, { key: "F10", shiftKey: true });
+    // No row-context-menu testids should appear for the foreign/ambiguous row.
+    expect(screen.queryAllByTestId(/^row-context-menu/)).toHaveLength(0);
+  });
+
+  it("select-all toggles against the selectable set only", () => {
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...props}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    const selectAll = screen.getByTestId("select-all-button");
+    fireEvent.click(selectAll);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+    fireEvent.click(selectAll);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it("single-box select-all still selects every row", () => {
+    const single = [
+      {
+        uid: 148,
+        subject: "inbox copy",
+        from: [{ name: "A", email: "a@x" }],
+        date: "2026-11-06T10:00:00Z",
+        flags: [],
+        size: 1,
+      },
+      {
+        uid: 149,
+        subject: "second",
+        from: [{ name: "A", email: "a@x" }],
+        date: "2026-11-06T09:00:00Z",
+        flags: [],
+        size: 1,
+      },
+    ] as never;
+    const onSelectionCountChange = vi.fn();
+    render(
+      <WebmailMessageList
+        {...props}
+        activeFolderEnc={undefined}
+        messages={single}
+        onSelectMessage={vi.fn()}
+        onSelectionCountChange={onSelectionCountChange}
+        onBulkArchive={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("select-all-button"));
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(2);
+  });
+});

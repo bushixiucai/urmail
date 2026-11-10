@@ -1065,6 +1065,78 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(fetchThreadMembers).not.toHaveBeenCalled();
   });
 
+  it("keeps the INBOX target after refresh removes the row while a Sent same-uid row remains", async () => {
+    // Sequence (UIUX): browse INBOX → open verified INBOX 148 from the
+    // list (no stack click) → refresh drops that row but a Sent 148 row
+    // stays listed → the members query must stay on (INBOX,148).
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [INBOX_148, SENT_148],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    // Click the INBOX row (first of the two same-uid rows, older date).
+    const rows = await screen.findAllByTestId("mail-row-148");
+    fireEvent.click(rows[0]);
+    await waitFor(() => {
+      const calls = vi.mocked(fetchThreadMembers).mock.calls;
+      expect(calls[calls.length - 1]?.[0]).toBe("INBOX");
+    });
+    // Refresh: the INBOX row disappears, the Sent row stays.
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [SENT_148],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
+    await waitFor(() => {
+      const calls = vi.mocked(fetchThreadMembers).mock.calls;
+      const last = calls[calls.length - 1];
+      expect(last?.[0]).toBe("INBOX");
+      expect(last?.[1]).toBe(148);
+    });
+  });
+
+  it("safely ends the query instead of substituting a foreign same-uid row", async () => {
+    // Unverified INBOX row (no thread_id) opened from the list; refresh
+    // removes it while a verified Sent 148 row remains. No stackOrigin and
+    // no bare-uid substitution are allowed → the members query must not
+    // keep firing against the Sent copy.
+    const unverifiedInbox = {
+      ...INBOX_148,
+      thread_id: undefined,
+      thread_count: undefined,
+      thread_verification: "unverified",
+    };
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [unverifiedInbox, SENT_148],
+      total: 2,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    renderWorkbench();
+    const rows = await screen.findAllByTestId("mail-row-148");
+    fireEvent.click(rows[0]);
+    await waitFor(() => expect(fetchThreadMembers).not.toHaveBeenCalled());
+    const callsBefore = vi.mocked(fetchThreadMembers).mock.calls.length;
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [SENT_148],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
+    // Give any erroneous query a chance to fire.
+    await waitFor(() => expect(mailboxApi.listMessages).toHaveBeenCalled());
+    expect(vi.mocked(fetchThreadMembers).mock.calls.length).toBe(callsBefore);
+  });
+
   it("never fires members for an unverified row that carries a folder_enc", async () => {
     vi.mocked(mailboxApi.listMessages).mockResolvedValue({
       messages: [
