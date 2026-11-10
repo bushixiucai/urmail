@@ -124,14 +124,14 @@ func (f *fakeIMAPClient) SetFlags(_ context.Context, _ string, uids []uint32, _,
 	f.flagged = append([]uint32{}, uids...)
 	return nil
 }
-func (f *fakeIMAPClient) MoveMessages(_ context.Context, _ string, uids []uint32, dest string) ([]uint32, error) {
+func (f *fakeIMAPClient) MoveMessages(_ context.Context, _ string, uids []uint32, dest string) (webmail.MoveResult, error) {
 	f.moved = append([]uint32{}, uids...)
 	f.moveTo = dest
 	destinations := make([]uint32, 0, len(uids))
 	for _, uid := range uids {
 		destinations = append(destinations, uid+1000)
 	}
-	return destinations, nil
+	return webmail.MoveResult{DestinationUIDs: destinations, DestinationUIDValidity: 42}, nil
 }
 func (f *fakeIMAPClient) DeleteMessages(_ context.Context, _ string, uids []uint32, expunge bool) error {
 	f.deleted = append([]uint32{}, uids...)
@@ -429,6 +429,9 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 			}
 		}
 	}
+	if len(imap.moved) != 0 {
+		t.Fatalf("invalid UIDVALIDITY must not move messages: %v", imap.moved)
+	}
 	w = auth(http.MethodPost, "/api/v1/mailbox/folders/"+folder+"/messages/flags", map[string]any{
 		"uid_validity": 9, "uids": []int{7}, "add": []string{`\Seen`},
 	})
@@ -442,14 +445,15 @@ func TestMailboxNativeMessagesFlagsMoveDeleteSend(t *testing.T) {
 		t.Fatalf("move %d to=%q", w.Code, imap.moveTo)
 	}
 	var moveResp struct {
-		Moved           int      `json:"moved"`
-		To              string   `json:"to"`
-		DestinationUIDs []uint32 `json:"destination_uids"`
+		Moved                  int      `json:"moved"`
+		To                     string   `json:"to"`
+		DestinationUIDs        []uint32 `json:"destination_uids"`
+		DestinationUIDValidity uint32   `json:"destination_uid_validity"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &moveResp); err != nil {
 		t.Fatalf("move response %v: %s", err, w.Body.String())
 	}
-	if moveResp.Moved != 1 || !slices.Equal(moveResp.DestinationUIDs, []uint32{1007}) {
+	if moveResp.Moved != 1 || moveResp.DestinationUIDValidity != 42 || !slices.Equal(moveResp.DestinationUIDs, []uint32{1007}) {
 		t.Fatalf("move response %#v", moveResp)
 	}
 	// Move targets must be managed folders and differ from the source

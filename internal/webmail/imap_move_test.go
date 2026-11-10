@@ -43,7 +43,18 @@ func startUIDPlusMoveServer(t *testing.T, moveSuffix string) (addr string, cmds 
 			tag := fields[0]
 			cmds <- strings.TrimSpace(line)
 			if strings.Contains(line, "UID MOVE") {
-				_, _ = io.WriteString(w, tag+" OK "+moveSuffix+"\r\n")
+				if strings.HasPrefix(moveSuffix, "* ") {
+					switch {
+					case strings.HasSuffix(moveSuffix, "__REJECT__"):
+						_, _ = io.WriteString(w, strings.TrimSuffix(moveSuffix, "__REJECT__")+"\r\n"+tag+" NO Move rejected\r\n")
+					case strings.HasSuffix(moveSuffix, "__OKAY__"):
+						_, _ = io.WriteString(w, strings.TrimSuffix(moveSuffix, "__OKAY__")+"\r\n"+tag+" OKAY Invalid status\r\n")
+					default:
+						_, _ = io.WriteString(w, moveSuffix+"\r\n"+tag+" OK Move completed\r\n")
+					}
+				} else {
+					_, _ = io.WriteString(w, tag+" OK "+moveSuffix+"\r\n")
+				}
 			} else {
 				_, _ = io.WriteString(w, tag+" OK\r\n")
 			}
@@ -74,11 +85,11 @@ func TestMoveMessagesCOPYUIDSingleAndRange(t *testing.T) {
 		t.Fatalf("move: %v", err)
 	}
 	want := []uint32{11, 13, 14, 15}
-	if len(destinations) != len(want) {
+	if len(destinations.DestinationUIDs) != len(want) {
 		t.Fatalf("destinations=%v want=%v", destinations, want)
 	}
 	for i := range want {
-		if destinations[i] != want[i] {
+		if destinations.DestinationUIDs[i] != want[i] {
 			t.Fatalf("destinations=%v want=%v", destinations, want)
 		}
 	}
@@ -100,6 +111,78 @@ func TestMoveMessagesCOPYUIDSingleAndRange(t *testing.T) {
 	}
 }
 
+func TestMoveMessagesUntaggedCOPYUID(t *testing.T) {
+	addr, _ := startUIDPlusMoveServer(t, "* OK [COPYUID 42 5,7:8 11,13:14] Moved")
+	client := dialTestClient(t, addr)
+	destinations, err := client.MoveMessages(context.Background(), "Sent", []uint32{8, 5, 7}, "Trash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(destinations.DestinationUIDs) != 3 || destinations.DestinationUIDValidity != 42 || destinations.DestinationUIDs[0] != 14 || destinations.DestinationUIDs[1] != 11 || destinations.DestinationUIDs[2] != 13 {
+		t.Fatalf("destinations=%v want=[14 11 13]", destinations)
+	}
+}
+
+func TestMoveMessagesConflictingCOPYUIDDoesNotOfferUndo(t *testing.T) {
+	addr, _ := startUIDPlusMoveServer(t, "* OK [COPYUID 42 5 11] Moved\r\n* OK [COPYUID 42 5 12] Moved")
+	client := dialTestClient(t, addr)
+	destinations, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+	if err != nil || destinations.DestinationUIDs != nil || destinations.DestinationUIDValidity != 0 {
+		t.Fatalf("conflicting mapping must not offer undo: destinations=%v error=%v", destinations, err)
+	}
+}
+
+func TestMoveMessagesUnusableCOPYUIDOmitsUndo(t *testing.T) {
+	for _, response := range []string{
+		"* OK Notice: [COPYUID 42 5 99] is only text",
+		"Notice: [COPYUID 42 5 99] is only text",
+		"* OK [COPYUID 0 5 11] Moved",
+		"* OK [COPYUID 42 5,5 11,12] Moved",
+		"* OK [COPYUID 42 5,6 11,11] Moved",
+		"* OK [COPYUID 42 5 11,12] Moved",
+	} {
+		t.Run(response, func(t *testing.T) {
+			addr, _ := startUIDPlusMoveServer(t, response)
+			client := dialTestClient(t, addr)
+			requested := []uint32{5}
+			if strings.Contains(response, "5,5") || strings.Contains(response, "5,6") {
+				requested = []uint32{5, 6}
+			}
+			result, err := client.MoveMessages(context.Background(), "Sent", requested, "Trash")
+			if err != nil || result.DestinationUIDs != nil || result.DestinationUIDValidity != 0 {
+				t.Fatalf("unusable mapping must omit undo: result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestMoveMessagesTaggedRejectionDiscardsCOPYUID(t *testing.T) {
+	addr, _ := startUIDPlusMoveServer(t, "* OK [COPYUID 42 5 11] Moved__REJECT__")
+	client := dialTestClient(t, addr)
+	result, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+	if err == nil || result.DestinationUIDs != nil || result.DestinationUIDValidity != 0 {
+		t.Fatalf("rejected move must not expose mapping: result=%+v err=%v", result, err)
+	}
+}
+
+func TestMoveMessagesCaseInsensitiveCOPYUID(t *testing.T) {
+	addr, _ := startUIDPlusMoveServer(t, "* ok [CopyUid 42 5 11] Moved")
+	client := dialTestClient(t, addr)
+	result, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+	if err != nil || result.DestinationUIDValidity != 42 || len(result.DestinationUIDs) != 1 || result.DestinationUIDs[0] != 11 {
+		t.Fatalf("case-insensitive response: result=%+v err=%v", result, err)
+	}
+}
+
+func TestMoveMessagesMalformedTaggedStatusDiscardsCOPYUID(t *testing.T) {
+	addr, _ := startUIDPlusMoveServer(t, "* OK [COPYUID 42 5 11] Moved__OKAY__")
+	client := dialTestClient(t, addr)
+	result, err := client.MoveMessages(context.Background(), "Sent", []uint32{5}, "Trash")
+	if err == nil || result.DestinationUIDs != nil || result.DestinationUIDValidity != 0 {
+		t.Fatalf("invalid status must not expose mapping: result=%+v err=%v", result, err)
+	}
+}
+
 func TestMoveMessagesCOPYUIDUnorderedSourceSet(t *testing.T) {
 	// Servers may list the source set unsorted; the mapping is positional, so
 	// destinations must still align with the requested uid order.
@@ -109,7 +192,7 @@ func TestMoveMessagesCOPYUIDUnorderedSourceSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
-	if len(destinations) != 2 || destinations[0] != 11 || destinations[1] != 15 {
+	if len(destinations.DestinationUIDs) != 2 || destinations.DestinationUIDs[0] != 11 || destinations.DestinationUIDs[1] != 15 {
 		t.Fatalf("destinations=%v want=[11 15]", destinations)
 	}
 }
@@ -117,16 +200,18 @@ func TestMoveMessagesCOPYUIDUnorderedSourceSet(t *testing.T) {
 func TestMoveMessagesCOPYUIDMissingUIDRejected(t *testing.T) {
 	addr, _ := startUIDPlusMoveServer(t, "[COPYUID 42 5 11] Move completed")
 	client := dialTestClient(t, addr)
-	if _, err := client.MoveMessages(context.Background(), "INBOX", []uint32{5, 6}, "Archive"); err == nil {
-		t.Fatal("expected error when COPYUID omits a requested uid")
+	result, err := client.MoveMessages(context.Background(), "INBOX", []uint32{5, 6}, "Archive")
+	if err != nil || result.DestinationUIDs != nil || result.DestinationUIDValidity != 0 {
+		t.Fatalf("partial mapping must omit undo: result=%+v err=%v", result, err)
 	}
 }
 
 func TestMoveMessagesCOPYUIDMalformedRejected(t *testing.T) {
 	addr, _ := startUIDPlusMoveServer(t, "[COPYUID 42 5 11,12] Move completed")
 	client := dialTestClient(t, addr)
-	if _, err := client.MoveMessages(context.Background(), "INBOX", []uint32{5}, "Archive"); err == nil {
-		t.Fatal("expected error on length-mismatched COPYUID")
+	result, err := client.MoveMessages(context.Background(), "INBOX", []uint32{5}, "Archive")
+	if err != nil || result.DestinationUIDs != nil || result.DestinationUIDValidity != 0 {
+		t.Fatalf("malformed mapping must omit undo: result=%+v err=%v", result, err)
 	}
 }
 

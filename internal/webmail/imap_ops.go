@@ -432,43 +432,51 @@ func (c *imapConn) SetFlags(ctx context.Context, folder string, uids []uint32, a
 // from the server's UIDPLUS COPYUID acknowledgement, aligned with uids.
 // A server that omits COPYUID returns a nil slice: the move still succeeded,
 // but the caller cannot offer an exact undo without the new UIDs.
-func (c *imapConn) MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) ([]uint32, error) {
+func (c *imapConn) MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) (MoveResult, error) {
 	if len(uids) == 0 || dest == "" {
-		return nil, fmt.Errorf("move requires uids and destination")
+		return MoveResult{}, fmt.Errorf("move requires uids and destination")
 	}
 	if err := c.selectFolder(ctx, folder); err != nil {
-		return nil, err
+		return MoveResult{}, err
 	}
 	okLine, err := c.commandCaptureOK(ctx, "UID MOVE", formatUIDSet(uids), quoteIMAP(encodeMailboxWire(dest)))
 	if err != nil {
-		return nil, err
+		return MoveResult{}, err
 	}
 	index := strings.Index(okLine, "[COPYUID ")
 	if index < 0 {
-		return nil, nil
+		return MoveResult{}, nil
 	}
 	fields := strings.Fields(strings.SplitN(okLine[index+9:], "]", 2)[0])
 	if len(fields) != 3 {
-		return nil, nil
+		return MoveResult{}, nil
 	}
+	validity, validityErr := strconv.ParseUint(fields[0], 10, 32)
 	src, srcErr := expandUIDPlusSet(fields[1])
 	dst, dstErr := expandUIDPlusSet(fields[2])
-	if srcErr != nil || dstErr != nil || len(src) != len(dst) {
-		return nil, fmt.Errorf("invalid UIDPLUS COPYUID acknowledgement")
+	if validityErr != nil || validity == 0 || srcErr != nil || dstErr != nil || len(src) != len(dst) || len(src) != len(uids) {
+		return MoveResult{}, nil
 	}
-	acknowledged := map[uint32]uint32{}
+	acknowledged := make(map[uint32]uint32, len(src))
+	seenDestinations := make(map[uint32]bool, len(dst))
 	for i, uid := range src {
+		if _, exists := acknowledged[uid]; exists || seenDestinations[dst[i]] {
+			return MoveResult{}, nil
+		}
 		acknowledged[uid] = dst[i]
+		seenDestinations[dst[i]] = true
 	}
 	destinations := make([]uint32, 0, len(uids))
+	seenRequested := make(map[uint32]bool, len(uids))
 	for _, uid := range uids {
 		target, ok := acknowledged[uid]
-		if !ok {
-			return nil, fmt.Errorf("COPYUID did not confirm uid %d", uid)
+		if !ok || seenRequested[uid] {
+			return MoveResult{}, nil
 		}
+		seenRequested[uid] = true
 		destinations = append(destinations, target)
 	}
-	return destinations, nil
+	return MoveResult{DestinationUIDs: destinations, DestinationUIDValidity: uint32(validity)}, nil
 }
 
 // DeleteMessages marks the given UIDs \Deleted and, when expunge is set,

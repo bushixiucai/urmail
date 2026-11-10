@@ -31,6 +31,12 @@ type Folder struct {
 	Flags     []string `json:"flags"`
 }
 
+// MoveResult identifies destination messages only when COPYUID is trustworthy.
+type MoveResult struct {
+	DestinationUIDs        []uint32
+	DestinationUIDValidity uint32
+}
+
 // Client is a short-lived IMAP session used by handlers.
 type Client interface {
 	ListFolders(ctx context.Context) ([]Folder, error)
@@ -38,10 +44,9 @@ type Client interface {
 	GetMessage(ctx context.Context, folder string, uid uint32) (*Message, error)
 	GetAttachment(ctx context.Context, folder string, uid uint32, partID string) (filename, contentType string, data []byte, err error)
 	SetFlags(ctx context.Context, folder string, uids []uint32, add, remove []string) error
-	// MoveMessages moves UIDs with UID MOVE and returns the destination UIDs
-	// from the UIDPLUS COPYUID acknowledgement, aligned with uids. A nil slice
-	// means the server did not acknowledge the mapping (move still succeeded).
-	MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) ([]uint32, error)
+	// MoveMessages returns a destination mapping and its mailbox generation
+	// only when the server supplies a complete, unambiguous COPYUID.
+	MoveMessages(ctx context.Context, folder string, uids []uint32, dest string) (MoveResult, error)
 	DeleteMessages(ctx context.Context, folder string, uids []uint32, expunge bool) error
 	// EnsureDraftsFolder resolves SPECIAL-USE \Drafts (or name Drafts), creating
 	// DraftsFolderName when missing. Returns the IMAP mailbox name.
@@ -181,8 +186,8 @@ func (c *imapConn) command(ctx context.Context, verb string, args ...string) err
 	return err
 }
 
-// commandCaptureOK behaves like command but returns the tagged OK line so
-// callers can read response codes such as UIDPLUS COPYUID.
+// commandCaptureOK returns the tagged OK line. For UID MOVE it also retains
+// a COPYUID response code from an untagged OK until tagged completion.
 func (c *imapConn) commandCaptureOK(ctx context.Context, verb string, args ...string) (string, error) {
 	finish := c.guardIO(ctx)
 	defer finish()
@@ -202,16 +207,50 @@ func (c *imapConn) commandCaptureOK(ctx context.Context, verb string, args ...st
 	if _, err := io.WriteString(c.conn, b.String()); err != nil {
 		return "", err
 	}
+	var copyUID string
+	conflictingCopyUID := false
+	captureCopyUID := func(text string) {
+		const prefix = "[COPYUID "
+		if len(text) < len(prefix) || !strings.EqualFold(text[:len(prefix)], prefix) {
+			return
+		}
+		end := strings.IndexByte(text, ']')
+		if end < 0 {
+			conflictingCopyUID = true
+			return
+		}
+		code := prefix + text[len(prefix):end+1]
+		if copyUID != "" && copyUID != code {
+			conflictingCopyUID = true
+		}
+		copyUID = code
+	}
 	for {
 		line, err := c.r.ReadString('\n')
 		if err != nil {
 			return "", err
 		}
 		line = strings.TrimRight(line, "\r\n")
-		if strings.HasPrefix(line, "* ") {
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) >= 2 && parts[0] == "*" {
+			if verb == "UID MOVE" && strings.EqualFold(parts[1], "OK") && len(parts) == 3 {
+				captureCopyUID(parts[2])
+			}
 			continue
 		}
-		if strings.HasPrefix(line, tag+" OK") {
+		if len(parts) >= 2 && parts[0] == tag && strings.EqualFold(parts[1], "OK") {
+			if verb == "UID MOVE" {
+				if len(parts) == 3 {
+					captureCopyUID(parts[2])
+				}
+				if conflictingCopyUID {
+					return tag + " OK", nil
+				}
+				if copyUID != "" {
+					return tag + " OK " + copyUID, nil
+				}
+				return tag + " OK", nil
+			}
 			return line, nil
 		}
 		if strings.HasPrefix(line, tag+" ") {

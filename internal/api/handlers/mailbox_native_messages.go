@@ -575,16 +575,16 @@ func (h *MailboxNativeHandler) MoveMessages(c *gin.Context) {
 		return
 	}
 	defer release()
-	destinations, err := client.MoveMessages(c.Request.Context(), folder, req.UIDs, dest)
+	result, err := client.MoveMessages(c.Request.Context(), folder, req.UIDs, dest)
 	if err != nil {
 		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
 		return
 	}
-	// destination_uids enables exact undo on the client; a nil slice means the
-	// server omitted COPYUID and the UI must not pretend it can move back.
+	// The mapping is usable for undo only with its destination UIDVALIDITY.
 	response := gin.H{"moved": len(req.UIDs), "to": dest}
-	if destinations != nil {
-		response["destination_uids"] = destinations
+	if len(result.DestinationUIDs) > 0 && result.DestinationUIDValidity != 0 {
+		response["destination_uids"] = result.DestinationUIDs
+		response["destination_uid_validity"] = result.DestinationUIDValidity
 	}
 	c.JSON(http.StatusOK, response)
 }
