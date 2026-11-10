@@ -14,6 +14,8 @@ import { WebmailComposeDock } from "./components/webmail-compose-dock";
 import { WebmailShortcutHelp } from "./components/webmail-shortcut-help";
 import { WebmailMoveNotice } from "./components/webmail-move-notice";
 import { useMailboxShortcuts } from "./hooks/use-mailbox-shortcuts";
+import { useThreadMembers } from "./hooks/use-thread-members";
+import type { ThreadSummaryState } from "./components/webmail-thread-summary-bar";
 import type { SelectionApi } from "./components/webmail-message-list";
 import {
   moveToSpecialFolder,
@@ -1204,6 +1206,46 @@ export function WebmailNextWorkbench({
     [threadMembers],
   );
 
+  // C1: cross-folder thread members (THREAD-MEMBERS-API-CONTRACT v1).
+  // Anchored on the selected row's root; on error the stack falls back to
+  // the loaded-page members above (§8), never going blank.
+  const selectedRow = useMemo(
+    () =>
+      selectedUid === null
+        ? null
+        : (messages.find((m) => m.uid === selectedUid) ?? null),
+    [messages, selectedUid],
+  );
+  const threadApi = useThreadMembers({
+    originFolderEnc:
+      selectedRow?.folder_enc ?? (selectedRow ? activeFolder : null),
+    originUid: selectedRow?.thread_id ?? null,
+    anchorUid: selectedRow?.uid ?? null,
+    enabled: Boolean(
+      selectedRow &&
+      selectedRow.thread_id &&
+      (selectedRow.thread_count ?? 0) > 1,
+    ),
+  });
+  const useApiMembers = !threadApi.isError && threadApi.members.length > 0;
+  const stackMembers: MessageSummary[] = useApiMembers
+    ? threadApi.members
+    : threadMembers;
+  // Thread-level bulk actions must stay within the origin folder scope —
+  // cross-box members (Sent) are flagged through their own folders later.
+  const actionableThreadUids = useApiMembers
+    ? stackMembers
+        .filter((m) => (m.folder ?? activeFolder) === activeFolder)
+        .map((m) => m.uid)
+    : threadMemberUids;
+  const threadSummaryState: ThreadSummaryState = threadApi.isError
+    ? "error"
+    : threadApi.isLoadingEarlier
+      ? "loading"
+      : !threadApi.hasMoreOlder
+        ? "done"
+        : "idle";
+
   return (
     <div className="webmail-vellum-root min-h-screen h-screen flex flex-col bg-[var(--vellum-ground)] text-[var(--vellum-ink)] overflow-hidden">
       {/* select-none stays on navigation, list rows and controls (they opt in
@@ -1479,7 +1521,16 @@ export function WebmailNextWorkbench({
               isLoading={isDetailLoading}
               isGlobalRemoteImagesAllowed={isGlobalImagesAllowed}
               isManualRemoteImagesAllowed={isCurrentManualGranted}
-              threadMembers={threadMembers}
+              threadMembers={stackMembers}
+              threadTotal={useApiMembers ? threadApi.total : undefined}
+              threadEarlierCount={useApiMembers ? threadApi.earlierCount : 0}
+              threadNewerCount={useApiMembers ? threadApi.newerCount : 0}
+              threadSummaryState={
+                useApiMembers ? threadSummaryState : undefined
+              }
+              onLoadThreadEarlier={threadApi.loadEarlier}
+              onLoadThreadNewer={threadApi.loadNewer}
+              onRetryThreadSummary={threadApi.refetch}
               onBack={() => setSelectedUid(null)}
               onReply={handleReply}
               onReplyAll={handleReplyAll}
@@ -1493,10 +1544,10 @@ export function WebmailNextWorkbench({
                 setIsSettingsOpen(true);
               }}
               onMarkThreadRead={() => {
-                if (threadMemberUids.length === 0) return;
+                if (actionableThreadUids.length === 0) return;
                 void (async () => {
                   await flagMessages(activeFolder, {
-                    uids: threadMemberUids,
+                    uids: actionableThreadUids,
                     add: ["\\Seen"],
                     remove: [],
                   });
@@ -1509,7 +1560,7 @@ export function WebmailNextWorkbench({
                   "\\Archive",
                   "Archive",
                   "webmail_next.folder_archive",
-                  threadMemberUids,
+                  actionableThreadUids,
                 )
               }
               onDeleteThread={() =>
@@ -1517,7 +1568,7 @@ export function WebmailNextWorkbench({
                   "\\Trash",
                   "Trash",
                   "webmail_next.folder_trash",
-                  threadMemberUids,
+                  actionableThreadUids,
                 )
               }
             />

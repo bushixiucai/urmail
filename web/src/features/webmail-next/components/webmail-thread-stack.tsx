@@ -19,6 +19,8 @@ import { avatarInitial } from "../lib/avatar-initial";
 
 export interface ThreadStackProps {
   members: MessageSummary[];
+  /** Contract total (cross-box, all pages); falls back to member data. */
+  totalOverride?: number;
   /** The message currently expanded (body shown). */
   expandedUid: number;
   /** Full detail for the expanded message (null while loading). */
@@ -52,6 +54,7 @@ function senderInitial(m: MessageSummary): string {
  */
 export function WebmailThreadStack({
   members,
+  totalOverride,
   expandedUid,
   expandedDetail,
   isDetailLoading,
@@ -96,12 +99,13 @@ export function WebmailThreadStack({
   };
 
   const totalThreadCount = useMemo(() => {
+    if (totalOverride != null) return totalOverride;
     const maxServerCount = Math.max(
       ...members.map((m) => m.thread_count ?? 0),
       0,
     );
     return maxServerCount > ordered.length ? maxServerCount : ordered.length;
-  }, [members, ordered.length]);
+  }, [totalOverride, members, ordered.length]);
 
   const countLabel = t("webmail_next.thread_loaded_count", {
     loaded: ordered.length,

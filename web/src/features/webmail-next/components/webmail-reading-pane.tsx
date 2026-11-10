@@ -37,6 +37,12 @@ import {
   type MessageSummary,
 } from "@/features/webmail/mailbox-api";
 import { WebmailThreadStack } from "./webmail-thread-stack";
+import {
+  WebmailThreadSummaryBar,
+  type ThreadSummaryState,
+} from "./webmail-thread-summary-bar";
+import { WebmailThreadNewerBar } from "./webmail-thread-newer-bar";
+import { THREAD_LOAD_STEP } from "../lib/thread-members-api";
 
 interface WebmailReadingPaneProps {
   message: MessageDetail | null;
@@ -46,6 +52,17 @@ interface WebmailReadingPaneProps {
   isManualRemoteImagesAllowed?: boolean;
   /** Loaded members of the selected thread (oldest→newest optional). */
   threadMembers?: MessageSummary[];
+  /** Contract total for the stack count label (cross-box, all pages). */
+  threadTotal?: number;
+  /** total - loaded - newer; drives the giant-thread summary bar. */
+  threadEarlierCount?: number;
+  /** Unloaded newer members (deep anchor); renders the bottom entry. */
+  threadNewerCount?: number;
+  /** Undefined hides the summary bar entirely (no members API data). */
+  threadSummaryState?: ThreadSummaryState;
+  onLoadThreadEarlier?: () => void;
+  onLoadThreadNewer?: () => void;
+  onRetryThreadSummary?: () => void;
   onBack?: () => void;
   onReply?: (msg: MessageDetail) => void;
   onReplyAll?: (msg: MessageDetail) => void;
@@ -233,6 +250,13 @@ export function WebmailReadingPane({
   isGlobalRemoteImagesAllowed = false,
   isManualRemoteImagesAllowed = false,
   threadMembers,
+  threadTotal,
+  threadEarlierCount,
+  threadNewerCount,
+  threadSummaryState,
+  onLoadThreadEarlier,
+  onLoadThreadNewer,
+  onRetryThreadSummary,
   onBack,
   onReply,
   onReplyAll,
@@ -828,8 +852,21 @@ export function WebmailReadingPane({
             </button>
           </div>
         )}
+        {threadSummaryState != null &&
+          ((threadEarlierCount ?? 0) > 0 || threadSummaryState === "error") && (
+            <div className="px-3 sm:px-6 pt-3 shrink-0">
+              <WebmailThreadSummaryBar
+                earlierCount={threadEarlierCount ?? 0}
+                state={threadSummaryState}
+                step={THREAD_LOAD_STEP}
+                onLoadEarlier={() => onLoadThreadEarlier?.()}
+                onRetry={() => onRetryThreadSummary?.()}
+              />
+            </div>
+          )}
         <WebmailThreadStack
           members={threadMembers}
+          totalOverride={threadTotal}
           expandedUid={message.uid}
           expandedDetail={message}
           isDetailLoading={isLoading}
@@ -842,6 +879,14 @@ export function WebmailReadingPane({
           onArchiveThread={() => onArchiveThread?.()}
           onDeleteThread={() => onDeleteThread?.()}
         />
+        {(threadNewerCount ?? 0) > 0 && (
+          <div className="px-3 sm:px-6 pb-3 shrink-0">
+            <WebmailThreadNewerBar
+              newerCount={threadNewerCount ?? 0}
+              onLoadNewer={() => onLoadThreadNewer?.()}
+            />
+          </div>
+        )}
       </div>
     );
   }
