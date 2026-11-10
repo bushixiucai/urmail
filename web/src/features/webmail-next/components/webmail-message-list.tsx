@@ -164,8 +164,8 @@ export function WebmailMessageList({
   // Cross-folder result sets can carry the same numeric uid from two
   // boxes. Folder-scoped selection/bulk actions must only ever see rows
   // of the browsing folder (UIUX ①).
-  const selectableItems = items.filter((item) =>
-    !isForeignRow(item, activeFolderEnc),
+  const selectableItems = items.filter(
+    (item) => !isForeignRow(item, activeFolderEnc),
   );
   const { selectedUids, toggleSelect, selectAll, clearSelection } =
     useRangeSelection(selectableItems);
