@@ -193,6 +193,8 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 	uaClass := webmail.ParseUAClass(c.GetHeader("X-UA-Class"))
 	vpWidth := webmail.ParseViewportWidth(c.GetHeader("X-Viewport-Width"))
 	vpBucket := webmail.ViewportBucket(vpWidth)
+	colorScheme := webmail.ParseColorScheme(c.GetHeader("X-Color-Scheme"))
+	textScale := webmail.ParseTextScale(c.GetHeader("X-Text-Scale"))
 	var expectedValidity uint32
 	if value := c.Query("uid_validity"); value != "" {
 		v, parseErr := strconv.ParseUint(value, 10, 32)
@@ -220,6 +222,8 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 				LoadImages:     loadImages && len(h.RenderKey) > 0,
 				UAClass:        uaClass,
 				ViewportBucket: vpBucket,
+				ColorScheme:    string(colorScheme),
+				TextScale:      string(textScale),
 			}
 			var (
 				entry rendercache.Entry
@@ -309,11 +313,12 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 		// Style-selector inlining precedes sanitization (inline →
 		// sanitize → adapt): <style> rules would otherwise die in the
 		// sanitizer before touching an element. Media queries are
-		// evaluated server-side against the reading bucket, so the
-		// rendercache key's bucket fully determines the output.
-		inlined := webmail.InlineCSS(msg.HTML, uaClass)
+		// evaluated server-side against the reading bucket and the
+		// requested color scheme, so the rendercache key's buckets fully
+		// determine the output.
+		inlined := webmail.InlineCSS(msg.HTML, uaClass, colorScheme)
 		safe, notes := webmail.SanitizeHTMLOpts(inlined, sanitizeOpts)
-		vp := webmail.Viewport{UAClass: uaClass, Width: vpWidth}
+		vp := webmail.Viewport{UAClass: uaClass, Width: vpWidth, ColorScheme: colorScheme, TextScale: textScale}
 		adapted := webmail.AdaptHTMLForViewport(safe, vp)
 		msg.HTML = webmail.WrapHTMLDocument(adapted)
 		msg.Notes = notes
@@ -333,6 +338,8 @@ func (h *MailboxNativeHandler) GetMessage(c *gin.Context) {
 			LoadImages:     loadImages && len(h.RenderKey) > 0,
 			UAClass:        uaClass,
 			ViewportBucket: vpBucket,
+			ColorScheme:    string(colorScheme),
+			TextScale:      string(textScale),
 		}, payload)
 		xCache = "miss"
 	}

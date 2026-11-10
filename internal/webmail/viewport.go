@@ -19,6 +19,70 @@ type Viewport struct {
 	UAClass string
 	// Width is the reading-pane width in CSS pixels (0 = unknown).
 	Width int
+	// ColorScheme is the client's explicit light/dark request (X-Color-Scheme
+	// header; empty = not requested, browser preference applies).
+	ColorScheme ColorScheme
+	// TextScale is the client's requested reading text size (X-Text-Scale
+	// header; empty = the mail's own sizing applies).
+	TextScale TextScale
+}
+
+// ColorScheme buckets the explicit scheme request. When set, the render
+// resolves prefers-color-scheme media queries server-side, so the cached
+// output for one bucket is fully determined (contract: one evaluation per
+// bucket, SSR-RENDER-PLAN M1).
+type ColorScheme string
+
+const (
+	// ColorSchemeNone means the client did not opt in; user preference
+	// applies.
+	ColorSchemeNone ColorScheme = ""
+	// ColorSchemeLight requests the light presentation.
+	ColorSchemeLight ColorScheme = "light"
+	// ColorSchemeDark requests the dark presentation.
+	ColorSchemeDark ColorScheme = "dark"
+)
+
+// ParseColorScheme normalises the X-Color-Scheme header; unknown values
+// fail safe to none (current behavior).
+func ParseColorScheme(raw string) ColorScheme {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "light":
+		return ColorSchemeLight
+	case "dark":
+		return ColorSchemeDark
+	default:
+		return ColorSchemeNone
+	}
+}
+
+// TextScale buckets the requested reading text size.
+type TextScale string
+
+const (
+	// TextScaleNone keeps the mail's own sizing.
+	TextScaleNone TextScale = ""
+	// TextScaleSmall reads slightly denser than the mail's base size.
+	TextScaleSmall TextScale = "sm"
+	// TextScaleMedium is the default and never injects sizing.
+	TextScaleMedium TextScale = "md"
+	// TextScaleLarge reads slightly larger than the mail's base size.
+	TextScaleLarge TextScale = "lg"
+)
+
+// ParseTextScale normalises the X-Text-Scale header; unknown values fail
+// safe to none.
+func ParseTextScale(raw string) TextScale {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "sm", "small":
+		return TextScaleSmall
+	case "md", "medium":
+		return TextScaleMedium
+	case "lg", "large":
+		return TextScaleLarge
+	default:
+		return TextScaleNone
+	}
 }
 
 const (
@@ -113,7 +177,7 @@ func AdaptHTMLForViewport(body string, vp Viewport) string {
 	// become body children and are recognized as top-level below.
 	doc, err := html.Parse(strings.NewReader(body))
 	if err != nil {
-		return wrapViewport(body, ua, bucket)
+		return wrapViewport(body, ua, bucket, vp.ColorScheme, vp.TextScale)
 	}
 	root := findBody(doc)
 	if root == nil {
@@ -130,20 +194,39 @@ func AdaptHTMLForViewport(body string, vp Viewport) string {
 	var buf strings.Builder
 	for c := root.FirstChild; c != nil; c = c.NextSibling {
 		if err := html.Render(&buf, c); err != nil {
-			return wrapViewport(body, ua, bucket)
+			return wrapViewport(body, ua, bucket, vp.ColorScheme, vp.TextScale)
 		}
 	}
-	return wrapViewport(buf.String(), ua, bucket)
+	return wrapViewport(buf.String(), ua, bucket, vp.ColorScheme, vp.TextScale)
 }
 
-func wrapViewport(inner, ua, bucket string) string {
+func wrapViewport(inner, ua, bucket string, scheme ColorScheme, scale TextScale) string {
 	class := fmt.Sprintf("urmail-vp urmail-vp-%s urmail-ua-%s", bucket, ua)
+	if scheme == ColorSchemeDark {
+		class += " urmail-scheme-dark"
+	}
+	switch scale {
+	case TextScaleSmall:
+		class += " urmail-scale-sm"
+	case TextScaleLarge:
+		class += " urmail-scale-lg"
+	}
 	style := viewportCSS()
-	// The dark-scheme declaration rides at the fragment head: the render
+	// The color-scheme declaration rides at the fragment head: the render
 	// fragment is loaded as an iframe document, so the meta lands in that
 	// document's head and the browser may render native widgets for the
-	// pane in the user's scheme. Email content colors stay untouched.
-	return `<meta name="color-scheme" content="light dark">` + `<style type="text/css">` + style + `</style><div class="` + class + `">` + inner + `</div>`
+	// pane in the requested scheme. With no explicit request the browser
+	// preference applies; email content colors stay untouched either way.
+	var meta string
+	switch scheme {
+	case ColorSchemeLight:
+		meta = `light`
+	case ColorSchemeDark:
+		meta = `dark`
+	default:
+		meta = `light dark`
+	}
+	return `<meta name="color-scheme" content="` + meta + `">` + `<style type="text/css">` + style + `</style><div class="` + class + `">` + inner + `</div>`
 }
 
 // viewportCSS returns the wrapper stylesheet. The max-width cap targets
@@ -166,6 +249,9 @@ func viewportCSS() string {
 .urmail-vp-wide{width:100%}
 @media (max-width:640px){.urmail-vp{font-size:16px}}
 @media (prefers-color-scheme:dark){.urmail-vp{color-scheme:light dark}}
+.urmail-scheme-dark{color-scheme:dark}
+.urmail-scale-sm{font-size:.875em}
+.urmail-scale-lg{font-size:1.125em}
 `)
 }
 

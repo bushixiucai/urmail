@@ -200,13 +200,13 @@ func TestCorpusRenderGolden(t *testing.T) {
 			// broken-layout surface); the invariants run on both chains —
 			// the structural M2 check on the desktop chain where media is
 			// dropped, so it can only catch our own regressions.
-			inlined := InlineCSS(doc, UAClassMobile)
+			inlined := InlineCSS(doc, UAClassMobile, ColorSchemeNone)
 			safe, _ := SanitizeHTMLOpts(inlined, SanitizeOptions{})
 			out := AdaptHTMLForViewport(safe, Viewport{UAClass: "mobile", Width: 375})
 			wrapped := WrapHTMLDocument(out)
 			assertCorpusInvariants(t, safe, wrapped)
 
-			desktopInlined := InlineCSS(doc, UAClassDesktop)
+			desktopInlined := InlineCSS(doc, UAClassDesktop, ColorSchemeNone)
 			desktopSafe, _ := SanitizeHTMLOpts(desktopInlined, SanitizeOptions{})
 			desktopWrapped := WrapHTMLDocument(AdaptHTMLForViewport(desktopSafe, Viewport{UAClass: UAClassDesktop, Width: 1024}))
 			assertCorpusInvariants(t, desktopSafe, desktopWrapped)
@@ -228,6 +228,107 @@ func TestCorpusRenderGolden(t *testing.T) {
 					goldenPath, len(wrapped), len(want))
 			}
 		})
+	}
+}
+
+// TestCorpusRenderGoldenDark pins the dark-scheme bucket (v0.6.20 M1,
+// X-Color-Scheme): the pipeline inlines prefers-color-scheme:dark media
+// blocks and stamps the scheme meta + wrapper class. Goldens are separate
+// files so the light path above keeps its own pin.
+func TestCorpusRenderGoldenDark(t *testing.T) {
+	paths, err := filepath.Glob("testdata/corpus/*.eml")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("corpus is empty")
+	}
+	update := os.Getenv("URMAIL_UPDATE_GOLDEN") == "1"
+	for _, p := range paths {
+		t.Run(filepath.Base(p), func(t *testing.T) {
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			doc := corpusHTMLPart(t, raw)
+			inlined := InlineCSS(doc, UAClassMobile, ColorSchemeDark)
+			safe, _ := SanitizeHTMLOpts(inlined, SanitizeOptions{})
+			out := AdaptHTMLForViewport(safe, Viewport{UAClass: "mobile", Width: 375, ColorScheme: ColorSchemeDark})
+			wrapped := WrapHTMLDocument(out)
+			assertCorpusInvariants(t, safe, wrapped)
+			if !strings.Contains(wrapped, "urmail-scheme-dark") {
+				t.Fatalf("dark wrapper class missing")
+			}
+			if !strings.Contains(wrapped, `content="dark"`) {
+				t.Fatalf("dark color-scheme meta missing")
+			}
+			// The dark bucket must inline the mail's own dark rules: a media
+			// query that survived inlining would leave rendering to the
+			// client and break the bucket-determines-output contract. The
+			// single allowed occurrence is the pipeline's own scheme rule
+			// in the viewport CSS.
+			if n := strings.Count(strings.ToLower(wrapped), "prefers-color-scheme"); n != 1 {
+				t.Fatalf("unresolved prefers-color-scheme occurrences = %d, want exactly the pipeline's own (1)", n)
+			}
+
+			goldenPath := strings.TrimSuffix(p, ".eml") + ".dark.golden.html"
+			if update {
+				if err := os.WriteFile(goldenPath, []byte(wrapped), 0o644); err != nil {
+					t.Fatalf("write golden: %v", err)
+				}
+				return
+			}
+			want, err := os.ReadFile(goldenPath)
+			if err != nil {
+				t.Fatalf("read golden (run with URMAIL_UPDATE_GOLDEN=1 to create): %v", err)
+			}
+			if string(want) != wrapped {
+				t.Fatalf("rendered output drifted from golden %s (size %d vs %d); regenerate with URMAIL_UPDATE_GOLDEN=1 after a reviewed pipeline change",
+					goldenPath, len(wrapped), len(want))
+			}
+		})
+	}
+}
+
+// TestViewportThemeStamps covers the light/none scheme and the text-scale
+// buckets on the wrapped fragment: meta, wrapper classes, and sizing CSS.
+func TestViewportThemeStamps(t *testing.T) {
+	cases := []struct {
+		scheme ColorScheme
+		scale  TextScale
+		meta   string
+		class  string
+	}{
+		{ColorSchemeNone, TextScaleNone, `content="light dark"`, `class="urmail-vp urmail-vp-wide urmail-ua-desktop"`},
+		{ColorSchemeLight, TextScaleNone, `content="light"`, `class="urmail-vp urmail-vp-wide urmail-ua-desktop"`},
+		{ColorSchemeDark, TextScaleSmall, `content="dark"`, "urmail-scheme-dark urmail-scale-sm"},
+		{ColorSchemeNone, TextScaleLarge, `content="light dark"`, "urmail-scale-lg"},
+	}
+	for _, tc := range cases {
+		out := AdaptHTMLForViewport("<p>hi</p>", Viewport{
+			UAClass: UAClassDesktop, Width: 1280,
+			ColorScheme: tc.scheme, TextScale: tc.scale,
+		})
+		if !strings.Contains(out, tc.meta) {
+			t.Fatalf("scheme %q: meta %q missing: %s", tc.scheme, tc.meta, out)
+		}
+		if !strings.Contains(out, tc.class) {
+			t.Fatalf("scale/scheme %q/%q: class %q missing", tc.scheme, tc.scale, tc.class)
+		}
+	}
+	// Unknown header values fail safe to the defaults.
+	if got := ParseColorScheme("neon"); got != ColorSchemeNone {
+		t.Fatalf("unknown scheme parsed as %q", got)
+	}
+	if got := ParseTextScale("huge"); got != TextScaleNone {
+		t.Fatalf("unknown scale parsed as %q", got)
+	}
+	// The dark bucket never injects content colors: sizing/scheme hooks only.
+	dark := AdaptHTMLForViewport("<p style=\"color:#000\">hi</p>", Viewport{
+		UAClass: UAClassDesktop, Width: 1280, ColorScheme: ColorSchemeDark,
+	})
+	if strings.Contains(dark, "background:#141414") || strings.Contains(dark, "color:#f2f2f2") {
+		t.Fatalf("dark bucket injected content colors (design §6: client white bucket owns presentation)")
 	}
 }
 
