@@ -36,6 +36,9 @@ export interface WebmailItem {
   isThreadChild?: boolean;
   /** Last child in the expanded list — stops the connector line mid-row. */
   isLastThreadChild?: boolean;
+  /** #119 degraded contract: set for rows whose candidate group the
+   * server could not verify (thread_id/thread_count omitted for them). */
+  threadVerification?: "unverified";
   folder?: string;
   folderEnc?: string;
 }

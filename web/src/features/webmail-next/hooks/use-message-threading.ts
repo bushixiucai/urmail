@@ -62,6 +62,7 @@ export function useMessageThreading(messages: MessageSummary[]) {
         size: m.size,
         threadId: m.thread_id,
         threadCount: isChild ? undefined : m.thread_count,
+        threadVerification: m.thread_verification,
         isThreadChild: isChild || undefined,
         folder: m.folder,
         folderEnc: m.folder_enc,
