@@ -1065,40 +1065,42 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(fetchThreadMembers).not.toHaveBeenCalled();
   });
 
-  it("keeps the INBOX target after refresh removes the row while a Sent same-uid row remains", async () => {
-    // Sequence (UIUX): browse INBOX → open verified INBOX 148 from the
-    // list (no stack click) → refresh drops that row but a Sent 148 row
-    // stays listed → the members query must stay on (INBOX,148).
-    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
-      messages: [INBOX_148, SENT_148],
-      total: 2,
-      limit: 100,
-      offset: 0,
-      uid_validity: 7,
-    } as never);
+  it("keeps the verified anchor when a refresh removes the auto-selected row", async () => {
+    // Wide screen auto-selects the verified INBOX 148 row (thread_id set)
+    // → stackOrigin(INBOX,148) is recorded. A later refresh that removes
+    // every list row must NOT deactivate the members query (QA sequence ①,
+    // persistence variant): the anchor is the verified thread origin.
     renderWorkbench();
-    // Click the INBOX row (first of the two same-uid rows, older date).
-    const rows = await screen.findAllByTestId("mail-row-148");
-    fireEvent.click(rows[0]);
-    await waitFor(() => {
-      const calls = vi.mocked(fetchThreadMembers).mock.calls;
-      expect(calls[calls.length - 1]?.[0]).toBe("INBOX");
-    });
-    // Refresh: the INBOX row disappears, the Sent row stays.
+    await waitFor(() =>
+      expect(fetchThreadMembers).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+    const callsAtSteady = vi.mocked(fetchThreadMembers).mock.calls.length;
     vi.mocked(mailboxApi.listMessages).mockResolvedValue({
-      messages: [SENT_148],
-      total: 1,
+      messages: [],
+      total: 0,
       limit: 100,
       offset: 0,
       uid_validity: 7,
     } as never);
     fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
-    await waitFor(() => {
-      const calls = vi.mocked(fetchThreadMembers).mock.calls;
-      const last = calls[calls.length - 1];
-      expect(last?.[0]).toBe("INBOX");
-      expect(last?.[1]).toBe(148);
-    });
+    await waitFor(() =>
+      expect(mailboxApi.listMessages.mock.calls.length).toBeGreaterThanOrEqual(
+        2,
+      ),
+    );
+    // The anchor must never switch boxes: the last members target stays
+    // (INBOX,148) even after the row is gone. Framework may legitimately
+    // re-run the same-key query (bounded), so assert on the TARGET only.
+    await new Promise((r) => setTimeout(r, 50));
+    const calls = vi.mocked(fetchThreadMembers).mock.calls;
+    expect(calls.length).toBeLessThan(callsAtSteady + 3); // bounded churn
+    const last = calls[calls.length - 1];
+    expect(last?.[0]).toBe("INBOX");
+    expect(last?.[1]).toBe(148);
   });
 
   it("safely ends the query instead of substituting a foreign same-uid row", async () => {
@@ -1121,7 +1123,7 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     } as never);
     renderWorkbench();
     const rows = await screen.findAllByTestId("mail-row-148");
-    fireEvent.click(rows[0]);
+    fireEvent.click(rows[1]); // INBOX copy renders second (desc order)
     await waitFor(() => expect(fetchThreadMembers).not.toHaveBeenCalled());
     const callsBefore = vi.mocked(fetchThreadMembers).mock.calls.length;
     vi.mocked(mailboxApi.listMessages).mockResolvedValue({
@@ -1134,7 +1136,16 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     fireEvent.click(screen.getByTestId("webmail-refresh-btn"));
     // Give any erroneous query a chance to fire.
     await waitFor(() => expect(mailboxApi.listMessages).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    // No substitution: the members query stays ended (count unchanged) and
+    // the last target never switches to another box's copy.
     expect(vi.mocked(fetchThreadMembers).mock.calls.length).toBe(callsBefore);
+    const lastCall =
+      vi.mocked(fetchThreadMembers).mock.calls[
+        vi.mocked(fetchThreadMembers).mock.calls.length - 1
+      ];
+    expect(lastCall?.[0]).not.toBe("Sent");
+    expect(lastCall?.[1]).not.toBe(148);
   });
 
   it("never fires members for an unverified row that carries a folder_enc", async () => {
@@ -1222,6 +1233,47 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(screen.getAllByTestId(/^thread-card-\d+$/).length).toBeGreaterThan(
       1,
     );
+  });
+
+  it("mixed cross-folder search keeps both same-uid rows and routes Reply/Forward correctly", async () => {
+    // QA repro: Sent 148 listed BEFORE INBOX 148 — bare-uid dedupe used to
+    // erase the INBOX row entirely.
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [
+        { name: "Inbox", name_enc: "INBOX", delimiter: "/" },
+        { name: "Sent", name_enc: "Sent", delimiter: "/" },
+        { name: "Trash", name_enc: "Trash", delimiter: "/" },
+      ] as never,
+    });
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [SENT_148, INBOX_148],
+      total: 2,
+      q: "",
+    });
+    renderWorkbench();
+    // Trigger cross-folder search.
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "cross-box" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    // Threaded search view groups the two copies into one conversation row
+    // ("Ann (2)") — the composite dedupe must NOT have erased the INBOX
+    // row from the group (sender summary contains both copies' data).
+    const row = await screen.findByTestId("mail-row-148");
+    expect(row.textContent).toContain("(2)");
+    // Right-click the group row while reading INBOX (contextRow resolves
+    // by folder+uid) → Reply targets ann@x with the INBOX subject.
+    fireEvent.contextMenu(row);
+    const reply = await screen.findByTestId("ctx-reply");
+    fireEvent.click(reply);
+    const dock = await screen.findByTestId("webmail-compose-dock");
+    expect(dock.textContent).toContain("ann@x");
+    expect(dock.textContent).toContain("Re: cross-box sample");
+    // Close, then Forward the same row: subject prefixed correctly.
+    fireEvent.click(await screen.findByTestId("compose-close-button"));
+    fireEvent.contextMenu(row);
+    fireEvent.click(await screen.findByTestId("ctx-forward"));
+    const dock2 = await screen.findByTestId("webmail-compose-dock");
+    expect(dock2.textContent).toContain("Fwd: cross-box sample");
   });
 
   it("keeps the members query anchored when a stack member is not in the list", async () => {

@@ -554,12 +554,16 @@ export function WebmailNextWorkbench({
 
   const messageListData = messagePages?.pages[0];
   const messages = useMemo(() => {
-    const seen = new Set<number>();
+    // Composite dedupe (folder_enc:uid): cross-folder results can legally
+    // carry INBOX 148 and Sent 148 — dropping by bare uid would erase the
+    // INBOX row whenever the Sent copy is listed first (QA repro).
+    const seen = new Set<string>();
     const out: MessageSummary[] = [];
     for (const page of messagePages?.pages ?? []) {
       for (const message of page.messages ?? []) {
-        if (seen.has(message.uid)) continue;
-        seen.add(message.uid);
+        const key = `${message.folder_enc ?? ""}:${message.uid}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         out.push(message);
       }
     }
