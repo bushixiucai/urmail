@@ -29,9 +29,9 @@ import (
 // attachPreviews fills the preview snippet of every summary with one batched
 // IMAP fetch. A failed snippet fetch is never fatal: the listing still
 // returns and the previews stay empty.
-func (c *imapConn) attachPreviews(ctx context.Context, summaries []MessageSummary) {
+func (c *imapConn) attachPreviews(ctx context.Context, summaries []MessageSummary) error {
 	if len(summaries) == 0 {
-		return
+		return nil
 	}
 	uids := make([]uint32, 0, len(summaries))
 	for _, summary := range summaries {
@@ -41,20 +41,28 @@ func (c *imapConn) attachPreviews(ctx context.Context, summaries []MessageSummar
 	}
 	previews, err := c.uidFetchPreviews(ctx, uids)
 	if err != nil {
-		return
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if c.closed {
+			return err
+		}
+		return nil
 	}
 	for i := range summaries {
 		if preview, ok := previews[summaries[i].UID]; ok {
 			summaries[i].Preview = preview
 		}
 	}
+	return nil
 }
 
 // uidFetchPreviews runs the single batched snippet command for the given
 // UIDs and maps every UID to its extracted preview text. Each FETCH
 // response carries two literals: the requested header fields and the start
 // of the body text.
-func (c *imapConn) uidFetchPreviews(ctx context.Context, uids []uint32) (map[uint32]string, error) {
+func (c *imapConn) uidFetchPreviews(ctx context.Context, uids []uint32) (_ map[uint32]string, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	if len(uids) == 0 {
 		return map[uint32]string{}, nil
 	}
@@ -100,7 +108,7 @@ func (c *imapConn) uidFetchPreviews(ctx context.Context, uids []uint32) (map[uin
 			return previews, nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("preview fetch: %s", strings.TrimSpace(line))
+			return nil, imapCommandRejected("preview fetch: " + strings.TrimSpace(line))
 		}
 		if !wantText {
 			if !strings.HasPrefix(line, "* ") {

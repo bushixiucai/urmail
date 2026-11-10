@@ -348,7 +348,7 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 					return
 				}
 				switch threadResponse {
-				case "__refine_disconnect__":
+				case "__refine_disconnect__", "__preview_no__":
 					_, _ = io.WriteString(w, "* THREAD (4 3 2)(1)\r\n"+tag+" OK thread done\r\n")
 				case "":
 					_, _ = io.WriteString(w, tag+" NO UID THREAD unsupported\r\n")
@@ -357,7 +357,7 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 				}
 			case strings.Contains(line, "UID SEARCH"):
 				searches++
-				if threadResponse == "__count_stall__" && searches == 2 {
+				if (threadResponse == "__count_stall__" && searches == 2) || (threadResponse == "__initial_search_stall__" && searches == 1) {
 					_, _ = r.ReadString('\n')
 					return
 				}
@@ -368,6 +368,17 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 				_, _ = io.WriteString(w, "* SEARCH "+strings.Join(parts, " ")+"\r\n"+tag+" OK search done\r\n")
 			case strings.Contains(line, "UID FETCH"):
 				fetches++
+				if threadResponse == "__page_stall__" && fetches == 1 {
+					_, _ = r.ReadString('\n')
+					return
+				}
+				if fetches == 2 && threadResponse == "__preview_disconnect__" {
+					return
+				}
+				if fetches == 2 && threadResponse == "__preview_no__" {
+					_, _ = io.WriteString(w, tag+" NO preview unavailable\r\n")
+					break
+				}
 				if threadResponse == "__refine_disconnect__" && fetches == 2 {
 					return
 				}
@@ -378,6 +389,10 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 				}
 				_, _ = io.WriteString(w, tag+" OK fetch done\r\n")
 			case strings.Contains(line, "SELECT"):
+				if threadResponse == "__select_stall__" {
+					_, _ = r.ReadString('\n')
+					return
+				}
 				_, _ = io.WriteString(w, "* OK [UIDVALIDITY 7] selected\r\n"+tag+" OK select done\r\n")
 			default:
 				_, _ = io.WriteString(w, tag+" OK\r\n")

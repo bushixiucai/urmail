@@ -10,21 +10,47 @@ import (
 	"time"
 )
 
+func TestPreviewFailurePreservesCommandSynchronization(t *testing.T) {
+	for _, mode := range []string{"__preview_no__", "__preview_disconnect__"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := make(chan struct{}, 1)
+			client := dialTestClient(t, startThreadIMAPServerObserved(t, threadFixtureMessages(), mode, calls))
+			_, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 1, Preview: true, Thread: true})
+			if mode == "__preview_no__" && err != nil {
+				t.Fatalf("tagged rejection: %v", err)
+			}
+			if mode == "__preview_disconnect__" && err == nil {
+				t.Fatal("disconnect returned success")
+			}
+			select {
+			case <-calls:
+				if mode == "__preview_disconnect__" {
+					t.Fatal("THREAD sent after interrupted preview")
+				}
+			default:
+				if mode == "__preview_no__" {
+					t.Fatal("tagged NO did not continue to THREAD")
+				}
+			}
+		})
+	}
+}
+
 func TestInterruptedCountAndRefinementCloseConnection(t *testing.T) {
-	for _, mode := range []string{"__count_stall__", "__refine_disconnect__"} {
+	for _, mode := range []string{"__count_stall__", "__refine_disconnect__", "__select_stall__", "__initial_search_stall__", "__page_stall__"} {
 		t.Run(mode, func(t *testing.T) {
 			client := dialTestClient(t, startThreadIMAPServer(t, threadFixtureMessages(), mode))
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			result, err := client.ListMessages(ctx, "INBOX", ListOpts{Limit: 1, Thread: true})
-			if mode == "__count_stall__" && err == nil {
+			if mode != "__refine_disconnect__" && err == nil {
 				t.Fatal("canceled count returned success")
 			}
 			if mode == "__refine_disconnect__" && (err != nil || result.Messages[0].ThreadVerification != "unverified") {
 				t.Fatalf("unexpected refinement result: %+v, %v", result, err)
 			}
-			if client.(*imapConn).conn != nil {
-				t.Fatal("interrupted connection remained open")
+			if _, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 1}); err == nil {
+				t.Fatal("closed connection accepted another operation")
 			}
 		})
 	}
@@ -43,8 +69,8 @@ func TestThreadTransportFailureClosesConnection(t *testing.T) {
 			if mode == "__stall__" && !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("expected cancellation, got %v", err)
 			}
-			if client.(*imapConn).conn != nil {
-				t.Fatal("unsynchronized connection was not closed")
+			if _, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 1}); err == nil {
+				t.Fatal("closed connection accepted another operation")
 			}
 		})
 	}

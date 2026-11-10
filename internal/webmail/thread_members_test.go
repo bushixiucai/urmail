@@ -27,15 +27,24 @@ func TestThreadMembersMarksMissingAuxiliaryFolderBounded(t *testing.T) {
 }
 
 func TestThreadMembersAuxiliaryTransportFailure(t *testing.T) {
-	for _, fault := range []string{"disconnect", "stall"} {
+	for _, fault := range []string{"disconnect", "stall", "list-stall"} {
 		t.Run(fault, func(t *testing.T) {
 			folders := map[string][]memberMessage{"Sent": {{uid: 1, subject: "test", from: "a@example.test"}}}
 			client := dialTestClient(t, startMemberIMAPServerFault(t, folders, fault))
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			_, err := client.GetThreadMembers(ctx, "Sent", 1, ThreadMembersOpts{})
-			if err == nil || client.(*imapConn).conn != nil {
-				t.Fatalf("interrupted scan must fail and close connection: %v", err)
+			if err == nil {
+				t.Fatal("interrupted scan returned success")
+			}
+			if _, err := client.ListFolders(context.Background()); err == nil {
+				t.Fatal("closed connection accepted another operation")
+			}
+			if err := client.Close(); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+			if err := client.Close(); err != nil {
+				t.Fatalf("second close: %v", err)
 			}
 		})
 	}
@@ -128,6 +137,10 @@ func startMemberIMAPServerFault(t *testing.T, folders map[string][]memberMessage
 			tag := fields[0]
 			switch {
 			case strings.Contains(line, "LIST"):
+				if fault == "list-stall" {
+					_, _ = r.ReadString('\n')
+					return
+				}
 				resp := ""
 				for name := range folders {
 					flags := ""

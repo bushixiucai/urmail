@@ -77,6 +77,10 @@ func (c *imapConn) GetThreadMembers(ctx context.Context, folder string, uid uint
 	}
 	scanFolders, err := c.threadScanFolders(ctx, folder)
 	if err != nil {
+		c.discard()
+		if ctx.Err() != nil {
+			return ThreadMembersResult{}, ctx.Err()
+		}
 		return ThreadMembersResult{}, err
 	}
 	bounded := false

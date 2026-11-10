@@ -68,6 +68,11 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 			}
 			ordered, serverSorted = uids, true
 			matched = len(uids)
+		} else if c.closed {
+			if ctx.Err() != nil {
+				return ListResult{}, ctx.Err()
+			}
+			return ListResult{}, sortErr
 		}
 	}
 	if ordered == nil {
@@ -138,8 +143,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		}
 		var rejected imapCommandRejected
 		if countErr != nil && !errors.As(countErr, &rejected) {
-			_ = c.conn.Close()
-			c.conn = nil
+			c.discard()
 			return ListResult{}, countErr
 		}
 	}
@@ -150,7 +154,9 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 	if opts.Preview {
 		// One batched command downloads the page's snippets; failures only
 		// leave the previews empty (see preview_fetch.go).
-		c.attachPreviews(ctx, summaries)
+		if err := c.attachPreviews(ctx, summaries); err != nil {
+			return ListResult{}, err
+		}
 	}
 
 	threadMode := ""
@@ -191,8 +197,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 			if threadErr != nil && !errors.As(threadErr, &rejected) {
 				// A failed read/write leaves the command stream unsynchronized.
 				// Close without LOGOUT and never issue a fallback on this socket.
-				_ = c.conn.Close()
-				c.conn = nil
+				c.discard()
 				if ctx.Err() != nil {
 					return ListResult{}, ctx.Err()
 				}
@@ -503,7 +508,8 @@ func (c *imapConn) FolderUIDValidity(ctx context.Context, folder string) (uint32
 	return validity, nil
 }
 
-func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bool) (uint32, error) {
+func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bool) (_ uint32, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -546,7 +552,8 @@ func (c *imapConn) selectMailbox(ctx context.Context, folder string, required bo
 	}
 }
 
-func (c *imapConn) uidSearch(ctx context.Context, criteria string) ([]uint32, error) {
+func (c *imapConn) uidSearch(ctx context.Context, criteria string) (_ []uint32, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
@@ -579,7 +586,8 @@ func (c *imapConn) uidSearch(ctx context.Context, criteria string) ([]uint32, er
 	}
 }
 
-func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) ([]MessageSummary, error) {
+func (c *imapConn) uidFetchSummaries(ctx context.Context, uids []uint32) (_ []MessageSummary, resultErr error) {
+	defer func() { c.finishIMAPError(ctx, resultErr) }()
 	finish := c.guardIO(ctx)
 	defer finish()
 	if err := ctx.Err(); err != nil {
