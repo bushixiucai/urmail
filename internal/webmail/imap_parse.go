@@ -3,6 +3,7 @@ package webmail
 import (
 	"fmt"
 	"mime"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -134,6 +135,22 @@ func nstring(s string) string {
 	return s
 }
 
+// encodedWordRE matches one RFC 2047 encoded-word, for the per-word
+// degradation pass in decodeMIMEHeader.
+var encodedWordRE = regexp.MustCompile(`(?i)=\?[^?\s]+\?[bBqQ]\?[^\s?]*\?=`)
+
+// looseEncodedWordRE scrubs malformed near-encoded-words (truncated or
+// corrupted forms the strict pattern cannot parse) that survive into the
+// degradation path — only entered after a whole-header decode failure, so
+// well-formed headers never see this scrub.
+var looseEncodedWordRE = regexp.MustCompile(`(?i)=\?[^?\s]{0,80}(\?[bBqQ]\?)?[^?]{0,512}\?=`)
+
+// decodeMIMEHeader decodes RFC 2047 encoded-words in a header value. A
+// whole-header failure (unsupported charset label, or one word with illegal
+// bytes — DEF-7: a broken gb2312 display name used to leak the raw
+// encoded-word to the UI) falls back to decoding word-by-word; leftover
+// near-encoded-word fragments and unrecoverable-byte markers are scrubbed
+// rather than leaked.
 func decodeMIMEHeader(s string) string {
 	if s == "" {
 		return ""
@@ -141,9 +158,21 @@ func decodeMIMEHeader(s string) string {
 	dec := mime.WordDecoder{CharsetReader: charset.NewReaderLabel}
 	out, err := dec.DecodeHeader(s)
 	if err != nil {
-		return s
+		// Whole-header failure: decode word-by-word, then scrub malformed
+		// near-encoded-word fragments the strict pattern cannot parse.
+		out = encodedWordRE.ReplaceAllStringFunc(s, func(word string) string {
+			decoded, err := dec.Decode(word)
+			if err != nil {
+				return ""
+			}
+			return decoded
+		})
+		out = looseEncodedWordRE.ReplaceAllString(out, "")
 	}
-	return out
+	// Some charset transforms substitute unrecoverable bytes with U+FFFD
+	// instead of erroring; those markers are mojibake, never content, and
+	// render as tofu in the UI.
+	return strings.ReplaceAll(out, "�", "")
 }
 
 // envelopeDate maps an unparsable ENVELOPE date to a nil pointer so the JSON

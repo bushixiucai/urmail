@@ -2,6 +2,7 @@ package webmail
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,14 +32,18 @@ func TestDecodeMIMEHeaderMixedParts(t *testing.T) {
 	}
 }
 
-// ASCII encoded-words keep working and undecodable input is returned verbatim.
+// ASCII encoded-words keep working; undecodable words are dropped, never
+// leaked verbatim (V0620-FIDELITY-REVIEW DEF-7: the raw form used to reach
+// the UI as a garbled display name).
 func TestDecodeMIMEHeaderUTF8AndFallback(t *testing.T) {
 	if got := decodeMIMEHeader("=?utf-8?B?SGVsbG8=?="); got != "Hello" {
 		t.Fatalf("utf-8 subject=%q", got)
 	}
-	raw := "=?x-unknown-charset?B?AAAA?="
-	if got := decodeMIMEHeader(raw); got != raw {
-		t.Fatalf("fallback subject=%q want verbatim", got)
+	if got := decodeMIMEHeader("=?x-unknown-charset?B?AAAA?="); strings.Contains(got, "=?") {
+		t.Fatalf("unknown-charset word leaked raw form: %q", got)
+	}
+	if got := decodeMIMEHeader("Hi =?x-unknown-charset?B?AAAA?= there"); got != "Hi  there" && got != "Hi there" {
+		t.Fatalf("mixed fallback=%q", got)
 	}
 }
 

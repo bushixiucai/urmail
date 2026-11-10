@@ -141,3 +141,32 @@ func TestCacheInvalidateMessage(t *testing.T) {
 	var nilCache *Cache
 	nilCache.InvalidateMessage(3, "INBOX", 5, 9)
 }
+
+// QA regression F-3: the loose match must respect the M1 buckets — a dark
+// request without uid_validity must never hit a light rendering.
+func TestGetLooseRespectsThemeBuckets(t *testing.T) {
+	c := New()
+	base := Key{MailboxID: 1, Folder: "INBOX", UID: 9, UIDValidity: 7,
+		LoadImages: false, UAClass: "desktop", ViewportBucket: "wide"}
+	light := base
+	light.ColorScheme = "light"
+	dark := base
+	dark.ColorScheme = "dark"
+	dark.TextScale = "lg"
+	c.Put(light, []byte("light-payload"))
+	if _, ok := c.GetLoose(dark); ok {
+		t.Fatalf("dark request hit the light rendering via loose match")
+	}
+	c.Put(dark, []byte("dark-payload"))
+	entry, ok := c.GetLoose(dark)
+	if !ok || string(entry.Payload) != "dark-payload" {
+		t.Fatalf("dark loose hit wrong entry: %q ok=%v", entry.Payload, ok)
+	}
+	// uid_validity remains the only tolerated difference.
+	noValidity := dark
+	noValidity.UIDValidity = 0
+	entry, ok = c.GetLoose(noValidity)
+	if !ok || string(entry.Payload) != "dark-payload" {
+		t.Fatalf("uid_validity tolerance broken: ok=%v", ok)
+	}
+}

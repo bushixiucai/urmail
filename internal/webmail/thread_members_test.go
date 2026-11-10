@@ -361,3 +361,60 @@ func TestGetThreadMembersFallbackStaysFolderLocal(t *testing.T) {
 		t.Fatalf("cross-folder subject fallback fused members: %+v", result)
 	}
 }
+
+// QA regression F-1 / fidelity DEF-4: UIDs collide across folders — an
+// INBOX uid 1 and a Sent uid 1 are different messages. Threading on the
+// raw UID fused unrelated threads (the isolated 五一 pair fused into the
+// 42-message megathread); the synthetic-key grouping must keep them apart.
+func TestGetThreadMembersUIDCollisionAcrossFolders(t *testing.T) {
+	folders := map[string][]memberMessage{
+		"INBOX": {
+			{uid: 1, subject: "Megathread root", from: "alice@example.test", date: memberDate(1, 9), messageID: "<mega1@x>"},
+			{uid: 2, subject: "Re: Megathread root", from: "bob@example.test", date: memberDate(1, 10), inReplyTo: "<mega1@x>"},
+		},
+		"Sent": {
+			// Same uid number as the megathread root, zero header overlap.
+			{uid: 1, subject: "五一出游计划", from: "me@example.test", date: memberDate(2, 9), messageID: "<s5-inbox@review-s5.example.test>"},
+			{uid: 2, subject: "Re: 五一出游计划", from: "me@example.test", date: memberDate(2, 10), inReplyTo: "<s5-inbox@review-s5.example.test>"},
+		},
+	}
+	addr := startMemberIMAPServer(t, folders)
+	client := dialTestClient(t, addr)
+	defer func() { _ = client.Close() }()
+
+	result, err := client.GetThreadMembers(context.Background(), "Sent", 1, ThreadMembersOpts{})
+	if err != nil {
+		t.Fatalf("sent anchor: %v", err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("uid collision fused threads: total=%d, want 2: %+v", result.Total, result)
+	}
+	for _, m := range result.Messages {
+		if m.Folder != "Sent" {
+			t.Fatalf("cross-folder member leaked into isolated thread: %+v", m)
+		}
+	}
+	// Anchoring from the INBOX side stays isolated too.
+	resultInbox, err := client.GetThreadMembers(context.Background(), "INBOX", 1, ThreadMembersOpts{})
+	if err != nil {
+		t.Fatalf("inbox anchor: %v", err)
+	}
+	if resultInbox.Total != 2 {
+		t.Fatalf("inbox anchor fused: total=%d, want 2", resultInbox.Total)
+	}
+}
+
+// QA N2 verdict guard: a background-image url() without remote-image
+// authorization is dropped server-side WITH the remote-images note.
+func TestBackgroundImageDroppedWithNote(t *testing.T) {
+	doc := `<div style="background-image:url(https://img.example.test/bg.png);color:#111">x</div>`
+	inlined := InlineCSS(doc, UAClassDesktop, ColorSchemeNone)
+	safe, notes := SanitizeHTMLOpts(inlined, SanitizeOptions{})
+	if strings.Contains(strings.ToLower(safe), "background-image") {
+		t.Fatalf("background-image survived without authorization: %s", safe)
+	}
+	joined := strings.Join(notes, ",")
+	if !strings.Contains(joined, "remote") {
+		t.Fatalf("remote-images note missing, notes=%v", notes)
+	}
+}

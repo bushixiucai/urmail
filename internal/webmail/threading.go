@@ -19,38 +19,41 @@ const SubjectFallbackWindow = 7 * 24 * time.Hour
 // bar instead of one unbounded stack).
 const WeakAggregationThreshold = 20
 
-// systemSenderLocalParts lists mailbox local parts whose senders count as
-// automated system mail (bounce daemons, verifiers, auto-responders). Mail
+// systemSenderMarkers lists the identifying fragments of automated system
+// senders (bounce daemons, verifiers, auto-responders, postmasters). Mail
 // from these senders never joins the subject fallback, so daily notices and
-// bounces cannot grow phantom threads (THREAD-UX-REVIEW F1). Reply chains
-// still group them: References/In-Reply-To is the only strong grouping.
-var systemSenderLocalParts = map[string]struct{}{
-	"mailer-daemon":  {},
-	"noreply":        {},
-	"no-reply":       {},
-	"no_reply":       {},
-	"donotreply":     {},
-	"do-not-reply":   {},
-	"do_not_reply":   {},
-	"auto-reply":     {},
-	"autoreply":      {},
-	"auto_reply":     {},
-	"autoresponder":  {},
-	"auto-responder": {},
+// bounces cannot grow phantom threads (THREAD-UX-REVIEW F1; QA F-2). Reply
+// chains still group them: References/In-Reply-To is the only strong
+// grouping.
+var systemSenderMarkers = []string{
+	"mailer-daemon",
+	"noreply",
+	"no-reply",
+	"no_reply",
+	"donotreply",
+	"do-not-reply",
+	"do_not_reply",
+	"auto-reply",
+	"autoreply",
+	"auto_reply",
+	"autoresponder",
+	"auto-responder",
+	"postmaster",
 }
 
 // isSystemSender reports whether the address belongs to an automated system
-// sender. Plus-addressing is stripped before comparing the local part.
+// sender. The check covers the email AND the display name: garbled senders
+// sometimes survive as display-only addresses with an empty email (QA F-2),
+// and the marker then lives in the name.
 func isSystemSender(addr Address) bool {
-	local := strings.ToLower(strings.TrimSpace(addr.Email))
-	if at := strings.IndexByte(local, '@'); at >= 0 {
-		local = local[:at]
+	email := strings.ToLower(strings.TrimSpace(addr.Email))
+	name := strings.ToLower(strings.TrimSpace(addr.Name))
+	for _, marker := range systemSenderMarkers {
+		if strings.Contains(email, marker) || strings.Contains(name, marker) {
+			return true
+		}
 	}
-	if plus := strings.IndexByte(local, '+'); plus >= 0 {
-		local = local[:plus]
-	}
-	_, ok := systemSenderLocalParts[local]
-	return ok
+	return false
 }
 
 // hasNonSystemSender reports whether any sender of m is a human-operated

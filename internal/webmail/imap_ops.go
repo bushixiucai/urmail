@@ -234,7 +234,7 @@ func addressesFromHeader(raw string) []Address {
 			if a == nil || a.Address == "" {
 				continue
 			}
-			out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+			out = append(out, Address{Name: decodeMIMEHeader(a.Name), Email: strings.ToLower(a.Address)})
 		}
 		if len(out) > 0 {
 			return out
@@ -253,7 +253,7 @@ func addressesFromHeader(raw string) []Address {
 			continue
 		}
 		if a, err := mail.ParseAddress(frag); err == nil && a.Address != "" {
-			out = append(out, Address{Name: a.Name, Email: strings.ToLower(a.Address)})
+			out = append(out, Address{Name: decodeMIMEHeader(a.Name), Email: strings.ToLower(a.Address)})
 			continue
 		}
 		decoded := strings.TrimSpace(decodeMIMEHeader(frag))
