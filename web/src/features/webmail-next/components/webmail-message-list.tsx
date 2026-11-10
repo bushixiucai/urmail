@@ -526,6 +526,14 @@ export function WebmailMessageList({
         rowActionsRef.current.openContextMenu(item.uid, x, y, item.folderEnc);
       }}
       onDragStartUids={(fallbackUids) => {
+        // Folder-scoped move may only start from a row whose box is known
+        // (foreign/unknown provenance must never start a write chain).
+        if (
+          isForeignRow(item, activeFolderEnc) ||
+          isUnknownProvenance(item, isCrossFolder)
+        ) {
+          return [];
+        }
         // Dragging a member of the selection carries the whole selection;
         // otherwise it carries just this row.
         const uids = selectedUids.has(item.uid)

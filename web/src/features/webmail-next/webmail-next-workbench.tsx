@@ -1105,15 +1105,16 @@ export function WebmailNextWorkbench({
   const contextWritesAllowed = (uids: number[], folderEnc?: string) => {
     const enc = folderEnc ?? activeFolder;
     if (enc !== activeFolder) return false; // bulk paths are folder-scoped
-    return uids.every(
-      (uid) =>
-        messages.some(
-          (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === enc,
-        ) &&
-        !messages.some(
-          (m) => m.uid === uid && (m.folder_enc ?? activeFolder) !== enc,
-        ),
-    );
+    return uids.every((uid) => {
+      const rows = messages.filter((m) => m.uid === uid);
+      if (rows.length === 0) return false;
+      // fail-closed: a folderless row may borrow the browsing box ONLY in
+      // a trusted single-box list; in cross-folder context its provenance
+      // is unknown and it must never receive a folder-scoped write.
+      return rows.every((m) =>
+        m.folder_enc != null ? m.folder_enc === enc : !isCrossFolder,
+      );
+    });
   };
 
   /** Move UIDs to an arbitrary folder by enc; same pipeline as bulk move. */
@@ -1391,26 +1392,41 @@ export function WebmailNextWorkbench({
         const uid = cursorUid ?? loadedUids()[0];
         if (uid == null) return;
         // Folder-scoped selection: a foreign-box cursor row must not
-        // toggle the browsing folder's same-numbered mail.
+        // toggle the browsing folder's same-numbered mail, and an unknown
+        // provenance row must never enter the selection at all.
         if (cursorFolderEnc != null && cursorFolderEnc !== activeFolder) {
+          return;
+        }
+        if (
+          isCrossFolder &&
+          messages.some((m) => m.uid === uid && m.folder_enc == null)
+        ) {
           return;
         }
         selectionRef.current?.toggle(uid, false, false);
       } else if (action === "archive") {
+        // Shortcut writes resolve their targets through the SAME folder
+        // validation as menu writes: an unknown/foreign cursor or stale
+        // selection must not fall back to the browsing box (Backend audit).
+        if (!contextWritesAllowed(targetUids())) return;
         void handleMoveSpecial(
           "\\Archive",
           "Archive",
           "webmail_next.folder_archive",
         );
       } else if (action === "trash") {
+        if (!contextWritesAllowed(targetUids())) return;
         void handleMoveSpecial("\\Trash", "Trash", "webmail_next.folder_trash");
       } else if (action === "toggle-star") {
         const uids = targetUids();
+        if (!contextWritesAllowed(uids)) return;
         if (uids.length === 1) void handleToggleStar(uids[0]);
         else void flagUids(uids, ["\\Flagged"], []);
       } else if (action === "mark-read") {
+        if (!contextWritesAllowed(targetUids())) return;
         void flagUids(targetUids(), ["\\Seen"], []);
       } else if (action === "mark-unread") {
+        if (!contextWritesAllowed(targetUids())) return;
         void flagUids(targetUids(), [], ["\\Seen"]);
       } else if (action === "reply" && messageDetail)
         handleReply(messageDetail);
@@ -1460,9 +1476,24 @@ export function WebmailNextWorkbench({
   // Members of the selected message's thread that are present in the
   // currently loaded list pages (oldest → newest). Used by the reading
   // pane stack; count may be < server thread_count until PR-6 lands.
+  // Data-derived provenance protection: keyboard reopen/auto-select/pill/
+  // refresh can lose the openMessage flag, so the unknown state is ALSO
+  // derived from CURRENT data (folderless row + cross-folder context).
+  const derivedUnknown = useMemo(() => {
+    if (selectedUid === null || !isCrossFolder) return false;
+    const row =
+      messages.find(
+        (m) =>
+          m.uid === selectedUid &&
+          (m.folder_enc ?? activeFolder) === readingFolder,
+      ) ?? messages.find((m) => m.uid === selectedUid);
+    return row != null && row.folder_enc == null;
+  }, [messages, selectedUid, readingFolder, activeFolder, isCrossFolder]);
+  const effectiveReadingUnknown = readingUnknown || derivedUnknown;
+
   const threadMembers = useMemo(() => {
     if (selectedUid === null) return [] as MessageSummary[];
-    if (readingUnknown) {
+    if (effectiveReadingUnknown) {
       // Unknown provenance: no fallback stack at all.
       return [] as MessageSummary[];
     }
@@ -1497,7 +1528,13 @@ export function WebmailNextWorkbench({
       (a, b) =>
         new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
     );
-  }, [messages, readingUnknown, selectedUid, readingFolder, activeFolder]);
+  }, [
+    messages,
+    effectiveReadingUnknown,
+    selectedUid,
+    readingFolder,
+    activeFolder,
+  ]);
   const threadMemberUids = useMemo(
     () => threadMembers.map((m) => m.uid),
     [threadMembers],
@@ -1580,7 +1617,7 @@ export function WebmailNextWorkbench({
      * returns the row without thread_id (unverified) or removes it safely
      * ENDS the query — no historical list-origin re-fire (QA/PM ruling). */
     enabled: Boolean(
-      !readingUnknown &&
+      !effectiveReadingUnknown &&
       selectedRow &&
       (selectedRow.thread_id != null ||
         (selectedRowAnchoredByOrigin &&

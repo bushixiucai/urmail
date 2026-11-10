@@ -1612,6 +1612,40 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     expect(screen.queryByTestId(/^thread-card-\d+$/)).toBeNull();
   });
 
+  it("shortcut writes refuse an unknown-provenance selection", async () => {
+    // Unknown row selected (single detail), then a keyboard archive must
+    // not fall back to the browsing folder (unified resolver, Backend audit).
+    const unknown = {
+      uid: 201,
+      subject: "Unknown unique",
+      from: [{ name: "S", email: "s@x" }],
+      date: "2026-11-06T10:00:00Z",
+      flags: [],
+      size: 1,
+    };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [unknown],
+      total: 1,
+      q: "qa",
+    } as never);
+    vi.mocked(mailboxApi.moveMessages).mockClear();
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "qa" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    const row = await screen.findByTestId("mail-row-201");
+    fireEvent.click(row);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    search.blur();
+    fireEvent.keyDown(window, { key: "e" });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(mailboxApi.moveMessages).not.toHaveBeenCalled();
+  });
+
   it("safely ends the query instead of substituting a foreign same-uid row", async () => {
     // Unverified INBOX row (no thread_id) opened from the list; refresh
     // removes it while a verified Sent 148 row remains. No stackOrigin and
