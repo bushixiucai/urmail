@@ -34,7 +34,8 @@ type Viewport struct {
 type ColorScheme string
 
 const (
-	// ColorSchemeNone: the client did not opt in; user preference applies.
+	// ColorSchemeNone means the client did not opt in; user preference
+	// applies.
 	ColorSchemeNone ColorScheme = ""
 	// ColorSchemeLight requests the light presentation.
 	ColorSchemeLight ColorScheme = "light"
@@ -204,9 +205,10 @@ func wrapViewport(inner, ua, bucket string, scheme ColorScheme, scale TextScale)
 	if scheme == ColorSchemeDark {
 		class += " urmail-scheme-dark"
 	}
-	if scale == TextScaleSmall {
+	switch scale {
+	case TextScaleSmall:
 		class += " urmail-scale-sm"
-	} else if scale == TextScaleLarge {
+	case TextScaleLarge:
 		class += " urmail-scale-lg"
 	}
 	style := viewportCSS()
@@ -215,11 +217,14 @@ func wrapViewport(inner, ua, bucket string, scheme ColorScheme, scale TextScale)
 	// document's head and the browser may render native widgets for the
 	// pane in the requested scheme. With no explicit request the browser
 	// preference applies; email content colors stay untouched either way.
-	meta := `light dark`
-	if scheme == ColorSchemeLight {
+	var meta string
+	switch scheme {
+	case ColorSchemeLight:
 		meta = `light`
-	} else if scheme == ColorSchemeDark {
+	case ColorSchemeDark:
 		meta = `dark`
+	default:
+		meta = `light dark`
 	}
 	return `<meta name="color-scheme" content="` + meta + `">` + `<style type="text/css">` + style + `</style><div class="` + class + `">` + inner + `</div>`
 }
