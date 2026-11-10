@@ -1278,7 +1278,14 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     fireEvent.click(
       await screen.findByTestId("compose-close-button", {}, { timeout: 5000 }),
     );
-    fireEvent.contextMenu(row);
+    // Re-query the row AFTER the refresh re-render: the old node reference
+    // is detached and events on it never reach the list handlers.
+    const freshRow = await screen.findByTestId(
+      "mail-row-148",
+      {},
+      { timeout: 5000 },
+    );
+    fireEvent.contextMenu(freshRow);
     fireEvent.click(
       await screen.findByTestId("ctx-forward", {}, { timeout: 5000 }),
     );
