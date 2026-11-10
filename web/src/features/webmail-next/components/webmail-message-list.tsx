@@ -197,10 +197,33 @@ export function WebmailMessageList({
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  const openContextMenu = (uid: number, x: number, y: number) => {
-    const target = itemsRef.current.find((item) => item.uid === uid);
+  const openContextMenu = (
+    uid: number,
+    x: number,
+    y: number,
+    folderEnc?: string,
+  ) => {
+    // Composite identity: with same-uid rows from two boxes present, the
+    // right-clicked ROW decides the target copy (QA/UIUX).
+    const target =
+      itemsRef.current.find(
+        (item) =>
+          item.uid === uid &&
+          (folderEnc == null ||
+            (item.folderEnc ?? activeFolderEnc) === folderEnc),
+      ) ?? itemsRef.current.find((item) => item.uid === uid);
     if (!target) return;
-    setMenuState({ uid, x, y, isUnread: target.isUnread });
+    setMenuState({
+      uid,
+      // Bind the menu to the row's known folder at OPEN time; legacy rows
+      // without folder_enc belong to the browsing box — capturing it here
+      // lets a later refresh refuse a stale same-uid target instead of
+      // silently falling back to another box's copy (QA stale probe).
+      folder_enc: target.folderEnc ?? activeFolderEnc,
+      x,
+      y,
+      isUnread: target.isUnread,
+    });
   };
 
   // P1-1 keyboard parity: Shift+F10 or the Menu key opens the menu on the
@@ -235,7 +258,13 @@ export function WebmailMessageList({
       );
       const rect = anchor?.getBoundingClientRect();
       event.preventDefault();
-      openContextMenu(resolved, rect?.left ?? 80, (rect?.bottom ?? 80) + 4);
+      const keyboardFolderEnc = matches[0].folderEnc ?? activeFolderEnc;
+      openContextMenu(
+        resolved,
+        rect?.left ?? 80,
+        (rect?.bottom ?? 80) + 4,
+        keyboardFolderEnc,
+      );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -436,7 +465,7 @@ export function WebmailMessageList({
       }}
       onContextMenu={(x, y) => {
         if (isForeignRow(item, activeFolderEnc)) return; // menu actions are folder-scoped
-        rowActionsRef.current.openContextMenu(item.uid, x, y);
+        rowActionsRef.current.openContextMenu(item.uid, x, y, item.folderEnc);
       }}
       onDragStartUids={(fallbackUids) => {
         // Dragging a member of the selection carries the whole selection;

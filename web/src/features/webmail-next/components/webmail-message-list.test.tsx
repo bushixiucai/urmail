@@ -81,11 +81,7 @@ describe("WebmailMessageList", () => {
     expect(screen.getByTestId("mail-row-102")).toBeTruthy();
     expect(screen.queryByTestId("mail-row-101")).toBeNull();
 
-    const pill = screen.getByTestId("thread-toggle-1");
-    console.log("DEBUG pill before:", pill.getAttribute("aria-expanded"));
-    fireEvent.click(pill);
-    const pillAfter = screen.getByTestId("thread-toggle-1");
-    console.log("DEBUG pill after:", pillAfter.getAttribute("aria-expanded"));
+    fireEvent.click(screen.getByTestId("thread-toggle-1"));
 
     const child = screen.getByTestId("mail-row-101");
     expect(child.getAttribute("data-thread-child")).toBe("true");

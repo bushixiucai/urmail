@@ -743,6 +743,104 @@ describe("WebmailNextWorkbench Layout", () => {
     });
   });
 
+  it.each(
+    [
+      {
+        action: "reply",
+        subject: "Re: Inbox original",
+        recipient: "ann@example.test",
+        sentUid: 148,
+      },
+      {
+        action: "forward",
+        subject: "Fwd: Inbox original",
+        recipient: null,
+        sentUid: 148,
+      },
+      {
+        action: "reply",
+        subject: "Re: Inbox original",
+        recipient: "ann@example.test",
+        sentUid: 149,
+      },
+      {
+        action: "forward",
+        subject: "Fwd: Inbox original",
+        recipient: null,
+        sentUid: 149,
+      },
+    ].flatMap((testCase) =>
+      [false, true].map((inboxFirst) => ({ ...testCase, inboxFirst })),
+    ),
+  )(
+    "uses the INBOX search row for context-menu $action when Sent UID is $sentUid and inboxFirst is $inboxFirst",
+    async ({ action, subject, recipient, sentUid, inboxFirst }) => {
+      const common = {
+        uid: 148,
+        date: "2026-11-06T10:00:00Z",
+        flags: ["\\Seen"],
+        size: 10,
+      };
+      vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+        messages: (inboxFirst ? [1, 0] : [0, 1]).map(
+          (index) =>
+            [
+              {
+                ...common,
+                uid: sentUid,
+                subject: "Sent different",
+                from: [{ name: "Me", email: "me@example.test" }],
+                folder: "Sent",
+                folder_enc: "Sent",
+              },
+              {
+                ...common,
+                subject: "Inbox original",
+                from: [{ name: "Ann", email: "ann@example.test" }],
+                folder: "INBOX",
+                folder_enc: "INBOX",
+              },
+            ][index],
+        ),
+        total: 2,
+        q: "collision",
+      });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <WebmailNextWorkbench />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const input = screen.getByTestId("webmail-search-input");
+      fireEvent.change(input, { target: { value: "collision" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await screen.findByText("Sent different");
+      const inboxRow = (await screen.findByText("Inbox original")).closest(
+        '[data-testid="mail-row-148"]',
+      );
+      expect(inboxRow).toBeTruthy();
+      const rows = screen.getAllByTestId("mail-row-148");
+      expect(rows).toHaveLength(sentUid === 148 ? 2 : 1);
+      expect(inboxFirst ? rows[0] : rows.at(-1)).toBe(inboxRow);
+      fireEvent.contextMenu(inboxRow!, { clientX: 100, clientY: 100 });
+      fireEvent.click(screen.getByTestId(`ctx-${action}`));
+      const subjectInput = (await screen.findByTestId(
+        "compose-subject-input",
+      )) as HTMLInputElement;
+      expect(subjectInput.value).toBe(subject);
+      if (recipient) {
+        expect(screen.getByTestId(`recipient-pill-${recipient}`)).toBeTruthy();
+      } else {
+        expect(screen.queryByTestId(/^recipient-pill-/)).toBeNull();
+        expect(
+          (screen.getByTestId("compose-to-input") as HTMLInputElement).value,
+        ).toBe("");
+      }
+      expect(screen.queryByTestId("recipient-pill-me@example.test")).toBeNull();
+    },
+  );
+
   it("shows a reading skeleton as soon as a message is opened", async () => {
     const detail: mailboxApi.MessageDetail = {
       uid: 101,
@@ -1306,6 +1404,102 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
       expect(dock2.textContent).toContain("Fwd: cross-box sample");
     },
   );
+
+  it.each(["reply", "forward"])(
+    "targets INBOX context %s while Sent same UID is open",
+    async (action) => {
+      const inbox = {
+        ...INBOX_148,
+        subject: "Inbox unique subject",
+        from: [{ name: "Ann", email: "ann@example.test" }],
+        thread_id: undefined,
+        thread_count: undefined,
+      };
+      const sent = {
+        ...SENT_148,
+        subject: "Sent unique subject",
+        from: [{ name: "Me", email: "me@example.test" }],
+        thread_id: undefined,
+        thread_count: undefined,
+      };
+      vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+        messages: [sent, inbox],
+        total: 2,
+        q: "collision",
+      });
+      renderWorkbench();
+      const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+      fireEvent.click(headers[1]);
+      await waitFor(() =>
+        expect(fetchThreadMembers).toHaveBeenLastCalledWith(
+          "Sent",
+          148,
+          expect.anything(),
+        ),
+      );
+      const search = screen.getByTestId("webmail-search-input");
+      fireEvent.change(search, { target: { value: "collision" } });
+      fireEvent.keyDown(search, { key: "Enter" });
+      await waitFor(() =>
+        expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2),
+      );
+      const inboxRow = screen
+        .getAllByTestId("mail-row-148")
+        .find((row) => row.textContent?.includes("Inbox unique subject"));
+      expect(inboxRow).toBeTruthy();
+      fireEvent.contextMenu(inboxRow!);
+      fireEvent.click(screen.getByTestId(`ctx-${action}`));
+      await screen.findByTestId("compose-subject-input");
+      expect(
+        (screen.getByTestId("compose-subject-input") as HTMLInputElement).value,
+      ).toBe(
+        action === "reply"
+          ? "Re: Inbox unique subject"
+          : "Fwd: Inbox unique subject",
+      );
+      if (action === "reply")
+        expect(
+          screen.getByTestId("recipient-pill-ann@example.test"),
+        ).toBeTruthy();
+      else expect(screen.queryByTestId(/^recipient-pill-/)).toBeNull();
+      expect(screen.queryByTestId("recipient-pill-me@example.test")).toBeNull();
+    },
+  );
+
+  it("navigates to UID 201 with folder-scoped cursor assumption", async () => {
+    const inbox = {
+      ...INBOX_148,
+      thread_id: undefined,
+      thread_count: undefined,
+    };
+    const sent = { ...SENT_148, thread_id: undefined, thread_count: undefined };
+    const third = { ...inbox, uid: 201, subject: "Third distinct" };
+    vi.mocked(mailboxApi.crossFolderSearch).mockResolvedValue({
+      messages: [sent, inbox, third],
+      total: 3,
+      q: "collision",
+    });
+    renderWorkbench();
+    const search = screen.getByTestId("webmail-search-input");
+    fireEvent.change(search, { target: { value: "collision" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getAllByTestId("mail-row-148")).toHaveLength(2),
+    );
+    await screen.findByTestId("mail-row-201");
+    fireEvent.click(screen.getAllByTestId("mail-row-148")[0]);
+    search.blur();
+    fireEvent.keyDown(window, { key: "j" });
+    expect(
+      screen
+        .getAllByTestId("mail-row-148")
+        .map((row) => row.getAttribute("data-cursor")),
+    ).toEqual(["false", "true"]);
+    fireEvent.keyDown(window, { key: "j" });
+    expect(screen.getByTestId("mail-row-201").getAttribute("data-cursor")).toBe(
+      "true",
+    );
+  });
 
   it("keeps the members query anchored when a stack member is not in the list", async () => {
     // Thread carries a Sent member (uid 200) that has NO list row.

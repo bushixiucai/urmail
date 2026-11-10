@@ -193,6 +193,7 @@ export function WebmailNextWorkbench({
   const [stackOrigin, setStackOrigin] = useState<{
     uid: number;
     folder_enc: string;
+    fromStack: boolean;
   } | null>(null);
   // Null until a successful preference event. The event value is applied
   // synchronously; a later settings GET may confirm it only for this generation.
@@ -613,14 +614,14 @@ export function WebmailNextWorkbench({
     // the row keeps the thread context; unverified rows never anchor and
     // never open the members gate (QA sequence ①).
     if (fromStack && folderEnc != null) {
-      setStackOrigin({ uid, folder_enc: folderEnc });
+      setStackOrigin({ uid, folder_enc: folderEnc, fromStack: true });
     } else {
       const rowFolder = folderEnc ?? activeFolder;
       const listRow = messages.find(
         (m) => m.uid === uid && (m.folder_enc ?? activeFolder) === rowFolder,
       );
       if (listRow?.thread_id != null) {
-        setStackOrigin({ uid, folder_enc: rowFolder });
+        setStackOrigin({ uid, folder_enc: rowFolder, fromStack: false });
       } else {
         setStackOrigin(null);
       }
@@ -630,6 +631,8 @@ export function WebmailNextWorkbench({
       member?.folder_enc || folderEnc || message?.folder_enc || activeFolder,
     );
     setSelectedUid(uid);
+    setCursorUid(uid);
+    setCursorFolderEnc(folderEnc ?? null);
   };
 
   // Derive authorization source for currently selected message:
@@ -762,6 +765,7 @@ export function WebmailNextWorkbench({
         setStackOrigin({
           uid: messages[0].uid,
           folder_enc: messages[0].folder_enc || activeFolder,
+          fromStack: false,
         });
       } else {
         setStackOrigin(null);
@@ -1394,6 +1398,7 @@ export function WebmailNextWorkbench({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       cursorUid,
+      cursorFolderEnc,
       messageDetail,
       inboxEnc,
       isHelpOpen,
@@ -1434,7 +1439,7 @@ export function WebmailNextWorkbench({
   // C1: cross-folder thread members (THREAD-MEMBERS-API-CONTRACT v1).
   // Anchored on the selected row's root; on error the stack falls back to
   // the loaded-page members above (§8), never going blank.
-  const selectedRow = useMemo(() => {
+  const selectedRowInfo = useMemo(() => {
     if (selectedUid === null) return null;
     // Cross-folder search can hold the same numeric uid from two boxes —
     // anchor on the row whose folder matches the one being read. A stack
@@ -1447,7 +1452,7 @@ export function WebmailNextWorkbench({
         m.uid === selectedUid &&
         (m.folder_enc ?? activeFolder) === readingFolder,
     );
-    if (exact) return exact;
+    if (exact) return { row: exact, anchoredByOrigin: false };
     // The stack origin wins over a same-uid row of ANOTHER box: opening
     // Sent 148 while the INBOX 148 row still exists must anchor on Sent.
     if (
@@ -1456,19 +1461,28 @@ export function WebmailNextWorkbench({
       (stackOrigin.folder_enc ?? activeFolder) === readingFolder
     ) {
       return {
-        uid: stackOrigin.uid,
-        folder_enc: stackOrigin.folder_enc,
-      } as (typeof messages)[number];
+        row: {
+          uid: stackOrigin.uid,
+          folder_enc: stackOrigin.folder_enc,
+        } as MessageSummary,
+        anchoredByOrigin: true,
+      };
     }
     // Bare-uid fallback only for LEGACY rows without any folder identity
     // (single-box compat). A row that carries folder_enc is a different
     // box's copy when it did not match exactly — substituting it would send
     // the members query to the wrong box (UIUX precise sequence).
-    return readingFolder === activeFolder
-      ? (messages.find((m) => m.uid === selectedUid && m.folder_enc == null) ??
-          null)
-      : null;
+    const legacy =
+      readingFolder === activeFolder
+        ? (messages.find(
+            (m) => m.uid === selectedUid && m.folder_enc == null,
+          ) ?? null)
+        : null;
+    return legacy ? { row: legacy, anchoredByOrigin: false } : null;
   }, [messages, stackOrigin, selectedUid, readingFolder, activeFolder]);
+  const selectedRow = selectedRowInfo?.row ?? null;
+  const selectedRowAnchoredByOrigin =
+    selectedRowInfo?.anchoredByOrigin ?? false;
   const threadApi = useThreadMembers({
     originFolderEnc:
       selectedRow?.folder_enc ?? (selectedRow ? activeFolder : null),
@@ -1482,10 +1496,27 @@ export function WebmailNextWorkbench({
        query via its own folder+uid — any known member is a valid origin
        (contract §1) — so the stack keeps working after the list row is
        gone (QA/UIUX review). */
+    /* Gate on the CURRENT reading copy's thread_id only: after a refresh
+     * that returns the row without thread_id (unverified) or removes it,
+     * members must NOT re-fire via a historical origin (QA/PM ruling —
+     * safe end is acceptable). stackOrigin now feeds only cursor/anchor
+     * bookkeeping, not the gate. */
+    /* Gate: enabled for the CURRENT copy with thread_id (verified list
+     * rows), and for members opened FROM THE STACK (their own folder+uid
+     * is a verifiable origin, contract §1). Historical origins must not
+     * re-fire members: a refresh that returns the row without thread_id
+     * (unverified) or removes it safely ENDS the query (QA/PM ruling —
+     * safe end acceptable, no historical-origin re-fire). */
+    /* Gate: current copy with thread_id (verified list rows), or a
+     * STACK-ORIGIN open whose folder matches what is being read (the
+     * member itself is a verifiable origin, contract §1). A refresh that
+     * returns the row without thread_id (unverified) or removes it safely
+     * ENDS the query — no historical list-origin re-fire (QA/PM ruling). */
     enabled: Boolean(
       selectedRow &&
       (selectedRow.thread_id != null ||
-        (stackOrigin != null &&
+        (selectedRowAnchoredByOrigin &&
+          stackOrigin?.fromStack === true &&
           stackOrigin.uid === selectedUid &&
           (stackOrigin.folder_enc ?? activeFolder) === readingFolder)),
     ),
