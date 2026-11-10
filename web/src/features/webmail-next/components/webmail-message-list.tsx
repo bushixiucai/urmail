@@ -302,7 +302,13 @@ export function WebmailMessageList({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [cursorUid, contextHandlers]);
+  }, [
+    cursorUid,
+    contextHandlers,
+    activeFolderEnc,
+    isCrossFolder,
+    openContextMenu,
+  ]);
 
   // Keep the denominator identical to the selectable set so a mixed
   // cross-folder list can still be fully deselected (QA sequence ④).

@@ -139,7 +139,6 @@ export function WebmailNextWorkbench({
   const [cursorFolderEnc, setCursorFolderEnc] = useState<string | null>(null);
   // Cross-folder row without its own folder identity: unknown provenance.
   // Never infer the browsing box for it (gate/fallback/members).
-  const [readingUnknown, setReadingUnknown] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [moveNoticeToken, setMoveNoticeToken] = useState(0);
@@ -613,7 +612,13 @@ export function WebmailNextWorkbench({
     fromStack = false,
     unknownProvenance = false,
   ) => {
-    setReadingUnknown(unknownProvenance);
+    // Fail-closed FIRST, before any state change: an unknown-provenance
+    // row (cross-folder, no folder identity) cannot be safely resolved to
+    // a mailbox copy — refuse to open it without polluting the previous
+    // reading session (QA probe: star pollution confirmed on 11090cde).
+    if (unknownProvenance) {
+      return;
+    }
     // Fail-closed: an unknown-provenance row (cross-folder, no folder
     // identity) cannot be safely resolved to any mailbox copy — refuse to
     // open it instead of fetching a wrong same-uid message (Backend).
@@ -866,7 +871,7 @@ export function WebmailNextWorkbench({
 
   const handleToggleStar = async (uid: number, folderEncHint?: string) => {
     // Unknown provenance: no folder to address a write to (Backend audit).
-    if (effectiveReadingUnknown) return;
+    if (derivedUnknown) return;
     // §11-5 stack scope: resolve only by the full (folder, uid) identity
     // so a same-numbered uid in another folder can never be mis-targeted;
     // cross-box members (Sent) are flagged through their own folder.
@@ -986,7 +991,7 @@ export function WebmailNextWorkbench({
   };
 
   const handleDeleteMessage = (uid: number, folderEncHint?: string) => {
-    if (effectiveReadingUnknown) return;
+    if (derivedUnknown) return;
     // §11-5 stack scope: a member from another folder (Sent) is trashed
     // through its own folder+uid — the origin-folder move would 404 or,
     // with a same-numbered uid, hit the wrong message.
@@ -1515,12 +1520,11 @@ export function WebmailNextWorkbench({
       ) ?? messages.find((m) => m.uid === selectedUid);
     return row != null && row.folder_enc == null;
   }, [messages, selectedUid, readingFolder, activeFolder, isCrossFolder]);
-  const effectiveReadingUnknown = readingUnknown || derivedUnknown;
 
   const threadMembers = useMemo(() => {
     if (selectedUid === null) return [] as MessageSummary[];
-    if (effectiveReadingUnknown) {
-      // Unknown provenance: no fallback stack at all.
+    if (derivedUnknown) {
+      // Unknown provenance (derived): no fallback stack at all.
       return [] as MessageSummary[];
     }
     // STRICT composite selection: (readingFolder, uid) only; a folder-less
@@ -1554,13 +1558,7 @@ export function WebmailNextWorkbench({
       (a, b) =>
         new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
     );
-  }, [
-    messages,
-    effectiveReadingUnknown,
-    selectedUid,
-    readingFolder,
-    activeFolder,
-  ]);
+  }, [messages, derivedUnknown, selectedUid, readingFolder, activeFolder]);
   const threadMemberUids = useMemo(
     () => threadMembers.map((m) => m.uid),
     [threadMembers],
@@ -1643,7 +1641,7 @@ export function WebmailNextWorkbench({
      * returns the row without thread_id (unverified) or removes it safely
      * ENDS the query — no historical list-origin re-fire (QA/PM ruling). */
     enabled: Boolean(
-      !effectiveReadingUnknown &&
+      !derivedUnknown &&
       selectedRow &&
       (selectedRow.thread_id != null ||
         (selectedRowAnchoredByOrigin &&
