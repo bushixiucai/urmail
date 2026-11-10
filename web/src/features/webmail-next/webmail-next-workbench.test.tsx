@@ -139,6 +139,16 @@ describe("WebmailNextWorkbench Layout", () => {
         vacation: { enabled: false, subject: "", message: "", days: 1 },
       },
     });
+    // Undo refetches thread members; a thrown/undefined page would surface as
+    // an unhandled rejection in infinite-query (and fail CI), so always answer.
+    vi.mocked(fetchThreadMembers).mockResolvedValue({
+      thread_id: 101,
+      total: 0,
+      unread_count: 0,
+      scope: "server",
+      messages: [],
+      has_more_older: false,
+    } as never);
   });
 
   afterEach(() => {

@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -104,10 +110,13 @@ export function WebmailThreadStack({
     [members],
   );
 
-  const isExpandedMember = (m: MessageSummary): boolean =>
-    expandedKey != null
-      ? threadMemberKey(m) === expandedKey
-      : m.uid === expandedUid;
+  const isExpandedMember = useCallback(
+    (m: MessageSummary): boolean =>
+      expandedKey != null
+        ? threadMemberKey(m) === expandedKey
+        : m.uid === expandedUid,
+    [expandedKey, expandedUid],
+  );
   const expandedIndex = ordered.findIndex(isExpandedMember);
 
   useEffect(() => {
@@ -151,7 +160,7 @@ export function WebmailThreadStack({
     }
     anchorSnapRef.current =
       card && key != null ? { key, top: card.offsetTop } : null;
-  }, [members, expandedUid, expandedKey]);
+  }, [ordered, isExpandedMember]);
 
   const goPrev = () => {
     if (expandedIndex <= 0) return;

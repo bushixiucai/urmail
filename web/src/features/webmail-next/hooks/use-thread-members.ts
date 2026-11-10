@@ -110,7 +110,7 @@ export function useThreadMembers({
     // Forward pagination is unused — threads only grow older-side pages.
     getNextPageParam: () => undefined,
     getPreviousPageParam: (lastPage) =>
-      lastPage.has_more_older && lastPage.oldest ? lastPage.oldest : undefined,
+      lastPage?.has_more_older && lastPage.oldest ? lastPage.oldest : undefined,
   });
 
   const { data, isLoading, isError, error, fetchPreviousPage, refetch } = query;
