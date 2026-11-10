@@ -61,6 +61,8 @@ interface WebmailReadingPaneProps {
   threadExpandedKey?: string | null;
   /** §11-5 expansion relay: focus this card's header (composite key). */
   threadFocusKey?: string | null;
+  /** Bumps on every relay so a repeated same-key target still re-focuses. */
+  threadFocusNonce?: number;
   /** Sent folder name for the §11-4 cross-box badge. */
   threadSentFolderName?: string;
   /** total - loaded - newer; drives the giant-thread summary bar. */
@@ -272,6 +274,7 @@ export function WebmailReadingPane({
   threadUnreadCount,
   threadExpandedKey,
   threadFocusKey,
+  threadFocusNonce,
   threadSentFolderName,
   threadEarlierCount,
   threadNewerCount,
@@ -892,6 +895,7 @@ export function WebmailReadingPane({
           unreadCount={threadUnreadCount}
           expandedKey={threadExpandedKey}
           focusKey={threadFocusKey}
+          focusNonce={threadFocusNonce}
           sentFolderName={threadSentFolderName}
           expandedUid={message.uid}
           expandedDetail={message}

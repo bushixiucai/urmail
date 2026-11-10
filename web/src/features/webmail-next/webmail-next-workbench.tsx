@@ -176,9 +176,13 @@ export function WebmailNextWorkbench({
   // 2. Monotonic policy generation counter
   // 3. Explicit per-message manual consent (cleared on UID change)
   const [policyGeneration, setPolicyGeneration] = useState(1);
-  const [manualAuthorizedUid, setManualAuthorizedUid] = useState<number | null>(
+  // Composite (folder:uid) — the same numeric uid may be read from two
+  // boxes in one thread; a bare-uid grant would leak across copies.
+  const [manualAuthorizedKey, setManualAuthorizedKey] = useState<string | null>(
     null,
   );
+  const currentReadKey =
+    selectedUid === null ? null : `${readingFolder}:${selectedUid}`;
   // Null until a successful preference event. The event value is applied
   // synchronously; a later settings GET may confirm it only for this generation.
   const [confirmedGlobalAllow, setConfirmedGlobalAllow] = useState<
@@ -601,7 +605,7 @@ export function WebmailNextWorkbench({
   // - "global" if account settings have allow_all_remote_images === true
   // - "none" otherwise (fail-closed default)
   const isCurrentManualGranted = Boolean(
-    selectedUid !== null && manualAuthorizedUid === selectedUid,
+    currentReadKey !== null && manualAuthorizedKey === currentReadKey,
   );
 
   const authSource: "global" | "manual" | "none" = isCurrentManualGranted
@@ -679,7 +683,8 @@ export function WebmailNextWorkbench({
     }
     if (
       detailResult.authSource === "manual" &&
-      manualAuthorizedUid !== selectedUid
+      manualAuthorizedKey !==
+        (selectedUid === null ? null : `${readingFolder}:${selectedUid}`)
     ) {
       return null;
     }
@@ -690,13 +695,14 @@ export function WebmailNextWorkbench({
     authSource,
     isGlobalImagesAllowed,
     policyGeneration,
-    manualAuthorizedUid,
+    manualAuthorizedKey,
+    readingFolder,
   ]);
 
-  // Reset manual authorization on UID change
+  // Reset manual authorization on message/folder change
   useEffect(() => {
-    setManualAuthorizedUid(null);
-  }, [selectedUid]);
+    setManualAuthorizedKey(null);
+  }, [selectedUid, readingFolder]);
 
   // Automatically select the first message on wide screen if none selected
   useEffect(() => {
@@ -932,6 +938,7 @@ export function WebmailNextWorkbench({
         if (next) {
           openMessage(next.uid, next.folder_enc);
           setThreadFocusKey(threadMemberKey(next));
+          setThreadFocusNonce((n) => n + 1);
         }
       }
     })();
@@ -1305,13 +1312,20 @@ export function WebmailNextWorkbench({
   // C1: cross-folder thread members (THREAD-MEMBERS-API-CONTRACT v1).
   // Anchored on the selected row's root; on error the stack falls back to
   // the loaded-page members above (§8), never going blank.
-  const selectedRow = useMemo(
-    () =>
-      selectedUid === null
-        ? null
-        : (messages.find((m) => m.uid === selectedUid) ?? null),
-    [messages, selectedUid],
-  );
+  const selectedRow = useMemo(() => {
+    if (selectedUid === null) return null;
+    // Cross-folder search can hold the same numeric uid from two boxes —
+    // anchor on the row whose folder matches the one being read.
+    return (
+      messages.find(
+        (m) =>
+          m.uid === selectedUid &&
+          (m.folder_enc ?? activeFolder) === readingFolder,
+      ) ??
+      messages.find((m) => m.uid === selectedUid) ??
+      null
+    );
+  }, [messages, selectedUid, readingFolder, activeFolder]);
   const threadApi = useThreadMembers({
     originFolderEnc:
       selectedRow?.folder_enc ?? (selectedRow ? activeFolder : null),
@@ -1362,6 +1376,8 @@ export function WebmailNextWorkbench({
   // §11-5 expansion relay focus target, composite keyed (cleared on
   // thread changes).
   const [threadFocusKey, setThreadFocusKey] = useState<string | null>(null);
+  // A same-key re-relay must still move focus: the nonce forces the effect.
+  const [threadFocusNonce, setThreadFocusNonce] = useState(0);
   useEffect(() => {
     setThreadFocusKey(null);
   }, [selectedRow?.thread_id, selectedRow?.folder_enc]);
@@ -1646,6 +1662,7 @@ export function WebmailNextWorkbench({
               threadUnreadCount={threadUnreadCount}
               threadExpandedKey={threadExpandedKey}
               threadFocusKey={threadFocusKey}
+              threadFocusNonce={threadFocusNonce}
               threadSentFolderName={sentFolderName}
               threadEarlierCount={useApiMembers ? threadApi.earlierCount : 0}
               threadNewerCount={useApiMembers ? threadApi.newerCount : 0}
@@ -1665,7 +1682,9 @@ export function WebmailNextWorkbench({
               onForward={handleForward}
               onDelete={handleDeleteMessage}
               onToggleStar={handleToggleStar}
-              onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
+              onLoadRemoteImages={(uid) =>
+                setManualAuthorizedKey(`${readingFolder}:${uid}`)
+              }
               onExpandThreadUid={(uid, folderEnc) =>
                 openMessage(uid, folderEnc)
               }

@@ -334,3 +334,35 @@ describe("same-uid cross-box identity (release blocker)", () => {
     expect(screen.getAllByTestId(/^thread-card-sent-/).length).toBe(1);
   });
 });
+
+describe("focus nonce (repeat relay to the same key)", () => {
+  it("re-focuses the same header when the nonce bumps", () => {
+    const { rerender } = renderStack({
+      expandedUid: 202,
+      focusKey: ":202",
+      focusNonce: 1,
+    });
+    const header = screen.getByTestId("thread-card-header-202");
+    expect(document.activeElement).toBe(header);
+    // Move focus away, bump the nonce with the SAME key → focus returns.
+    (screen.getByTestId("thread-card-header-203") as HTMLDivElement).focus();
+    rerender(
+      <WebmailThreadStack
+        members={members}
+        expandedUid={202}
+        expandedDetail={detail}
+        bodySlot={<div data-testid="stack-body">BODY</div>}
+        onExpand={vi.fn()}
+        onReply={vi.fn()}
+        onReplyAll={vi.fn()}
+        onForward={vi.fn()}
+        onMarkThreadRead={vi.fn()}
+        onArchiveThread={vi.fn()}
+        onDeleteThread={vi.fn()}
+        focusKey=":202"
+        focusNonce={2}
+      />,
+    );
+    expect(document.activeElement).toBe(header);
+  });
+});

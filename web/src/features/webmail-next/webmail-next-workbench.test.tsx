@@ -1021,6 +1021,59 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
     );
   });
 
+  it("a list click while the Sent copy is expanded still opens the INBOX copy", async () => {
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[1]); // expand Sent
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+    // Query cache may serve the INBOX detail without a network call, so
+    // assert the identity state the click produces instead: the INBOX card
+    // becomes the expanded one again (Sent card collapses).
+    fireEvent.click(screen.getByTestId("mail-row-148"));
+    await waitFor(() => {
+      const h = screen.getAllByTestId(/^thread-card-header-148$/);
+      expect(h[0].getAttribute("aria-expanded")).toBe("true");
+      expect(h[1].getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  it("does not fall back to another box's copy when the browsing folder has no member", async () => {
+    // Thread payload only carries the Sent copy; the INBOX row exists in
+    // the list. A hint-less list click must stay on the INBOX row identity
+    // instead of guessing the Sent member.
+    vi.mocked(fetchThreadMembers).mockResolvedValue({
+      thread_id: 148,
+      total: 1,
+      unread_count: 0,
+      scope: "folder",
+      messages: [SENT_148] as never,
+      has_more_older: false,
+      oldest: "Sent:148",
+    });
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    fireEvent.click(screen.getByTestId("mail-row-148"));
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+    expect(mailboxApi.getMessage).not.toHaveBeenCalledWith(
+      "Sent",
+      148,
+      expect.anything(),
+    );
+  });
+
   it("delete relay is bidirectional across the same-uid pair", async () => {
     renderWorkbench();
     await screen.findByTestId("mail-row-148");
@@ -1041,7 +1094,9 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
         expect.anything(),
       ),
     );
-    // Reverse: expand Sent, delete it → relay back to INBOX.
+    // Reverse: expand Sent, delete it → relay back to the INBOX copy:
+    // the request target, the expanded state and the keyboard focus must
+    // all land on INBOX 148 (same numeric uid, different box).
     headers = await screen.findAllByTestId(/^thread-card-header-148$/);
     fireEvent.click(headers[1]);
     fireEvent.click(await screen.findByTestId("thread-card-delete-148"));
@@ -1051,6 +1106,18 @@ describe("same-uid cross-box interactions (#122 release gate)", () => {
         expect.objectContaining({ uids: [148], to: "Trash", uid_validity: 9 }),
       ),
     );
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+    await waitFor(() => {
+      const inboxHeader = screen.getAllByTestId(/^thread-card-header-148$/)[0];
+      expect(inboxHeader.getAttribute("aria-expanded")).toBe("true");
+      expect(document.activeElement).toBe(inboxHeader);
+    });
   });
 
   it("does not offer undo when the destination UIDVALIDITY is missing", async () => {

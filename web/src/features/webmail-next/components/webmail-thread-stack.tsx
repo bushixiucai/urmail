@@ -52,6 +52,8 @@ export interface ThreadStackProps {
   /** §11-5 expansion relay: focus the card header with this composite
    * key (folder_enc:uid) when set. */
   focusKey?: string | null;
+  /** Increments per relay; same-key repeats still move the focus. */
+  focusNonce?: number;
   /** Name of the Sent folder (\Sent flag) for the §11-4 cross-box badge. */
   sentFolderName?: string;
   onMarkThreadRead: () => void;
@@ -90,6 +92,7 @@ export function WebmailThreadStack({
   onToggleStar,
   onDelete,
   focusKey,
+  focusNonce,
   sentFolderName,
   onMarkThreadRead,
   onArchiveThread,
@@ -136,7 +139,7 @@ export function WebmailThreadStack({
   useEffect(() => {
     if (focusKey == null) return;
     headerRefs.current.get(focusKey)?.focus();
-  }, [focusKey]);
+  }, [focusKey, focusNonce]);
 
   // §11-3 scroll anchoring: when older pages are prepended ("加载更早"),
   // the expanded card's offsetTop grows by the inserted height; shifting

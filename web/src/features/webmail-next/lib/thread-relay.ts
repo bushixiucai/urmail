@@ -41,13 +41,12 @@ export function resolveStackMember<T extends RelayMember>(
         (m.folder_enc ?? originFolderEnc) === folderEncHint),
   );
   if (folderEncHint == null) {
-    // List-side entry has no folder hint: prefer the member belonging to
-    // the folder being browsed so reading Sent 148 cannot hijack an INBOX
-    // list click of the same numeric uid (UIUX review).
-    return (
-      matches.find(
-        (m) => (m.folder_enc ?? originFolderEnc) === originFolderEnc,
-      ) ?? matches[0]
+    // List-side entry has no folder hint: only the member belonging to the
+    // folder being browsed is safe. Falling back to another box's copy
+    // would silently target the WRONG mail (UIUX review) — return nothing
+    // so the caller falls back to the list row (origin-folder identity).
+    return matches.find(
+      (m) => (m.folder_enc ?? originFolderEnc) === originFolderEnc,
     );
   }
   return matches[0];

@@ -51,10 +51,15 @@ describe("resolveStackMember (workbench target resolution)", () => {
     );
   });
 
-  it("keeps first-match semantics only when no hint is given", () => {
+  it("never guesses another box's copy without a hint", () => {
+    // Origin member exists → picked; origin member absent → undefined
+    // (caller falls back to the list row, never to the Sent copy).
     expect(resolveStackMember(members, 148, undefined, "b64.SU5CT1g")).toBe(
       inbox,
     );
+    expect(
+      resolveStackMember([sent], 148, undefined, "b64.SU5CT1g"),
+    ).toBeUndefined();
   });
 
   it("matches members without folder_enc against the origin folder", () => {
