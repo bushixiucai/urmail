@@ -1455,11 +1455,18 @@ export function WebmailNextWorkbench({
     if (selectedUid === null) return [] as MessageSummary[];
     const selected = messages.find((m) => m.uid === selectedUid);
     if (!selected?.thread_id) return selected ? [selected] : [];
+    // §8 fallback stack is a SINGLE-BOX safety net only: a selected row
+    // from another box (or mixed compat data) never spawns a stack from
+    // the loaded list — the reading pane stays single-message instead of
+    // reusing an untrusted thread context (QA compat probe).
+    const selectedBox = selected.folder_enc ?? activeFolder;
+    if (selectedBox !== activeFolder) {
+      return [selected];
+    }
     const siblings = messages.filter(
       (m) =>
         m.thread_id === selected.thread_id &&
-        (m.folder_enc ?? activeFolder) ===
-          (selected.folder_enc ?? readingFolder),
+        (m.folder_enc ?? activeFolder) === selectedBox,
     );
     return siblings.sort(
       (a, b) =>
