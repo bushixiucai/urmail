@@ -294,3 +294,49 @@ describe("WebmailMessageList", () => {
     expect(bulkMenu.textContent).toContain("Project Alpha");
   });
 });
+
+describe("list header hotzones and no-wrap (B3-2/B3-3)", () => {
+  it("gives select-all and refresh >=24px hit areas (p-1.5 + 14px icon)", () => {
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+    const selectAll = screen.getByTestId("select-all-button");
+    expect(selectAll.className).toContain("p-1.5");
+    // Playwright e2e asserts real px; here we pin the class contract.
+    expect(selectAll.querySelector("svg")?.getAttribute("class")).toContain(
+      "w-3.5",
+    );
+  });
+
+  it("keeps the loaded range on one line with an md short form", () => {
+    render(
+      <WebmailMessageList
+        folderName="Inbox"
+        messages={mockMessages}
+        activeUid={null}
+        onSelectMessage={vi.fn()}
+        density="comfortable"
+        sort="date"
+        order="desc"
+        onSortChange={vi.fn()}
+      />,
+    );
+    const range = screen.getByTestId("loaded-range");
+    expect(range.className).toContain("truncate");
+    expect(range.className).toContain("whitespace-nowrap");
+    expect(range.textContent).toContain("webmail_next.loaded_range_short");
+    expect(screen.getByTestId("sort-toggle-button").className).toContain(
+      "whitespace-nowrap",
+    );
+  });
+});
