@@ -749,11 +749,15 @@ export function WebmailNextWorkbench({
     void moveMessages(pending.destinationEnc, {
       uids: pending.destinationUids,
       to: pending.sourceEnc,
+      uid_validity: pending.destinationUidValidity,
     })
       .then(() => {
         if (moveTokenRef.current !== token) return;
         setMoveNotice(null);
         refetchMessages();
+        // Same-uid cross-box undo restores into the member's own folder —
+        // the stack payload must be refetched too (UIUX review).
+        threadApi.refetch();
       })
       .catch(() => {
         if (moveTokenRef.current !== token) return;
@@ -914,7 +918,13 @@ export function WebmailNextWorkbench({
       // Composite identity: a same-uid sibling in another folder is a
       // DIFFERENT card and must still be relayed to (QA blocker on #122).
       const deletedMember = member ?? { uid, folder_enc: undefined };
-      if (stackMembers.length > 1 && selectedUid === uid) {
+      // Only relay when the card removed is the one being READ (same uid
+      // in another folder may be expanded simultaneously-feasible data).
+      if (
+        stackMembers.length > 1 &&
+        selectedUid === uid &&
+        readingFolder === folderEnc
+      ) {
         const next = nextStackMemberAfterDelete(stackMembers, {
           uid,
           folder_enc: deletedMember.folder_enc,

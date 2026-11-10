@@ -34,10 +34,21 @@ export function resolveStackMember<T extends RelayMember>(
   folderEncHint: string | undefined,
   originFolderEnc: string,
 ): T | undefined {
-  return stackMembers.find(
+  const matches = stackMembers.filter(
     (m) =>
       m.uid === uid &&
       (folderEncHint == null ||
         (m.folder_enc ?? originFolderEnc) === folderEncHint),
   );
+  if (folderEncHint == null) {
+    // List-side entry has no folder hint: prefer the member belonging to
+    // the folder being browsed so reading Sent 148 cannot hijack an INBOX
+    // list click of the same numeric uid (UIUX review).
+    return (
+      matches.find(
+        (m) => (m.folder_enc ?? originFolderEnc) === originFolderEnc,
+      ) ?? matches[0]
+    );
+  }
+  return matches[0];
 }

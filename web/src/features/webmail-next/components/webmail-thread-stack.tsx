@@ -117,7 +117,10 @@ export function WebmailThreadStack({
       : undefined;
     // jsdom test doubles have no scrollIntoView.
     el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, [expandedUid, expandedKey, ordered]);
+    // Deliberately not keyed on `ordered`: "load earlier" prepends must not
+    // trigger a smooth scroll that fights the DEF-5 anchoring compensation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedUid, expandedKey]);
 
   // §11-5 focus management: the expansion relay (delete → expand neighbor)
   // moves keyboard focus onto the newly expanded card's header.

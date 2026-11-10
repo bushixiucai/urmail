@@ -443,6 +443,8 @@ export function moveMessages(
     moved: number;
     to: string;
     destination_uids?: number[];
+    /** UIDVALIDITY of the destination box for the COPYUIDed uids (undo). */
+    destination_uid_validity?: number;
   }>(`/api/v1/mailbox/folders/${encodeURIComponent(nameEnc)}/messages/move`, {
     method: "POST",
     body,

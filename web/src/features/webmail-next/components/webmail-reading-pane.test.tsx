@@ -793,3 +793,56 @@ describe("§11-6 mail body bucket (DEF-3)", () => {
     );
   });
 });
+
+describe("stack callback wiring (same-uid cross-box, #122)", () => {
+  const INBOX_148 = {
+    uid: 148,
+    subject: "cross-box sample",
+    from: [{ name: "Ann", email: "ann@x" }],
+    date: "2026-11-06T10:00:00Z",
+    flags: [],
+    size: 1,
+    folder: "INBOX",
+    folder_enc: "b64.SU5CT1g",
+  };
+  const SENT_148 = {
+    uid: 148,
+    subject: "Re: cross-box sample",
+    from: [{ name: "Me", email: "me@x" }],
+    date: "2026-11-06T11:00:00Z",
+    flags: [],
+    size: 1,
+    folder: "Sent",
+    folder_enc: "b64.U2VudA",
+  };
+
+  it("propagates folderEnc from the stack callbacks to the pane props", () => {
+    const onExpand = vi.fn();
+    const onToggleStar = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <WebmailReadingPane
+        message={mockMessage}
+        folderEnc="b64.SU5CT1g"
+        threadMembers={[INBOX_148, SENT_148] as never}
+        threadExpandedKey="b64.U2VudA:148"
+        onExpandThreadUid={onExpand}
+        onToggleStar={onToggleStar}
+        onDelete={onDelete}
+        threadSentFolderName="Sent"
+      />,
+    );
+    const headers = screen.getAllByTestId(/^thread-card-header-\d+$/);
+    expect(headers).toHaveLength(2);
+    // Clicking each card forwards that card's own folderEnc.
+    fireEvent.click(headers[0]);
+    expect(onExpand).toHaveBeenCalledWith(148, "b64.SU5CT1g");
+    fireEvent.click(headers[1]);
+    expect(onExpand).toHaveBeenLastCalledWith(148, "b64.U2VudA");
+    // Star/Delete on the expanded (Sent) card carry the Sent folder too.
+    fireEvent.click(screen.getByTestId("thread-card-star-148"));
+    expect(onToggleStar).toHaveBeenCalledWith(148, "b64.U2VudA");
+    fireEvent.click(screen.getByTestId("thread-card-delete-148"));
+    expect(onDelete).toHaveBeenCalledWith(148, "b64.U2VudA");
+  });
+});

@@ -36,6 +36,14 @@ vi.mock("@/features/webmail/mailbox-api", async (importOriginal) => {
   };
 });
 
+vi.mock("./lib/thread-members-api", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./lib/thread-members-api")>();
+  return { ...actual, fetchThreadMembers: vi.fn() };
+});
+
+import { fetchThreadMembers } from "./lib/thread-members-api";
+
 const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {
@@ -771,6 +779,7 @@ describe("WebmailNextWorkbench Layout", () => {
       moved: 1,
       to: "Archive",
       destination_uids: [880],
+      destination_uid_validity: 11,
     });
     render(
       <QueryClientProvider client={queryClient}>
@@ -789,6 +798,7 @@ describe("WebmailNextWorkbench Layout", () => {
       expect(mailboxApi.moveMessages).toHaveBeenLastCalledWith("Archive", {
         uids: [880],
         to: "INBOX",
+        uid_validity: 11,
       });
     });
   });
@@ -863,5 +873,222 @@ describe("WebmailNextWorkbench Layout", () => {
     );
     await waitFor(() => expect(screen.getByText("Message 1")).toBeTruthy());
     expect(screen.getByTestId("folder-name-header").textContent).toBe("工作");
+  });
+});
+
+describe("same-uid cross-box interactions (#122 release gate)", () => {
+  let queryClient: QueryClient;
+
+  const INBOX_148 = {
+    uid: 148,
+    subject: "cross-box sample",
+    from: [{ name: "Ann", email: "ann@x" }],
+    date: "2026-11-06T10:00:00Z",
+    flags: [],
+    size: 1,
+    thread_id: 148,
+    thread_count: 2,
+    folder: "INBOX",
+    folder_enc: "INBOX",
+    uid_validity: 7,
+  };
+  const SENT_148 = {
+    uid: 148,
+    subject: "Re: cross-box sample",
+    from: [{ name: "Me", email: "me@x" }],
+    date: "2026-11-06T11:00:00Z",
+    flags: [],
+    size: 1,
+    thread_id: 148,
+    thread_count: 2,
+    folder: "Sent",
+    folder_enc: "Sent",
+    uid_validity: 9,
+  };
+
+  const renderWorkbench = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WebmailNextWorkbench />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+    vi.mocked(mailboxApi.listFolders).mockResolvedValue({
+      folders: [
+        { name: "Inbox", name_enc: "INBOX", delimiter: "/", flags: [] },
+        {
+          name: "Sent",
+          name_enc: "Sent",
+          delimiter: "/",
+          flags: ["\\Sent"],
+        },
+        {
+          name: "Trash",
+          name_enc: "Trash",
+          delimiter: "/",
+          flags: ["\\Trash"],
+        },
+      ] as never,
+    });
+    vi.mocked(mailboxApi.listMessages).mockResolvedValue({
+      messages: [INBOX_148],
+      total: 1,
+      limit: 100,
+      offset: 0,
+      uid_validity: 7,
+    } as never);
+    vi.mocked(fetchThreadMembers).mockResolvedValue({
+      thread_id: 148,
+      total: 2,
+      unread_count: 0,
+      scope: "server",
+      messages: [INBOX_148, SENT_148] as never,
+      has_more_older: false,
+      oldest: "INBOX:148",
+    });
+    vi.mocked(mailboxApi.getMessage).mockImplementation(((
+      _folder: string,
+      uid: number,
+    ) =>
+      Promise.resolve({
+        uid,
+        subject: `detail ${uid}`,
+        from: [{ name: "S", email: "s@x" }],
+        to: [],
+        date: "2026-11-06T10:00:00Z",
+        flags: [],
+        size: 1,
+        html: "<p>body</p>",
+        notes: [],
+        attachments: [],
+      })) as never);
+    vi.mocked(mailboxApi.getMailboxQuota).mockRejectedValue(new Error("q"));
+    vi.mocked(mailboxApi.getMailboxSettings).mockResolvedValue({
+      display_name: "User",
+      signature_text: "",
+      signature_html: "",
+    } as never);
+    vi.mocked(mailboxApi.getMailboxRules).mockResolvedValue({
+      rules: [],
+    } as never);
+    vi.mocked(mailboxApi.listScheduledSends).mockResolvedValue({ items: [] });
+    vi.mocked(mailboxApi.moveMessages).mockReset();
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValue({
+      moved: 1,
+      to: "Trash",
+    });
+  });
+
+  it("opens the INBOX copy from a list click (no hint prefers browsing folder)", async () => {
+    renderWorkbench();
+    const row = await screen.findByTestId("mail-row-148");
+    fireEvent.click(row);
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "INBOX",
+        148,
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("expanding the Sent card reads the Sent copy", async () => {
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    expect(headers).toHaveLength(2);
+    fireEvent.click(headers[1]); // newest = Sent
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("delete relay is bidirectional across the same-uid pair", async () => {
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    let headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    // Expand INBOX, delete it → Sent copy gets relayed in.
+    fireEvent.click(headers[0]);
+    fireEvent.click(await screen.findByTestId("thread-card-delete-148"));
+    await waitFor(() =>
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith(
+        "INBOX",
+        expect.objectContaining({ uids: [148], to: "Trash" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mailboxApi.getMessage).toHaveBeenCalledWith(
+        "Sent",
+        148,
+        expect.anything(),
+      ),
+    );
+    // Reverse: expand Sent, delete it → relay back to INBOX.
+    headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[1]);
+    fireEvent.click(await screen.findByTestId("thread-card-delete-148"));
+    await waitFor(() =>
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith(
+        "Sent",
+        expect.objectContaining({ uids: [148], to: "Trash", uid_validity: 9 }),
+      ),
+    );
+  });
+
+  it("does not offer undo when the destination UIDVALIDITY is missing", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValueOnce({
+      moved: 1,
+      to: "Trash",
+      destination_uids: [900],
+    } as never);
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[0]);
+    fireEvent.click(await screen.findByTestId("thread-card-delete-148"));
+    await waitFor(() =>
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith(
+        "INBOX",
+        expect.objectContaining({ uids: [148], to: "Trash" }),
+      ),
+    );
+    expect(screen.queryByTestId("webmail-move-undo")).toBeNull();
+  });
+
+  it("undo restores through the destination box and refreshes thread members", async () => {
+    vi.mocked(mailboxApi.moveMessages).mockResolvedValueOnce({
+      moved: 1,
+      to: "Trash",
+      destination_uids: [900],
+      destination_uid_validity: 11,
+    } as never);
+    renderWorkbench();
+    await screen.findByTestId("mail-row-148");
+    const headers = await screen.findAllByTestId(/^thread-card-header-148$/);
+    fireEvent.click(headers[0]);
+    fireEvent.click(await screen.findByTestId("thread-card-delete-148"));
+    const undo = await screen.findByTestId("webmail-move-undo");
+    const callsBefore = vi.mocked(fetchThreadMembers).mock.calls.length;
+    fireEvent.click(undo);
+    await waitFor(() =>
+      expect(mailboxApi.moveMessages).toHaveBeenCalledWith("Trash", {
+        uids: [900],
+        to: "INBOX",
+        uid_validity: 11,
+      }),
+    );
+    await waitFor(() =>
+      expect(vi.mocked(fetchThreadMembers).mock.calls.length).toBeGreaterThan(
+        callsBefore,
+      ),
+    );
   });
 });
