@@ -1157,7 +1157,7 @@ export function WebmailNextWorkbench({
     folder: ContextMenuFolder | { name: string; name_enc: string },
     uids?: number[],
   ) => {
-    let targets = targetUids(uids);
+    let targets = uids ?? targetUids();
     // Stale-selection filter via the shared predicate (drag/drop + move
     // end): vanished/unknown uids are dropped before the request.
     targets = targets.filter((uid) =>
@@ -1409,7 +1409,9 @@ export function WebmailNextWorkbench({
     const next =
       entries[Math.min(entries.length - 1, Math.max(0, index + delta))];
     setCursorUid(next.uid);
-    setCursorFolderEnc(next.folder_enc ?? activeFolder);
+    setCursorFolderEnc(
+      next.folder_enc ?? (isCrossFolder ? null : activeFolder),
+    );
   };
 
   const focusSearch = () => {
@@ -1958,35 +1960,11 @@ export function WebmailNextWorkbench({
                 onBulkUnread={(uids) => void flagUids(uids, [], ["\\Seen"])}
                 onBulkStar={(uids) => void flagUids(uids, ["\\Flagged"], [])}
                 onBulkMove={(uids, folderName) => {
-                  if (!listValidity) return;
                   const destination = folders.find(
                     (folder) => folder.name === folderName,
                   );
-                  void moveMessages(activeFolder, {
-                    uids,
-                    to: folderName,
-                    uid_validity: listValidity,
-                  }).then((response) => {
-                    selectionRef.current?.clear();
-                    refetchMessages();
-                    const targetMsg = messages.find((m: MessageSummary) =>
-                      uids.includes(m.uid),
-                    );
-                    const sender = targetMsg?.from?.[0]?.email || "";
-                    const ruleSuggestion = sender
-                      ? { sender, folder: decodeFolderName(folderName) }
-                      : null;
-                    showMoved(
-                      decodeFolderName(folderName),
-                      moveUndoFromResponse(
-                        activeFolder,
-                        destination?.name_enc ?? "",
-                        uids,
-                        response,
-                      ),
-                      ruleSuggestion,
-                    );
-                  });
+                  if (!destination) return;
+                  void handleMoveToFolder(destination, uids);
                 }}
                 onBindSelection={(api) => {
                   selectionRef.current = api;
