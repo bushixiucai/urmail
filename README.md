@@ -85,11 +85,13 @@ make lint       # golangci-lint + eslint + prettier
 
 `make lint` 要求 golangci-lint v2.15.0；可使用 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` 安装。
 
-生产安装：
+生产安装（适用于提供完整签名清单及对应安装包的版本；安装器会验证签名和包校验值）：
 
 ```bash
 curl -fsSL https://urmail.cn/install.sh | sudo -E bash
 ```
+
+v0.6.20 计划使用未签名的本地 deb，此远程安装命令不能用于该产物。本版将通过可信渠道传输本地 deb 和对应 SHA256 校验文件，在目标机器安装前核对包的 SHA256，再进行受控本地包升级。SHA256 仅用于文件完整性校验，不能认证发布者身份；本地包来源和传输渠道需由运营者确认。最终包地址、具体升级命令及本地升级验证尚待完成。
 
 ## 架构
 
