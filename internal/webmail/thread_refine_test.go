@@ -3,10 +3,62 @@ package webmail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestThreadTransportFailureClosesConnection(t *testing.T) {
+	for _, mode := range []string{"__disconnect__", "__stall__"} {
+		t.Run(mode, func(t *testing.T) {
+			client := dialTestClient(t, startThreadIMAPServer(t, threadFixtureMessages(), mode))
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			_, err := client.ListMessages(ctx, "INBOX", ListOpts{Limit: 1, Thread: true})
+			if err == nil {
+				t.Fatal("expected transport or cancellation error")
+			}
+			if mode == "__stall__" && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("expected cancellation, got %v", err)
+			}
+			if client.(*imapConn).conn != nil {
+				t.Fatal("unsynchronized connection was not closed")
+			}
+		})
+	}
+}
+
+func TestServerThreadFolderCountBoundary(t *testing.T) {
+	for _, count := range []int{300, 301} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			msgs := make([]fakeThreadMessage, count)
+			for i := range msgs {
+				msgs[i] = fakeThreadMessage{uid: uint32(i + 1), subject: "test", from: "a@example.test"}
+			}
+			calls := make(chan struct{}, 1)
+			client := dialTestClient(t, startThreadIMAPServerObserved(t, msgs, "(1)", calls))
+			result, err := client.ListMessages(context.Background(), "INBOX", ListOpts{Limit: 1, Thread: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-calls:
+				if count > 300 {
+					t.Fatal("large folder sent THREAD")
+				}
+			default:
+				if count <= 300 {
+					t.Fatal("small folder did not send THREAD")
+				}
+			}
+			if count > 300 && (result.ThreadScope != "unverified" || result.Messages[0].ThreadVerification != "unverified" || result.Messages[0].ThreadID != 0 || result.Messages[0].ThreadCount != 0) {
+				t.Fatalf("unexpected large-folder result: %+v", result)
+			}
+		})
+	}
+}
 
 func TestRefineBudgetIndependentOfPageOrder(t *testing.T) {
 	roots := make(map[uint32]uint32)

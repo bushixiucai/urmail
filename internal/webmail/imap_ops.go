@@ -3,6 +3,7 @@ package webmail
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/mail"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/mailauth"
 )
+
+// maxServerThreadFolderMessages is a conservative temporary count guard;
+// even smaller folders can contain expensive References headers.
+const maxServerThreadFolderMessages = 300
 
 // ListMessages SELECTs the folder, computes the ordered UID sequence, then
 // FETCHes one cursor-anchored page.
@@ -130,6 +135,12 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		if ctx.Err() != nil {
 			return ListResult{}, ctx.Err()
 		}
+		var rejected imapCommandRejected
+		if countErr != nil && !errors.As(countErr, &rejected) {
+			_ = c.conn.Close()
+			c.conn = nil
+			return ListResult{}, countErr
+		}
 	}
 	summaries, err := c.uidFetchSummaries(ctx, page)
 	if err != nil {
@@ -148,7 +159,7 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 		threadScope = ThreadScopeFolder
 		// Count the entire folder, not just a filtered search. This guard
 		// does not bound header byte sizes in smaller folders.
-		if countErr != nil || len(folderUIDs) > MaxSortScan {
+		if countErr != nil || len(folderUIDs) > maxServerThreadFolderMessages {
 			threadScope = "unverified"
 			for i := range summaries {
 				summaries[i].ThreadVerification = "unverified"
@@ -175,6 +186,17 @@ func (c *imapConn) ListMessages(ctx context.Context, folder string, opts ListOpt
 				}
 			}
 		} else {
+			var rejected imapCommandRejected
+			if threadErr != nil && !errors.As(threadErr, &rejected) {
+				// A failed read/write leaves the command stream unsynchronized.
+				// Close without LOGOUT and never issue a fallback on this socket.
+				_ = c.conn.Close()
+				c.conn = nil
+				if ctx.Err() != nil {
+					return ListResult{}, ctx.Err()
+				}
+				return ListResult{}, threadErr
+			}
 			// Client path: count over a bounded scan of the filtered set so
 			// the counts do not depend on the page that was loaded.
 			set := allSummaries
@@ -551,7 +573,7 @@ func (c *imapConn) uidSearch(ctx context.Context, criteria string) ([]uint32, er
 			return parseUIDSearch(lines), nil
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, fmt.Errorf("%s", line)
+			return nil, imapCommandRejected(line)
 		}
 	}
 }

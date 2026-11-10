@@ -339,6 +339,13 @@ func startThreadIMAPServerObserved(t *testing.T, msgs []fakeThreadMessage, threa
 				if threadCalls != nil {
 					threadCalls <- struct{}{}
 				}
+				if threadResponse == "__disconnect__" {
+					return
+				}
+				if threadResponse == "__stall__" {
+					_, _ = r.ReadString('\n') // client must close, not send fallback
+					return
+				}
 				if threadResponse == "" {
 					_, _ = io.WriteString(w, tag+" NO UID THREAD unsupported\r\n")
 				} else {

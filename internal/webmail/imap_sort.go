@@ -50,6 +50,12 @@ func (c *imapConn) uidSort(ctx context.Context, criteria, key string) ([]uint32,
 	}
 }
 
+// imapCommandRejected means a command completed with a tagged error and the
+// connection remains synchronized.
+type imapCommandRejected string
+
+func (e imapCommandRejected) Error() string { return string(e) }
+
 // uidThread runs UID THREAD REFERENCES when the server advertises
 // THREAD=REFERENCES and returns uid -> thread root plus the number of
 // members in each thread. The server reports every member of a thread, so
@@ -81,7 +87,7 @@ func (c *imapConn) uidThread(ctx context.Context, criteria string) (map[uint32]u
 			return parseThreadRoots(strings.Join(lines, " "))
 		}
 		if strings.HasPrefix(line, tag+" ") {
-			return nil, nil, fmt.Errorf("%s", line)
+			return nil, nil, imapCommandRejected(line)
 		}
 	}
 }
