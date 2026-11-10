@@ -196,7 +196,8 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		}
 	}()
 
-	stamp := StampFor(w.now())
+	backupTime := w.now().UTC()
+	stamp := StampFor(backupTime)
 	var (
 		sourceManifest *Manifest
 		artifacts      []LocalArtifact
@@ -223,7 +224,7 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	if err = completeLocalArtifacts(stamp, artifacts); err != nil {
 		return err
 	}
-	if _, offsiteErr := w.runOffsitePhase(ctx, stamp, artifacts, sourceManifest, scope, consistent); offsiteErr != nil {
+	if _, offsiteErr := w.runOffsitePhase(ctx, stamp, backupTime, artifacts, sourceManifest, scope, consistent); offsiteErr != nil {
 		// BE-04: the local generation is complete on disk, so the run keeps
 		// its success semantics. Retention is refused fail-closed (the new
 		// generation is not verified offsite, so nothing may be deleted)
@@ -259,7 +260,7 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 // run manifest and verifies the new generation offsite before the caller
 // may record success or authorize retention. The returned manifest is nil
 // whenever the phase fails; local artifacts are untouched.
-func (w *Worker) runOffsitePhase(ctx context.Context, stamp string, artifacts []LocalArtifact, sourceManifest *Manifest, scope string, consistent bool) (*Manifest, error) {
+func (w *Worker) runOffsitePhase(ctx context.Context, stamp string, backupTime time.Time, artifacts []LocalArtifact, sourceManifest *Manifest, scope string, consistent bool) (*Manifest, error) {
 	entries := make([]Artifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact.SHA256 == "" || artifact.Size < 0 {
@@ -288,7 +289,7 @@ func (w *Worker) runOffsitePhase(ctx context.Context, stamp string, artifacts []
 		LayoutVersion: layoutVersion,
 		Scope:         scope,
 		Consistent:    consistent,
-		CreatedAt:     w.now().UTC(),
+		CreatedAt:     backupTime,
 		Artifacts:     entries,
 		Encryption:    &EncryptionInfo{Algorithm: EncryptionAlgorithmAge, Recipient: w.Recipient},
 		Slots:         slots,
