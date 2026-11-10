@@ -16,6 +16,10 @@ import { WebmailMoveNotice } from "./components/webmail-move-notice";
 import { useMailboxShortcuts } from "./hooks/use-mailbox-shortcuts";
 import { useThreadMembers } from "./hooks/use-thread-members";
 import { threadMemberKey } from "./lib/thread-members-api";
+import {
+  nextStackMemberAfterDelete,
+  resolveStackMember,
+} from "./lib/thread-relay";
 import type { ThreadSummaryState } from "./components/webmail-thread-summary-bar";
 import type { SelectionApi } from "./components/webmail-message-list";
 import {
@@ -579,11 +583,7 @@ export function WebmailNextWorkbench({
   // thread may legally contain INBOX 148 AND Sent 148 — resolving only by
   // uid can pick the wrong member. Stack callers pass folderEnc.
   const findStackMember = (uid: number, folderEnc?: string) =>
-    stackMembers.find(
-      (m) =>
-        m.uid === uid &&
-        (folderEnc == null || (m.folder_enc ?? activeFolder) === folderEnc),
-    );
+    resolveStackMember(stackMembers, uid, folderEnc, activeFolder);
   const openMessage = (uid: number, folderEnc?: string) => {
     const member = findStackMember(uid, folderEnc);
     const message =
@@ -911,10 +911,15 @@ export function WebmailNextWorkbench({
       }
       // §11-5 expansion relay: deleting a stack card expands the next newer
       // member (else the previous one) and moves focus to its header.
-      const idx = stackMembers.findIndex((m) => m.uid === uid);
-      if (idx >= 0 && stackMembers.length > 1 && selectedUid === uid) {
-        const next = stackMembers[idx + 1] ?? stackMembers[idx - 1];
-        if (next && next.uid !== uid) {
+      // Composite identity: a same-uid sibling in another folder is a
+      // DIFFERENT card and must still be relayed to (QA blocker on #122).
+      const deletedMember = member ?? { uid, folder_enc: undefined };
+      if (stackMembers.length > 1 && selectedUid === uid) {
+        const next = nextStackMemberAfterDelete(stackMembers, {
+          uid,
+          folder_enc: deletedMember.folder_enc,
+        });
+        if (next) {
           openMessage(next.uid, next.folder_enc);
           setThreadFocusKey(threadMemberKey(next));
         }
@@ -1651,7 +1656,9 @@ export function WebmailNextWorkbench({
               onDelete={handleDeleteMessage}
               onToggleStar={handleToggleStar}
               onLoadRemoteImages={(uid) => setManualAuthorizedUid(uid)}
-              onExpandThreadUid={(uid) => openMessage(uid)}
+              onExpandThreadUid={(uid, folderEnc) =>
+                openMessage(uid, folderEnc)
+              }
               onOpenAISettings={() => {
                 setSettingsTab("ai");
                 setIsSettingsOpen(true);
