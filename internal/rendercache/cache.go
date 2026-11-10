@@ -20,7 +20,10 @@ const (
 )
 
 // Key identifies one rendering. uid_validity is part of the key so a
-// folder renumber invalidates every cached body for that folder.
+// folder renumber invalidates every cached body for that folder. ColorScheme
+// and TextScale are the v0.6.20 M1 client-parameter buckets (X-Color-Scheme
+// / X-Text-Scale, empty = not requested); the render output is fully
+// determined by the key, so each bucket caches independently.
 type Key struct {
 	MailboxID      int64
 	Folder         string
@@ -29,6 +32,8 @@ type Key struct {
 	LoadImages     bool
 	UAClass        string
 	ViewportBucket string
+	ColorScheme    string
+	TextScale      string
 }
 
 // Entry is one cached rendering. Payload is the full JSON body of the

@@ -28,17 +28,19 @@ import (
 var styleTagRE = regexp.MustCompile(`(?is)(<style[^>]*>)(.*?)(</style>)`)
 
 // InlineCSS inlines the document's <style> rules for the reading bucket
-// (desktop / mobile / tablet, empty = desktop). Documents without style
+// (desktop / mobile / tablet, empty = desktop) and the requested color
+// scheme (empty = browser preference; the media evaluation then leaves
+// prefers-color-scheme blocks to the client). Documents without style
 // elements are returned untouched; on any preprocessing or inlining
 // error the input comes back unchanged — the sanitizer's whole-attribute
 // behavior of dropping styles remains the safe fallback.
-func InlineCSS(doc string, bucket string) string {
+func InlineCSS(doc string, bucket string, scheme ColorScheme) string {
 	if !strings.Contains(doc, "<style") {
 		return doc
 	}
 	doc = styleTagRE.ReplaceAllStringFunc(doc, func(m string) string {
 		parts := styleTagRE.FindStringSubmatch(m)
-		css, ok := adaptStylesheet(parts[2], bucket)
+		css, ok := adaptStylesheet(parts[2], bucket, scheme)
 		if !ok {
 			// Nothing inlinable remains; drop the element so the
 			// sanitizer does not fight leftovers.
@@ -63,16 +65,18 @@ func InlineCSS(doc string, bucket string) string {
 
 // adaptStylesheet rewrites one stylesheet for the bucket and reports
 // whether any inlinable rules remain.
-func adaptStylesheet(css, bucket string) (string, bool) {
+func adaptStylesheet(css, bucket string, scheme ColorScheme) (string, bool) {
 	css = stripAtBlocks(css, "@font-face")
-	css = rewriteMediaBlocks(css, bucket)
+	css = rewriteMediaBlocks(css, bucket, scheme)
 	return css, strings.TrimSpace(css) != ""
 }
 
-// rewriteMediaBlocks evaluates each @media block against the bucket: the
-// mobile bucket unwraps max-width blocks so their responsive rules apply
-// unconditionally, everything else is dropped.
-func rewriteMediaBlocks(css, bucket string) string {
+// rewriteMediaBlocks evaluates each @media block against the bucket and the
+// requested scheme: the mobile bucket unwraps max-width blocks (their
+// responsive rules are the phone fix); with an explicit scheme the matching
+// prefers-color-scheme blocks unwrap the same way, so the cached output for
+// one (bucket, scheme) pair is fully determined. Everything else is dropped.
+func rewriteMediaBlocks(css, bucket string, scheme ColorScheme) string {
 	var b strings.Builder
 	rest := css
 	for {
@@ -90,7 +94,15 @@ func rewriteMediaBlocks(css, bucket string) string {
 			return b.String()
 		}
 		b.WriteString(head)
-		if bucket == UAClassMobile && strings.Contains(cond, "max-width") {
+		cond = strings.ToLower(cond)
+		unwrap := bucket == UAClassMobile && strings.Contains(cond, "max-width")
+		if !unwrap && scheme == ColorSchemeDark && strings.Contains(cond, "prefers-color-scheme:dark") {
+			unwrap = true
+		}
+		if !unwrap && scheme == ColorSchemeLight && strings.Contains(cond, "prefers-color-scheme:light") {
+			unwrap = true
+		}
+		if unwrap {
 			// Unwrap: the inner rules ride the normal cascade and win
 			// over the base rules they refine.
 			b.WriteString(stripAtBlocks(body, "@font-face"))

@@ -18,7 +18,7 @@ a:hover{color:pink}
 // stripped and the hover leftover stays in the style element the
 // sanitizer removes next.
 func TestInlineCSSDesktopDropsMedia(t *testing.T) {
-	out := InlineCSS(inlineProbeDoc, UAClassDesktop)
+	out := InlineCSS(inlineProbeDoc, UAClassDesktop, ColorSchemeNone)
 	if !strings.Contains(out, `<div class="a" style="color:red;background:blue">`) {
 		t.Fatalf("base rule not inlined: %s", out)
 	}
@@ -43,7 +43,7 @@ func TestInlineCSSDesktopDropsMedia(t *testing.T) {
 // max-width media block's rules ride the cascade after the base rules,
 // so the inlined attribute carries the responsive value.
 func TestInlineCSSMobileUnwrapsMaxWidth(t *testing.T) {
-	out := InlineCSS(inlineProbeDoc, UAClassMobile)
+	out := InlineCSS(inlineProbeDoc, UAClassMobile, ColorSchemeNone)
 	if !strings.Contains(out, `style="color:red;background:green"`) {
 		t.Fatalf("mobile media rule not applied: %s", out)
 	}
@@ -57,7 +57,7 @@ func TestInlineCSSMobileUnwrapsMaxWidth(t *testing.T) {
 // TestInlineCSSTabletBehavesLikeDesktop: tablet is not the mobile
 // bucket; media blocks stay out.
 func TestInlineCSSTabletBehavesLikeDesktop(t *testing.T) {
-	out := InlineCSS(inlineProbeDoc, "tablet")
+	out := InlineCSS(inlineProbeDoc, "tablet", ColorSchemeNone)
 	if strings.Contains(out, "green") || strings.Contains(out, "@media") {
 		t.Fatalf("tablet output applied mobile media: %s", out)
 	}
@@ -67,7 +67,7 @@ func TestInlineCSSTabletBehavesLikeDesktop(t *testing.T) {
 // come back byte-identical (the fast path must not reorder anything).
 func TestInlineCSSWithoutStyleIsUntouched(t *testing.T) {
 	doc := `<div style="color:red">plain</div>`
-	if got := InlineCSS(doc, UAClassDesktop); got != doc {
+	if got := InlineCSS(doc, UAClassDesktop, ColorSchemeNone); got != doc {
 		t.Fatalf("styleless document changed: %s", got)
 	}
 }
@@ -77,7 +77,7 @@ func TestInlineCSSWithoutStyleIsUntouched(t *testing.T) {
 // conservative drop behavior.
 func TestInlineCSSErrorKeepsInput(t *testing.T) {
 	doc := `<style>.a{color:red</style><div class="a">x</div>`
-	out := InlineCSS(doc, UAClassDesktop)
+	out := InlineCSS(doc, UAClassDesktop, ColorSchemeNone)
 	safe, _ := SanitizeHTML(out)
 	// go-premailer's parser tolerates the missing brace and inlines the
 	// rule; the contract is only that the element and its text survive.
@@ -93,7 +93,7 @@ func TestInlineCSSErrorKeepsInput(t *testing.T) {
 // swallow the rules around it.
 func TestInlineCSSMediaUnbalancedKeepsRest(t *testing.T) {
 	doc := `<style>.a{color:red}@media(max-width:480px){.b{color:green}.c{color:blue}</style><div class="a b c">x</div>`
-	out := InlineCSS(doc, UAClassMobile)
+	out := InlineCSS(doc, UAClassMobile, ColorSchemeNone)
 	if !strings.Contains(out, "color:red") {
 		t.Fatalf("base rule lost around broken media: %s", out)
 	}
