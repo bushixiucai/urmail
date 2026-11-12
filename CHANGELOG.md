@@ -26,6 +26,13 @@
 
 - 备份跨秒时文件名与异地清单时间不一致、导致异地备份被跳过的问题已有合并补丁和受控回归证据（#119），最终集成待验。此前 CI 中同样出现空清单名，但该次运行未记录可用的异地错误日志，具体原因尚未证实。
 
+### 运维与升级
+
+- 新增 `urmailctl recover-pending`：升级停写（fence）保持期间，存在未完成 apply journal（pending）时的唯一受支持离线恢复入口。以 root 在 hold 激活状态下运行；operation.lock 由恢复核心单次获取；恢复前对 journal 及两个 manifest 做有界原子快照（原始内容累计 32 MiB 上限、序列化与回滚读取 64 MiB 上限，创建阶段先验尺寸）；恢复 journal 引用文件并将 previous manifest 提交回 manifest.json/applied_manifest（原子顺序：文件→manifest→删 pending），DNS 与 spam journal 事前拒绝；不执行 systemctl start/stop/restart/reload，仅只读查询（show/cat/list-jobs），注意查询可使单元进入 loaded 状态（非启动）；私有证据自动归档于 `pending-recovery-backups/`。失败语义三态明确：pending 删除失败且 journal 保留时报告 manifest 已提交、pending 保留；一般失败回滚快照恢复原文件；成功后核验 pending 确已删除。agentd 不再要求重启 agent 才能清理 pending journal（仅适用于当前版本、非 DNS、非 spam-source 的 journal；该两类与 legacy v1 DNS journal 仍拒绝并要求人工处置）（#124）。
+- failed 静止态前置白名单：仅 cert-renew 与 usage-sync 两单元（service 与 timer）可以 failed 态通过停写前置——须无 PID/cgroup/job、guard 生效、hold 的 inode/mtime/内容不变、前后两次观测稳定、timer inactive；failed≠inactive 的通用停写规则不变，此白名单并非邮件写权限放宽。Postfix 模板 guard 仅经 `systemctl cat` 校验（含逐个 loaded 实例的继承与生效性核验，不对模板名执行 show）（#124）。
+- 构建工具链 Go 1.27.3 升至 1.27.4（GO-2026-6859 / CVE-2026-97054：net/http MaxBytesReader 触发的响应头并发竞态可致 HTTP/1 服务崩溃；1.27.0–1.27.3 受影响）。仅更新 go.mod 与 CI/打包 workflow 的版本入口，无依赖变更；govulncheck（v1.9.0，Go 1.27.4 工具链记录版本）全仓 0 个影响代码的漏洞（#124）。
+- 适用限制：以上为代码与测试层证据（单元/集成测试、仓库 lint、govulncheck）。recover-pending 尚未在任何真实 pending 环境执行；G5 备份/恢复演练未完成，本条目不构成任何真实恢复通过证据。发布产物须以 Go 1.27.4 重新构建。
+
 ### 验收状态
 
 - 本版本计划提供未签名的双架构 deb、manifest 和 SHA256 校验材料；SHA256 用于核对文件完整性，不提供发布者身份认证。现有远程安装路径要求签名清单，不能直接安装本次未签名产物；本地包路径的具体升级步骤及最终产物待验。
