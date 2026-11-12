@@ -166,11 +166,11 @@ func TestPostfixTemplateGuardRejectsMissingOrClearedGuard(t *testing.T) {
 		fake := newFakePostfixGuardOps("postfix@-.service")
 		unit := "postfix@-.service"
 		clearPath := filepath.Join(maintenance.DefaultDropInDir, unit+".d", "zz-clear.conf")
-		clear := "[Unit]\nConditionPathExists=\n[Service]\nExecStartPre=\n"
-		fake.files[clearPath] = fakeSystemdSource(clear)
+		clearCfg := "[Unit]\nConditionPathExists=\n[Service]\nExecStartPre=\n"
+		fake.files[clearPath] = fakeSystemdSource(clearCfg)
 		instance := fake.instances[unit]
 		instance.observation.DropInPaths += " " + clearPath
-		instance.cat = append(instance.cat, []byte("\n# "+clearPath+"\n"+clear)...)
+		instance.cat = append(instance.cat, []byte("\n# "+clearPath+"\n"+clearCfg)...)
 		fake.instances[unit] = instance
 		if _, err := verifyPostfixTemplateAndInstancesWithOps(context.Background(), postfixTestHoldPath, fake.reader()); err == nil {
 			t.Fatal("later drop-in that clears the hold guard accepted")

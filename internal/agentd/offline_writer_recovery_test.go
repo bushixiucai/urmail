@@ -16,20 +16,20 @@ func TestQuiescentFailedWriterPredicate(t *testing.T) {
 		mutate func(*offlineWriterObservation, *offlineWriterObservation, *[]string, *bool)
 		want   string
 	}{
-		{"active", func(s, t *offlineWriterObservation, j *([]string), g *bool) { s.Active = "active" }, "state/result/invocation evidence incomplete"},
-		{"not allowlisted", func(s, t *offlineWriterObservation, j *([]string), g *bool) { s.Unit = "postfix.service" }, "not in offline recovery allowlist"},
-		{"main pid", func(s, t *offlineWriterObservation, j *([]string), g *bool) { s.MainPID = "123" }, "PID/control/cgroup"},
-		{"control pid", func(s, t *offlineWriterObservation, j *([]string), g *bool) { s.ControlPID = "7" }, "PID/control/cgroup"},
-		{"cgroup assigned", func(s, t *offlineWriterObservation, j *([]string), g *bool) { s.ControlGroup = "/system.slice/x" }, "PID/control/cgroup"},
-		{"service job", func(s, t *offlineWriterObservation, j *([]string), g *bool) {
+		{"active", func(s, _ *offlineWriterObservation, _ *([]string), _ *bool) { s.Active = "active" }, "state/result/invocation evidence incomplete"},
+		{"not allowlisted", func(s, _ *offlineWriterObservation, _ *([]string), _ *bool) { s.Unit = "postfix.service" }, "not in offline recovery allowlist"},
+		{"main pid", func(s, _ *offlineWriterObservation, _ *([]string), _ *bool) { s.MainPID = "123" }, "PID/control/cgroup"},
+		{"control pid", func(s, _ *offlineWriterObservation, _ *([]string), _ *bool) { s.ControlPID = "7" }, "PID/control/cgroup"},
+		{"cgroup assigned", func(s, _ *offlineWriterObservation, _ *([]string), _ *bool) { s.ControlGroup = "/system.slice/x" }, "PID/control/cgroup"},
+		{"service job", func(_, _ *offlineWriterObservation, j *([]string), _ *bool) {
 			*j = []string{"1 urmail-usage-sync.service start running"}
 		}, "queued systemd job"},
-		{"timer job", func(s, t *offlineWriterObservation, j *([]string), g *bool) {
+		{"timer job", func(_, _ *offlineWriterObservation, j *([]string), _ *bool) {
 			*j = []string{"1 urmail-usage-sync.timer start running"}
 		}, "queued systemd job"},
-		{"guard missing", func(s, t *offlineWriterObservation, j *([]string), g *bool) { *g = false }, "lacks the active hold guard"},
-		{"timer active", func(s, t *offlineWriterObservation, j *([]string), g *bool) { t.Active = "active" }, "not loaded/inactive"},
-		{"unknown result", func(s, t *offlineWriterObservation, j *([]string), g *bool) { s.Result = "" }, "state/result/invocation evidence incomplete"},
+		{"guard missing", func(_, _ *offlineWriterObservation, _ *([]string), g *bool) { *g = false }, "lacks the active hold guard"},
+		{"timer active", func(_, t *offlineWriterObservation, _ *([]string), _ *bool) { t.Active = "active" }, "not loaded/inactive"},
+		{"unknown result", func(s, _ *offlineWriterObservation, _ *([]string), _ *bool) { s.Result = "" }, "state/result/invocation evidence incomplete"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

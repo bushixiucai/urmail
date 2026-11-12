@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -158,7 +157,7 @@ func verifyOfflineWritersForRecovery(ctx context.Context, maintenanceRoot, holdH
 		}
 	}
 
-	holdNow, err := verifyOfflineFence(maintenanceRoot, maintenance.DefaultDropInDir)
+	holdNow, err := verifyOfflineFence(ctx, maintenanceRoot, maintenance.DefaultDropInDir)
 	if err != nil {
 		return fmt.Errorf("recheck active hold after writer sampling: %w", err)
 	}
@@ -169,6 +168,7 @@ func verifyOfflineWritersForRecovery(ctx context.Context, maintenanceRoot, holdH
 }
 
 func runSystemctl(ctx context.Context, args ...string) ([]byte, error) {
+	// #nosec G204 -- fixed systemctl binary; args are built from a fixed property list plus an allow-listed unit name.
 	cmd := exec.CommandContext(ctx, "/usr/bin/systemctl", args...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", "HOME=/root"}
 	return cmd.Output()
@@ -198,7 +198,8 @@ func verifyFailedWriterStable(before, after, timerBefore, timerAfter offlineWrit
 
 func readOfflineWriterObservation(ctx context.Context, unit string) (offlineWriterObservation, error) {
 	props := []string{"LoadState", "ActiveState", "Result", "MainPID", "ControlPID", "ControlGroup", "InvocationID", "ExecMainStatus", "ExecMainStartTimestamp", "DropInPaths", "FragmentPath", "ExecStartPre", "NeedDaemonReload"}
-	args := []string{"show"}
+	args := make([]string, 0, 1+len(props)+1)
+	args = append(args, "show")
 	for _, p := range props {
 		args = append(args, "--property="+p)
 	}
@@ -248,30 +249,6 @@ func readOfflineWriterObservation(ctx context.Context, unit string) (offlineWrit
 	return o, nil
 }
 
-func countCgroupTasks(cg string) (int, error) {
-	if cg == "" {
-		return 0, nil
-	}
-	if !strings.HasPrefix(cg, "/system.slice/") || strings.Contains(cg, "..") {
-		return 0, errors.New("writer cgroup outside system.slice")
-	}
-	root := filepath.Join("/sys/fs/cgroup", filepath.Clean(cg))
-	count := 0
-	for _, name := range []string{"cgroup.procs", "cgroup.threads"} {
-		b, e := os.ReadFile(filepath.Join(root, name))
-		if e != nil {
-			return 0, e
-		}
-		for _, id := range strings.Fields(string(b)) {
-			if _, e := strconv.Atoi(id); e != nil {
-				return 0, errors.New("invalid cgroup task id")
-			}
-			count++
-		}
-	}
-	return count, nil
-}
-
 func verifyEffectiveHoldGuards(service, serviceDropins, timer, timerDropins, maintenanceRoot string) (bool, error) {
 	hold := filepath.Join(maintenanceRoot, maintenance.DefaultUpgradeHoldFile)
 	for unit, dropins := range map[string]string{service: serviceDropins, timer: timerDropins} {
@@ -293,6 +270,7 @@ func verifyEffectiveHoldGuards(service, serviceDropins, timer, timerDropins, mai
 		if !ok || owner.Uid != 0 || owner.Gid != 0 {
 			return false, fmt.Errorf("hold guard owner invalid for %s", unit)
 		}
+		// #nosec G304 -- path is derived from the fixed systemd drop-in directory and an allow-listed unit name.
 		b, e := os.ReadFile(path)
 		if e != nil {
 			return false, e
@@ -323,6 +301,7 @@ func createOfflineWriterEvidenceDir(stateRoot string) (string, error) {
 	return os.MkdirTemp(root, "writer-state-")
 }
 func writePrivateEvidence(path string, b []byte) error {
+	// #nosec G304 -- callers pass fixed paths inside the private task evidence directory; file is created with O_EXCL|O_NOFOLLOW mode 0600.
 	f, e := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if e != nil {
 		return e
@@ -342,6 +321,7 @@ func archiveFailedWriter(ctx context.Context, dir string, o, t offlineWriterObse
 	if e := writePrivateEvidence(filepath.Join(dir, o.Unit+".json"), append(b, '\n')); e != nil {
 		return e
 	}
+	// #nosec G204 -- fixed journalctl binary and flags; unit comes from the offline recovery allow-list.
 	out, e := exec.CommandContext(ctx, "/usr/bin/journalctl", "-u", o.Unit, "-n", "40", "--no-pager", "-o", "short-precise").Output()
 	if e != nil {
 		return fmt.Errorf("archive unit journal %s: %w", o.Unit, e)

@@ -131,7 +131,7 @@ func readSystemdConfigFile(path string) (systemdSource, error) {
 		return systemdSource{}, err
 	}
 	f := os.NewFile(uintptr(fd), filepath.Base(path))
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	opened, err := f.Stat()
 	if err != nil {
 		return systemdSource{}, err
@@ -295,7 +295,7 @@ func readPostfixTemplate(ctx context.Context, holdPath string, ops postfixGuardO
 		return postfixTemplateEvidence{}, fmt.Errorf("template guard file content: %w", err)
 	}
 	if err := verifySystemdHoldGuardConfig(cfg, holdPath, true); err != nil {
-		return postfixTemplateEvidence{}, fmt.Errorf("Postfix template guard: %w", err)
+		return postfixTemplateEvidence{}, fmt.Errorf("postfix template guard: %w", err)
 	}
 	var fingerprint strings.Builder
 	fingerprint.WriteString(hashBytesLocal(cat))
@@ -317,13 +317,13 @@ func readPostfixInstance(ctx context.Context, unit, holdPath string, template po
 		return offlineWriterObservation{}, "", fmt.Errorf("inspect Postfix instance %s: %w", unit, err)
 	}
 	if observation.Unit != unit || observation.Load != "loaded" || observation.Active != "inactive" || observation.MainPID != "0" || observation.ControlPID != "0" || observation.ControlGroup != "" {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s is not proven inactive and quiescent", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s is not proven inactive and quiescent", unit)
 	}
 	if observation.FragmentPath != template.FragmentPath || observation.NeedDaemonReload != "no" {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s fragment is unexpected or daemon reload is pending", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s fragment is unexpected or daemon reload is pending", unit)
 	}
 	if !verifySystemdExecStartPreProperty(observation.ExecStartPre, holdPath) {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s effective ExecStartPre hold guard is absent", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s effective ExecStartPre hold guard is absent", unit)
 	}
 	cat, err := ops.cat(ctx, unit)
 	if err != nil {
@@ -334,11 +334,11 @@ func readPostfixInstance(ctx context.Context, unit, holdPath string, template po
 		return offlineWriterObservation{}, "", err
 	}
 	if len(cfg.Paths) == 0 || cfg.Paths[0] != observation.FragmentPath {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s cat sources disagree with FragmentPath", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s cat sources disagree with FragmentPath", unit)
 	}
 	dropins := strings.Fields(observation.DropInPaths)
 	if !sameStringSet(dropins, cfg.Paths[1:]) {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s DropInPaths disagree with systemctl cat", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s DropInPaths disagree with systemctl cat", unit)
 	}
 	instanceGuard := filepath.Join(maintenance.DefaultDropInDir, unit+".d", maintenance.DropInFileName)
 	matchingGuards := 0
@@ -350,7 +350,7 @@ func readPostfixInstance(ctx context.Context, unit, holdPath string, template po
 		}
 	}
 	if matchingGuards != 1 || (selectedGuard != instanceGuard && selectedGuard != template.GuardPath) {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s has no unique effective template/instance guard", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s has no unique effective template/instance guard", unit)
 	}
 	instanceSource, instanceErr := ops.readFile(instanceGuard)
 	instanceExists := instanceErr == nil
@@ -363,30 +363,30 @@ func readPostfixInstance(ctx context.Context, unit, holdPath string, template po
 			return offlineWriterObservation{}, "", err
 		}
 		if err := verifySystemdHoldGuardConfig(instanceCfg, holdPath, true); err != nil {
-			return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance override %s: %w", unit, err)
+			return offlineWriterObservation{}, "", fmt.Errorf("postfix instance override %s: %w", unit, err)
 		}
 		if selectedGuard != instanceGuard {
-			return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s override exists but is not effective", unit)
+			return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s override exists but is not effective", unit)
 		}
 	} else if selectedGuard != template.GuardPath {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s reports a missing instance guard as effective", unit)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s reports a missing instance guard as effective", unit)
 	}
 	var fingerprint strings.Builder
-	fingerprint.WriteString(fmt.Sprintf("%+v\n", observation))
+	fmt.Fprintf(&fingerprint, "%+v\n", observation)
 	fingerprint.WriteString(hashBytesLocal(cat))
 	for _, path := range cfg.Paths {
 		file, err := ops.readFile(path)
 		if err != nil {
-			return offlineWriterObservation{}, "", fmt.Errorf("read Postfix instance source %s: %w", filepath.Base(path), err)
+			return offlineWriterObservation{}, "", fmt.Errorf("read postfix instance source %s: %w", filepath.Base(path), err)
 		}
 		if path == template.FragmentPath && file.Fingerprint != template.FragmentFingerprint {
-			return offlineWriterObservation{}, "", errors.New("Postfix template fragment changed during instance verification")
+			return offlineWriterObservation{}, "", errors.New("postfix template fragment changed during instance verification")
 		}
 		if path == template.GuardPath && file.Fingerprint != template.GuardFingerprint {
-			return offlineWriterObservation{}, "", errors.New("Postfix template guard changed during instance verification")
+			return offlineWriterObservation{}, "", errors.New("postfix template guard changed during instance verification")
 		}
 		if path == instanceGuard && instanceExists && file.Fingerprint != instanceSource.Fingerprint {
-			return offlineWriterObservation{}, "", errors.New("Postfix instance override changed during instance verification")
+			return offlineWriterObservation{}, "", errors.New("postfix instance override changed during instance verification")
 		}
 		fingerprint.WriteString(path)
 		fingerprint.WriteByte('=')
@@ -394,7 +394,7 @@ func readPostfixInstance(ctx context.Context, unit, holdPath string, template po
 		fingerprint.WriteByte('\n')
 	}
 	if err := verifySystemdHoldGuardConfig(cfg, holdPath, true); err != nil {
-		return offlineWriterObservation{}, "", fmt.Errorf("Postfix instance %s effective hold guard: %w", unit, err)
+		return offlineWriterObservation{}, "", fmt.Errorf("postfix instance %s effective hold guard: %w", unit, err)
 	}
 	return observation, hashBytesLocal([]byte(fingerprint.String())), nil
 }
@@ -403,11 +403,11 @@ func verifyPostfixTemplateAndInstances(ctx context.Context, holdPath string) (st
 	return verifyPostfixTemplateAndInstancesWithOps(ctx, holdPath, livePostfixGuardOps())
 }
 
-func verifyPostfixTemplateFenceDropIn(unit, holdPath string) (string, error) {
+func verifyPostfixTemplateFenceDropIn(ctx context.Context, unit, holdPath string) (string, error) {
 	if unit != "postfix@.service" {
-		return "", errors.New("unexpected Postfix template unit")
+		return "", errors.New("unexpected postfix template unit")
 	}
-	return verifyPostfixTemplateAndInstances(context.Background(), holdPath)
+	return verifyPostfixTemplateAndInstances(ctx, holdPath)
 }
 
 func verifyPostfixTemplateAndInstancesWithOps(ctx context.Context, holdPath string, ops postfixGuardOps) (string, error) {
@@ -417,7 +417,7 @@ func verifyPostfixTemplateAndInstancesWithOps(ctx context.Context, holdPath stri
 	}
 	units, err := ops.list(ctx)
 	if err != nil {
-		return "", fmt.Errorf("enumerate Postfix instances: %w", err)
+		return "", fmt.Errorf("enumerate postfix instances: %w", err)
 	}
 	units = append([]string(nil), units...)
 	sort.Strings(units)
@@ -449,14 +449,14 @@ func verifyPostfixTemplateAndInstancesWithOps(ctx context.Context, holdPath stri
 	unitsAfter = append([]string(nil), unitsAfter...)
 	sort.Strings(unitsAfter)
 	if !sameStringSet(units, unitsAfter) {
-		return "", errors.New("Postfix instance set changed during guard verification")
+		return "", errors.New("postfix instance set changed during guard verification")
 	}
 	templateAfter, err := readPostfixTemplate(ctx, holdPath, ops)
 	if err != nil {
 		return "", err
 	}
 	if templateAfter.Fingerprint != template.Fingerprint {
-		return "", errors.New("Postfix template or template guard changed during verification")
+		return "", errors.New("postfix template or template guard changed during verification")
 	}
 	for _, unit := range units {
 		observation, fingerprint, err := readPostfixInstance(ctx, unit, holdPath, templateAfter, ops)
@@ -464,16 +464,8 @@ func verifyPostfixTemplateAndInstancesWithOps(ctx context.Context, holdPath stri
 			return "", err
 		}
 		if observation != observations[unit] || fingerprint != fingerprints[unit] {
-			return "", fmt.Errorf("Postfix instance %s or its effective guard changed during verification", unit)
+			return "", fmt.Errorf("postfix instance %s or its effective guard changed during verification", unit)
 		}
 	}
 	return hashBytesLocal([]byte(combined.String())), nil
-}
-
-func verifyPostfixGuardConfigForTest(raw []byte, holdPath string) error {
-	cfg, err := parseSystemdUnitConfig(raw)
-	if err != nil {
-		return err
-	}
-	return verifySystemdHoldGuardConfig(cfg, holdPath, true)
 }

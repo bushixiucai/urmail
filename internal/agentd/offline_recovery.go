@@ -51,7 +51,7 @@ func RecoverPendingJournalOffline(ctx context.Context, maintenanceRoot string) (
 		return "", errors.New("agent state root must be root-owned")
 	}
 	root := maintenance.Root(maintenanceRoot)
-	holdHash, err := verifyOfflineFence(root, maintenance.DefaultDropInDir)
+	holdHash, err := verifyOfflineFence(ctx, root, maintenance.DefaultDropInDir)
 	if err != nil {
 		return "", err
 	}
@@ -63,7 +63,7 @@ func RecoverPendingJournalOffline(ctx context.Context, maintenanceRoot string) (
 		return "", fmt.Errorf("acquire operation lock: %w", err)
 	}
 	defer func() { _ = maintenance.ReleaseLock(lock) }()
-	holdHashAfterLock, err := verifyOfflineFence(root, maintenance.DefaultDropInDir)
+	holdHashAfterLock, err := verifyOfflineFence(ctx, root, maintenance.DefaultDropInDir)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +85,7 @@ func acquireOfflineRecoveryLock(ctx context.Context, root string) (*maintenance.
 	return maintenance.AcquireLockWithTimeout(ctx, root, maintenance.DefaultLockName, 0)
 }
 
-func verifyOfflineFence(root, dropInDir string) (string, error) {
+func verifyOfflineFence(ctx context.Context, root, dropInDir string) (string, error) {
 	status, err := maintenance.CheckFenceStatus(root)
 	if err != nil || status == nil || !status.Active || status.Meta == nil || status.Receipt == nil {
 		return "", errors.New("offline pending recovery requires a readable active upgrade fence and receipt")
@@ -109,7 +109,7 @@ func verifyOfflineFence(root, dropInDir string) (string, error) {
 		return "", errors.New("offline pending recovery hold file metadata unsafe")
 	}
 	holdStat, ok := hi.Sys().(*syscall.Stat_t)
-	if !ok || holdStat.Uid != uint32(os.Geteuid()) || holdStat.Nlink != 1 {
+	if !ok || int64(holdStat.Uid) != int64(os.Geteuid()) || holdStat.Nlink != 1 {
 		return "", errors.New("offline pending recovery hold owner/link count unsafe")
 	}
 	guards, err := maintenance.CheckDropInGuards(dropInDir, maintenance.DropInGuardedUnits)
@@ -123,9 +123,9 @@ func verifyOfflineFence(root, dropInDir string) (string, error) {
 		}
 		var checkErr error
 		if unit == "postfix@.service" {
-			templateFingerprint, checkErr = verifyPostfixTemplateFenceDropIn(unit, status.HoldPath)
+			templateFingerprint, checkErr = verifyPostfixTemplateFenceDropIn(ctx, unit, status.HoldPath)
 		} else {
-			checkErr = verifyEffectiveFenceDropIn(unit, status.HoldPath)
+			checkErr = verifyEffectiveFenceDropIn(ctx, unit, status.HoldPath)
 		}
 		if checkErr != nil {
 			return "", checkErr
@@ -134,7 +134,7 @@ func verifyOfflineFence(root, dropInDir string) (string, error) {
 	return fmt.Sprintf("%s:%d:%d:%s", holdHash, holdStat.Ino, hi.ModTime().UnixNano(), templateFingerprint), nil
 }
 
-func verifyEffectiveFenceDropIn(unit, holdPath string) error {
+func verifyEffectiveFenceDropIn(ctx context.Context, unit, holdPath string) error {
 	path := filepath.Join(maintenance.DefaultDropInDir, unit+".d", maintenance.DropInFileName)
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
@@ -143,6 +143,7 @@ func verifyEffectiveFenceDropIn(unit, holdPath string) error {
 	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != 0 {
 		return fmt.Errorf("fence drop-in for %s not root-owned", unit)
 	}
+	// #nosec G304 -- path is derived from the fixed systemd drop-in directory and an allow-listed unit name.
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read fence drop-in for %s: %w", unit, err)
@@ -153,7 +154,8 @@ func verifyEffectiveFenceDropIn(unit, holdPath string) error {
 	if strings.HasSuffix(unit, ".service") && !bytes.Contains(content, []byte("ExecStartPre=/usr/bin/test ! -f "+holdPath)) {
 		return fmt.Errorf("fence ExecStartPre absent in drop-in for %s", unit)
 	}
-	cmd := exec.Command("/usr/bin/systemctl", "show", "--property=LoadState", "--property=DropInPaths", unit)
+	// #nosec G204 -- fixed systemctl binary and flags; unit comes from the product's guarded-unit allow-list.
+	cmd := exec.CommandContext(ctx, "/usr/bin/systemctl", "show", "--property=LoadState", "--property=DropInPaths", unit)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", "HOME=/root"}
 	out, err := cmd.Output()
 	if err != nil {

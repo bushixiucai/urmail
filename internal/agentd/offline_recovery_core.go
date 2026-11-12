@@ -48,7 +48,7 @@ func recoverPendingJournalOfflineCoreWithHooks(ctx context.Context, stateRoot, t
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return recoverPendingJournalOfflineData(ctx, stateRoot, targetRoot, pendingPath, raw, pendingSnapshot, hooks)
 }
 
@@ -115,10 +115,10 @@ func recoverPendingJournalOfflineData(ctx context.Context, stateRoot, targetRoot
 			if verifyErr == nil {
 				return backupDir, fmt.Errorf("recovery manifest committed; pending journal changed after deletion failure; private snapshot retained: %w", err)
 			}
-			return backupDir, fmt.Errorf("recovery manifest committed; pending deletion failed and journal retention could not be verified (%v); private snapshot retained: %w", verifyErr, err)
+			return backupDir, fmt.Errorf("recovery manifest committed; pending deletion failed and journal retention could not be verified (%w); private snapshot retained: %w", verifyErr, err)
 		}
 		if rb := restoreOfflineRecoverySnapshot(manager, backupDir); rb != nil {
-			return backupDir, fmt.Errorf("offline recovery failed; rollback incomplete; private snapshot retained: %v", rb)
+			return backupDir, fmt.Errorf("offline recovery failed; rollback incomplete; private snapshot retained: %w", rb)
 		}
 		return backupDir, fmt.Errorf("offline recovery failed; original files restored and journal retained: %w", err)
 	}
@@ -131,7 +131,7 @@ func recoverPendingJournalOfflineData(ctx context.Context, stateRoot, targetRoot
 		if verifyErr == nil {
 			return backupDir, fmt.Errorf("recovery manifest committed; pending journal remains but its content changed; private snapshot retained (mode %s)", pendingInfo.Mode())
 		}
-		return backupDir, fmt.Errorf("recovery manifest committed; pending journal remains but retention could not be verified (%v); private snapshot retained", verifyErr)
+		return backupDir, fmt.Errorf("recovery manifest committed; pending journal remains but retention could not be verified (%w); private snapshot retained", verifyErr)
 	}
 	if !errors.Is(pendingErr, os.ErrNotExist) {
 		return backupDir, fmt.Errorf("recovery manifest committed; pending journal state cannot be verified: %w; private snapshot retained", pendingErr)
@@ -144,7 +144,7 @@ func pendingJournalStillMatches(path string, want []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return bytes.Equal(raw, want), nil
 }
 
@@ -164,7 +164,7 @@ func readPrivatePending(path string) (*os.File, []byte, savedFile, error) {
 		return nil, nil, savedFile{}, errors.New("pending journal must be private regular file within size limit")
 	}
 	owner, ok := st.Sys().(*syscall.Stat_t)
-	if !ok || owner.Uid != uint32(os.Geteuid()) || owner.Nlink != 1 {
+	if !ok || int64(owner.Uid) != int64(os.Geteuid()) || owner.Nlink != 1 {
 		_ = f.Close()
 		return nil, nil, savedFile{}, errors.New("pending journal owner/link count unsafe")
 	}
@@ -207,7 +207,7 @@ func snapshotOfflineRecoveryState(m *ApplyManager, pendingPath string, pending s
 	if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 || st.Mode().Perm() != 0700 {
 		return "", errors.New("recovery backup root invalid")
 	}
-	if owner, ok := st.Sys().(*syscall.Stat_t); !ok || owner.Uid != uint32(os.Geteuid()) {
+	if owner, ok := st.Sys().(*syscall.Stat_t); !ok || int64(owner.Uid) != int64(os.Geteuid()) {
 		return "", errors.New("recovery backup root owner invalid")
 	}
 	dir, err := os.MkdirTemp(root, "offline-")
@@ -249,6 +249,7 @@ func snapshotOfflineRecoveryState(m *ApplyManager, pendingPath string, pending s
 	if err != nil {
 		return dir, err
 	}
+	// #nosec G304 -- dir comes from os.MkdirTemp inside the private 0700 state root; file is created with O_EXCL|O_NOFOLLOW.
 	f, err := os.OpenFile(filepath.Join(dir, "snapshot.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return dir, err
@@ -295,7 +296,7 @@ func saveFileBounded(path string, limit int64) (savedFile, error) {
 		return savedFile{}, err
 	}
 	f := os.NewFile(uintptr(fd), filepath.Base(path))
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	opened, err := f.Stat()
 	if err != nil {
 		return savedFile{}, err
@@ -327,7 +328,7 @@ func restoreOfflineRecoverySnapshot(m *ApplyManager, dir string) error {
 		return err
 	}
 	f := os.NewFile(uintptr(fd), "snapshot.json")
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() < 0 || info.Size() > maxOfflineRecoverySnapshotBytes {
 		return errors.New("rollback snapshot metadata or size invalid")
@@ -347,34 +348,39 @@ func restoreOfflineRecoverySnapshot(m *ApplyManager, dir string) error {
 	for _, p := range keys {
 		v := snapshot.Files[p]
 		var re error
-		if p == filepath.Join(m.stateDir(), "manifest.json") || p == pending {
+		switch p {
+		case filepath.Join(m.stateDir(), "manifest.json"), pending:
 			re = restorePrivateStateFile(p, v, m.stateDir(), m.targetRoot)
-		} else if p == appliedManifestBackupPath {
+		case appliedManifestBackupPath:
 			re = restorePrivateStateFile(m.target(p), v, m.stateDir(), m.targetRoot)
-		} else {
+		default:
 			clean, _, e := resolveAllowedPath(p, allowedWriteRoots)
 			target := m.target(p)
 			if e != nil || clean != p {
 				re = errors.New("rollback path unsupported")
-			} else {
-				roots := allowedWriteRoots
-				if m.targetRoot != "" {
-					roots = []string{m.targetRoot}
+				break
+			}
+			roots := allowedWriteRoots
+			if m.targetRoot != "" {
+				roots = []string{m.targetRoot}
+			}
+			if v.Exists {
+				_, re = writeFileAtomic(target, v.Content, os.FileMode(v.Mode), roots)
+				if re == nil && os.Geteuid() == 0 {
+					re = os.Chown(target, v.UID, v.GID)
+				} else if re == nil && (v.UID != os.Getuid() || v.GID != os.Getgid()) {
+					re = errors.New("cannot restore original owner without root")
 				}
-				if v.Exists {
-					_, re = writeFileAtomic(target, v.Content, os.FileMode(v.Mode), roots)
-					if re == nil && os.Geteuid() == 0 {
-						re = os.Chown(target, v.UID, v.GID)
-					} else if re == nil && (v.UID != os.Getuid() || v.GID != os.Getgid()) {
-						re = errors.New("cannot restore original owner without root")
-					}
-				} else if st, e := os.Lstat(target); errors.Is(e, os.ErrNotExist) {
+			} else {
+				st, e := os.Lstat(target)
+				switch {
+				case errors.Is(e, os.ErrNotExist):
 					re = nil
-				} else if e != nil {
+				case e != nil:
 					re = e
-				} else if !st.Mode().IsRegular() || st.Mode()&os.ModeSymlink != 0 {
+				case !st.Mode().IsRegular() || st.Mode()&os.ModeSymlink != 0:
 					re = errors.New("rollback target unsafe")
-				} else {
+				default:
 					re = os.Remove(target)
 				}
 			}
@@ -405,6 +411,7 @@ func restorePrivateStateFile(path string, v savedFile, stateRoot, targetRoot str
 	if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return errors.New("private state parent unsafe")
 	}
+	// #nosec G304 -- parent was validated above; file is created with O_EXCL|O_NOFOLLOW mode 0600.
 	tmp, err := os.OpenFile(filepath.Join(parent, ".offline-recovery-restore.tmp"), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return err
