@@ -143,6 +143,11 @@ type ApplyManager struct {
 	manifestFiles    map[string]ManifestFileRecord
 	onDrift          func(string)
 	prepareOnly      bool
+	// offlineRecovery disables external helper and service reload/start side effects.
+	// The explicit offline recovery entry rejects DNS and spam-source journals first.
+	offlineRecovery       bool
+	offlineManifestWriter func() error
+	offlinePendingRemover func(string) error
 }
 
 // Target returns the target filesystem path for a simulated system file.
@@ -1052,6 +1057,12 @@ func (m *ApplyManager) restore(j applyJournal) error {
 		}
 	}
 
+	// Offline recovery must not execute helper commands or reload protocol units.
+	// Its caller rejects DNS and compiler-dependent journal classes before entry.
+	if m.offlineRecovery {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	// Restore writes may change source/binary mtimes in either order. Compile
@@ -1128,11 +1139,30 @@ func (m *ApplyManager) recover() error {
 	m.domains = j.PreviousDomains
 	m.status.Ready = false
 	m.status.Step = "recovered"
-	if err := m.saveCurrentManifest(); err != nil {
+	if m.offlineRecovery && m.offlineManifestWriter != nil {
+		err = m.offlineManifestWriter()
+	} else {
+		err = m.saveCurrentManifest()
+	}
+	if err != nil {
 		return err
 	}
-	return os.Remove(filepath.Join(m.root, "pending.json"))
+	removePending := os.Remove
+	if m.offlineRecovery && m.offlinePendingRemover != nil {
+		removePending = m.offlinePendingRemover
+	}
+	if err := removePending(filepath.Join(m.root, "pending.json")); err != nil {
+		return &pendingJournalRemovalError{err: err}
+	}
+	return nil
 }
+
+type pendingJournalRemovalError struct{ err error }
+
+func (e *pendingJournalRemovalError) Error() string {
+	return "remove pending journal: " + e.err.Error()
+}
+func (e *pendingJournalRemovalError) Unwrap() error { return e.err }
 
 func (m *ApplyManager) recordFileManifest(path string) (ManifestFileRecord, error) {
 	target := m.target(path)
