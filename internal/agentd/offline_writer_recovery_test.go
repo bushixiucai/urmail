@@ -5,6 +5,131 @@ import (
 	"testing"
 )
 
+// These raw show fixtures model omitted timer properties, not archived samples
+// from the historical recovery run (its two in-process samples were not saved).
+const failedWriterShow = `LoadState=loaded
+ActiveState=failed
+Result=exit-code
+MainPID=0
+ControlPID=0
+ControlGroup=
+InvocationID=service-inv
+ExecMainStatus=1
+ExecMainStartTimestamp=timestamp
+`
+
+const inactiveTimerShow = `LoadState=loaded
+ActiveState=inactive
+SubState=dead
+Result=success
+InvocationID=timer-inv
+`
+
+func TestOfflineWriterRawShowRecoveryProof(t *testing.T) {
+	for service, timer := range recoverableFailedWriters {
+		t.Run(service, func(t *testing.T) {
+			for _, pids := range []string{"", "MainPID=0\nControlPID=0\nControlGroup=\n"} {
+				before := parseOfflineWriterObservation(service, []byte(failedWriterShow))
+				timerBefore := parseOfflineWriterObservation(timer, []byte(inactiveTimerShow+pids))
+				if pids == "" && (timerBefore.MainPID != "" || timerBefore.ControlPID != "" || timerBefore.ControlGroup != "") {
+					t.Fatalf("missing timer properties were normalized: %+v", timerBefore)
+				}
+				if err := assessQuiescentFailedWriter(before, timerBefore, nil, true); err != nil {
+					t.Fatalf("raw show initial proof rejected: %v", err)
+				}
+				after := parseOfflineWriterObservation(service, []byte(failedWriterShow))
+				timerAfter := parseOfflineWriterObservation(timer, []byte(inactiveTimerShow+pids))
+				if err := verifyFailedWriterStable(before, after, timerBefore, timerAfter); err != nil {
+					t.Fatalf("raw show stable proof rejected: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestOfflineWriterRawShowRejectsUnsafeEvidence(t *testing.T) {
+	const service = "urmail-usage-sync.service"
+	const timer = "urmail-usage-sync.timer"
+	cases := []struct {
+		name    string
+		writer  bool
+		oldLine string
+		newLine string
+	}{
+		{"service main PID missing", true, "MainPID=0\n", ""},
+		{"service control PID missing", true, "ControlPID=0\n", ""},
+		{"service main PID empty", true, "MainPID=0", "MainPID="},
+		{"service control PID empty", true, "ControlPID=0", "ControlPID="},
+		{"service main PID nonzero", true, "MainPID=0", "MainPID=123"},
+		{"service control PID nonzero", true, "ControlPID=0", "ControlPID=7"},
+		{"service cgroup assigned", true, "ControlGroup=", "ControlGroup=/system.slice/writer"},
+		{"timer active", false, "ActiveState=inactive", "ActiveState=active"},
+		{"timer load missing", false, "LoadState=loaded\n", ""},
+		{"timer unloaded", false, "LoadState=loaded", "LoadState=not-found"},
+		{"timer main PID nonzero", false, "", "MainPID=123\n"},
+		{"timer control PID nonzero", false, "", "ControlPID=7\n"},
+		{"timer main PID unknown", false, "", "MainPID=unknown\n"},
+		{"timer control PID unknown", false, "", "ControlPID=unknown\n"},
+		{"timer cgroup assigned", false, "", "ControlGroup=/system.slice/timer\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			writerRaw, timerRaw := failedWriterShow, inactiveTimerShow
+			mutate := func(raw string) string {
+				if tc.oldLine == "" {
+					return raw + tc.newLine
+				}
+				return strings.Replace(raw, tc.oldLine, tc.newLine, 1)
+			}
+			if tc.writer {
+				writerRaw = mutate(writerRaw)
+			} else {
+				timerRaw = mutate(timerRaw)
+			}
+			after := parseOfflineWriterObservation(service, []byte(writerRaw))
+			timerAfter := parseOfflineWriterObservation(timer, []byte(timerRaw))
+			if err := assessQuiescentFailedWriter(after, timerAfter, nil, true); err == nil {
+				t.Fatal("unsafe raw show evidence passed initial proof")
+			}
+			before := parseOfflineWriterObservation(service, []byte(failedWriterShow))
+			timerBefore := parseOfflineWriterObservation(timer, []byte(inactiveTimerShow))
+			if err := verifyFailedWriterStable(before, after, timerBefore, timerAfter); err == nil {
+				t.Fatal("unsafe raw show evidence passed stability proof")
+			}
+		})
+	}
+}
+
+func TestOfflineWriterTimerIdentityAndInvocation(t *testing.T) {
+	before := parseOfflineWriterObservation("urmail-usage-sync.service", []byte(failedWriterShow))
+	timerBefore := parseOfflineWriterObservation("urmail-usage-sync.timer", []byte(inactiveTimerShow))
+	for _, unit := range []string{"unknown.timer", "unknown.service", "urmail-cert-renew.timer", ""} {
+		t.Run(unit, func(t *testing.T) {
+			timerAfter := parseOfflineWriterObservation(unit, []byte(inactiveTimerShow))
+			if err := assessQuiescentFailedWriter(before, timerAfter, nil, true); err == nil {
+				t.Fatal("wrong timer identity passed initial proof")
+			}
+			if err := verifyFailedWriterStable(before, before, timerBefore, timerAfter); err == nil {
+				t.Fatal("changed timer identity passed stability proof")
+			}
+			if err := verifyFailedWriterStable(before, before, timerAfter, timerAfter); err == nil {
+				t.Fatal("stable but incorrect timer identity passed stability proof")
+			}
+		})
+	}
+	for _, invocation := range []string{"timer-new-inv", ""} {
+		raw := strings.Replace(inactiveTimerShow, "InvocationID=timer-inv", "InvocationID="+invocation, 1)
+		timerAfter := parseOfflineWriterObservation(timerBefore.Unit, []byte(raw))
+		if err := verifyFailedWriterStable(before, before, timerBefore, timerAfter); err == nil {
+			t.Fatal("changed or lost timer invocation passed stability proof")
+		}
+	}
+	unknown := parseOfflineWriterObservation("unknown.service", []byte(failedWriterShow))
+	if err := verifyFailedWriterStable(unknown, unknown, timerBefore, timerBefore); err == nil {
+		t.Fatal("unknown writer passed stability proof")
+	}
+}
+
 func TestQuiescentFailedWriterPredicate(t *testing.T) {
 	service := offlineWriterObservation{Unit: "urmail-usage-sync.service", Load: "loaded", Active: "failed", Result: "exit-code", MainPID: "0", ControlPID: "0", ControlGroup: "", InvocationID: "inv", ExecMainStatus: "1", ExecMainStartTimestamp: "timestamp"}
 	timer := offlineWriterObservation{Unit: "urmail-usage-sync.timer", Load: "loaded", Active: "inactive", Result: "success", MainPID: "0", ControlPID: "0", ControlGroup: ""}
