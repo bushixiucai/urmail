@@ -40,8 +40,8 @@ func assessQuiescentFailedWriter(o, timer offlineWriterObservation, pendingJobs 
 	if o.MainPID != "0" || o.ControlPID != "0" || o.ControlGroup != "" {
 		return fmt.Errorf("failed writer %s has PID/control/cgroup assignment", o.Unit)
 	}
-	if timer.Load != "loaded" || timer.Active != "inactive" {
-		return fmt.Errorf("timer for failed writer %s is not loaded/inactive", o.Unit)
+	if !quiescentFailedWriterTimer(o.Unit, timer) {
+		return fmt.Errorf("timer for failed writer %s is not loaded/inactive or has invalid identity/PID/control/cgroup evidence", o.Unit)
 	}
 	for _, job := range pendingJobs {
 		for _, field := range strings.Fields(job) {
@@ -186,11 +186,21 @@ func nonemptySystemdJobs(raw []byte) []string {
 	return jobs
 }
 
+// quiescentFailedWriterTimer applies only to the allowlisted writer's paired
+// timer. systemd timers omit service-only PID/cgroup properties; preserve those
+// missing values, but reject any reported process or cgroup assignment.
+func quiescentFailedWriterTimer(service string, timer offlineWriterObservation) bool {
+	unit, allowed := recoverableFailedWriters[service]
+	return allowed && timer.Unit == unit && timer.Load == "loaded" && timer.Active == "inactive" &&
+		(timer.MainPID == "" || timer.MainPID == "0") &&
+		(timer.ControlPID == "" || timer.ControlPID == "0") && timer.ControlGroup == ""
+}
+
 func verifyFailedWriterStable(before, after, timerBefore, timerAfter offlineWriterObservation) error {
 	if after.Unit != before.Unit || after.Load != before.Load || after.Active != "failed" || after.Result != before.Result || after.InvocationID != before.InvocationID || after.ExecMainStatus != before.ExecMainStatus || after.ExecMainStartTimestamp != before.ExecMainStartTimestamp || after.MainPID != "0" || after.ControlPID != "0" || after.ControlGroup != "" {
 		return errors.New("failed writer state changed or is not quiescent")
 	}
-	if timerAfter.Unit != timerBefore.Unit || timerAfter.Load != "loaded" || timerAfter.Active != "inactive" || timerAfter.InvocationID != timerBefore.InvocationID || timerAfter.MainPID != "0" || timerAfter.ControlPID != "0" || timerAfter.ControlGroup != "" {
+	if !quiescentFailedWriterTimer(before.Unit, timerBefore) || !quiescentFailedWriterTimer(after.Unit, timerAfter) || timerAfter.InvocationID != timerBefore.InvocationID {
 		return errors.New("timer state changed or is not inactive")
 	}
 	return nil
@@ -208,6 +218,12 @@ func readOfflineWriterObservation(ctx context.Context, unit string) (offlineWrit
 	if err != nil {
 		return offlineWriterObservation{}, fmt.Errorf("inspect writer %s: %w", unit, err)
 	}
+	return parseOfflineWriterObservation(unit, out), nil
+}
+
+// parseOfflineWriterObservation leaves omitted properties empty, including
+// service PIDs: absence is not evidence that a service has zero PIDs.
+func parseOfflineWriterObservation(unit string, out []byte) offlineWriterObservation {
 	o := offlineWriterObservation{Unit: unit}
 	for _, line := range strings.Split(string(out), "\n") {
 		k, v, ok := strings.Cut(line, "=")
@@ -246,7 +262,7 @@ func readOfflineWriterObservation(ctx context.Context, unit string) (offlineWrit
 			o.NeedDaemonReload = v
 		}
 	}
-	return o, nil
+	return o
 }
 
 func verifyEffectiveHoldGuards(service, serviceDropins, timer, timerDropins, maintenanceRoot string) (bool, error) {
