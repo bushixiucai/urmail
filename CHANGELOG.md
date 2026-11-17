@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.23] - 日期待定
+
+热修补丁：修复 webmail-next 回复草稿续写后丢失线程的问题。无数据库迁移。
+
+### 会话与线程
+
+- 回复与回复全部保存为草稿时，草稿载荷未保留原信 `Message-ID`；关闭撰写窗或刷新页面后从草稿续写发出，发送请求体缺少 `in_reply_to`，回复落到新线程。现 `in_reply_to` 随草稿一起持久化（本地活动草稿与服务端草稿），续写发出时携带原信 `Message-ID`，回复仍进原会话栈。
+- 转发与新建草稿不携带 `in_reply_to`，其草稿续写发出同样不带，转发仍保持开新线程，与 0.6.22 语义一致。
+- 新增 compose dock 回归测试：草稿续写回复断言请求体含 `in_reply_to`，草稿续写转发与新建草稿续写断言不含该字段。
+
 ## [0.6.22] - 日期待定
 
 热修补丁：修复 webmail-next 回复/转发未携带 `in_reply_to` 导致回复不进线程的问题。无数据库迁移。
