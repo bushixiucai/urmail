@@ -81,6 +81,7 @@ export function WebmailComposeDock({
           subject: initialSubject,
           html: initialHtml,
           text: initialText,
+          in_reply_to: inReplyTo,
         }
       : undefined;
 
@@ -225,7 +226,9 @@ export function WebmailComposeDock({
               subject: draft.subject,
               // Reply/forward flows pass the original Message-ID so the SMTP
               // layer writes In-Reply-To/References and the reply threads.
-              in_reply_to: inReplyTo || undefined,
+              // Resumed drafts carry their own original Message-ID; fall back
+              // to the prop for a dock that was opened for this reply.
+              in_reply_to: inReplyTo || draft.in_reply_to || undefined,
               text: draft.text,
               html: draft.html || undefined,
               attachments: draft.attachments,

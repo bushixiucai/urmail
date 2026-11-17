@@ -120,6 +120,95 @@ describe("WebmailComposeDock", () => {
     }
   });
 
+  // Draft resume: the compose dock mirrors the active draft (content only
+  // until v0.6.22) into sessionStorage, so closing the dock or reloading the
+  // page and reopening compose restores it without any initial* props. The
+  // original Message-ID must survive that round-trip for reply drafts.
+  const persistDraftAndReopen = (props: {
+    initialTo: string[];
+    initialSubject: string;
+    initialHtml?: string;
+    initialText?: string;
+    inReplyTo?: string;
+  }) => {
+    const first = render(
+      <WebmailComposeDock isOpen={true} onClose={vi.fn()} {...props} />,
+    );
+    // Any edit writes the draft payload that a reload would keep. The value
+    // must differ from the initial one, or React skips the change event.
+    fireEvent.change(screen.getByTestId("compose-subject-input"), {
+      target: { value: `${props.initialSubject} ` },
+    });
+    first.unmount();
+    // Reopen compose the way the workbench does after a reload: no props, so
+    // useDebouncedDraft restores the stored draft.
+    render(<WebmailComposeDock isOpen={true} onClose={vi.fn()} />);
+  };
+
+  it("keeps in_reply_to when a saved reply draft is resumed and sent", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(sendMessage).mockClear();
+      persistDraftAndReopen({
+        initialTo: ["alice@example.com"],
+        initialSubject: "Re: Hello",
+        initialHtml: "<p>thank you</p>",
+        inReplyTo: "<original@example.test>",
+      });
+
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const body = vi.mocked(sendMessage).mock.calls[0][0];
+      expect(body.in_reply_to).toBe("<original@example.test>");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits in_reply_to when a saved forward draft is resumed and sent", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(sendMessage).mockClear();
+      persistDraftAndReopen({
+        initialTo: ["carol@example.com"],
+        initialSubject: "Fwd: Hello",
+        initialHtml: "<p>forwarded body</p>",
+      });
+
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const body = vi.mocked(sendMessage).mock.calls[0][0];
+      expect(body.in_reply_to).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits in_reply_to when a fresh draft is resumed and sent", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(sendMessage).mockClear();
+      persistDraftAndReopen({
+        initialTo: ["bob@example.com"],
+        initialSubject: "Status update",
+        initialText: "plain body",
+      });
+
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const body = vi.mocked(sendMessage).mock.calls[0][0];
+      expect(body.in_reply_to).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders quoted content with blockquote when initialHtml is provided (DEF-5)", () => {
     const quotedHtml = `<p><br></p><div class="urmail-quoted-message"><p>On Nov 8, 2026, Alice wrote:</p><blockquote style="border-left: 2px solid #ccc; padding-left: 8px; margin-left: 8px;"><p>Hello original email</p></blockquote></div>`;
     render(

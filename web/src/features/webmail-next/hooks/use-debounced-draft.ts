@@ -13,6 +13,12 @@ interface DraftPayload {
   text: string;
   html?: string;
   attachments?: OutgoingAttachment[];
+  /**
+   * Original Message-ID when this draft continues a reply/reply-all. Kept in
+   * the persisted payload so resuming the draft still threads the message;
+   * fresh and forward drafts never set it (v0.6.22 semantics).
+   */
+  in_reply_to?: string;
   uid?: number;
   uid_validity?: number;
 }
@@ -30,6 +36,7 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
         text: initialDraft.text || "",
         html: initialDraft.html || "",
         attachments: initialDraft.attachments || [],
+        in_reply_to: initialDraft.in_reply_to,
         uid: initialDraft.uid,
         uid_validity: initialDraft.uid_validity,
       };
@@ -93,6 +100,7 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
         text: currentDraft.text,
         html: currentDraft.html,
         attachments: currentDraft.attachments,
+        in_reply_to: currentDraft.in_reply_to,
         uid: currentDraft.uid,
         uid_validity: currentDraft.uid_validity,
       });
