@@ -110,7 +110,7 @@ func TestThreadMembersDecodesEncodedFolder(t *testing.T) {
 		t.Fatalf("uid/anchor/limit not forwarded: %+v", call)
 	}
 	var body struct {
-		Total    int  `json:"total"`
+		Total    int `json:"total"`
 		Messages []struct {
 			Folder string `json:"folder"`
 		} `json:"messages"`
