@@ -2,6 +2,15 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.22] - 日期待定
+
+热修补丁：修复 webmail-next 回复/转发未携带 `in_reply_to` 导致回复不进线程的问题。无数据库迁移。
+
+### 会话与线程
+
+- webmail-next 的回复与回复全部在打开撰写时未保留原信 `Message-ID`，发送请求体缺少 `in_reply_to`；SMTP 层因此不写 `In-Reply-To`/`References`，用户回复无法按会话聚合进原线程，会话栈缺少回复成员与「我」「已发送」标识。现回复/回复全部会把原信 `Message-ID` 作为 `in_reply_to` 随发送请求提交（后端既有契约校验并写 `In-Reply-To`/`References`），回复恢复进线程；转发保持开新线程，不携带 `in_reply_to`，不并入原会话栈。新撰写不受影响。
+- 新增 compose dock 回归测试：回复场景请求体携带 `in_reply_to`，转发与新撰写场景不含该字段。
+
 ## [0.6.21] - 日期待定
 
 热修补丁：修复跨箱成员接口对文件夹名未解码导致的 502，恢复会话栈与已发送成员标识。无数据库迁移。

@@ -171,6 +171,9 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
+  const [composeInReplyTo, setComposeInReplyTo] = useState<string | undefined>(
+    undefined,
+  );
   const [composeHtml, setComposeHtml] = useState("");
   const [composeText, setComposeText] = useState("");
   const [composeKey, setComposeKey] = useState(0);
@@ -805,12 +808,17 @@ export function WebmailNextWorkbench({
     cc: string[] = [],
     initialHtml = "",
     initialText = "",
+    inReplyTo?: string,
   ) => {
     setComposeTo(to);
     setComposeCc(cc);
     setComposeSubject(subject);
     setComposeHtml(initialHtml);
     setComposeText(initialText);
+    // Only reply/forward flows pass the original Message-ID; the send request
+    // then carries it as in_reply_to so the reply threads into the original
+    // conversation (backend validates and writes In-Reply-To/References).
+    setComposeInReplyTo(inReplyTo);
     setComposeKey((key) => key + 1);
     setIsComposeOpen(true);
   };
@@ -1089,12 +1097,11 @@ export function WebmailNextWorkbench({
     },
     onReply: (uid, folderEnc) => {
       const msg = contextRow(uid, folderEnc);
-      if (msg)
-        handleReply({ from: msg.from, subject: msg.subject } as MessageDetail);
+      if (msg) handleReply(msg);
     },
     onForward: (uid, folderEnc) => {
       const msg = contextRow(uid, folderEnc);
-      if (msg) handleForward({ subject: msg.subject } as MessageDetail);
+      if (msg) handleForward(msg);
     },
     // Folder-scoped write guards: the menu captured the right-clicked
     // row's folder at open time; at CLICK time every target must still
@@ -1325,7 +1332,7 @@ export function WebmailNextWorkbench({
   const replySubject = (subject: string) =>
     subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 
-  const buildReplyQuote = (msg: MessageDetail) => {
+  const buildReplyQuote = (msg: ReplySource) => {
     const from = msg.from?.[0]?.name
       ? `${msg.from[0].name} <${msg.from[0].email}>`
       : msg.from?.[0]?.email || "";
@@ -1340,7 +1347,12 @@ export function WebmailNextWorkbench({
     return { quotedHtml, quotedText };
   };
 
-  const handleReply = (msg: MessageDetail) => {
+  type ReplySource = Pick<
+    MessageDetail,
+    "from" | "to" | "cc" | "subject" | "date" | "text" | "html" | "message_id"
+  >;
+
+  const handleReply = (msg: ReplySource) => {
     const sender = msg.from?.[0]?.email;
     const { quotedHtml, quotedText } = buildReplyQuote(msg);
     openCompose(
@@ -1349,10 +1361,11 @@ export function WebmailNextWorkbench({
       [],
       quotedHtml,
       quotedText,
+      msg.message_id,
     );
   };
 
-  const handleReplyAll = (msg: MessageDetail) => {
+  const handleReplyAll = (msg: ReplySource) => {
     const me = (getMailboxAddress() ?? "").toLowerCase();
     const to = (msg.from ?? [])
       .map((item) => item.email)
@@ -1367,10 +1380,20 @@ export function WebmailNextWorkbench({
         return true;
       });
     const { quotedHtml, quotedText } = buildReplyQuote(msg);
-    openCompose(to, replySubject(msg.subject), cc, quotedHtml, quotedText);
+    openCompose(
+      to,
+      replySubject(msg.subject),
+      cc,
+      quotedHtml,
+      quotedText,
+      msg.message_id,
+    );
   };
 
-  const handleForward = (msg: MessageDetail) => {
+  // Forward intentionally opens a fresh thread: per product decision (PM,
+  // 2026-11-17) the forwarded copy must NOT carry in_reply_to, so it stays
+  // out of the original conversation stack — matching mainstream clients.
+  const handleForward = (msg: ReplySource) => {
     const subject = msg.subject.toLowerCase().startsWith("fwd:")
       ? msg.subject
       : `Fwd: ${msg.subject}`;
@@ -2090,6 +2113,7 @@ export function WebmailNextWorkbench({
         initialSubject={composeSubject}
         initialHtml={composeHtml}
         initialText={composeText}
+        inReplyTo={composeInReplyTo}
         sendNonce={sendNonce}
         onOpenAISettings={() => {
           setSettingsTab("ai");

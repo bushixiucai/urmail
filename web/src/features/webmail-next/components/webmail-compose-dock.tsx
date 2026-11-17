@@ -31,6 +31,8 @@ interface WebmailComposeDockProps {
   initialSubject?: string;
   initialHtml?: string;
   initialText?: string;
+  /** Original Message-ID for reply/forward; sent as in_reply_to. */
+  inReplyTo?: string;
   sendNonce?: number;
   minimizeNonce?: number;
   onOpenAISettings?: () => void;
@@ -44,6 +46,7 @@ export function WebmailComposeDock({
   initialSubject = "",
   initialHtml = "",
   initialText = "",
+  inReplyTo,
   sendNonce = 0,
   minimizeNonce = 0,
   onOpenAISettings,
@@ -220,6 +223,9 @@ export function WebmailComposeDock({
               cc: draft.cc,
               bcc: draft.bcc,
               subject: draft.subject,
+              // Reply/forward flows pass the original Message-ID so the SMTP
+              // layer writes In-Reply-To/References and the reply threads.
+              in_reply_to: inReplyTo || undefined,
               text: draft.text,
               html: draft.html || undefined,
               attachments: draft.attachments,
