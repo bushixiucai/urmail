@@ -30,6 +30,51 @@ def comparison(status="ahead", base=SHA, merge=SHA):
     return dict(status=status, base_commit={"sha": base}, merge_base_commit={"sha": merge})
 
 
+SHARD_JOBS = ("Integration (handlers)", "Integration (data)",
+              "Integration (platform)", "Integration (core)")
+RETIRED_INTEGRATION = "Integration (PostgreSQL)"
+EXPECTED_REQUIRED = {
+    "Go", "Frontend", *SHARD_JOBS,
+    "Native webmail (Postfix and Dovecot)", "Embedded frontend", "Package smoke",
+    "Shell", "Development stack and browser", "Security dependencies",
+    "Linux installation (ubuntu-22.04, amd64)",
+    "Linux installation (ubuntu-24.04, amd64)",
+    "Linux installation (ubuntu-24.04-arm, arm64)",
+}
+
+
+class IntegrationShardJobTests(unittest.TestCase):
+    """Regression: the gate must track the sharded Integration job names.
+
+    ci.yaml reports Integration (handlers|data|platform|core); the retired
+    "Integration (PostgreSQL)" name must never satisfy the gate (Package run
+    44094796574 failed exactly that way on a 16/16 green CI run).
+    """
+
+    def test_required_jobs_match_sharded_ci(self):
+        self.assertEqual(gate.REQUIRED_JOBS, EXPECTED_REQUIRED)
+        self.assertNotIn(RETIRED_INTEGRATION, gate.REQUIRED_JOBS)
+
+    def test_all_shard_jobs_present_authorizes(self):
+        jobs = [dict(name=name, status="completed", conclusion="success")
+                for name in sorted(EXPECTED_REQUIRED)]
+        self.assertTrue(gate.verify_run(candidate(), jobs, SHA, REPO))
+
+    def test_retired_integration_name_is_not_a_pass(self):
+        jobs = [dict(name=name, status="completed", conclusion="success")
+                for name in sorted(EXPECTED_REQUIRED) if name not in SHARD_JOBS]
+        jobs.append(dict(name=RETIRED_INTEGRATION, status="completed",
+                         conclusion="success"))
+        self.assertFalse(gate.verify_run(candidate(), jobs, SHA, REPO))
+
+    def test_missing_any_single_shard_fails_closed(self):
+        for missing in SHARD_JOBS:
+            jobs = [dict(name=name, status="completed", conclusion="success")
+                    for name in sorted(EXPECTED_REQUIRED) if name != missing]
+            self.assertFalse(gate.verify_run(candidate(), jobs, SHA, REPO),
+                             msg="missing shard %s must fail" % missing)
+
+
 class ReleaseGateTests(unittest.TestCase):
     def test_exact_commit_and_every_required_job(self):
         run, jobs = candidate(), required_jobs()

@@ -12,7 +12,11 @@ import urllib.request
 from pathlib import Path
 
 REQUIRED_JOBS = {
-    "Go", "Frontend", "Integration (PostgreSQL)",
+    "Go", "Frontend",
+    # ci.yaml runs Integration as one matrix over shards; each shard
+    # reports its own check name (scripts/ci-integration-shards.py).
+    "Integration (handlers)", "Integration (data)",
+    "Integration (platform)", "Integration (core)",
     "Native webmail (Postfix and Dovecot)", "Embedded frontend", "Package smoke",
     "Shell", "Development stack and browser", "Security dependencies",
     "Linux installation (ubuntu-22.04, amd64)",
