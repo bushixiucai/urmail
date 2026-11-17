@@ -15,7 +15,11 @@ import (
 // — the cross-folder member list of the thread containing (folder, uid).
 // Contract: Shared/design/THREAD-MEMBERS-API-CONTRACT.md (v0.6.20 task ②).
 func (h *MailboxNativeHandler) ThreadMembers(c *gin.Context) {
-	folder := c.Param("name")
+	folder, err := webmail.DecodeFolderName(c.Param("name"))
+	if err != nil {
+		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+		return
+	}
 	uid64, err := strconv.ParseUint(strings.TrimSpace(c.Param("uid")), 10, 32)
 	if err != nil || uid64 == 0 {
 		authError(c, http.StatusBadRequest, "INVALID_UID")

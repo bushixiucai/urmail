@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.21] - 日期待定
+
+热修补丁：修复跨箱成员接口对文件夹名未解码导致的 502，恢复会话栈与已发送成员标识。无数据库迁移。
+
+### 会话与线程
+
+- `GET /api/v1/mailbox/folders/:name/messages/:uid/thread` 在处理前解码 `b64.` 文件夹参数；此前直接把编码名当作 IMAP 文件夹名查询，IMAP SELECT 失败后返回 502 `IMAP_UNAVAILABLE`，前端因此无法获取跨箱成员，导致会话栈缺少已发送成员及「我」「已发送」标识（#122 相关）。
+- 无法解码的文件夹参数返回 400 `INVALID_PARAMS`，不再以 502 呈现。
+- 新增 handler 回归测试：编码 Sent/INBOX 文件夹、原始名兼容、`before` 游标透传、畸形编码 400。
+
 ## [0.6.20] - 日期待定
 
 草稿：会话体验、正文渲染参数、界面令牌与备份更新；最终发布内容以 QA 验收结果为准。
