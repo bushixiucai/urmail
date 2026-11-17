@@ -1,6 +1,12 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+} from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailComposeDock } from "./webmail-compose-dock";
+import { sendMessage } from "@/features/webmail/mailbox-api";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -65,6 +71,58 @@ describe("WebmailComposeDock", () => {
 
     expect(screen.getByTestId("undo-send-toast")).toBeTruthy();
     expect(screen.getByTestId("undo-send-button")).toBeTruthy();
+  });
+
+  it("sends in_reply_to when the dock is opened for a reply/forward", async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <WebmailComposeDock
+          isOpen={true}
+          onClose={vi.fn()}
+          initialTo={["alice@example.com"]}
+          initialSubject="Re: Hello"
+          inReplyTo="<original@example.test>"
+        />,
+      );
+
+      fireEvent.change(screen.getByTestId("compose-to-input"), {
+        target: { value: "alice@example.com" },
+      });
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+
+      // The 10-second undo buffer gates the real send call.
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const body = vi.mocked(sendMessage).mock.calls[0][0];
+      expect(body.in_reply_to).toBe("<original@example.test>");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits in_reply_to for a fresh compose without the prop", async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <WebmailComposeDock
+          isOpen={true}
+          onClose={vi.fn()}
+          initialTo={["bob@example.com"]}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("compose-send-button"));
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      const body = vi.mocked(sendMessage).mock.calls[0][0];
+      expect(body.in_reply_to).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders quoted content with blockquote when initialHtml is provided (DEF-5)", () => {
