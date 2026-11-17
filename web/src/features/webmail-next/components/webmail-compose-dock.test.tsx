@@ -1,9 +1,4 @@
-import {
-  render,
-  screen,
-  fireEvent,
-  cleanup,
-} from "@testing-library/react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WebmailComposeDock } from "./webmail-compose-dock";
 import { sendMessage } from "@/features/webmail/mailbox-api";

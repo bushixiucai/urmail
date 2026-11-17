@@ -9,7 +9,7 @@
 ### 会话与线程
 
 - webmail-next 的回复与回复全部在打开撰写时未保留原信 `Message-ID`，发送请求体缺少 `in_reply_to`；SMTP 层因此不写 `In-Reply-To`/`References`，用户回复无法按会话聚合进原线程，会话栈缺少回复成员与「我」「已发送」标识。现回复/回复全部会把原信 `Message-ID` 作为 `in_reply_to` 随发送请求提交（后端既有契约校验并写 `In-Reply-To`/`References`），回复恢复进线程；转发保持开新线程，不携带 `in_reply_to`，不并入原会话栈。新撰写不受影响。
-- 新增 compose dock 回归测试：回复/转发场景请求体携带 `in_reply_to`，新撰写场景不含该字段。
+- 新增 compose dock 回归测试：回复场景请求体携带 `in_reply_to`，转发与新撰写场景不含该字段。
 
 ## [0.6.21] - 日期待定
 

@@ -171,9 +171,9 @@ export function WebmailNextWorkbench({
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTo, setComposeTo] = useState<string[]>([]);
   const [composeSubject, setComposeSubject] = useState("");
-  const [composeInReplyTo, setComposeInReplyTo] = useState<
-    string | undefined
-  >(undefined);
+  const [composeInReplyTo, setComposeInReplyTo] = useState<string | undefined>(
+    undefined,
+  );
   const [composeHtml, setComposeHtml] = useState("");
   const [composeText, setComposeText] = useState("");
   const [composeKey, setComposeKey] = useState(0);
@@ -1349,14 +1349,7 @@ export function WebmailNextWorkbench({
 
   type ReplySource = Pick<
     MessageDetail,
-    | "from"
-    | "to"
-    | "cc"
-    | "subject"
-    | "date"
-    | "text"
-    | "html"
-    | "message_id"
+    "from" | "to" | "cc" | "subject" | "date" | "text" | "html" | "message_id"
   >;
 
   const handleReply = (msg: ReplySource) => {
