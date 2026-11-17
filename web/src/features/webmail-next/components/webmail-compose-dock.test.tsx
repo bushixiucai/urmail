@@ -102,7 +102,7 @@ describe("WebmailComposeDock", () => {
     }
   });
 
-  it("omits in_reply_to for a fresh compose without the prop", async () => {
+  it("omits in_reply_to when no prop is passed (fresh compose; forward also opens without it)", async () => {
     vi.useFakeTimers();
     try {
       render(

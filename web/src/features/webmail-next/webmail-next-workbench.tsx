@@ -1397,12 +1397,15 @@ export function WebmailNextWorkbench({
     );
   };
 
+  // Forward intentionally opens a fresh thread: per product decision (PM,
+  // 2026-11-17) the forwarded copy must NOT carry in_reply_to, so it stays
+  // out of the original conversation stack — matching mainstream clients.
   const handleForward = (msg: ReplySource) => {
     const subject = msg.subject.toLowerCase().startsWith("fwd:")
       ? msg.subject
       : `Fwd: ${msg.subject}`;
     const { quotedHtml, quotedText } = buildReplyQuote(msg);
-    openCompose([], subject, [], quotedHtml, quotedText, msg.message_id);
+    openCompose([], subject, [], quotedHtml, quotedText);
   };
 
   const loadedUids = () =>
