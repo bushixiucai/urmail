@@ -12,13 +12,19 @@ import urllib.request
 from pathlib import Path
 
 REQUIRED_JOBS = {
-    "Go", "Frontend", "Integration (PostgreSQL)",
+    "Go", "Frontend",
+    # The Integration job is one matrix over shards (ci.yaml: "Integration
+    # (${{ matrix.shard }})"); each shard reports its own check name.
+    "Integration (handlers)", "Integration (data)",
+    "Integration (platform)", "Integration (core)",
     "Native webmail (Postfix and Dovecot)", "Embedded frontend", "Package smoke",
     "Shell", "Development stack and browser", "Security dependencies",
     "Linux installation (ubuntu-22.04, amd64)",
     "Linux installation (ubuntu-24.04, amd64)",
     "Linux installation (ubuntu-24.04-arm, arm64)",
 }
+WORKFLOW_PATH = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci.yaml"
+
 MAX_PAGES = 10
 DEFAULT_TIMEOUT_SECONDS = 45 * 60
 DEFAULT_POLL_INTERVAL_SECONDS = 15
@@ -330,7 +336,81 @@ def verify_release(repo, sha, timeout_seconds=None, poll_interval=None, sleeper=
         raise ValueError(f"unexpected CI run status '{status}'")
 
 
+def workflow_required_names(text):
+    """Statically derive the check names ci.yaml produces for its jobs.
+
+    This is a deliberately small reader, not a YAML parser: it needs the
+    job-level `name:` values plus the two matrix forms this workflow uses
+    (a `shard:` enum and an `include:` os/arch list), so the release gate can
+    prove its REQUIRED_JOBS still exist without network access.
+    """
+    names = set()
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        if not re.match(r"^  [A-Za-z0-9_-]+:\s*$", lines[i]):
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines) and not re.match(r"^  [A-Za-z0-9_-]+:\s*$", lines[j]):
+            j += 1
+        display, shards, include, current, mode = None, [], [], None, None
+        for line in lines[i + 1:j]:
+            match = re.match(r"^    name:\s*(.+)$", line)
+            if match:
+                display = match.group(1).strip()
+                continue
+            if re.match(r"^        shard:\s*$", line):
+                mode = "shard"
+                continue
+            if re.match(r"^        include:\s*$", line):
+                mode = "include"
+                continue
+            if mode == "shard":
+                item = re.match(r"^          - (\S+)\s*$", line)
+                if item:
+                    shards.append(item.group(1))
+                elif line.strip() and not line.startswith("          "):
+                    mode = None
+            elif mode == "include":
+                entry = re.match(r"^          - (\w+):\s*(\S+)\s*$", line)
+                if entry:
+                    current = {entry.group(1): entry.group(2)}
+                    include.append(current)
+                    continue
+                pair = re.match(r"^            (\w+):\s*(\S+)\s*$", line)
+                if pair and current is not None:
+                    current[pair.group(1)] = pair.group(2)
+                    continue
+                if line.strip() and not line.startswith("          "):
+                    mode = None
+        if display:
+            if "${{ matrix.shard }}" in display:
+                names.update(display.replace("${{ matrix.shard }}", shard) for shard in shards)
+            elif "${{ matrix.os }}" in display and "${{ matrix.arch }}" in display:
+                for combo in include:
+                    if "os" in combo and "arch" in combo:
+                        names.add(display.replace("${{ matrix.os }}", combo["os"])
+                                  .replace("${{ matrix.arch }}", combo["arch"]))
+            else:
+                names.add(display)
+        i = j
+    return names
+
+
+def check_workflow():
+    """Fail closed when a required release check no longer exists in ci.yaml."""
+    available = workflow_required_names(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    missing = sorted(REQUIRED_JOBS - available)
+    if missing:
+        raise ValueError("required CI jobs absent from workflow: " + ", ".join(missing))
+    print(f"Workflow provides all {len(REQUIRED_JOBS)} required CI jobs")
+
+
 def main():
+    if "--check-workflow" in sys.argv[1:]:
+        check_workflow()
+        return
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     sha = os.environ.get("RELEASE_SHA", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or not valid_sha(sha):
