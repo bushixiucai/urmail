@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.24] - 日期待定
+
+热修补丁：外发 SMTP 失败重试上限。无数据库迁移。
+
+### 邮件
+
+- 生成的 main.cf 新增外发重试上限：`inet_protocols = ipv4`（原 `all`）、`minimal_backoff_time = 900s`、`maximal_backoff_time = 7200s`、`queue_run_delay = 900s`、`smtp_connect_timeout = 15s`、`smtp_mx_address_limit = 2`；不可达远端 MX 不再对每个解析地址每分钟重试，避免单封 deferred 邮件刷爆 25 端口出站。
+- 不写 `maximal_queue_lifetime`，保持 Postfix 默认 5 天，瞬时故障仍可恢复。
+- 无数据库迁移。
+
 ## [0.6.23] - 日期待定
 
 热修补丁：修复 webmail-next 回复草稿续写后丢失线程的问题。无数据库迁移。

@@ -26,7 +26,18 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	b.WriteString("myorigin = $mydomain\n")
 	b.WriteString("mydestination =\n")
 	b.WriteString("inet_interfaces = all\n")
-	b.WriteString("inet_protocols = all\n\n")
+	// Outbound retry limits (v0.6.24): an unreachable remote MX (for example a
+	// domain fronted by Cloudflare with no port 25) must not be retried every
+	// minute from every resolved address. Two candidate MX addresses plus
+	// longer, evenly spaced backoffs keep one deferred message from flooding
+	// outbound port 25, while maximal_queue_lifetime stays on the Postfix
+	// default (5 days) so normal transient failures still recover.
+	b.WriteString("inet_protocols = ipv4\n")
+	b.WriteString("minimal_backoff_time = 900s\n")
+	b.WriteString("maximal_backoff_time = 7200s\n")
+	b.WriteString("queue_run_delay = 900s\n")
+	b.WriteString("smtp_connect_timeout = 15s\n")
+	b.WriteString("smtp_mx_address_limit = 2\n\n")
 
 	b.WriteString("# SMTP Banner\n")
 	b.WriteString("smtpd_banner = $myhostname ESMTP urmail\n")
