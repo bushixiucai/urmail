@@ -1,0 +1,6 @@
+{
+  "sha": "0a0b1b7791c0196f946362ca8ad00d4031180057",
+  "approver": "pm",
+  "waived_run_id": 44251182977,
+  "reason": "main CI run 44251182977 failed only Security dependencies: npm audit high ReDoS in picomatch (GHSA-fc5q-39xc-vjpf) via vitest/vite/fdir, a dev/test dependency not shipped in the mail runtime. Other 15 jobs succeeded. User authorized immediate v0.6.24 deploy on 2026-11-18. Dependency bump is a separate change."
+}
