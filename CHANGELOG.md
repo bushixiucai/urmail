@@ -2,6 +2,18 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.26] - 日期待定
+
+热修补丁：升级前新鲜备份 pre-flight 与手动备份落库。无数据库迁移。
+
+### 备份
+
+- `urmailctl upgrade fence` 新增升级前新鲜备份 pre-flight：在停写之前检查最新一条 backup_runs 必须是 **complete**（`local-mail-and-metadata`）且 success，并按 manifest 名称中的 stamp 计算代际新鲜度（默认窗口 24h，`--fresh-backup-window` 可配）——无 run、failed、运行中、metadata-only、超窗、重传旧 manifest 均拒绝 fence 并给出指引。升级前恰好一次异地失败不再只能 break-glass 出炉。
+- 平台库不可达（配置加载失败、DSN 缺失、连接失败、最新 run 读失败）时 pre-flight 不阻断：降级为警告并把 `[preflight degraded: platform DB unreachable: <原因>]` 写入 fence reason 留痕——修库往往正是升级的目的。`--skip-preflight` 显式跳过同样写入 fence reason 供审计；install.sh 识别 `URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1` 转发该开关，runbook 见 `docs/operations/upgrade-fence-preflight.md`。
+- release/upgrade 侧严格门禁（probeBackupOffsite）同步要求最新 run 为 complete success：metadata-only success 不再能过门；例行 apply 对 failed / metadata-only run 保持降级告警不阻断。
+- 手动 `urmailctl backup upload` 现在也写 backup_runs：上传全部 artifact+manifest 并通过远端 cipher 复检（新增 `backupauto.VerifyUploadedGeneration`，与定时 worker 共用）后才标 success，失败落 failed 并记原因——preflight 与门禁看到与定时 worker 同一真相。
+- `LastRunHealth` 增补 Scope 与 ManifestName 字段供门禁判定；无数据库迁移。
+
 ## [0.6.25] - 日期待定
 
 热修补丁：备份可靠性（offsite 上传、run 状态、退避与门禁）。无数据库迁移。
