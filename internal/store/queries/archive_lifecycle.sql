@@ -11,11 +11,11 @@ WHERE a.tenant_id= @tenant_id AND a.id= @id AND a.deleted_at IS NULL AND c.purge
 SELECT a.id,a.mailbox_id,a.message_id,a.subject,a.from_addr,a.to_addr,a.received_at,a.size_bytes,a.legal_hold,a.deleted_at
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
 WHERE a.tenant_id= @tenant_id AND (a.deleted_at IS NOT NULL)= @include_deleted AND c.purge_started_at IS NULL
- AND (@query='' OR to_tsvector('simple',coalesce(a.subject,'')||' '||c.body_text) @@ plainto_tsquery('simple',@query)
+ AND (@query='' OR a.subject LIKE '%' || @query || '%' OR c.body_text LIKE '%' || @query || '%'
  OR coalesce(a.subject,'') LIKE '%'||@query||'%'
  OR c.body_text LIKE '%'||@query||'%')
  AND (sqlc.narg('mailbox_id') IS NULL OR a.mailbox_id=sqlc.narg('mailbox_id'))
- AND (@from_addr='' OR instr(lower(coalesce(a.from_addr,''), lower(@from_addr)))>0)
+ AND (@from_addr='' OR instr(lower(coalesce(a.from_addr,'')), lower(@from_addr))>0)
  AND (sqlc.narg('after_time') IS NULL OR a.received_at>=sqlc.narg('after_time'))
  AND (sqlc.narg('before_time') IS NULL OR a.received_at<sqlc.narg('before_time'))
  AND (sqlc.narg('cursor_time') IS NULL OR (a.received_at,a.id)<(sqlc.narg('cursor_time'),sqlc.narg('cursor_id')))
