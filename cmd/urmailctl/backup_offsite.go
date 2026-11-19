@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/bushixiucai/urmail/internal/backupauto"
+	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db"
 )
 
 // runBackupOffsite implements the "backup offsite" / "backup verify-offsite"
@@ -80,7 +83,29 @@ func destinationFromEnv(uri string) (backupauto.OffsiteStore, error) {
 	return backupauto.ParseDestination(uri, creds)
 }
 
-func runBackupOffsiteUpload(ctx context.Context, args []string) error {
+// backupOffsiteEffectiveUID mirrors upgradeEffectiveUID: the manual upload
+// is a root CLI, and tests stub the identity check the same way.
+var backupOffsiteEffectiveUID = os.Geteuid
+
+// openPlatformPool loads the platform database for run recording. The
+// manual offsite upload must record backup_runs (R1) so the upgrade-fence
+// pre-flight and the release gate see one source of truth.
+func openPlatformPool(ctx context.Context) (*db.Pool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load configuration: %w", err)
+	}
+	if cfg.DatabaseURLPlatform == "" {
+		return nil, fmt.Errorf("platform database URL is required to record the offsite run")
+	}
+	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	if err != nil {
+		return nil, fmt.Errorf("open platform database: %w", err)
+	}
+	return pool, nil
+}
+
+func runBackupOffsiteUpload(ctx context.Context, args []string) (returnErr error) {
 	manifestPath, _, err := parseFlag(args, "--manifest")
 	if err != nil {
 		return err
@@ -92,7 +117,7 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) error {
 	if manifestPath == "" || uri == "" {
 		return fmt.Errorf("offsite upload requires --manifest FILE and --uri URI")
 	}
-	if os.Geteuid() != 0 {
+	if backupOffsiteEffectiveUID() != 0 {
 		return fmt.Errorf("backup offsite upload must run as root")
 	}
 	store, err := destinationFromEnv(uri)
@@ -115,6 +140,35 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) error {
 	if recipient == "" {
 		return fmt.Errorf("manifest carries no encryption metadata; pass --recipient KEY (the archive will be encrypted) ")
 	}
+
+	// R1 (v0.6.25): manual uploads record a backup_runs row, so the
+	// upgrade-fence fresh-backup pre-flight can trust one source of truth.
+	// The run is only success after the uploaded generation re-verifies
+	// remotely -- the same bar the scheduled worker must clear.
+	pool, err := openPlatformPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	recorder := &backupauto.StateRecorder{Pool: pool}
+	scope := backupauto.ScopeComplete
+	if manifest.Scope != "" {
+		scope = manifest.Scope
+	}
+	started := time.Now().UTC()
+	runUID, err := recorder.StartRun(ctx, scope, started)
+	if err != nil {
+		return fmt.Errorf("record offsite run: %w", err)
+	}
+	var uploadedBytes int64
+	var remoteManifestName string
+	defer func() {
+		finishErr := recorder.FinishRun(ctx, runUID, returnErr == nil, returnErr, uploadedBytes, time.Since(started), remoteManifestName, uri, 0)
+		if returnErr == nil && finishErr != nil {
+			returnErr = finishErr
+		}
+	}()
+
 	base := dirOf(manifestPath)
 	for i, artifact := range manifest.Artifacts {
 		plainPath := base + string(os.PathSeparator) + artifact.Name
@@ -135,6 +189,7 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) error {
 		entry.UID = artifact.UID
 		entry.GID = artifact.GID
 		manifest.Artifacts[i] = entry
+		uploadedBytes += entry.EncryptedSize
 	}
 	if manifest.Version < backupauto.ManifestVersion3 {
 		manifest.Version = backupauto.ManifestVersion2
@@ -145,10 +200,14 @@ func runBackupOffsiteUpload(ctx context.Context, args []string) error {
 		return err
 	}
 	name := backupauto.ManifestName(stampFromManifestName(manifestPath))
+	remoteManifestName = name
 	if err := store.Upload(ctx, name, strReader(raw), int64(len(raw))); err != nil {
 		return fmt.Errorf("upload manifest: %w", err)
 	}
-	fmt.Printf("offsite upload complete: %d artifacts, manifest %s\n", len(manifest.Artifacts), name)
+	if err := backupauto.VerifyUploadedGeneration(ctx, store, manifest, name, raw); err != nil {
+		return fmt.Errorf("%w", err)
+	}
+	fmt.Printf("offsite upload complete: %d artifacts, %d ciphertext bytes, manifest %s (run %s verified and recorded)\n", len(manifest.Artifacts), uploadedBytes, name, runUID)
 	return nil
 }
 

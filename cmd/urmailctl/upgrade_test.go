@@ -74,6 +74,7 @@ func TestUpgradeFenceLifecycleAndConcurrencyRejection(t *testing.T) {
 		"--timeout", "5s",
 		"--root-dir", maintDir,
 		"--drop-in-dir", dropInDir,
+		"--skip-preflight",
 	}
 	if err = runUpgrade(ctx, fenceArgs); err != nil {
 		t.Fatalf("runUpgrade fence failed: %v", err)
@@ -275,6 +276,7 @@ func TestUpgradeBehaviorFaultInjectionStopFailureRetainsFence(t *testing.T) {
 		"--reason", "Test fault injection",
 		"--root-dir", maintDir,
 		"--drop-in-dir", dropInDir,
+		"--skip-preflight",
 	}
 	err := runUpgrade(ctx, fenceArgs)
 	if err == nil {
@@ -319,6 +321,7 @@ func TestUpgradeBehaviorFaultInjectionStateInspectionFailureFailsClosed(t *testi
 		"--reason", "Test state inspection failure",
 		"--root-dir", maintDir,
 		"--drop-in-dir", dropInDir,
+		"--skip-preflight",
 	}
 	err := runUpgrade(ctx, fenceArgs)
 	if err == nil {
@@ -424,6 +427,7 @@ func TestUpgradeLockTimeout(t *testing.T) {
 		"--timeout", "100ms",
 		"--root-dir", maintDir,
 		"--drop-in-dir", dropInDir,
+		"--skip-preflight",
 	}
 	start := time.Now()
 	err = runUpgrade(ctx, fenceArgs)

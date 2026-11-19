@@ -170,7 +170,7 @@ func TestReadinessV2FenceBindsHoldDigestAndGeneration(t *testing.T) {
 	reset := setReadinessUnitMock(t, map[string]bool{"postfix.service": true}, "")
 	defer reset()
 
-	if err := runUpgrade(ctx, []string{"fence", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir}); err != nil {
+	if err := runUpgrade(ctx, []string{"fence", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir, "--skip-preflight"}); err != nil {
 		t.Fatalf("fence failed: %v", err)
 	}
 	holdRaw, receiptRaw, err := maintenance.ReadUpgradeFenceRaw(env.maintDir)

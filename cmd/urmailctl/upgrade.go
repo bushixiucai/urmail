@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
+	"github.com/bushixiucai/urmail/internal/backupauto"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/maintenance"
@@ -44,8 +45,8 @@ var activeReleaseRuntimeVerifier = agentd.VerifyReleaseRuntime
 const upgradeUsage = "urmailctl upgrade — manage upgrade lock, write fence and drop-in guards\n" +
 	"\n" +
 	"Usage:\n" +
-	"  urmailctl upgrade fence [--reason TEXT] [--timeout DURATION]\n" +
-	"  urmailctl upgrade hold  [--reason TEXT] [--timeout DURATION]\n" +
+	"  urmailctl upgrade fence [--reason TEXT] [--timeout DURATION] [--fresh-backup-window DURATION] [--skip-preflight]\n" +
+	"  urmailctl upgrade hold  [--reason TEXT] [--timeout DURATION] [--fresh-backup-window DURATION] [--skip-preflight]\n" +
 	"  urmailctl upgrade readiness-record [--generation N] [--key PATH]\n" +
 	"  urmailctl upgrade release [--timeout DURATION] [--skip-restart] [--break-glass --ack-risk]\n" +
 	"  urmailctl upgrade run-installer --installer /trusted/absolute/install.sh -- [args...]\n" +
@@ -107,8 +108,22 @@ func runUpgradeFence(ctx context.Context, args []string) error {
 	timeout := flags.Duration("timeout", 30*time.Second, "timeout waiting for operation lock")
 	rootDir := flags.String("root-dir", currentMaintenanceRoot(), "maintenance root directory")
 	dropInDir := flags.String("drop-in-dir", maintenance.DefaultDropInDir, "systemd drop-in directory")
+	skipPreflight := flags.Bool("skip-preflight", false, "skip the fresh-backup pre-flight; the override is recorded in the fence reason")
+	freshWindow := flags.Duration("fresh-backup-window", DefaultFreshBackupWindow, "maximum age of the newest successful offsite backup run before fencing")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+
+	// 0. Fresh-backup pre-flight (R1): the fence stops the backup worker
+	// along with every other writer, and the release-side gate requires the
+	// newest run to be a success. Refuse to fence unless a fresh, whole
+	// offsite backup already exists, so an operator can never walk into a
+	// release that only break-glass can leave.
+	if *skipPreflight {
+		fmt.Println("WARNING: fresh-backup pre-flight skipped by operator (--skip-preflight); the override is recorded in the fence reason.")
+		*reason += " [fresh-backup pre-flight skipped via --skip-preflight]"
+	} else if err := preflightFreshBackup(ctx, *freshWindow); err != nil {
+		return fmt.Errorf("refusing to fence: %w", err)
 	}
 
 	// 1. Acquire operation.lock with timeout
@@ -891,5 +906,55 @@ func runUpgradeRollback(ctx context.Context, args []string) error {
 	fmt.Println("or, only with explicit acknowledgment of the risk:")
 	fmt.Println("  urmailctl upgrade release --break-glass --ack-risk")
 	fmt.Println("to remove the fence and restart services.")
+	return nil
+}
+
+// DefaultFreshBackupWindow bounds how old the newest successful offsite
+// backup run may be when an upgrade fence starts stopping writers (R1).
+const DefaultFreshBackupWindow = 24 * time.Hour
+
+// preflightFreshBackup refuses to fence unless the newest offsite backup
+// run is a success inside the freshness window. The fence stops the backup
+// worker with every other writer, so a failed or stale backup could only be
+// fixed after release -- where the strict fresh-backup gate (B2/v0.6.25)
+// forces break-glass. ErrBackupOffsiteDisabled means the feature was never
+// provisioned on this installation, so there is nothing to be fresh.
+func preflightFreshBackup(ctx context.Context, window time.Duration) error {
+	if window <= 0 {
+		window = DefaultFreshBackupWindow
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("fresh-backup pre-flight: configuration error: %w", err)
+	}
+	if cfg.DatabaseURLPlatform == "" {
+		return errors.New("fresh-backup pre-flight: platform database URL is required to verify the newest backup run")
+	}
+	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	if err != nil {
+		return fmt.Errorf("fresh-backup pre-flight: open platform database: %w", err)
+	}
+	defer pool.Close()
+	health, err := (&backupauto.StateRecorder{Pool: pool}).LastRunHealth(ctx)
+	switch {
+	case errors.Is(err, backupauto.ErrBackupOffsiteDisabled):
+		fmt.Println("Fresh-backup pre-flight: offsite backup not provisioned on this installation; proceeding.")
+		return nil
+	case errors.Is(err, backupauto.ErrNoRuns):
+		return errors.New("fresh-backup pre-flight: no offsite backup run recorded yet; run a complete backup first (wait for the backup worker or trigger one), or pass --skip-preflight to record an explicit operator override")
+	case err != nil:
+		return fmt.Errorf("fresh-backup pre-flight: %w", err)
+	}
+	if health.State != backupauto.StateSuccess {
+		return fmt.Errorf("fresh-backup pre-flight: newest backup run %s is %q (%s); run a complete backup first, or pass --skip-preflight to record an explicit operator override",
+			health.RunUID, health.State, health.Error)
+	}
+	age := time.Since(health.StartedAt)
+	if age > window {
+		return fmt.Errorf("fresh-backup pre-flight: newest successful backup run %s is %s old (window %s); run a complete backup first, or pass --skip-preflight to record an explicit operator override",
+			health.RunUID, age.Round(time.Minute), window)
+	}
+	fmt.Printf("Fresh-backup pre-flight: newest successful run %s from %s (age %s).\n",
+		health.RunUID, health.StartedAt.Format(time.RFC3339), age.Round(time.Minute))
 	return nil
 }

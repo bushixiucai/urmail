@@ -341,23 +341,7 @@ func (w *Worker) runOffsitePhase(ctx context.Context, stamp string, backupTime t
 
 // verifyCurrentRun re-downloads and checksums the objects this run uploaded.
 func (w *Worker) verifyCurrentRun(ctx context.Context, manifest *Manifest) error {
-	for _, artifact := range manifest.Artifacts {
-		remote, err := checksumRemote(ctx, w.Store, artifact.EncryptedName)
-		if err != nil {
-			return fmt.Errorf("verify %s: %w", artifact.EncryptedName, err)
-		}
-		if remote != artifact.EncryptedSHA256 {
-			return fmt.Errorf("verify %s: ciphertext checksum mismatch (remote %s manifest %s)", artifact.EncryptedName, remote, artifact.EncryptedSHA256)
-		}
-	}
-	remoteManifest, err := checksumRemote(ctx, w.Store, w.manifestName)
-	if err != nil {
-		return fmt.Errorf("verify manifest: %w", err)
-	}
-	if remoteManifest != sha256Hex([]byte(w.manifestRaw)) {
-		return fmt.Errorf("verify manifest: checksum mismatch for %s", w.manifestName)
-	}
-	return nil
+	return VerifyUploadedGeneration(ctx, w.Store, manifest, w.manifestName, w.manifestRaw)
 }
 
 // notifyFailure inserts one platform-scoped outbox row so failed runs are
