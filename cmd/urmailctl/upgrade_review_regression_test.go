@@ -147,7 +147,7 @@ func TestFenceStopsWriterStartedAfterDiscovery(t *testing.T) {
 		return false, nil
 	})
 	defer reset()
-	if err := runUpgrade(t.Context(), []string{"fence", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir}); err != nil {
+	if err := runUpgrade(t.Context(), []string{"fence", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir, "--skip-preflight"}); err != nil {
 		t.Fatal(err)
 	}
 	if active["postfix@-.service"] {
@@ -170,7 +170,7 @@ func TestFenceFinalSweepRejectsReactivatedWriter(t *testing.T) {
 		return false, nil
 	})
 	defer reset()
-	if err := runUpgrade(t.Context(), []string{"fence", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir}); err == nil {
+	if err := runUpgrade(t.Context(), []string{"fence", "--root-dir", env.maintDir, "--drop-in-dir", env.dropInDir, "--skip-preflight"}); err == nil {
 		t.Fatal("fence accepted active writer")
 	}
 }

@@ -418,11 +418,17 @@ func TestCollabReadinessFailsOnDirtySchemaMigration(t *testing.T) {
 }
 
 func insertBackupRun(t *testing.T, platform *db.Pool, state string, startedHoursAgo float64, errorText string) string {
+	return insertBackupRunScoped(t, platform, state, backupauto.ScopeComplete, startedHoursAgo, errorText)
+}
+
+// insertBackupRunScoped seeds one finished run with an explicit scope so the
+// gates can be probed against non-complete generations too.
+func insertBackupRunScoped(t *testing.T, platform *db.Pool, state, scope string, startedHoursAgo float64, errorText string) string {
 	t.Helper()
 	var uid string
 	if err := platform.QueryRow(context.Background(),
-		`INSERT INTO backup_runs(run_uid,state,started_at,error) VALUES($1,$2,statement_timestamp()-make_interval(secs=>$3),$4) RETURNING run_uid`,
-		"probe"+strings.ReplaceAll(t.Name(), "/", "")+state[:3], state, startedHoursAgo*3600, errorText).Scan(&uid); err != nil {
+		`INSERT INTO backup_runs(run_uid,state,scope,started_at,error) VALUES($1,$2,$3,statement_timestamp()-make_interval(secs=>$4),$5) RETURNING run_uid`,
+		"probe"+strings.ReplaceAll(t.Name(), "/", "")+state[:3]+scope[:4], state, scope, startedHoursAgo*3600, errorText).Scan(&uid); err != nil {
 		t.Fatal(err)
 	}
 	return uid
@@ -503,6 +509,37 @@ func TestBackupOffsiteReadinessTreatsMissingTableAsDisabled(t *testing.T) {
 	m := &ApplyManager{pool: platform}
 	if err = m.probeBackupOffsite(context.Background()); err != nil {
 		t.Fatalf("feature-absent installation must not fail readiness: %v", err)
+	}
+}
+
+// TestBackupOffsiteReadinessRejectsMetadataOnlySuccess is the R1 QA P1: a
+// metadata-only success row must not satisfy the fresh-backup gate. Routine
+// applies degrade observably; the release/upgrade gate fails hard.
+func TestBackupOffsiteReadinessRejectsMetadataOnlySuccess(t *testing.T) {
+	platform, _ := testdb.OpenMigrated(t)
+	m := &ApplyManager{pool: platform}
+	strict := &ApplyManager{pool: platform, backupGateStrict: true}
+	ctx := context.Background()
+
+	insertBackupRunScoped(t, platform, backupauto.StateSuccess, "metadata-only", 1, "")
+	if err := m.probeBackupOffsite(ctx); err != nil {
+		t.Fatalf("routine apply must not be blocked by a metadata-only run: %v", err)
+	}
+	if !m.status.Degraded || !strings.Contains(m.status.Error, "complete") {
+		t.Fatalf("metadata-only run must degrade the status observably: degraded=%v error=%q", m.status.Degraded, m.status.Error)
+	}
+	err := strict.probeBackupOffsite(ctx)
+	if err == nil || !strings.Contains(err.Error(), "complete maintenance backup") {
+		t.Fatalf("strict gate must refuse a metadata-only run: %v", err)
+	}
+
+	// A complete success restores both modes.
+	insertBackupRun(t, platform, backupauto.StateSuccess, 0, "")
+	if err = m.probeBackupOffsite(ctx); err != nil {
+		t.Fatalf("complete success must clear the degradation path: %v", err)
+	}
+	if err = strict.probeBackupOffsite(ctx); err != nil {
+		t.Fatalf("complete success must satisfy the strict gate: %v", err)
 	}
 }
 

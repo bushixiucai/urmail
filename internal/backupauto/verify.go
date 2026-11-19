@@ -197,6 +197,31 @@ func requireCipherSpoolSpace(artifactPath string, plaintextSize int64) error {
 	return nil
 }
 
+// VerifyUploadedGeneration re-downloads and checksums every ciphertext
+// object plus the manifest of one just-uploaded generation (cipher-only:
+// neither the scheduled worker nor the manual CLI holds the age private
+// key). A run may only be recorded success after this passes, so a success
+// row in backup_runs always means "bytes whole at the destination".
+func VerifyUploadedGeneration(ctx context.Context, store OffsiteStore, manifest *Manifest, manifestName, manifestRaw string) error {
+	for _, artifact := range manifest.Artifacts {
+		remote, err := checksumRemote(ctx, store, artifact.EncryptedName)
+		if err != nil {
+			return fmt.Errorf("verify %s: %w", artifact.EncryptedName, err)
+		}
+		if remote != artifact.EncryptedSHA256 {
+			return fmt.Errorf("verify %s: ciphertext checksum mismatch (remote %s manifest %s)", artifact.EncryptedName, remote, artifact.EncryptedSHA256)
+		}
+	}
+	remoteManifest, err := checksumRemote(ctx, store, manifestName)
+	if err != nil {
+		return fmt.Errorf("verify manifest: %w", err)
+	}
+	if remoteManifest != sha256Hex([]byte(manifestRaw)) {
+		return fmt.Errorf("verify manifest: checksum mismatch for %s", manifestName)
+	}
+	return nil
+}
+
 // decryptChecksum streams one remote ciphertext into the age decryptor and
 // returns the plaintext SHA-256 and size. Nothing is written to disk.
 func decryptChecksum(ctx context.Context, store OffsiteStore, artifact Artifact, identities []age.Identity) (string, int64, error) {

@@ -309,6 +309,17 @@ func (m *ApplyManager) probeBackupOffsite(ctx context.Context) error {
 		}
 		return fmt.Errorf("last offsite backup run %s failed: %s", health.RunUID, health.Error)
 	}
+	if health.State == backupauto.StateSuccess && health.Scope != backupauto.ScopeComplete {
+		// A metadata-only run is not a restorable generation: the release
+		// gate must demand a complete maintenance backup (R1 QA).
+		if !m.backupGateStrict {
+			m.status.Degraded = true
+			m.status.Error = fmt.Sprintf("last offsite backup run %s is a %q backup; a complete backup is required for release", health.RunUID, health.Scope)
+			m.publish()
+			return nil
+		}
+		return fmt.Errorf("last offsite backup run %s is a %q backup; a complete maintenance backup is required", health.RunUID, health.Scope)
+	}
 	if health.StaleRun(time.Now()) {
 		return fmt.Errorf("offsite backup run %s is stuck in state %q since %s: the backup worker stopped making progress",
 			health.RunUID, health.State, health.StartedAt.Format(time.RFC3339))
