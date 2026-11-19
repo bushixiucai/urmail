@@ -1,0 +1,2014 @@
+[
+ {
+  "name": "CreateAlias",
+  "file": "aliases.sql",
+  "subquery_params": 6,
+  "snippets": [
+   ", kind, active ) VALUES (     ?1, ?2, ?3, ?4, ?5, ",
+   "nd, active ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6 )",
+   "active ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6 ) RET"
+  ]
+ },
+ {
+  "name": "ArchiveCasesSnapshot",
+  "file": "archive_case_product.sql",
+  "subquery_params": 3,
+  "snippets": [
+   " urmail_archive_case_snapshot(?1,?2,?3) AS snapsho",
+   "mail_archive_case_snapshot(?1,?2,?3) AS snapshot; ",
+   "l_archive_case_snapshot(?1,?2,?3) AS snapshot;  "
+  ]
+ },
+ {
+  "name": "ArchiveCasesSnapshotDigest",
+  "file": "archive_case_product.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "(urmail_archive_case_snapshot(?1,?2,?3),'UTF8')),'",
+   "mail_archive_case_snapshot(?1,?2,?3),'UTF8')),'hex",
+   "l_archive_case_snapshot(?1,?2,?3),'UTF8')),'hex') "
+  ]
+ },
+ {
+  "name": "ArchiveCasesGrantEligible",
+  "file": "archive_case_product.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id=?3",
+   "g.tenant_id=?1 AND cg.user_id=?3 AND cg.scope=?2 A",
+   "ND cg.user_id=?3 AND cg.scope=?2 AND NOT cg.revoke"
+  ]
+ },
+ {
+  "name": "ArchiveCasesRemoveMember",
+  "file": "archive_case_product.sql",
+  "subquery_params": 7,
+  "snippets": [
+   "ER)*1000000)  WHERE tenant_id=?1 AND investigation",
+   "nt_id=?1 AND investigation_id=?2 AND user_id=?3 AN",
+   "vestigation_id=?2 AND user_id=?3 AND removed_at IS"
+  ]
+ },
+ {
+  "name": "ArchiveCasesWithdrawApproval",
+  "file": "archive_case_product.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND investigation",
+   "nt_id=?1 AND investigation_id=?2 AND id=?3 AND req",
+   "ND investigation_id=?2 AND id=?3 AND requester_use"
+  ]
+ },
+ {
+  "name": "ArchiveCasesExportVisible",
+  "file": "archive_case_product.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "urmail_archive_export_visible(?1,?2,?3) AS visible",
+   "ail_archive_export_visible(?1,?2,?3) AS visible;  ",
+   "_archive_export_visible(?1,?2,?3) AS visible;  "
+  ]
+ },
+ {
+  "name": "ArchiveCasesSaveEvidence",
+  "file": "archive_case_product.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "ifest,manifest_sha256) VALUES(?1,?2,?3,?4,?5) ON C",
+   "st,manifest_sha256) VALUES(?1,?2,?3,?4,?5) ON CONF",
+   "manifest_sha256) VALUES(?1,?2,?3,?4,?5) ON CONFLIC"
+  ]
+ },
+ {
+  "name": "CreateAuditLog",
+  "file": "audit.sql",
+  "subquery_params": 7,
+  "snippets": [
+   "get_id, detail ) VALUES (     ?1, ?2, ?3, ?4, ?5, ",
+   "id, detail ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6, ",
+   "detail ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6, ?7 )"
+  ]
+ },
+ {
+  "name": "CheckPlatformAdmin",
+  "file": "auth.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "atform_admins WHERE user_id = ?1 ) AS is_admin;  "
+  ]
+ },
+ {
+  "name": "DeleteSession",
+  "file": "auth.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "LETE FROM sessions WHERE id = ?1;  "
+  ]
+ },
+ {
+  "name": "ConsumeRecoveryCode",
+  "file": "auth.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "dinal     WHERE v <> to_jsonb(?2) ), '[]') WHERE i",
+   "jsonb(?2) ), '[]') WHERE id = ?1 AND EXISTS(SELECT",
+   "recovery_codes) WHERE value = ?2);   "
+  ]
+ },
+ {
+  "name": "UpdateUserPassword",
+  "file": "auth.sql",
+  "subquery_params": 1,
+  "snippets": [
+   " INTEGER)*1000000) WHERE id = ?1;  "
+  ]
+ },
+ {
+  "name": "DeleteOtherUserSessions",
+  "file": "auth.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "FROM sessions WHERE user_id = ?1 AND id <> ?2;   ",
+   " WHERE user_id = ?1 AND id <> ?2;   "
+  ]
+ },
+ {
+  "name": "DeleteUserSession",
+  "file": "auth.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "FROM sessions WHERE user_id = ?1 AND id = ?2;  ",
+   "s WHERE user_id = ?1 AND id = ?2;  "
+  ]
+ },
+ {
+  "name": "InsertArchiveEntry",
+  "file": "compliance.sql",
+  "subquery_params": 10,
+  "snippets": [
+   "es, legal_hold ) VALUES (     ?1, ?2, ?3, ?4, ?5, ",
+   "legal_hold ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6, ",
+   "l_hold ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "CreateComplianceGrant",
+  "file": "compliance_and_retention.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "on, granted_by ) VALUES (     ?1, ?2, ?3, ?4, ?5, ",
+   "granted_by ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6 )",
+   "ted_by ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6 ) RET"
+  ]
+ },
+ {
+  "name": "RevokeComplianceGrant",
+  "file": "compliance_and_retention.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "TEGER)*1000000), revoked_by = ?3, revoked_at = (CA",
+   "R)*1000000) WHERE tenant_id = ?1 AND id = ?2 RETUR",
+   "WHERE tenant_id = ?1 AND id = ?2 RETURNING id, ten"
+  ]
+ },
+ {
+  "name": "UpsertRetentionPolicy",
+  "file": "compliance_and_retention.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "ve, created_by ) VALUES (     ?1, ?2, ?3, ?4, ?5 )",
+   "created_by ) VALUES (     ?1, ?2, ?3, ?4, ?5 ) ON ",
+   "ted_by ) VALUES (     ?1, ?2, ?3, ?4, ?5 ) ON CONF"
+  ]
+ },
+ {
+  "name": "TenantDeliveryOutcomeCounts",
+  "file": "delivery_health.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ivery_events  WHERE tenant_id=?1 AND occurred_at >",
+   "nant_id=?1 AND occurred_at >= ?2 AND occurred_at <"
+  ]
+ },
+ {
+  "name": "CreateChannelAttribution",
+  "file": "distribution.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "l_id, ref_code ) VALUES (     ?1, ?2, ?3 ) ON CONF",
+   ", ref_code ) VALUES (     ?1, ?2, ?3 ) ON CONFLICT",
+   "f_code ) VALUES (     ?1, ?2, ?3 ) ON CONFLICT (te"
+  ]
+ },
+ {
+  "name": "CreateCommission",
+  "file": "distribution.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "rce_payment_id ) VALUES (     ?1, ?2, ?3, ?4, ?5, ",
+   "payment_id ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6,s",
+   "ent_id ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6,sqlc."
+  ]
+ },
+ {
+  "name": "CreateDomain",
+  "file": "domains.sql",
+  "subquery_params": 10,
+  "snippets": [
+   "or, dkim_private_key) VALUES (?1, ?2, ?3, ?4, ?5, ",
+   "dkim_private_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ",
+   "_private_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "UpdateDomainStatus",
+  "file": "domains.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "nant_id = ?1 AND id = ?2 AND (?3 <> 'active' OR ?4",
+   "d = ?2 AND (?3 <> 'active' OR ?4 IS NOT NULL) RETU"
+  ]
+ },
+ {
+  "name": "CountDomainsByTenant",
+  "file": "domains.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ROM domains WHERE tenant_id = ?1;  "
+  ]
+ },
+ {
+  "name": "UpdateDomainModeStatus",
+  "file": "domains.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "nt_id = ?1 AND id = ?2   AND (?4 <> 'active' OR ve",
+   "rified_at IS NOT NULL)   AND (?4 <> 'pending_dns' "
+  ]
+ },
+ {
+  "name": "RotateDomainChallenge",
+  "file": "domains.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "4800000000) WHERE tenant_id = ?1 AND id = ?2 AND s",
+   "WHERE tenant_id = ?1 AND id = ?2 AND status <> 'ac"
+  ]
+ },
+ {
+  "name": "VerifyDomainChallenge",
+  "file": "domains.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "R)*1000000) WHERE tenant_id = ?1 AND id = ?2 AND v",
+   "WHERE tenant_id = ?1 AND id = ?2 AND verification_",
+   "= ?2 AND verification_token = ?3   AND status <> '"
+  ]
+ },
+ {
+  "name": "PlatformUpsertMailboxPhishingFinding",
+  "file": "mailbox_ai_phishing.sql",
+  "subquery_params": 7,
+  "snippets": [
+   "input_digest, result ) VALUES(?1, ?2, ?3, ?4, ?5, ",
+   "t_digest, result ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ",
+   "gest, result ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) "
+  ]
+ },
+ {
+  "name": "MailboxAIChunkMessageStates",
+  "file": "mailbox_ai_retrieval.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "_ai_chunks  WHERE tenant_id = ?1 AND mailbox_id = ",
+   "nant_id = ?1 AND mailbox_id = ?2 ) WHERE rn = 1;  "
+  ]
+ },
+ {
+  "name": "DeleteMailboxAIChunkMessages",
+  "file": "mailbox_ai_retrieval.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ty = ?4 AND message_uid = ANY(?5);  "
+  ]
+ },
+ {
+  "name": "InsertMailboxAIChunk",
+  "file": "mailbox_ai_retrieval.sql",
+  "subquery_params": 9,
+  "snippets": [
+   "tent, content_digest) VALUES (?1, ?2, ?3, ?4, ?5, ",
+   ", content_digest) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ",
+   "ntent_digest) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "MailboxEASPingCollectionChanged",
+  "file": "mailbox_eas_ping.sql",
+  "subquery_params": 13,
+  "snippets": [
+   "x_changes c WHERE c.tenant_id=?1 AND c.mailbox_id=",
+   "tenant_id=?1 AND c.mailbox_id=?2 AND c.id>?5 AND (",
+   " AND c.mailbox_id=?2 AND c.id>?5 AND (  (c.resourc"
+  ]
+ },
+ {
+  "name": "ClaimEASSend",
+  "file": "mailbox_eas_send.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "load,status,attempts) VALUES (?1,?2,'eas_sendmail'",
+   "d,status,attempts) VALUES (?1,?2,'eas_sendmail',?3",
+   " VALUES (?1,?2,'eas_sendmail',?3,?4,'uncertain',1)"
+  ]
+ },
+ {
+  "name": "FinishEASSend",
+  "file": "mailbox_eas_send.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND kind='eas_sen",
+   "ND kind='eas_sendmail' AND id=?3;  "
+  ]
+ },
+ {
+  "name": "ClearExpiredMailboxImportPayloads",
+  "file": "mailbox_import.sql",
+  "subquery_params": 11,
+  "snippets": [
+   "e_policy,source_bytes) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "olicy,source_bytes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "cy,source_bytes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "CreateMailboxImportItem",
+  "file": "mailbox_import.sql",
+  "subquery_params": 13,
+  "snippets": [
+   "cate_of,baseline_uids) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "e_of,baseline_uids) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "f,baseline_uids) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "MailboxImportReservedBytes",
+  "file": "mailbox_import.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "id=i.job_id WHERE i.tenant_id=?1 AND i.mailbox_id=",
+   "tenant_id=?1 AND i.mailbox_id=?2 AND j.id<>?3 AND ",
+   "AND i.mailbox_id=?2 AND j.id<>?3 AND j.status NOT "
+  ]
+ },
+ {
+  "name": "MailboxImportRecoverExpiredLeases",
+  "file": "mailbox_import.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ER)*1000000)  WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND status='impor"
+  ]
+ },
+ {
+  "name": "MailboxImportItemViews",
+  "file": "mailbox_import.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "mport_items i WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND job_id=?3;  ",
+   " AND mailbox_id=?2 AND job_id=?3;  "
+  ]
+ },
+ {
+  "name": "CreateMailbox",
+  "file": "mailboxes.sql",
+  "subquery_params": 9,
+  "snippets": [
+   ", send_enabled ) VALUES (     ?1, ?2, ?3, ?4, ?5, ",
+   "nd_enabled ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6, ",
+   "nabled ) VALUES (     ?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "CountMailboxesByTenant",
+  "file": "mailboxes.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "M mailboxes WHERE tenant_id = ?1 AND status <> 'de"
+  ]
+ },
+ {
+  "name": "CreateMarketingTemplate",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "ame,subject,text_body) VALUES(?1,?2,?3,?4) RETURNI",
+   ",subject,text_body) VALUES(?1,?2,?3,?4) RETURNING ",
+   "bject,text_body) VALUES(?1,?2,?3,?4) RETURNING *; "
+  ]
+ },
+ {
+  "name": "CreateMarketingList",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "_lists(tenant_id,name) VALUES(?1,?2) RETURNING *; ",
+   "sts(tenant_id,name) VALUES(?1,?2) RETURNING *;  "
+  ]
+ },
+ {
+  "name": "UpsertMarketingContact",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "nsent_source,opted_in) VALUES(?1,?2,?3,?4,?5) ON C",
+   "nt_source,opted_in) VALUES(?1,?2,?3,?4,?5) ON CONF",
+   "source,opted_in) VALUES(?1,?2,?3,?4,?5) ON CONFLIC"
+  ]
+ },
+ {
+  "name": "CreateMarketingCampaign",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "d,template_id,list_id) VALUES(?1,?2,?3,?4,?5) RETU",
+   "emplate_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNI",
+   "late_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNING "
+  ]
+ },
+ {
+  "name": "ChangeMarketingCampaignState",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "tenant_id=?1 AND id=?2 AND  ((?3='paused' AND stat",
+   "N('scheduled','running')) OR (?3='scheduled' AND s",
+   "led' AND status='paused') OR (?3='canceled' AND st"
+  ]
+ },
+ {
+  "name": "CancelQueuedMarketingRecipients",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ign_canceled' WHERE tenant_id=?1 AND campaign_id=?",
+   " tenant_id=?1 AND campaign_id=?2 AND status IN('qu"
+  ]
+ },
+ {
+  "name": "GetMarketingCampaignReport",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ign_id=c.id WHERE c.tenant_id=?1 AND c.id=?2;  ",
+   "WHERE c.tenant_id=?1 AND c.id=?2;  "
+  ]
+ },
+ {
+  "name": "PreviewMarketingCampaign",
+  "file": "marketing_campaigns.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "template_id WHERE c.tenant_id=?1 AND c.id=?2; ",
+   "WHERE c.tenant_id=?1 AND c.id=?2; "
+  ]
+ },
+ {
+  "name": "CountMarketingFlowDefinitions",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "w_definitions WHERE tenant_id=?1;  "
+  ]
+ },
+ {
+  "name": "CreateMarketingFlowDefinition",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "(tenant_id,name,draft) VALUES(?1,?2,?3) RETURNING ",
+   "nant_id,name,draft) VALUES(?1,?2,?3) RETURNING *; ",
+   "t_id,name,draft) VALUES(?1,?2,?3) RETURNING *;  "
+  ]
+ },
+ {
+  "name": "UpdateMarketingFlowDefinition",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?2 AND dra",
+   "00) WHERE tenant_id=?1 AND id=?2 AND draft_revisio",
+   " AND id=?2 AND draft_revision=?5 RETURNING *;  "
+  ]
+ },
+ {
+  "name": "CreateMarketingRuntimeFlow",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "tenant_id,name,status) VALUES(?1,?2,'active') RETU",
+   "ant_id,name,status) VALUES(?1,?2,'active') RETURNI"
+  ]
+ },
+ {
+  "name": "CreateMarketingRuntimeStep",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 11,
+  "snippets": [
+   "rator,condition_value) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "or,condition_value) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "condition_value) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "CreateMarketingFlowContentSnapshot",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "_id,subject,text_body) VALUES(?1,?2,?3,?4,?5,?6); ",
+   ",subject,text_body) VALUES(?1,?2,?3,?4,?5,?6);  ",
+   "bject,text_body) VALUES(?1,?2,?3,?4,?5,?6);  "
+  ]
+ },
+ {
+  "name": "CreateMarketingFlowVersion",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 7,
+  "snippets": [
+   "finition,published_by) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "ition,published_by) VALUES(?1,?2,?3,?4,?5,?6,?7) R",
+   "on,published_by) VALUES(?1,?2,?3,?4,?5,?6,?7) RETU"
+  ]
+ },
+ {
+  "name": "PublishMarketingFlowDefinition",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?2;  ",
+   "00) WHERE tenant_id=?1 AND id=?2;  "
+  ]
+ },
+ {
+  "name": "PauseMarketingFlowDefinition",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?2;  ",
+   "00) WHERE tenant_id=?1 AND id=?2;  "
+  ]
+ },
+ {
+  "name": "PauseMarketingRuntimeFlows",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "_versions v WHERE v.tenant_id=?1 AND v.definition_",
+   "ant_id=?1 AND v.definition_id=?2));-- name: ListMa",
+   "flow_versions WHERE tenant_id=?1 AND definition_id"
+  ]
+ },
+ {
+  "name": "ListMarketingFlowEligibleContacts",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "_id=c.tenant_id AND p.flow_id=?3 AND p.email=c.ema"
+  ]
+ },
+ {
+  "name": "CountMarketingFlowLiveInstances",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "=p.step_key WHERE p.tenant_id=?1 AND NOT p.unsubsc"
+  ]
+ },
+ {
+  "name": "CreateMarketingFlowEntry",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "st_id,recipient_count) VALUES(?1,?2,?3,?4,'contact",
+   "id,recipient_count) VALUES(?1,?2,?3,?4,'contact_en",
+   "recipient_count) VALUES(?1,?2,?3,?4,'contact_enrol"
+  ]
+ },
+ {
+  "name": "CreateMarketingFlowInstance",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 6,
+  "snippets": [
+   ",entry_id,event_facts) VALUES(?1,?2,?3,?4,?5,?6) O",
+   "try_id,event_facts) VALUES(?1,?2,?3,?4,?5,?6) ON C",
+   "_id,event_facts) VALUES(?1,?2,?3,?4,?5,?6) ON CONF"
+  ]
+ },
+ {
+  "name": "StopMarketingFlowInstance",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 7,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?3 AND sto",
+   "00) WHERE tenant_id=?1 AND id=?3 AND stopped_at IS",
+   "d=flow_id AND v.definition_id=?2));-- name: RetryM"
+  ]
+ },
+ {
+  "name": "RecordMarketingFlowAudit",
+  "file": "marketing_flow_authoring.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "l_record_marketing_flow_audit(?1,?2,?3,?4); ",
+   "ecord_marketing_flow_audit(?1,?2,?3,?4); ",
+   "rd_marketing_flow_audit(?1,?2,?3,?4); "
+  ]
+ },
+ {
+  "name": "AddMarketingSuppression",
+  "file": "marketing_suppressions.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "nt_id, email, reason) VALUES (?1, ?2, ?3) ON CONFL",
+   "d, email, reason) VALUES (?1, ?2, ?3) ON CONFLICT ",
+   "mail, reason) VALUES (?1, ?2, ?3) ON CONFLICT (ten"
+  ]
+ },
+ {
+  "name": "CheckMarketingSuppression",
+  "file": "marketing_suppressions.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "uppressions WHERE tenant_id = ?1 AND email = ?2) A",
+   "RE tenant_id = ?1 AND email = ?2) AS suppressed;  "
+  ]
+ },
+ {
+  "name": "CreateOnboardingTask",
+  "file": "onboarding_and_telemetry.sql",
+  "subquery_params": 5,
+  "snippets": [
+   ", step, max_attempts) VALUES (?1,?2,?3,'pending',?",
+   "tep, max_attempts) VALUES (?1,?2,?3,'pending',?4,?",
+   ", max_attempts) VALUES (?1,?2,?3,'pending',?4,?5) "
+  ]
+ },
+ {
+  "name": "CreateOrderOnboardingTask",
+  "file": "onboarding_and_telemetry.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "x_attempts,domain_id) VALUES (?1,?2,'pending',?3,?",
+   "ttempts,domain_id) VALUES (?1,?2,'pending',?3,?4,s",
+   "n_id) VALUES (?1,?2,'pending',?3,?4,sqlc.narg(doma"
+  ]
+ },
+ {
+  "name": "RecordDeliveryEvent",
+  "file": "onboarding_and_telemetry.sql",
+  "subquery_params": 28,
+  "snippets": [
+   "d_at,source_event_id) VALUES (?1,?2,?3,?4,?5,?6,?7",
+   "t,source_event_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8",
+   "ource_event_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "CountDeliveryEventsByStatus",
+  "file": "onboarding_and_telemetry.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "livery_events WHERE tenant_id=?1 AND occurred_at >",
+   "nant_id=?1 AND occurred_at >= ?2 GROUP BY status; "
+  ]
+ },
+ {
+  "name": "PlatformSetAIProvider",
+  "file": "platform_ai.sql",
+  "subquery_params": 35,
+  "snippets": [
+   "ion,cost_currency ) VALUES(   ?1,?2,?3,?4,?5,?6,?7",
+   ",cost_currency ) VALUES(   ?1,?2,?3,?4,?5,?6,?7,?8",
+   "st_currency ) VALUES(   ?1,?2,?3,?4,?5,?6,?7,?8,  "
+  ]
+ },
+ {
+  "name": "PlatformExpireAIReservations",
+  "file": "platform_ai.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND status='reser"
+  ]
+ },
+ {
+  "name": "PlatformResolveAIUsage",
+  "file": "platform_ai.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?2 AND sta",
+   "00) WHERE tenant_id=?1 AND id=?2 AND status='uncer"
+  ]
+ },
+ {
+  "name": "PlatformInsertAIDraft",
+  "file": "platform_ai_drafts.sql",
+  "subquery_params": 4,
+  "snippets": [
+   ",subject,body,version) VALUES(?1,?2,?3,?4,1) RETUR",
+   "bject,body,version) VALUES(?1,?2,?3,?4,1) RETURNIN",
+   "ct,body,version) VALUES(?1,?2,?3,?4,1) RETURNING i"
+  ]
+ },
+ {
+  "name": "PlatformUpdateAIDraft",
+  "file": "platform_ai_drafts.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND ver",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND version=?6 RE"
+  ]
+ },
+ {
+  "name": "PlatformSetNonplatformAIQuota",
+  "file": "platform_ai_quota.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1;  "
+  ]
+ },
+ {
+  "name": "PlatformInsertArchiveEntry",
+  "file": "platform_archive.sql",
+  "subquery_params": 9,
+  "snippets": [
+   "ze_bytes, legal_hold) VALUES (?1, ?2, ?3, ?4, ?5, ",
+   "ytes, legal_hold) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ",
+   ", legal_hold) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "PlatformEvidenceVisible",
+  "file": "platform_archive_evidence.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "ail_evidence_manifest_visible(?1,?2,?3,?4) AS visi",
+   "_evidence_manifest_visible(?1,?2,?3,?4) AS visible",
+   "idence_manifest_visible(?1,?2,?3,?4) AS visible;  "
+  ]
+ },
+ {
+  "name": "PlatformReadEvidenceBody",
+  "file": "platform_archive_evidence.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "ECT urmail_read_evidence_body(?1,?2,?3,?4); ",
+   " urmail_read_evidence_body(?1,?2,?3,?4); ",
+   "mail_read_evidence_body(?1,?2,?3,?4); "
+  ]
+ },
+ {
+  "name": "PlatformCreateInvestigation",
+  "file": "platform_archive_investigations.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "created_by,expires_at) VALUES(?1,?2,?3,?4,?5) RETU",
+   "ated_by,expires_at) VALUES(?1,?2,?3,?4,?5) RETURNI",
+   "d_by,expires_at) VALUES(?1,?2,?3,?4,?5) RETURNING "
+  ]
+ },
+ {
+  "name": "PlatformGrantInvestigation",
+  "file": "platform_archive_investigations.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "_id,tenant_id,user_id) VALUES(?1,?2,?3) ON CONFLIC",
+   ",tenant_id,user_id) VALUES(?1,?2,?3) ON CONFLICT(i",
+   "nant_id,user_id) VALUES(?1,?2,?3) ON CONFLICT(inve"
+  ]
+ },
+ {
+  "name": "PlatformRevokeInvestigation",
+  "file": "platform_archive_investigations.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND investigation",
+   "nt_id=?1 AND investigation_id=?2 AND user_id=?3 AN",
+   "vestigation_id=?2 AND user_id=?3 AND removed_at IS"
+  ]
+ },
+ {
+  "name": "PlatformAddInvestigationSource",
+  "file": "platform_archive_investigations.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "ive_entry_id,added_by) SELECT ?1,?2,e.id,?4 FROM a",
+   "_entry_id,added_by) SELECT ?1,?2,e.id,?4 FROM arch",
+   "d,added_by) SELECT ?1,?2,e.id,?4 FROM archive_entr"
+  ]
+ },
+ {
+  "name": "MarkSessionMFAVerified",
+  "file": "platform_auth_application.sql",
+  "subquery_params": 1,
+  "snippets": [
+   " INTEGER)*1000000) WHERE id = ?1;  "
+  ]
+ },
+ {
+  "name": "MarkSessionLegacyOnly",
+  "file": "platform_auth_application.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "AS INTEGER)*1000000) WHERE id=?1;  "
+  ]
+ },
+ {
+  "name": "ListApplicationCredentials",
+  "file": "platform_auth_application.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "RE application_credentials.id=?1 AND application_c",
+   "plication_credentials.user_id=?2 RETURNING id, use"
+  ]
+ },
+ {
+  "name": "AuditLegacyCredentialUse",
+  "file": "platform_auth_application.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "type,target_id,detail) VALUES(?1,?2,'legacy_auth',",
+   "e,target_id,detail) VALUES(?1,?2,'legacy_auth',?3,",
+   "l) VALUES(?1,?2,'legacy_auth',?3,'{}'); "
+  ]
+ },
+ {
+  "name": "PlatformInsertBrandHostChallenge",
+  "file": "platform_brand_host_verify.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "t, method, expires_at) VALUES(?1, ?2, ?3, ?4) ON C",
+   "ethod, expires_at) VALUES(?1, ?2, ?3, ?4) ON CONFL",
+   "d, expires_at) VALUES(?1, ?2, ?3, ?4) ON CONFLICT("
+  ]
+ },
+ {
+  "name": "PlatformConsumeBrandHostChallenge",
+  "file": "platform_brand_host_verify.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ER)*1000000) WHERE hostname = ?1 AND consumed_at I"
+  ]
+ },
+ {
+  "name": "PlatformSetBrandHostLifecycle",
+  "file": "platform_brand_host_verify.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ER)*1000000) WHERE hostname = ?1;  "
+  ]
+ },
+ {
+  "name": "PlatformBrandHostCertEligible",
+  "file": "platform_brand_host_verify.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "'active'   WHERE h.hostname = ?1 AND h.status IN ("
+  ]
+ },
+ {
+  "name": "PlatformVerifyBrandHostMark",
+  "file": "platform_brand_host_verify.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ELECT 1 FROM tenants WHERE id=?1 AND brand_id=?2 A",
+   "ants WHERE id=?1 AND brand_id=?2 AND status IN ('a"
+  ]
+ },
+ {
+  "name": "PlatformBrandHostReserved",
+  "file": "platform_brand_host_verify.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ECT 1 FROM domains WHERE fqdn=?1); "
+  ]
+ },
+ {
+  "name": "PlatformBindBrandHost",
+  "file": "platform_brand_public.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "sts(hostname,brand_id) SELECT ?1,b.id FROM brands ",
+   "b.id FROM brands b WHERE b.id=?2 AND b.status='act"
+  ]
+ },
+ {
+  "name": "PlatformSaveBrand",
+  "file": "platform_brand_public.sql",
+  "subquery_params": 7,
+  "snippets": [
+   ",primary_color,status) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "imary_color,status) VALUES(?1,?2,?3,?4,?5,?6,?7) O",
+   "ry_color,status) VALUES(?1,?2,?3,?4,?5,?6,?7) ON C"
+  ]
+ },
+ {
+  "name": "PlatformPublicThemeSettings",
+  "file": "platform_brand_public.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "R (scope='brand' AND scope_id=?1)); "
+  ]
+ },
+ {
+  "name": "PlatformUpsertBrandSetting",
+  "file": "platform_brand_settings.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "_id,key,value) VALUES('brand',?1,?2,?3) ON CONFLIC",
+   ",key,value) VALUES('brand',?1,?2,?3) ON CONFLICT(s",
+   "y,value) VALUES('brand',?1,?2,?3) ON CONFLICT(scop"
+  ]
+ },
+ {
+  "name": "PlatformBindSchedulingEvent",
+  "file": "platform_calendar_scheduling.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ND (organizer='' OR organizer=?4);  "
+  ]
+ },
+ {
+  "name": "PlatformClaimCalendarResponse",
+  "file": "platform_calendar_scheduling.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "cy_key,payload,status) VALUES(?1,?2,'calendar_resp",
+   "key,payload,status) VALUES(?1,?2,'calendar_respons",
+   "UES(?1,?2,'calendar_response',?3,?4,'uncertain'); "
+  ]
+ },
+ {
+  "name": "PlatformFinishCalendarResponse",
+  "file": "platform_calendar_scheduling.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND kind='calenda",
+   "response' AND idempotency_key=?3 AND status='uncer"
+  ]
+ },
+ {
+  "name": "PlatformScheduleCalendarReminder",
+  "file": "platform_calendar_scheduling.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "ad,status,lease_until) VALUES(?1,?2,'calendar_remi",
+   "status,lease_until) VALUES(?1,?2,'calendar_reminde",
+   "UES(?1,?2,'calendar_reminder',?3,?4,'pending',?5) "
+  ]
+ },
+ {
+  "name": "PlatformAcknowledgeCalendarReminder",
+  "file": "platform_calendar_scheduling.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND kin",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND kind='calenda"
+  ]
+ },
+ {
+  "name": "PlatformBindOwnedCalendarOrganizer",
+  "file": "platform_calendar_scheduling.sql",
+  "subquery_params": 5,
+  "snippets": [
+   " mailbox_events SET attendees=?4,version=version+1",
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND ver"
+  ]
+ },
+ {
+  "name": "PlatformGetContact",
+  "file": "platform_collaboration.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND ver",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND version=?4 AN"
+  ]
+ },
+ {
+  "name": "PlatformEnsureCalendar",
+  "file": "platform_collaboration.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "ox_id, name, timezone) VALUES(?1, ?2, ?3, ?4) ON C",
+   "d, name, timezone) VALUES(?1, ?2, ?3, ?4) ON CONFL",
+   "ame, timezone) VALUES(?1, ?2, ?3, ?4) ON CONFLICT "
+  ]
+ },
+ {
+  "name": "PlatformDeleteEvent",
+  "file": "platform_collaboration.sql",
+  "subquery_params": 7,
+  "snippets": [
+   "R)*1000000) WHERE e.tenant_id=?1 AND e.mailbox_id=",
+   "tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e",
+   " AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?4 "
+  ]
+ },
+ {
+  "name": "PlatformInsertContactGroupMember",
+  "file": "platform_collaboration.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "enant_id, b.mailbox_id, b.id, ?4 FROM mailbox_addr",
+   "ressbooks b WHERE b.tenant_id=?1 AND b.mailbox_id=",
+   "tenant_id=?1 AND b.mailbox_id=?2 AND b.id=?3 AND b"
+  ]
+ },
+ {
+  "name": "PlatformDeleteContactGroup",
+  "file": "platform_collaboration.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "T urmail_delete_contact_group(?1,?2,?3);  ",
+   "rmail_delete_contact_group(?1,?2,?3);  ",
+   "il_delete_contact_group(?1,?2,?3);  "
+  ]
+ },
+ {
+  "name": "PlatformEnsureCollectorCheckpoint",
+  "file": "platform_delivery_collector.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "or_checkpoints(stream) VALUES(?1) ON CONFLICT(stre"
+  ]
+ },
+ {
+  "name": "PlatformAdvanceCollectorCheckpoint",
+  "file": "platform_delivery_collector.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "fset=?4,  gap_reason=COALESCE(?5,gap_reason),obser",
+   "CE(?5,gap_reason),observed_at=?6,updated_at=(CAST(",
+   "NTEGER)*1000000) WHERE stream=?1;  "
+  ]
+ },
+ {
+  "name": "PlatformPutDeliveryQueueContext",
+  "file": "platform_delivery_collector.sql",
+  "subquery_params": 9,
+  "snippets": [
+   "der,started_at,closed) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   ",started_at,closed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "arted_at,closed) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "PlatformRecordCollectedDeliveryEvent",
+  "file": "platform_delivery_collector.sql",
+  "subquery_params": 16,
+  "snippets": [
+   "event_id,lifecycle_id) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "nt_id,lifecycle_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "id,lifecycle_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "ReserveDNSZoneVersion",
+  "file": "platform_dns.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "n,content_hash,serial) VALUES(?1,?2,?3) ON CONFLIC",
+   "ontent_hash,serial) VALUES(?1,?2,?3) ON CONFLICT(d",
+   "ent_hash,serial) VALUES(?1,?2,?3) ON CONFLICT(doma"
+  ]
+ },
+ {
+  "name": "PlatformAdvanceDNSPlan",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "AS INTEGER)*1000000) WHERE id=?1 AND fence=?2 AND ",
+   "000000) WHERE id=?1 AND fence=?2 AND lease_owner=?",
+   " AND fence=?2 AND lease_owner=?3 AND lease_until>("
+  ]
+ },
+ {
+  "name": "PlatformCreateDNSAction",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "e_record,after_record) VALUES(?1,?2,?3,?4,?5,?6) O",
+   "ecord,after_record) VALUES(?1,?2,?3,?4,?5,?6) ON C",
+   "rd,after_record) VALUES(?1,?2,?3,?4,?5,?6) ON CONF"
+  ]
+ },
+ {
+  "name": "PlatformSubmitDNSAction",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 14,
+  "snippets": [
+   "S INTEGER)*1000000)  WHERE id=?1 AND status='pendi",
+   "HERE p.id=plan_id AND p.fence=?2 AND p.lease_owner",
+   " p.fence=?2 AND p.lease_owner=?3 AND p.status='app"
+  ]
+ },
+ {
+  "name": "PlatformSetExplicitDNS",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?2 AND mod",
+   "00) WHERE tenant_id=?1 AND id=?2 AND mode='managed"
+  ]
+ },
+ {
+  "name": "PlatformClaimOnboarding",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "ROM onboarding_tasks WHERE id=?1 AND fence=?2 AND ",
+   "g_tasks WHERE id=?1 AND fence=?2 AND leased_by=?3 ",
+   "?1 AND fence=?2 AND leased_by=?3 AND leased_until>"
+  ]
+ },
+ {
+  "name": "PlatformAdvanceOnboarding",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "00000),completed_at=CASE WHEN ?5='completed' THEN ",
+   "LSE completed_at END WHERE id=?1 AND fence=?2 AND ",
+   "_at END WHERE id=?1 AND fence=?2 AND leased_by=?3 "
+  ]
+ },
+ {
+  "name": "PlatformMarkDomainReady",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "ER)*1000000)  WHERE tenant_id=?1 AND id=?2 AND sta",
+   "0)  WHERE tenant_id=?1 AND id=?2 AND status='activ",
+   "task.domain_id=id AND task.id=?3 AND task.fence=?4"
+  ]
+ },
+ {
+  "name": "PlatformRenewDNSLease",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "AS INTEGER)*1000000) WHERE id=?1 AND fence=?2 AND ",
+   "000000) WHERE id=?1 AND fence=?2 AND lease_owner=?",
+   " AND fence=?2 AND lease_owner=?3 AND lease_until>("
+  ]
+ },
+ {
+  "name": "PlatformRenewOnboardingLease",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "AS INTEGER)*1000000) WHERE id=?1 AND fence=?2 AND ",
+   "000000) WHERE id=?1 AND fence=?2 AND leased_by=?3 ",
+   "?1 AND fence=?2 AND leased_by=?3 AND leased_until>"
+  ]
+ },
+ {
+  "name": "PlatformSubmitDNSRollback",
+  "file": "platform_dns_onboarding.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "S INTEGER)*1000000)  WHERE id=?1 AND status='appli",
+   "HERE p.id=plan_id AND p.fence=?2 AND p.lease_owner",
+   " p.fence=?2 AND p.lease_owner=?3 AND p.status='rol"
+  ]
+ },
+ {
+  "name": "PlatformSetDNSSecurity",
+  "file": "platform_dns_security.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "name) SELECT d.tenant_id,d.id,?2,?3,?4,?5,?6 FROM ",
+   "e) SELECT d.tenant_id,d.id,?2,?3,?4,?5,?6 FROM dom",
+   "SELECT d.tenant_id,d.id,?2,?3,?4,?5,?6 FROM domain"
+  ]
+ },
+ {
+  "name": "PlatformConfirmDomainRecovery",
+  "file": "platform_domain_recovery.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "atus='active' WHERE tenant_id=?1 AND id=?2 AND fqd",
+   "ve' WHERE tenant_id=?1 AND id=?2 AND fqdn=?3 AND v",
+   "nant_id=?1 AND id=?2 AND fqdn=?3 AND verification_"
+  ]
+ },
+ {
+  "name": "GetBillingBusinessTimezone",
+  "file": "platform_mail_and_ai_gate.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "LECT urmail_business_timezone(?1) AS timezone;  "
+  ]
+ },
+ {
+  "name": "PlatformLockBillingTenant",
+  "file": "platform_mail_and_ai_gate.sql",
+  "subquery_params": 1,
+  "snippets": [
+   " SELECT pg_advisory_xact_lock(?1);  "
+  ]
+ },
+ {
+  "name": "MailServiceAllowed",
+  "file": "platform_mail_and_ai_gate.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "1 FROM tenants mt WHERE mt.id=?1 AND mt.status='ac"
+  ]
+ },
+ {
+  "name": "PlatformClaimDraftSave",
+  "file": "platform_mailbox_draft_journal.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "_key, payload, status) VALUES(?1,?2,'draft_save',?",
+   "y, payload, status) VALUES(?1,?2,'draft_save',?3,?",
+   "us) VALUES(?1,?2,'draft_save',?3,?4,'uncertain'); "
+  ]
+ },
+ {
+  "name": "PlatformCompleteDraftSave",
+  "file": "platform_mailbox_draft_journal.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND kind='draft_s",
+   "aft_save' AND idempotency_key=?3 AND status IN('un"
+  ]
+ },
+ {
+  "name": "PlatformDraftReplacementPending",
+  "file": "platform_mailbox_draft_journal.sql",
+  "subquery_params": 2,
+  "snippets": [
+   " mailbox_jobs WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND kind='draft_s"
+  ]
+ },
+ {
+  "name": "PlatformRevokeSieveBridge",
+  "file": "platform_mailbox_principal.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ER)*1000000) WHERE token_hash=?1 AND kind='sieve_b"
+  ]
+ },
+ {
+  "name": "PlatformCancelMailboxScheduledSend",
+  "file": "platform_mailbox_scheduled_sends.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "st_error=NULL WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND sta",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND status IN('pe"
+  ]
+ },
+ {
+  "name": "PlatformAcknowledgeUncertainScheduledSend",
+  "file": "platform_mailbox_scheduled_sends.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2",
+   "D tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND sta",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND status IN('un"
+  ]
+ },
+ {
+  "name": "PlatformClaimOwnedSendCopy",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2",
+   "D tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND sta",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND status='accep"
+  ]
+ },
+ {
+  "name": "PlatformMarkSendCopyUnknown",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2",
+   "D tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND cla",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?"
+  ]
+ },
+ {
+  "name": "PlatformCompleteSendCopy",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2",
+   "D tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND cla",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?"
+  ]
+ },
+ {
+  "name": "PlatformDeferSendCopy",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2",
+   "D tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND cla",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?"
+  ]
+ },
+ {
+  "name": "PlatformDraftSendLocked",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 10,
+  "snippets": [
+   "_receipts r WHERE r.tenant_id=?1 AND r.mailbox_id=",
+   "tenant_id=?1 AND r.mailbox_id=?2 AND r.draft_folde",
+   "lbox_id=?2 AND r.draft_folder=?3 AND r.draft_uid=?"
+  ]
+ },
+ {
+  "name": "PlatformAcknowledgeUncertainSend",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2",
+   "D tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND sta",
+   "d=?1 AND mailbox_id=?2 AND id=?3 AND status='uncer"
+  ]
+ },
+ {
+  "name": "PlatformDraftDeleteLocked",
+  "file": "platform_mailbox_send_receipts.sql",
+  "subquery_params": 10,
+  "snippets": [
+   "_receipts r WHERE r.tenant_id=?1 AND r.mailbox_id=",
+   "tenant_id=?1 AND r.mailbox_id=?2 AND r.draft_folde",
+   "lbox_id=?2 AND r.draft_folder=?3 AND r.draft_uid=?"
+  ]
+ },
+ {
+  "name": "PlatformSealLegacyScheduledCopy",
+  "file": "platform_mailbox_sent_copy.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?2 AND mailbox_id=?3",
+   "E tenant_id=?2 AND mailbox_id=?3 AND id=?4;  ",
+   "d=?2 AND mailbox_id=?3 AND id=?4;  "
+  ]
+ },
+ {
+  "name": "PlatformCreateMarketingChannel",
+  "file": "platform_marketing.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "rypted_config,enabled) VALUES(?1,?2,?3,?4,?5,?6) R",
+   "ted_config,enabled) VALUES(?1,?2,?3,?4,?5,?6) RETU",
+   "_config,enabled) VALUES(?1,?2,?3,?4,?5,?6) RETURNI"
+  ]
+ },
+ {
+  "name": "PlatformReleaseMarketingClaim",
+  "file": "platform_marketing.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "000)+30000000 WHERE tenant_id=?1 AND id=?2 AND lea",
+   "000 WHERE tenant_id=?1 AND id=?2 AND lease_owner=?",
+   "=?1 AND id=?2 AND lease_owner=?3 AND fence=?4 AND "
+  ]
+ },
+ {
+  "name": "PlatformMarketingFlowIsVersioned",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "_versions v WHERE v.tenant_id=?1 AND v.runtime_flo",
+   "t_id=?1 AND v.runtime_flow_id=?2) AS versioned;  "
+  ]
+ },
+ {
+  "name": "PlatformCheckMarketingFlowLease",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "d=p.flow_id WHERE p.tenant_id=?1 AND p.flow_id=?2 ",
+   " p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AN",
+   " AND p.flow_id=?2 AND p.email=?3 AND p.lease_owner"
+  ]
+ },
+ {
+  "name": "PlatformVersionedMarketingFlowMayAdvance",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 14,
+  "snippets": [
+   "_versions v WHERE v.tenant_id=?1 AND v.runtime_flo",
+   "t_id=?1 AND v.runtime_flow_id=?2) THEN EXISTS(SELE",
+   "1 FROM tenants mt WHERE mt.id=?1 AND mt.status='ac"
+  ]
+ },
+ {
+  "name": "PlatformCommitMarketingFlowFenced",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "_commit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7",
+   "mmit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8",
+   "t_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8) A"
+  ]
+ },
+ {
+  "name": "PlatformBeginMarketingFlowSend",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "ail_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) A",
+   "_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS r",
+   "gin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS resu"
+  ]
+ },
+ {
+  "name": "PlatformReleaseMarketingFlowReservation",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "se_marketing_flow_reservation(?1,?2,?3,?4,?5) AS r",
+   "marketing_flow_reservation(?1,?2,?3,?4,?5) AS rele",
+   "keting_flow_reservation(?1,?2,?3,?4,?5) AS release"
+  ]
+ },
+ {
+  "name": "PlatformMarkMarketingFlowUncertainFenced",
+  "file": "platform_marketing_flow_authoring.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND flow_id=?2 AN",
+   "HERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND ",
+   "d=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?"
+  ]
+ },
+ {
+  "name": "PlatformInsertMarketingFlow",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "tenant_id,name,status) VALUES(?1,?2,'draft') RETUR",
+   "ant_id,name,status) VALUES(?1,?2,'draft') RETURNIN"
+  ]
+ },
+ {
+  "name": "PlatformInsertMarketingFlowStep",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "bscribed_key,position) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "ribed_key,position) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "ed_key,position) VALUES(?1,?2,?3,?4,?5,?6,?7,?8); "
+  ]
+ },
+ {
+  "name": "PlatformAdvanceMarketingFlow",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "step_key,unsubscribed) VALUES(?1,?2,?3,?4,?5) ON C",
+   "p_key,unsubscribed) VALUES(?1,?2,?3,?4,?5) ON CONF",
+   "ey,unsubscribed) VALUES(?1,?2,?3,?4,?5) ON CONFLIC"
+  ]
+ },
+ {
+  "name": "PlatformMarkMarketingFlowUncertain",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "mark_marketing_flow_uncertain(?1,?2,?3);  -- Flow ",
+   "k_marketing_flow_uncertain(?1,?2,?3);  -- Flow tic",
+   "arketing_flow_uncertain(?1,?2,?3);  -- Flow tick w"
+  ]
+ },
+ {
+  "name": "PlatformClaimMarketingFlowPositions",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "se_until=NULL WHERE tenant_id=?1 AND flow_id=?2 AN",
+   "HERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND ",
+   "d=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?"
+  ]
+ },
+ {
+  "name": "PlatformArmMarketingFlowWait",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "econds*1000000  WHERE flow_id=?2 AND email=?3 AND ",
+   "0  WHERE flow_id=?2 AND email=?3 AND wait_until IS",
+   "until IS NULL AND lease_owner=?4 AND lease_fence=?"
+  ]
+ },
+ {
+  "name": "PlatformMarketingFlowMayAdvance",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "1 FROM tenants mt WHERE mt.id=?1 AND mt.status='ac",
+   "sitions fp WHERE fp.tenant_id=?1 AND fp.flow_id=?2",
+   "p.tenant_id=?1 AND fp.flow_id=?2 AND fp.email=?3 A"
+  ]
+ },
+ {
+  "name": "PlatformSaveMarketingFlowPosition",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND flow_id=?2 AN",
+   "HERE tenant_id=?1 AND flow_id=?2 AND email=?3;  --",
+   "d=?1 AND flow_id=?2 AND email=?3;  -- Execution-ti"
+  ]
+ },
+ {
+  "name": "PlatformMarketingFlowStillAllowed",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "rmail_marketing_flow_sendable(?1,?2,?3) NOT IN ('m",
+   "il_marketing_flow_sendable(?1,?2,?3) NOT IN ('miss",
+   "marketing_flow_sendable(?1,?2,?3) NOT IN ('missing"
+  ]
+ },
+ {
+  "name": "PlatformCheckMarketingEmailSuppressed",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "_suppressions WHERE tenant_id=?1 AND email=?2) AS ",
+   " WHERE tenant_id=?1 AND email=?2) AS suppressed;  "
+  ]
+ },
+ {
+  "name": "PlatformMarkMarketingFlowUnsubscribed",
+  "file": "platform_marketing_flows.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND flow_id=?2 AN",
+   "HERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND ",
+   "d=?1 AND flow_id=?2 AND email=?3 AND NOT unsubscri"
+  ]
+ },
+ {
+  "name": "PlatformEnsureManagedBrand",
+  "file": "platform_mutations.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "INTO brands(slug,name) VALUES(?1,?2) ON CONFLICT(s",
+   "O brands(slug,name) VALUES(?1,?2) ON CONFLICT(slug"
+  ]
+ },
+ {
+  "name": "PlatformCreateManagedTenant",
+  "file": "platform_mutations.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "d_id,name,slug,status) VALUES(?1,?2,?3,?4) RETURNI",
+   "d,name,slug,status) VALUES(?1,?2,?3,?4) RETURNING ",
+   "ame,slug,status) VALUES(?1,?2,?3,?4) RETURNING id;"
+  ]
+ },
+ {
+  "name": "PlatformCreateManagedUser",
+  "file": "platform_mutations.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "h,display_name,status) VALUES(?1,?2,?3,'active') R",
+   "isplay_name,status) VALUES(?1,?2,?3,'active') RETU",
+   "lay_name,status) VALUES(?1,?2,?3,'active') RETURNI"
+  ]
+ },
+ {
+  "name": "PlatformGrantTenantOwner",
+  "file": "platform_mutations.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ser_id,tenant_id,role) VALUES(?1,?2,'owner') ON CO",
+   "_id,tenant_id,role) VALUES(?1,?2,'owner') ON CONFL"
+  ]
+ },
+ {
+  "name": "PlatformEnqueueNotification",
+  "file": "platform_notifications.sql",
+  "subquery_params": 10,
+  "snippets": [
+   "nt,recipient_verified) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "recipient_verified) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "ipient_verified) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "PlatformFinishEmailNotification",
+  "file": "platform_notifications.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "n_outbox SET  state=CASE WHEN ?3='pending' AND att",
+   "ttempts>=8 THEN 'failed' ELSE ?3 END,  delivered_a",
+   " END,  delivered_at=CASE WHEN ?3='delivered' THEN "
+  ]
+ },
+ {
+  "name": "PlatformInsertMailboxSnippet",
+  "file": "platform_parity_enhancements.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "le, content, shortcut) VALUES(?1, ?2, ?3, ?4, ?5) ",
+   "content, shortcut) VALUES(?1, ?2, ?3, ?4, ?5) RETU",
+   "ent, shortcut) VALUES(?1, ?2, ?3, ?4, ?5) RETURNIN"
+  ]
+ },
+ {
+  "name": "PlatformUpdateMailboxSnippet",
+  "file": "platform_parity_enhancements.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "R)*1000000) WHERE tenant_id = ?1 AND mailbox_id = ",
+   "nant_id = ?1 AND mailbox_id = ?2 AND id = ?3 RETUR",
+   " AND mailbox_id = ?2 AND id = ?3 RETURNING *;  "
+  ]
+ },
+ {
+  "name": "PlatformSetTenantDirectorySettings",
+  "file": "platform_parity_enhancements.sql",
+  "subquery_params": 2,
+  "snippets": [
+   ", enabled, updated_at) VALUES(?1, ?2, (CAST(strfti",
+   "abled, updated_at) VALUES(?1, ?2, (CAST(strftime('"
+  ]
+ },
+ {
+  "name": "PlatformInsertTenantDirectoryContact",
+  "file": "platform_parity_enhancements.sql",
+  "subquery_params": 11,
+  "snippets": [
+   ", addresses, note ) VALUES(   ?1, ?2, ?3, ?4, ?5, ",
+   "dresses, note ) VALUES(   ?1, ?2, ?3, ?4, ?5, ?6, ",
+   "ses, note ) VALUES(   ?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "PlatformUpdateTenantDirectoryContact",
+  "file": "platform_parity_enhancements.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "R)*1000000) WHERE tenant_id = ?1 AND id = ?2 RETUR",
+   "WHERE tenant_id = ?1 AND id = ?2 RETURNING *;  "
+  ]
+ },
+ {
+  "name": "PlatformContactImportDuplicate",
+  "file": "platform_people_product.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "lbox_contacts WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND deleted_at IS",
+   "d_at IS NULL AND display_name=?3 AND given_name=?4"
+  ]
+ },
+ {
+  "name": "PlatformInsertDataImportReceipt",
+  "file": "platform_people_product.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "cy_key,payload,status) VALUES(?1,?2,?3,?4,?5,'done",
+   "key,payload,status) VALUES(?1,?2,?3,?4,?5,'done');",
+   ",payload,status) VALUES(?1,?2,?3,?4,?5,'done');  "
+  ]
+ },
+ {
+  "name": "PlatformClaimCalendarInvitation",
+  "file": "platform_people_product.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "cy_key,payload,status) VALUES(?1,?2,'calendar_invi",
+   "key,payload,status) VALUES(?1,?2,'calendar_invitat",
+   "S(?1,?2,'calendar_invitation',?3,?4,'uncertain'); "
+  ]
+ },
+ {
+  "name": "PlatformFinishCalendarInvitation",
+  "file": "platform_people_product.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND kind='calenda",
+   "vitation' AND idempotency_key=?3 AND status='uncer"
+  ]
+ },
+ {
+  "name": "PlatformClaimMailTransfer",
+  "file": "platform_people_product.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "cy_key,payload,status) VALUES(?1,?2,'mail_transfer",
+   "key,payload,status) VALUES(?1,?2,'mail_transfer',?",
+   " VALUES(?1,?2,'mail_transfer',?3,?4,'uncertain'); "
+  ]
+ },
+ {
+  "name": "PlatformCompleteMailTransfer",
+  "file": "platform_people_product.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2",
+   "E tenant_id=?1 AND mailbox_id=?2 AND kind='mail_tr",
+   "transfer' AND idempotency_key=?3 AND status='uncer"
+  ]
+ },
+ {
+  "name": "PlatformRecallActorAuthorized",
+  "file": "platform_recall_product.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "r.tenant_id WHERE r.tenant_id=?1 AND r.user_id=?2 ",
+   " r.tenant_id=?1 AND r.user_id=?2 AND r.role IN('ow"
+  ]
+ },
+ {
+  "name": "PlatformLockRecallTenant",
+  "file": "platform_recalls.sql",
+  "subquery_params": 1,
+  "snippets": [
+   " SELECT pg_advisory_xact_lock(?1); "
+  ]
+ },
+ {
+  "name": "PlatformRecallHoldConflict",
+  "file": "platform_recalls.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "ive_entries WHERE tenant_id = ?1   AND mailbox_id ",
+   "nt_id = ?1   AND mailbox_id = ?2   AND message_id ",
+   "ox_id = ?2   AND message_id = ?3   AND id <> ?4   "
+  ]
+ },
+ {
+  "name": "PlatformUpsertSetting",
+  "file": "platform_settings.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ey,value) VALUES('platform',0,?1,?2) ON CONFLICT(s",
+   "value) VALUES('platform',0,?1,?2) ON CONFLICT(scop"
+  ]
+ },
+ {
+  "name": "PlatformSetupTenant",
+  "file": "platform_setup.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "d_id,name,slug,status) VALUES(?1,?2,?3,'pending') ",
+   "d,name,slug,status) VALUES(?1,?2,?3,'pending') ON ",
+   "ame,slug,status) VALUES(?1,?2,?3,'pending') ON CON"
+  ]
+ },
+ {
+  "name": "PlatformSieveOutboundAllowed",
+  "file": "platform_sieve_gate.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "d=m.domain_id WHERE m.address=?1 AND m.status='act"
+  ]
+ },
+ {
+  "name": "PlatformReplySupportTicket",
+  "file": "platform_support.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "thor_id,body,is_staff) VALUES(?1,?2,?3,?4,true) RE",
+   "r_id,body,is_staff) VALUES(?1,?2,?3,?4,true) RETUR",
+   "d,body,is_staff) VALUES(?1,?2,?3,?4,true) RETURNIN"
+  ]
+ },
+ {
+  "name": "PlatformChangeSupportTicket",
+  "file": "platform_support.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND id=?2 AND (?4",
+   "00) WHERE tenant_id=?1 AND id=?2 AND (?4 IS NULL O",
+   "E tenant_id=?1 AND id=?2 AND (?4 IS NULL OR EXISTS"
+  ]
+ },
+ {
+  "name": "PlatformCreateAnnouncement",
+  "file": "platform_support.sql",
+  "subquery_params": 6,
+  "snippets": [
+   ",published_at,ends_at) VALUES(?1,?2,?3,?4,?5,?6) R",
+   "blished_at,ends_at) VALUES(?1,?2,?3,?4,?5,?6) RETU",
+   "shed_at,ends_at) VALUES(?1,?2,?3,?4,?5,?6) RETURNI"
+  ]
+ },
+ {
+  "name": "PlatformUpsertBrand",
+  "file": "platform_tenants.sql",
+  "subquery_params": 6,
+  "snippets": [
+   "rimary_color, status) VALUES (?1, ?2, ?3, ?4, ?5, ",
+   "ry_color, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ",
+   "olor, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'act"
+  ]
+ },
+ {
+  "name": "PlatformUpsertChannel",
+  "file": "platform_tenants.sql",
+  "subquery_params": 8,
+  "snippets": [
+   "_id, contact, active) VALUES (?1, ?2, ?3, ?4, ?5, ",
+   " contact, active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ",
+   "tact, active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, "
+  ]
+ },
+ {
+  "name": "PlatformTransportCertificateAllowed",
+  "file": "platform_transport_security.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "t_id WHERE 'mta-sts.'||d.fqdn=?1 AND t.enabled AND"
+  ]
+ },
+ {
+  "name": "PlatformCountRecentTLSReports",
+  "file": "platform_transport_security.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "n_tls_reports WHERE tenant_id=?1 AND domain_id=?2 ",
+   "RE tenant_id=?1 AND domain_id=?2 AND received_at>="
+  ]
+ },
+ {
+  "name": "PlatformRecordTLSReport",
+  "file": "platform_transport_security.sql",
+  "subquery_params": 10,
+  "snippets": [
+   "ssful,failed,failures) VALUES(?1,?2,?3,?4,?5,?6,?7",
+   "ul,failed,failures) VALUES(?1,?2,?3,?4,?5,?6,?7,?8",
+   "failed,failures) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9"
+  ]
+ },
+ {
+  "name": "GetMailboxDailySent",
+  "file": "platform_usage.sql",
+  "subquery_params": 1,
+  "snippets": [
+   ".tenant_id) WHERE m.address = ?1 AND m.status = 'a"
+  ]
+ },
+ {
+  "name": "GetMailboxDailySentForUpdate",
+  "file": "platform_usage.sql",
+  "subquery_params": 1,
+  "snippets": [
+   ".tenant_id) WHERE m.address = ?1 AND m.status = 'a"
+  ]
+ },
+ {
+  "name": "IncrementMailboxDailySent",
+  "file": "platform_usage.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "ays -- below the daily limit (?3); returns pgx.Err",
+   ", day, messages_sent) VALUES (?1, ?2, urmail_quota",
+   "y, messages_sent) VALUES (?1, ?2, urmail_quota_day"
+  ]
+ },
+ {
+  "name": "GetDeliveryEventTenantByQueueID",
+  "file": "platform_usage.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ivery_events WHERE queue_id = ?1 AND instance = ?2",
+   " queue_id = ?1 AND instance = ?2 ORDER BY (status "
+  ]
+ },
+ {
+  "name": "PlatformInboundAllowed",
+  "file": "platform_usage.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "domains d WHERE d.fqdn=substr(?1, instr(?1,'@')+1)",
+   "WHERE d.fqdn=substr(?1, instr(?1,'@')+1)),true) AS"
+  ]
+ },
+ {
+  "name": "PlatformRecordMailboxUsage",
+  "file": "platform_usage_sync.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "ge_error=NULL WHERE tenant_id=?1 AND id=?2;  ",
+   "ULL WHERE tenant_id=?1 AND id=?2;  "
+  ]
+ },
+ {
+  "name": "RecallMessageCopies",
+  "file": "recall_product.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "source WHERE source.tenant_id=?1 AND source.id=?2)",
+   "ce.tenant_id=?1 AND source.id=?2) ORDER BY a.id LI"
+  ]
+ },
+ {
+  "name": "CreateRecall",
+  "file": "recalls.sql",
+  "subquery_params": 5,
+  "snippets": [
+   "sage_id, requested_by) VALUES(?1, ?2, ?3, ?4, ?5) ",
+   "_id, requested_by) VALUES(?1, ?2, ?3, ?4, ?5) ON C",
+   " requested_by) VALUES(?1, ?2, ?3, ?4, ?5) ON CONFL"
+  ]
+ },
+ {
+  "name": "ListSettingsByScopes",
+  "file": "settings.sql",
+  "subquery_params": 2,
+  "snippets": [
+   "cope = 'brand' AND scope_id = ?1)    OR (scope = '",
+   "ope = 'tenant' AND scope_id = ?2)) ORDER BY key AS"
+  ]
+ },
+ {
+  "name": "UpsertTenantSetting",
+  "file": "settings.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "updated_at) VALUES ('tenant', ?1, ?2, ?3, (CAST(st",
+   "ted_at) VALUES ('tenant', ?1, ?2, ?3, (CAST(strfti",
+   "at) VALUES ('tenant', ?1, ?2, ?3, (CAST(strftime('"
+  ]
+ },
+ {
+  "name": "CreateSupportTicket",
+  "file": "support.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "d_by,subject,priority) VALUES(?1,?2,?3,?4) RETURNI",
+   "y,subject,priority) VALUES(?1,?2,?3,?4) RETURNING ",
+   "ubject,priority) VALUES(?1,?2,?3,?4) RETURNING *; "
+  ]
+ },
+ {
+  "name": "AddSupportMessage",
+  "file": "support.sql",
+  "subquery_params": 4,
+  "snippets": [
+   "thor_id,body,is_staff) VALUES(?1,?2,?3,?4,false) R",
+   "r_id,body,is_staff) VALUES(?1,?2,?3,?4,false) RETU",
+   "d,body,is_staff) VALUES(?1,?2,?3,?4,false) RETURNI"
+  ]
+ },
+ {
+  "name": "AddSupportAttachment",
+  "file": "support.sql",
+  "subquery_params": 5,
+  "snippets": [
+   ",content_type,content) VALUES(?1,?2,?3,?4,?5) RETU",
+   "ntent_type,content) VALUES(?1,?2,?3,?4,?5) RETURNI",
+   "nt_type,content) VALUES(?1,?2,?3,?4,?5) RETURNING "
+  ]
+ },
+ {
+  "name": "GetTenantStorageUsage",
+  "file": "tenant_usage.sql",
+  "subquery_params": 1,
+  "snippets": [
+   "ROM mailboxes WHERE tenant_id=?1; "
+  ]
+ },
+ {
+  "name": "ObserveDomainTransportSecurity",
+  "file": "transport_security.sql",
+  "subquery_params": 5,
+  "snippets": [
+   ")*1000000),observation_status=?4,observation_detai",
+   "_status=?4,observation_detail=?5 WHERE tenant_id=?",
+   "ion_detail=?5 WHERE tenant_id=?1 AND domain_id=?2 "
+  ]
+ },
+ {
+  "name": "DisableDomainTransportSecurity",
+  "file": "transport_security.sql",
+  "subquery_params": 3,
+  "snippets": [
+   "GER)*1000000) WHERE tenant_id=?1 AND domain_id=?2 ",
+   "RE tenant_id=?1 AND domain_id=?2 AND version=?3 AN",
+   " AND domain_id=?2 AND version=?3 AND mtasts_mode='"
+  ]
+ }
+]

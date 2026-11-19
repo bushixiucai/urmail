@@ -1,8 +1,10 @@
 -- scope: platform
 
-UPDATE recall_requests r SET status=?3, reason=?4, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE r.tenant_id=?1 AND r.id=?2 AND r.status='pending'
-RETURNING r.*;
+UPDATE recall_requests SET status=?3, reason=?4, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND id=?2 AND status='pending'
+RETURNING id, tenant_id, archive_entry_id, mailbox_id, message_id, requested_by, status, reason,
+ local_result, completed_at, created_at, updated_at, preview_actor_id, preview_token, preview_digest,
+ preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, result_history;
 -- name: PlatformLockRecallForExpunge :one
 -- scope: platform
 
