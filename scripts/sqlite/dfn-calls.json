@@ -6,7 +6,7 @@
   "inline-compose": 12,
   "app-assume": 51
  },
- "first_batch_inline_calls": 45,
+ "first_batch_inline_calls": 44,
  "unknown_functions": [],
  "calls": [
   {
@@ -43,7 +43,7 @@
    "line": 41,
    "snippet": "WHERE r.tenant_id=?1 AND urmail_archive_case_grant(r.tenant_id,r.user_id,'full_content') ORDER BY u.",
    "strategy": "inline",
-   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)"
+   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
   },
   {
    "fn": "urmail_archive_case_grant",
@@ -52,7 +52,7 @@
    "line": 46,
    "snippet": "SELECT urmail_archive_case_grant(?1,?2,?3) AS allowed;",
    "strategy": "inline",
-   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)"
+   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
   },
   {
    "fn": "urmail_archive_case_grant",
@@ -61,7 +61,7 @@
    "line": 54,
    "snippet": "AND urmail_archive_case_grant(@tenant_id,@user_id,'full_content')",
    "strategy": "inline",
-   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)"
+   "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
   },
   {
    "fn": "urmail_archive_case_snapshot",
@@ -873,5 +873,14 @@
    "strategy": "app-assume",
    "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
   }
- ]
+ ],
+ "first_batch_breakdown": {
+  "urmail_restore_quarantine_active": 24,
+  "urmail_mail_allowed": 10,
+  "urmail_domain_mail_ready": 4,
+  "urmail_mail_readable": 1,
+  "urmail_archive_case_grant": 3,
+  "urmail_marketing_flow_may_advance": 2
+ },
+ "first_batch_note": "口径=按函数相加（restore 24+mail_allowed 10+domain_mail_ready 4+mail_readable 1+case_grant 3+flow_may_advance 2）；urmail_archive_export_visible 2 次（approvals 双端链）不列入首批，随 case 家族第二批。"
 }

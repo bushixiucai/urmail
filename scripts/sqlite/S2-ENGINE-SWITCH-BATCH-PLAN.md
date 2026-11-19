@@ -50,3 +50,10 @@ S4 行，顺序不变（B5 完成前任何分片的 sqlite 测试都不可达）
   PlatformPublishDueCalendarReminders / PlatformApplyArchiveRetention），B1 标准全覆盖。
 - B1 期间补：nextval(seq)×2、btrim×1、split_part×1、AT TIME ZONE×3 已入 registry 与
   verify；census 增加 category 字段与口径说明。
+
+## S4 约束（QA 复核追加）
+
+- app-assume 51 条推 S4 三个条件：①dfn-calls 进入 CI 门且**单调不增**、S8 前归零；
+  ②B5 切换引擎后这 51 处是**运行期** `no such function`（编译绿掩盖）——B5 不得直接作为
+  合 main 节点，除非把这些路由显式标不可用；③S4 收口逐条有测试引用。
+- 本约束与「S4-0 前置」并列记录，B5 完成 ≠ S2/S4 可合。
