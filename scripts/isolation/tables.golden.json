@@ -1,0 +1,1923 @@
+{
+ "counts": {
+  "business_tables": 102,
+  "tenant_direct": 85,
+  "rls": 101,
+  "force": 43,
+  "restrictive_tables": 4,
+  "restrictive_policies": 10,
+  "shared": 15,
+  "shared_multiscope": 1,
+  "triggers": 60,
+  "business_functions": 119
+ },
+ "restrictive_tables": [
+  "announcements",
+  "audit_logs",
+  "channels",
+  "settings"
+ ],
+ "append_only": [
+  "audit_logs",
+  "announcements",
+  "channels",
+  "ai_usage_requests",
+  "delivery_events"
+ ],
+ "tables": {
+  "ai_provider_configs": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "ai_usage_requests": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "append-only",
+    "needs-no-insert-trigger"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "announcements": {
+   "class": "shared",
+   "basis": "平台广播",
+   "tags": [
+    "RLS",
+    "RESTRICTIVE",
+    "append-only",
+    "needs-no-insert-trigger"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "api_tokens": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "application_credentials": {
+   "class": "shared",
+   "basis": "平台出站凭据（0020）",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "archive_approval_requests": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "archive_content": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "archive_entries": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "archive_evidence_exports": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "archive_investigation_members": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "archive_investigation_sources": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "archive_investigations": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "audit_logs": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE",
+    "RESTRICTIVE",
+    "append-only",
+    "needs-no-insert-trigger"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "backup_runs": {
+   "class": "shared",
+   "basis": "备份运维状态（0120）",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "brand_host_challenges": {
+   "class": "shared",
+   "basis": "平台验证挑战",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "brand_hosts": {
+   "class": "shared",
+   "basis": "平台品牌域",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "brands": {
+   "class": "shared",
+   "basis": "平台品牌注册表",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "channel_attribution": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "INSERT",
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "channels": {
+   "class": "shared",
+   "basis": "平台频道",
+   "tags": [
+    "RLS",
+    "RESTRICTIVE",
+    "append-only",
+    "needs-no-insert-trigger"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "collector_checkpoints": {
+   "class": "shared",
+   "basis": "采集位点（0038）",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "commissions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "compliance_grants": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "delivery_events": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "append-only"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "delivery_queue_contexts": {
+   "class": "shared",
+   "basis": "投递队列上下文（0038）",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "dns_change_plans": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "dns_credentials": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "dns_record_actions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "dns_zone_versions": {
+   "class": "shared",
+   "basis": "DNS 区域版本（平台）",
+   "tags": [],
+   "app_privs": [],
+   "rls": false,
+   "force": false
+  },
+  "domain_dns_security": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "domain_tls_reports": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "domain_transport_security": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "domains": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_addressbooks": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_ai_chunks": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_ai_drafts": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_ai_phishing_findings": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_aliases": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_calendars": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_changes": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_contact_group_members": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_contact_groups": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_contacts": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_eas_collection_state": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_eas_devices": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_eas_folder_state": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_eas_item_state": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_events": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_import_items": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_import_jobs": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_jobs": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_operation_tickets": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_scheduled_sends": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_send_receipts": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_sessions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_settings": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_snippets": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_spam_feedback": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_spam_senders": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_spam_tokens": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_storage_reservations": {
+   "class": "tenant(chain)",
+   "basis": "address→mailboxes 链路（触发器维护，平台写）",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "mailbox_sync_cursors": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailbox_usage": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "mailboxes": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "managed_dns_zones": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_campaign_stats": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_campaigns": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_channels": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "marketing_contacts": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_feedback": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_flow_content_snapshots": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flow_definitions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flow_entries": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flow_node_executions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flow_positions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flow_steps": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flow_versions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_flows": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_lists": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_quota_windows": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_recipients": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "marketing_suppressions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "marketing_templates": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "notification_outbox": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "onboarding_tasks": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "operational_alerts": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "platform_admins": {
+   "class": "shared",
+   "basis": "平台管理员",
+   "tags": [
+    "RLS",
+    "grant-revocation-registered"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "platform_marketing_dispatch": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": true
+  },
+  "recall_requests": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "restore_quarantine": {
+   "class": "shared",
+   "basis": "恢复隔离标记",
+   "tags": [
+    "RLS",
+    "FORCE",
+    "grant-revocation-registered"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "retention_policies": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "retention_previews": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS",
+    "FORCE"
+   ],
+   "app_privs": [
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": true
+  },
+  "roundcube_bridge_requests": {
+   "class": "shared",
+   "basis": "roundcube 桥接请求（平台）",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "sessions": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [],
+   "rls": true,
+   "force": false
+  },
+  "settings": {
+   "class": "shared-multiscope",
+   "basis": "多作用域（scope=platform/brand/tenant，行谓词 scope/scope_id；settings.sql 有租户域 Get/Upsert/DeleteTenantSetting 与品牌域写路径，共 7 条写语句）",
+   "tags": [
+    "RLS",
+    "RESTRICTIVE"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "tenant_directory_contacts": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "tenant_directory_settings": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "DELETE",
+    "INSERT",
+    "SELECT",
+    "UPDATE"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "tenants": {
+   "class": "shared",
+   "basis": "租户注册表（平台管理）",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "ticket_attachments": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "INSERT",
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "ticket_messages": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "tickets": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "user_tenant_roles": {
+   "class": "tenant",
+   "basis": "tenant_id 列",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  },
+  "users": {
+   "class": "shared",
+   "basis": "跨租户主体（user_tenant_roles 多租户映射）",
+   "tags": [
+    "RLS"
+   ],
+   "app_privs": [
+    "SELECT"
+   ],
+   "rls": true,
+   "force": false
+  }
+ },
+ "registered_grant_revocations": {
+  "platform_admins": "urmail_app DELETE+INSERT+UPDATE 无对应写路径（queries 零命中）——遗留 GRANT，登记撤销，S1 执行 REVOKE",
+  "restore_quarantine": "urmail_app DELETE+INSERT+UPDATE 无对应写路径（queries 零命中）——遗留 GRANT，登记撤销，S1 执行 REVOKE"
+ },
+ "triggers": [
+  {
+   "table": "ai_provider_configs",
+   "name": "ai_configuration_consent_guard",
+   "function": "urmail_ai_configuration_consent_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "ai_provider_configs",
+   "name": "nonplatform_ai_quota_guard",
+   "function": "urmail_guard_nonplatform_ai_quota",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_activity",
+   "function": "urmail_archive_activity_notice",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_product_approval_insert",
+   "function": "urmail_archive_approval_bound",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_product_approval_update",
+   "function": "urmail_archive_approval_bound",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_content",
+   "name": "archive_physical_purge_guard",
+   "function": "urmail_archive_purge_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_physical_hold_guard",
+   "function": "urmail_archive_purge_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_investigation_members",
+   "name": "archive_case_members_changed",
+   "function": "urmail_archive_case_changed",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_investigation_sources",
+   "name": "archive_case_sources_changed",
+   "function": "urmail_archive_case_changed",
+   "enabled": "O"
+  },
+  {
+   "table": "archive_investigations",
+   "name": "archive_case_version",
+   "function": "urmail_archive_case_changed",
+   "enabled": "O"
+  },
+  {
+   "table": "brand_hosts",
+   "name": "brand_hosts_namespace_guard",
+   "function": "urmail_guard_host_namespace",
+   "enabled": "O"
+  },
+  {
+   "table": "compliance_grants",
+   "name": "compliance_grants_content_owner_guard",
+   "function": "urmail_require_content_owner",
+   "enabled": "O"
+  },
+  {
+   "table": "compliance_grants",
+   "name": "compliance_grants_independence_guard",
+   "function": "urmail_require_grant_independence",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "domain_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "domain_provisioning_guard",
+   "function": "urmail_domain_provisioning_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "domain_resource_guard",
+   "function": "urmail_resource_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "domain_restore_quarantine_guard",
+   "function": "urmail_restore_quarantine_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "domains_host_namespace_guard",
+   "function": "urmail_guard_host_namespace",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "domains_updated_at_touch",
+   "function": "domains_touch_updated_at",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "enqueue_verified_domain",
+   "function": "urmail_enqueue_verified_domain",
+   "enabled": "O"
+  },
+  {
+   "table": "domains",
+   "name": "revoke_domain_mailbox_sessions",
+   "function": "urmail_revoke_mailbox_sessions",
+   "enabled": "O"
+  },
+  {
+   "table": "mailbox_aliases",
+   "name": "alias_sender_logins_guard",
+   "function": "urmail_alias_sender_logins_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailbox_contact_group_members",
+   "name": "contact_group_member_scope",
+   "function": "urmail_contact_group_member_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_password_version_guard",
+   "function": "urmail_mailbox_password_version_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_resource_guard",
+   "function": "urmail_resource_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_restore_quarantine_guard",
+   "function": "urmail_restore_quarantine_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_sieve_mode_guard",
+   "function": "urmail_mailbox_sieve_mode_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_storage_identity",
+   "function": "urmail_mailbox_identity_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "reserve_mailbox_storage",
+   "function": "urmail_reserve_mailbox_storage",
+   "enabled": "O"
+  },
+  {
+   "table": "mailboxes",
+   "name": "revoke_mailbox_sessions",
+   "function": "urmail_revoke_mailbox_sessions",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_campaigns",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_campaigns",
+   "name": "marketing_campaign_cancel",
+   "function": "urmail_cancel_campaign_tasks",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "stop_revoked_flow_contacts",
+   "function": "urmail_stop_revoked_flow_contacts",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_feedback",
+   "name": "marketing_feedback_bounce_unknown",
+   "function": "urmail_bump_marketing_bounce_unknown",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_flow_content_snapshots",
+   "name": "guard_marketing_content",
+   "function": "urmail_guard_marketing_snapshot",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_flow_steps",
+   "name": "guard_published_marketing_step",
+   "function": "urmail_guard_published_marketing_step",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_flow_versions",
+   "name": "guard_marketing_version",
+   "function": "urmail_guard_marketing_snapshot",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_lists",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_recipients",
+   "name": "marketing_campaign_stats_bump",
+   "function": "urmail_bump_marketing_campaign_stats",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_suppressions",
+   "name": "marketing_suppressions_no_weaken",
+   "function": "urmail_suppression_no_weaken",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_suppressions",
+   "name": "stop_suppressed_marketing_flows",
+   "function": "urmail_stop_suppressed_marketing_flows",
+   "enabled": "O"
+  },
+  {
+   "table": "marketing_templates",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O"
+  },
+  {
+   "table": "recall_requests",
+   "name": "archive_recall_activity",
+   "function": "urmail_archive_activity_notice",
+   "enabled": "O"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_message_identity_guard",
+   "function": "urmail_recall_message_identity_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_state_guard",
+   "function": "urmail_recall_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "retention_policies",
+   "name": "retention_confirmation_guard",
+   "function": "urmail_retention_confirmation_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "retention_policies",
+   "name": "retention_management_guard",
+   "function": "urmail_retention_management_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "retention_previews",
+   "name": "retention_preview_management_guard",
+   "function": "urmail_retention_management_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "settings",
+   "name": "billing_profile_write_guard",
+   "function": "urmail_billing_profile_write_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "tenants",
+   "name": "revoke_tenant_mailbox_sessions",
+   "function": "urmail_revoke_mailbox_sessions",
+   "enabled": "O"
+  },
+  {
+   "table": "tenants",
+   "name": "tenant_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "tenants",
+   "name": "tenant_marketing_dispatch",
+   "function": "urmail_seed_marketing_dispatch",
+   "enabled": "O"
+  },
+  {
+   "table": "tenants",
+   "name": "tenant_restore_quarantine_guard",
+   "function": "urmail_restore_quarantine_guard",
+   "enabled": "O"
+  },
+  {
+   "table": "ticket_messages",
+   "name": "support_reply_notification",
+   "function": "urmail_support_reply_notification",
+   "enabled": "O"
+  },
+  {
+   "table": "ticket_messages",
+   "name": "ticket_messages_open_guard",
+   "function": "urmail_require_open_ticket",
+   "enabled": "O"
+  },
+  {
+   "table": "users",
+   "name": "panel_credential_version",
+   "function": "urmail_panel_credential_version",
+   "enabled": "O"
+  },
+  {
+   "table": "users",
+   "name": "totp_encrypted_writes",
+   "function": "urmail_require_encrypted_totp",
+   "enabled": "O"
+  }
+ ],
+ "extensions": [
+  "pg_trgm",
+  "plpgsql"
+ ],
+ "deprecated_functions": {
+  "revoke_renewal_on_subscription_cancel": "0138 建于已 DROP 的 subscriptions 上，全仓无引用，废弃并随迁移清理"
+ },
+ "functions_live": [
+  "domains_touch_updated_at",
+  "revoke_renewal_on_subscription_cancel",
+  "urmail_abandon_dns_plan",
+  "urmail_ai_cloud_authorized",
+  "urmail_ai_configuration_consent_guard",
+  "urmail_alias_sender_logins_guard",
+  "urmail_alias_would_cycle",
+  "urmail_archive_activity_notice",
+  "urmail_archive_approval_bound",
+  "urmail_archive_case_changed",
+  "urmail_archive_case_grant",
+  "urmail_archive_case_manager",
+  "urmail_archive_case_member",
+  "urmail_archive_case_snapshot",
+  "urmail_archive_export_visible",
+  "urmail_archive_notification_visible",
+  "urmail_archive_purge_guard",
+  "urmail_authorize_marketing_send",
+  "urmail_begin_marketing_flow_send",
+  "urmail_begin_restore_quarantine",
+  "urmail_billing_calendar_guard",
+  "urmail_billing_profile_write_guard",
+  "urmail_bump_marketing_bounce_unknown",
+  "urmail_bump_marketing_campaign_stats",
+  "urmail_business_timezone",
+  "urmail_cancel_campaign_tasks",
+  "urmail_cancel_dns_plan",
+  "urmail_change_panel_mfa",
+  "urmail_commit_marketing_flow_fenced",
+  "urmail_commit_marketing_flow_step",
+  "urmail_configure_tenant_ai",
+  "urmail_configure_tenant_ai_governance",
+  "urmail_confirm_dns_plan",
+  "urmail_consent_tenant_ai",
+  "urmail_contact_group_member_guard",
+  "urmail_coupon_reissue_immutable",
+  "urmail_coupon_release_authority",
+  "urmail_create_archive_case",
+  "urmail_create_dns_plan",
+  "urmail_decide_archive_approval",
+  "urmail_delete_contact_group",
+  "urmail_dns_actor",
+  "urmail_domain_mail_ready",
+  "urmail_domain_provisioning_guard",
+  "urmail_enqueue_verified_domain",
+  "urmail_evidence_manifest_visible",
+  "urmail_finish_marketing_send",
+  "urmail_freeze_subscription_plan",
+  "urmail_guard_host_namespace",
+  "urmail_guard_marketing_snapshot",
+  "urmail_guard_nonplatform_ai_quota",
+  "urmail_guard_published_marketing_step",
+  "urmail_hold_guard",
+  "urmail_invoice_document_immutable",
+  "urmail_mail_allowed",
+  "urmail_mail_readable",
+  "urmail_mailbox_identity_guard",
+  "urmail_mailbox_password_version_guard",
+  "urmail_mailbox_sieve_mode_guard",
+  "urmail_mark_marketing_flow_uncertain",
+  "urmail_mark_marketing_recipient_revoked",
+  "urmail_marketing_flow_may_advance",
+  "urmail_marketing_flow_sendable",
+  "urmail_marketing_limits",
+  "urmail_migration_entitlement_allowed",
+  "urmail_migration_plan_guard",
+  "urmail_migration_subscription_guard",
+  "urmail_order_intention_guard",
+  "urmail_panel_credential_version",
+  "urmail_payment_inbox_alert",
+  "urmail_plan_snapshot_fits",
+  "urmail_quota_day",
+  "urmail_read_evidence_body",
+  "urmail_recall_guard",
+  "urmail_recall_message_identity_guard",
+  "urmail_record_audit",
+  "urmail_record_marketing_feedback",
+  "urmail_record_marketing_flow_audit",
+  "urmail_record_rejected_webhook",
+  "urmail_release_marketing_flow_reservation",
+  "urmail_release_restore_quarantine",
+  "urmail_request_onboarding",
+  "urmail_require_content_owner",
+  "urmail_require_encrypted_totp",
+  "urmail_require_grant_independence",
+  "urmail_require_marketing_admin",
+  "urmail_require_open_ticket",
+  "urmail_require_tenant_content_admin",
+  "urmail_reserve_mailbox_storage",
+  "urmail_resolve_marketing_attempt",
+  "urmail_resource_guard",
+  "urmail_restore_quarantine_active",
+  "urmail_restore_quarantine_guard",
+  "urmail_restore_sync_epoch",
+  "urmail_retention_authorized",
+  "urmail_retention_confirmation_guard",
+  "urmail_retention_management_guard",
+  "urmail_retry_marketing_flow_instance",
+  "urmail_review_dns_plan",
+  "urmail_revoke_dns_credential",
+  "urmail_revoke_mailbox_sessions",
+  "urmail_rollback_dns_plan",
+  "urmail_rotate_panel_password",
+  "urmail_save_dns_credential",
+  "urmail_schedule_marketing",
+  "urmail_seed_marketing_dispatch",
+  "urmail_setting_limit",
+  "urmail_skip_marketing_recipient",
+  "urmail_soft_delete_archive",
+  "urmail_stop_revoked_flow_contacts",
+  "urmail_stop_suppressed_marketing_flows",
+  "urmail_store_evidence_body",
+  "urmail_store_evidence_manifest",
+  "urmail_subscription_guard",
+  "urmail_subscription_term_guard",
+  "urmail_support_reply_notification",
+  "urmail_suppression_no_weaken",
+  "urmail_take_mailbox_quota"
+ ]
+}
