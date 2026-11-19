@@ -1,20 +1,20 @@
 {
  "total_files": 90,
- "failed_files": 38,
+ "failed_files": 37,
  "census": [
   {
    "file": "archive_case_product.sql",
-   "first_error_line": 75,
-   "method": "ArchiveCasesAddSource",
-   "category": "update-alias",
-   "error": "line 75:57 no viable alternative at input ';' | line 80:42 extraneous input 's' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
+   "first_error_line": 61,
+   "method": "ArchiveCasesRemoveMember",
+   "category": "cte-scope",
+   "error": "# package store | internal/store/queries/archive_case_product.sql:61:8: column reference \"tenant_id\" is ambiguous | internal/store/queries/archive_case_product.sql:81:7: column reference \"tenant_id\" is ambiguous"
   },
   {
    "file": "archive_lifecycle.sql",
-   "first_error_line": 6,
-   "method": "GetArchiveContent",
-   "category": "update-alias",
-   "error": "line 6:99 no viable alternative at input ';' | line 14:1 extraneous input 'AND' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
+   "first_error_line": 43,
+   "method": "ArchiveRetentionCandidateDigest",
+   "category": "cte-scope",
+   "error": "# package store | internal/store/queries/archive_lifecycle.sql:43:28: column reference \"tenant_id\" is ambiguous | internal/store/queries/archive_lifecycle.sql:62:7: column reference \"tenant_id\" is ambiguous"
   },
   {
    "file": "auth.sql",
@@ -31,18 +31,11 @@
    "error": "# package store | internal/store/queries/compliance.sql:55:8: column \"result\" does not exist"
   },
   {
-   "file": "mailbox_ai_retrieval.sql",
-   "first_error_line": 61,
-   "method": "GetMailboxAIChunk",
-   "category": "update-alias",
-   "error": "line 61:52 no viable alternative at input ';' | line 70:11 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
-  },
-  {
    "file": "mailbox_import.sql",
-   "first_error_line": 96,
-   "method": "MailboxImportRecoverExpiredLeases",
+   "first_error_line": 5,
+   "method": "LockMailboxImportOwner",
    "category": "update-alias",
-   "error": "line 96:128 no viable alternative at input ';' | line 101:15 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VAL"
+   "error": "line 5:83 no viable alternative at input ';' | line 10:10 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES"
   },
   {
    "file": "mailbox_self_settings.sql",
@@ -147,7 +140,7 @@
    "first_error_line": 54,
    "method": "PlatformListManagedDNS",
    "category": "update-alias",
-   "error": "line 54:212 no viable alternative at input ';' | line 61:185 no viable alternative at input 'UPDATE onboarding_tasks SET status='running',leased_by=?1,leased_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000"
+   "error": "line 54:212 no viable alternative at input ';' | line 62:0 no viable alternative at input 'UPDATE onboarding_tasks SET status='running',leased_by=?1,leased_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*100000"
   },
   {
    "file": "platform_legacy_import.sql",
