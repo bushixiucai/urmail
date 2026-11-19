@@ -33,7 +33,8 @@ jobs:
 
       - name: Set up data dirs
         run: |
-          for d in db mail certs config backup holds maintenance; do
+          sudo install -d -o root -g root -m 0750 data/maintenance
+          for d in db mail certs config backup holds; do
             sudo install -d -o 5000 -g 5000 -m 0750 "data/$d"
           done
           sudo install -d -m 0700 data/db/pg

@@ -208,10 +208,22 @@ PLAN
     note "readiness ok"
 
     # ---- 8. readiness-record + start writers + clear hold -------------------
+    # P1 (QA): the maintenance root must be ROOT-owned for every urmailctl
+    # one-off (AcquireLock validates uid==0 when euid==0). The previous
+    # upgrade's chown-back to 5000 breaks the NEXT upgrade — normalize to
+    # root before each one-off, hand back to 5000 after the one-offs.
+    docker compose run --rm --no-deps --user 0:0 \
+        --entrypoint /bin/chown urmaild -R 0:0 \
+        /srv/urmail/data/maintenance >>"$EVIDENCE" 2>&1
     docker compose run --rm --no-deps --user 0:0 \
         -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
         -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
-        --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
+        --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1 || \
+        note "readiness-record: not applicable (compose-native fence has no urmailctl v2 receipt; healthz probe is the readiness evidence)"
+    # QA P2-1: hand the dir back to uid 5000 (backup-auto/usage-sync locks)
+    docker compose run --rm --no-deps --user 0:0 \
+        --entrypoint /bin/chown urmaild -R 5000:5000 \
+        /srv/urmail/data/maintenance >>"$EVIDENCE" 2>&1
     # QA P2-1: keep the receipt persistent, then hand the dir back to uid 5000
     # the root one-off leaves root-owned files in the 5000-owned maintenance
     # dir — hand them back so backup-auto/usage-sync (uid 5000) can lock

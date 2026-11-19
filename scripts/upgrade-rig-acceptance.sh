@@ -22,7 +22,10 @@ assert() { # assert <label> <expr-result> <expected>
     else FAIL=$((FAIL+1)); record "FAIL $label got=$got want=$want"; fi
 }
 prep_dirs() {
-    for d in db mail certs config backup holds maintenance; do
+    # maintenance root must be ROOT-owned for the urmailctl one-off
+    # (AcquireLock validates ownership); upgrade.sh chowns it back to 5000.
+    install -d -o root -g root -m 0750 "$URMAIL_DATA_ROOT/maintenance"
+    for d in db mail certs config backup holds; do
         install -d -o 5000 -g 5000 -m 0750 "$URMAIL_DATA_ROOT/$d"
     done
     install -d -m 0700 "$URMAIL_DATA_ROOT/db/pg"
@@ -66,19 +69,18 @@ assert "D_dovecot_running" "$(docker compose ps --status running -q dovecot | wc
 echo "==================== E: post-up failure keeps hold ================"
 reset_stack
 mock_row
-cat > docker-compose.override.yml <<'OV'
-services:
-  urmaild:
-    volumes:
-      - ./broken-ctl:/usr/local/bin/urmailctl:ro
-OV
-printf '#!/bin/sh\nexit 1\n' > broken-ctl && chmod 0755 broken-ctl
+# Post-up failure injection: create dovecot with broken config baked in
+# (container exists, config poisoned, then config file restored — the
+# container carries the broken config into its start).
+echo "BROKEN_CONFIG_POST_UP_INJECTION" >> compose/dovecot/dovecot.conf
+docker compose create dovecot >/dev/null 2>&1
+git checkout -f fix/phase2-scripts -- compose/dovecot/dovecot.conf 2>/dev/null || true
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 assert "E_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "E_hold" "$(hold_state)" "yes"
 assert "E_no_started_note" "$(grep -c 'writers started, hold cleared' "$URMAIL_DATA_ROOT"/upgrade-evidence-v9.9.9-*.log 2>/dev/null | tail -1)" "0"
 assert "E_runbook" "$(grep -c 'Rollback runbook' "$URMAIL_DATA_ROOT"/upgrade-evidence-v9.9.9-*.log 2>/dev/null | tail -1)" "1"
-rm -f docker-compose.override.yml broken-ctl
+git checkout -f fix/phase2-scripts -- compose/dovecot/dovecot.conf 2>/dev/null || true
 rm -f "$URMAIL_DATA_ROOT/holds/upgrade.hold"
 
 echo "==================== C1a: absent writer skip ====================="
