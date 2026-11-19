@@ -6,8 +6,9 @@
 
 ## 前置条件（§1 原文口径）
 
-Linux x86_64/arm64、Docker 24+ 与 docker compose v2、端口 25/80/443/465/587/993 空闲、
-DNS 已指向本机、rDNS 已设（骨架期仅 healthz 证明用到 18080/80，收发端口归配置生成器阶段）。
+Linux x86_64/arm64、Docker 24+ 与 **docker compose v2.20+**（depends_on `required:false` 需要）、
+端口 25/80/443/465/587/993 空闲、DNS 已指向本机、rDNS 已设（healthz 验证采用
+`compose exec` 容器内口径；收发端口归配置生成器阶段）。
 
 ## 快速开始
 

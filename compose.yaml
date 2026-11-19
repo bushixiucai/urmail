@@ -149,7 +149,8 @@ services:
       - ./compose/dovecot:/srv/urmail/config/dovecot:ro
       - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
     healthcheck:
-      test: ["CMD-SHELL", "doveadm -c /srv/urmail/config/dovecot/dovecot.conf ping || dovecot -c /srv/urmail/config/dovecot/dovecot.conf -a"]
+      # doveadm ping only: no `-a` fallback (a hung daemon must fail the check)
+      test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
