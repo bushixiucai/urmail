@@ -3,7 +3,7 @@
 
 INSERT INTO mailbox_send_receipts(tenant_id,mailbox_id,request_key,request_hash,message_id,raw_secret,smtp_secret,draft_folder,draft_uid,draft_uidvalidity,smtp_password_version,lease_until)
 SELECT sqlc.arg(tenant_id),sqlc.arg(mailbox_id),sqlc.arg(request_key),sqlc.arg(request_hash),sqlc.arg(message_id),sqlc.arg(raw_secret),sqlc.arg(smtp_secret),sqlc.arg(draft_folder),sqlc.arg(draft_uid),sqlc.arg(draft_uidvalidity),(SELECT md5(m.password_hash) FROM mailboxes m WHERE m.tenant_id=sqlc.arg(tenant_id) AND m.id=sqlc.arg(mailbox_id)),(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active()
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0)
 ON CONFLICT(tenant_id,mailbox_id,request_key) DO NOTHING RETURNING *;
 
 -- name: PlatformGetSendReceipt :one
@@ -25,7 +25,7 @@ SELECT * FROM mailbox_send_receipts WHERE tenant_id=?1 AND mailbox_id=?2 ORDER B
 -- scope: platform
 
 UPDATE mailbox_send_receipts r SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND r.tenant_id=sqlc.arg(tenant_id) AND r.mailbox_id=sqlc.arg(mailbox_id) AND r.id=sqlc.arg(id) AND r.status='prepared' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.tenant_id=sqlc.arg(tenant_id) AND r.mailbox_id=sqlc.arg(mailbox_id) AND r.id=sqlc.arg(id) AND r.status='prepared' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active') RETURNING r.*;
 
 -- name: PlatformFinishSendReceipt :one
@@ -38,7 +38,7 @@ UPDATE mailbox_send_receipts SET status=sqlc.arg(final_status),last_error=sqlc.a
  smtp_secret=CASE WHEN sqlc.arg(final_status)='accepted' THEN smtp_secret ELSE '' END,
  raw_secret=CASE WHEN sqlc.arg(final_status)='rejected' THEN '' ELSE raw_secret END,
  lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token) AND status='submitting' RETURNING *;
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token) AND status='submitting' RETURNING *;
 
 -- name: PlatformRecoverSendReceipts :execrows
 -- scope: platform
@@ -46,37 +46,39 @@ WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) A
 UPDATE mailbox_send_receipts SET status=CASE WHEN status='prepared' THEN 'rejected' ELSE 'uncertain' END,
  last_error=CASE WHEN status='prepared' THEN 'SEND_NOT_SUBMITTED' ELSE 'MAILBOX_SEND_UNCERTAIN' END,
  raw_secret=CASE WHEN status='prepared' THEN '' ELSE raw_secret END,smtp_secret='',claim_token=claim_token+1,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND status IN('prepared','submitting') AND lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000);
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status IN('prepared','submitting') AND lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
 -- name: PlatformHoldExpiredSendCopies :execrows
 -- scope: platform
 
 UPDATE mailbox_send_receipts SET sent_copy_state='held',smtp_secret='',last_error='SENT_COPY_PENDING',claim_token=claim_token+1,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND status='accepted' AND sent_copy_state IN('pending','unknown') AND copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000));
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown') AND copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000));
 
 -- name: PlatformClaimSendCopy :one
 -- scope: platform
 
-WITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT urmail_restore_quarantine_active() AND status='accepted' AND sent_copy_state IN('pending','unknown') AND raw_secret<>'' AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY next_attempt_at,id LIMIT 1)
-UPDATE mailbox_send_receipts r SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1 FROM candidate c WHERE r.id=c.id RETURNING r.*;
+WITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown') AND raw_secret<>'' AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY next_attempt_at,id LIMIT 1)
+UPDATE mailbox_send_receipts r SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
+WHERE r.id=(SELECT id FROM candidate) AND (r.lease_until IS NULL OR r.lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
+RETURNING r.*;
 
 -- name: PlatformClaimOwnedSendCopy :one
 -- scope: platform
 
 UPDATE mailbox_send_receipts SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='accepted' AND sent_copy_state IN('pending','unknown','held') AND raw_secret<>'' AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) RETURNING *;
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='accepted' AND sent_copy_state IN('pending','unknown','held') AND raw_secret<>'' AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) RETURNING *;
 
 -- name: PlatformMarkSendCopyUnknown :one
 -- scope: platform
 
 UPDATE mailbox_send_receipts SET sent_copy_state='unknown',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='accepted' RETURNING *;
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='accepted' RETURNING *;
 
 -- name: PlatformCompleteSendCopy :one
 -- scope: platform
 
 UPDATE mailbox_send_receipts SET sent_copy_state='complete',raw_secret='',smtp_secret='',last_error='',lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='accepted' RETURNING *;
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='accepted' RETURNING *;
 
 -- name: PlatformDeferSendCopy :execrows
 -- scope: platform
@@ -84,7 +86,7 @@ WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 
 UPDATE mailbox_send_receipts SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>min(3600,30*power(2,min(copy_attempts,7)))),
  sent_copy_state=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 OR smtp_secret='' THEN 'held' ELSE sent_copy_state END,
  smtp_secret=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 THEN '' ELSE smtp_secret END,last_error='SENT_COPY_PENDING',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND status='accepted';
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND status='accepted';
 
 -- name: PlatformDraftSendLocked :one
 -- scope: platform
@@ -95,7 +97,7 @@ SELECT EXISTS(SELECT 1 FROM mailbox_send_receipts r WHERE r.tenant_id=?1 AND r.m
 -- scope: platform
 
 UPDATE mailbox_send_receipts SET draft_released=true,raw_secret='',smtp_secret='',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='uncertain' AND NOT draft_released AND draft_folder=?4 AND draft_uid=?5 AND draft_uidvalidity=?6;
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='uncertain' AND NOT draft_released AND draft_folder=?4 AND draft_uid=?5 AND draft_uidvalidity=?6;
 
 -- name: PlatformLockSendDraft :exec
 -- scope: platform
@@ -106,7 +108,7 @@ SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(tenant_id)||':'||sqlc.arg
 -- scope: platform
 
 UPDATE mailbox_send_receipts r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND r.status='accepted' AND r.sent_copy_state IN('pending','unknown')
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.status='accepted' AND r.sent_copy_state IN('pending','unknown')
 AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version);
 
 -- name: PlatformDraftDeleteLocked :one
@@ -126,4 +128,4 @@ SELECT r.id FROM mailbox_send_receipts r
 JOIN mailboxes m ON m.tenant_id=r.tenant_id AND m.id=r.mailbox_id
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE r.tenant_id=?1 AND r.mailbox_id=?2 AND r.id=?3 AND r.claim_token=?4 AND r.status='accepted' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
-AND NOT urmail_restore_quarantine_active() AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version;
+AND NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version;

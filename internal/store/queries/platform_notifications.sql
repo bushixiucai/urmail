@@ -22,10 +22,12 @@ SELECT value FROM settings WHERE scope='platform' AND scope_id=0 AND key='notifi
 -- it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP
 -- submission later moves it to the unreplayable 'uncertain' state.
 UPDATE notification_outbox n SET lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1
-FROM (SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE n.id=(SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
  AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND attempts<8
- ORDER BY id LIMIT 1) candidate
-WHERE n.id=candidate.id RETURNING n.*;
+ ORDER BY id LIMIT 1)
+ AND n.channel='email' AND n.state='pending'
+ AND (n.lease_until IS NULL OR n.lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
+ RETURNING n.*;
 
 -- name: PlatformFinishEmailNotification :execrows
 -- scope: platform
@@ -90,7 +92,7 @@ WHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing'
 -- scope: platform
 
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)
-SELECT a.tenant_id,a.kind,'notification.'||a.kind,'{}',a.alert_key||':'||to_char((CAST(strftime('%s','now') AS INTEGER)*1000000) AT TIME ZONE 'UTC','YYYY-MM-DD-HH24'),'in_app','delivered'
+SELECT a.tenant_id,a.kind,'notification.'||a.kind,'{}',a.alert_key||':'||to_char((CAST(strftime('%s','now') AS INTEGER)*1000000),'YYYY-MM-DD-HH24'),'in_app','delivered'
 FROM operational_alerts a WHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing'
 ON CONFLICT(dedupe_key) DO NOTHING;
 

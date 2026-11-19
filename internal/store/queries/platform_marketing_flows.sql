@@ -81,7 +81,7 @@ WITH due_tenants AS MATERIALIZED (
  FROM marketing_flow_positions p JOIN heads h ON h.id=p.id AND h.tenant_id=p.tenant_id
  ORDER BY h.tenant_order,h.last_turn,h.tenant_id,p.id LIMIT sqlc.arg(batch)
 ), turn AS (
- UPDATE platform_marketing_dispatch d SET last_turn=nextval('platform_marketing_dispatch_turn_seq')
+ UPDATE platform_marketing_dispatch d SET last_turn=(SELECT COALESCE(MAX(last_turn),0)+1 FROM platform_marketing_dispatch)
  WHERE d.tenant_id IN(SELECT tenant_id FROM candidate) RETURNING d.tenant_id
 )
 UPDATE marketing_flow_positions p
@@ -105,12 +105,13 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fenc
 -- name: PlatformArmMarketingFlowWait :execrows
 -- scope: platform
 
-UPDATE marketing_flow_positions p SET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>s.wait_seconds)
-FROM marketing_flow_steps s
-WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
- AND s.kind='wait' AND s.wait_seconds>0
- AND p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3
- AND p.wait_until IS NULL AND p.lease_owner=?4 AND p.lease_fence=?5 AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000);
+UPDATE marketing_flow_positions p
+SET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(
+  SELECT s.wait_seconds*1000000 FROM marketing_flow_steps s
+  WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key AND s.kind='wait' AND s.wait_seconds>0)
+WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3
+ AND p.wait_until IS NULL AND p.lease_owner=?4 AND p.lease_fence=?5 AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ AND EXISTS(SELECT 1 FROM marketing_flow_steps s2 WHERE s2.tenant_id=p.tenant_id AND s2.flow_id=p.flow_id AND s2.step_key=p.step_key AND s2.kind='wait' AND s2.wait_seconds>0);
 
 -- Advance a wait step whose wait_until elapsed, without sending anything.
 -- The database function re-checks uncertain, unsubscribe, the wait and the
@@ -130,7 +131,7 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3;
 -- name: PlatformMarketingFlowMayAdvance :one
 -- scope: platform
 
-SELECT urmail_marketing_flow_may_advance(?1,?2,?3) AS allowed;
+SELECT (EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM marketing_flow_positions fp WHERE fp.tenant_id=?1 AND fp.flow_id=?2 AND fp.email=?3 AND NOT fp.unsubscribed) AND NOT EXISTS(SELECT 1 FROM marketing_suppressions ms WHERE ms.tenant_id=?1 AND ms.email=?3)) AS allowed;
 
 -- name: PlatformSaveMarketingFlowPosition :exec
 -- scope: platform
@@ -158,7 +159,7 @@ SELECT subject, text_body FROM marketing_templates WHERE tenant_id=?1 AND name=?
 -- name: PlatformAuthorizeMarketingFlowSend :one
 -- scope: platform
 
-SELECT (urmail_mail_allowed(sqlc.arg(tenant_id))
+SELECT (EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=sqlc.arg(tenant_id) AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready')))
  AND EXISTS(SELECT 1 FROM marketing_flows f WHERE f.tenant_id=sqlc.arg(tenant_id) AND f.id=sqlc.arg(flow_id) AND f.status='active')
  AND EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=sqlc.arg(tenant_id) AND p.flow_id=sqlc.arg(flow_id) AND p.email=sqlc.arg(email) AND NOT p.unsubscribed)
  AND NOT EXISTS(SELECT 1 FROM marketing_suppressions s WHERE s.tenant_id=sqlc.arg(tenant_id) AND s.email=sqlc.arg(email))

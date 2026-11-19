@@ -36,7 +36,7 @@ WITH tenant_candidate AS MATERIALIZED (
   AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
  ORDER BY d.last_turn,d.tenant_id LIMIT 1
 ), turn AS (
- UPDATE platform_marketing_dispatch d SET last_turn=nextval('platform_marketing_dispatch_turn_seq')
+ UPDATE platform_marketing_dispatch d SET last_turn=(SELECT COALESCE(MAX(last_turn),0)+1 FROM platform_marketing_dispatch)
  FROM tenant_candidate t WHERE d.tenant_id=t.tenant_id RETURNING d.tenant_id
 ), candidate AS (
  SELECT r.id FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
@@ -108,7 +108,7 @@ SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fe
 SELECT EXISTS(SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
  JOIN marketing_channels ch ON ch.tenant_id=c.tenant_id AND ch.id=c.channel_id
  WHERE r.tenant_id = @tenant_id AND r.id = @recipient_id AND r.lease_owner = @lease_owner AND r.fence = @fence
- AND r.status='submitting' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND c.status IN('scheduled','running') AND ch.enabled AND urmail_mail_allowed(r.tenant_id)
+ AND r.status='submitting' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND c.status IN('scheduled','running') AND ch.enabled AND EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=r.tenant_id AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready')))
  AND NOT EXISTS(SELECT 1 FROM marketing_suppressions s WHERE s.tenant_id=r.tenant_id AND s.email=r.email)
  AND EXISTS(SELECT 1 FROM marketing_contacts mc WHERE mc.tenant_id=r.tenant_id AND mc.list_id=c.list_id AND mc.email=r.email AND mc.opted_in)
  AND EXISTS(SELECT 1 FROM mailboxes m JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.address=ch.sender_address AND m.status='active' AND m.send_enabled AND d.status='active')) AS allowed;

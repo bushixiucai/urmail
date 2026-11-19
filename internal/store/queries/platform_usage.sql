@@ -21,7 +21,7 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
        ), -1) AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
-WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id);
+WHERE m.address = ?1 AND m.status = 'active' AND EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=m.tenant_id AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=m.tenant_id AND rd.id=m.domain_id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready');
 
 -- name: GetMailboxDailySentForUpdate :one
 -- scope: tenant
@@ -40,7 +40,7 @@ SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
        ), -1) AS daily_send_limit
 FROM mailboxes m
 LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
-WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id);
+WHERE m.address = ?1 AND m.status = 'active' AND EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=m.tenant_id AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=m.tenant_id AND rd.id=m.domain_id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready');
 
 -- name: IncrementMailboxDailySent :one
 -- scope: tenant
@@ -79,7 +79,7 @@ LIMIT 1;
 -- name: PlatformInboundAllowed :one
 -- scope: platform
 
-SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part(?1,'@',2)),true) AS allowed;
+SELECT COALESCE((SELECT EXISTS(SELECT 1 FROM tenants rt WHERE rt.id=d.tenant_id AND rt.status='active') AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=d.tenant_id AND rd.id=d.id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready') FROM domains d WHERE d.fqdn=substr(?1, instr(?1,'@')+1)),true) AS allowed;
 
 -- name: PlatformCommissionRate :one
 -- scope: platform

@@ -12,7 +12,7 @@ WHERE grant_row.tenant_id = @tenant_id AND grant_row.user_id = @user_id
   AND grant_row.scope = @required_scope AND grant_row.revoked = false
   AND grant_row.owner_confirmed_at IS NOT NULL
   AND (grant_row.scope = 'metadata_only' OR
-       (grant_row.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) AND grant_row.granted_by IS NOT NULL AND length(btrim(grant_row.reason)) > 0
+       (grant_row.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) AND grant_row.granted_by IS NOT NULL AND length(trim(grant_row.reason)) > 0
         AND EXISTS (SELECT 1 FROM user_tenant_roles r
                     WHERE r.tenant_id = grant_row.tenant_id
                       AND r.user_id = grant_row.user_id AND r.role IN ('owner','admin'))))

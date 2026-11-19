@@ -194,8 +194,7 @@ WITH candidate AS (
 UPDATE mailbox_jobs j
 SET status='leased', attempts=j.attempts+1, claim_token=j.claim_token+1,
  lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000), updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-FROM candidate
-WHERE j.id=candidate.id
+WHERE j.id=(SELECT id FROM candidate) AND j.status='pending'
 RETURNING j.*;
 
 -- name: PlatformInsertContactGroupMember :one

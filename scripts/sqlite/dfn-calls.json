@@ -1,5 +1,5 @@
 {
- "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。",
+ "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
  "total_calls": 96,
  "by_strategy": {
   "inline": 33,
@@ -882,5 +882,6 @@
   "urmail_archive_case_grant": 3,
   "urmail_marketing_flow_may_advance": 2
  },
- "first_batch_note": "口径=按函数相加（restore 24+mail_allowed 10+domain_mail_ready 4+mail_readable 1+case_grant 3+flow_may_advance 2）；urmail_archive_export_visible 2 次（approvals 双端链）不列入首批，随 case 家族第二批。"
+ "first_batch_note": "口径=按函数相加（restore 24+mail_allowed 10+domain_mail_ready 4+mail_readable 1+case_grant 3+flow_may_advance 2）；urmail_archive_export_visible 2 次（approvals 双端链）不列入首批，随 case 家族第二批。",
+ "b1a_inlined": 44
 }

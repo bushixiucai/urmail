@@ -27,7 +27,9 @@ WITH candidate AS (
  SELECT id FROM mailbox_events WHERE deleted_at IS NULL AND status<>'cancelled' AND reminders<>'[]'
  ORDER BY reminder_scanned_at,id LIMIT 50
 )
-UPDATE mailbox_events e SET reminder_scanned_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM candidate c WHERE e.id=c.id RETURNING e.*;
+UPDATE mailbox_events e SET reminder_scanned_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE e.id=(SELECT id FROM candidate) AND e.reminder_scanned_at IS NULL
+RETURNING e.*;
 
 -- name: PlatformScheduleCalendarReminder :exec
 -- scope: platform
@@ -53,7 +55,8 @@ WITH candidate AS (
  AND e.deleted_at IS NULL AND e.status<>'cancelled'
  ORDER BY j.lease_until,j.id LIMIT 100
 )
-UPDATE mailbox_jobs j SET status='done',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM candidate c WHERE j.id=c.id;
+UPDATE mailbox_jobs j SET status='done',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE j.id=(SELECT id FROM candidate) AND j.status='pending';
 
 -- name: PlatformListCalendarReminders :many
 -- scope: platform

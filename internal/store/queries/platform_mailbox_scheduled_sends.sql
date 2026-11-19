@@ -56,7 +56,7 @@ WITH candidate AS (
 UPDATE mailbox_scheduled_sends s
 SET status='preparing',attempts=s.attempts+1,claim_token=s.claim_token+1,
  lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-FROM candidate c WHERE s.id=c.id
+WHERE s.id=(SELECT id FROM candidate) AND s.status IN('pending','held')
 RETURNING s.*;
 
 -- name: PlatformGetMailboxScheduledSendAddress :one
@@ -113,4 +113,4 @@ WHERE status IN('preparing','submitting') AND lease_until<(CAST(strftime('%s','n
 -- scope: platform
 
 UPDATE mailbox_scheduled_sends SET status='cancelled',smtp_secret='',sent_raw=NULL,sent_raw_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SCHEDULE_UNCERTAIN_ACKNOWLEDGED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status IN('uncertain','held') RETURNING *;
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status IN('uncertain','held') RETURNING *;

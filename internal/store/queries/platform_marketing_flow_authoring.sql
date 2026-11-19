@@ -18,13 +18,13 @@ WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND p.lease_owner=?4 AND p.
 -- scope: platform
 
 SELECT CASE WHEN EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.runtime_flow_id=?2)
-THEN urmail_mail_allowed(?1)
+THEN EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready')))
 AND EXISTS(SELECT 1 FROM marketing_flow_positions p JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
 JOIN marketing_flow_entries e ON e.tenant_id=p.tenant_id AND e.id=p.entry_id
 JOIN marketing_contacts c ON c.tenant_id=p.tenant_id AND c.list_id=e.list_id AND c.email=p.email
 WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND NOT p.unsubscribed AND p.stopped_at IS NULL AND f.status='active' AND c.opted_in)
 AND NOT EXISTS(SELECT 1 FROM marketing_suppressions sup WHERE sup.tenant_id=?1 AND sup.email=?3)
-ELSE urmail_marketing_flow_may_advance(?1,?2,?3) END AS allowed;
+ELSE (EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM marketing_flow_positions fp WHERE fp.tenant_id=?1 AND fp.flow_id=?2 AND fp.email=?3 AND NOT fp.unsubscribed) AND NOT EXISTS(SELECT 1 FROM marketing_suppressions ms WHERE ms.tenant_id=?1 AND ms.email=?3)) END AS allowed;
 
 -- name: PlatformCommitMarketingFlowFenced :one
 -- scope: platform

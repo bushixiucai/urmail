@@ -11,7 +11,9 @@ SELECT id,tenant_id,fqdn,mode,status,verified_at,provisioning_state,dns_explicit
 -- scope: platform
 
 UPDATE dns_change_plans p SET status=CASE WHEN status='rollback_pending' THEN status ELSE 'applying' END,lease_owner=?1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE p.id=(SELECT id FROM dns_change_plans WHERE status IN('confirmed','rollback_pending') AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY created_at,id LIMIT 1) RETURNING p.*;
+WHERE p.id=(SELECT id FROM dns_change_plans WHERE status IN('confirmed','rollback_pending') AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY created_at,id LIMIT 1)
+  AND p.status IN('confirmed','rollback_pending')
+  AND (p.lease_until IS NULL OR p.lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) RETURNING p.*;
 -- name: PlatformExpireDNSClaims :execrows
 -- scope: platform
 
@@ -59,7 +61,9 @@ UPDATE onboarding_tasks t SET status='running',leased_by=?1,leased_until=(CAST(s
 WHERE t.id=(SELECT task.id FROM onboarding_tasks task JOIN domains d ON d.id=task.domain_id AND d.tenant_id=task.tenant_id
 WHERE task.status IN('pending','running') AND task.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (task.leased_until IS NULL OR task.leased_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND task.attempts<task.max_attempts AND d.status='active' AND d.verified_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND NOT EXISTS(SELECT 1 FROM onboarding_tasks held WHERE held.tenant_id=task.tenant_id AND held.domain_id=task.domain_id AND held.status='blocked' AND (coalesce(held.last_error_code,'')||coalesce(held.last_error,'')) LIKE '%RESTORE_RECONCILIATION_REQUIRED%' AND NOT EXISTS(SELECT 1 FROM dns_change_plans reviewed WHERE reviewed.tenant_id=held.tenant_id AND reviewed.domain_id=held.domain_id AND reviewed.status='completed' AND reviewed.updated_at>held.updated_at))
-ORDER BY task.id LIMIT 1) RETURNING t.*;
+ORDER BY task.id LIMIT 1)
+  AND t.status IN('pending','running')
+  AND (t.leased_until IS NULL OR t.leased_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) RETURNING t.*;
 -- name: PlatformFenceOnboarding :one
 -- scope: platform
 
@@ -124,4 +128,4 @@ UPDATE operational_alerts a SET state='resolved',resolved_at=(CAST(strftime('%s'
 -- scope: platform
 
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)
-SELECT a.tenant_id,a.kind,'notification.'||a.kind,json_object('workflow',CASE WHEN a.kind='dns_requires_review' THEN 'dns' ELSE 'onboarding' END),a.alert_key||':'||to_char((CAST(strftime('%s','now') AS INTEGER)*1000000) AT TIME ZONE 'UTC','YYYY-MM-DD-HH24'),'in_app','delivered' FROM operational_alerts a WHERE a.kind IN('dns_requires_review','onboarding_requires_review') AND a.state='firing' ON CONFLICT(dedupe_key) DO NOTHING;
+SELECT a.tenant_id,a.kind,'notification.'||a.kind,json_object('workflow',CASE WHEN a.kind='dns_requires_review' THEN 'dns' ELSE 'onboarding' END),a.alert_key||':'||to_char((CAST(strftime('%s','now') AS INTEGER)*1000000),'YYYY-MM-DD-HH24'),'in_app','delivered' FROM operational_alerts a WHERE a.kind IN('dns_requires_review','onboarding_requires_review') AND a.state='firing' ON CONFLICT(dedupe_key) DO NOTHING;

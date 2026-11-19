@@ -57,9 +57,8 @@ WITH candidate AS (
     LIMIT sqlc.arg(batch_size)
 )
 UPDATE onboarding_tasks AS task
-SET status='running', attempts=task.attempts+1, leased_by=sqlc.arg(worker_id), leased_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs => sqlc.arg(lease_seconds)), updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-FROM candidate
-WHERE task.id=candidate.id
+SET status='running', attempts=task.attempts+1, leased_by=sqlc.arg(worker_id), leased_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+sqlc.arg(lease_seconds)*1000000, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE task.id=(SELECT id FROM candidate) AND task.status IN('pending','running')
 RETURNING task.id, task.tenant_id, task.domain_id, task.order_id, task.status, task.step, task.attempts, task.max_attempts, task.last_error, task.leased_until, task.leased_by, task.created_at, task.updated_at, task.completed_at;
 
 -- name: PlatformBindOnboardingDomain :execrows

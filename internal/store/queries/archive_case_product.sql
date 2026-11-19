@@ -38,12 +38,12 @@ WHERE m.tenant_id=?1 AND m.investigation_id=?2 ORDER BY m.user_id;
 -- scope: tenant
 
 SELECT r.user_id,u.email FROM user_tenant_roles r JOIN users u ON u.id=r.user_id
-WHERE r.tenant_id=?1 AND urmail_archive_case_grant(r.tenant_id,r.user_id,'full_content') ORDER BY u.email;
+WHERE r.tenant_id=?1 AND EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=r.tenant_id AND cg.user_id='full_content' AND cg.scope=r.user_id AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>'full_content' AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) ORDER BY u.email;
 
 -- name: ArchiveCasesGrantEligible :one
 -- scope: platform
 
-SELECT urmail_archive_case_grant(?1,?2,?3) AS allowed;
+SELECT EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id=?3 AND cg.scope=?2 AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>?3 AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) AS allowed;
 
 -- name: ArchiveCasesAddMember :execrows
 -- scope: tenant
@@ -51,7 +51,7 @@ SELECT urmail_archive_case_grant(?1,?2,?3) AS allowed;
 INSERT INTO archive_investigation_members(tenant_id,investigation_id,user_id)
 SELECT @tenant_id,i.id,@user_id FROM archive_investigations i
 WHERE i.tenant_id= @tenant_id AND i.id= @case_id AND i.created_by= @actor_id AND i.status='open' AND i.version= @version
-AND urmail_archive_case_grant(@tenant_id,@user_id,'full_content')
+AND EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=@tenant_id AND cg.user_id='full_content' AND cg.scope=@user_id AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>'full_content' AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin'))
 ON CONFLICT(investigation_id,user_id) DO UPDATE SET removed_at=NULL;
 
 -- name: ArchiveCasesRemoveMember :execrows
