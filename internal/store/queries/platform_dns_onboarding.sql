@@ -113,17 +113,37 @@ SELECT * FROM managed_dns_zones WHERE tenant_id=?1 AND domain_id=?2;
 -- scope: platform
 
 UPDATE onboarding_tasks SET status='failed',fence=fence+1,leased_by=NULL,leased_until=NULL,last_error_code='ONBOARDING_RETRIES_EXHAUSTED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE status IN('pending','running') AND attempts>=max_attempts AND (leased_until IS NULL OR leased_until<(CAST(strftime('%s','now') AS INTEGER)*1000000));
--- name: PlatformRefreshDNSOnboardingAlerts :exec
 -- scope: platform
 
-WITH sources AS(
- SELECT 'dns:'||id AS key,tenant_id,'dns_requires_review' AS kind FROM dns_change_plans WHERE status='uncertain' OR (status IN('confirmed','applying','rollback_pending') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)
- UNION ALL SELECT 'onboarding:'||id,tenant_id,'onboarding_requires_review' FROM onboarding_tasks WHERE status IN('failed','blocked') OR (status IN('pending','running') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)
-), refreshed AS(
- INSERT INTO operational_alerts(alert_key,tenant_id,kind,state) SELECT key,tenant_id,kind,'firing' FROM sources
- ON CONFLICT(alert_key) DO UPDATE SET state='firing',last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),resolved_at=NULL RETURNING alert_key
+-- name: PlatformUpsertDNSOnboardingAlerts :execrows
+-- scope: platform
+
+WITH sources AS (
+ SELECT 'dns:'||id AS key, tenant_id, 'dns_requires_review' AS kind FROM dns_change_plans
+  WHERE status='uncertain' OR (status IN('confirmed','applying','rollback_pending') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)
+ UNION ALL
+ SELECT 'onboarding:'||id, tenant_id, 'onboarding_requires_review' FROM onboarding_tasks
+  WHERE status IN('failed','blocked') OR (status IN('pending','running') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)
 )
-UPDATE operational_alerts a SET state='resolved',resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE a.kind IN('dns_requires_review','onboarding_requires_review') AND a.state='firing' AND NOT EXISTS(SELECT 1 FROM sources s WHERE s.key=a.alert_key);
+INSERT INTO operational_alerts(alert_key, tenant_id, kind, state)
+SELECT key, tenant_id, kind, 'firing' FROM sources
+ON CONFLICT(alert_key) DO UPDATE SET state='firing',
+ last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), resolved_at=NULL;
+
+-- name: PlatformResolveDNSOnboardingAlerts :execrows
+-- scope: platform
+
+WITH sources AS (
+ SELECT 'dns:'||id AS key FROM dns_change_plans
+  WHERE status='uncertain' OR (status IN('confirmed','applying','rollback_pending') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)
+ UNION ALL
+ SELECT 'onboarding:'||id FROM onboarding_tasks
+  WHERE status IN('failed','blocked') OR (status IN('pending','running') AND created_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-900000000)
+)
+UPDATE operational_alerts a SET state='resolved',
+ resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE a.kind IN('dns_requires_review','onboarding_requires_review') AND a.state='firing'
+ AND NOT EXISTS(SELECT 1 FROM sources s WHERE s.key=a.alert_key);
 -- name: PlatformEnqueueDNSOnboardingAlerts :exec
 -- scope: platform
 

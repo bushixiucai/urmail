@@ -104,39 +104,22 @@ RETURNING *;
 DELETE FROM tenant_directory_contacts
 WHERE tenant_id = ?1 AND id = ?2;
 
--- name: PlatformInsertContactEnhanced :one
 -- scope: platform
 
-WITH next AS (
-  INSERT INTO mailbox_contacts(
-    tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name,
-    emails, phones, note, organization, job_title, addresses, birthday, photo, vcard_extra
-  ) VALUES(
-    sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_name),
-    sqlc.arg(given_name), sqlc.arg(family_name), sqlc.arg(emails), sqlc.arg(phones), sqlc.arg(note),
-    sqlc.arg(organization), sqlc.arg(job_title), sqlc.arg(addresses), sqlc.arg(birthday), sqlc.arg(photo), sqlc.arg(vcard_extra)
-  ) RETURNING *
-), logged AS (
-  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
-  SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, false FROM next
-)
-SELECT * FROM next;
-
--- name: PlatformUpdateContactEnhanced :one
+INSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name,
+ emails, phones, note, organization, job_title, addresses, birthday, photo, vcard_extra)
+VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_name),
+ sqlc.arg(given_name), sqlc.arg(family_name), sqlc.arg(emails), sqlc.arg(phones), sqlc.arg(note),
+ sqlc.arg(organization), sqlc.arg(job_title), sqlc.arg(addresses), sqlc.arg(birthday), sqlc.arg(photo), sqlc.arg(vcard_extra))
+RETURNING *;
 -- scope: platform
 
-WITH next AS (
-  UPDATE mailbox_contacts AS c
-  SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
-      emails=sqlc.arg(emails), phones=sqlc.arg(phones), note=sqlc.arg(note),
-      organization=sqlc.arg(organization), job_title=sqlc.arg(job_title), addresses=sqlc.arg(addresses),
-      birthday=sqlc.arg(birthday), photo=sqlc.arg(photo), vcard_extra=sqlc.arg(vcard_extra),
-      version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-  WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id) AND c.id=sqlc.arg(id)
-    AND c.version=sqlc.arg(expected_version) AND c.deleted_at IS NULL
-  RETURNING *
-), logged AS (
-  INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
-  SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, false FROM next
-)
-SELECT * FROM next;
+UPDATE mailbox_contacts c
+SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
+ emails=sqlc.arg(emails), phones=sqlc.arg(phones), note=sqlc.arg(note),
+ organization=sqlc.arg(organization), job_title=sqlc.arg(job_title), addresses=sqlc.arg(addresses),
+ birthday=sqlc.arg(birthday), photo=sqlc.arg(photo), vcard_extra=sqlc.arg(vcard_extra),
+ version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id) AND c.id=sqlc.arg(id)
+ AND c.version=sqlc.arg(expected_version) AND c.deleted_at IS NULL
+RETURNING *;

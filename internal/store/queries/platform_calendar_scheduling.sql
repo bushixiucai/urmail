@@ -79,14 +79,8 @@ FROM mailboxes m WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND m.tena
 -- name: PlatformRecordSchedulingReply :one
 -- scope: platform
 
-WITH next AS (
- UPDATE mailbox_events e SET attendees=?4,version=e.version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?5 AND e.deleted_at IS NULL RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id,mailbox_id,resource_type,resource_id,version,deleted)
- SELECT tenant_id,mailbox_id,'event',id,version,false FROM next
-)
-SELECT * FROM next;
+UPDATE mailbox_events e SET attendees=?4,version=e.version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?5 AND e.deleted_at IS NULL RETURNING *;
 
 -- name: PlatformCalendarRestoreCutoff :one
 -- scope: platform

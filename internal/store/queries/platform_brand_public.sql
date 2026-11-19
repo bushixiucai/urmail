@@ -27,13 +27,19 @@ cert_issued_at=NULL,activated_at=NULL,updated_at=(CAST(strftime('%s','now') AS I
 WHERE brand_hosts.status='failed' AND brand_hosts.failure_reason='revoked'
 RETURNING hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at;
 
--- name: PlatformUnbindBrandHost :execrows
 -- scope: platform
 
-WITH deleted_proof AS (DELETE FROM brand_host_challenges WHERE hostname=sqlc.arg(hostname))
-UPDATE brand_hosts h SET status='failed',failure_reason='revoked',verified_at=NULL,
-cert_issued_at=NULL,activated_at=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE h.hostname=sqlc.arg(hostname);
+-- name: PlatformUnbindBrandHostDeleteProof :exec
+-- scope: platform
 
+DELETE FROM brand_host_challenges WHERE hostname=sqlc.arg(hostname);
+
+-- name: PlatformUnbindBrandHostMark :exec
+-- scope: platform
+
+UPDATE brand_hosts h SET status='failed', failure_reason='revoked', verified_at=NULL,
+ cert_issued_at=NULL, activated_at=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE h.hostname=sqlc.arg(hostname);
 -- name: PlatformSetBrandStatus :execrows
 -- scope: platform
 
@@ -60,14 +66,17 @@ logo_url=EXCLUDED.logo_url,favicon_url=EXCLUDED.favicon_url,
 primary_color=EXCLUDED.primary_color,status=EXCLUDED.status
 RETURNING id,slug,name,theme,logo_url,favicon_url,primary_color,status,created_at;
 
--- name: PlatformResetBrandTheme :execrows
 -- scope: platform
 
-WITH cleared AS (
- DELETE FROM settings WHERE scope='brand' AND scope_id=?1 AND key='theme'
-)
-UPDATE brands SET theme='{}',logo_url=NULL,favicon_url=NULL,primary_color=NULL WHERE id=?1;
+-- name: PlatformResetBrandThemeClearSettings :exec
+-- scope: platform
 
+DELETE FROM settings WHERE scope='brand' AND scope_id=?1 AND key='theme';
+
+-- name: PlatformResetBrandThemeMark :exec
+-- scope: platform
+
+UPDATE brands SET theme='{}', logo_url=NULL, favicon_url=NULL, primary_color=NULL WHERE id=?1;
 -- name: PlatformPublicThemeSettings :many
 -- scope: platform
 

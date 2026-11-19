@@ -1,14 +1,8 @@
--- name: PlatformCompleteRecall :one
 -- scope: platform
 
-WITH completed AS (
- UPDATE recall_requests r SET status=?3,reason=?4,completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE r.tenant_id=?1 AND r.id=?2 AND r.status='pending' RETURNING r.*
-), audited AS (
- INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
- SELECT c.tenant_id,c.requested_by,'compliance.recall.complete','recall',c.id,json_object('status',c.status,'scope','local_mailbox') FROM completed c RETURNING id
-)
-SELECT completed.* FROM completed CROSS JOIN audited;
-
+UPDATE recall_requests r SET status=?3, reason=?4, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE r.tenant_id=?1 AND r.id=?2 AND r.status='pending'
+RETURNING r.*;
 -- name: PlatformLockRecallForExpunge :one
 -- scope: platform
 

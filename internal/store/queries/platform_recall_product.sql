@@ -35,17 +35,8 @@ WHERE r.tenant_id=?1 AND r.user_id=?2 AND r.role IN('owner','admin') AND u.statu
 SELECT m.address FROM mailboxes m JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND d.status='active';
 
--- name: PlatformFinishReviewedRecall :one
 -- scope: platform
 
-WITH finished AS (
- UPDATE recall_requests r SET status= @status,reason= @reason,local_result= @result,completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE r.tenant_id= @tenant_id AND r.id= @recall_id AND r.status='pending' AND r.attempt_epoch= @epoch
- RETURNING r.*
-), audited AS (
- INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
- SELECT tenant_id,coalesce(preview_actor_id,requested_by),'compliance.recall.review_complete','recall',id,
- json_object('status',status,'scope','local_mailbox','epoch',attempt_epoch,'digest',preview_digest,'selection',selected_copy_keys,'result',local_result)
- FROM finished RETURNING id
-)
-SELECT finished.* FROM finished CROSS JOIN audited;
+UPDATE recall_requests r SET status= @status, reason= @reason, local_result= @result, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE r.tenant_id= @tenant_id AND r.id= @recall_id AND r.status='pending' AND r.attempt_epoch= @epoch
+RETURNING r.*;

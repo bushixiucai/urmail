@@ -29,56 +29,27 @@ LIMIT sqlc.arg(page_limit);
 SELECT * FROM mailbox_contacts
 WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;
 
--- name: PlatformInsertContact :one
 -- scope: platform
 
-WITH next AS (
- INSERT INTO mailbox_contacts(
-  tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name, emails, phones, note
- ) VALUES(
-  sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_name),
-  sqlc.arg(given_name), sqlc.arg(family_name), sqlc.arg(emails), sqlc.arg(phones), sqlc.arg(note)
- ) RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
- SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, false FROM next
-)
-SELECT * FROM next;
-
--- name: PlatformUpdateContact :one
+INSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name, emails, phones, note)
+VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_name), sqlc.arg(given_name), sqlc.arg(family_name), sqlc.arg(emails), sqlc.arg(phones), sqlc.arg(note))
+RETURNING *;
 -- scope: platform
 
-WITH next AS (
- UPDATE mailbox_contacts AS c
- SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
-  emails=sqlc.arg(emails), phones=sqlc.arg(phones), note=sqlc.arg(note),
-  version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id) AND c.id=sqlc.arg(id)
-  AND c.version=sqlc.arg(expected_version) AND c.deleted_at IS NULL
- RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
- SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, false FROM next
-)
-SELECT * FROM next;
-
--- name: PlatformDeleteContact :one
+UPDATE mailbox_contacts c
+SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
+ emails=sqlc.arg(emails), phones=sqlc.arg(phones), note=sqlc.arg(note),
+ version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id) AND c.id=sqlc.arg(id)
+ AND c.version=sqlc.arg(expected_version) AND c.deleted_at IS NULL
+RETURNING *;
 -- scope: platform
 
-WITH next AS (
- UPDATE mailbox_contacts AS c
- SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE c.tenant_id=?1 AND c.mailbox_id=?2 AND c.id=?3 AND c.version=?4 AND c.deleted_at IS NULL
- RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
- SELECT next.tenant_id, next.mailbox_id, 'contact', next.id, next.version, true FROM next
-), removed AS (
- DELETE FROM mailbox_contact_group_members m USING next
- WHERE m.tenant_id=next.tenant_id AND m.mailbox_id=next.mailbox_id AND m.contact_id=next.id
-)
-SELECT * FROM next;
-
+-- 成员清理（原 removed CTE）拆为顺序查询 PlatformDeleteContactMembers，与本体同事务依序执行
+UPDATE mailbox_contacts c
+SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE c.tenant_id=?1 AND c.mailbox_id=?2 AND c.id=?3 AND c.version=?4 AND c.deleted_at IS NULL
+RETURNING *;
 -- name: PlatformSearchContacts :many
 -- scope: platform
 
@@ -121,45 +92,27 @@ LIMIT sqlc.arg(page_limit);
 SELECT * FROM mailbox_events
 WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;
 
--- name: PlatformInsertEvent :one
 -- scope: platform
 
-WITH next AS (
- INSERT INTO mailbox_events(
-  tenant_id, mailbox_id, calendar_id, uid, summary, description, location,
-  starts_at, ends_at, all_day, timezone, rrule, status, attendees, recurrence_overrides,reminders
- ) VALUES(
-  sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(calendar_id), sqlc.arg(uid),
-  sqlc.arg(summary), sqlc.arg(description), sqlc.arg(location),
-  sqlc.arg(starts_at), sqlc.arg(ends_at), sqlc.arg(all_day), sqlc.arg(timezone),
-  sqlc.arg(rrule), sqlc.arg(status), sqlc.arg(attendees), COALESCE(sqlc.narg(recurrence_overrides),'[]'),COALESCE(sqlc.narg(reminders),'[]')
- ) RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
- SELECT next.tenant_id, next.mailbox_id, 'event', next.id, next.version, false FROM next
-)
-SELECT * FROM next;
-
--- name: PlatformUpdateEvent :one
+INSERT INTO mailbox_events(tenant_id, mailbox_id, calendar_id, uid, summary, description, location,
+ starts_at, ends_at, all_day, timezone, rrule, status, attendees, recurrence_overrides, reminders)
+VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(calendar_id), sqlc.arg(uid),
+ sqlc.arg(summary), sqlc.arg(description), sqlc.arg(location),
+ sqlc.arg(starts_at), sqlc.arg(ends_at), sqlc.arg(all_day), sqlc.arg(timezone),
+ sqlc.arg(rrule), sqlc.arg(status), sqlc.arg(attendees), COALESCE(sqlc.narg(recurrence_overrides),'[]'), COALESCE(sqlc.narg(reminders),'[]'))
+RETURNING *;
 -- scope: platform
 
-WITH next AS (
- UPDATE mailbox_events AS e
- SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.arg(location),
-  starts_at=sqlc.arg(starts_at), ends_at=sqlc.arg(ends_at), all_day=sqlc.arg(all_day),
-  timezone=sqlc.arg(timezone), rrule=sqlc.arg(rrule), status=sqlc.arg(status), attendees=sqlc.arg(attendees),
-  recurrence_overrides=COALESCE(sqlc.narg(recurrence_overrides),e.recurrence_overrides),
- reminders=COALESCE(sqlc.narg(reminders),e.reminders),
-  sequence=e.sequence+1, version=e.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE e.tenant_id=sqlc.arg(tenant_id) AND e.mailbox_id=sqlc.arg(mailbox_id) AND e.id=sqlc.arg(id)
-  AND e.version=sqlc.arg(expected_version) AND e.deleted_at IS NULL
- RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
- SELECT next.tenant_id, next.mailbox_id, 'event', next.id, next.version, false FROM next
-)
-SELECT * FROM next;
-
+UPDATE mailbox_events e
+SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.arg(location),
+ starts_at=sqlc.arg(starts_at), ends_at=sqlc.arg(ends_at), all_day=sqlc.arg(all_day),
+ timezone=sqlc.arg(timezone), rrule=sqlc.arg(rrule), status=sqlc.arg(status), attendees=sqlc.arg(attendees),
+ recurrence_overrides=COALESCE(sqlc.narg(recurrence_overrides), e.recurrence_overrides),
+ reminders=COALESCE(sqlc.narg(reminders), e.reminders),
+ sequence=e.sequence+1, version=e.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE e.tenant_id=sqlc.arg(tenant_id) AND e.mailbox_id=sqlc.arg(mailbox_id) AND e.id=sqlc.arg(id)
+ AND e.version=sqlc.arg(expected_version) AND e.deleted_at IS NULL
+RETURNING *;
 -- name: PlatformDeleteEvent :one
 -- scope: platform
 
@@ -249,3 +202,9 @@ WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3;
 SELECT * FROM mailbox_events
 WHERE tenant_id=?1 AND mailbox_id=?2 AND calendar_id=?3 AND deleted_at IS NULL
 ORDER BY id LIMIT sqlc.arg(page_limit);
+
+-- name: PlatformDeleteContactMembers :execrows
+-- scope: platform
+
+DELETE FROM mailbox_contact_group_members
+WHERE tenant_id=?1 AND mailbox_id=?2 AND contact_id=?3;

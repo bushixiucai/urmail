@@ -82,8 +82,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("user_version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("user_version = %d, want 2 (0001_init + 0002_write_side_effects)", version)
 	}
 
 	// Idempotency: re-running the chain on the same database is a no-op.
@@ -96,8 +96,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("user_version after reruns = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("user_version after reruns = %d, want 2", version)
 	}
 }
 

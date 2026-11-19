@@ -20,26 +20,36 @@ INSERT INTO archive_content(entry_id,tenant_id,body_text,attachments,extraction_
 VALUES(@entry_id,@tenant_id,@body_text,@attachments,@extraction_error,@original_sha256,@body_html)
 ON CONFLICT(entry_id) DO NOTHING;
 
--- name: PlatformApplyArchiveRetention :many
 -- scope: platform
 
-WITH candidates AS (
- SELECT a.id,a.tenant_id,p.confirmed_preview FROM archive_entries a
- JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
- JOIN retention_policies p ON p.tenant_id=a.tenant_id
- WHERE p.active AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id) AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
- AND NOT a.legal_hold AND a.deleted_at IS NULL
- AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000)-make_interval(days=>p.retention_days)
- ORDER BY a.id LIMIT 100
-), removed AS (
- UPDATE archive_entries a SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) FROM candidates c
- WHERE a.id=c.id AND a.tenant_id=c.tenant_id RETURNING a.id,a.tenant_id
-)
-UPDATE archive_content content SET retention_preview=c.confirmed_preview
-FROM candidates c JOIN removed r ON r.id=c.id AND r.tenant_id=c.tenant_id
-WHERE content.entry_id=c.id AND content.tenant_id=c.tenant_id
-RETURNING content.entry_id AS id,content.tenant_id;
+-- name: PlatformApplyArchiveRetentionCandidates :many
+-- scope: platform
 
+SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
+JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
+JOIN retention_policies p ON p.tenant_id=a.tenant_id
+WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
+ AND (SELECT COALESCE((SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id
+      WHERE cg.tenant_id=p.tenant_id AND cg.user_id=p.created_by AND cg.scope='retention_manage' AND NOT cg.revoked
+       AND cg.owner_confirmed_at IS NOT NULL AND ur.role IN('owner','admin')), 0))=1
+ AND NOT a.legal_hold AND a.deleted_at IS NULL
+ AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
+ORDER BY a.id LIMIT 100;
+
+-- name: PlatformApplyArchiveRetentionMarkDeleted :execrows
+-- scope: platform
+
+UPDATE archive_entries SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE id IN (SELECT id FROM PlatformApplyArchiveRetentionCandidates)
+ AND tenant_id IN (SELECT tenant_id FROM PlatformApplyArchiveRetentionCandidates);
+
+-- name: PlatformApplyArchiveRetentionMarkContent :exec
+-- scope: platform
+
+UPDATE archive_content SET retention_preview=(
+ SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
+WHERE entry_id IN (SELECT id FROM PlatformApplyArchiveRetentionCandidates)
+ AND tenant_id IN (SELECT tenant_id FROM PlatformApplyArchiveRetentionCandidates);
 -- name: PlatformListArchivePurgeCandidates :many
 -- scope: platform
 

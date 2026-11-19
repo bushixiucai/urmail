@@ -76,18 +76,29 @@ UNION ALL SELECT 'marketing_recipient',status,count(*) FROM marketing_recipients
 UNION ALL SELECT 'dns',status,count(*) FROM dns_change_plans GROUP BY status
 UNION ALL SELECT 'onboarding',status,count(*) FROM onboarding_tasks GROUP BY status;
 
--- name: PlatformRefreshAIAlerts :exec
+-- scope: platform
+
+-- name: PlatformUpsertAIAlerts :execrows
 -- scope: platform
 
 WITH sources AS (
- SELECT 'ai-uncertain:'||id AS key,tenant_id,'ai_requires_review' AS kind FROM ai_usage_requests WHERE status='uncertain' OR (status='reserved' AND updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000)
-), firing AS (
- INSERT INTO operational_alerts(alert_key,tenant_id,kind,state) SELECT key,tenant_id,kind,'firing' FROM sources
- ON CONFLICT(alert_key) DO UPDATE SET state='firing',last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),resolved_at=NULL RETURNING alert_key
+ SELECT 'ai-uncertain:'||id AS key, tenant_id, 'ai_requires_review' AS kind FROM ai_usage_requests
+  WHERE status='uncertain' OR (status='reserved' AND updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000)
 )
-UPDATE operational_alerts a SET state='resolved',resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing' AND NOT EXISTS(SELECT 1 FROM sources s WHERE s.key=a.alert_key);
+INSERT INTO operational_alerts(alert_key, tenant_id, kind, state)
+SELECT key, tenant_id, kind, 'firing' FROM sources
+ON CONFLICT(alert_key) DO UPDATE SET state='firing',
+ last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), resolved_at=NULL;
 
+-- name: PlatformResolveStaleAIAlerts :execrows
+-- scope: platform
+
+UPDATE operational_alerts a SET state='resolved',
+ resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),
+ last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing'
+ AND NOT EXISTS(
+  SELECT 1 FROM ai_usage_requests u WHERE u.status='uncertain' OR (u.status='reserved' AND u.updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000));
 -- name: PlatformEnqueueAIAlerts :exec
 -- scope: platform
 

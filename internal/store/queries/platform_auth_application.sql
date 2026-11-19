@@ -23,43 +23,25 @@ WHERE s.id = ?1 AND s.kind='legacy' AND s.expires_at > (CAST(strftime('%s','now'
   AND s.mfa_verified_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) - 900000000
   AND (s.tenant_id IS NULL OR t.status IN ('active','pending'));
 
--- name: CreateApplicationCredential :one
 -- scope: tenant
 -- scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 
-WITH credential AS (
-  INSERT INTO application_credentials(user_id,name,token_hash,scopes,expires_at,credential_version)
-  SELECT u.id,sqlc.arg(name),sqlc.arg(token_hash),sqlc.arg(scopes),sqlc.arg(expires_at),u.credential_version FROM users u
-  WHERE u.id=sqlc.arg(user_id) AND u.status='active' AND u.credential_version=sqlc.arg(expected_version)
-  RETURNING id,user_id,name,scopes,expires_at,created_at
-), audit AS (
-  INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
-  SELECT user_id,'application_credential.create','application_credential',id,'{}' FROM credential
-  RETURNING id
-)
-SELECT credential.* FROM credential CROSS JOIN audit;
-
+INSERT INTO application_credentials(user_id, name, token_hash, scopes, expires_at, credential_version)
+SELECT u.id, sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(scopes), sqlc.arg(expires_at), u.credential_version FROM users u
+WHERE u.id=sqlc.arg(user_id) AND u.status='active' AND u.credential_version=sqlc.arg(expected_version)
+RETURNING id, user_id, name, scopes, expires_at, created_at;
 -- name: ListApplicationCredentials :many
 -- scope: platform
 
 SELECT id,name,scopes,expires_at,revoked_at,created_at
 FROM application_credentials WHERE user_id=?1 ORDER BY id DESC;
 
--- name: RevokeApplicationCredential :one
 -- scope: tenant
 -- scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 
-WITH revoked AS (
- UPDATE application_credentials SET revoked_at = COALESCE(revoked_at,(CAST(strftime('%s','now') AS INTEGER)*1000000))
- WHERE application_credentials.id=?1 AND application_credentials.user_id=?2
- RETURNING id,user_id
-), audit AS (
- INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
- SELECT user_id,'application_credential.revoke','application_credential',id,'{}' FROM revoked
- RETURNING id
-)
-SELECT revoked.id FROM revoked CROSS JOIN audit;
-
+UPDATE application_credentials SET revoked_at = COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
+WHERE application_credentials.id=?1 AND application_credentials.user_id=?2
+RETURNING id, user_id;
 -- name: AuthenticateApplicationCredential :one
 -- scope: platform
 

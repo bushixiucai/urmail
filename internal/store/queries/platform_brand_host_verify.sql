@@ -55,20 +55,24 @@ SELECT EXISTS(
 SELECT h.* FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
 WHERE h.hostname=?1;
 
--- name: PlatformVerifyBrandHostProof :execrows
 -- scope: platform
 
-WITH consumed AS (
- UPDATE brand_host_challenges c SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE c.hostname=sqlc.arg(hostname) AND c.token_digest=sqlc.arg(token_digest)
- AND c.consumed_at IS NULL AND c.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
- RETURNING c.hostname
-)
-UPDATE brand_hosts h SET status='verified',verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),cert_issued_at=NULL,
- activated_at=NULL,failure_reason=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-FROM consumed WHERE h.hostname=consumed.hostname AND h.brand_id=sqlc.arg(brand_id)
-AND h.updated_at=sqlc.arg(expected_updated_at);
+-- name: PlatformVerifyBrandHostConsumeChallenge :one
+-- scope: platform
 
+UPDATE brand_host_challenges c SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE c.hostname=sqlc.arg(hostname) AND c.token_digest=sqlc.arg(token_digest)
+ AND c.consumed_at IS NULL AND c.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+RETURNING c.hostname;
+
+-- name: PlatformVerifyBrandHostMark :exec
+-- scope: platform
+
+UPDATE brand_hosts h SET status='verified', verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), cert_issued_at=NULL,
+ activated_at=NULL, failure_reason=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE h.hostname=sqlc.arg(hostname) AND h.brand_id=sqlc.arg(brand_id)
+ AND h.updated_at=sqlc.arg(expected_updated_at)
+ AND EXISTS(SELECT 1 FROM brand_host_challenges c WHERE c.hostname=h.hostname AND c.consumed_at IS NOT NULL);
 -- name: PlatformBrandHostCertificateTransition :execrows
 -- scope: platform
 

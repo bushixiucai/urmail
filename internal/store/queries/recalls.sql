@@ -1,11 +1,17 @@
+-- scope: tenant
+
 -- name: CreateRecall :one
 -- scope: tenant
 
-WITH inserted AS (
- INSERT INTO recall_requests(tenant_id,archive_entry_id,mailbox_id,message_id,requested_by) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tenant_id,archive_entry_id) DO NOTHING RETURNING *
-)
-SELECT * FROM inserted UNION ALL SELECT * FROM recall_requests r WHERE r.tenant_id=?1 AND r.archive_entry_id=?2 AND NOT EXISTS(SELECT 1 FROM inserted) LIMIT 1;
+INSERT INTO recall_requests(tenant_id, archive_entry_id, mailbox_id, message_id, requested_by)
+VALUES(?1, ?2, ?3, ?4, ?5)
+ON CONFLICT(tenant_id, archive_entry_id) DO NOTHING
+RETURNING *;
 
+-- name: GetRecallByEntry :one
+-- scope: tenant
+
+SELECT * FROM recall_requests r WHERE r.tenant_id=?1 AND r.archive_entry_id=?2;
 -- name: GetRecallByID :one
 -- scope: tenant
 
