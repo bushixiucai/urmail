@@ -131,7 +131,7 @@ PLAN
     note "fresh-backup pre-flight (one-off urmailctl container)"
     preflight_out=$(docker compose run --rm --no-deps --user 0:0 \
         -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
-        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/backup/maintenance \
+        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
         --entrypoint /usr/local/bin/urmailctl urmaild \
         upgrade fence --reason "fresh-backup pre-flight check (compose native)" 2>&1) || true
     printf '%s\n' "$preflight_out" >>"$EVIDENCE"
@@ -196,18 +196,36 @@ PLAN
     # ---- 8. readiness-record + start writers + clear hold -------------------
     docker compose run --rm --no-deps --user 0:0 \
         -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
-        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/backup/maintenance \
+        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
         --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
-    # Start each writer that HAS a container; absent services (smoke rigs
-    # without milter/mail daemons) are noted instead of failing the chain.
+    # Writers: fail-closed on the production path (QA/PM ruling). A service
+    # missing from the compose project is only tolerated with the explicit
+    # URMAIL_SMOKE_RIG=1 switch, and every skip is recorded in the evidence.
+    writers_ok=1
     for w in ${URMAIL_WRITERS:-postfix dovecot}; do
         # shellcheck disable=SC2086
-        if [ -n "$(docker compose ps -q "$w" 2>/dev/null)" ]; then
-            docker compose start "$w" >>"$EVIDENCE" 2>&1
-        else
-            echo "writer $w has no container here; skipped" >>"$EVIDENCE"
+        ids=$(docker compose ps -aq "$w" 2>/dev/null)
+        if [ -z "$ids" ]; then
+            if [ "${URMAIL_SMOKE_RIG:-0}" = "1" ]; then
+                echo "writer $w absent from this rig; skipped (URMAIL_SMOKE_RIG=1)" >>"$EVIDENCE"
+                continue
+            fi
+            echo "writer $w has no container; refusing (production fail-closed)" >>"$EVIDENCE"
+            writers_ok=0
+            continue
+        fi
+        docker compose start "$w" >>"$EVIDENCE" 2>&1 || writers_ok=0
+    done
+    for w in ${URMAIL_WRITERS:-postfix dovecot}; do
+        # shellcheck disable=SC2086
+        if ! docker compose ps --status running -q "$w" 2>/dev/null | grep -q .; then
+            echo "writer $w not running after start" >>"$EVIDENCE"
+            writers_ok=0
         fi
     done
+    if [ "$writers_ok" != "1" ]; then
+        die "writers failed to start; fence/hold kept (post-up)"
+    fi
     rm -f "$HOLD"
     RELEASED=1
     T1=$(date +%s)
