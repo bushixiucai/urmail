@@ -3,6 +3,15 @@
 // scripts/sqlite/dfn-calls.json。
 package store
 
+// scope 映射（S3 decorator 消费；method_scopes.json 的手写层补充）：
+//   PlatformRevokeMailboxSessions            → system（mailbox 凭据撤销，worker/管理员触发）
+//   PlatformConsumeMailboxOperationTickets   → system（工单消费，同上）
+//   PlatformApplyArchiveRetentionCandidates  → system（保留策略执行，后台 worker）
+//   PlatformApplyArchiveRetentionMarkContent → system（同上）
+//   PlatformApplyArchiveRetentionMarkDeleted → system（同上）
+//   PlatformRecordMarketingFlowNodeExecution → system（marketing flow worker 节点执行）
+//   PlatformBumpMarketingFlowAttempt         → system（marketing flow worker 失败退避）
+
 import (
 	"context"
 
