@@ -1,13 +1,13 @@
 {
  "total_files": 90,
- "failed_files": 39,
+ "failed_files": 38,
  "census": [
   {
    "file": "archive_case_product.sql",
-   "first_error_line": 66,
-   "method": "ArchiveCasesRemoveMember",
+   "first_error_line": 75,
+   "method": "ArchiveCasesAddSource",
    "category": "update-alias",
-   "error": "line 66:60 no viable alternative at input ';' | line 74:71 extraneous input '~' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
+   "error": "line 75:57 no viable alternative at input ';' | line 80:42 extraneous input 's' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
   },
   {
    "file": "archive_lifecycle.sql",
@@ -18,10 +18,10 @@
   },
   {
    "file": "auth.sql",
-   "first_error_line": 105,
-   "method": "DisableUserMFA",
-   "category": "update-alias",
-   "error": "line 105:13 no viable alternative at input ';' | line 114:30 no viable alternative at input 'UPDATE users\\nSET mfa_recovery_codes = COALESCE((\\n    SELECT json_group_array(v ORDER' | line 114:27 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_,"
+   "first_error_line": 116,
+   "method": "ConsumeRecoveryCode",
+   "category": "cte-scope",
+   "error": "# package store | internal/store/queries/auth.sql:116:16: table alias \"je\" does not exist"
   },
   {
    "file": "compliance.sql",
@@ -141,13 +141,6 @@
    "method": "PlatformSearchContacts",
    "category": "update-alias",
    "error": "line 59:100 no viable alternative at input '||' | line 114:0 extraneous input 'SET' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, V"
-  },
-  {
-   "file": "platform_data_check.sql",
-   "first_error_line": 6,
-   "method": "PlatformDataIssues",
-   "category": "syntax-residue",
-   "error": "line 6:172 extraneous input '~' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_} | line 8:0 extraneous input '<EOF>' e"
   },
   {
    "file": "platform_dns_onboarding.sql",
