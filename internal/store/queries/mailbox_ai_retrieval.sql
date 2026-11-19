@@ -18,7 +18,7 @@ SELECT folder, folder_uidvalidity, message_uid, content_version, content_digest 
 
 DELETE FROM mailbox_ai_chunks
 WHERE tenant_id = ?1 AND mailbox_id = ?2 AND folder = ?3
-  AND folder_uidvalidity = ?4 AND message_uid = ANY(?5);
+  AND folder_uidvalidity = ?4 AND message_uid IN (SELECT CAST(value AS INTEGER) FROM json_each(?5));
 
 -- name: DeleteMailboxAIChunkFolder :execrows
 -- scope: tenant

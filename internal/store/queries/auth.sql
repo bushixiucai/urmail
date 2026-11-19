@@ -111,11 +111,11 @@ WHERE id = ?1;
 -- user's code list. Zero rows affected means the code did not match.
 UPDATE users
 SET mfa_recovery_codes = COALESCE((
-    SELECT json_group_array(v ORDER BY ord)
-    FROM json_each(mfa_recovery_codes) AS t(ord, key) -- key 充当 0 基 ordinal
-    WHERE v <> to_jsonb(?2)
+    SELECT json_group_array(CAST(je.value AS TEXT))
+    FROM json_each(CAST(mfa_recovery_codes AS TEXT)) je
+    WHERE CAST(je.value AS TEXT) <> ?2
 ), '[]')
-WHERE id = ?1 AND EXISTS(SELECT 1 FROM json_each(mfa_recovery_codes) WHERE value = ?2);
+WHERE id = ?1 AND EXISTS(SELECT 1 FROM json_each(CAST(mfa_recovery_codes AS TEXT)) WHERE CAST(value AS TEXT) = ?2);
 
 
 -- name: UpdateUserPassword :exec

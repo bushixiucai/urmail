@@ -71,7 +71,7 @@ WHERE s.tenant_id=?1 AND s.investigation_id=?2 ORDER BY e.id;
 INSERT INTO archive_investigation_sources(tenant_id,investigation_id,archive_entry_id,added_by)
 SELECT @tenant_id,i.id,e.id,@actor_id FROM archive_investigations i JOIN archive_entries e ON e.tenant_id=i.tenant_id
 WHERE i.tenant_id= @tenant_id AND i.id= @case_id AND i.status='open' AND i.version= @version AND e.id= @entry_id
-AND e.deleted_at IS NULL AND e.mailbox_id IS NOT NULL AND e.raw_sha256 ~ '^[0-9a-f]{64}$'
+AND e.deleted_at IS NULL AND e.mailbox_id IS NOT NULL AND (length(e.raw_sha256)=64 AND e.raw_sha256 GLOB '[0-9a-f]*')
 ON CONFLICT(investigation_id,archive_entry_id) DO NOTHING;
 
 -- name: ArchiveCasesRemoveSource :execrows

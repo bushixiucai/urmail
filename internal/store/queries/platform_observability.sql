@@ -15,7 +15,7 @@ ON CONFLICT(alert_key) DO UPDATE SET
 INSERT INTO notification_outbox(kind,message_key,params,dedupe_key,channel,state)
 SELECT 'alert_'||CASE WHEN state='firing' THEN 'firing' ELSE 'resolved' END,CASE WHEN state='firing' THEN 'notification.operational_firing' ELSE 'notification.operational_resolved' END,
  json_object('kind',kind,'source',alert_key,'state',state),
- 'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char((CAST(strftime('%s','now') AS INTEGER)*1000000),'YYYY-MM-DD-HH24') ELSE ((resolved_at)/1000000) END,
+ 'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN strftime('%Y-%m-%d-%H',(CAST(strftime('%s','now') AS INTEGER)*1000000)/1000000,'unixepoch','utc') ELSE ((resolved_at)/1000000) END,
  'in_app','delivered'
 FROM operational_alerts WHERE kind LIKE 'telemetry_%' OR kind LIKE 'archive_%'
 ON CONFLICT(dedupe_key) DO NOTHING;

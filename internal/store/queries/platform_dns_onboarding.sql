@@ -140,4 +140,4 @@ WHERE kind IN('dns_requires_review','onboarding_requires_review') AND state='fir
 -- scope: platform
 
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)
-SELECT a.tenant_id,a.kind,'notification.'||a.kind,json_object('workflow',CASE WHEN a.kind='dns_requires_review' THEN 'dns' ELSE 'onboarding' END),a.alert_key||':'||to_char((CAST(strftime('%s','now') AS INTEGER)*1000000),'YYYY-MM-DD-HH24'),'in_app','delivered' FROM operational_alerts a WHERE a.kind IN('dns_requires_review','onboarding_requires_review') AND a.state='firing' ON CONFLICT(dedupe_key) DO NOTHING;
+SELECT a.tenant_id,a.kind,'notification.'||a.kind,json_object('workflow',CASE WHEN a.kind='dns_requires_review' THEN 'dns' ELSE 'onboarding' END),a.alert_key||':'||strftime('%Y-%m-%d-%H',(CAST(strftime('%s','now') AS INTEGER)*1000000)/1000000,'unixepoch','utc'),'in_app','delivered' FROM operational_alerts a WHERE a.kind IN('dns_requires_review','onboarding_requires_review') AND a.state='firing' ON CONFLICT(dedupe_key) DO NOTHING;
