@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,9 +65,15 @@ func TestDumpCatalog(t *testing.T) {
 			if err := rows.Scan(ptrs...); err != nil {
 				t.Fatal(section, err)
 			}
+			// Cells are TSV: multiline defaults/constraint definitions must
+			// not break row framing — newlines and tabs collapse to spaces.
+			sanitize := func(s string) string {
+				r := strings.NewReplacer("\n", " ", "\r", " ", "\t", " ")
+				return r.Replace(s)
+			}
 			line := section
 			for _, c := range cells {
-				line += "\t" + fmt.Sprint(c)
+				line += "\t" + sanitize(fmt.Sprint(c))
 			}
 			w(line + "\n")
 		}
@@ -116,6 +123,47 @@ func TestDumpCatalog(t *testing.T) {
 
 	w("EXTENSION\tname\n")
 	dump("EXTENSION", `SELECT extname FROM pg_extension ORDER BY extname`)
+
+	// Full column facts for the SQLite schema generator (S1): format_type is
+	// the authoritative PG declaration; identity/serial detection feeds the
+	// INTEGER PRIMARY KEY AUTOINCREMENT decision.
+	w("COLUMN\ttable\tcolumn\ttype\tnotnull\tdefault\tidentity\n")
+	dump("COLUMN", `
+		SELECT c.relname, a.attname,
+		       pg_catalog.format_type(a.atttypid, a.atttypmod),
+		       a.attnotnull::text,
+		       COALESCE(pg_catalog.pg_get_expr(d.adbin, d.adrelid), ''),
+		       CASE WHEN a.attidentity <> '' THEN a.attidentity ELSE '' END
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+		LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
+		WHERE n.nspname='public' AND c.relkind IN ('r','p')
+		ORDER BY c.relname, a.attnum`)
+
+	// Constraints: PK/UNIQUE/FK/CHECK with their definitions. CHECK bodies
+	// that call functions are stripped by the generator (registered for the
+	// app layer) — SQLite cannot call functions from CHECK.
+	w("CONSTRAINT\ttable\tname\ttype\tdefinition\n")
+	dump("CONSTRAINT", `
+		SELECT cl.relname, con.conname, con.contype, pg_get_constraintdef(con.oid, true)
+		FROM pg_constraint con
+		JOIN pg_class cl ON cl.oid = con.conrelid
+		JOIN pg_namespace n ON n.oid = cl.relnamespace
+		WHERE n.nspname='public'
+		ORDER BY cl.relname, con.conname`)
+
+	// Index definitions for the index-parity gate (S1/S5): trigram GIN
+	// indexes land in the dropped-index registry (no SQLite trigram).
+	w("INDEXDEF\ttable\tname\tunique\tdefinition\n")
+	dump("INDEXDEF", `
+		SELECT t.relname, i.relname, ix.indisunique::text, pg_get_indexdef(ix.indexrelid)
+		FROM pg_index ix
+		JOIN pg_class i ON i.oid = ix.indexrelid
+		JOIN pg_class t ON t.oid = ix.indrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		WHERE n.nspname='public' AND NOT ix.indisprimary
+		ORDER BY t.relname, i.relname`)
 
 	w("GRANT\ttable\trole\tprivs\n")
 	dump("GRANT", `

@@ -1,0 +1,1006 @@
+{
+ "type_counts": {
+  "bigint": 360,
+  "text": 375,
+  "boolean": 41,
+  "timestamp with time zone": 217,
+  "text[]": 5,
+  "jsonb": 43,
+  "bytea": 5,
+  "uuid": 6,
+  "inet": 2,
+  "integer": 35,
+  "double precision": 1,
+  "bigint[]": 1,
+  "date": 1
+ },
+ "stripped_checks": [
+  {
+   "table": "ai_usage_requests",
+   "name": "ai_usage_requests_input_digest_check",
+   "def": "CHECK (input_digest ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "ai_usage_requests",
+   "name": "ai_usage_requests_request_key_check",
+   "def": "CHECK (length(request_key) >= 16 AND length(request_key) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "application_credentials",
+   "name": "application_credentials_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "application_credentials",
+   "name": "application_credentials_scopes_check",
+   "def": "CHECK (cardinality(scopes) > 0 AND scopes <@ ARRAY['legacy:read'::text, 'legacy:write'::text])",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "application_credentials",
+   "name": "application_credentials_token_hash_check",
+   "def": "CHECK (token_hash ~ '^[0-9a-f]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_requests_decision_reason_check",
+   "def": "CHECK (length(decision_reason) <= 2000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_requests_evidence_body_check",
+   "def": "CHECK (octet_length(evidence_body) <= 1000000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_requests_evidence_digest_check",
+   "def": "CHECK (evidence_digest IS NULL OR evidence_digest ~ '^[0-9a-f]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_requests_source_digest_check",
+   "def": "CHECK (source_digest ~ '^[0-9a-f]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_content",
+   "name": "archive_content_original_sha256_check",
+   "def": "CHECK (original_sha256 = ''::text OR original_sha256 ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_raw_sha",
+   "def": "CHECK (raw_sha256 = ''::text OR raw_sha256 ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_evidence_exports",
+   "name": "archive_evidence_exports_check",
+   "def": "CHECK (encode(sha256(manifest), 'hex'::text) = manifest_sha256)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_evidence_exports",
+   "name": "archive_evidence_exports_manifest_check",
+   "def": "CHECK (octet_length(manifest) > 0 AND octet_length(manifest) <= 1000000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_evidence_exports",
+   "name": "archive_evidence_exports_manifest_sha256_check",
+   "def": "CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_investigations",
+   "name": "archive_investigations_purpose_check",
+   "def": "CHECK (length(purpose) >= 1 AND length(purpose) <= 2000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "archive_investigations",
+   "name": "archive_investigations_title_check",
+   "def": "CHECK (length(title) >= 1 AND length(title) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "backup_runs",
+   "name": "backup_runs_error_check",
+   "def": "CHECK (length(error) <= 2000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "backup_runs",
+   "name": "backup_runs_manifest_name_check",
+   "def": "CHECK (length(manifest_name) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "backup_runs",
+   "name": "backup_runs_offsite_uri_check",
+   "def": "CHECK (length(offsite_uri) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "backup_runs",
+   "name": "backup_runs_run_uid_check",
+   "def": "CHECK (length(run_uid) >= 8 AND length(run_uid) <= 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "backup_runs",
+   "name": "backup_runs_scope_check",
+   "def": "CHECK (length(scope) <= 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "brand_host_challenges",
+   "name": "brand_host_challenges_token_digest_check",
+   "def": "CHECK (token_digest ~ '^[0-9a-f]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "brand_hosts",
+   "name": "brand_hosts_hostname_check",
+   "def": "CHECK (hostname = lower(hostname) AND length(hostname) >= 1 AND length(hostname) <= 253)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "dns_change_plans",
+   "name": "dns_change_plans_domain_digest_check",
+   "def": "CHECK (length(domain_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "dns_change_plans",
+   "name": "dns_change_plans_source_digest_check",
+   "def": "CHECK (length(source_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "dns_credentials",
+   "name": "dns_credentials_encrypted_secret_check",
+   "def": "CHECK (encrypted_secret ~~ 'enc:v1:%'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "dns_zone_versions",
+   "name": "dns_zone_versions_content_hash_check",
+   "def": "CHECK (length(content_hash) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domain_dns_security",
+   "name": "domain_dns_security_check",
+   "def": "CHECK (length(secondary_hostname) <= 253 AND length(secondary_address) <= 64 AND length(primary_address) <= 64 AND length(tsig_key_name) <= 128)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domain_tls_reports",
+   "name": "domain_tls_reports_report_digest_check",
+   "def": "CHECK (length(report_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domain_tls_reports",
+   "name": "domain_tls_reports_report_id_digest_check",
+   "def": "CHECK (length(report_id_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domain_tls_reports",
+   "name": "domain_tls_reports_reporter_digest_check",
+   "def": "CHECK (length(reporter_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domain_transport_security",
+   "name": "domain_transport_security_mtasts_policy_id_check",
+   "def": "CHECK (length(btrim(mtasts_policy_id)) >= 1 AND length(btrim(mtasts_policy_id)) <= 32)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domain_transport_security",
+   "name": "domain_transport_security_tls_rpt_rua_check",
+   "def": "CHECK (length(btrim(tls_rpt_rua)) >= 3 AND length(btrim(tls_rpt_rua)) <= 320)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "domains",
+   "name": "domains_storage_fqdn_check",
+   "def": "CHECK (length(fqdn) <= 253 AND fqdn = lower(fqdn) AND fqdn ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_addressbooks",
+   "name": "mailbox_addressbooks_name_check",
+   "def": "CHECK (length(btrim(name)) >= 1 AND length(btrim(name)) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_chunks",
+   "name": "mailbox_ai_chunks_content_check",
+   "def": "CHECK (length(content) >= 1 AND length(content) <= 2000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_chunks",
+   "name": "mailbox_ai_chunks_content_digest_check",
+   "def": "CHECK (content_digest ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_chunks",
+   "name": "mailbox_ai_chunks_folder_check",
+   "def": "CHECK (length(folder) >= 1 AND length(folder) <= 500)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_drafts",
+   "name": "mailbox_ai_drafts_body_check",
+   "def": "CHECK (length(body) >= 1 AND length(body) <= 20000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_drafts",
+   "name": "mailbox_ai_drafts_subject_check",
+   "def": "CHECK (length(subject) >= 1 AND length(subject) <= 200 AND POSITION((' '::text) IN (subject)) = 0)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_phishing_findings",
+   "name": "mailbox_ai_phishing_findings_folder_check",
+   "def": "CHECK (length(folder) >= 1 AND length(folder) <= 1024)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_ai_phishing_findings",
+   "name": "mailbox_ai_phishing_findings_input_digest_check",
+   "def": "CHECK (input_digest ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_aliases",
+   "name": "alias_target_email_syntax",
+   "def": "CHECK (cardinality(string_to_array(target, '@'::text)) = 2 AND length(split_part(target, '@'::text, 1)) >= 1 AND length(split_part(target, '@'::text, 1)) <= 64 AND strpos(target, '*'::text) = 0 AND strpos(target, '?'::text) = 0 AND strpos(target, '/'::text) = 0 AND strpos(target, '\\'::text) = 0 AND target = lower(target)) NOT VALID",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_aliases",
+   "name": "mailbox_aliases_sender_logins_shape",
+   "def": "CHECK (cardinality(sender_logins) <= 100 AND array_position(sender_logins, NULL::text) IS NULL AND (cardinality(sender_logins) = 0 OR array_ndims(sender_logins) = 1))",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_calendars",
+   "name": "mailbox_calendars_color_check",
+   "def": "CHECK (length(color) <= 16)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_calendars",
+   "name": "mailbox_calendars_name_check",
+   "def": "CHECK (length(btrim(name)) >= 1 AND length(btrim(name)) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_calendars",
+   "name": "mailbox_calendars_timezone_check",
+   "def": "CHECK (length(timezone) >= 1 AND length(timezone) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contact_groups",
+   "name": "mailbox_contact_groups_name_check",
+   "def": "CHECK (length(btrim(name)) >= 1 AND length(btrim(name)) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_birthday_check",
+   "def": "CHECK (length(birthday) <= 32)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_display_name_check",
+   "def": "CHECK (length(display_name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_family_name_check",
+   "def": "CHECK (length(family_name) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_given_name_check",
+   "def": "CHECK (length(given_name) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_job_title_check",
+   "def": "CHECK (length(job_title) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_note_check",
+   "def": "CHECK (length(note) <= 4000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_organization_check",
+   "def": "CHECK (length(organization) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_contacts",
+   "name": "mailbox_contacts_photo_check",
+   "def": "CHECK (length(photo) <= 65536)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_collection_state",
+   "name": "mailbox_eas_collection_state_device_id_check",
+   "def": "CHECK (length(device_id) >= 1 AND length(device_id) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_collection_state",
+   "name": "mailbox_eas_collection_state_folder_id_check",
+   "def": "CHECK (length(folder_id) >= 1 AND length(folder_id) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_devices",
+   "name": "mailbox_eas_devices_device_id_check",
+   "def": "CHECK (length(device_id) >= 1 AND length(device_id) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_devices",
+   "name": "mailbox_eas_devices_ping_folders_check",
+   "def": "CHECK (jsonb_typeof(ping_folders) = 'array'::text AND jsonb_array_length(ping_folders) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_devices",
+   "name": "mailbox_eas_devices_user_agent_check",
+   "def": "CHECK (length(user_agent) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_folder_state",
+   "name": "mailbox_eas_folder_state_device_id_check",
+   "def": "CHECK (length(device_id) >= 1 AND length(device_id) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_folder_state",
+   "name": "mailbox_eas_folder_state_display_name_check",
+   "def": "CHECK (length(display_name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_folder_state",
+   "name": "mailbox_eas_folder_state_folder_id_check",
+   "def": "CHECK (length(folder_id) >= 1 AND length(folder_id) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_folder_state",
+   "name": "mailbox_eas_folder_state_parent_id_check",
+   "def": "CHECK (length(parent_id) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_item_state",
+   "name": "mailbox_eas_item_state_device_id_check",
+   "def": "CHECK (length(device_id) >= 1 AND length(device_id) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_item_state",
+   "name": "mailbox_eas_item_state_fingerprint_check",
+   "def": "CHECK (length(fingerprint) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_item_state",
+   "name": "mailbox_eas_item_state_folder_id_check",
+   "def": "CHECK (length(folder_id) >= 1 AND length(folder_id) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_eas_item_state",
+   "name": "mailbox_eas_item_state_item_id_check",
+   "def": "CHECK (length(item_id) >= 1 AND length(item_id) <= 300)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_attendees_size",
+   "def": "CHECK (jsonb_typeof(attendees) = 'array'::text AND jsonb_array_length(attendees) <= 20)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_description_check",
+   "def": "CHECK (length(description) <= 8000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_invitation_digest_check",
+   "def": "CHECK (length(invitation_digest) = ANY (ARRAY[0, 64]))",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_location_check",
+   "def": "CHECK (length(location) <= 500)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_organizer_check",
+   "def": "CHECK (length(organizer) <= 320 AND organizer !~ '[  ]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_recurrence_overrides_check",
+   "def": "CHECK (jsonb_typeof(recurrence_overrides) = 'array'::text AND jsonb_array_length(recurrence_overrides) <= 400)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_reminders_check",
+   "def": "CHECK (jsonb_typeof(reminders) = 'array'::text AND jsonb_array_length(reminders) <= 5)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_rrule_check",
+   "def": "CHECK (length(rrule) <= 500)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_summary_check",
+   "def": "CHECK (length(summary) <= 500)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_timezone_check",
+   "def": "CHECK (length(timezone) >= 1 AND length(timezone) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_uid_check",
+   "def": "CHECK (length(uid) >= 1 AND length(uid) <= 255)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_error_code_check",
+   "def": "CHECK (length(error_code) <= 128)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_message_id_check",
+   "def": "CHECK (length(message_id) <= 998)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_raw_secret_check",
+   "def": "CHECK (octet_length(raw_secret) <= 16777216)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_raw_sha256_check",
+   "def": "CHECK (length(raw_sha256) = ANY (ARRAY[0, 64]))",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_review_reason_check",
+   "def": "CHECK (length(review_reason) <= 2000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_subject_check",
+   "def": "CHECK (length(subject) <= 1000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_jobs",
+   "name": "mailbox_import_jobs_filename_check",
+   "def": "CHECK (length(filename) >= 1 AND length(filename) <= 255)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_jobs",
+   "name": "mailbox_import_jobs_folder_check",
+   "def": "CHECK (length(folder) >= 1 AND length(folder) <= 1024)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_jobs",
+   "name": "mailbox_import_jobs_preview_digest_check",
+   "def": "CHECK (length(preview_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_jobs",
+   "name": "mailbox_import_jobs_request_key_check",
+   "def": "CHECK (length(request_key) >= 8 AND length(request_key) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_import_jobs",
+   "name": "mailbox_import_jobs_source_digest_check",
+   "def": "CHECK (length(source_digest) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_jobs",
+   "name": "mailbox_jobs_idempotency_key_check",
+   "def": "CHECK (length(idempotency_key) >= 1 AND length(idempotency_key) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_jobs",
+   "name": "mailbox_jobs_kind_check",
+   "def": "CHECK (length(kind) >= 1 AND length(kind) <= 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_operation_tickets",
+   "name": "mailbox_operation_tickets_token_hash_check",
+   "def": "CHECK (token_hash ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_scheduled_sends",
+   "name": "mailbox_scheduled_sends_draft_folder_check",
+   "def": "CHECK (length(draft_folder) >= 1 AND length(draft_folder) <= 1024)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_scheduled_sends",
+   "name": "scheduled_sent_raw_size",
+   "def": "CHECK (sent_raw IS NULL OR octet_length(sent_raw) >= 1 AND octet_length(sent_raw) <= 33554432)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_send_receipts",
+   "name": "mailbox_send_receipts_message_id_check",
+   "def": "CHECK (length(message_id) >= 3 AND length(message_id) <= 998)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_send_receipts",
+   "name": "mailbox_send_receipts_raw_secret_check",
+   "def": "CHECK (octet_length(raw_secret) <= 33554432)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_send_receipts",
+   "name": "mailbox_send_receipts_request_hash_check",
+   "def": "CHECK (length(request_hash) = 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_send_receipts",
+   "name": "mailbox_send_receipts_request_key_check",
+   "def": "CHECK (length(request_key) >= 16 AND length(request_key) <= 128)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_sessions",
+   "name": "mailbox_sessions_token_hash_check",
+   "def": "CHECK (token_hash ~ '^[a-f0-9]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_settings",
+   "name": "mailbox_settings_display_name_check",
+   "def": "CHECK (length(display_name) <= 128)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_settings",
+   "name": "mailbox_settings_identity_profiles_check",
+   "def": "CHECK (jsonb_typeof(identity_profiles) = 'object'::text AND pg_column_size(identity_profiles) <= 65536)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_settings",
+   "name": "mailbox_settings_preferences_check",
+   "def": "CHECK (pg_column_size(preferences) <= 8192)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_settings",
+   "name": "mailbox_settings_signature_html_check",
+   "def": "CHECK (length(signature_html) <= 16384)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_settings",
+   "name": "mailbox_settings_signature_text_check",
+   "def": "CHECK (length(signature_text) <= 8192)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_snippets",
+   "name": "mailbox_snippets_content_check",
+   "def": "CHECK (length(content) <= 32768)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_snippets",
+   "name": "mailbox_snippets_shortcut_check",
+   "def": "CHECK (length(shortcut) <= 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_snippets",
+   "name": "mailbox_snippets_title_check",
+   "def": "CHECK (length(btrim(title)) >= 1 AND length(btrim(title)) <= 120)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_feedback",
+   "name": "mailbox_spam_feedback_folder_check",
+   "def": "CHECK (length(folder) >= 1 AND length(folder) <= 1024)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_feedback",
+   "name": "mailbox_spam_feedback_message_id_check",
+   "def": "CHECK (length(message_id) >= 1 AND length(message_id) <= 998 AND POSITION((' '::text) IN (message_id)) = 0 AND POSITION((' '::text) IN (message_id)) = 0)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_feedback",
+   "name": "mailbox_spam_feedback_sender_address_check",
+   "def": "CHECK (length(sender_address) <= 254)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_feedback",
+   "name": "mailbox_spam_feedback_sender_domain_check",
+   "def": "CHECK (length(sender_domain) <= 254)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_senders",
+   "name": "mailbox_spam_senders_address_check",
+   "def": "CHECK (length(address) <= 254)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_senders",
+   "name": "mailbox_spam_senders_domain_check",
+   "def": "CHECK (length(domain) <= 254)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_spam_tokens",
+   "name": "mailbox_spam_tokens_token_check",
+   "def": "CHECK (length(token) >= 1 AND length(token) <= 64)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailbox_sync_cursors",
+   "name": "mailbox_sync_cursors_client_key_check",
+   "def": "CHECK (length(client_key) >= 1 AND length(client_key) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailboxes_no_command_wildcard",
+   "def": "CHECK (local_part !~ '[*?]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailboxes_storage_local_check",
+   "def": "CHECK (length(local_part) >= 1 AND length(local_part) <= 64 AND (local_part <> ALL (ARRAY['.'::text, '..'::text])) AND local_part !~ '[/\\\\]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_campaigns",
+   "name": "marketing_campaigns_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_channels",
+   "name": "marketing_channels_encrypted_config_check",
+   "def": "CHECK (encrypted_config ~~ 'enc:v1:%'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_channels",
+   "name": "marketing_channels_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_channels",
+   "name": "marketing_channels_sender_address_check",
+   "def": "CHECK (sender_address = lower(sender_address) AND sender_address !~ '[\\r\\n]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "marketing_contacts_consent_source_check",
+   "def": "CHECK (length(consent_source) >= 1 AND length(consent_source) <= 256)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "marketing_contacts_email_check",
+   "def": "CHECK (email = lower(email) AND length(email) <= 254 AND email !~ '[\\r\\n]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_definitions",
+   "name": "marketing_flow_definitions_draft_check",
+   "def": "CHECK (jsonb_typeof(draft) = 'object'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_definitions",
+   "name": "marketing_flow_definitions_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_entries",
+   "name": "marketing_flow_entries_event_key_check",
+   "def": "CHECK (length(event_key) >= 8 AND length(event_key) <= 128)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_node_executions",
+   "name": "marketing_flow_node_executions_error_code_check",
+   "def": "CHECK (length(error_code) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_positions",
+   "name": "marketing_flow_positions_email_check",
+   "def": "CHECK (POSITION(('@'::text) IN (email)) > 1)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_positions",
+   "name": "marketing_flow_positions_event_facts_check",
+   "def": "CHECK (jsonb_typeof(event_facts) = 'object'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_positions",
+   "name": "marketing_flow_positions_last_error_check",
+   "def": "CHECK (length(last_error) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_steps",
+   "name": "marketing_flow_steps_step_key_check",
+   "def": "CHECK (length(step_key) >= 1 AND length(step_key) <= 40)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flow_versions",
+   "name": "marketing_flow_versions_definition_check",
+   "def": "CHECK (jsonb_typeof(definition) = 'object'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_flows",
+   "name": "marketing_flows_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_lists",
+   "name": "marketing_lists_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_suppressions",
+   "name": "marketing_suppressions_email_normalized",
+   "def": "CHECK (email = lower(btrim(email)) AND email <> ''::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_templates",
+   "name": "marketing_templates_name_check",
+   "def": "CHECK (length(name) >= 1 AND length(name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_templates",
+   "name": "marketing_templates_subject_check",
+   "def": "CHECK (length(subject) >= 1 AND length(subject) <= 998 AND subject !~ '[\\r\\n]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "marketing_templates",
+   "name": "marketing_templates_text_body_check",
+   "def": "CHECK (octet_length(text_body) <= 1048576)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_local_result_check",
+   "def": "CHECK (jsonb_typeof(local_result) = 'object'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_preview_digest_check",
+   "def": "CHECK (preview_digest IS NULL OR preview_digest ~ '^[0-9a-f]{64}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_preview_snapshot_check",
+   "def": "CHECK (preview_snapshot IS NULL OR octet_length(preview_snapshot) <= 262144)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_preview_token_check",
+   "def": "CHECK (preview_token IS NULL OR preview_token ~ '^[0-9a-f-]{36}$'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_result_history_check",
+   "def": "CHECK (jsonb_typeof(result_history) = 'array'::text AND jsonb_array_length(result_history) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_selected_copy_keys_check",
+   "def": "CHECK (jsonb_typeof(selected_copy_keys) = 'array'::text AND jsonb_array_length(selected_copy_keys) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "roundcube_bridge_requests",
+   "name": "roundcube_bridge_requests_nonce_check",
+   "def": "CHECK (length(nonce) >= 32 AND length(nonce) <= 128)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_department_check",
+   "def": "CHECK (length(department) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_display_name_check",
+   "def": "CHECK (length(display_name) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_family_name_check",
+   "def": "CHECK (length(family_name) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_given_name_check",
+   "def": "CHECK (length(given_name) <= 100)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_job_title_check",
+   "def": "CHECK (length(job_title) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_note_check",
+   "def": "CHECK (length(note) <= 4000)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tenant_directory_contacts",
+   "name": "tenant_directory_contacts_organization_check",
+   "def": "CHECK (length(organization) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "ticket_attachments",
+   "name": "ticket_attachments_content_check",
+   "def": "CHECK (octet_length(content) >= 1 AND octet_length(content) <= 2097152)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "ticket_attachments",
+   "name": "ticket_attachments_filename_check",
+   "def": "CHECK (length(filename) >= 1 AND length(filename) <= 200 AND filename !~ '[\\r\\n/\\\\]'::text)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "ticket_messages",
+   "name": "ticket_messages_body_bounded",
+   "def": "CHECK (octet_length(body) >= 1 AND octet_length(body) <= 65536)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  },
+  {
+   "table": "tickets",
+   "name": "tickets_subject_bounded",
+   "def": "CHECK (length(subject) >= 1 AND length(subject) <= 200)",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"
+  }
+ ],
+ "stripped_defaults": [],
+ "dropped_indexes": [
+  {
+   "table": "archive_content",
+   "name": "archive_content_body_trgm",
+   "def": "CREATE INDEX archive_content_body_trgm ON public.archive_content USING gin (body_text gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_content",
+   "name": "archive_content_search",
+   "def": "CREATE INDEX archive_content_search ON public.archive_content USING gin (to_tsvector('simple'::regconfig, body_text))",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_from_addr_trgm_idx",
+   "def": "CREATE INDEX archive_entries_from_addr_trgm_idx ON public.archive_entries USING gin (from_addr gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_message_id_trgm_idx",
+   "def": "CREATE INDEX archive_entries_message_id_trgm_idx ON public.archive_entries USING gin (message_id gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_subject_trgm_idx",
+   "def": "CREATE INDEX archive_entries_subject_trgm_idx ON public.archive_entries USING gin (subject gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_to_tsvector_idx",
+   "def": "CREATE INDEX archive_entries_to_tsvector_idx ON public.archive_entries USING gin (to_tsvector('simple'::regconfig, COALESCE(subject, ''::text)))",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  }
+ ]
+}
