@@ -7,7 +7,7 @@
 | 函数 | 类别 | 替代物/依据 | 调用证据 |
 |---|---|---|---|
 | domains_touch_updated_at | sqlite-trigger | BEFORE UPDATE 触碰 updated_at | 库内（迁移/触发器链） |
-| revoke_renewal_on_subscription_cancel | deprecated | subscriptions | scripts/classify-tables.py |
+| revoke_renewal_on_subscription_cancel | deprecated | subscriptions | 库内（迁移/触发器链） |
 | urmail_abandon_dns_plan | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/dns_onboarding.sql.go, internal/store/queries/dns_onboarding.sql |
 | urmail_ai_cloud_authorized | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/platform_ai.sql.go, internal/store/queries/platform_ai.sql |
 | urmail_ai_configuration_consent_guard | sqlite-trigger | 非 platform 租户 consent 禁改 | 库内（迁移/触发器链） |
@@ -81,7 +81,7 @@
 | urmail_read_evidence_body | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/platform_archive_evidence.sql.go, internal/store/queries/platform_archive_evidence.sql |
 | urmail_recall_guard | sqlite-trigger | recall 状态守卫 | 库内（迁移/触发器链） |
 | urmail_recall_message_identity_guard | sqlite-trigger | recall 消息身份守卫 | 库内（迁移/触发器链） |
-| urmail_record_audit | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/audit.sql.go, internal/store/queries/audit.sql, scripts/classify-tables.py |
+| urmail_record_audit | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/audit.sql.go, internal/store/queries/audit.sql |
 | urmail_record_marketing_feedback | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/platform_marketing.sql.go, internal/store/queries/platform_marketing.sql |
 | urmail_record_marketing_flow_audit | app-assume | 跨行/副作用/函数链 → 应用层或迁移器承担 | internal/store/marketing_flow_authoring.sql.go, internal/store/queries/marketing_flow_authoring.sql |
 | urmail_record_rejected_webhook | deprecated | payment_webhook_rejections | 库内（迁移/触发器链） |

@@ -23,21 +23,26 @@ CATALOG_DUMP_PATH=/tmp/catalog.tsv \
 URMAIL_TEST_DATABASE_URL=postgres://... \
   go test ./internal/testdb/ -run TestDumpCatalog -count=1
 
-# 2) 分类 + 钉子门 + golden diff（--check 只读比较，不覆写）
-python3 scripts/classify-tables.py \
+# 2) 分类 + 钉子门 + golden diff（--check 全内存比较，不写任何文件）
+python3 -I scripts/classify-tables.py \
   --catalog /tmp/catalog.tsv --migrations migrations \
   --out-dir scripts/isolation --check
 
 # 3) 移植面三分类 + 设计门（119 条目全覆盖、60 触发器全映射）
-python3 scripts/classify-port-surface.py \
+python3 -I scripts/classify-port-surface.py \
   --catalog /tmp/catalog.tsv --repo . --out-dir scripts/isolation
 
-# 4) deprecated 函数代码零命中门（15 名，git 语义）
-python3 scripts/classify-port-surface.py \
+# 4) deprecated 函数代码零命中门（15 名）
+python3 -I scripts/classify-port-surface.py \
   --catalog /tmp/catalog.tsv --repo . --check-deprecated
+
+# 5) 门自测：植入 decoy 并断言能被检出（防止排除规则把门挖空）
+python3 -I scripts/classify-port-surface.py \
+  --catalog /tmp/catalog.tsv --repo . --self-test-deprecated
 ```
 
-无 `CATALOG_DUMP_PATH` 时 `TestDumpCatalog` 自动 skip，不影响常规测试。
+`--out-dir` 默认即本目录（相对脚本位置解析，不污染 cwd）；无
+`CATALOG_DUMP_PATH` 时 `TestDumpCatalog` 自动 skip。
 
 ## CI 接线说明（S7 落地）
 

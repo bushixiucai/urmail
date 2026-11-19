@@ -91,7 +91,7 @@ def load_catalog(path):
     return funcs, trig
 
 
-def gather_evidence(repo, fn, self_file=""):
+def gather_evidence(repo, fn):
     ev = []
     pat = re.compile(r"\b" + re.escape(fn) + r"\b")
     roots = ["internal", "cmd", "scripts", "installer"]
@@ -101,13 +101,16 @@ def gather_evidence(repo, fn, self_file=""):
                 continue
             if not f.endswith((".go", ".sql", ".py", ".sh")):
                 continue
-            # 分类器自身与其生成物不算「代码引用」
+            # S0 tooling itself carries the deprecated lists — it is not
+            # "code referencing" anything. Exclude the classifiers and
+            # everything under scripts/isolation (generated inventories).
+            rel = os.path.relpath(f, repo)
             base = os.path.basename(f)
-            if base.startswith("classify-port-surface") or base.startswith("port-inventory"):
+            if rel.startswith("scripts/isolation/") or base.startswith("classify-"):
                 continue
             try:
                 if pat.search(open(f, errors="ignore").read()):
-                    ev.append(os.path.relpath(f, repo))
+                    ev.append(rel)
             except OSError:
                 continue
     return sorted(set(ev))
@@ -120,6 +123,8 @@ def main():
     ap.add_argument("--out-dir", default="scripts/isolation")
     ap.add_argument("--check-deprecated", action="store_true",
                     help="断言 deprecated 名单在仓库 *.go 代码零命中（CI 门）")
+    ap.add_argument("--self-test-deprecated", action="store_true",
+                    help="在 internal/ 植入 decoy 引用并断言能被检出（证明排除规则没有把门挖空）")
     args = ap.parse_args()
 
     funcs, trig = load_catalog(args.catalog)
@@ -159,6 +164,24 @@ def main():
     if sum(classified.values()) != distinct:
         print("CLASSIFICATION INCOMPLETE")
         sys.exit(1)
+
+    if args.self_test_deprecated:
+        decoy = os.path.join(args.repo, "internal", "zz_deprecated_selftest.go")
+        fn = next(iter(DEPRECATED))
+        try:
+            with open(decoy, "w") as f:
+                f.write(f"package x\n\n// gate self-test decoy: {fn}\n")
+            hits = {name: gather_evidence(args.repo, name) for name in DEPRECATED}
+            if not hits.get(fn):
+                print("SELF-TEST FAIL: decoy not detected — exclusion rules hollowed out the gate")
+                sys.exit(1)
+            if any(hits.get(n) for n in DEPRECATED if n != fn):
+                print(f"SELF-TEST FAIL: unexpected extra hits: {hits}")
+                sys.exit(1)
+        finally:
+            os.remove(decoy)
+        print(f"deprecated gate self-test OK (decoy {fn} detected; tooling excluded)")
+        return
 
     if args.check_deprecated:
         hits = {fn: inv[fn]["evidence"] for fn in DEPRECATED if inv[fn]["evidence"]}

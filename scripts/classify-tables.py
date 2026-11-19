@@ -110,11 +110,14 @@ def static_cross_check(migrations_dir, live):
 
 
 def main():
+    default_out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "isolation")
     ap = argparse.ArgumentParser()
     ap.add_argument("--catalog", required=True)
     ap.add_argument("--migrations", default="")
-    ap.add_argument("--out-dir", default=".")
-    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--out-dir", default=default_out,
+                    help="default: scripts/isolation next to this script")
+    ap.add_argument("--check", action="store_true",
+                    help="read-only golden compare: builds everything in memory, writes nothing")
     ap.add_argument("--dump-trigger-port", action="store_true")
     args = ap.parse_args()
 
@@ -188,30 +191,36 @@ def main():
         print("EXTENSIONS\t" + ",".join(extensions))
         return
 
+    payload = json.dumps({"counts": counts, "restrictive_tables": restrictive_tables,
+                          "append_only": APPEND_ONLY, "tables": rows,
+                          "triggers": triggers,
+                          "extensions": extensions,
+                          "deprecated_functions": DEPRECATED_FUNCTIONS,
+                          "functions_live": sorted(set(functions))}, indent=1, ensure_ascii=False)
+
+    if args.check:
+        # Pure-read gate: build in memory, compare against the golden, and
+        # write NOTHING — a clean checkout stays clean (golden is seeded
+        # only by a reviewed non-check run, never by CI).
+        golden = os.path.join(args.out_dir, "tables.golden.json")
+        if not os.path.exists(golden):
+            print(f"golden missing: {golden} (seed it in a reviewed run, never in CI)")
+            sys.exit(1)
+        if open(golden).read() != payload:
+            print("GOLDEN DRIFT: regenerate and review before landing")
+            sys.exit(1)
+        print(json.dumps(counts, ensure_ascii=False))
+        return
+
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "tables.json"), "w") as f:
-        json.dump({"counts": counts, "restrictive_tables": restrictive_tables,
-                   "append_only": APPEND_ONLY, "tables": rows,
-                   "triggers": triggers,
-                   "extensions": extensions,
-                   "deprecated_functions": DEPRECATED_FUNCTIONS,
-                   "functions_live": sorted(set(functions))}, f, indent=1, ensure_ascii=False)
+        f.write(payload)
     with open(os.path.join(args.out_dir, "appendix.md"), "w") as f:
         f.write("| 表名 | 类别 | 依据 | 标签 | urmail_app 授权 |\n|---|---|---|---|---|\n")
         for t in sorted(rows):
             r = rows[t]
             f.write(f"| {t} | {r['class']} | {r['basis']} | {', '.join(r['tags']) or '—'} |"
                     f" {', '.join(r['app_privs']) or '无'} |\n")
-
-    if args.check:
-        golden = os.path.join(args.out_dir, "tables.golden.json")
-        if os.path.exists(golden):
-            if open(golden).read() != open(os.path.join(args.out_dir, "tables.json")).read():
-                print("GOLDEN DRIFT: regenerate and review before landing")
-                sys.exit(1)
-        else:
-            print("golden file missing; run without --check once to seed it")
-            sys.exit(1)
     print(json.dumps(counts, ensure_ascii=False))
 
 

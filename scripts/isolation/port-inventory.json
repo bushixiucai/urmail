@@ -20,9 +20,7 @@
    "host": "subscriptions",
    "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
-   "evidence": [
-    "scripts/classify-tables.py"
-   ]
+   "evidence": []
   },
   "urmail_abandon_dns_plan": {
    "class": "app-assume",
@@ -666,8 +664,7 @@
    "overloads": 2,
    "evidence": [
     "internal/store/audit.sql.go",
-    "internal/store/queries/audit.sql",
-    "scripts/classify-tables.py"
+    "internal/store/queries/audit.sql"
    ]
   },
   "urmail_record_marketing_feedback": {
