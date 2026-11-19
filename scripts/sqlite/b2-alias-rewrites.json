@@ -1,5 +1,5 @@
 {
- "count": 45,
+ "count": 47,
  "changes": [
   {
    "file": "archive_case_product.sql",
@@ -283,11 +283,19 @@
   },
   {
    "file": "platform_marketing.sql",
-   "method": "PlatformClaimMarketingRecipient",
+   "method": "PlatformAdvanceMarketingTurn",
    "table": "platform_marketing_dispatch",
    "alias": "d",
-   "before": "-- name: PlatformClaimMarketingRecipient :one\n-- scope: platform\n\nWITH tenant_candidate AS MATERIALIZED (\n SELECT d.tenant_id FROM platform_marketing_dispatch d\n WHERE EXISTS(SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id\n  WHERE r.tenant_id=d.tenant_id AND r.status='queued' AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTE",
-   "after": "-- name: PlatformClaimMarketingRecipient :one\n-- scope: platform\n\nWITH tenant_candidate AS MATERIALIZED (\n SELECT tenant_id  WHERE EXISTS(SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id\n  WHERE r.tenant_id=tenant_id AND r.status='queued' AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND c.status IN('schedule"
+   "before": "-- name: PlatformAdvanceMarketingTurn :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch d\nSET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id\n WHERE r.tenant_id=d.tenant_id AND r.status='queued'\n  AND r.next_attempt_at<=",
+   "after": "-- name: PlatformAdvanceMarketingTurn :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id\n WHERE r.tenant_id=tenant_id AND r.status='queued'\n  AND r.next_attempt_at<=(CAS"
+  },
+  {
+   "file": "platform_marketing.sql",
+   "method": "PlatformClaimMarketingRecipient",
+   "table": "marketing_recipients",
+   "alias": "r",
+   "before": "-- name: PlatformClaimMarketingRecipient :one\n-- scope: platform\n\nUPDATE marketing_recipients r\nSET status='sending', attempts=r.attempts+1, last_turn=(SELECT last_turn FROM platform_marketing_dispatch d WHERE d.tenant_id=r.tenant_id)\nWHERE r.status='queued'\n AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)\n AND EXISTS(SELECT 1 FROM marketing_campaigns c WHERE c.tenant_id=r.t",
+   "after": "-- name: PlatformClaimMarketingRecipient :one\n-- scope: platform\n\nUPDATE marketing_recipients SET status='sending', attempts=attempts+1, last_turn=(SELECT last_turn  WHERE next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND EXISTS(SELECT 1 FROM marketing_campaigns c WHERE c.tenant_id=tenant_id AND c.id=campaign_id AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(st"
   },
   {
    "file": "platform_marketing.sql",
@@ -299,11 +307,19 @@
   },
   {
    "file": "platform_marketing_flows.sql",
-   "method": "PlatformClaimMarketingFlowPositions",
+   "method": "PlatformAdvanceMarketingFlowDueTenant",
    "table": "platform_marketing_dispatch",
    "alias": "d",
-   "before": "-- name: PlatformClaimMarketingFlowPositions :many\n-- scope: platform\n\nWITH due_tenants AS MATERIALIZED (\n SELECT d.tenant_id,d.last_turn FROM platform_marketing_dispatch d\n WHERE EXISTS(SELECT 1 FROM marketing_flow_positions p\n JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id\n JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_",
-   "after": "-- name: PlatformClaimMarketingFlowPositions :many\n-- scope: platform\n\nWITH due_tenants AS MATERIALIZED (\n SELECT tenant_id,last_turn  WHERE EXISTS(SELECT 1 FROM marketing_flow_positions p\n JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id\n JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key\n WHERE p.tenant_id=tenant_id AND f."
+   "before": "-- name: PlatformAdvanceMarketingFlowDueTenant :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch d\nSET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_flow_positions p\n JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id\n JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.",
+   "after": "-- name: PlatformAdvanceMarketingFlowDueTenant :execrows\n-- scope: platform\n\nUPDATE platform_marketing_dispatch SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)\nWHERE EXISTS(\n SELECT 1 FROM marketing_flow_positions p\n JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id\n JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.fl"
+  },
+  {
+   "file": "platform_marketing_flows.sql",
+   "method": "PlatformClaimMarketingFlowPositions",
+   "table": "marketing_flow_positions",
+   "alias": "p",
+   "before": "-- name: PlatformClaimMarketingFlowPositions :many\n-- scope: platform\n\nUPDATE marketing_flow_positions p\nSET lease_owner=sqlc.arg(lease_owner),\n lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(lease_seconds)*1000000,\n lease_fence=p.lease_fence+1\nWHERE p.tenant_id=sqlc.arg(tenant_id)\n AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runti",
+   "after": "-- name: PlatformClaimMarketingFlowPositions :many\n-- scope: platform\n\nUPDATE marketing_flow_positions SET lease_owner=sqlc.arg(lease_owner),\n lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(lease_seconds)*1000000,\n lease_fence=lease_fence+1\nWHERE tenant_id=sqlc.arg(tenant_id)\n AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id"
   },
   {
    "file": "platform_marketing_flows.sql",

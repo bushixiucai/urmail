@@ -36,19 +36,17 @@ VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc
 RETURNING *;
 -- scope: platform
 
-UPDATE mailbox_contacts c
-SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
+UPDATE mailbox_contacts SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
  emails=sqlc.arg(emails), phones=sqlc.arg(phones), note=sqlc.arg(note),
- version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id) AND c.id=sqlc.arg(id)
- AND c.version=sqlc.arg(expected_version) AND c.deleted_at IS NULL
+ version=version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
+ AND version=sqlc.arg(expected_version) AND deleted_at IS NULL
 RETURNING *;
 -- scope: platform
 
 -- 成员清理（原 removed CTE）拆为顺序查询 PlatformDeleteContactMembers，与本体同事务依序执行
-UPDATE mailbox_contacts c
-SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE c.tenant_id=?1 AND c.mailbox_id=?2 AND c.id=?3 AND c.version=?4 AND c.deleted_at IS NULL
+UPDATE mailbox_contacts SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), version=version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND version=?4 AND deleted_at IS NULL
 RETURNING *;
 -- name: PlatformSearchContacts :many
 -- scope: platform
@@ -103,15 +101,14 @@ VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(calendar_id), sqlc.ar
 RETURNING *;
 -- scope: platform
 
-UPDATE mailbox_events e
-SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.arg(location),
+UPDATE mailbox_events SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.arg(location),
  starts_at=sqlc.arg(starts_at), ends_at=sqlc.arg(ends_at), all_day=sqlc.arg(all_day),
  timezone=sqlc.arg(timezone), rrule=sqlc.arg(rrule), status=sqlc.arg(status), attendees=sqlc.arg(attendees),
- recurrence_overrides=COALESCE(sqlc.narg(recurrence_overrides), e.recurrence_overrides),
- reminders=COALESCE(sqlc.narg(reminders), e.reminders),
- sequence=e.sequence+1, version=e.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE e.tenant_id=sqlc.arg(tenant_id) AND e.mailbox_id=sqlc.arg(mailbox_id) AND e.id=sqlc.arg(id)
- AND e.version=sqlc.arg(expected_version) AND e.deleted_at IS NULL
+ recurrence_overrides=COALESCE(sqlc.narg(recurrence_overrides), recurrence_overrides),
+ reminders=COALESCE(sqlc.narg(reminders), reminders),
+ sequence=sequence+1, version=version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
+ AND version=sqlc.arg(expected_version) AND deleted_at IS NULL
 RETURNING *;
 -- name: PlatformDeleteEvent :oneUPDATE mailbox_events e
 SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), status='cancelled', version=e.version+1, sequence=e.sequence+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
@@ -135,11 +132,10 @@ WITH candidate AS (
  ORDER BY id
  LIMIT 1
 )
-UPDATE mailbox_jobs j
-SET status='leased', attempts=j.attempts+1, claim_token=j.claim_token+1,
+UPDATE mailbox_jobs SET status='leased', attempts=attempts+1, claim_token=claim_token+1,
  lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000), updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE j.id=(SELECT id FROM candidate) AND j.status='pending'
-RETURNING j.*;
+WHERE id=(SELECT id FROM candidate) AND status='pending'
+RETURNING *;
 
 -- name: PlatformInsertContactGroupMember :oneINSERT INTO mailbox_contact_group_members(tenant_id, mailbox_id, group_id, contact_id)
 SELECT g.tenant_id, g.mailbox_id, g.id, c.id

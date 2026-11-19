@@ -6,5 +6,5 @@ WITH due AS (
  AND state IN('pending','approved') AND expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
  ORDER BY id LIMIT 100
 )
-UPDATE archive_approval_requests r SET state='expired',decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),decision_reason='APPROVAL_EXPIRED'
-FROM due d WHERE r.tenant_id=d.tenant_id AND r.id=d.id;
+UPDATE archive_approval_requests SET state='expired',decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),decision_reason='APPROVAL_EXPIRED'
+ WHERE EXISTS(SELECT 1 FROM due d WHERE tenant_id=d.tenant_id AND id=d.id);

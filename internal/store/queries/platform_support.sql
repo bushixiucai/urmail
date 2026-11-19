@@ -21,7 +21,7 @@ INSERT INTO ticket_messages(tenant_id,ticket_id,author_id,body,is_staff) VALUES(
 -- name: PlatformChangeSupportTicket :one
 -- scope: platform
 
-UPDATE tickets t SET status=?3,assigned_to=?4,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE t.tenant_id=?1 AND t.id=?2 AND (?4 IS NULL OR EXISTS(SELECT 1 FROM platform_admins p JOIN users u ON u.id=p.user_id WHERE p.user_id=?4 AND u.status='active')) RETURNING *;
+UPDATE tickets SET status=?3,assigned_to=?4,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND id=?2 AND (?4 IS NULL OR EXISTS(SELECT 1 FROM platform_admins p JOIN users u ON u.id=p.user_id WHERE p.user_id=?4 AND u.status='active')) RETURNING *;
 
 -- name: PlatformListAnnouncements :many
 -- scope: platform

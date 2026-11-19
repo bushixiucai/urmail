@@ -37,9 +37,9 @@ DELETE FROM brand_host_challenges WHERE hostname=sqlc.arg(hostname);
 -- name: PlatformUnbindBrandHostMark :exec
 -- scope: platform
 
-UPDATE brand_hosts h SET status='failed', failure_reason='revoked', verified_at=NULL,
+UPDATE brand_hosts SET status='failed', failure_reason='revoked', verified_at=NULL,
  cert_issued_at=NULL, activated_at=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE h.hostname=sqlc.arg(hostname);
+WHERE hostname=sqlc.arg(hostname);
 -- name: PlatformSetBrandStatus :execrows
 -- scope: platform
 

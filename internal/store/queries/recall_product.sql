@@ -34,7 +34,7 @@ SELECT * FROM recall_requests r WHERE r.tenant_id= @tenant_id AND r.id= @recall_
 -- name: ConfirmRecallReview :one
 -- scope: tenant
 
-UPDATE recall_requests r SET status='pending', confirmed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), selected_copy_keys= @selected
-WHERE r.tenant_id= @tenant_id AND r.id= @recall_id AND r.preview_actor_id= @actor_id AND r.preview_token= @token AND r.preview_digest= @digest
- AND r.preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND r.status='preview'
-RETURNING r.*;
+UPDATE recall_requests SET status='pending', confirmed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), selected_copy_keys= @selected
+WHERE tenant_id= @tenant_id AND id= @recall_id AND preview_actor_id= @actor_id AND preview_token= @token AND preview_digest= @digest
+ AND preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='preview'
+RETURNING *;

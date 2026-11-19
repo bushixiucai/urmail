@@ -58,35 +58,27 @@ AND NOT EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=marketi
 -- name: PlatformAdvanceMarketingFlowDueTenant :execrows
 -- scope: platform
 
-UPDATE platform_marketing_dispatch d
-SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)
+UPDATE platform_marketing_dispatch SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)
 WHERE EXISTS(
  SELECT 1 FROM marketing_flow_positions p
  JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
  JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
- WHERE p.tenant_id=d.tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain
+ WHERE p.tenant_id=tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain
   AND p.stopped_at IS NULL AND p.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
   AND (p.lease_until IS NULL OR p.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
   AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
   AND (s.kind='wait' OR s.next_key<>''))
-RETURNING d.tenant_id;
+RETURNING tenant_id;
 
 -- name: PlatformClaimMarketingFlowPositions :many
 -- scope: platform
 
-UPDATE marketing_flow_positions p
-SET lease_owner=sqlc.arg(lease_owner),
+UPDATE marketing_flow_positions SET lease_owner=sqlc.arg(lease_owner),
  lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(lease_seconds)*1000000,
- lease_fence=p.lease_fence+1
-WHERE p.tenant_id=sqlc.arg(tenant_id)
- AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
- AND EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
-  AND s.kind<>'wait' OR (s.kind='wait' AND p.wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)))
- AND NOT p.unsubscribed AND NOT p.delivery_uncertain AND p.stopped_at IS NULL
- AND p.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- AND (p.lease_until IS NULL OR p.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
-RETURNING p.tenant_id, p.flow_id, p.email, p.step_key, p.lease_fence, p.lease_until, p.event_facts;
--- name: PlatformReleaseMarketingFlowLease :execrows
+ lease_fence=lease_fence+1
+WHERE tenant_id=sqlc.arg(tenant_id)
+ AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id AND s.flow_id=flow_id AND s.step_key=step_key AND s.kind<>'wait' OR (s.kind='wait' AND wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))) AND NOT unsubscribed AND NOT delivery_uncertain AND stopped_at IS NULL AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
+RETURNING tenant_id, flow_id, email, step_key, lease_fence, lease_until, event_facts AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=tenant_id AND v.runtime_flow_id=flow_id));-- name: PlatformReleaseMarketingFlowLease :execrows
 -- scope: platform
 
 UPDATE marketing_flow_positions SET lease_owner=NULL, lease_until=NULL
@@ -97,18 +89,13 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fenc
 -- name: PlatformArmMarketingFlowWait :execrows
 -- scope: platform
 
-UPDATE marketing_flow_positions p
-SET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(
-  SELECT s.wait_seconds*1000000 FROM marketing_flow_steps s
-  WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key AND s.kind='wait' AND s.wait_seconds>0)
-WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3
- AND p.wait_until IS NULL AND p.lease_owner=?4 AND p.lease_fence=?5 AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
- AND EXISTS(SELECT 1 FROM marketing_flow_steps s2 WHERE s2.tenant_id=p.tenant_id AND s2.flow_id=p.flow_id AND s2.step_key=p.step_key AND s2.kind='wait' AND s2.wait_seconds>0);
+UPDATE marketing_flow_positions SET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(
+  SELECT s.wait_seconds*1000000  WHERE flow_id=?2 AND email=?3 AND wait_until IS NULL AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND EXISTS(SELECT 1 FROM marketing_flow_steps s2 WHERE s2.tenant_id=tenant_id AND s2.flow_id=flow_id AND s2.step_key=step_key AND s2.kind='wait' AND s2.wait_seconds>0);
 
 -- Advance a wait step whose wait_until elapsed, without sending anything.
--- The database function re-checks uncertain, unsubscribe, the wait and the
--- sending gate under FOR UPDATE, so it is the linearization point.
--- name: PlatformCommitMarketingFlowWait :one
+-- The database function re-checks uncertain, unsubscribe, the wait AND the
+-- sending gate under FOR UPDATE, so it is the linearization point. AND EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id AND s.flow_id=flow_id AND s.step_key=step_key AND s.kind='wait' AND s.wait_seconds>0)
+WHERE tenant_id=?1)-- name: PlatformCommitMarketingFlowWait :one
 -- scope: platform
 
 SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;

@@ -41,14 +41,14 @@ RETURNING token_hash,tenant_id,mailbox_id,session_hash,scope,folder,message_uid,
 -- name: PlatformConsumeMailboxTicket :one
 -- scope: platform
 
-UPDATE mailbox_operation_tickets ticket SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE mailbox_operation_tickets SET consumed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 FROM mailbox_sessions s JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
 JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
-WHERE ticket.token_hash=sqlc.arg(token_hash) AND ticket.scope=sqlc.arg(scope) AND ticket.folder=sqlc.arg(folder) AND ticket.message_uid=sqlc.arg(message_uid) AND ticket.uid_validity=sqlc.arg(uid_validity)
-AND ticket.session_hash=s.token_hash AND ticket.tenant_id=s.tenant_id AND ticket.mailbox_id=s.mailbox_id
-AND ticket.kind='operation' AND ticket.consumed_at IS NULL AND ticket.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND s.revoked_at IS NULL AND s.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE token_hash=sqlc.arg(token_hash) AND scope=sqlc.arg(scope) AND folder=sqlc.arg(folder) AND message_uid=sqlc.arg(message_uid) AND uid_validity=sqlc.arg(uid_validity)
+AND session_hash=s.token_hash AND tenant_id=s.tenant_id AND mailbox_id=s.mailbox_id
+AND kind='operation' AND consumed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND s.revoked_at IS NULL AND s.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND s.password_version=md5(m.password_hash) AND m.status='active' AND t.status='active' AND d.status='active'
-RETURNING ticket.tenant_id,ticket.mailbox_id,ticket.scope,ticket.folder,ticket.message_uid,ticket.uid_validity,m.address,s.token_hash AS session_hash;
+RETURNING tenant_id,mailbox_id,scope,folder,message_uid,uid_validity,m.address,s.token_hash AS session_hash;
 
 -- name: PlatformPruneRoundcubeRequests :exec
 -- scope: platform

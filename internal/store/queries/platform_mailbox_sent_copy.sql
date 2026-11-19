@@ -17,9 +17,9 @@ WITH candidate AS (
  AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
  ORDER BY next_attempt_at,id LIMIT 1
 )
-UPDATE mailbox_scheduled_sends s SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
-WHERE s.id=(SELECT id FROM candidate) AND (s.lease_until IS NULL OR s.lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
-RETURNING s.*;
+UPDATE mailbox_scheduled_sends SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
+WHERE id=(SELECT id FROM candidate) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
+RETURNING *;
 
 -- name: PlatformClaimOwnedScheduledSentCopy :one
 -- scope: platform
@@ -68,9 +68,9 @@ WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND id=sqlc.arg(i
 -- name: PlatformHoldUnauthorizedScheduledCopies :execrows
 -- scope: platform
 
-UPDATE mailbox_scheduled_sends r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.status='sent' AND r.sent_copy_state IN('pending','unknown')
-AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version);
+UPDATE mailbox_scheduled_sends SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='sent' AND sent_copy_state IN('pending','unknown')
+AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=tenant_id AND m.id=mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=smtp_password_version);
 
 -- name: PlatformGetLegacyScheduledCopy :one
 -- scope: platform

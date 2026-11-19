@@ -74,9 +74,7 @@ UPDATE marketing_flow_definitions SET status='paused',updated_at=(CAST(strftime(
 -- name: PauseMarketingRuntimeFlows :exec
 -- scope: tenant
 
-UPDATE marketing_flows f SET status='paused' WHERE f.tenant_id=?1 AND f.id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2);
-
--- name: ListMarketingFlowVersions :many
+UPDATE marketing_flows SET status='paused' WHERE tenant_id=?1 AND id IN(SELECT v.runtime_flow_id  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2));-- name: ListMarketingFlowVersions :many
 -- scope: tenant
 
 SELECT id,version,draft_revision,runtime_flow_id,published_by,created_at FROM marketing_flow_versions
@@ -142,11 +140,9 @@ WHERE e.tenant_id=?1 AND v.definition_id=?2 AND e.position_id=?3 ORDER BY e.id D
 -- name: StopMarketingFlowInstance :execrows
 -- scope: tenant
 
-UPDATE marketing_flow_positions p SET stopped_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE p.tenant_id=?1 AND p.id=?3 AND p.stopped_at IS NULL
-AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id AND v.definition_id=?2);
-
--- name: RetryMarketingFlowInstance :one
+UPDATE marketing_flow_positions SET stopped_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND id=?3 AND stopped_at IS NULL
+AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=tenant_id AND v.runtime_flow_id=flow_id AND v.definition_id=?2));-- name: RetryMarketingFlowInstance :one
 -- scope: platform
 
 SELECT urmail_retry_marketing_flow_instance(?1,?2,?3,?4) AS retried;

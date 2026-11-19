@@ -24,9 +24,9 @@ SELECT * FROM mailbox_send_receipts WHERE tenant_id=?1 AND mailbox_id=?2 ORDER B
 -- name: PlatformBeginSendReceipt :one
 -- scope: platform
 
-UPDATE mailbox_send_receipts r SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.tenant_id=sqlc.arg(tenant_id) AND r.mailbox_id=sqlc.arg(mailbox_id) AND r.id=sqlc.arg(id) AND r.status='prepared' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
-AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active') RETURNING r.*;
+UPDATE mailbox_send_receipts SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id) AND status='prepared' AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=tenant_id AND m.id=mailbox_id AND m.status='active' AND t.status='active' AND d.status='active') RETURNING *;
 
 -- name: PlatformFinishSendReceipt :one
 -- scope: platform
@@ -58,9 +58,9 @@ WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accep
 -- scope: platform
 
 WITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown') AND raw_secret<>'' AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY next_attempt_at,id LIMIT 1)
-UPDATE mailbox_send_receipts r SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
-WHERE r.id=(SELECT id FROM candidate) AND (r.lease_until IS NULL OR r.lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
-RETURNING r.*;
+UPDATE mailbox_send_receipts SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
+WHERE id=(SELECT id FROM candidate) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
+RETURNING *;
 
 -- name: PlatformClaimOwnedSendCopy :one
 -- scope: platform
@@ -107,9 +107,9 @@ SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(tenant_id)||':'||sqlc.arg
 -- name: PlatformHoldUnauthorizedSendCopies :execrows
 -- scope: platform
 
-UPDATE mailbox_send_receipts r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.status='accepted' AND r.sent_copy_state IN('pending','unknown')
-AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version);
+UPDATE mailbox_send_receipts SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown')
+AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=tenant_id AND m.id=mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=smtp_password_version);
 
 -- name: PlatformDraftDeleteLocked :one
 -- scope: platform

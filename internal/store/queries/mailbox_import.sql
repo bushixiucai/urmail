@@ -17,11 +17,7 @@ AND (j.status NOT IN('completed','canceled') OR EXISTS(SELECT 1 FROM mailbox_imp
 -- name: ClearExpiredMailboxImportPayloads :exec
 -- scope: tenant
 
-UPDATE mailbox_import_items i SET raw_secret='' FROM mailbox_import_jobs j
-WHERE i.tenant_id=sqlc.arg(tenant_id) AND j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id
-AND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000);
-
--- name: CreateMailboxImportJob :one
+UPDATE mailbox_import_items SET raw_secret=''  WHERE tenant_id=sqlc.arg(tenant_id) AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=tenant_id AND j.mailbox_id=mailbox_id AND j.id=job_id AND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000));-- name: CreateMailboxImportJob :one
 -- scope: tenant
 
 INSERT INTO mailbox_import_jobs(tenant_id,mailbox_id,request_key,format,filename,folder,uid_validity,source_digest,preview_digest,duplicate_policy,source_bytes)
@@ -91,11 +87,8 @@ AND i.status IN('pending','importing','unknown');
 -- name: MailboxImportRecoverExpiredLeases :exec
 -- scope: tenant
 
-UPDATE mailbox_import_items i SET status='unknown',error_code='MAIL_IMPORT_ACK_UNKNOWN',reconciled_at=NULL,reconcile_absent=false,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-FROM mailbox_import_jobs j WHERE i.tenant_id=?1 AND i.mailbox_id=?2 AND j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id
-AND i.status='importing' AND (j.lease_until IS NULL OR j.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000));
-
--- name: RecordMailboxImportAudit :exec
+UPDATE mailbox_import_items SET status='unknown',error_code='MAIL_IMPORT_ACK_UNKNOWN',reconciled_at=NULL,reconcile_absent=false,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ WHERE tenant_id=?1 AND mailbox_id=?2 AND status='importing' AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=tenant_id AND j.mailbox_id=mailbox_id AND j.id=job_id AND (j.lease_until IS NULL OR j.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)));-- name: RecordMailboxImportAudit :exec
 -- scope: tenant
 
 INSERT INTO audit_logs(tenant_id,action,target_id,detail)

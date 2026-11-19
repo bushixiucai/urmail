@@ -45,19 +45,18 @@ RETURNING *;
 -- scope: platform
 
 WITH candidate AS (
- SELECT s.id FROM mailbox_scheduled_sends s
- JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
- JOIN tenants t ON t.id=s.tenant_id
+ SELECT id FROM mailbox_scheduled_sends s
+ JOIN mailboxes m ON m.tenant_id=tenant_id AND m.id=mailbox_id
+ JOIN tenants t ON t.id=tenant_id
  JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
- WHERE s.status='pending' AND s.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND s.draft_uidvalidity>0
+ WHERE status='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND draft_uidvalidity>0
   AND m.status='active' AND t.status='active' AND d.status='active'
- ORDER BY s.next_attempt_at ASC,s.id ASC LIMIT 1
+ ORDER BY next_attempt_at ASC,id ASC LIMIT 1
 )
-UPDATE mailbox_scheduled_sends s
-SET status='preparing',attempts=s.attempts+1,claim_token=s.claim_token+1,
+UPDATE mailbox_scheduled_sends SET status='preparing',attempts=attempts+1,claim_token=claim_token+1,
  lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE s.id=(SELECT id FROM candidate) AND s.status IN('pending','held')
-RETURNING s.*;
+WHERE id=(SELECT id FROM candidate) AND status IN('pending','held')
+RETURNING *;
 
 -- name: PlatformGetMailboxScheduledSendAddress :one
 -- scope: platform
@@ -71,14 +70,14 @@ WHERE m.tenant_id=sqlc.arg(tenant_id) AND m.id=sqlc.arg(mailbox_id)
 -- name: PlatformBeginMailboxScheduledSendSubmission :one
 -- scope: platform
 
-UPDATE mailbox_scheduled_sends s SET status='submitting',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE s.id=sqlc.arg(id) AND s.claim_token=sqlc.arg(claim_token)
- AND s.status='preparing' AND s.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE mailbox_scheduled_sends SET status='submitting',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token)
+ AND status='preparing' AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
  AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id
   JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
-  WHERE m.tenant_id=s.tenant_id AND m.id=s.mailbox_id
+  WHERE m.tenant_id=tenant_id AND m.id=mailbox_id
    AND m.status='active' AND t.status='active' AND d.status='active')
-RETURNING s.*;
+RETURNING *;
 
 -- name: PlatformFinishMailboxScheduledSend :one
 -- scope: platform

@@ -37,6 +37,6 @@ WHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND d.status='active';
 
 -- scope: platform
 
-UPDATE recall_requests r SET status= @status, reason= @reason, local_result= @result, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE r.tenant_id= @tenant_id AND r.id= @recall_id AND r.status='pending' AND r.attempt_epoch= @epoch
-RETURNING r.*;
+UPDATE recall_requests SET status= @status, reason= @reason, local_result= @result, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id= @tenant_id AND id= @recall_id AND status='pending' AND attempt_epoch= @epoch
+RETURNING *;

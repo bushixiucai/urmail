@@ -120,11 +120,9 @@ ORDER BY a.id LIMIT 100;
 -- name: PlatformSetArchiveOriginalHash :exec
 -- scope: platform
 
-UPDATE archive_entries a SET raw_sha256= @raw_sha256
-WHERE a.tenant_id= @tenant_id AND a.id= @id AND a.raw_sha256=''
- AND NOT EXISTS(SELECT 1 FROM archive_entries b WHERE b.tenant_id=a.tenant_id AND b.mailbox_id IS NOT DISTINCT FROM a.mailbox_id AND b.message_id=a.message_id AND b.raw_sha256= @raw_sha256 AND b.id<>a.id);
-
--- name: PlatformLockRetentionPurgePolicy :one
+UPDATE archive_entries SET raw_sha256= @raw_sha256
+WHERE tenant_id= @tenant_id AND id= @id AND raw_sha256=''
+ AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM archive_entries b WHERE b.tenant_id=tenant_id AND b.mailbox_id IS NOT DISTINCT FROM mailbox_id AND b.message_id=message_id AND b.raw_sha256= @raw_sha256 AND b.id<>id));-- name: PlatformLockRetentionPurgePolicy :one
 -- scope: platform
 
 SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id),false) AS allowed

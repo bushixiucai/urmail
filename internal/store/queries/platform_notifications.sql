@@ -21,13 +21,13 @@ SELECT value FROM settings WHERE scope='platform' AND scope_id=0 AND key='notifi
 -- row stays 'pending' while leased, so a crashed worker's lease expiry makes
 -- it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP
 -- submission later moves it to the unreplayable 'uncertain' state.
-UPDATE notification_outbox n SET lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1
-WHERE n.id=(SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE notification_outbox SET lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1
+WHERE id=(SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
  AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND attempts<8
  ORDER BY id LIMIT 1)
- AND n.channel='email' AND n.state='pending'
- AND (n.lease_until IS NULL OR n.lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
- RETURNING n.*;
+ AND channel='email' AND state='pending'
+ AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
+ RETURNING *;
 
 -- name: PlatformFinishEmailNotification :execrows
 -- scope: platform
@@ -93,13 +93,12 @@ ON CONFLICT(alert_key) DO UPDATE SET state='firing',
 -- name: PlatformResolveStaleAIAlerts :execrows
 -- scope: platform
 
-UPDATE operational_alerts a SET state='resolved',
+UPDATE operational_alerts SET state='resolved',
  resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),
  last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE a.kind IN('ai_requires_review','ai_budget_exhausted') AND a.state='firing'
+WHERE kind IN('ai_requires_review','ai_budget_exhausted') AND state='firing'
  AND NOT EXISTS(
-  SELECT 1 FROM ai_usage_requests u WHERE u.status='uncertain' OR (u.status='reserved' AND u.updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000));
--- name: PlatformEnqueueAIAlerts :exec
+  SELECT 1  WHERE EXISTS(SELECT 1 FROM ai_usage_requests u WHERE u.status='uncertain' OR (u.status='reserved' AND u.updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000)));-- name: PlatformEnqueueAIAlerts :exec
 -- scope: platform
 
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)

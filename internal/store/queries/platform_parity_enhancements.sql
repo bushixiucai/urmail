@@ -114,12 +114,11 @@ VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc
 RETURNING *;
 -- scope: platform
 
-UPDATE mailbox_contacts c
-SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
+UPDATE mailbox_contacts SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
  emails=sqlc.arg(emails), phones=sqlc.arg(phones), note=sqlc.arg(note),
  organization=sqlc.arg(organization), job_title=sqlc.arg(job_title), addresses=sqlc.arg(addresses),
  birthday=sqlc.arg(birthday), photo=sqlc.arg(photo), vcard_extra=sqlc.arg(vcard_extra),
- version=c.version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id) AND c.id=sqlc.arg(id)
- AND c.version=sqlc.arg(expected_version) AND c.deleted_at IS NULL
+ version=version+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
+ AND version=sqlc.arg(expected_version) AND deleted_at IS NULL
 RETURNING *;
