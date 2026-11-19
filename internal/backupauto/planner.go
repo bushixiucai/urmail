@@ -93,6 +93,20 @@ func ManifestName(stamp string) string {
 	return "urmail-" + stamp + ".manifest.json"
 }
 
+// GenerationAge returns how old the backup generation recorded in a run's
+// manifest name is. Freshness gates must use this, not the run start time:
+// re-uploading an old manifest records a fresh run row whose generation is
+// still old. ok is false when the row carries no parseable stamp and the
+// caller falls back to the run start time.
+func GenerationAge(manifestName string, now time.Time) (time.Duration, bool) {
+	name := strings.TrimSuffix(strings.TrimPrefix(manifestName, "urmail-"), ".manifest.json")
+	stamp, err := time.Parse("20060102T150405Z", name)
+	if err != nil {
+		return 0, false
+	}
+	return now.Sub(stamp.UTC()), true
+}
+
 // ArtifactByName indexes a manifest by plaintext artifact name.
 func ArtifactByName(m *Manifest) (map[string]Artifact, error) {
 	out := make(map[string]Artifact, len(m.Artifacts))

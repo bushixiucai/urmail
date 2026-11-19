@@ -174,8 +174,12 @@ var ErrBackupOffsiteDisabled = errors.New("backup_runs table is absent")
 type RunHealth struct {
 	RunUID    string
 	State     string
+	Scope     string
 	StartedAt time.Time
 	Error     string
+	// ManifestName is the offsite manifest object of the run; its stamp is
+	// the generation's own clock, which freshness gates must honor.
+	ManifestName string
 }
 
 // StaleRun reports whether a run has been in running/verifying for longer
@@ -194,14 +198,15 @@ func (h *RunHealth) StaleRun(now time.Time) bool {
 // LastRunHealth returns the readiness summary of the most recent run, or
 // ErrNoRuns when the table exists but no run has been recorded yet. A missing
 // backup_runs table yields ErrBackupOffsiteDisabled so callers can treat a
-// pre-0120 database as "feature disabled" instead of unhealthy. The read uses
-// the platform pool exactly like the writers; backup_runs denies tenant
-// contexts by policy.
+// pre-0120 database as "feature disabled" instead of unhealthy. Scope and
+// ManifestName ride along so gates can demand a COMPLETE, fresh generation
+// rather than any success row. The read uses the platform pool exactly like
+// the writers; backup_runs denies tenant contexts by policy.
 func (s *StateRecorder) LastRunHealth(ctx context.Context) (*RunHealth, error) {
 	var h RunHealth
 	err := s.Pool.QueryRow(ctx,
-		"SELECT run_uid,state,started_at,error FROM backup_runs ORDER BY id DESC LIMIT 1").
-		Scan(&h.RunUID, &h.State, &h.StartedAt, &h.Error)
+		"SELECT run_uid,state,scope,started_at,error,manifest_name FROM backup_runs ORDER BY id DESC LIMIT 1").
+		Scan(&h.RunUID, &h.State, &h.Scope, &h.StartedAt, &h.Error, &h.ManifestName)
 	if err == nil {
 		return &h, nil
 	}

@@ -149,7 +149,18 @@ if [ -f /etc/urmail/urmaild.env ]; then
   # 2. Acquire operation.lock, create upgrade.hold and inject drop-in guards to Postfix, Dovecot, Nginx
   [ -n "$NEW_URMAILCTL" ] || die "Upgrade fencing CLI is unavailable."
   log "establishing upgrade fence and pausing mail writers"
-  "$NEW_URMAILCTL" upgrade fence --reason "managed upgrade to $(basename "$TMP_DEB")"
+  # The fence refuses to start without a fresh COMPLETE offsite backup
+  # (recorded in backup_runs). When the platform database itself is the
+  # reason for this upgrade the pre-flight degrades automatically; an
+  # operator may also set URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1 to record
+  # an explicit override in the fence reason (runbook: docs/operations/
+  # upgrade-fence-preflight.md).
+  PREFLIGHT_FLAGS=""
+  if [ "${URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT:-0}" = "1" ]; then
+    log "URMAIL_SKIP_FRESH_BACKUP_PREFLIGHT=1: forwarding --skip-preflight to upgrade fence"
+    PREFLIGHT_FLAGS="--skip-preflight"
+  fi
+  "$NEW_URMAILCTL" upgrade fence --reason "managed upgrade to $(basename "$TMP_DEB")" $PREFLIGHT_FLAGS
 
   # Refuse unresolved recovery state and unsupported database identities before
   # package, environment or schema changes. Never start the agent to recover here.

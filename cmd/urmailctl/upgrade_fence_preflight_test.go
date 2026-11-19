@@ -31,6 +31,7 @@ type fencePreflightFixture struct {
 	platform  *db.Pool
 	maintDir  string
 	dropInDir string
+	envFile   string
 }
 
 func newFencePreflightFixture(t *testing.T) *fencePreflightFixture {
@@ -44,11 +45,11 @@ func newFencePreflightFixture(t *testing.T) *fencePreflightFixture {
 	}
 	t.Cleanup(platform.Close)
 	f := &fencePreflightFixture{platform: platform, maintDir: t.TempDir(), dropInDir: t.TempDir()}
-	envFile := filepath.Join(f.maintDir, "urmail.env")
-	if err = os.WriteFile(envFile, []byte("URMAIL_DATABASE_URL="+dsn+"\nURMAIL_DATABASE_URL_PLATFORM="+dsn+"\nURMAIL_QUOTE_HMAC_KEY=test-key\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
+	f.envFile = filepath.Join(f.maintDir, "urmail.env")
+	if err = os.WriteFile(f.envFile, []byte("URMAIL_DATABASE_URL="+dsn+"\nURMAIL_DATABASE_URL_PLATFORM="+dsn+"\nURMAIL_QUOTE_HMAC_KEY=test-key\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("URMAIL_ENV_FILE", envFile)
+	t.Setenv("URMAIL_ENV_FILE", f.envFile)
 	t.Setenv("URMAIL_MAINTENANCE_ROOT", f.maintDir)
 	// Every writer unit reports inactive so the fence completes without
 	// exercising systemd, isolating the pre-flight decision under test.
@@ -64,10 +65,18 @@ func newFencePreflightFixture(t *testing.T) *fencePreflightFixture {
 
 func (f *fencePreflightFixture) seedRun(t *testing.T, state string, startedAgo time.Duration, errorText string) {
 	t.Helper()
+	f.seedRunScoped(t, state, backupauto.ScopeComplete, startedAgo, errorText, backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-startedAgo))))
+}
+
+// seedRunScoped plants one finished run with explicit scope and manifest
+// name so the pre-flight can be probed against metadata-only and
+// stale-stamp generations (R1 QA).
+func (f *fencePreflightFixture) seedRunScoped(t *testing.T, state, scope string, startedAgo time.Duration, errorText, manifestName string) {
+	t.Helper()
 	if _, err := f.platform.Exec(context.Background(),
-		"INSERT INTO backup_runs(run_uid,state,scope,started_at,finished_at,error) VALUES($1,$2,$3,$4,statement_timestamp(),$5)",
-		fmt.Sprintf("preflight-%s-%d", state, startedAgo.Milliseconds()), state, backupauto.ScopeComplete,
-		time.Now().UTC().Add(-startedAgo), errorText); err != nil {
+		"INSERT INTO backup_runs(run_uid,state,scope,started_at,finished_at,error,manifest_name) VALUES($1,$2,$3,$4,statement_timestamp(),$5,$6)",
+		fmt.Sprintf("preflight-%s-%s-%d", state, scope, startedAgo.Milliseconds()), state, scope,
+		time.Now().UTC().Add(-startedAgo), errorText, manifestName); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,46 +94,89 @@ func (f *fencePreflightFixture) fence(ctx context.Context, extra ...string) erro
 }
 
 // TestUpgradeFencePreflightRefusesUnfreshBackups is the R1 refusal matrix:
-// no run at all, a failed run, a mid-flight run, and a success older than
-// the window each refuse the fence BEFORE any lock, guard or hold is
+// no run at all, a failed run, a mid-flight run, a success older than the
+// window, a metadata-only success, and a freshly re-uploaded old
+// generation each refuse the fence BEFORE any lock, guard or hold is
 // written.
 func TestUpgradeFencePreflightRefusesUnfreshBackups(t *testing.T) {
 	f := newFencePreflightFixture(t)
 	ctx := context.Background()
 
-	phases := []struct {
-		name  string
-		state string
-		ago   time.Duration
-	}{
-		{"no runs yet", "", 0},
-		{"failed run", backupauto.StateFailed, time.Hour},
-		{"running run", backupauto.StateRunning, 10 * time.Minute},
-		{"success outside window", backupauto.StateSuccess, 25 * time.Hour},
+	// metadataRun seeds a fresh, successful, NON-complete generation.
+	metadataRun := func(t *testing.T) {
+		t.Helper()
+		f.seedRunScoped(t, backupauto.StateSuccess, "metadata-only", time.Hour, "", backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-time.Hour))))
 	}
-	for _, phase := range phases {
-		t.Run(phase.name, func(t *testing.T) {
-			f.clearRuns(t)
-			if phase.state != "" {
-				f.seedRun(t, phase.state, phase.ago, "upload denied by destination")
-			}
-			err := f.fence(ctx)
-			if err == nil || !strings.Contains(err.Error(), "fresh-backup pre-flight") {
-				t.Fatalf("fence must be refused with the pre-flight reason, got %v", err)
-			}
-			if maintenance.IsUpgradeHeld(f.maintDir) {
-				t.Fatal("refused fence must not write the hold marker")
-			}
-			guards, guardErr := maintenance.CheckDropInGuards(f.dropInDir, maintenance.DropInGuardedUnits)
-			if guardErr != nil {
-				t.Fatal(guardErr)
-			}
-			for unit, held := range guards {
-				if held {
-					t.Fatalf("refused fence must not install guards, found %s", unit)
-				}
-			}
-		})
+	// staleStampRun seeds a complete success whose run row is fresh but the
+	// manifest stamp (the generation's own clock) is 25h old.
+	staleStampRun := func(t *testing.T) {
+		t.Helper()
+		f.seedRunScoped(t, backupauto.StateSuccess, backupauto.ScopeComplete, time.Hour, "",
+			backupauto.ManifestName(backupauto.StampFor(time.Now().UTC().Add(-25*time.Hour))))
+	}
+
+	t.Run("no runs yet", func(t *testing.T) {
+		f.clearRuns(t)
+		f.assertRefused(t)
+	})
+	t.Run("failed run", func(t *testing.T) {
+		f.clearRuns(t)
+		f.seedRun(t, backupauto.StateFailed, time.Hour, "upload denied by destination")
+		f.assertRefused(t)
+	})
+	t.Run("running run", func(t *testing.T) {
+		f.clearRuns(t)
+		f.seedRun(t, backupauto.StateRunning, 10*time.Minute, "")
+		f.assertRefused(t)
+	})
+	t.Run("success outside window", func(t *testing.T) {
+		f.clearRuns(t)
+		f.seedRun(t, backupauto.StateSuccess, 25*time.Hour, "")
+		f.assertRefused(t)
+	})
+	t.Run("metadata-only success", func(t *testing.T) {
+		f.clearRuns(t)
+		metadataRun(t)
+		err := f.fence(ctx)
+		if err == nil || !strings.Contains(err.Error(), "fresh-backup pre-flight") || !strings.Contains(err.Error(), "complete") {
+			t.Fatalf("metadata-only success must be refused as not a complete backup, got %v", err)
+		}
+		if maintenance.IsUpgradeHeld(f.maintDir) {
+			t.Fatal("refused fence must not write the hold marker")
+		}
+	})
+	t.Run("re-uploaded old generation", func(t *testing.T) {
+		f.clearRuns(t)
+		staleStampRun(t)
+		err := f.fence(ctx)
+		if err == nil || !strings.Contains(err.Error(), "fresh-backup pre-flight") || !strings.Contains(err.Error(), "old") {
+			t.Fatalf("a fresh run row over a 25h-old generation must be refused, got %v", err)
+		}
+		if maintenance.IsUpgradeHeld(f.maintDir) {
+			t.Fatal("refused fence must not write the hold marker")
+		}
+	})
+}
+
+// assertRefused expects the plain refusal shape: pre-flight named, nothing
+// written.
+func (f *fencePreflightFixture) assertRefused(t *testing.T) {
+	t.Helper()
+	err := f.fence(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "fresh-backup pre-flight") {
+		t.Fatalf("fence must be refused with the pre-flight reason, got %v", err)
+	}
+	if maintenance.IsUpgradeHeld(f.maintDir) {
+		t.Fatal("refused fence must not write the hold marker")
+	}
+	guards, guardErr := maintenance.CheckDropInGuards(f.dropInDir, maintenance.DropInGuardedUnits)
+	if guardErr != nil {
+		t.Fatal(guardErr)
+	}
+	for unit, held := range guards {
+		if held {
+			t.Fatalf("refused fence must not install guards, found %s", unit)
+		}
 	}
 }
 
@@ -203,6 +255,32 @@ func fakeS3Server(t *testing.T) *httptest.Server {
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+// TestUpgradeFencePreflightDegradesWhenPlatformDBUnreachable is R1 QA (a):
+// when the platform database cannot be reached, the pre-flight must not
+// block the fence (repairing the database is often the reason for the
+// upgrade); the degradation is recorded in the fence reason instead.
+func TestUpgradeFencePreflightDegradesWhenPlatformDBUnreachable(t *testing.T) {
+	f := newFencePreflightFixture(t)
+	// Point the CLI at a closed port: connection refused is immediate.
+	unreachable := "postgres://platform:nopass@127.0.0.1:1/urmail?sslmode=disable"
+	if err := os.WriteFile(f.envFile, []byte("URMAIL_DATABASE_URL="+unreachable+"\nURMAIL_DATABASE_URL_PLATFORM="+unreachable+"\nURMAIL_QUOTE_HMAC_KEY=test-key\nURMAIL_POLICY_ENABLED=true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.fence(t.Context()); err != nil {
+		t.Fatalf("unreachable platform DB must not block the fence: %v", err)
+	}
+	if !maintenance.IsUpgradeHeld(f.maintDir) {
+		t.Fatal("expected fence to be established")
+	}
+	status, err := maintenance.CheckFenceStatus(f.maintDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Meta == nil || !strings.Contains(status.Meta.Reason, "[preflight degraded: platform DB unreachable") {
+		t.Fatalf("degradation must be recorded in the fence reason, got %+v", status.Meta)
+	}
 }
 
 // TestManualOffsiteUploadRecordsRun is the R1 landing contract: the manual
