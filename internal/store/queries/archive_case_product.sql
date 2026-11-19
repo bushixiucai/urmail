@@ -101,20 +101,26 @@ FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND ca
 SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
 FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND case_version>0;
 
--- name: ArchiveCasesRequestApproval :one
 -- scope: tenant
 
-WITH existing AS (
- SELECT r.id FROM archive_approval_requests r WHERE r.tenant_id= @tenant_id AND r.investigation_id= @case_id
- AND r.requester_user_id= @actor_id AND r.source_digest= @digest AND r.state='pending' AND r.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
- ORDER BY r.id LIMIT 1
-), inserted AS (
- INSERT INTO archive_approval_requests(tenant_id,investigation_id,requester_user_id,action,source_digest,expires_at,case_version,source_snapshot)
- SELECT @tenant_id,i.id,@actor_id,'export',@digest,min(i.expires_at,(CAST(strftime('%s','now') AS INTEGER)*1000000)),i.version,urmail_archive_case_snapshot(i.tenant_id,i.id,@actor_id)
- FROM archive_investigations i WHERE i.tenant_id= @tenant_id AND i.id= @case_id AND i.status='open' AND i.version= @version AND NOT EXISTS(SELECT 1 FROM existing)
- RETURNING id
-) SELECT id FROM existing UNION ALL SELECT id FROM inserted LIMIT 1;
+-- name: ArchiveCasesGetPendingApproval :one
+-- scope: tenant
 
+SELECT r.id FROM archive_approval_requests r
+WHERE r.tenant_id=@tenant_id AND r.investigation_id=@case_id
+ AND r.requester_user_id=@actor_id AND r.source_digest=@digest AND r.state='pending'
+ AND r.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ORDER BY r.id LIMIT 1;
+
+-- name: ArchiveCasesInsertApproval :one
+-- scope: tenant
+
+INSERT INTO archive_approval_requests(tenant_id, investigation_id, requester_user_id, action, source_digest, expires_at, case_version, source_snapshot)
+SELECT @tenant_id, i.id, @actor_id, 'export', @digest,
+ min(i.expires_at, (CAST(strftime('%s','now') AS INTEGER)*1000000)), i.version, sqlc.arg(source_snapshot)
+FROM archive_investigations i
+WHERE i.tenant_id=@tenant_id AND i.id=@case_id AND i.status='open' AND i.version=@version
+RETURNING id;
 -- name: ArchiveCasesDecideApproval :one
 -- scope: tenant
 

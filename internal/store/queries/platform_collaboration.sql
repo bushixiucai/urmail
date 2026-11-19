@@ -113,21 +113,12 @@ SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.
 WHERE e.tenant_id=sqlc.arg(tenant_id) AND e.mailbox_id=sqlc.arg(mailbox_id) AND e.id=sqlc.arg(id)
  AND e.version=sqlc.arg(expected_version) AND e.deleted_at IS NULL
 RETURNING *;
--- name: PlatformDeleteEvent :one
--- scope: platform
-
-WITH next AS (
- UPDATE mailbox_events AS e
- SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), status='cancelled', version=e.version+1, sequence=e.sequence+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?4 AND e.deleted_at IS NULL
- RETURNING *
-), logged AS (
- INSERT INTO mailbox_changes(tenant_id, mailbox_id, resource_type, resource_id, version, deleted)
- SELECT next.tenant_id, next.mailbox_id, 'event', next.id, next.version, true FROM next
-)
-SELECT * FROM next;
-
--- name: PlatformListChanges :many
+-- name: PlatformDeleteEvent :oneUPDATE mailbox_events e
+SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), status='cancelled', version=e.version+1, sequence=e.sequence+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?4 AND e.deleted_at IS NULL
+RETURNING e.tenant_id, e.mailbox_id, e.calendar_id, e.id, e.uid, e.summary, e.description, e.location,
+ e.starts_at, e.ends_at, e.all_day, e.timezone, e.rrule, e.status, e.attendees, e.recurrence_overrides,
+ e.reminders, e.sequence, e.version, e.deleted_at, e.updated_at;-- name: PlatformListChanges :many
 -- scope: platform
 
 SELECT * FROM mailbox_changes
@@ -150,20 +141,11 @@ SET status='leased', attempts=j.attempts+1, claim_token=j.claim_token+1,
 WHERE j.id=(SELECT id FROM candidate) AND j.status='pending'
 RETURNING j.*;
 
--- name: PlatformInsertContactGroupMember :one
--- scope: platform
-
-WITH inserted AS (
-INSERT INTO mailbox_contact_group_members(tenant_id, mailbox_id, group_id, contact_id)
+-- name: PlatformInsertContactGroupMember :oneINSERT INTO mailbox_contact_group_members(tenant_id, mailbox_id, group_id, contact_id)
 SELECT g.tenant_id, g.mailbox_id, g.id, c.id
 FROM mailbox_contact_groups g
 JOIN mailbox_contacts c ON c.tenant_id=g.tenant_id AND c.mailbox_id=g.mailbox_id AND c.addressbook_id=g.addressbook_id
-WHERE g.tenant_id=?1 AND g.mailbox_id=?2 AND g.id=?3 AND c.id=?4 AND g.deleted_at IS NULL AND c.deleted_at IS NULL
-RETURNING tenant_id
-)
-SELECT count(*) FROM inserted;
-
--- name: PlatformInsertContactGroup :one
+WHERE g.tenant_id=?1 AND g.mailbox_id=?2 AND g.id=?3 AND c.id=?4 AND g.deleted_at IS NULL AND c.deleted_at IS NULL;-- name: PlatformInsertContactGroup :one
 -- scope: platform
 
 INSERT INTO mailbox_contact_groups(tenant_id, mailbox_id, addressbook_id, name)

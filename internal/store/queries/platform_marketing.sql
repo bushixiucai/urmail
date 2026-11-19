@@ -26,27 +26,31 @@ WHERE status='submitting' AND lease_until<=(CAST(strftime('%s','now') AS INTEGER
 UPDATE marketing_recipients SET status='queued',fence=fence+1,lease_owner=NULL,lease_until=NULL
 WHERE status='leased' AND lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
+-- scope: platform
+
+-- name: PlatformAdvanceMarketingTurn :execrows
+-- scope: platform
+
+UPDATE platform_marketing_dispatch d
+SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)
+WHERE EXISTS(
+ SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
+ WHERE r.tenant_id=d.tenant_id AND r.status='queued'
+  AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+  AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000));
+
 -- name: PlatformClaimMarketingRecipient :one
 -- scope: platform
 
-WITH tenant_candidate AS MATERIALIZED (
- SELECT d.tenant_id FROM platform_marketing_dispatch d
- WHERE EXISTS(SELECT 1 FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
-  WHERE r.tenant_id=d.tenant_id AND r.status='queued' AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE marketing_recipients r
+SET status='sending', attempts=r.attempts+1, last_turn=(SELECT last_turn FROM platform_marketing_dispatch d WHERE d.tenant_id=r.tenant_id)
+WHERE r.status='queued'
+ AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ AND EXISTS(SELECT 1 FROM marketing_campaigns c WHERE c.tenant_id=r.tenant_id AND c.id=r.campaign_id
   AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
- ORDER BY d.last_turn,d.tenant_id LIMIT 1
-), turn AS (
- UPDATE platform_marketing_dispatch d SET last_turn=(SELECT COALESCE(MAX(last_turn),0)+1 FROM platform_marketing_dispatch)
- FROM tenant_candidate t WHERE d.tenant_id=t.tenant_id RETURNING d.tenant_id
-), candidate AS (
- SELECT r.id FROM marketing_recipients r JOIN marketing_campaigns c ON c.tenant_id=r.tenant_id AND c.id=r.campaign_id
- JOIN turn d ON d.tenant_id=r.tenant_id
- WHERE r.status='queued' AND r.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- ORDER BY r.id LIMIT 1
-)
-UPDATE marketing_recipients r SET status='leased',lease_owner= @lease_owner,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=r.fence+1
-FROM candidate WHERE r.id=candidate.id RETURNING r.*;
-
+ AND EXISTS(SELECT 1 FROM platform_marketing_dispatch d WHERE d.tenant_id=r.tenant_id)
+ORDER BY r.id LIMIT 1
+RETURNING r.tenant_id, r.id;
 -- name: PlatformAuthorizeMarketingSend :one
 -- scope: platform
 

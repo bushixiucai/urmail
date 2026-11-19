@@ -141,7 +141,10 @@ func (w *Worker) Once(ctx context.Context) error {
 	if err = w.backfill(ctx); err != nil {
 		failures = append(failures, err)
 	}
-	if _, err = q.PlatformApplyArchiveRetention(ctx); err != nil {
+	if _, err = q.PlatformApplyArchiveRetentionMarkContent(ctx); err != nil {
+		failures = append(failures, err)
+	}
+	if _, err = q.PlatformApplyArchiveRetentionMarkDeleted(ctx); err != nil {
 		failures = append(failures, err)
 	}
 	candidates, err := q.PlatformListArchivePurgeCandidates(ctx)

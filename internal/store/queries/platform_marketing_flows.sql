@@ -53,47 +53,39 @@ AND NOT EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=marketi
 -- when its owning flow is active, it is subscribed, not uncertain, unleased
 -- or expired, and either its step sends or its recorded wait has elapsed (or
 -- still needs arming).
+-- scope: platform
+
+-- name: PlatformAdvanceMarketingFlowDueTenant :execrows
+-- scope: platform
+
+UPDATE platform_marketing_dispatch d
+SET last_turn=(SELECT COALESCE(MAX(last_turn), 0) + 1 FROM platform_marketing_dispatch)
+WHERE EXISTS(
+ SELECT 1 FROM marketing_flow_positions p
+ JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
+ JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
+ WHERE p.tenant_id=d.tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain
+  AND p.stopped_at IS NULL AND p.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+  AND (p.lease_until IS NULL OR p.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
+  AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
+  AND (s.kind='wait' OR s.next_key<>''))
+RETURNING d.tenant_id;
+
 -- name: PlatformClaimMarketingFlowPositions :many
 -- scope: platform
 
-WITH due_tenants AS MATERIALIZED (
- SELECT d.tenant_id,d.last_turn FROM platform_marketing_dispatch d
- WHERE EXISTS(SELECT 1 FROM marketing_flow_positions p
- JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
- JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
- WHERE p.tenant_id=d.tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain AND p.stopped_at IS NULL AND p.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- AND (p.lease_until IS NULL OR p.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND (s.kind='wait' OR s.next_key<>''))
- ORDER BY d.last_turn,d.tenant_id LIMIT sqlc.arg(batch)
-), heads AS MATERIALIZED (
- SELECT p.*,d.last_turn,row_number() OVER(PARTITION BY p.tenant_id ORDER BY p.id) AS tenant_order
- FROM due_tenants d CROSS JOIN LATERAL (
- SELECT p.id,p.tenant_id,s.kind AS step_kind,s.next_key AS step_next,s.wait_seconds AS step_wait_seconds,
- s.opened_key AS step_otherwise,s.condition_field,s.condition_operator,s.condition_value
- FROM marketing_flow_positions p
- JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
- JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
- WHERE p.tenant_id=d.tenant_id AND f.status='active' AND NOT p.unsubscribed AND NOT p.delivery_uncertain AND p.stopped_at IS NULL AND p.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- AND (p.lease_until IS NULL OR p.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND (s.kind<>'wait' OR p.wait_until IS NULL OR p.wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND (s.kind='wait' OR s.next_key<>'')
- ORDER BY p.id LIMIT sqlc.arg(batch)
- ) p
-), candidate AS MATERIALIZED (
- SELECT p.id,h.tenant_id,h.step_kind,h.step_next,h.step_wait_seconds,h.step_otherwise,h.condition_field,h.condition_operator,h.condition_value
- FROM marketing_flow_positions p JOIN heads h ON h.id=p.id AND h.tenant_id=p.tenant_id
- ORDER BY h.tenant_order,h.last_turn,h.tenant_id,p.id LIMIT sqlc.arg(batch)
-), turn AS (
- UPDATE platform_marketing_dispatch d SET last_turn=(SELECT COALESCE(MAX(last_turn),0)+1 FROM platform_marketing_dispatch)
- WHERE d.tenant_id IN(SELECT tenant_id FROM candidate) RETURNING d.tenant_id
-)
 UPDATE marketing_flow_positions p
 SET lease_owner=sqlc.arg(lease_owner),
- lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>sqlc.arg(lease_seconds)),
+ lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(lease_seconds)*1000000,
  lease_fence=p.lease_fence+1
-FROM candidate JOIN turn ON turn.tenant_id=candidate.tenant_id
-WHERE p.id=candidate.id
-RETURNING p.tenant_id, p.flow_id, p.email, p.step_key, p.lease_fence,p.lease_until,p.event_facts,
- candidate.step_kind, candidate.step_next, candidate.step_wait_seconds,candidate.step_otherwise,candidate.condition_field,candidate.condition_operator,candidate.condition_value;
-
--- Release the claim only when this worker still owns the lease and fence.
+WHERE p.tenant_id=sqlc.arg(tenant_id)
+ AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
+ AND EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
+  AND s.kind<>'wait' OR (s.kind='wait' AND p.wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)))
+ AND NOT p.unsubscribed AND NOT p.delivery_uncertain AND p.stopped_at IS NULL
+ AND p.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ AND (p.lease_until IS NULL OR p.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
+RETURNING p.tenant_id, p.flow_id, p.email, p.step_key, p.lease_fence, p.lease_until, p.event_facts;
 -- name: PlatformReleaseMarketingFlowLease :execrows
 -- scope: platform
 

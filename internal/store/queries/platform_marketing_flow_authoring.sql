@@ -47,17 +47,26 @@ SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;
 UPDATE marketing_flow_positions SET delivery_uncertain=true,last_error='delivery_uncertain',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
--- name: PlatformRecordMarketingFlowExecution :execrows
 -- scope: platform
 
-WITH recorded AS (
-INSERT INTO marketing_flow_node_executions(tenant_id,position_id,lease_fence,node_key,status,error_code)
-SELECT p.tenant_id,p.id,p.lease_fence,sqlc.arg(node_key),sqlc.arg(status),sqlc.arg(error_code)
-FROM marketing_flow_positions p WHERE p.tenant_id=sqlc.arg(tenant_id) AND p.flow_id=sqlc.arg(flow_id) AND p.email=sqlc.arg(email)
-AND p.lease_owner=sqlc.arg(lease_owner) AND p.lease_fence=sqlc.arg(lease_fence) AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
-AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
-ON CONFLICT(tenant_id,position_id,lease_fence) DO NOTHING RETURNING position_id
-)
-UPDATE marketing_flow_positions SET attempt_count=attempt_count+1,last_error=sqlc.arg(error_code),
-next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>sqlc.arg(retry_seconds)),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE tenant_id=sqlc.arg(tenant_id) AND id IN(SELECT position_id FROM recorded);
+-- name: PlatformRecordMarketingFlowNodeExecution :execrows
+-- scope: platform
+
+INSERT INTO marketing_flow_node_executions(tenant_id, position_id, lease_fence, node_key, status, error_code)
+SELECT p.tenant_id, p.id, p.lease_fence, sqlc.arg(node_key), sqlc.arg(status), sqlc.arg(error_code)
+FROM marketing_flow_positions p
+WHERE p.tenant_id=sqlc.arg(tenant_id) AND p.flow_id=sqlc.arg(flow_id) AND p.email=sqlc.arg(email)
+ AND p.lease_owner=sqlc.arg(lease_owner) AND p.lease_fence=sqlc.arg(lease_fence)
+ AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
+ON CONFLICT(tenant_id, position_id, lease_fence) DO NOTHING;
+
+-- name: PlatformBumpMarketingFlowAttempt :execrows
+-- scope: platform
+
+UPDATE marketing_flow_positions
+SET attempt_count=attempt_count+1,
+ last_error=sqlc.arg(error_code),
+ next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) + sqlc.arg(backoff_seconds)*1000000
+WHERE tenant_id=sqlc.arg(tenant_id) AND flow_id=sqlc.arg(flow_id) AND email=sqlc.arg(email)
+ AND lease_owner=sqlc.arg(lease_owner) AND lease_fence=sqlc.arg(lease_fence);

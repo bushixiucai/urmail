@@ -134,8 +134,13 @@ func (w *FlowWorker) handle(ctx context.Context, q *store.Queries, p store.Platf
 	defer func() {
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
 		defer cancel()
-		if _, err := q.PlatformRecordMarketingFlowExecution(finishCtx, store.PlatformRecordMarketingFlowExecutionParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, NodeKey: p.StepKey, Status: status, ErrorCode: code, RetrySeconds: retry}); err != nil {
+		if _, err := q.PlatformRecordMarketingFlowNodeExecution(finishCtx, store.PlatformRecordMarketingFlowNodeExecutionParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, NodeKey: p.StepKey, Status: status, ErrorCode: code}); err != nil {
 			w.opts.Logger.Warn("marketing flow execution record failed")
+		}
+		if code != "" && retry > 0 {
+			if _, err := q.PlatformBumpMarketingFlowAttempt(finishCtx, store.PlatformBumpMarketingFlowAttemptParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: w.id, LeaseFence: p.LeaseFence, ErrorCode: code, BackoffSeconds: int64(retry)}); err != nil {
+				w.opts.Logger.Warn("marketing flow attempt bump failed")
+			}
 		}
 		if _, err := q.PlatformReleaseMarketingFlowLease(finishCtx, store.PlatformReleaseMarketingFlowLeaseParams{TenantID: p.TenantID, FlowID: p.FlowID, Email: p.Email, LeaseOwner: pgtype.Text{String: w.id, Valid: true}, LeaseFence: p.LeaseFence}); err != nil {
 			w.opts.Logger.Warn("marketing flow claim release failed")

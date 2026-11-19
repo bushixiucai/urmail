@@ -1,0 +1,175 @@
+package store
+
+// S2 B1b: hand-written SQLite methods for statements split out of
+// data-modifying CTEs during the Phase 1 engine migration. They live outside
+// sqlc generation until the sqlite engine switch (B5); the SQL is the final
+// SQLite dialect and must stay in sync with
+// scripts/sqlite/S2-ENGINE-SWITCH-BATCH-PLAN.md.
+
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+const revokeMailboxSessionsSQL = `UPDATE mailbox_sessions
+SET revoked_at=COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
+WHERE tenant_id=$1 AND mailbox_id=$2`
+
+const consumeMailboxOperationTicketsSQL = `UPDATE mailbox_operation_tickets
+SET consumed_at=COALESCE(consumed_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
+WHERE tenant_id=$1 AND mailbox_id=$2`
+
+type PlatformRevokeMailboxSessionsParams struct {
+	TenantID  int64
+	MailboxID int64
+}
+
+// PlatformRevokeMailboxSessions revokes every session of one mailbox.
+func (q *Queries) PlatformRevokeMailboxSessions(ctx context.Context, arg PlatformRevokeMailboxSessionsParams) (int64, error) {
+	tag, err := q.db.Exec(ctx, revokeMailboxSessionsSQL, arg.TenantID, arg.MailboxID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+type PlatformConsumeMailboxOperationTicketsParams struct {
+	TenantID  int64
+	MailboxID int64
+}
+
+// PlatformConsumeMailboxOperationTickets consumes pending operation tickets of
+// one mailbox.
+func (q *Queries) PlatformConsumeMailboxOperationTickets(ctx context.Context, arg PlatformConsumeMailboxOperationTicketsParams) (int64, error) {
+	tag, err := q.db.Exec(ctx, consumeMailboxOperationTicketsSQL, arg.TenantID, arg.MailboxID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+const archiveRetentionCandidatesSQL = `SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
+ JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
+ JOIN retention_policies p ON p.tenant_id=a.tenant_id
+ WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
+  AND (SELECT COALESCE((SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id
+       WHERE cg.tenant_id=p.tenant_id AND cg.user_id=p.created_by AND cg.scope='retention_manage' AND NOT cg.revoked
+        AND cg.owner_confirmed_at IS NOT NULL AND ur.role IN('owner','admin')), 0))=1
+  AND NOT a.legal_hold AND a.deleted_at IS NULL
+  AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
+ ORDER BY a.id LIMIT 100`
+
+type PlatformApplyArchiveRetentionCandidatesRow struct {
+	ID               int64
+	TenantID         int64
+	ConfirmedPreview pgtype.UUID
+}
+
+// PlatformApplyArchiveRetentionCandidates lists entries eligible for
+// soft-delete under an authorized retention policy (B1b split of the former
+// DML-CTE chain).
+func (q *Queries) PlatformApplyArchiveRetentionCandidates(ctx context.Context) ([]PlatformApplyArchiveRetentionCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, archiveRetentionCandidatesSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlatformApplyArchiveRetentionCandidatesRow
+	for rows.Next() {
+		var i PlatformApplyArchiveRetentionCandidatesRow
+		if err := rows.Scan(&i.ID, &i.TenantID, &i.ConfirmedPreview); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+const archiveRetentionMarkContentSQL = `UPDATE archive_content SET retention_preview=(
+ SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
+WHERE (entry_id, tenant_id) IN (` + archiveRetentionCandidatesSQL + `)`
+
+// PlatformApplyArchiveRetentionMarkContent stamps the retention preview onto
+// the candidate archive content rows. MUST run BEFORE MarkDeleted (the
+// candidate predicate requires deleted_at IS NULL).
+func (q *Queries) PlatformApplyArchiveRetentionMarkContent(ctx context.Context) (int64, error) {
+	tag, err := q.db.Exec(ctx, archiveRetentionMarkContentSQL)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+const archiveRetentionMarkDeletedSQL = `UPDATE archive_entries SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE (id, tenant_id) IN (` + archiveRetentionCandidatesSQL + `)`
+
+// PlatformApplyArchiveRetentionMarkDeleted soft-deletes the candidate entries.
+// MUST run AFTER MarkContent (ordering: content preview first, then delete).
+func (q *Queries) PlatformApplyArchiveRetentionMarkDeleted(ctx context.Context) (int64, error) {
+	tag, err := q.db.Exec(ctx, archiveRetentionMarkDeletedSQL)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+const recordMarketingFlowNodeExecutionSQL = `INSERT INTO marketing_flow_node_executions(tenant_id, position_id, lease_fence, node_key, status, error_code)
+SELECT p.tenant_id, p.id, p.lease_fence, $4, $5, $6
+FROM marketing_flow_positions p
+WHERE p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3
+ AND p.lease_owner=$7 AND p.lease_fence=$8 AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
+ON CONFLICT(tenant_id, position_id, lease_fence) DO NOTHING`
+
+type PlatformRecordMarketingFlowNodeExecutionParams struct {
+	TenantID    int64
+	FlowID      int64
+	Email       string
+	LeaseOwner  string
+	LeaseFence  int64
+	NodeKey     string
+	Status      string
+	ErrorCode   string
+}
+
+// PlatformRecordMarketingFlowNodeExecution records one node execution outcome
+// under a live lease (no-op when the fence/lease no longer matches).
+func (q *Queries) PlatformRecordMarketingFlowNodeExecution(ctx context.Context, arg PlatformRecordMarketingFlowNodeExecutionParams) (int64, error) {
+	tag, err := q.db.Exec(ctx, recordMarketingFlowNodeExecutionSQL,
+		arg.TenantID, arg.FlowID, arg.Email, arg.NodeKey, arg.Status, arg.ErrorCode,
+		arg.LeaseOwner, arg.LeaseFence)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+const bumpMarketingFlowAttemptSQL = `UPDATE marketing_flow_positions
+SET attempt_count=attempt_count+1,
+ last_error=$6,
+ next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) + $7*1000000
+WHERE tenant_id=$1 AND flow_id=$2 AND email=$3
+ AND lease_owner=$4 AND lease_fence=$5`
+
+type PlatformBumpMarketingFlowAttemptParams struct {
+	TenantID       int64
+	FlowID         int64
+	Email          string
+	LeaseOwner     string
+	LeaseFence     int64
+	ErrorCode      string
+	BackoffSeconds int64
+}
+
+// PlatformBumpMarketingFlowAttempt bumps the attempt counter and schedules the
+// retry backoff (failure path of the flow worker).
+func (q *Queries) PlatformBumpMarketingFlowAttempt(ctx context.Context, arg PlatformBumpMarketingFlowAttemptParams) (int64, error) {
+	tag, err := q.db.Exec(ctx, bumpMarketingFlowAttemptSQL,
+		arg.TenantID, arg.FlowID, arg.Email, arg.LeaseOwner, arg.LeaseFence,
+		arg.ErrorCode, arg.BackoffSeconds)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
