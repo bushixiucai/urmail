@@ -141,9 +141,12 @@ fi
 [ -n "$ADMIN_EMAIL" ] || { warn "--admin-email not given; first-boot bootstrap URL will be printed by urmaild"; }
 
 # ---- 3. data dirs (uid 5000 owns everything under the root) --------------
-for d in db db/pg mail certs config backup; do
+for d in db mail certs config backup holds; do
     install -d -o 5000 -g 5000 -m 0750 "$DATA_ROOT/$d"
 done
+# db/pg is intentionally NOT pre-created: PGDATA belongs to the postgres
+# container user (uid 70 in postgres:16-alpine) and is initialised by the
+# image entrypoint (bootstrap.sql runs there on first init).
 log "data dirs ready under $DATA_ROOT (0750, 5000:5000)"
 
 # ---- 4./5. build + up ----------------------------------------------------

@@ -43,6 +43,9 @@ die()  { printf '[upgrade] ABORT: %s\n' "$*" >&2; return 4; }
 usage(){ sed -n '2,15p' "$0"; exit 0; }
 
 main() {
+    # Snapshot BEFORE parsing: `shift` empties "$@", and the TMPDIR re-exec
+    # below must forward the original arguments.
+    UPGRADE_ARGS=("$@")
     while [ $# -gt 0 ]; do
         case "$1" in
             --dry-run) DRY_RUN=1; shift ;;
@@ -63,7 +66,7 @@ main() {
         cp "$0" "$exec_copy"
         chmod 0755 "$exec_copy"
         export URMAIL_UPGRADE_EXECED=1
-        exec bash "$exec_copy" "$@"
+        exec bash "$exec_copy" "${UPGRADE_ARGS[@]}"
     fi
 
     [ "$EUID" = 0 ] || [ "$DRY_RUN" = 1 ] || die "root is required (container fence + docker need it)"
@@ -91,7 +94,10 @@ main() {
     docker compose version >/dev/null 2>&1 || die "docker compose v2 not reachable"
 
     DATA_ROOT="${URMAIL_DATA_ROOT:-data}"
-    HOLD="$DATA_ROOT/upgrade.hold"
+    # Dedicated holds dir (QA condition): the hold marker lives in its own
+    # subdirectory so writer containers can ro-mount JUST the marker without
+    # gaining read access to config/master.key or the database directory.
+    HOLD="$DATA_ROOT/holds/upgrade.hold"
 
     if [ "$DRY_RUN" = 1 ]; then
         cat <<PLAN
@@ -139,6 +145,7 @@ PLAN
 
     # ---- 3. native compose fence -------------------------------------------
     T0=$(date +%s)
+    mkdir -p "$(dirname "$HOLD")"
     printf 'compose upgrade %s (%s)\n' "$V" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$HOLD"
     chmod 0644 "$HOLD"
     # intentional word split: URMAIL_WRITERS is a space-separated service list
@@ -200,7 +207,7 @@ finish_failure() {
                 # intentional word split: URMAIL_WRITERS is a service list
                 # shellcheck disable=SC2086
                 docker compose start urmaild ${URMAIL_WRITERS:-postfix dovecot} 2>&1 || true
-                rm -f "${URMAIL_DATA_ROOT:-data}/upgrade.hold" && echo "hold cleared"
+                rm -f "${URMAIL_DATA_ROOT:-data}/holds/upgrade.hold" && echo "hold cleared"
                 echo "old stack keeps serving; no data-plane change was made"
             } >>"$EVIDENCE" 2>&1
             note "pre-up failure: writers restored, hold cleared (old stack keeps serving); evidence: $EVIDENCE"
@@ -214,7 +221,7 @@ Rollback runbook (execute in a second maintenance window, hold stays in place):
   3. docker compose up -d --no-deps urmaild   (migrations of the new stack may
      need manual assessment first: docker compose logs urmaild)
   4. confirm healthz ok, then start writers: docker compose start postfix dovecot
-  5. clear the hold: rm -f ${URMAIL_DATA_ROOT:-data}/upgrade.hold
+  5. clear the hold: rm -f ${URMAIL_DATA_ROOT:-data}/holds/upgrade.hold
 The script deliberately does NOT auto-release an unverified new stack.
 RUNBOOK
             } >>"$EVIDENCE" 2>&1

@@ -134,8 +134,9 @@ services:
     volumes:
       - ./compose/postfix:/srv/urmail/config/postfix:ro
       - ${URMAIL_DATA_ROOT:-./data}/config/spool:/var/spool/postfix
-      # 数据根只读挂载：entrypoint hold 门读取 upgrade.hold（QA 终判③）
-      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data:ro
+      # hold 门（QA 终判③+复审 CONDITION）：只 ro 挂 holds/ 子目录，
+      # 绝不把含 master.key/db 的整数据根暴露给 MTA 容器
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
     healthcheck:
       test: ["CMD", "postfix", "-c", "/srv/urmail/config/postfix", "status"]
       interval: 30s
@@ -152,7 +153,7 @@ services:
     volumes:
       - ./compose/dovecot:/srv/urmail/config/dovecot:ro
       - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
-      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data:ro
+      - ${URMAIL_DATA_ROOT:-./data}/holds:/srv/urmail/holds:ro
     healthcheck:
       # doveadm ping only: no `-a` fallback (a hung daemon must fail the check)
       test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "ping"]

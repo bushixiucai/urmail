@@ -13,7 +13,7 @@ set -eu
 # fence. urmaild deliberately sets URMAIL_HOLD_GUARD=0 (probe/readiness need
 # it up during the hold). The marker lives in the (read-only) data root.
 hold_guard="${URMAIL_HOLD_GUARD:-1}"
-hold_file="${URMAIL_DATA_ROOT:-/srv/urmail/data}/upgrade.hold"
+hold_file="${URMAIL_HOLD_FILE:-/srv/urmail/holds/upgrade.hold}"
 if [ "$hold_guard" = "1" ] && [ -f "$hold_file" ]; then
     while [ -f "$hold_file" ]; do
         echo "[entrypoint] upgrade hold active ($hold_file); waiting"

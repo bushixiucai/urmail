@@ -83,10 +83,11 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 - `URMAIL_AUTO_MIGRATE` 环境变量控制 urmaild 首启是否自动迁移
   （默认 1=首次引导；upgrade.sh 走 0+受控迁移）。
 - `URMAIL_WRITERS`（默认 "postfix dovecot"）是 fence 停止/恢复的写者服务清单。
-- **hold 门（QA 终判③）**：postfix/dovecot 的 entrypoint 会检查数据根下的
-  `upgrade.hold`（数据根以只读方式挂入这两个容器），存在即等待——手工
-  `docker compose start` 无法绕过 fence。urmaild 特例：`URMAIL_HOLD_GUARD=0`
-  （hold 期间探针与 readiness-record 需要它在位）。
+- `holds/`（数据根下专设子目录，QA 复审 CONDITION）：upgrade fence 的 hold 标记
+  只放这里；postfix/dovecot 的 entrypoint **仅 ro 挂载该子目录**检查 hold——
+  绝不挂载整个数据根（master.key 与 db/ 不进 MTA 容器，避免权限暴露面）。
+  urmaild 特例：`URMAIL_HOLD_GUARD=0`（hold 期间探针与 readiness-record 需要
+  它在位）；手工 `docker compose start` 无法绕过 hold 门。
 - **pre-flight 文案契约**：upgrade.sh 以 urmailctl 输出中的固定字样判定门禁结果，
   这些字样是版本握手契约（要求 urmailctl ≥ v0.6.26 R1；措辞变更须同步 upgrade.sh）：
   - 放行判定（任一即视为通过）：`newest complete successful run` /
