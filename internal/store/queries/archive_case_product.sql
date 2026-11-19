@@ -58,7 +58,7 @@ ON CONFLICT(investigation_id,user_id) DO UPDATE SET removed_at=NULL;
 -- scope: tenant
 
 UPDATE archive_investigation_members SET removed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE tenant_id=?1 AND investigation_id=?2 AND user_id=?3 AND removed_at IS NULL AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=archive_investigation_members.tenant_id AND i.id=archive_investigation_members.investigation_id AND i.created_by=?4 AND i.created_by<>archive_investigation_members.user_id AND i.status='open' AND i.version=?5);-- name: ArchiveCasesSources :many
+ WHERE tenant_id=?1 AND investigation_id=?2 AND user_id=?3 AND removed_at IS NULL AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=?1 AND i.id=?2 AND i.created_by=?4 AND i.created_by<>?3 AND i.status='open' AND i.version=?5);-- name: ArchiveCasesSources :many
 -- scope: tenant
 
 SELECT e.id,e.mailbox_id,e.path,e.subject,e.size_bytes,e.raw_sha256,e.deleted_at,e.legal_hold
@@ -79,7 +79,7 @@ ON CONFLICT(investigation_id,archive_entry_id) DO NOTHING;
 
 DELETE FROM archive_investigation_sources
 WHERE tenant_id=?1 AND investigation_id=?2 AND archive_entry_id=?3
- AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=archive_investigation_sources.tenant_id AND i.id=archive_investigation_sources.investigation_id AND i.status='open' AND i.version=?4);
+ AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=?1 AND i.id=?2 AND i.status='open' AND i.version=?4);
 
 -- name: ArchiveCasesClose :one
 -- scope: tenant
