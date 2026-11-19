@@ -215,11 +215,17 @@ PLAN
     docker compose run --rm --no-deps --user 0:0 \
         --entrypoint /bin/chown urmaild -R 0:0 \
         /srv/urmail/data/maintenance >>"$EVIDENCE" 2>&1
-    docker compose run --rm --no-deps --user 0:0 \
-        -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
-        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
-        --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1 || \
-        note "readiness-record: not applicable (compose-native fence has no urmailctl v2 receipt; healthz probe is the readiness evidence)"
+    # P1 (PM ruling): readiness-record is fail-closed by default. The
+    # compose-native fence does not produce the urmailctl v2 hold+receipt,
+    # so the record step fails; only the explicit rig switch may skip it.
+    if [ "${URMAIL_ALLOW_RECORDLESS_RIG:-0}" = "1" ]; then
+        note "readiness-record: skipped (URMAIL_ALLOW_RECORDLESS_RIG=1, compose-native fence has no v2 receipt; healthz probe is the readiness evidence)"
+    else
+        docker compose run --rm --no-deps --user 0:0 \
+            -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
+            -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
+            --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
+    fi
     # QA P2-1: hand the dir back to uid 5000 (backup-auto/usage-sync locks)
     docker compose run --rm --no-deps --user 0:0 \
         --entrypoint /bin/chown urmaild -R 5000:5000 \
