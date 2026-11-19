@@ -27,8 +27,8 @@ ORDER BY a.received_at DESC,a.id DESC LIMIT @limit_count;
 INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
 SELECT @tenant_id,@retention_days,count(*),md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)
 FROM archive_entries
-WHERE tenant_id= @tenant_id AND NOT legal_hold AND deleted_at IS NULL
- AND received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(0)
+WHERE archive_entries.tenant_id= @tenant_id AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
+ AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(0)
 RETURNING *;
 
 -- name: LockArchiveRetentionPreview :one
@@ -40,8 +40,8 @@ SELECT * FROM retention_previews WHERE tenant_id= @tenant_id AND id= @id AND cre
 -- scope: tenant
 
 SELECT count(*) AS candidate_count,md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')) AS candidate_digest
-FROM archive_entries WHERE tenant_id= @tenant_id AND NOT legal_hold AND deleted_at IS NULL
- AND received_at < @cutoff;
+FROM archive_entries WHERE archive_entries.tenant_id= @tenant_id AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
+ AND archive_entries.received_at < @cutoff;
 
 -- name: ConfirmArchiveRetentionPreview :exec
 -- scope: tenant
@@ -59,8 +59,8 @@ ON CONFLICT(tenant_id) DO UPDATE SET retention_days=EXCLUDED.retention_days,acti
 -- scope: tenant
 
 UPDATE archive_entries SET deleted_at=NULL
-WHERE tenant_id= @tenant_id AND id= @id AND deleted_at IS NOT NULL
- AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=id AND c.tenant_id=tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL));-- name: GetArchiveOriginalForRecovery :one
+WHERE archive_entries.tenant_id= @tenant_id AND archive_entries.id= @id AND archive_entries.deleted_at IS NOT NULL
+ AND EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=archive_entries.id AND c.tenant_id=archive_entries.tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL);-- name: GetArchiveOriginalForRecovery :one
 -- scope: tenant
 
 SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256) AS raw_sha256
