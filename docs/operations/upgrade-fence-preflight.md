@@ -21,14 +21,14 @@ fence 会连备份 worker 一起停掉；而 release 侧的严格门禁
 1. `no offsite backup run recorded yet` / `newest backup run ... is "failed"` ——
    先完成一次完整备份：等定时 worker，或手动执行（见下），再重试 fence。
 2. `... is a "metadata-only" backup` —— `urmailctl backup` 默认
-   metadata-only；完整备份需要 `--maintenance`（含邮件归档），确认后重跑
-   offsite 上传。
+   metadata-only；完整备份需要 `--include-mail --maintenance`（含邮件归档），
+   确认后重跑 offsite 上传。
 3. `... is Nh old (window ...)` —— 最新代际已过窗；先跑一次新的完整备份。
 
 ## 手动触发一次会被记录的完整备份
 
 ```
-urmailctl backup --maintenance --out-dir /var/backups/urmail   # 生成本地代际
+urmailctl backup --include-mail --maintenance --out-dir /var/backups/urmail   # 生成本地代际
 URMAIL_BACKUP_S3_* 与 --recipient 按环境准备后：
 urmailctl backup upload --manifest /var/backups/urmail/urmail-<stamp>.manifest.json \
   --uri s3://<bucket>/<prefix> --recipient <age公钥>
