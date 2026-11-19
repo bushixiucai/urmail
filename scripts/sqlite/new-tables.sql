@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS "snoozes" (
   "status" TEXT NOT NULL DEFAULT 'pending',
   "created_at" INTEGER NOT NULL,
   "updated_at" INTEGER NOT NULL,
-  UNIQUE ("mailbox_id", "uid_validity", "uid")
+  UNIQUE ("mailbox_id", "uid_validity", "uid"),
+  FOREIGN KEY ("tenant_id", "mailbox_id") REFERENCES "mailboxes"("tenant_id", "id") ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS "labels" (
@@ -31,7 +32,8 @@ CREATE TABLE IF NOT EXISTS "labels" (
   "sort" INTEGER NOT NULL DEFAULT 0,
   "created_at" INTEGER NOT NULL,
   "updated_at" INTEGER NOT NULL,
-  UNIQUE ("mailbox_id", "name")
+  UNIQUE ("mailbox_id", "name"),
+  FOREIGN KEY ("tenant_id", "mailbox_id") REFERENCES "mailboxes"("tenant_id", "id") ON DELETE CASCADE
 );
 
 -- 复合身份（v3.2 §8.1 条款）：无单一稳定 message 主键（maildir 无跨 MOVE
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS "message_labels" (
   "label_id" INTEGER NOT NULL,
   "fingerprint" TEXT NOT NULL DEFAULT '',
   "orphan_since" INTEGER,
-  PRIMARY KEY ("mailbox_id", "folder", "uid_validity", "uid", "label_id")
+  PRIMARY KEY ("mailbox_id", "folder", "uid_validity", "uid", "label_id"),
+  FOREIGN KEY ("label_id") REFERENCES "labels"("id") ON DELETE CASCADE
 );
 
 -- mailbox_scheduled_sends 接入 agent 调度器家族的扩列（0076 原复合键
@@ -54,3 +57,6 @@ CREATE TABLE IF NOT EXISTS "message_labels" (
 ALTER TABLE "mailbox_scheduled_sends" ADD COLUMN "scheduled_at" INTEGER;
 ALTER TABLE "mailbox_scheduled_sends" ADD COLUMN "slot_tz" TEXT NOT NULL DEFAULT 'UTC';
 ALTER TABLE "mailbox_scheduled_sends" ADD COLUMN "retry_count" INTEGER NOT NULL DEFAULT 0;
+
+-- QA S1-Fail P1：新表外键（缺失即跨邮箱/跨标签孤儿行）。
+-- mailboxes 的 (tenant_id,id) 在生成物中已有 UNIQUE（PG 约束平移）。

@@ -23,7 +23,16 @@ import (
 //
 // schema_migrations (version, dirty) is written inside the same transaction
 // for tooling parity; user_version remains the authority.
+//
+// Migrate wires the per-connection PRAGMA contract itself (QA S1-Fail):
+// callers that opened the database with a bare sql.Open get foreign_keys
+// enforcement here too; the in-file PRAGMA line is a no-op inside a
+// transaction and must never be relied on.
 func Migrate(ctx context.Context, db *sql.DB, dir fs.FS, root string) error {
+	RegisterConnectionHook()
+	if err := AssertPragmas(ctx, db); err != nil {
+		return fmt.Errorf("pragma contract before migrate: %w", err)
+	}
 	names, err := fs.ReadDir(dir, root)
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)

@@ -131,28 +131,98 @@ def main():
         sys.exit(1)
 
     # ---- PG 语义规范化 ----
-    # 'x'::text → 'x'；'42'::bigint → 42；x = ANY (ARRAY[a,b,...]) → x IN (a,b,...)。
-    # 规范化后仍含函数调用/PG 操作符的表达式 → 降级登记（不静默丢弃）。
+    # 'x'::text → 'x'；'42'::bigint → 42；x = ANY (ARRAY[a,b,...]) → x IN (a,b,...)；
+    # btrim(x)→trim(x)；POSITION(a IN b)→instr(b,a)。
+    # SQLite 可用的标量函数白名单内的 CHECK 保留；其余（正则/sha256/非确定性
+    # 等）剥离登记，绝不静默丢弃。
     cast_re = re.compile(r"'((?:[^']|'')*)'::[a-z_ ]+")
     num_cast_re = re.compile(r"'(-?\d+)'::(?:bigint|integer|smallint|numeric|double precision)", re.I)
-    any_re = re.compile(r"([\"A-Za-z_0-9.]+)\s*=\s*ANY\s*\(\s*ARRAY\s*\[([^]]*)\]\s*\)", re.I)
-    func_call = re.compile(r"\b(?!IN\b|NOT\b|EXISTS\b|SELECT\b|CASE\b|WHEN\b|THEN\b|ELSE\b|END\b|AND\b|OR\b|BETWEEN\b)[a-z_][a-z_0-9]*\s*\(", re.I)
-    pg_only = re.compile(r"~~|::~|!~|\s~+\s|::[a-z_]|jsonb_|to_tsvector|statement_timestamp|btrim\(|make_interval|interval '", re.I)
+    any_re = re.compile(r"([\"A-Za-z_0-9.]+(?:\([^()]*\))?)\s*=\s*ANY\s*\(\s*ARRAY\s*\[([^]]*)\]\s*\)", re.I)
+    all_re = re.compile(r"([\"A-Za-z_0-9.]+(?:\([^()]*\))?)\s*<>\s*ALL\s*\(\s*ARRAY\s*\[([^]]*)\]\s*\)", re.I)
+    pos_re = re.compile(
+        r"POSITION\s*\(\s*('(?:[^']|'')*'|\([^()]*\)|[\w.]+)\s+IN\s+('(?:[^']|'')*'|\([^()]*\)|[\w.]+)\s*\)",
+        re.I)
+    call_re = re.compile(r"\b([a-z_][a-z_0-9]*)\s*\(", re.I)
+    # QA 复审白名单：SQLite 标量函数面
+    SQLITE_FUNCS = {"length", "instr", "substr", "substring", "lower", "upper", "trim",
+                    "ltrim", "rtrim", "replace", "coalesce", "abs", "min", "max", "round",
+                    "json_extract", "json_type", "json_array_length", "json_valid",
+                    "json_quote", "ifnull", "nullif", "typeof"}
+    SQL_KEYWORDS = {"in", "not", "exists", "select", "case", "when", "then", "else", "end",
+                    "and", "or", "between", "is", "null", "like", "glob", "cast", "check"}
+    pg_only = re.compile(r"~~|::~|!~|\s~+\s|::[a-z_]|jsonb_|to_tsvector|statement_timestamp|"
+                         r"encode\s*\(|sha256|make_interval|interval '|current_setting\s*\(|"
+                         r"<@|@>|\bARRAY\s*\[", re.I)
+
+
+    def rewrite_call(text, name, build):
+        # 平衡括号替换：name(EXPR) → build(EXPR)
+        out = []
+        i = 0
+        pat = re.compile(r"\b" + name + r"\s*\(", re.I)
+        while True:
+            m = pat.search(text, i)
+            if not m:
+                out.append(text[i:])
+                break
+            out.append(text[i:m.start()])
+            depth = 1
+            j = m.end()
+            while j < len(text) and depth:
+                if text[j] == "(":
+                    depth += 1
+                elif text[j] == ")":
+                    depth -= 1
+                j += 1
+            inner = text[m.end():j - 1]
+            out.append(build(inner))
+            i = j
+        return "".join(out)
 
     def normalize(expr):
         e = num_cast_re.sub(lambda m: m.group(1), expr)
         e = cast_re.sub(lambda m: "'" + m.group(1) + "'", e)
+        e = re.sub(r"\bbtrim\s*\(", "trim(", e, flags=re.I)
+        e = rewrite_call(e, "octet_length", lambda inner: f"length(CAST({inner} AS BLOB))")
+        e = rewrite_call(e, "pg_column_size", lambda inner: f"length(CAST({inner} AS BLOB))")
+        e = rewrite_call(e, "cardinality", lambda inner: f"json_array_length({inner})")
+        e = re.sub(r"jsonb_typeof\s*\(", "json_type(", e, flags=re.I)
+        e = re.sub(r"jsonb_array_length\s*\(", "json_array_length(", e, flags=re.I)
+        def strip_outer(x):
+            x = x.strip()
+            while x.startswith("(") and x.endswith(")"):
+                depth = 0
+                ok = True
+                for i, ch in enumerate(x):
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                        if depth == 0 and i != len(x) - 1:
+                            ok = False
+                            break
+                if not ok:
+                    break
+                x = x[1:-1].strip()
+            return x
+        e = pos_re.sub(lambda m: f"instr({strip_outer(m.group(2))}, {strip_outer(m.group(1))})", e)
         while True:
             e2 = any_re.sub(lambda m: f"{m.group(1)} IN ({m.group(2)})", e)
-            if e2 == e:
+            e3 = all_re.sub(lambda m: f"{m.group(1)} NOT IN ({m.group(2)})", e2)
+            if e3 == e:
                 break
-            e = e2
+            e = e3
         return e
 
     def pg_untranslatable(expr):
-        probe = re.sub(r"^(CHECK|CREATE|WHERE)\s*\(", "", expr.strip(), count=1)
-        probe = re.sub(r"\bIN\s*\(", "", probe)
-        return bool(pg_only.search(probe) or func_call.search(probe))
+        if pg_only.search(expr):
+            return True
+        for m in call_re.finditer(expr):
+            name = m.group(1).lower()
+            if name in SQL_KEYWORDS or name in SQLITE_FUNCS:
+                continue
+            return True
+        return False
 
     # CHECK：规范化后仍不可译 → 剥离登记
     stripped_checks = []
@@ -161,26 +231,70 @@ def main():
         for k in ks:
             body = normalize(k["def"])
             if pg_untranslatable(body):
+                if "sha256" in body.lower() or "encode(" in body.lower():
+                    risk = "digest 完整性校验缺失：可能写入与字段不匹配的摘要"
+                elif "~" in body:
+                    risk = "文本模式校验缺失：可能写入非法格式值"
+                else:
+                    risk = "语义校验缺失：应用层需等价断言"
                 stripped_checks.append({"table": t, "name": k["name"], "def": k["def"],
-                                         "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层承接"})
+                                         "risk": risk, "slice": "S4",
+                                         "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"})
             else:
                 normalized_checks.setdefault(t, []).append(
                     "CHECK " + body[body.index("("):].rstrip(","))
 
-    # 默认值：去 cast 后为纯字面量则保留，否则登记
-    simple_default = re.compile(r"^'([^']|'')*'$|^-?[0-9]+$")
+    # 默认值：now() 类翻译为 unix 微秒表达式；纯字面量保留；其余逐条登记。
+    # 断言：PG 有默认值而 SQLite 未生成默认值的列，必须全部出现在登记表
+    # （没有静默丢失的默认值）。
+    simple_default = re.compile(r"^'([^']|'')*'$|^-?[0-9]+$|^-?[0-9]+\.[0-9]+$")
+    now_plus_re = re.compile(
+        r"^\(?\s*(now\(\)|current_timestamp)\s*\+\s*'"
+        r"(?:(\d+)\s*days?|(\d+):(\d+):(\d+))'\s*(?:::interval)?\s*\)?$", re.I)
+    now_default_re = re.compile(
+        r"^(now\(\)|current_timestamp|statement_timestamp\(\)|transaction_timestamp\(\)|clock_timestamp\(\))(::timestamp with time zone|::timestamp without time zone|::timestamptz|::timestamp)?$",
+        re.I)
+    translated_defaults = {}
     stripped_defaults = []
+    pg_default_cols = 0
     for t, cs in by_table_cols.items():
         for c in cs:
             d = c["default"].strip()
-            if not d:
+            if not d and c["identity"] not in ("a", "d"):
                 continue
-            if d.startswith("nextval(") or c["identity"]:
-                continue  # AUTOINCREMENT 由 PK 处理
+            pg_default_cols += 1
+            if d.startswith("nextval(") or c["identity"] in ("a", "d"):
+                continue  # AUTOINCREMENT / identity 由 PK 处理
             norm = normalize(d)
-            if not simple_default.match(norm):
-                stripped_defaults.append({"table": t, "column": c["column"], "default": d,
-                                           "reason": "默认值含函数/表达式——SQLite 侧由应用层供给"})
+            m_plus = now_plus_re.match(norm.strip())
+            if m_plus:
+                if m_plus.group(2):
+                    offset = int(m_plus.group(2)) * 86400
+                else:
+                    offset = int(m_plus.group(3)) * 3600 + int(m_plus.group(4)) * 60 + int(m_plus.group(5))
+                translated_defaults[(t, c["column"])] = (
+                    f"((CAST(strftime('%s','now') AS INTEGER)*1000000) + {offset}*1000000)")
+                continue
+            if now_default_re.match(norm):
+                translated_defaults[(t, c["column"])] = "(CAST(strftime('%s','now') AS INTEGER)*1000000)"
+                continue
+            if simple_default.match(norm):
+                translated_defaults[(t, c["column"])] = norm
+                continue
+            stripped_defaults.append({"table": t, "column": c["column"], "default": d,
+                                       "reason": "默认值含不可译函数/表达式——SQLite 侧由应用层供给"})
+    emitted_defaults = len(translated_defaults)
+    registered = len(stripped_defaults)
+    serial_default_cols = 0
+    for t, cs in by_table_cols.items():
+        for c in cs:
+            d = c["default"].strip()
+            if d.startswith("nextval(") or c["identity"] in ("a", "d"):
+                serial_default_cols += 1
+    if pg_default_cols != emitted_defaults + registered + serial_default_cols:
+        print(f"DEFAULT ACCOUNTING DRIFT: pg={pg_default_cols} emitted={emitted_defaults} "
+              f"registered={registered} serial={serial_default_cols}")
+        sys.exit(1)
 
     # 索引：GIN/trigram 降级登记；谓词规范化后不可译降级；其余翻译
     dropped_indexes = []
@@ -217,6 +331,19 @@ def main():
     def quote(s):
         return '"' + s.replace('"', '""') + '"'
 
+    # serial 判定（QA P0-1 收紧）：单列主键 + PG 类型 ∈ {bigint, integer} +
+    # （identity in ('a','d') 或默认 nextval）。其余单列主键一律表级
+    # PRIMARY KEY（TEXT/UUID/BOOLEAN 主键绝不能变成 rowid 别名，否则插入即
+    # datatype mismatch，且 tenant_id 缺失会被静默分配 id）。
+    def is_serial_pk(table, col_name):
+        for c in by_table_cols[table]:
+            if c["column"] == col_name:
+                if c["type"] not in ("bigint", "integer"):
+                    return False
+                return c["identity"] in ("a", "d") or c["default"].strip().startswith("nextval(")
+        return False
+
+    autoincrement_cols = []
     for t in tables:
         cs = by_table_cols[t]
         pk = pks.get(t, [])
@@ -226,11 +353,13 @@ def main():
             if m:
                 pk_cols = [x.strip().strip('"') for x in m.group(1).split(",")]
         single_serial_pk = None
-        if len(pk_cols) == 1:
-            col = pk_cols[0]
-            for c in cs:
-                if c["column"] == col and (c["identity"] or c["default"].startswith("nextval(")):
-                    single_serial_pk = col
+        if len(pk_cols) == 1 and is_serial_pk(t, pk_cols[0]):
+            single_serial_pk = pk_cols[0]
+            autoincrement_cols.append(f"{t}.{single_serial_pk}")
+            col_type = next(c["type"] for c in cs if c["column"] == single_serial_pk)
+            if col_type not in ("bigint", "integer"):
+                print(f"AUTOINCREMENT ASSERTION FAILED: {t}.{single_serial_pk} is {col_type}")
+                sys.exit(1)
 
         lines = []
         for c in cs:
@@ -241,9 +370,8 @@ def main():
             piece = f"  {quote(c['column'])} {sqlite}"
             if c["notnull"]:
                 piece += " NOT NULL"
-            d = normalize(c["default"].strip())
-            if d and not c["identity"] and not c["default"].strip().startswith("nextval(") and simple_default.match(d):
-                piece += f" DEFAULT {d}"
+            if (t, c["column"]) in translated_defaults:
+                piece += f" DEFAULT {translated_defaults[(t, c['column'])]}"
             lines.append(piece)
         if pk_cols and not single_serial_pk:
             lines.append("  PRIMARY KEY (" + ", ".join(quote(x) for x in pk_cols) + ")")
@@ -317,13 +445,18 @@ def main():
     json.dump({"type_counts": type_counts,
                "stripped_checks": stripped_checks,
                "stripped_defaults": stripped_defaults,
-               "dropped_indexes": dropped_indexes},
+               "dropped_indexes": dropped_indexes,
+               "autoincrement_columns": autoincrement_cols,
+               "type_map_notes": {"numeric": "本 schema 0 列——映射 TEXT 定点规则预置但不适用（与 citext 同）",
+                                  "citext": "本 schema 0 列——映射 NOCASE 规则预置但不适用"}},
               open(args.registry_out, "w"), indent=1, ensure_ascii=False)
     with open(args.type_map_out, "w") as f:
         f.write("table\tcolumn\tpg_type\tsqlite_type\n")
         for row in type_rows:
             f.write("\t".join(row) + "\n")
-    print(json.dumps({"tables": len(tables) + 3, "type_counts": type_counts,
+    print(json.dumps({"tables": len(tables) + 3, "autoincrement": len(autoincrement_cols),
+                      "defaults_emitted": emitted_defaults, "defaults_registered": registered,
+                      "type_counts": type_counts,
                       "stripped_checks": len(stripped_checks),
                       "stripped_defaults": len(stripped_defaults),
                       "dropped_indexes": len(dropped_indexes),

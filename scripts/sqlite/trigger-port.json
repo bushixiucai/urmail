@@ -33,7 +33,8 @@
         "when": "NEW.configuration_version IS NOT 1 OR NEW.tenant_local_only IS NOT 1 OR NEW.cloud_consent_digest IS NOT '' OR NEW.cloud_consent_scope_hash IS NOT '' OR NEW.cloud_consent_by IS NOT NULL OR NEW.cloud_consent_at IS NOT NULL OR NEW.cloud_consent_revoked_at IS NOT NULL",
         "body": "UPDATE ai_provider_configs SET configuration_version = 1, tenant_local_only = 1, cloud_consent_digest = '', cloud_consent_scope_hash = '', cloud_consent_by = NULL, cloud_consent_at = NULL, cloud_consent_revoked_at = NULL WHERE id = NEW.id"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_alias_sender_logins_guard": {
     "note": "sender_logins 为 TEXT(JSON 数组)；catchall 禁登录、路由变更清空、逐登录校验归属",
@@ -97,7 +98,8 @@
         "when": "OLD.key = 'billing_document_profile' AND (NEW.key IS NOT OLD.key OR NEW.scope IS NOT OLD.scope OR NEW.scope_id IS NOT OLD.scope_id)",
         "body": "SELECT RAISE(ABORT,'BILLING_PROFILE_IDENTITY_IMMUTABLE')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_contact_group_member_guard": {
     "note": "成员必须同租户/邮箱/通讯录且双方未删",
@@ -132,7 +134,8 @@
         "when": "NEW.provisioning_state IS NOT 'pending' OR NEW.dns_explicit IS NOT 0 OR NEW.custom_web_enabled IS NOT 0",
         "body": "UPDATE domains SET provisioning_state = 'pending', dns_explicit = 0, custom_web_enabled = 0 WHERE id = NEW.id"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_guard_host_namespace": {
     "note": "brand_hosts 与 domains 主机名互斥（忽略大小写与尾点）",
@@ -202,7 +205,8 @@
         "when": "OLD.quota_timezone <> '' AND NEW.quota_timezone IS NOT OLD.quota_timezone",
         "body": "SELECT RAISE(ABORT,'AI_QUOTA_TIMEZONE_FROZEN')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_guard_published_marketing_step": {
     "note": "已发布流程的步骤不可改；租户级联删除放行",
@@ -335,7 +339,8 @@
         "when": "NEW.password_hash IS NOT OLD.password_hash AND (NEW.password_version IS NOT OLD.password_version + 1 OR NEW.password_revoke_pending IS NOT 1)",
         "body": "UPDATE mailboxes SET password_version = OLD.password_version + 1, password_revoke_pending = 1 WHERE id = NEW.id"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_mailbox_sieve_mode_guard": {
     "note": "sieve_mode 不可变；legacy 元数据只读；legacy 导入授权为角色语义",
@@ -357,7 +362,8 @@
         "when": "OLD.sieve_mode = 'legacy_v80' AND NEW.sieve_script IS NOT OLD.sieve_script",
         "body": "SELECT RAISE(ABORT,'LEGACY_SIEVE_METADATA_READ_ONLY')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_recall_guard": {
     "note": "recall 起始 pending、终态受限于 pending/failed/expired",
@@ -413,7 +419,8 @@
         "when": "NEW.scope IN('full_content','export') AND (NEW.expires_at IS NULL OR length(trim(NEW.reason)) = 0 OR length(NEW.reason) > 2000)",
         "body": "SELECT RAISE(ABORT,'COMPLIANCE_GRANT_INVALID')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_require_encrypted_totp": {
     "note": "mfa_secret 必须 enc:v1: 前缀",
@@ -440,12 +447,14 @@
         "when": "NEW.scope IN('metadata_only','full_content','export') AND NEW.granted_by IS NOT NULL AND NEW.granted_by = NEW.user_id",
         "body": "SELECT RAISE(ABORT,'COMPLIANCE_GRANT_SELF_AUTHORIZATION')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_require_marketing_admin": {
     "note": "纯会话角色守卫（owner/admin）",
     "app_pending": "MARKETING_FORBIDDEN（tenant 匹配 + owner/admin role，会话语义）→ S2 装饰器全量承接，引擎层无触发器",
-    "triggers": []
+    "triggers": [],
+    "app_pending_slice": "S2"
   },
   "urmail_require_open_ticket": {
     "note": "单引擎下全写方视同 app：closed 票禁止追加消息（原文 role 分支吸收）",
@@ -463,7 +472,8 @@
   "urmail_require_tenant_content_admin": {
     "note": "纯会话角色守卫",
     "app_pending": "COMPLIANCE_GRANT_ROLE_REQUIRED（owner/admin 会话判定）→ S2 装饰器全量承接，引擎层无触发器",
-    "triggers": []
+    "triggers": [],
+    "app_pending_slice": "S2"
   },
   "urmail_reserve_mailbox_storage": {
     "note": "邮箱身份不可变 + 地址预约登记与占用断言",
@@ -521,7 +531,8 @@
         "when": "OLD.status <> 'deleted' OR OLD.usage_measured_at IS NULL OR OLD.usage_error IS NOT NULL OR OLD.usage_measured_at < (CAST(strftime('%s','now') AS INTEGER) - 600)*1000000 OR OLD.bytes_used > 0",
         "body": "SELECT RAISE(ABORT,'STORAGE_NOT_EMPTY')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_restore_quarantine_guard": {
     "note": "恢复隔离激活期间拒写（urmail_restore_quarantine_active 内联为单行表读取）",
@@ -568,7 +579,8 @@
         "event": "DELETE",
         "body": "SELECT RAISE(ABORT,'RETENTION_POLICY_IMMUTABLE')"
       }
-    ]
+    ],
+    "app_pending_slice": "S2"
   },
   "urmail_setting_limit": {
     "note": "纯 SQL 函数（settings 行谓词 limit 读取），无触发器——已内联进 urmail_resource_guard 触发器",

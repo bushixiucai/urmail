@@ -133,7 +133,7 @@ func TestDumpCatalog(t *testing.T) {
 		       pg_catalog.format_type(a.atttypid, a.atttypmod),
 		       a.attnotnull::text,
 		       COALESCE(pg_catalog.pg_get_expr(d.adbin, d.adrelid), ''),
-		       CASE WHEN a.attidentity <> '' THEN a.attidentity ELSE '' END
+		       CASE WHEN a.attidentity <> '' THEN a.attidentity::text ELSE '' END
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped

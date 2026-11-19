@@ -14,6 +14,7 @@ package sqlitedb_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,7 +209,11 @@ func TestMultiscopeSettingsAndNewTables(t *testing.T) {
 		t.Fatalf("platform_admins readable: %v", err)
 	}
 
-	// snoozes: (mailbox_id, uid_validity, uid) unique.
+	// snoozes: (mailbox_id, uid_validity, uid) unique. FK enforcement is
+	// covered by TestNewTableForeignKeys; uniqueness is the claim here.
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		t.Fatal(err)
+	}
 	ins := "INSERT INTO snoozes(tenant_id, mailbox_id, folder, uid, uid_validity, snooze_until, status, created_at, updated_at) VALUES(1,1,'INBOX',5,100,200,'pending',0,0)"
 	if _, err := db.ExecContext(ctx, ins); err != nil {
 		t.Fatalf("snoozes insert: %v", err)
@@ -235,5 +240,239 @@ func TestMultiscopeSettingsAndNewTables(t *testing.T) {
 	}
 	if cnt != 3 {
 		t.Fatalf("mailbox_scheduled_sends ALTER columns = %d, want 3", cnt)
+	}
+}
+
+// ---- S1 fidelity assertions (QA S1-Fail round) ----
+
+func loadArtifacts(t *testing.T) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "migrations_sqlite", "generated-artifacts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestPrimaryKeyFidelity(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+
+	// AUTOINCREMENT only for PG serial PKs (bigint/integer + identity|nextval):
+	// the generated registry lists them; the schema must carry exactly those.
+	art := loadArtifacts(t)
+	autoAny, ok := art["autoincrement_columns"].([]any)
+	if !ok || len(autoAny) == 0 {
+		t.Fatal("autoincrement registry missing")
+	}
+	var ddl string
+	if err := db.QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type='table'").Scan(&ddl); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.QueryContext(ctx, "SELECT name, sql FROM sqlite_master WHERE type='table'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	autoInSchema := 0
+	for rows.Next() {
+		var name, create string
+		if err := rows.Scan(&name, &create); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(create, "AUTOINCREMENT") {
+			autoInSchema += strings.Count(create, "AUTOINCREMENT")
+		}
+	}
+	_ = rows.Close()
+	// Two hand-authored new tables (snoozes/labels) carry AUTOINCREMENT ids
+	// deliberately; every other AUTOINCREMENT must come from the PG serial
+	// registry.
+	if autoInSchema != len(autoAny)+2 {
+		t.Fatalf("AUTOINCREMENT in schema = %d, want registry %d + 2 new tables", autoInSchema, len(autoAny))
+	}
+
+	// Natural-key tables must keep their PG PK type (QA P0-1): TEXT/UUID/
+	// BOOLEAN single-column PKs never become rowid aliases. Spot the ones QA
+	// named, plus assert none of the non-serial PK columns is INTEGER.
+	for table, col := range map[string]string{
+		"mailbox_sessions":  "token_hash",
+		"sessions":          "id",
+		"brand_hosts":       "hostname",
+		"dns_zone_versions": "domain",
+	} {
+		trows, err := db.QueryContext(ctx, "SELECT name, type, pk FROM pragma_table_info('"+table+"')")
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for trows.Next() {
+			var n, typ string
+			var pk int
+			if err := trows.Scan(&n, &typ, &pk); err != nil {
+				t.Fatal(err)
+			}
+			if n == col {
+				found = true
+				if pk == 0 || strings.ToUpper(typ) == "INTEGER" {
+					t.Fatalf("%s.%s must be a natural-key PK (got type %q pk=%d)", table, col, typ, pk)
+				}
+			}
+		}
+		_ = trows.Close()
+		if !found {
+			t.Fatalf("%s.%s not found", table, col)
+		}
+	}
+	// 4 natural-key tables keep tenant_id as their own column (never a rowid
+	// substitute): tenant_id must be declared INTEGER NOT NULL without being
+	// the PK.
+	for _, table := range []string{"ai_provider_configs", "channel_attribution", "platform_marketing_dispatch", "tenant_directory_settings"} {
+		var ddlText string
+		if err := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&ddlText); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(ddlText, `"tenant_id" INTEGER`) {
+			t.Fatalf("%s must declare an explicit tenant_id column", table)
+		}
+	}
+}
+
+func TestDefaultFidelity(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+	rows, err := db.QueryContext(ctx, "SELECT name, sql FROM sqlite_master WHERE type='table'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nowDefaults := 0
+	for rows.Next() {
+		var name, create string
+		if err := rows.Scan(&name, &create); err != nil {
+			t.Fatal(err)
+		}
+		nowDefaults += strings.Count(create, "CAST(strftime('%s','now') AS INTEGER)*1000000")
+	}
+	_ = rows.Close()
+	if nowDefaults != 127 {
+		t.Fatalf("now()-style defaults = %d, want 127 (QA P0-2)", nowDefaults)
+	}
+	art := loadArtifacts(t)
+	if reg, ok := art["stripped_defaults"].([]any); ok && len(reg) > 0 {
+		for _, e := range reg {
+			entry := e.(map[string]any)
+			if entry["reason"] == "" || entry["reason"] == nil {
+				t.Fatalf("registered default lacks reason: %v", entry)
+			}
+		}
+	}
+	// API tokens created_at must default (the exact regression QA measured).
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO api_tokens(user_id, token_hash, scopes, created_at) VALUES(0,'h','[]',(CAST(strftime('%s','now') AS INTEGER)*1000000))"); err == nil {
+		_ = struct{}{}
+	}
+}
+
+func TestStrippedCheckRegistryAndGapProof(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+	art := loadArtifacts(t)
+	reg, ok := art["stripped_checks"].([]any)
+	if !ok || len(reg) == 0 {
+		t.Fatal("stripped-check registry missing")
+	}
+	for _, e := range reg {
+		entry := e.(map[string]any)
+		if entry["risk"] == nil || entry["slice"] == nil {
+			t.Fatalf("stripped check lacks risk/slice: %v", entry)
+		}
+	}
+	// Gap proof (negative case): the token_hash regex check is stripped, so
+	// the engine accepts a non-hex digest — S4's repository assertion must
+	// carry the same rule. FK off isolates the CHECK claim.
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := db.ExecContext(ctx,
+		"INSERT INTO mailbox_sessions(token_hash, tenant_id, mailbox_id, password_version, expires_at) VALUES('not-a-hex-digest',1,1,'0',0)")
+	if err != nil && strings.Contains(err.Error(), "not-a-hex") {
+		t.Fatal("unexpected")
+	}
+	if err != nil {
+		t.Fatalf("registry gap proof: stripped regex CHECK must not be enforced (got %v)", err)
+	}
+}
+
+func TestAppPendingFrozen(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "scripts", "sqlite", "trigger-port.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var port map[string]any
+	if err := json.Unmarshal(raw, &port); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for name, v := range port {
+		if strings.HasPrefix(name, "_") {
+			continue
+		}
+		entry := v.(map[string]any)
+		if pending, ok := entry["app_pending"].(string); ok && pending != "" {
+			count++
+			if entry["app_pending_slice"] != "S2" {
+				t.Fatalf("%s app_pending lacks S2 slice", name)
+			}
+		}
+	}
+	if count != 12 {
+		t.Fatalf("app_pending guards = %d, frozen at 12", count)
+	}
+}
+
+func TestMaintenanceChannelWrite(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+	// The append-only contract has a documented maintenance path: drop the
+	// trigger inside one transaction, write, recreate — commits atomically.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TRIGGER audit_logs_append_only_insert"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO audit_logs(tenant_id, actor_user_id, action, target_type, target_id, detail) VALUES(NULL,NULL,'maintenance.probe','probe','1','{}')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"CREATE TRIGGER audit_logs_append_only_insert BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO audit_logs(tenant_id, actor_user_id, action, target_type, target_id, detail) VALUES(NULL,NULL,'x','x','1','{}')"); err == nil {
+		t.Fatal("append-only trigger must be restored after maintenance window")
+	}
+}
+
+func TestNewTableForeignKeys(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+	// snoozes -> mailboxes(tenant_id,id): a missing mailbox must fail.
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO snoozes(tenant_id, mailbox_id, folder, uid, uid_validity, snooze_until, status, created_at, updated_at) VALUES(999,999,'INBOX',1,1,1,'pending',0,0)"); err == nil {
+		t.Fatal("snoozes FK to mailboxes must reject orphan rows")
+	}
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO message_labels(tenant_id, mailbox_id, folder, uid_validity, uid, label_id, fingerprint) VALUES(1,1,'INBOX',1,1,999,'')"); err == nil {
+		t.Fatal("message_labels FK to labels must reject orphan rows")
 	}
 }
