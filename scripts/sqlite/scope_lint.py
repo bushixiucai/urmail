@@ -55,7 +55,10 @@ def main():
             if scope == "platform" and touches_tenant and name not in platform_methods:
                 violations.append(f"{name}: platform without exemption-list entry")
             if scope == "tenant" and touches_tenant and "tenant_id" not in body.lower():
-                unbound.append(name)
+                if not re.search(r"(?m)^-- scope-reason:\s*\S", body):
+                    violations.append(f"{name}: tenant-table statement without tenant_id lacks -- scope-reason")
+                else:
+                    unbound.append(name)
 
     if violations:
         print(f"SCOPE LINT VIOLATIONS = {len(violations)}:")

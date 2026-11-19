@@ -696,7 +696,6 @@
   "platform": 469
  },
  "tenant_id_unbound": [
-  "AuditLegacyCredentialUse",
   "CreateApplicationCredential",
   "DeleteExpiredSessions",
   "DeleteOtherUserSessions",

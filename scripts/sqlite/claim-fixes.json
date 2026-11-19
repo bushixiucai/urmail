@@ -1,0 +1,62 @@
+{
+ "note": "QA 预审①：claim/lease 的 UPDATE…FROM 无状态谓词——B1 逐条回带旧状态谓词 + Go 侧断言 RowsAffected，并配两 goroutine 并发抢占测试（只一方成功）。",
+ "batch": "B1",
+ "claims": [
+  {
+   "method": "PlatformClaimMailboxJob",
+   "file": "platform_collaboration.sql",
+   "table": "mailbox_jobs",
+   "predicate": "AND status='pending'（或 leased 过期条件）",
+   "note": "ETA 队列抢占：条件 UPDATE+changes()==1"
+  },
+  {
+   "method": "PlatformClaimMailboxScheduledSend",
+   "file": "platform_mailbox_scheduled_sends.sql",
+   "table": "mailbox_scheduled_sends",
+   "predicate": "AND status IN('pending','held')",
+   "note": "定时发送抢占"
+  },
+  {
+   "method": "PlatformClaimSendCopy",
+   "file": "platform_mailbox_send_receipts.sql",
+   "table": "mailbox_send_receipts",
+   "predicate": "AND lease_until IS NULL OR lease_until<now（回带 lease 谓词）",
+   "note": "发送副本租约"
+  },
+  {
+   "method": "PlatformClaimScheduledSentCopy",
+   "file": "platform_mailbox_sent_copy.sql",
+   "table": "mailbox_scheduled_sends",
+   "predicate": "AND lease 谓词回带",
+   "note": "定时副本租约"
+  },
+  {
+   "method": "PlatformClaimOnboardingTask",
+   "file": "platform_tenants.sql",
+   "table": "onboarding_tasks",
+   "predicate": "AND status='pending'",
+   "note": "任务抢占"
+  },
+  {
+   "method": "PlatformTakeReminderScan",
+   "file": "platform_calendar_scheduling.sql",
+   "table": "mailbox_events",
+   "predicate": "AND reminder_scanned_at IS NULL（旧状态回带）",
+   "note": "扫描抢占"
+  },
+  {
+   "method": "PlatformPublishDueCalendarReminders",
+   "file": "platform_calendar_scheduling.sql",
+   "table": "mailbox_jobs",
+   "predicate": "AND status='pending'",
+   "note": "提醒发布抢占"
+  },
+  {
+   "method": "PlatformApplyArchiveRetention",
+   "file": "platform_archive_lifecycle.sql",
+   "table": "archive_entries",
+   "predicate": "AND deleted_at IS NULL",
+   "note": "保留执行幂等守卫"
+  }
+ ]
+}

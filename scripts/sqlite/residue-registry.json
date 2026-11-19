@@ -1,0 +1,178 @@
+{
+ "note": "S2 残留登记：机械改写后仍不可译或待批次的构造，逐条 文件:方法:行；rewrite_verify.py 以此断言闭合（after == 登记条数）。",
+ "classes": {
+  "regex ~": [
+   {
+    "class": "regex ~",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesAddSource",
+    "line": 77,
+    "snippet": "AND e.deleted_at IS NULL AND e.mailbox_id IS NOT NULL AND e.raw_sha256 ~ '^[0-9a-f]{64}$'"
+   },
+   {
+    "class": "regex ~",
+    "file": "platform_data_check.sql",
+    "method": "PlatformDataIssues",
+    "line": 6,
+    "snippet": "UNION ALL SELECT 'unsafe_mailbox_identity',m.id,m.tenant_id,m.tenant_id FROM mailboxes m JOIN domains d ON d.i"
+   }
+  ],
+  "jsonb_agg/json_agg": [
+   {
+    "class": "jsonb_agg/json_agg",
+    "file": "auth.sql",
+    "method": "ConsumeRecoveryCode",
+    "line": 114,
+    "snippet": "SELECT jsonb_agg(v ORDER BY ord)"
+   },
+   {
+    "class": "jsonb_agg/json_agg",
+    "file": "mailbox_import.sql",
+    "method": "MailboxImportItemViews",
+    "line": 108,
+    "snippet": "SELECT COALESCE(jsonb_agg(to_jsonb(i)-'raw_secret' ORDER BY item_index),'[]') AS items"
+   },
+   {
+    "class": "jsonb_agg/json_agg",
+    "file": "marketing_reports.sql",
+    "method": "MarketingCampaignReportSnapshot",
+    "line": 27,
+    "snippet": "SELECT json_object('name',target.name,'rows',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.record_kind,b.r"
+   },
+   {
+    "class": "jsonb_agg/json_agg",
+    "file": "marketing_reports.sql",
+    "method": "MarketingFlowReportSnapshot",
+    "line": 61,
+    "snippet": "SELECT json_object('name',target.name,'rows',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.record_kind,b.r"
+   },
+   {
+    "class": "jsonb_agg/json_agg",
+    "file": "platform_recall_product.sql",
+    "method": "PlatformRecallPreviewSource",
+    "line": 9,
+    "snippet": "(SELECT coalesce(jsonb_agg(json_object('entry_id',s.id,'mailbox_id',coalesce(s.mailbox_id,0),'original_sha256'"
+   }
+  ],
+  "WITH ORDINALITY": [
+   {
+    "class": "WITH ORDINALITY",
+    "file": "auth.sql",
+    "method": "ConsumeRecoveryCode",
+    "line": 115,
+    "snippet": "FROM json_each(mfa_recovery_codes) WITH ORDINALITY AS t(v, ord)"
+   }
+  ],
+  "jsonb-op @>": [
+   {
+    "class": "jsonb-op @>",
+    "file": "auth.sql",
+    "method": "ConsumeRecoveryCode",
+    "line": 118,
+    "snippet": "WHERE id = ?1 AND mfa_recovery_codes @> to_jsonb(?2);"
+   }
+  ],
+  "DISTINCT ON": [
+   {
+    "class": "DISTINCT ON",
+    "file": "delivery_health.sql",
+    "method": "TenantDeliveryOutcomeCounts",
+    "line": 7,
+    "snippet": "SELECT DISTINCT ON(instance,lifecycle_id,recipient) status"
+   },
+   {
+    "class": "DISTINCT ON",
+    "file": "mailbox_ai_retrieval.sql",
+    "method": "MailboxAIChunkMessageStates",
+    "line": 9,
+    "snippet": "SELECT DISTINCT ON (folder, folder_uidvalidity, message_uid)"
+   }
+  ],
+  "ANY": [
+   {
+    "class": "ANY",
+    "file": "mailbox_ai_retrieval.sql",
+    "method": "DeleteMailboxAIChunkMessages",
+    "line": 20,
+    "snippet": "AND folder_uidvalidity = ?4 AND message_uid = ANY(?5);"
+   },
+   {
+    "class": "ANY",
+    "file": "mailbox_ai_retrieval.sql",
+    "method": "SearchMailboxAIChunksInScope",
+    "line": 70,
+    "snippet": "WHERE s.folder=c.folder AND s.validity=c.folder_uidvalidity AND c.message_uid=ANY(s.uids))"
+   },
+   {
+    "class": "ANY",
+    "file": "mailbox_self_settings.sql",
+    "method": "PlatformListMailboxSenderIdentities",
+    "line": 45,
+    "snippet": "AND sqlc.arg(sender)=ANY(a.sender_logins)"
+   },
+   {
+    "class": "ANY",
+    "file": "mailbox_self_settings.sql",
+    "method": "PlatformMailboxSenderIdentityAllowed",
+    "line": 55,
+    "snippet": "AND sqlc.arg(sender)=ANY(a.sender_logins)"
+   },
+   {
+    "class": "ANY",
+    "file": "platform_alias_senders.sql",
+    "method": "PlatformLockAliasSenderMailboxes",
+    "line": 17,
+    "snippet": "WHERE m.tenant_id=sqlc.arg(tenant_id) AND m.address=ANY(sqlc.arg(addresses))"
+   },
+   {
+    "class": "ANY",
+    "file": "platform_legacy_import.sql",
+    "method": "PlatformLockLegacyDKIMDomains",
+    "line": 49,
+    "snippet": "WHERE d.tenant_id=sqlc.arg(tenant_id) AND d.fqdn=ANY(sqlc.arg(domain_names))"
+   },
+   {
+    "class": "ANY",
+    "file": "platform_postfix.sql",
+    "method": "PlatformListAliases",
+    "line": 31,
+    "snippet": "WHERE m.tenant_id=a.tenant_id AND m.address=ANY(a.sender_logins) AND m.status='active' AND m.send_enabled"
+   }
+  ],
+  "LATERAL": [
+   {
+    "class": "LATERAL",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformClaimMarketingFlowPositions",
+    "line": 69,
+    "snippet": "FROM due_tenants d CROSS JOIN LATERAL ("
+   },
+   {
+    "class": "LATERAL",
+    "file": "support_diagnostics.sql",
+    "method": "SupportDiagnosticMailboxCounts",
+    "line": 9,
+    "snippet": "LEFT JOIN LATERAL ("
+   }
+  ],
+  "EXTRACT": [
+   {
+    "class": "EXTRACT",
+    "file": "platform_observability.sql",
+    "method": "PlatformEnqueueObservabilityAlerts",
+    "line": 18,
+    "snippet": "'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char((CAST(strftime('%s','now') A"
+   }
+  ]
+ },
+ "totals": {
+  "regex ~": 2,
+  "jsonb_agg/json_agg": 5,
+  "WITH ORDINALITY": 1,
+  "jsonb-op @>": 1,
+  "DISTINCT ON": 2,
+  "ANY": 7,
+  "LATERAL": 2,
+  "EXTRACT": 1
+ }
+}

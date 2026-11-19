@@ -1,0 +1,270 @@
+{
+ "total_files": 90,
+ "failed_files": 44,
+ "census": [
+  {
+   "file": "archive_case_product.sql",
+   "first_error_line": 60,
+   "method": "ArchiveCasesRemoveMember",
+   "error": "line 60:37 no viable alternative at input 'UPDATE archive_investigation_members m' | line 69:60 no viable alternative at input ';' | line 77:71 extraneous input '~' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, "
+  },
+  {
+   "file": "archive_lifecycle.sql",
+   "first_error_line": 6,
+   "method": "GetArchiveContent",
+   "error": "line 6:99 no viable alternative at input ';' | line 14:1 extraneous input 'AND' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
+  },
+  {
+   "file": "auth.sql",
+   "first_error_line": 105,
+   "method": "DisableUserMFA",
+   "error": "line 105:13 no viable alternative at input ';' | line 114:23 no viable alternative at input 'UPDATE users\\nSET mfa_recovery_codes = COALESCE((\\n    SELECT jsonb_agg(v ORDER' | line 114:20 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH"
+  },
+  {
+   "file": "compliance.sql",
+   "first_error_line": 55,
+   "method": "SoftDeleteArchiveEntry",
+   "error": "# package store | internal/store/queries/compliance.sql:55:8: column \"result\" does not exist"
+  },
+  {
+   "file": "mailbox_ai_retrieval.sql",
+   "first_error_line": 60,
+   "method": "GetMailboxAIChunk",
+   "error": "line 60:52 no viable alternative at input ';' | line 69:11 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
+  },
+  {
+   "file": "mailbox_import.sql",
+   "first_error_line": 20,
+   "method": "ClearExpiredMailboxImportPayloads",
+   "error": "line 20:28 no viable alternative at input 'UPDATE mailbox_import_items i' | line 94:28 no viable alternative at input 'UPDATE mailbox_import_items i' | line 103:128 no viable alternative at input ';'"
+  },
+  {
+   "file": "marketing_flow_authoring.sql",
+   "first_error_line": 77,
+   "method": "PauseMarketingRuntimeFlows",
+   "error": "line 77:23 no viable alternative at input 'UPDATE marketing_flows f' | line 77:177 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_,"
+  },
+  {
+   "file": "marketing_reports.sql",
+   "first_error_line": 11,
+   "method": "MarketingCampaignReportSnapshot",
+   "error": "line 11:15 no viable alternative at input 'WITH target AS MATERIALIZED' | line 14:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_"
+  },
+  {
+   "file": "platform_ai.sql",
+   "first_error_line": 71,
+   "method": "PlatformReserveAIRequest",
+   "error": "# package store | internal/store/queries/platform_ai.sql:71:51: column reference \"tenant_id\" is ambiguous"
+  },
+  {
+   "file": "platform_ai_quota.sql",
+   "first_error_line": 11,
+   "method": "PlatformAIQuotaUsage",
+   "error": "line 11:21 no viable alternative at input 'WITH window_usage AS MATERIALIZED' | line 15:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, S"
+  },
+  {
+   "file": "platform_archive.sql",
+   "first_error_line": 10,
+   "method": "PlatformGetMailboxByAddress",
+   "error": "line 10:68 no viable alternative at input ';' | line 18:12 mismatched input 'ON' expecting {'(', DO_} | # package store"
+  },
+  {
+   "file": "platform_archive_activity.sql",
+   "first_error_line": 9,
+   "method": "PlatformExpireArchiveApprovals",
+   "error": "line 9:33 no viable alternative at input 'WITH due AS (\\n SELECT id,tenant_id FROM archive_approval_requests WHERE case_version>0\\n AND state IN('pending','approved') AND expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)\\n ORDER BY id LIMIT 100\\n)\\nUPDATE archive_approval_requests r' | lin"
+  },
+  {
+   "file": "platform_archive_lifecycle.sql",
+   "first_error_line": 5,
+   "method": "PlatformResolvePinnedArchiveMailbox",
+   "error": "line 5:76 extraneous input 'FOR' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_} | line 12:12 mismatched input 'ON' e"
+  },
+  {
+   "file": "platform_audit.sql",
+   "first_error_line": 8,
+   "method": "PlatformResolveAuditTargetTenant",
+   "error": "# package store | internal/store/queries/platform_audit.sql:8:7: column \"kind\" does not exist"
+  },
+  {
+   "file": "platform_auth_application.sql",
+   "first_error_line": 31,
+   "method": "CreateApplicationCredential",
+   "error": "line 31:2 no viable alternative at input 'WITH credential AS (\\n  INSERT' | line 35:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELEC"
+  },
+  {
+   "file": "platform_auth_security.sql",
+   "first_error_line": 9,
+   "method": "PlatformChangePanelMFA",
+   "error": "line 9:173 no viable alternative at input ';' | line 15:55 extraneous input 'FROM' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VA"
+  },
+  {
+   "file": "platform_brand_host_verify.sql",
+   "first_error_line": 62,
+   "method": "PlatformVerifyBrandHostProof",
+   "error": "line 62:1 no viable alternative at input 'WITH consumed AS (\\n UPDATE' | line 75:19 no viable alternative at input 'UPDATE brand_hosts h' | line 76:154 extraneous input ',' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, P"
+  },
+  {
+   "file": "platform_brand_public.sql",
+   "first_error_line": 33,
+   "method": "PlatformUnbindBrandHost",
+   "error": "line 33:23 no viable alternative at input 'WITH deleted_proof AS (DELETE' | line 33:90 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELE"
+  },
+  {
+   "file": "platform_calendar_scheduling.sql",
+   "first_error_line": 30,
+   "method": "PlatformTakeReminderScan",
+   "error": "line 30:22 no viable alternative at input 'WITH candidate AS (\\n SELECT id FROM mailbox_events WHERE deleted_at IS NULL AND status<>'cancelled' AND reminders<>'[]'\\n ORDER BY reminder_scanned_at,id LIMIT 50\\n)\\nUPDATE mailbox_events e' | line 29:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, "
+  },
+  {
+   "file": "platform_collaboration.sql",
+   "first_error_line": 36,
+   "method": "PlatformInsertContact",
+   "error": "line 36:1 no viable alternative at input 'WITH next AS (\\n INSERT' | line 42:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPD"
+  },
+  {
+   "file": "platform_data_check.sql",
+   "first_error_line": 6,
+   "method": "PlatformDataIssues",
+   "error": "line 6:172 extraneous input '~' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_} | line 8:0 extraneous input '<EOF>' e"
+  },
+  {
+   "file": "platform_dns_onboarding.sql",
+   "first_error_line": 13,
+   "method": "PlatformClaimDNSPlan",
+   "error": "line 13:24 no viable alternative at input 'UPDATE dns_change_plans p' | line 13:104 extraneous input ',' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_"
+  },
+  {
+   "file": "platform_legacy_import.sql",
+   "first_error_line": 71,
+   "method": "PlatformActivateLegacyDelegatedMail",
+   "error": "# package store | internal/store/queries/platform_legacy_import.sql:71:7: column reference \"tenant_id\" is ambiguous"
+  },
+  {
+   "file": "platform_mailbox_password.sql",
+   "first_error_line": 44,
+   "method": "PlatformRevokeMailboxCredentials",
+   "error": "line 44:1 no viable alternative at input 'WITH revoked_sessions AS (\\n UPDATE' | line 46:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, "
+  },
+  {
+   "file": "platform_mailbox_principal.sql",
+   "first_error_line": 44,
+   "method": "PlatformConsumeMailboxTicket",
+   "error": "line 44:33 no viable alternative at input 'UPDATE mailbox_operation_tickets ticket' | line 61:114 no viable alternative at input ';' | line 66:29 extraneous input 's' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_"
+  },
+  {
+   "file": "platform_mailbox_scheduled_sends.sql",
+   "first_error_line": 56,
+   "method": "PlatformClaimMailboxScheduledSend",
+   "error": "line 56:31 no viable alternative at input 'WITH candidate AS (\\n SELECT s.id FROM mailbox_scheduled_sends s\\n JOIN mailboxes m ON m.tenant_id=s.tenant_id AND m.id=s.mailbox_id\\n JOIN tenants t ON t.id=s.tenant_id\\n JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id\\n WHERE s.status='pend"
+  },
+  {
+   "file": "platform_mailbox_send_receipts.sql",
+   "first_error_line": 27,
+   "method": "PlatformBeginSendReceipt",
+   "error": "line 27:29 no viable alternative at input 'UPDATE mailbox_send_receipts r' | line 29:243 no viable alternative at input '=' | line 29:244 no viable alternative at input ''active''"
+  },
+  {
+   "file": "platform_mailbox_sent_copy.sql",
+   "first_error_line": 5,
+   "method": "PlatformAcceptMailboxScheduledSend",
+   "error": "line 5:135 no viable alternative at input 'UPDATE mailbox_scheduled_sends\\nSET status='sent',sent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),sent_raw=NULL,sent_raw_secret=convert_from(sqlc.arg(sent_raw):' | line 20:31 no viable alternative at input 'WITH candidate AS (\\n SELECT id FROM mailb"
+  },
+  {
+   "file": "platform_marketing.sql",
+   "first_error_line": 32,
+   "method": "PlatformClaimMarketingRecipient",
+   "error": "line 32:25 no viable alternative at input 'WITH tenant_candidate AS MATERIALIZED' | line 38:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT"
+  },
+  {
+   "file": "platform_marketing_flow_authoring.sql",
+   "first_error_line": 54,
+   "method": "PlatformRecordMarketingFlowExecution",
+   "error": "line 54:0 no viable alternative at input 'WITH recorded AS (\\nINSERT' | line 60:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, "
+  },
+  {
+   "file": "platform_marketing_flows.sql",
+   "first_error_line": 59,
+   "method": "PlatformClaimMarketingFlowPositions",
+   "error": "line 59:20 no viable alternative at input 'WITH due_tenants AS MATERIALIZED' | line 67:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SE"
+  },
+  {
+   "file": "platform_notifications.sql",
+   "first_error_line": 24,
+   "method": "PlatformClaimEmailNotification",
+   "error": "line 24:27 no viable alternative at input 'UPDATE notification_outbox n' | line 27:20 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELEC"
+  },
+  {
+   "file": "platform_observability.sql",
+   "first_error_line": 10,
+   "method": "PlatformSetOperationalCondition",
+   "error": "line 10:188 no viable alternative at input ';' | line 18:50 extraneous input 'WHEN' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, V"
+  },
+  {
+   "file": "platform_parity_enhancements.sql",
+   "first_error_line": 74,
+   "method": "PlatformSearchPublishedCorporateContacts",
+   "error": "line 74:100 no viable alternative at input '||' | line 75:104 no viable alternative at input '||' | line 76:103 no viable alternative at input '||'"
+  },
+  {
+   "file": "platform_people_product.sql",
+   "first_error_line": 16,
+   "method": "PlatformListContactGroupMembers",
+   "error": "line 16:116 no viable alternative at input ';' | line 21:42 extraneous input 'm' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALU"
+  },
+  {
+   "file": "platform_postfix.sql",
+   "first_error_line": 22,
+   "method": "PlatformListMailboxes",
+   "error": "line 22:22 no viable alternative at input ';' | line 30:6 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES"
+  },
+  {
+   "file": "platform_recall_product.sql",
+   "first_error_line": 9,
+   "method": "PlatformRecallPreviewSource",
+   "error": "line 9:16 mismatched input '(' expecting ')' | line 9:26 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_"
+  },
+  {
+   "file": "platform_recalls.sql",
+   "first_error_line": 5,
+   "method": "PlatformCompleteRecall",
+   "error": "line 5:1 no viable alternative at input 'WITH completed AS (\\n UPDATE' | line 9:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, "
+  },
+  {
+   "file": "platform_support.sql",
+   "first_error_line": 24,
+   "method": "PlatformChangeSupportTicket",
+   "error": "line 24:15 no viable alternative at input 'UPDATE tickets t' | line 24:258 no viable alternative at input '=' | line 24:259 no viable alternative at input ''active''"
+  },
+  {
+   "file": "platform_tenants.sql",
+   "first_error_line": 47,
+   "method": "PlatformExpireOnboardingTasks",
+   "error": "line 47:142 no viable alternative at input ';' | line 60:160 no viable alternative at input 'WITH candidate AS (\\n    SELECT id FROM onboarding_tasks\\n    WHERE (status = 'pending' AND attempts < max_attempts)\\n       OR (status = 'running' AND leased_until < (CAST(strftime('%s','now') AS INTEGER)*1"
+  },
+  {
+   "file": "recall_product.sql",
+   "first_error_line": 15,
+   "method": "StoreRecallReviewPreview",
+   "error": "line 15:1 no viable alternative at input 'WITH changed AS (\\n INSERT' | line 17:110 extraneous input ':' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_"
+  },
+  {
+   "file": "recalls.sql",
+   "first_error_line": 5,
+   "method": "CreateRecall",
+   "error": "line 5:1 no viable alternative at input 'WITH inserted AS (\\n INSERT' | line 6:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, U"
+  },
+  {
+   "file": "support_diagnostics.sql",
+   "first_error_line": 10,
+   "method": "SupportDiagnosticMailboxCounts",
+   "error": "line 10:8 no viable alternative at input 'LATERAL (\\n SELECT usage' | line 11:0 extraneous input ')' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UP"
+  },
+  {
+   "file": "transport_security.sql",
+   "first_error_line": 4,
+   "method": "GetDomainTransportSecurity",
+   "error": "line 4:75 no viable alternative at input ';' | line 10:303 extraneous input '(' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUE"
+  }
+ ]
+}

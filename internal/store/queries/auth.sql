@@ -56,12 +56,14 @@ WHERE s.id = ?1 AND s.kind = 'panel'
 
 -- name: DeleteSession :exec
 -- scope: tenant
+-- scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
 
 DELETE FROM sessions
 WHERE id = ?1;
 
 -- name: DeleteExpiredSessions :exec
 -- scope: tenant
+-- scope-reason: 过期会话清扫，按时间谓词（系统入口）user-scoped
 
 DELETE FROM sessions
 WHERE expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000);
@@ -123,6 +125,7 @@ UPDATE users SET password_hash = ?2, password_changed_at = (CAST(strftime('%s','
 
 -- name: DeleteOtherUserSessions :exec
 -- scope: tenant
+-- scope-reason: 会话按 (id/user_id) 用户域操作；user-scoped
 
 DELETE FROM sessions WHERE user_id = ?1 AND id <> ?2;
 
@@ -137,6 +140,7 @@ ORDER BY created_at DESC;
 
 -- name: DeleteUserSession :execrows
 -- scope: tenant
+-- scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
 
 DELETE FROM sessions WHERE user_id = ?1 AND id = ?2;
 
