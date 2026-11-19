@@ -18,6 +18,11 @@ RESIDUE_PATTERNS = {
     "DISTINCT ON": re.compile(r"DISTINCT\s+ON", re.I),
     "LATERAL": re.compile(r"\bLATERAL\b", re.I),
     "jsonb-op @>": re.compile(r"@>|<@"),
+    "db-function-call": re.compile(r"\burmail_[a-z_0-9]+\s*\(", re.I),
+    "nextval(seq)": re.compile(r"\bnextval\s*\(", re.I),
+    "btrim(": re.compile(r"\bbtrim\s*\(", re.I),
+    "split_part(": re.compile(r"\bsplit_part\s*\(", re.I),
+    "AT TIME ZONE": re.compile(r"AT\s+TIME\s+ZONE", re.I),
 }
 
 

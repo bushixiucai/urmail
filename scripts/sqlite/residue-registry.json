@@ -1,6 +1,659 @@
 {
- "note": "S2 残留登记：机械改写后仍不可译或待批次的构造，逐条 文件:方法:行；rewrite_verify.py 以此断言闭合（after == 登记条数）。",
+ "note": "S2 残留登记（文件:方法:行，逐条）；db-function-call 的替代物见 dfn-calls.json（每调用 strategy+replacement）。rewrite_verify 断言 scan==registry。 db-function-call 按行计（93 行，含 96 次调用；替代物逐调用见 dfn-calls.json）。",
  "classes": {
+  "db-function-call": [
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesCreate",
+    "line": 4,
+    "snippet": "SELECT urmail_create_archive_case(@tenant_id,@actor_id,@title,@purpose,@expires_at,@request_key) AS id;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesSnapshot",
+    "line": 24,
+    "snippet": "SELECT urmail_archive_case_snapshot(?1,?2,?3) AS snapshot;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesSnapshotDigest",
+    "line": 29,
+    "snippet": "SELECT encode(sha256(convert_to(urmail_archive_case_snapshot(?1,?2,?3),'UTF8')),'hex') AS digest;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesEligibleMembers",
+    "line": 41,
+    "snippet": "WHERE r.tenant_id=?1 AND urmail_archive_case_grant(r.tenant_id,r.user_id,'full_content') ORDER BY u.email;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesGrantEligible",
+    "line": 46,
+    "snippet": "SELECT urmail_archive_case_grant(?1,?2,?3) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesAddMember",
+    "line": 54,
+    "snippet": "AND urmail_archive_case_grant(@tenant_id,@user_id,'full_content')"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesRequestApproval",
+    "line": 113,
+    "snippet": "SELECT @tenant_id,i.id,@actor_id,'export',@digest,min(i.expires_at,(CAST(strftime('%s','now') AS INTEGER)*1000"
+   },
+   {
+    "class": "db-function-call",
+    "file": "archive_case_product.sql",
+    "method": "ArchiveCasesExportVisible",
+    "line": 134,
+    "snippet": "SELECT urmail_archive_export_visible(?1,?2,?3) AS visible;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "audit.sql",
+    "method": "RecordTenantAudit",
+    "line": 40,
+    "snippet": "SELECT urmail_record_audit(@tenant_id, @user_id,"
+   },
+   {
+    "class": "db-function-call",
+    "file": "compliance.sql",
+    "method": "SoftDeleteArchiveEntry",
+    "line": 55,
+    "snippet": "SELECT result AS id FROM urmail_soft_delete_archive(@tenant_id,@id) AS result WHERE result IS NOT NULL;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "compliance_and_retention.sql",
+    "method": "GetRetentionPolicyAuthority",
+    "line": 83,
+    "snippet": "SELECT urmail_retention_authorized(@tenant_id,@created_by,@grant_id) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "SaveDNSCredential",
+    "line": 8,
+    "snippet": "SELECT urmail_save_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(provider),sqlc.arg(zone_nam"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "RevokeDNSCredential",
+    "line": 12,
+    "snippet": "SELECT urmail_revoke_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "CreateDNSPlan",
+    "line": 16,
+    "snippet": "SELECT urmail_create_dns_plan(sqlc.arg(id),sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.narg(credential_id),sq"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "ConfirmDNSPlan",
+    "line": 20,
+    "snippet": "SELECT urmail_confirm_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(source_digest));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "CancelDNSPlan",
+    "line": 24,
+    "snippet": "SELECT urmail_cancel_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "RequestOnboardingRetry",
+    "line": 40,
+    "snippet": "SELECT urmail_request_onboarding(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(reason));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "RequestDNSRollback",
+    "line": 48,
+    "snippet": "SELECT urmail_rollback_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "ReviewDNSPlan",
+    "line": 52,
+    "snippet": "SELECT urmail_review_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "dns_onboarding.sql",
+    "method": "AbandonDNSPlan",
+    "line": 56,
+    "snippet": "SELECT urmail_abandon_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "marketing_campaigns.sql",
+    "method": "ScheduleMarketingCampaign",
+    "line": 55,
+    "snippet": "SELECT urmail_schedule_marketing(@tenant_id,@campaign_id,@scheduled_at) AS result;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "marketing_flow_authoring.sql",
+    "method": "RetryMarketingFlowInstance",
+    "line": 152,
+    "snippet": "SELECT urmail_retry_marketing_flow_instance(?1,?2,?3,?4) AS retried;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "marketing_flow_authoring.sql",
+    "method": "RecordMarketingFlowAudit",
+    "line": 168,
+    "snippet": "SELECT urmail_record_marketing_flow_audit(?1,?2,?3,?4);"
+   },
+   {
+    "class": "db-function-call",
+    "file": "notifications.sql",
+    "method": "ListTenantNotifications",
+    "line": 6,
+    "snippet": "AND urmail_archive_notification_visible(tenant_id,nullif(current_setting('urmail.user_id',true),''),kind,param"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_ai.sql",
+    "method": "PlatformConfigureTenantAI",
+    "line": 126,
+    "snippet": "SELECT urmail_configure_tenant_ai(sqlc.arg(mode),sqlc.arg(provider),sqlc.arg(endpoint),sqlc.arg(model),sqlc.ar"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_ai.sql",
+    "method": "PlatformGetSieveActivationTarget",
+    "line": 133,
+    "snippet": "WHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND t.status='active' AND d.status='active' AND urmail_"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_ai.sql",
+    "method": "PlatformListSieveScripts",
+    "line": 140,
+    "snippet": "WHERE m.sieve_mode='managed' AND m.sieve_script IS NOT NULL AND m.status='active' AND t.status='active' AND d."
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_ai.sql",
+    "method": "TenantConsentAICloud",
+    "line": 153,
+    "snippet": "SELECT urmail_consent_tenant_ai(@configuration_digest,@scope_hash,@allow_cloud);"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_ai.sql",
+    "method": "AICloudAuthorized",
+    "line": 158,
+    "snippet": "SELECT urmail_ai_cloud_authorized(@tenant_id,@configuration_digest,@scope_hash) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_ai.sql",
+    "method": "PlatformConfigureTenantAIGovernance",
+    "line": 169,
+    "snippet": "SELECT urmail_configure_tenant_ai_governance(sqlc.arg(personal_mode), sqlc.arg(approved_endpoints));"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_archive_evidence.sql",
+    "method": "PlatformEvidenceVisible",
+    "line": 4,
+    "snippet": "SELECT urmail_evidence_manifest_visible(?1,?2,?3,?4) AS visible;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_archive_evidence.sql",
+    "method": "PlatformReadEvidenceBody",
+    "line": 9,
+    "snippet": "SELECT urmail_read_evidence_body(?1,?2,?3,?4);"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_archive_lifecycle.sql",
+    "method": "PlatformApplyArchiveRetention",
+    "line": 30,
+    "snippet": "WHERE p.active AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id) AND p.action"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_archive_lifecycle.sql",
+    "method": "PlatformListArchivePurgeCandidates",
+    "line": 49,
+    "snippet": "AND (c.purge_started_at IS NOT NULL OR c.retention_preview IS NULL OR EXISTS(SELECT 1 FROM retention_policies "
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_archive_lifecycle.sql",
+    "method": "PlatformLockRetentionPurgePolicy",
+    "line": 95,
+    "snippet": "SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tenant_id,p.cr"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_auth_security.sql",
+    "method": "PlatformRotatePanelPassword",
+    "line": 4,
+    "snippet": "SELECT urmail_rotate_panel_password(sqlc.arg(user_id),sqlc.arg(expected_hash),sqlc.arg(expected_version),sqlc."
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_auth_security.sql",
+    "method": "PlatformChangePanelMFA",
+    "line": 9,
+    "snippet": "SELECT urmail_change_panel_mfa(sqlc.arg(user_id),sqlc.arg(expected_version),sqlc.narg(secret),sqlc.arg(enabled"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_collaboration.sql",
+    "method": "PlatformDeleteContactGroup",
+    "line": 226,
+    "snippet": "SELECT urmail_delete_contact_group(?1,?2,?3);"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mail_access.sql",
+    "method": "PlatformMailboxAccessStates",
+    "line": 4,
+    "snippet": "SELECT m.tenant_id,m.id AS mailbox_id,m.address,m.password_version,m.password_revoke_pending, (urmail_mail_all"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mail_and_ai_gate.sql",
+    "method": "GetBillingBusinessTimezone",
+    "line": 4,
+    "snippet": "SELECT urmail_business_timezone(?1) AS timezone;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mail_and_ai_gate.sql",
+    "method": "MailServiceAllowed",
+    "line": 14,
+    "snippet": "SELECT urmail_mail_allowed(?1) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_scheduled_sends.sql",
+    "method": "PlatformAcknowledgeUncertainScheduledSend",
+    "line": 116,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status IN('uncer"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformCreateSendReceipt",
+    "line": 6,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active()"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformBeginSendReceipt",
+    "line": 28,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND r.tenant_id=sqlc.arg(tenant_id) AND r.mailbox_id=sqlc.arg(mai"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformFinishSendReceipt",
+    "line": 41,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformRecoverSendReceipts",
+    "line": 49,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status IN('prepared','submitting') AND lease_until<(CAST(strf"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformHoldExpiredSendCopies",
+    "line": 55,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status='accepted' AND sent_copy_state IN('pending','unknown')"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformClaimSendCopy",
+    "line": 60,
+    "snippet": "WITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT urmail_restore_quarantine_active() AND statu"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformClaimOwnedSendCopy",
+    "line": 67,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='accepted"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformMarkSendCopyUnknown",
+    "line": 73,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 A"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformCompleteSendCopy",
+    "line": 79,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 A"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformDeferSendCopy",
+    "line": 87,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 A"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformAcknowledgeUncertainSend",
+    "line": 98,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='uncertai"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformHoldUnauthorizedSendCopies",
+    "line": 109,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND r.status='accepted' AND r.sent_copy_state IN('pending','unkno"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformAuthorizeSendCopy",
+    "line": 129,
+    "snippet": "AND NOT urmail_restore_quarantine_active() AND m.status='active' AND t.status='active' AND d.status='active' A"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformAcceptMailboxScheduledSend",
+    "line": 7,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformClaimScheduledSentCopy",
+    "line": 16,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformClaimOwnedScheduledSentCopy",
+    "line": 27,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformMarkScheduledSentCopyUnknown",
+    "line": 35,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformCompleteScheduledSentCopy",
+    "line": 44,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformDeferScheduledSentCopy",
+    "line": 52,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformHoldExpiredScheduledCopies",
+    "line": 59,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND status='sent' AND sent_copy_state IN('pending','unknown') AND"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformFreezeScheduledSend",
+    "line": 65,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token) AND sta"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformHoldUnauthorizedScheduledCopies",
+    "line": 71,
+    "snippet": "WHERE NOT urmail_restore_quarantine_active() AND r.status='sent' AND r.sent_copy_state IN('pending','unknown')"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformAuthorizeScheduledCopy",
+    "line": 91,
+    "snippet": "AND NOT urmail_restore_quarantine_active() AND m.status='active' AND t.status='active' AND d.status='active' A"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformAuthorizeMarketingSend",
+    "line": 53,
+    "snippet": "SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformFinishMarketingSend",
+    "line": 58,
+    "snippet": "SELECT urmail_finish_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence,@result) AS finished;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformResolveMarketingAttempt",
+    "line": 83,
+    "snippet": "SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformRecordMarketingFeedback",
+    "line": 88,
+    "snippet": "SELECT urmail_record_marketing_feedback(@channel_id,@event_id,@recipient_id,@status,@payload_hash) AS result;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformMarkMarketingRecipientRevoked",
+    "line": 98,
+    "snippet": "SELECT urmail_mark_marketing_recipient_revoked(@tenant_id,@recipient_id,@lease_owner,@fence) AS revoked;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformSkipMarketingRecipient",
+    "line": 103,
+    "snippet": "SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fence,@reason) AS skipped;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing.sql",
+    "method": "PlatformMarketingAttemptStillAllowed",
+    "line": 111,
+    "snippet": "AND r.status='submitting' AND r.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND c.status IN('s"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flow_authoring.sql",
+    "method": "PlatformVersionedMarketingFlowMayAdvance",
+    "line": 21,
+    "snippet": "THEN urmail_mail_allowed(?1)"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flow_authoring.sql",
+    "method": "PlatformVersionedMarketingFlowMayAdvance",
+    "line": 27,
+    "snippet": "ELSE urmail_marketing_flow_may_advance(?1,?2,?3) END AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flow_authoring.sql",
+    "method": "PlatformCommitMarketingFlowFenced",
+    "line": 32,
+    "snippet": "SELECT urmail_commit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8) AS result;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flow_authoring.sql",
+    "method": "PlatformBeginMarketingFlowSend",
+    "line": 37,
+    "snippet": "SELECT urmail_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS result;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flow_authoring.sql",
+    "method": "PlatformReleaseMarketingFlowReservation",
+    "line": 42,
+    "snippet": "SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformMarkMarketingFlowUncertain",
+    "line": 32,
+    "snippet": "SELECT urmail_mark_marketing_flow_uncertain(?1,?2,?3);"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformCommitMarketingFlowWait",
+    "line": 121,
+    "snippet": "SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformMarketingFlowMayAdvance",
+    "line": 133,
+    "snippet": "SELECT urmail_marketing_flow_may_advance(?1,?2,?3) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformMarketingFlowStillAllowed",
+    "line": 147,
+    "snippet": "SELECT (urmail_marketing_flow_sendable(?1,?2,?3) NOT IN ('missing','blocked','uncertain')) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformAuthorizeMarketingFlowSend",
+    "line": 161,
+    "snippet": "SELECT (urmail_mail_allowed(sqlc.arg(tenant_id))"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_postfix.sql",
+    "method": "AliasWouldCycle",
+    "line": 46,
+    "snippet": "SELECT urmail_alias_would_cycle(sqlc.arg('domain'), sqlc.arg('local_part'), sqlc.arg('target')) AS would_cycle"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_restore_sync.sql",
+    "method": "PlatformRestoreSyncEpoch",
+    "line": 4,
+    "snippet": "SELECT urmail_restore_sync_epoch() AS epoch;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_sieve_gate.sql",
+    "method": "PlatformSieveOutboundAllowed",
+    "line": 11,
+    "snippet": "AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_sieve_gate.sql",
+    "method": "PlatformSieveOutboundAllowed",
+    "line": 12,
+    "snippet": "AND urmail_mail_allowed(m.tenant_id)) AS allowed;"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "GetMailboxDailySent",
+    "line": 23,
+    "snippet": "LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "GetMailboxDailySent",
+    "line": 24,
+    "snippet": "WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "GetMailboxDailySentForUpdate",
+    "line": 42,
+    "snippet": "LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "GetMailboxDailySentForUpdate",
+    "line": 43,
+    "snippet": "WHERE m.address = ?1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "IncrementMailboxDailySent",
+    "line": 52,
+    "snippet": "VALUES (?1, ?2, urmail_quota_day(?2), 1)"
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "PlatformInboundAllowed",
+    "line": 82,
+    "snippet": "SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM "
+   },
+   {
+    "class": "db-function-call",
+    "file": "platform_usage.sql",
+    "method": "PlatformTakeMailboxDailyQuota",
+    "line": 92,
+    "snippet": "SELECT urmail_take_mailbox_quota(sqlc.arg(tenant_id),sqlc.arg(mailbox_id)) AS allowed;"
+   }
+  ],
   "regex ~": [
    {
     "class": "regex ~",
@@ -72,6 +725,15 @@
     "snippet": "WHERE id = ?1 AND mfa_recovery_codes @> to_jsonb(?2);"
    }
   ],
+  "btrim(": [
+   {
+    "class": "btrim(",
+    "file": "compliance_and_retention.sql",
+    "method": "GetComplianceGrant",
+    "line": 15,
+    "snippet": "(grant_row.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) AND grant_row.granted_by IS NOT NULL A"
+   }
+  ],
   "DISTINCT ON": [
    {
     "class": "DISTINCT ON",
@@ -139,6 +801,45 @@
     "snippet": "WHERE m.tenant_id=a.tenant_id AND m.address=ANY(a.sender_logins) AND m.status='active' AND m.send_enabled"
    }
   ],
+  "AT TIME ZONE": [
+   {
+    "class": "AT TIME ZONE",
+    "file": "platform_dns_onboarding.sql",
+    "method": "PlatformEnqueueDNSOnboardingAlerts",
+    "line": 127,
+    "snippet": "SELECT a.tenant_id,a.kind,'notification.'||a.kind,json_object('workflow',CASE WHEN a.kind='dns_requires_review"
+   },
+   {
+    "class": "AT TIME ZONE",
+    "file": "platform_notifications.sql",
+    "method": "PlatformEnqueueAIAlerts",
+    "line": 93,
+    "snippet": "SELECT a.tenant_id,a.kind,'notification.'||a.kind,'{}',a.alert_key||':'||to_char((CAST(strftime('%s','now') AS"
+   },
+   {
+    "class": "AT TIME ZONE",
+    "file": "platform_observability.sql",
+    "method": "PlatformEnqueueObservabilityAlerts",
+    "line": 18,
+    "snippet": "'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char((CAST(strftime('%s','now') A"
+   }
+  ],
+  "nextval(seq)": [
+   {
+    "class": "nextval(seq)",
+    "file": "platform_marketing.sql",
+    "method": "PlatformClaimMarketingRecipient",
+    "line": 39,
+    "snippet": "UPDATE platform_marketing_dispatch d SET last_turn=nextval('platform_marketing_dispatch_turn_seq')"
+   },
+   {
+    "class": "nextval(seq)",
+    "file": "platform_marketing_flows.sql",
+    "method": "PlatformClaimMarketingFlowPositions",
+    "line": 84,
+    "snippet": "UPDATE platform_marketing_dispatch d SET last_turn=nextval('platform_marketing_dispatch_turn_seq')"
+   }
+  ],
   "LATERAL": [
    {
     "class": "LATERAL",
@@ -163,16 +864,30 @@
     "line": 18,
     "snippet": "'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char((CAST(strftime('%s','now') A"
    }
+  ],
+  "split_part(": [
+   {
+    "class": "split_part(",
+    "file": "platform_usage.sql",
+    "method": "PlatformInboundAllowed",
+    "line": 82,
+    "snippet": "SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM "
+   }
   ]
  },
  "totals": {
+  "db-function-call": 93,
   "regex ~": 2,
   "jsonb_agg/json_agg": 5,
   "WITH ORDINALITY": 1,
   "jsonb-op @>": 1,
+  "btrim(": 1,
   "DISTINCT ON": 2,
   "ANY": 7,
+  "AT TIME ZONE": 3,
+  "nextval(seq)": 2,
   "LATERAL": 2,
-  "EXTRACT": 1
+  "EXTRACT": 1,
+  "split_part(": 1
  }
 }

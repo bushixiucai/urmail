@@ -1,5 +1,5 @@
 {
- "note": "QA 预审①：claim/lease 的 UPDATE…FROM 无状态谓词——B1 逐条回带旧状态谓词 + Go 侧断言 RowsAffected，并配两 goroutine 并发抢占测试（只一方成功）。",
+ "note": "QA 复核：claim/lease 共 12 条（原 8 + 补 6）。B1 标准：状态谓词回带 + RowsAffected==1 + 两 goroutine 单方成功并发测试，全部 12 条。",
  "batch": "B1",
  "claims": [
   {
@@ -57,6 +57,48 @@
    "table": "archive_entries",
    "predicate": "AND deleted_at IS NULL",
    "note": "保留执行幂等守卫"
+  },
+  {
+   "method": "PlatformArmMarketingFlowWait",
+   "file": "platform_marketing_flows.sql",
+   "table": "marketing_flow_positions",
+   "predicate": "AND lease/last_advanced 谓词回带（README: 原 FOR UPDATE 目标）",
+   "note": "QA 补：12 条全量"
+  },
+  {
+   "method": "PlatformClaimDNSPlan",
+   "file": "platform_dns_onboarding.sql",
+   "table": "dns_change_plans",
+   "predicate": "AND status='pending'（实测外层 WHERE 同款缺状态谓词）",
+   "note": "QA 补：DNSPlan 实测同缺陷"
+  },
+  {
+   "method": "PlatformClaimEmailNotification",
+   "file": "platform_notifications.sql",
+   "table": "notification_outbox",
+   "predicate": "AND state='pending'",
+   "note": "QA 补"
+  },
+  {
+   "method": "PlatformClaimMarketingFlowPositions",
+   "file": "platform_marketing_flows.sql",
+   "table": "marketing_flow_positions",
+   "predicate": "AND lease_until IS NULL OR lease_until<now（旧租约回带）",
+   "note": "QA 补"
+  },
+  {
+   "method": "PlatformClaimMarketingRecipient",
+   "file": "platform_marketing.sql",
+   "table": "marketing_recipients",
+   "predicate": "AND status='pending'",
+   "note": "QA 补"
+  },
+  {
+   "method": "PlatformClaimOnboarding",
+   "file": "platform_dns_onboarding.sql",
+   "table": "onboarding_tasks",
+   "predicate": "AND status='pending'",
+   "note": "QA 补（与 PlatformClaimOnboardingTask 各自独立）"
   }
  ]
 }

@@ -19,7 +19,7 @@ commit + `go build ./...` 绿；**半切换状态不合 main**。归档取证见
 | 批次 | 内容 | 语句数（实测） | 验收 |
 |---|---|---|---|
 | B0（已提交） | 行锁语义登记 63 条 + 取证归档 + 本计划 | 0 | build 绿；登记可复核 |
-| B1 | 数据修改 CTE（`WITH … AS (INSERT/UPDATE/DELETE)`）重写：拆为顺序语句/`INSERT…RETURNING` 链或合并为单条 DML | 28 | build 绿；sqlc sqlite 对 B1 文件 generate 无错 |
+| B1 | 数据修改 CTE（28）+ 12+ 条 claim/lease 状态谓词回带与 RowsAffected 断言 + **db-function-call 首批内联替代（45 次调用：restore_quarantine_active 24 / mail_readable / domain_mail_ready 4 / mail_allowed 10 / flow_may_advance 2 / case_grant 4）** | 28+14+45 | build 绿；B1 文件 sqlite generate 无错；两 goroutine 单方成功并发测试；rewrite_verify 对 db-function-call 计数下降 |
 | B2 | `UPDATE 表 别名` 全量去别名（48 处） | 48 | 同上 |
 | B3 | 时间/文本函数族：EXTRACT 18、make_interval 11、to_char 3、jsonb_agg 5、`~` 正则 2（正则改应用层断言或 LIKE 近似 + 登记） | 39 | 同上 |
 | B4 | sqlc.arg 参数统一 + int64 调用点改造（按包分片） | 生成驱动 | 全仓 build 绿 |
@@ -38,3 +38,15 @@ changes()==1、BEGIN IMMEDIATE 串行、WAL 快照读），S3 装饰器与 S4 �
 
 若后续把 S4 分片拉前：「引擎切换批次」（B1–B5）作为 **S4-0 前置**写入 v3.2 切片表
 S4 行，顺序不变（B5 完成前任何分片的 sqlite 测试都不可达）。
+
+## QA 预审二轮并入（2026-11-19）
+
+- 硬前置① db-function-call：scripts/sqlite/dfn-calls.json 逐调用（96 次/93 行）登记
+  inline(33)/inline-compose(12)/app-assume(51) 与替代物；residue-registry 与
+  rewrite_verify 已纳入该类（现全类闭合 121 条 RC0）。B1 首批内联 45 次调用；其余
+  app-assume 51 次随 S4 承接并逐条补注。
+- 硬前置② preauth-allowlist.md 初稿落仓（路由+方法族粒度，五类入口，双签门）。
+- 硬前置③ claim 登记扩至 14 条（QA 列 12 + 同型审计多出
+  PlatformPublishDueCalendarReminders / PlatformApplyArchiveRetention），B1 标准全覆盖。
+- B1 期间补：nextval(seq)×2、btrim×1、split_part×1、AT TIME ZONE×3 已入 registry 与
+  verify；census 增加 category 字段与口径说明。
