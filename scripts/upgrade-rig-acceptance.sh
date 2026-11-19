@@ -89,6 +89,8 @@ echo "==================== D: happy path upgrade ======================="
 reset_stack
 mock_row
 out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
+echo "$out" | head -4
+assert "D_path_reached" "$(path_reached 'native fence: hold written')" "0"
 assert "D_rc" "$rc" "0"
 assert "D_hold" "$(hold_state)" "no"
 assert "D_healthz" "$(docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz 2>/dev/null | grep -c '"status":"ok"')" "1"
@@ -115,6 +117,7 @@ assert "E_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
 printf '%s\n' "$out" | grep -E "not running after start|post-up failure|Rollback runbook" | head -3
+assert "E_path_fence" "$(path_reached 'native fence: hold written')" "0"
 assert "E_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "E_hold" "$(hold_state)" "yes"
 assert "E_runbook" "$(ev_count 'Rollback runbook')" "1"
