@@ -105,7 +105,7 @@ if [ "$DRY_RUN" = 1 ]; then
 [dry-run] plan:
   1. write .env (chmod 600): URMAIL_MYHOSTNAME=$DOMAIN URMAIL_PRIMARY_DOMAIN=$PRIMARY_DOMAIN
      admin=$ADMIN_EMAIL PG password: ${PG_PASSWORD:+from flag (hidden)}${PG_PASSWORD:-generated via openssl rand -hex 24 (hidden)}
-  2. install -d -o 5000 -g 5000 -m 0750 $DATA_ROOT/{db,db/pg,mail,certs,config,backup}
+  2. install -d -o 5000 -g 5000 -m 0750 $DATA_ROOT/{db,mail,certs,config,backup,holds}
   3. docker compose build${PROXY:+ with proxy $PROXY}
   4. docker compose up -d
   5. wait for urmaild health, then print admin bootstrap + DNS checklist
@@ -138,13 +138,35 @@ else
     sed -i "s|^URMAIL_MYHOSTNAME=.*|URMAIL_MYHOSTNAME=$DOMAIN|" .env
     sed -i "s|^URMAIL_PRIMARY_DOMAIN=.*|URMAIL_PRIMARY_DOMAIN=$PRIMARY_DOMAIN|" .env
     sed -i "s|^URMAIL_PG_PASSWORD=.*|URMAIL_PG_PASSWORD=$PG_PASSWORD|" .env
-    sed -i "s|^URMAIL_DATA_ROOT=.*|URMAIL_DATA_ROOT=$DATA_ROOT|" .env
     if [ -n "$PROXY" ]; then
         sed -i "s|^# COMPOSE_BUILD_https_proxy=.*|COMPOSE_BUILD_https_proxy=$PROXY|" .env
         sed -i "s|^# COMPOSE_BUILD_http_proxy=.*|COMPOSE_BUILD_http_proxy=$PROXY|" .env
         sed -i "s|^# COMPOSE_BUILD_no_proxy=.*|COMPOSE_BUILD_no_proxy=goproxy.cn,.cn,localhost,127.0.0.1|" .env
     fi
     log ".env written (chmod 600)"
+fi
+
+# Normalise URMAIL_DATA_ROOT in .env for BOTH fresh and existing files
+# (QA P3-a): an existing relative-path .env must not regress into the
+# invalid named-volume trap on the next manual `docker compose`. Only this
+# one key is rewritten; every other key and comment is preserved. The
+# block is idempotent (an absolute value is left untouched).
+if [ -f .env ] && grep -qE '^URMAIL_DATA_ROOT=' .env; then
+    current=$(grep -E '^URMAIL_DATA_ROOT=' .env | tail -1 | cut -d= -f2-)
+    case $current in
+        /*) log ".env URMAIL_DATA_ROOT already absolute: $current" ;;
+        *)
+            resolved=$(realpath -m "$current")
+            if [ -z "$resolved" ]; then
+                warn "could not normalise .env URMAIL_DATA_ROOT='$current'; fix it manually before compose up"
+            else
+                sed -i "s|^URMAIL_DATA_ROOT=.*|URMAIL_DATA_ROOT=$resolved|" .env
+                warn "normalised .env URMAIL_DATA_ROOT: '$current' -> '$resolved'"
+            fi
+            ;;
+    esac
+elif [ -f .env ]; then
+    warn ".env has no URMAIL_DATA_ROOT key; compose will default to ./data"
 fi
 [ -n "$ADMIN_EMAIL" ] || { warn "--admin-email not given; first-boot bootstrap URL will be printed by urmaild"; }
 
@@ -157,7 +179,16 @@ done
 # image entrypoint (bootstrap.sql runs there on first init).
 log "data dirs ready under $DATA_ROOT (0750, 5000:5000)"
 
-# ---- 4./5. build + up ----------------------------------------------------
+# ---- 4./5. caddy render + build + up ------------------------------------
+# Phase 2 (§1.3): the real Caddyfile is rendered by the agent into the
+# config volume. Operators may wire the renderer via URMAIL_CADDY_RENDER_CMD
+# (fail-closed: a failed render aborts the install instead of starting a
+# half-configured stack). Without it the placeholder Caddyfile stays — fine
+# for smoke, NOT for production (documented in compose/README.md).
+if [ -n "${URMAIL_CADDY_RENDER_CMD:-}" ]; then
+    run "render Caddyfile (URMAIL_CADDY_RENDER_CMD, fail-closed)" \
+        bash -c "$URMAIL_CADDY_RENDER_CMD"
+fi
 run "docker compose build" docker compose build
 run "docker compose up -d" docker compose up -d
 

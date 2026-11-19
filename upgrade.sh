@@ -161,6 +161,13 @@ PLAN
     note "checked out $V ($tag_commit)"
 
     # ---- 5. build + up (auto-migrate off on the release path) ---------------
+    # Caddy render (§1.3, fail-closed): a configured renderer must succeed
+    # BEFORE the new stack starts; a failure lands in evidence and the
+    # failure handler keeps the fence / restores the old writers.
+    if [ -n "${URMAIL_CADDY_RENDER_CMD:-}" ]; then
+        note "rendering Caddyfile (URMAIL_CADDY_RENDER_CMD)"
+        bash -c "$URMAIL_CADDY_RENDER_CMD" >>"$EVIDENCE" 2>&1
+    fi
     docker compose build >>"$EVIDENCE" 2>&1
     # PHASE flips to post-up BEFORE up: once the new image's urmaild is being
     # started, failures must keep the fence (QA timing ruling).
