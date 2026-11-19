@@ -2,13 +2,13 @@ package handlers
 
 import (
 	"errors"
-	"github.com/bushixiucai/urmail/internal/db"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db"
 )
 
 func (h *AIConfigurationHandler) platformTenant(c *gin.Context) (int64, bool) {

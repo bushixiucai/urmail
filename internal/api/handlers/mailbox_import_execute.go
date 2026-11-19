@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/db"
 	"net/http"
 	"slices"
 	"strings"

@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"github.com/bushixiucai/urmail/internal/db"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/db"
 	"strconv"
 
 	"github.com/gin-gonic/gin"

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bushixiucai/urmail/internal/db"
 	"io"
 	"net/http"
 	"os"
@@ -25,6 +24,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	archivestore "github.com/bushixiucai/urmail/internal/archive"
 	"github.com/bushixiucai/urmail/internal/archiveevidence"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 

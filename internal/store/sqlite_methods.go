@@ -1,10 +1,7 @@
+// Package store — SQLite 方言手写层：Phase 1 引擎迁移期间从 sqlc 生成中
+// 拆出的语句（S2 B1b）在此承接，直至 B5 引擎切换；替代物逐条见
+// scripts/sqlite/dfn-calls.json。
 package store
-
-// S2 B1b: hand-written SQLite methods for statements split out of
-// data-modifying CTEs during the Phase 1 engine migration. They live outside
-// sqlc generation until the sqlite engine switch (B5); the SQL is the final
-// SQLite dialect and must stay in sync with
-// scripts/sqlite/S2-ENGINE-SWITCH-BATCH-PLAN.md.
 
 import (
 	"context"
@@ -20,6 +17,8 @@ const consumeMailboxOperationTicketsSQL = `UPDATE mailbox_operation_tickets
 SET consumed_at=COALESCE(consumed_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
 WHERE tenant_id=$1 AND mailbox_id=$2`
 
+// PlatformRevokeMailboxSessionsParams is the parameter set for
+// PlatformRevokeMailboxSessions.
 type PlatformRevokeMailboxSessionsParams struct {
 	TenantID  int64
 	MailboxID int64
@@ -34,6 +33,8 @@ func (q *Queries) PlatformRevokeMailboxSessions(ctx context.Context, arg Platfor
 	return tag.RowsAffected(), nil
 }
 
+// PlatformConsumeMailboxOperationTicketsParams is the parameter set for
+// PlatformConsumeMailboxOperationTickets.
 type PlatformConsumeMailboxOperationTicketsParams struct {
 	TenantID  int64
 	MailboxID int64
@@ -60,6 +61,8 @@ const archiveRetentionCandidatesSQL = `SELECT a.id, a.tenant_id, p.confirmed_pre
   AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
  ORDER BY a.id LIMIT 100`
 
+// PlatformApplyArchiveRetentionCandidatesRow is one retention
+// soft-delete candidate entry.
 type PlatformApplyArchiveRetentionCandidatesRow struct {
 	ID               int64
 	TenantID         int64
@@ -122,15 +125,17 @@ WHERE p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3
  AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
 ON CONFLICT(tenant_id, position_id, lease_fence) DO NOTHING`
 
+// PlatformRecordMarketingFlowNodeExecutionParams is the parameter set for
+// PlatformRecordMarketingFlowNodeExecution.
 type PlatformRecordMarketingFlowNodeExecutionParams struct {
-	TenantID    int64
-	FlowID      int64
-	Email       string
-	LeaseOwner  string
-	LeaseFence  int64
-	NodeKey     string
-	Status      string
-	ErrorCode   string
+	TenantID   int64
+	FlowID     int64
+	Email      string
+	LeaseOwner string
+	LeaseFence int64
+	NodeKey    string
+	Status     string
+	ErrorCode  string
 }
 
 // PlatformRecordMarketingFlowNodeExecution records one node execution outcome
@@ -152,6 +157,8 @@ SET attempt_count=attempt_count+1,
 WHERE tenant_id=$1 AND flow_id=$2 AND email=$3
  AND lease_owner=$4 AND lease_fence=$5`
 
+// PlatformBumpMarketingFlowAttemptParams is the parameter set for
+// PlatformBumpMarketingFlowAttempt.
 type PlatformBumpMarketingFlowAttemptParams struct {
 	TenantID       int64
 	FlowID         int64
