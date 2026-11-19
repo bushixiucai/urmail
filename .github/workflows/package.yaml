@@ -9,11 +9,13 @@ permissions:
   contents: read
   actions: read
 
-env:
-  GO_VERSION: "1.27.4"
-  GOPROXY: https://goproxy.cn,direct
-  npm_config_registry: https://registry.npmmirror.com
-
+# Phase 2 (compose form, ARCH-PLAN §1.7): releases distribute SOURCE — the
+# operator builds locally via `docker compose build && up -d`. The deb
+# packaging/signing/upload job from the v0.6.x chain is retired on this
+# branch; this workflow now only enforces the tag ↔ CI-green gate
+# (verify-release-ci, whose REQUIRED_JOBS include the compose smoke job).
+# The v0.6.x chain keeps working from its own released tags, which still
+# carry the retired workflow definition.
 jobs:
   verify-ci:
     name: Verify exact release commit
@@ -26,70 +28,3 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ github.sha }}
         run: python3 scripts/verify-release-ci.py
-  package:
-    needs: verify-ci
-    permissions:
-      contents: write
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    steps:
-      # HOST-01: actions are pinned to immutable commit SHAs, not mutable tags.
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Build frontend and binaries
-        run: |
-          version=$(cat VERSION)
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then version=${GITHUB_REF_NAME#v}; fi
-          make build VERSION="$version"
-      - name: Build versioned package and release manifest
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          version=$(cat VERSION)
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then version=${GITHUB_REF_NAME#v}; fi
-          bash packaging/deb/build.sh "$version"
-          python3 scripts/release-manifest.py "$version" "$ARCH" dist
-      # HOST-01: sign the release manifest with Ed25519 so installers can
-      # verify release authority independently of the download origin.
-      - name: Sign release manifest
-        env:
-          URMAIL_RELEASE_SIGNING_KEY: ${{ secrets.URMAIL_RELEASE_SIGNING_KEY }}
-          ARCH: ${{ matrix.arch }}
-        run: |
-          [ -n "$URMAIL_RELEASE_SIGNING_KEY" ] || { echo "URMAIL_RELEASE_SIGNING_KEY secret is required for signed releases" >&2; exit 1; }
-          keydir=$(mktemp -d)
-          printf '%s\n' "$URMAIL_RELEASE_SIGNING_KEY" > "$keydir/release.pem"
-          chmod 0600 "$keydir/release.pem"
-          openssl pkeyutl -sign -inkey "$keydir/release.pem" -rawin \
-            -in "dist/manifest-${ARCH}.json" -out "dist/manifest-${ARCH}.json.sig"
-          openssl pkeyutl -verify -pubin -inkey packaging/urmail-release.pub -rawin \
-            -in "dist/manifest-${ARCH}.json" -sigfile "dist/manifest-${ARCH}.json.sig"
-          rm -rf "$keydir"
-      - name: Upload package and manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: urmail-deb-${{ matrix.arch }}
-          path: dist/*
-      - name: Publish release assets
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
-        with:
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
-          files: dist/*

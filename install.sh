@@ -40,6 +40,13 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$DOMAIN" ] || DOMAIN=${URMAIL_MYHOSTNAME:-}
 [ -n "$PRIMARY_DOMAIN" ] || PRIMARY_DOMAIN=$DOMAIN
+
+# Normalise the data root to an ABSOLUTE path (QA rig finding): a relative
+# URMAIL_DATA_ROOT like "data" turns compose volume sources into
+# "data/certs"-style names, which are invalid Docker volume names and abort
+# the whole project. Everything downstream consumes the absolute path.
+DATA_ROOT=$(realpath -m "$DATA_ROOT")
+export URMAIL_DATA_ROOT="$DATA_ROOT"
 [ -n "$DOMAIN" ] || { [ "$DRY_RUN" = 1 ] && DOMAIN="example.test"; } || die "--domain (or URMAIL_MYHOSTNAME) is required"
 
 run() { # run <description> <cmd...> — honours --dry-run
@@ -131,6 +138,7 @@ else
     sed -i "s|^URMAIL_MYHOSTNAME=.*|URMAIL_MYHOSTNAME=$DOMAIN|" .env
     sed -i "s|^URMAIL_PRIMARY_DOMAIN=.*|URMAIL_PRIMARY_DOMAIN=$PRIMARY_DOMAIN|" .env
     sed -i "s|^URMAIL_PG_PASSWORD=.*|URMAIL_PG_PASSWORD=$PG_PASSWORD|" .env
+    sed -i "s|^URMAIL_DATA_ROOT=.*|URMAIL_DATA_ROOT=$DATA_ROOT|" .env
     if [ -n "$PROXY" ]; then
         sed -i "s|^# COMPOSE_BUILD_https_proxy=.*|COMPOSE_BUILD_https_proxy=$PROXY|" .env
         sed -i "s|^# COMPOSE_BUILD_http_proxy=.*|COMPOSE_BUILD_http_proxy=$PROXY|" .env

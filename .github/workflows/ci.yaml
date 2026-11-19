@@ -615,3 +615,35 @@ jobs:
           "$(go env GOPATH)/bin/govulncheck" ./...
       - name: Audit locked npm dependencies
         run: npm audit --prefix web --audit-level=moderate --registry=https://registry.npmjs.org
+
+  compose-smoke:
+    # Phase 2: prove the compose distribution boots (build + up + healthz 200).
+    # Tag-triggered only — the PR/main fast set must not pay for this job.
+    name: Compose smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Prepare .env
+        run: |
+          cp .env.example .env
+          sed -i "s/^URMAIL_PG_PASSWORD=.*/URMAIL_PG_PASSWORD=ci-smoke-$(openssl rand -hex 12)/" .env
+          sed -i "s/^URMAIL_MYHOSTNAME=.*/URMAIL_MYHOSTNAME=ci-smoke.invalid/" .env
+          sed -i "s|^URMAIL_PRIMARY_DOMAIN=.*|URMAIL_PRIMARY_DOMAIN=ci-smoke.invalid|" .env
+      - name: Compose build
+        run: docker compose build
+      - name: Compose up
+        run: docker compose up -d
+      - name: Wait for healthz 200
+        timeout-minutes: 10
+        run: |
+          deadline=$(( $(date +%s) + 540 ))
+          until docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz | grep -q '"status":"ok"'; do
+            [ "$(date +%s)" -lt "$deadline" ] || { docker compose logs urmaild >&2; exit 1; }
+            sleep 5
+          done
+          docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
+      - name: Compose down (cleanup)
+        if: always()
+        run: docker compose down -v
