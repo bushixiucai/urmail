@@ -7,6 +7,9 @@ name: Upgrade rig acceptance
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/phase2-scripts
 
 permissions:
   contents: read
