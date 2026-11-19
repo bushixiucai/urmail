@@ -1,0 +1,1452 @@
+{
+ "counts": {
+  "entries": 119,
+  "distinct": 118,
+  "triggers": 60,
+  "sqlite-trigger": 30,
+  "app-assume": 73,
+  "deprecated": 15
+ },
+ "functions": {
+  "domains_touch_updated_at": {
+   "class": "sqlite-trigger",
+   "note": "BEFORE UPDATE 触碰 updated_at",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "revoke_renewal_on_subscription_cancel": {
+   "class": "deprecated",
+   "host": "subscriptions",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": [
+    "scripts/classify-tables.py"
+   ]
+  },
+  "urmail_abandon_dns_plan": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_ai_cloud_authorized": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_ai.sql.go",
+    "internal/store/queries/platform_ai.sql"
+   ]
+  },
+  "urmail_ai_configuration_consent_guard": {
+   "class": "sqlite-trigger",
+   "note": "非 platform 租户 consent 禁改",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_alias_sender_logins_guard": {
+   "class": "sqlite-trigger",
+   "note": "sender_logins 身份不可变",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_alias_would_cycle": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_postfix.sql.go",
+    "internal/store/queries/platform_postfix.sql"
+   ]
+  },
+  "urmail_archive_activity_notice": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_archive_approval_bound": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_archive_case_changed": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_archive_case_grant": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/archive_case_product.sql.go",
+    "internal/store/queries/archive_case_product.sql"
+   ]
+  },
+  "urmail_archive_case_manager": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_archive_case_member": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_archive_case_snapshot": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/archive_case_product.sql.go",
+    "internal/store/queries/archive_case_product.sql"
+   ]
+  },
+  "urmail_archive_export_visible": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/archive_case_product.sql.go",
+    "internal/store/queries/archive_case_product.sql"
+   ]
+  },
+  "urmail_archive_notification_visible": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/notifications.sql.go",
+    "internal/store/queries/notifications.sql"
+   ]
+  },
+  "urmail_archive_purge_guard": {
+   "class": "sqlite-trigger",
+   "note": "legal_hold 期间禁删/改",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_authorize_marketing_send": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/queries/platform_marketing.sql"
+   ]
+  },
+  "urmail_begin_marketing_flow_send": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing_flow_authoring.sql.go",
+    "internal/store/queries/platform_marketing_flow_authoring.sql"
+   ]
+  },
+  "urmail_begin_restore_quarantine": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "cmd/urmailctl/restore.go"
+   ]
+  },
+  "urmail_billing_calendar_guard": {
+   "class": "deprecated",
+   "host": "billing_calendars",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_billing_profile_write_guard": {
+   "class": "sqlite-trigger",
+   "note": "billing 写权限守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_bump_marketing_bounce_unknown": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_bump_marketing_campaign_stats": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_business_timezone": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_mail_and_ai_gate.sql.go",
+    "internal/store/queries/platform_mail_and_ai_gate.sql"
+   ]
+  },
+  "urmail_cancel_campaign_tasks": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_cancel_dns_plan": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_change_panel_mfa": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_auth_security.sql.go",
+    "internal/store/queries/platform_auth_security.sql"
+   ]
+  },
+  "urmail_commit_marketing_flow_fenced": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing_flow_authoring.sql.go",
+    "internal/store/queries/platform_marketing_flow_authoring.sql"
+   ]
+  },
+  "urmail_commit_marketing_flow_step": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/marketing/flow_store.go",
+    "internal/store/platform_marketing_flows.sql.go",
+    "internal/store/queries/platform_marketing_flows.sql"
+   ]
+  },
+  "urmail_configure_tenant_ai": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_ai.sql.go",
+    "internal/store/queries/platform_ai.sql"
+   ]
+  },
+  "urmail_configure_tenant_ai_governance": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_ai.sql.go",
+    "internal/store/queries/platform_ai.sql"
+   ]
+  },
+  "urmail_confirm_dns_plan": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_consent_tenant_ai": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_ai.sql.go",
+    "internal/store/queries/platform_ai.sql"
+   ]
+  },
+  "urmail_contact_group_member_guard": {
+   "class": "sqlite-trigger",
+   "note": "成员域守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_coupon_reissue_immutable": {
+   "class": "deprecated",
+   "host": "coupons",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_coupon_release_authority": {
+   "class": "deprecated",
+   "host": "coupon_redemptions",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_create_archive_case": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/archive_case_product.sql.go",
+    "internal/store/queries/archive_case_product.sql"
+   ]
+  },
+  "urmail_create_dns_plan": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_decide_archive_approval": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_delete_contact_group": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_collaboration.sql.go",
+    "internal/store/queries/platform_collaboration.sql"
+   ]
+  },
+  "urmail_dns_actor": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_domain_mail_ready": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/mail/dovecot/render.go",
+    "internal/sieve/testdata/legacy-protocol.py",
+    "internal/store/platform_sieve_gate.sql.go",
+    "internal/store/platform_usage.sql.go",
+    "internal/store/queries/platform_sieve_gate.sql",
+    "internal/store/queries/platform_usage.sql"
+   ]
+  },
+  "urmail_domain_provisioning_guard": {
+   "class": "sqlite-trigger",
+   "note": "provisioning 状态守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_enqueue_verified_domain": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_evidence_manifest_visible": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_archive_evidence.sql.go",
+    "internal/store/queries/platform_archive_evidence.sql"
+   ]
+  },
+  "urmail_finish_marketing_send": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/queries/platform_marketing.sql"
+   ]
+  },
+  "urmail_freeze_subscription_plan": {
+   "class": "deprecated",
+   "host": "subscriptions",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_guard_host_namespace": {
+   "class": "sqlite-trigger",
+   "note": "hostname 命名空间守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_guard_marketing_snapshot": {
+   "class": "sqlite-trigger",
+   "note": "快照不可变守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_guard_nonplatform_ai_quota": {
+   "class": "sqlite-trigger",
+   "note": "nonplatform AI 配额守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_guard_published_marketing_step": {
+   "class": "sqlite-trigger",
+   "note": "已发布步骤守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_hold_guard": {
+   "class": "sqlite-trigger",
+   "note": "hold 守卫（domains/mailbox 家族复用）",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_invoice_document_immutable": {
+   "class": "deprecated",
+   "host": "invoices",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_mail_allowed": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/domain/mail/marketing.go",
+    "internal/sieve/testdata/legacy-protocol.py",
+    "internal/store/platform_ai.sql.go",
+    "internal/store/platform_mail_access.sql.go",
+    "internal/store/platform_mail_and_ai_gate.sql.go",
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/platform_marketing_flow_authoring.sql.go",
+    "internal/store/platform_marketing_flows.sql.go",
+    "internal/store/platform_sieve_gate.sql.go",
+    "internal/store/platform_usage.sql.go",
+    "internal/store/queries/platform_ai.sql",
+    "internal/store/queries/platform_mail_access.sql",
+    "internal/store/queries/platform_mail_and_ai_gate.sql",
+    "internal/store/queries/platform_marketing.sql",
+    "internal/store/queries/platform_marketing_flow_authoring.sql",
+    "internal/store/queries/platform_marketing_flows.sql",
+    "internal/store/queries/platform_sieve_gate.sql",
+    "internal/store/queries/platform_usage.sql",
+    "scripts/sieve-runtime/journey.py",
+    "scripts/sieve-runtime/personal_capability.py"
+   ]
+  },
+  "urmail_mail_readable": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/mail/dovecot/render.go",
+    "internal/store/platform_usage.sql.go",
+    "internal/store/queries/platform_usage.sql"
+   ]
+  },
+  "urmail_mailbox_identity_guard": {
+   "class": "sqlite-trigger",
+   "note": "邮箱身份不可变守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_mailbox_password_version_guard": {
+   "class": "sqlite-trigger",
+   "note": "密码版本守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_mailbox_sieve_mode_guard": {
+   "class": "sqlite-trigger",
+   "note": "sieve 模式守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_mark_marketing_flow_uncertain": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing_flows.sql.go",
+    "internal/store/queries/platform_marketing_flows.sql"
+   ]
+  },
+  "urmail_mark_marketing_recipient_revoked": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/queries/platform_marketing.sql"
+   ]
+  },
+  "urmail_marketing_flow_may_advance": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing_flow_authoring.sql.go",
+    "internal/store/platform_marketing_flows.sql.go",
+    "internal/store/queries/platform_marketing_flow_authoring.sql",
+    "internal/store/queries/platform_marketing_flows.sql"
+   ]
+  },
+  "urmail_marketing_flow_sendable": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing_flows.sql.go",
+    "internal/store/queries/platform_marketing_flows.sql"
+   ]
+  },
+  "urmail_marketing_limits": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_migration_entitlement_allowed": {
+   "class": "deprecated",
+   "host": "plans",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_migration_plan_guard": {
+   "class": "deprecated",
+   "host": "plans",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_migration_subscription_guard": {
+   "class": "deprecated",
+   "host": "subscriptions",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_order_intention_guard": {
+   "class": "deprecated",
+   "host": "orders",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_panel_credential_version": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_payment_inbox_alert": {
+   "class": "deprecated",
+   "host": "payment_webhook_inbox",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_plan_snapshot_fits": {
+   "class": "deprecated",
+   "host": "plans",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_quota_day": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_usage.sql.go",
+    "internal/store/queries/platform_usage.sql"
+   ]
+  },
+  "urmail_read_evidence_body": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_archive_evidence.sql.go",
+    "internal/store/queries/platform_archive_evidence.sql"
+   ]
+  },
+  "urmail_recall_guard": {
+   "class": "sqlite-trigger",
+   "note": "recall 状态守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_recall_message_identity_guard": {
+   "class": "sqlite-trigger",
+   "note": "recall 消息身份守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_record_audit": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 2,
+   "evidence": [
+    "internal/store/audit.sql.go",
+    "internal/store/queries/audit.sql",
+    "scripts/classify-tables.py"
+   ]
+  },
+  "urmail_record_marketing_feedback": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/queries/platform_marketing.sql"
+   ]
+  },
+  "urmail_record_marketing_flow_audit": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/marketing_flow_authoring.sql.go",
+    "internal/store/queries/marketing_flow_authoring.sql"
+   ]
+  },
+  "urmail_record_rejected_webhook": {
+   "class": "deprecated",
+   "host": "payment_webhook_rejections",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_release_marketing_flow_reservation": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing_flow_authoring.sql.go",
+    "internal/store/queries/platform_marketing_flow_authoring.sql"
+   ]
+  },
+  "urmail_release_restore_quarantine": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "cmd/urmailctl/restore.go"
+   ]
+  },
+  "urmail_request_onboarding": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_require_content_owner": {
+   "class": "sqlite-trigger",
+   "note": "owner 角色要求",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_require_encrypted_totp": {
+   "class": "sqlite-trigger",
+   "note": "TOTP 加密要求",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_require_grant_independence": {
+   "class": "sqlite-trigger",
+   "note": "grant 独立性要求",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_require_marketing_admin": {
+   "class": "sqlite-trigger",
+   "note": "marketing admin 要求",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_require_open_ticket": {
+   "class": "sqlite-trigger",
+   "note": "open ticket 要求",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_require_tenant_content_admin": {
+   "class": "sqlite-trigger",
+   "note": "content admin 要求（0028 guard 链）",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_reserve_mailbox_storage": {
+   "class": "sqlite-trigger",
+   "note": "存储预约（预约行写入+核对，SQLite 触发器可等价）",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_resolve_marketing_attempt": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/queries/platform_marketing.sql"
+   ]
+  },
+  "urmail_resource_guard": {
+   "class": "sqlite-trigger",
+   "note": "资源域守卫（多表复用）",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_restore_quarantine_active": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_mailbox_scheduled_sends.sql.go",
+    "internal/store/platform_mailbox_send_receipts.sql.go",
+    "internal/store/platform_mailbox_sent_copy.sql.go",
+    "internal/store/queries/platform_mailbox_scheduled_sends.sql",
+    "internal/store/queries/platform_mailbox_send_receipts.sql",
+    "internal/store/queries/platform_mailbox_sent_copy.sql"
+   ]
+  },
+  "urmail_restore_quarantine_guard": {
+   "class": "sqlite-trigger",
+   "note": "恢复隔离守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_restore_sync_epoch": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_restore_sync.sql.go",
+    "internal/store/queries/platform_restore_sync.sql"
+   ]
+  },
+  "urmail_retention_authorized": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/compliance_and_retention.sql.go",
+    "internal/store/platform_archive_lifecycle.sql.go",
+    "internal/store/queries/compliance_and_retention.sql",
+    "internal/store/queries/platform_archive_lifecycle.sql"
+   ]
+  },
+  "urmail_retention_confirmation_guard": {
+   "class": "sqlite-trigger",
+   "note": "保留确认守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_retention_management_guard": {
+   "class": "sqlite-trigger",
+   "note": "保留管理守卫",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_retry_marketing_flow_instance": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/marketing_flow_authoring.sql.go",
+    "internal/store/queries/marketing_flow_authoring.sql"
+   ]
+  },
+  "urmail_review_dns_plan": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_revoke_dns_credential": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_revoke_mailbox_sessions": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_rollback_dns_plan": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_rotate_panel_password": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_auth_security.sql.go",
+    "internal/store/queries/platform_auth_security.sql"
+   ]
+  },
+  "urmail_save_dns_credential": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/dns_onboarding.sql.go",
+    "internal/store/queries/dns_onboarding.sql"
+   ]
+  },
+  "urmail_schedule_marketing": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/marketing_campaigns.sql.go",
+    "internal/store/queries/marketing_campaigns.sql"
+   ]
+  },
+  "urmail_seed_marketing_dispatch": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_setting_limit": {
+   "class": "sqlite-trigger",
+   "note": "settings 上限守卫（0158 guard 链）",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_skip_marketing_recipient": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_marketing.sql.go",
+    "internal/store/queries/platform_marketing.sql"
+   ]
+  },
+  "urmail_soft_delete_archive": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/compliance.sql.go",
+    "internal/store/queries/compliance.sql"
+   ]
+  },
+  "urmail_stop_revoked_flow_contacts": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_stop_suppressed_marketing_flows": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_store_evidence_body": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_store_evidence_manifest": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_subscription_guard": {
+   "class": "deprecated",
+   "host": "subscriptions",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_subscription_term_guard": {
+   "class": "deprecated",
+   "host": "subscription_terms",
+   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_support_reply_notification": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_suppression_no_weaken": {
+   "class": "sqlite-trigger",
+   "note": "suppression 不可弱化",
+   "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
+   "overloads": 1,
+   "evidence": []
+  },
+  "urmail_take_mailbox_quota": {
+   "class": "app-assume",
+   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
+   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "overloads": 1,
+   "evidence": [
+    "internal/store/platform_usage.sql.go",
+    "internal/store/queries/platform_usage.sql"
+   ]
+  }
+ },
+ "triggers": [
+  {
+   "table": "ai_provider_configs",
+   "name": "ai_configuration_consent_guard",
+   "function": "urmail_ai_configuration_consent_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "ai_provider_configs",
+   "name": "nonplatform_ai_quota_guard",
+   "function": "urmail_guard_nonplatform_ai_quota",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_activity",
+   "function": "urmail_archive_activity_notice",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_product_approval_insert",
+   "function": "urmail_archive_approval_bound",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_product_approval_update",
+   "function": "urmail_archive_approval_bound",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "archive_content",
+   "name": "archive_physical_purge_guard",
+   "function": "urmail_archive_purge_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_physical_hold_guard",
+   "function": "urmail_archive_purge_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "archive_investigation_members",
+   "name": "archive_case_members_changed",
+   "function": "urmail_archive_case_changed",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "archive_investigation_sources",
+   "name": "archive_case_sources_changed",
+   "function": "urmail_archive_case_changed",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "archive_investigations",
+   "name": "archive_case_version",
+   "function": "urmail_archive_case_changed",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "brand_hosts",
+   "name": "brand_hosts_namespace_guard",
+   "function": "urmail_guard_host_namespace",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "compliance_grants",
+   "name": "compliance_grants_content_owner_guard",
+   "function": "urmail_require_content_owner",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "compliance_grants",
+   "name": "compliance_grants_independence_guard",
+   "function": "urmail_require_grant_independence",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "domain_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "domain_provisioning_guard",
+   "function": "urmail_domain_provisioning_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "domain_resource_guard",
+   "function": "urmail_resource_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "domain_restore_quarantine_guard",
+   "function": "urmail_restore_quarantine_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "domains_host_namespace_guard",
+   "function": "urmail_guard_host_namespace",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "domains_updated_at_touch",
+   "function": "domains_touch_updated_at",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "domains",
+   "name": "enqueue_verified_domain",
+   "function": "urmail_enqueue_verified_domain",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "domains",
+   "name": "revoke_domain_mailbox_sessions",
+   "function": "urmail_revoke_mailbox_sessions",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "mailbox_aliases",
+   "name": "alias_sender_logins_guard",
+   "function": "urmail_alias_sender_logins_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailbox_contact_group_members",
+   "name": "contact_group_member_scope",
+   "function": "urmail_contact_group_member_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_password_version_guard",
+   "function": "urmail_mailbox_password_version_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_resource_guard",
+   "function": "urmail_resource_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_restore_quarantine_guard",
+   "function": "urmail_restore_quarantine_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_sieve_mode_guard",
+   "function": "urmail_mailbox_sieve_mode_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailbox_storage_identity",
+   "function": "urmail_mailbox_identity_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "reserve_mailbox_storage",
+   "function": "urmail_reserve_mailbox_storage",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "mailboxes",
+   "name": "revoke_mailbox_sessions",
+   "function": "urmail_revoke_mailbox_sessions",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "marketing_campaigns",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_campaigns",
+   "name": "marketing_campaign_cancel",
+   "function": "urmail_cancel_campaign_tasks",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "stop_revoked_flow_contacts",
+   "function": "urmail_stop_revoked_flow_contacts",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "marketing_feedback",
+   "name": "marketing_feedback_bounce_unknown",
+   "function": "urmail_bump_marketing_bounce_unknown",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "marketing_flow_content_snapshots",
+   "name": "guard_marketing_content",
+   "function": "urmail_guard_marketing_snapshot",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_flow_steps",
+   "name": "guard_published_marketing_step",
+   "function": "urmail_guard_published_marketing_step",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_flow_versions",
+   "name": "guard_marketing_version",
+   "function": "urmail_guard_marketing_snapshot",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_lists",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_recipients",
+   "name": "marketing_campaign_stats_bump",
+   "function": "urmail_bump_marketing_campaign_stats",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "marketing_suppressions",
+   "name": "marketing_suppressions_no_weaken",
+   "function": "urmail_suppression_no_weaken",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "marketing_suppressions",
+   "name": "stop_suppressed_marketing_flows",
+   "function": "urmail_stop_suppressed_marketing_flows",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "marketing_templates",
+   "name": "marketing_admin_guard",
+   "function": "urmail_require_marketing_admin",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "recall_requests",
+   "name": "archive_recall_activity",
+   "function": "urmail_archive_activity_notice",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_message_identity_guard",
+   "function": "urmail_recall_message_identity_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_state_guard",
+   "function": "urmail_recall_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "retention_policies",
+   "name": "retention_confirmation_guard",
+   "function": "urmail_retention_confirmation_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "retention_policies",
+   "name": "retention_management_guard",
+   "function": "urmail_retention_management_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "retention_previews",
+   "name": "retention_preview_management_guard",
+   "function": "urmail_retention_management_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "settings",
+   "name": "billing_profile_write_guard",
+   "function": "urmail_billing_profile_write_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "tenants",
+   "name": "revoke_tenant_mailbox_sessions",
+   "function": "urmail_revoke_mailbox_sessions",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "tenants",
+   "name": "tenant_hold_guard",
+   "function": "urmail_hold_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "tenants",
+   "name": "tenant_marketing_dispatch",
+   "function": "urmail_seed_marketing_dispatch",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "tenants",
+   "name": "tenant_restore_quarantine_guard",
+   "function": "urmail_restore_quarantine_guard",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "ticket_messages",
+   "name": "support_reply_notification",
+   "function": "urmail_support_reply_notification",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "ticket_messages",
+   "name": "ticket_messages_open_guard",
+   "function": "urmail_require_open_ticket",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  },
+  {
+   "table": "users",
+   "name": "panel_credential_version",
+   "function": "urmail_panel_credential_version",
+   "enabled": "O",
+   "class": "app-assume"
+  },
+  {
+   "table": "users",
+   "name": "totp_encrypted_writes",
+   "function": "urmail_require_encrypted_totp",
+   "enabled": "O",
+   "class": "sqlite-trigger"
+  }
+ ]
+}
