@@ -52,9 +52,15 @@ clear_rows() {
     docker compose exec -T pg psql -U urmail -d urmail -q -c "DELETE FROM backup_runs" 2>/dev/null || true
 }
 hold_state() { [ -f "$URMAIL_DATA_ROOT/holds/upgrade.hold" ] && echo yes || echo no; }
-# port_occupy <port> : start a listener to block a dovecot bind
-port_occupy() { nc -l 127.0.0.1 "$1" >/dev/null 2>&1 & echo "$!"; }
-port_release() { [ -n "${1:-}" ] && kill "$1" 2>/dev/null; }
+# port_occupy <port> : block a dovecot bind with a python listener
+# (ubuntu runner python3 guaranteed; dovecot must be stopped first so the
+# port is actually free when we bind it)
+port_occupy() {
+    python3 -c 'import socket,time,sys
+s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(1); time.sleep(600)' "$1" >/dev/null 2>&1 &
+    echo "$!"
+}
+port_release() { [ -n "${1:-}" ] && kill "$1" 2>/dev/null; true; }
 
 echo "==================== A: preflight rejection ======================"
 reset_stack
@@ -69,8 +75,7 @@ archive_ev "A"
 echo "==================== D: happy path upgrade ======================="
 reset_stack
 mock_row
-export URMAIL_ALLOW_RECORDLESS_RIG=1
-out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
+out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 assert "D_rc" "$rc" "0"
 assert "D_hold" "$(hold_state)" "no"
 assert "D_healthz" "$(docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz 2>/dev/null | grep -c '"status":"ok"')" "1"
@@ -82,7 +87,7 @@ archive_ev "D"
 echo "==================== D2: back-to-back (no reset) ================"
 rm -f "$URMAIL_DATA_ROOT"/upgrade-evidence-*.log
 mock_row
-out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
+out=$(URMAIL_ALLOW_RECORDLESS_RIG=1 URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 assert "D2_rc" "$rc" "0"
 assert "D2_hold" "$(hold_state)" "no"
 assert "D2_healthz" "$(docker compose exec -T urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz 2>/dev/null | grep -c '"status":"ok"')" "1"
@@ -91,9 +96,11 @@ archive_ev "D2"
 echo "==================== E: post-up failure keeps hold ================"
 reset_stack
 mock_row
+docker compose stop dovecot >/dev/null 2>&1 || true
 INJ_PID=$(port_occupy 10143)
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
+printf '%s\n' "$out" | grep -E "not running after start|post-up failure|Rollback runbook" | head -3
 assert "E_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "E_hold" "$(hold_state)" "yes"
 assert "E_runbook" "$(ev_count 'Rollback runbook')" "1"
@@ -114,9 +121,11 @@ archive_ev "C1a"
 echo "==================== C1b: writer start failure ===================="
 reset_stack
 mock_row
+docker compose stop dovecot >/dev/null 2>&1 || true
 INJ_PID=$(port_occupy 10143)
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
+printf '%s\n' "$out" | grep -E "not running after start|writers failed" | head -2
 assert "C1b_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "C1b_hold" "$(hold_state)" "yes"
 assert "C1b_not_running" "$(ev_count 'not running after start')" "1"
@@ -125,9 +134,12 @@ rm -f "$URMAIL_DATA_ROOT/holds/upgrade.hold"
 archive_ev "C1b"
 
 echo "==================== R1: fail-closed (no rig switch) ============="
+unset URMAIL_ALLOW_RECORDLESS_RIG
 reset_stack
 mock_row
+echo "R1 switch=${URMAIL_ALLOW_RECORDLESS_RIG:-unset}" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-r1-selfcert.log
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
+printf '%s\n' "$out" | grep -E "read live upgrade fence|readiness-record" | head -3
 assert "R1_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
 assert "R1_hold" "$(hold_state)" "yes"
 assert "R1_record_failed" "$(ev_count 'read live upgrade fence')" "1"

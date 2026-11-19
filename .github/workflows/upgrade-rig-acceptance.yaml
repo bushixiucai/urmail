@@ -66,5 +66,6 @@ jobs:
           name: upgrade-rig-evidence
           path: |
             data/upgrade-evidence-*.log
+            evidence-archive/**
             rig-acceptance-output.log
           retention-days: 30
