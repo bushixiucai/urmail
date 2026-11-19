@@ -296,6 +296,17 @@ func (m *ApplyManager) probeBackupOffsite(ctx context.Context) error {
 		return fmt.Errorf("backup offsite probe: %w", err)
 	}
 	if health.State == backupauto.StateFailed {
+		if !m.backupGateStrict {
+			// B2 (v0.6.25): routine applies must keep flowing (certificate
+			// renewal, config convergence) while the offsite destination is
+			// degraded. The fresh-backup gate stays binding only on the
+			// release/upgrade path (VerifyReleaseRuntime); here a failed run
+			// degrades readiness observably without blocking the apply.
+			m.status.Degraded = true
+			m.status.Error = fmt.Sprintf("last offsite backup run %s failed: %s", health.RunUID, health.Error)
+			m.publish()
+			return nil
+		}
 		return fmt.Errorf("last offsite backup run %s failed: %s", health.RunUID, health.Error)
 	}
 	if health.StaleRun(time.Now()) {

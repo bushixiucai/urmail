@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"filippo.io/age"
 )
@@ -88,10 +89,14 @@ type LocalArtifact struct {
 	SHA256 string
 }
 
-// EncryptAndUpload encrypts one plaintext artifact with the age recipient
-// and streams the ciphertext to the offsite destination without ever
-// materializing a second plaintext copy. It returns the v2 manifest entry
-// (plaintext + ciphertext hashes).
+// EncryptAndUpload encrypts one plaintext artifact with the age recipient,
+// spools the ciphertext to a private (0600) temporary file inside the backup
+// spool, and uploads it with the EXACT byte length. It returns the v2
+// manifest entry (plaintext + ciphertext hashes).
+//
+// The spool step is a contract, not an optimization: S3-compatible endpoints
+// (MinIO included) answer a PUT without a Content-Length header with HTTP
+// 411, so an unknown-length stream must never reach Upload (size < 0).
 func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArtifact, recipient string) (Artifact, error) {
 	parsed, err := ParseRecipient(recipient)
 	if err != nil {
@@ -103,36 +108,50 @@ func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArt
 	}
 	defer func() { _ = f.Close() }()
 
-	pr, pw := io.Pipe()
+	// A1 (v0.6.25): fail fast when the spool directory cannot hold the
+	// ciphertext alongside the plaintext (transient ~2x of one artifact).
+	// Unknown free space skips the check; the write surfaces a real ENOSPC.
+	if err := requireCipherSpoolSpace(artifact.Path, artifact.Size); err != nil {
+		return Artifact{}, fmt.Errorf("spool ciphertext for %s: %w", artifact.Name, err)
+	}
+
+	cipherFile, err := createCipherSpool(artifact.Path)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("spool ciphertext for %s: %w", artifact.Name, err)
+	}
+	cipherPath := cipherFile.Name()
+	defer func() { _ = os.Remove(cipherPath) }() // best-effort; Close below is the authority
+
+	// The MultiWriter mirrors every ciphertext byte into the digest so the
+	// manifest records the hash of the exact bytes that reached the spool,
+	// which is what the upload then delivers byte for byte.
 	digest := sha256.New()
-	cipherCounter := &countingWriter{inner: digest}
-	encryptErr := make(chan error, 1)
 	plainDigest := sha256.New()
 	plainCounter := &countingWriter{inner: plainDigest}
-	go func() { // plaintext file -> age -> pipe; exactly one pipe consumer below
-		err := EncryptTo(pw, io.TeeReader(f, plainCounter), parsed)
-		_ = pw.CloseWithError(err)
-		encryptErr <- err
-	}()
-
-	// The upload consumes the ciphertext once; TeeReader mirrors every byte
-	// into the digest so the manifest records the hash of the exact bytes
-	// that reached the destination.
-	uploadErr := store.Upload(ctx, EncryptedName(artifact.Name), io.TeeReader(pr, cipherCounter), -1)
-	_ = pr.CloseWithError(uploadErr)
-	encErr := <-encryptErr
-	if uploadErr != nil {
-		return Artifact{}, fmt.Errorf("upload %s: %w", artifact.Name, uploadErr)
+	if err := EncryptTo(io.MultiWriter(cipherFile, digest), io.TeeReader(f, plainCounter), parsed); err != nil {
+		_ = cipherFile.Close()
+		return Artifact{}, fmt.Errorf("encrypt %s: %w", artifact.Name, err)
 	}
-	if encErr != nil {
-		return Artifact{}, fmt.Errorf("encrypt %s: %w", artifact.Name, encErr)
+	if err := cipherFile.Close(); err != nil {
+		return Artifact{}, fmt.Errorf("seal ciphertext for %s: %w", artifact.Name, err)
 	}
 	if plainCounter.n != artifact.Size || hex.EncodeToString(plainDigest.Sum(nil)) != artifact.SHA256 {
 		return Artifact{}, fmt.Errorf("plaintext artifact changed during encryption: %s", artifact.Name)
 	}
-	size := cipherCounter.n
-	if size < 0 {
-		size = 0
+	info, err := os.Stat(cipherPath)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("stat spooled ciphertext for %s: %w", artifact.Name, err)
+	}
+
+	// Upload the sealed spool with its exact length so the S3 PUT carries a
+	// Content-Length header; re-open the file instead of reusing the handle.
+	body, err := os.Open(cipherPath) // #nosec G304 -- temp path this function just created in the private spool.
+	if err != nil {
+		return Artifact{}, fmt.Errorf("reopen spooled ciphertext for %s: %w", artifact.Name, err)
+	}
+	defer func() { _ = body.Close() }()
+	if err := store.Upload(ctx, EncryptedName(artifact.Name), body, info.Size()); err != nil {
+		return Artifact{}, fmt.Errorf("upload %s: %w", artifact.Name, err)
 	}
 	return Artifact{
 		Name:            artifact.Name,
@@ -140,10 +159,42 @@ func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArt
 		Size:            artifact.Size,
 		EncryptedName:   EncryptedName(artifact.Name),
 		EncryptedSHA256: hex.EncodeToString(digest.Sum(nil)),
-		EncryptedSize:   size,
+		EncryptedSize:   info.Size(),
 		Algorithm:       EncryptionAlgorithmAge,
 		Kind:            artifact.Kind,
 	}, nil
+}
+
+// createCipherSpool creates a private (0600) temp file for one artifact's
+// ciphertext, preferring the directory of the plaintext artifact (the
+// private backup spool already holds the equally large plaintext) and
+// falling back to the system temp dir when that directory is not writable.
+func createCipherSpool(artifactPath string) (*os.File, error) {
+	if f, err := os.CreateTemp(filepath.Dir(artifactPath), ".cipher-"+filepath.Base(artifactPath)+"-"); err == nil {
+		return f, nil
+	}
+	return os.CreateTemp("", "urmail-cipher-")
+}
+
+// requireCipherSpoolSpace refuses to start a spool when the artifact's
+// directory visibly lacks room for the ciphertext next to the plaintext
+// (A1). The estimate needs only the plaintext size plus a small age
+// envelope; free space is advisory, so an unknown value never blocks.
+func requireCipherSpoolSpace(artifactPath string, plaintextSize int64) error {
+	free, err := dirFreeBytes(filepath.Dir(artifactPath))
+	if err != nil || free == 0 {
+		return nil
+	}
+	need := plaintextSize + 64*1024 // age header, per-chunk MACs, headroom
+	if need <= 0 {
+		// Nonsensical size: skip the advisory check; the write surfaces
+		// whatever the filesystem actually reports.
+		return nil
+	}
+	if free < uint64(need) {
+		return fmt.Errorf("only %d bytes free in %s but the ciphertext spool needs about %d", free, filepath.Dir(artifactPath), need)
+	}
+	return nil
 }
 
 // decryptChecksum streams one remote ciphertext into the age decryptor and
