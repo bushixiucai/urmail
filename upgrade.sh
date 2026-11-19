@@ -131,7 +131,7 @@ PLAN
     note "fresh-backup pre-flight (one-off urmailctl container)"
     preflight_out=$(docker compose run --rm --no-deps --user 0:0 \
         -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
-        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
+        -e URMAIL_MAINTENANCE_ROOT=/tmp/maint \
         --entrypoint /usr/local/bin/urmailctl urmaild \
         upgrade fence --reason "fresh-backup pre-flight check (compose native)" 2>&1) || true
     printf '%s\n' "$preflight_out" >>"$EVIDENCE"
@@ -154,7 +154,18 @@ PLAN
     chmod 0644 "$HOLD"
     # intentional word split: URMAIL_WRITERS is a space-separated service list
     # shellcheck disable=SC2086
-    docker compose stop urmaild ${URMAIL_WRITERS:-postfix dovecot} >>"$EVIDENCE" 2>&1
+    # Fence stop: absent writer services (smoke rigs) must not abort the
+    # fence; a failed stop of a PRESENT writer still dies (fail-closed).
+    fence_stop_ok=1
+    for w in urmaild ${URMAIL_WRITERS:-postfix dovecot}; do
+        # shellcheck disable=SC2086
+        if [ -z "$(docker compose ps -aq "$w" 2>/dev/null)" ]; then
+            echo "fence stop: $w has no container; skipped" >>"$EVIDENCE"
+            continue
+        fi
+        docker compose stop "$w" >>"$EVIDENCE" 2>&1 || fence_stop_ok=0
+    done
+    [ "$fence_stop_ok" = "1" ] || die "fence stop failed for a present writer; aborting before hold"
     FENCED=1
     note "native fence: hold written ($HOLD), writers stopped (pg kept)"
 
@@ -198,10 +209,17 @@ PLAN
         -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
         -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
         --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
+    # QA P2-1: keep the receipt persistent, then hand the dir back to uid 5000
+    # the root one-off leaves root-owned files in the 5000-owned maintenance
+    # dir — hand them back so backup-auto/usage-sync (uid 5000) can lock
+    docker compose run --rm --no-deps --user 0:0 \
+        --entrypoint /bin/chown urmaild -R 5000:5000 \
+        /srv/urmail/data/maintenance >>"$EVIDENCE" 2>&1
     # Writers: fail-closed on the production path (QA/PM ruling). A service
     # missing from the compose project is only tolerated with the explicit
     # URMAIL_SMOKE_RIG=1 switch, and every skip is recorded in the evidence.
     writers_ok=1
+    writers_absent=""
     for w in ${URMAIL_WRITERS:-postfix dovecot}; do
         # shellcheck disable=SC2086
         ids=$(docker compose ps -aq "$w" 2>/dev/null)
@@ -216,13 +234,21 @@ PLAN
         fi
         docker compose start "$w" >>"$EVIDENCE" 2>&1 || writers_ok=0
     done
+    # The running-assertion set excludes writers skipped under URMAIL_SMOKE_RIG=1
+    # (they have no container here); the rig mode passes when the whole list
+    # resolved absent, recorded in the evidence. Production fail-closed
+    # semantics are unchanged.
     for w in ${URMAIL_WRITERS:-postfix dovecot}; do
         # shellcheck disable=SC2086
+        case " $writers_absent " in *" $w "*) continue ;; esac
         if ! docker compose ps --status running -q "$w" 2>/dev/null | grep -q .; then
             echo "writer $w not running after start" >>"$EVIDENCE"
             writers_ok=0
         fi
     done
+    if [ -n "$(printf '%s' "$writers_absent" | tr -d ' ')" ]; then
+        echo "rig mode: absent writers skipped:$writers_absent (URMAIL_SMOKE_RIG=1)" >>"$EVIDENCE"
+    fi
     if [ "$writers_ok" != "1" ]; then
         die "writers failed to start; fence/hold kept (post-up)"
     fi

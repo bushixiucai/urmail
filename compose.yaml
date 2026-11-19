@@ -49,6 +49,7 @@ services:
     environment:
       # urmaild 在 hold 期间必须可启动（探针/readiness-record 需要），故不设 hold 门
       URMAIL_HOLD_GUARD: "0"
+      URMAIL_MAINTENANCE_ROOT: /srv/urmail/data/maintenance
       # 现行 config.Load 强制 HTTP 绑回环（安全位）；跨容器反代接入是
       # 配置生成器阶段的监听规则改造点（ARCH-PLAN §1.1 internal :8080）。
       URMAIL_LISTEN_ADDR: 127.0.0.1:8080
@@ -66,10 +67,11 @@ services:
       URMAIL_WEBMAIL_NATIVE: "true"
       URMAIL_ROUNDCUBE_ENABLED: "false"
     volumes:
+      # 容器内挂载点为固定路径（与宿主 URMAIL_DATA_ROOT 无关，勿插值化）
       - ${URMAIL_DATA_ROOT:-./data}/config:/srv/urmail/config
       - ${URMAIL_DATA_ROOT:-./data}/db:/srv/urmail/data/db
       - ${URMAIL_DATA_ROOT:-./data}/backup:/srv/urmail/data/backup
-      # readiness-record 的 maintenance 根（独立目录，不进 backup 卷枚举面）
+      # readiness-record 的 maintenance 根（独立子目录，不进 backup 卷枚举面）
       - ${URMAIL_DATA_ROOT:-./data}/maintenance:/srv/urmail/data/maintenance
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/healthz"]
