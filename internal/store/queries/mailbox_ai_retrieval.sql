@@ -6,11 +6,12 @@
 -- name: MailboxAIChunkMessageStates :many
 -- scope: tenant
 
-SELECT DISTINCT ON (folder, folder_uidvalidity, message_uid)
-       folder, folder_uidvalidity, message_uid, content_version, content_digest
-FROM mailbox_ai_chunks
-WHERE tenant_id = ?1 AND mailbox_id = ?2
-ORDER BY folder, folder_uidvalidity, message_uid, chunk_index;
+SELECT folder, folder_uidvalidity, message_uid, content_version, content_digest FROM (
+ SELECT folder, folder_uidvalidity, message_uid, content_version, content_digest,
+  ROW_NUMBER() OVER (PARTITION BY folder, folder_uidvalidity, message_uid ORDER BY chunk_index) AS rn
+ FROM mailbox_ai_chunks
+ WHERE tenant_id = ?1 AND mailbox_id = ?2
+) WHERE rn = 1;
 
 -- name: DeleteMailboxAIChunkMessages :execrows
 -- scope: tenant

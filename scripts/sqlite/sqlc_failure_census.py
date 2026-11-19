@@ -49,7 +49,7 @@ def main():
             rel_query = os.path.relpath(path, root)
             open(cfg, "w").write(YAML % ("migrations_sqlite", rel_query, outdir))
             try:
-                proc = subprocess.run([args.sqlc, "generate", "-f", cfg], capture_output=True, text=True)
+                proc = subprocess.run([args.sqlc, "generate", "-f", cfg], capture_output=True, text=True, errors="replace")
             finally:
                 os.remove(cfg)
         if proc.returncode != 0:

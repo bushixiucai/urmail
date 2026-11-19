@@ -23,6 +23,8 @@ RESIDUE_PATTERNS = {
     "btrim(": re.compile(r"\bbtrim\s*\(", re.I),
     "split_part(": re.compile(r"\bsplit_part\s*\(", re.I),
     "AT TIME ZONE": re.compile(r"AT\s+TIME\s+ZONE", re.I),
+    "make_interval": re.compile(r"make_interval\s*\(", re.I),
+    "to_char": re.compile(r"\bto_char\s*\(", re.I),
 }
 
 
@@ -46,7 +48,12 @@ def scan():
 
 def main():
     reg = json.load(open('scripts/sqlite/residue-registry.json'))
-    reg_totals = reg['totals']
+    if 'totals' in reg:
+        reg_totals = reg['totals']
+    elif 'classes' in reg:
+        reg_totals = {k: len(v) for k, v in reg['classes'].items()}
+    else:
+        reg_totals = {k: len(v) for k, v in reg.items()}
     now = scan()
     drift = []
     for cls in set(reg_totals) | set(now):

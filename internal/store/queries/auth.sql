@@ -115,7 +115,7 @@ SET mfa_recovery_codes = COALESCE((
     FROM json_each(mfa_recovery_codes) AS t(ord, key) -- key 充当 0 基 ordinal
     WHERE v <> to_jsonb(?2)
 ), '[]')
-WHERE id = ?1 AND mfa_recovery_codes @> to_jsonb(?2);
+WHERE id = ?1 AND EXISTS(SELECT 1 FROM json_each(mfa_recovery_codes) WHERE value = ?2);
 
 
 -- name: UpdateUserPassword :exec
