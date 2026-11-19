@@ -58,6 +58,27 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 在 git worktree 检出中 `.git` 是指针文件，stamp 回退 `compose-skeleton`、Go 不嵌 VCS——
 `upgrade.sh` 门禁（后续）将强制真实 clone + tag 一致。
 
+## install.sh / upgrade.sh（§1.3–§1.4，骨架）
+
+```sh
+./install.sh --domain mail.example.test --primary-domain example.test \
+             --admin-email admin@example.test [--data-root /srv/urmail/data] [--dry-run]
+./upgrade.sh v0.6.27 [--dry-run]
+```
+
+- `install.sh`：前置检查（Linux/Docker≥24/Compose≥v2.20/端口空闲/rDNS 提示）→
+  `.env` 生成（0600，密钥只落文件不进日志）→ 数据目录 `install -d` 5000:5000 0750 →
+  `compose build` → `up -d` → 等健康 → 打印管理员引导与 DNS 清单。
+- `upgrade.sh vX`：干净树强制（dirty 即拒）→ `urmailctl upgrade fence`
+  （内建新鲜备份 pre-flight，拒绝即原文中止，脚本不提供跳过旗标）→
+  checkout tag → `compose build` → `URMAIL_AUTO_MIGRATE=0 up -d` →
+  fence 内 `urmailctl migrate up` 受控迁移 → 就绪探针 →
+  `readiness-record` → `release`；fence 后任何失败自动 resume→release
+  （必要时 break-glass）并留证据文件于 `${TMPDIR:-/tmp}`。
+- 两者均支持 `--dry-run`（只读检查+打印计划，不写任何状态），需通过 shellcheck；
+  fence/release 依赖 `urmailctl` 与 `URMAIL_ENV_FILE`（生产 systemd 环境自带；
+  compose 形态在配置生成器落地后由 data/config/urmail.env 接管）。
+
 ## 与 §1.1 规格差异（本轮口径）
 
 - urmaild 的 spam/frombind milter 当前内嵌进程内（127.0.0.1:12302 等），未拆独立服务；
