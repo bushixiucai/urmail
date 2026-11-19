@@ -118,7 +118,9 @@ PLAN
     fi
 
     # ---- gated section -----------------------------------------------------
-    EVIDENCE="${TMPDIR:-/tmp}/urmail-upgrade-$V-$(date -u +%Y%m%dT%H%M%SZ).log"
+    # Evidence lands in the DATA ROOT (persistent, operator-retrievable) —
+    # never in TMPDIR, which dies with the invoking session.
+    EVIDENCE="$DATA_ROOT/upgrade-evidence-$V-$(date -u +%Y%m%dT%H%M%SZ).log"
     : > "$EVIDENCE"
     note() { printf '[upgrade] %s\n' "$*" | tee -a "$EVIDENCE" >&2; }
 
@@ -196,9 +198,16 @@ PLAN
         -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
         -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/backup/maintenance \
         --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
-    # intentional word split on the writer list (URMAIL_WRITERS, space list)
-    # shellcheck disable=SC2086
-    docker compose start ${URMAIL_WRITERS:-postfix dovecot} >>"$EVIDENCE" 2>&1
+    # Start each writer that HAS a container; absent services (smoke rigs
+    # without milter/mail daemons) are noted instead of failing the chain.
+    for w in ${URMAIL_WRITERS:-postfix dovecot}; do
+        # shellcheck disable=SC2086
+        if [ -n "$(docker compose ps -q "$w" 2>/dev/null)" ]; then
+            docker compose start "$w" >>"$EVIDENCE" 2>&1
+        else
+            echo "writer $w has no container here; skipped" >>"$EVIDENCE"
+        fi
+    done
     rm -f "$HOLD"
     RELEASED=1
     T1=$(date +%s)
