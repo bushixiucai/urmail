@@ -77,8 +77,8 @@ ON CONFLICT(investigation_id,archive_entry_id) DO NOTHING;
 -- name: ArchiveCasesRemoveSource :execrows
 -- scope: tenant
 
-DELETE FROM archive_investigation_sources s USING archive_investigations i
-WHERE s.tenant_id=?1 AND s.investigation_id=?2 AND s.archive_entry_id=?3
+DELETE FROM archive_investigation_sources WHERE EXISTS(SELECT 1 FROM archive_investigations i WHERE
+ s.tenant_id=?1 AND s.investigation_id=?2 AND s.archive_entry_id=?3
 AND i.tenant_id=s.tenant_id AND i.id=s.investigation_id AND i.status='open' AND i.version=?4;
 
 -- name: ArchiveCasesClose :one

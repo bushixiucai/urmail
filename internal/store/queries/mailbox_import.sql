@@ -7,8 +7,8 @@ WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(mailbox_id) AND status='acti
 -- name: MailboxImportStorageBudget :one
 -- scope: tenant
 
-SELECT count(*) FILTER(WHERE j.mailbox_id=sqlc.arg(mailbox_id)) AS mailbox_jobs,
- COALESCE(sum(j.source_bytes)FILTER(WHERE j.mailbox_id=sqlc.arg(mailbox_id)),0) AS mailbox_bytes,
+SELECT sum(CASE WHEN j.mailbox_id=sqlc.arg(mailbox_id THEN 1 ELSE 0 END)) AS mailbox_jobs,
+ COALESCE(sum(CASE WHEN j.mailbox_id=sqlc.arg(mailbox_id THEN j.source_bytes ELSE 0 END)),0) AS mailbox_bytes,
  COALESCE(sum(j.source_bytes),0) AS tenant_bytes
 FROM mailbox_import_jobs j WHERE j.tenant_id=sqlc.arg(tenant_id) AND j.payload_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND (j.status NOT IN('completed','canceled') OR EXISTS(SELECT 1 FROM mailbox_import_items i
