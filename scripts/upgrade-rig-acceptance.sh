@@ -163,6 +163,7 @@ unset URMAIL_ALLOW_RECORDLESS_RIG
 reset_stack
 mock_row
 echo "R1 switch=${URMAIL_ALLOW_RECORDLESS_RIG:-unset}; sentinel=expected-fail until readiness-record fix (then rc=0/hold=cleared)" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-r1-selfcert.log
+mock_row
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 printf '%s\n' "$out" | grep -E "read live upgrade fence|readiness-record" | head -3
 assert "R1_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"

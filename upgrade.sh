@@ -74,7 +74,13 @@ main() {
     [ -f compose.yaml ] || die "compose.yaml not found — run from the checkout root"
 
     # ---- 1. clean tree (plan §1.8) ----------------------------------------
-    [ -z "$(git status --porcelain)" ] || die "work tree is dirty; commit or stash before upgrading"
+        # Evidence on ALL exit paths (QA #28 fix 2): created before the clean-tree
+    # gate so even pre-gate aborts leave a trace.
+    EVIDENCE="$DATA_ROOT/upgrade-evidence-$V-$(date -u +%Y%m%dT%H%M%SZ).log"
+    : > "$EVIDENCE"
+    note() { printf '[upgrade] %s\n' "$*" | tee -a "$EVIDENCE" >&2; }
+    trap 'rc=$?; printf "[upgrade] exit rc=%s\n" "$rc" >> "'"$EVIDENCE"'"; exit $rc' EXIT
+[ -z "$(git status --porcelain)" ] || die "work tree is dirty; commit or stash before upgrading"
     log "work tree clean at $(git rev-parse HEAD)"
 
     # ---- 2. tag resolvable (read-only) ------------------------------------
