@@ -1,0 +1,12 @@
+# Build anything that must not enter the build context.
+web/node_modules
+node_modules
+web/dist
+dist
+bin
+output
+data
+*.deb
+*.tar.gz
+docs/reviews
+docs/planning

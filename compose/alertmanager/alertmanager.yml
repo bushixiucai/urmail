@@ -1,0 +1,9 @@
+route:
+  receiver: blackhole
+receivers:
+  - name: blackhole
+    email_configs:
+      - to: "unused@invalid"
+        from: "unused@invalid"
+        smarthost: "127.0.0.1:25"
+        send_resolved: false

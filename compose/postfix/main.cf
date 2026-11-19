@@ -1,0 +1,11 @@
+# urMail compose skeleton placeholder main.cf (agent config generator renders
+# the real one; this file only proves the postfix-in-container boot path).
+compatibility_level = 3.6
+myhostname = urmail.local
+myorigin = $myhostname
+mydestination = $myhostname, localhost
+inet_interfaces = loopback-only
+inet_protocols = all
+mynetworks = 127.0.0.0/8
+smtpd_banner = $myhostname ESMTP
+maillog_file = /dev/stdout

@@ -1,0 +1,9 @@
+# litestream placeholder config — activates with the SQLite data layer
+# (Phase 1). Replicates the single platform DB to S3 (ARCH-PLAN §2.4).
+dbs:
+  - path: /srv/urmail/data/db/urmail.sqlite
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_S3_BUCKET}
+        path: urmail-db
+        region: ${LITESTREAM_S3_REGION}
