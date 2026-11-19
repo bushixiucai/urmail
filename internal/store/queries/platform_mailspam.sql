@@ -1,4 +1,6 @@
 -- name: PlatformListSpamDeliveryPolicies :many
+-- scope: platform
+
 -- Only the privileged configuration assembler reads the fleet-wide policy.
 -- The generated private Sieve file evaluates each rule against the current
 -- LMTP envelope recipient; no private result is attached to shared messages.

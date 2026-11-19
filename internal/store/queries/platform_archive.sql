@@ -2,13 +2,17 @@
 -- transaction, so these queries live in a platform_*.sql file.
 
 -- name: PlatformGetMailboxByAddress :one
+-- scope: platform
+
 SELECT m.id, m.tenant_id, m.address
 FROM mailboxes m
 JOIN tenants t ON t.id = m.tenant_id
-WHERE m.address = $1 AND m.status = 'active' AND t.status = 'active';
+WHERE m.address = ?1 AND m.status = 'active' AND t.status = 'active';
 
 -- name: PlatformInsertArchiveEntry :exec
+-- scope: platform
+
 INSERT INTO archive_entries
     (tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, false)
 ON CONFLICT ON CONSTRAINT archive_entries_tenant_mailbox_message_uniq DO NOTHING;

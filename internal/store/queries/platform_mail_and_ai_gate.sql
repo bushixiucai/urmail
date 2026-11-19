@@ -1,8 +1,14 @@
 -- name: GetBillingBusinessTimezone :one
-SELECT urmail_business_timezone($1::bigint)::text AS timezone;
+-- scope: platform
+
+SELECT urmail_business_timezone(?1) AS timezone;
 
 -- name: PlatformLockBillingTenant :exec
-SELECT pg_advisory_xact_lock($1::bigint);
+-- scope: platform
+
+SELECT pg_advisory_xact_lock(?1);
 
 -- name: MailServiceAllowed :one
-SELECT urmail_mail_allowed($1::bigint)::boolean AS allowed;
+-- scope: platform
+
+SELECT urmail_mail_allowed(?1) AS allowed;

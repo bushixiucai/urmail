@@ -1,2 +1,4 @@
 -- name: LockMailboxEASSync :exec
-SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(tenant_id)::text || ':' || sqlc.arg(mailbox_id)::text || ':' || sqlc.arg(device_id)::text, 421932));
+-- scope: platform
+
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(tenant_id) || ':' || sqlc.arg(mailbox_id) || ':' || sqlc.arg(device_id), 421932));
