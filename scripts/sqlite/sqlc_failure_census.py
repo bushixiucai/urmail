@@ -57,9 +57,18 @@ def main():
             lines = open(path).read().split("\n")
             m = re.search(r'line (\d+):(\d+)', proc.stderr) or re.search(r':(\d+):(\d+):', proc.stderr)
             ln = int(m.group(1)) if m else 0
+            err_text = " | ".join(proc.stderr.strip().split("\n")[:3])[:300]
+            if "UPDATE" in err_text and "no viable alternative" in err_text:
+                cat = "update-alias"
+            elif "MATERIALIZED" in err_text:
+                cat = "dml-cte"
+            elif "does not exist" in err_text or "ambiguous" in err_text:
+                cat = "cte-scope"
+            else:
+                cat = "syntax-residue"
             census.append({"file": os.path.basename(path), "first_error_line": ln,
-                           "method": method_at(lines, ln),
-                           "error": " | ".join(proc.stderr.strip().split("\n")[:3])[:300]})
+                           "method": method_at(lines, ln), "category": cat,
+                           "error": err_text})
     json.dump({"total_files": len(glob.glob('internal/store/queries/*.sql')),
                "failed_files": failed, "census": census},
               open(args.out, "w"), indent=1, ensure_ascii=False)
