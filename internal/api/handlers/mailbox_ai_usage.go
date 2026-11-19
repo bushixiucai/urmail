@@ -135,7 +135,7 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(ctx, tenantID); err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (r *AIUsageReservation) Settle(providerErr error, usageKnown bool, promptTo
 			tokensField = pgtype.Int8{Int64: actualTokens, Valid: true}
 			costField = pgtype.Int8{Int64: actualCost, Valid: true}
 		}
-		finished, finishErr := store.New(pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: tenant, ID: id, Status: status, ActualTokens: tokensField, ActualCostMicros: costField})
+		finished, finishErr := db.Queries(pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: tenant, ID: id, Status: status, ActualTokens: tokensField, ActualCostMicros: costField})
 		if finishErr != nil || finished != 1 {
 			log.Printf("urmail: ai usage recording failed tenant=%d request=%d err=%v rows=%d", tenant, id, finishErr, finished)
 			ai.RecordOutcome(kind, "record_failed")
@@ -345,7 +345,7 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(c, tenant); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -415,7 +415,7 @@ func (r *AIUsageReservation) releaseUnused() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		rows, err := store.New(r.pool).PlatformFinishAIRequest(ctx, store.PlatformFinishAIRequestParams{TenantID: r.tenant, ID: r.id, Status: "released", ActualTokens: pgtype.Int8{Int64: 0, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: 0, Valid: true}})
+		rows, err := db.Queries(r.pool).PlatformFinishAIRequest(ctx, store.PlatformFinishAIRequestParams{TenantID: r.tenant, ID: r.id, Status: "released", ActualTokens: pgtype.Int8{Int64: 0, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: 0, Valid: true}})
 		if err != nil || rows != 1 {
 			log.Printf("urmail: unused ai reservation release failed tenant=%d request=%d err=%v rows=%d", r.tenant, r.id, err, rows)
 			ai.RecordOutcome(r.kind, "record_failed")

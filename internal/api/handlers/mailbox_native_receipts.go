@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"errors"
 	"net/http"
@@ -55,7 +56,7 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	items := []gin.H{}
 	if key := strings.TrimSpace(c.Query("request_key")); key != "" {
 		row, e := q.PlatformGetSendReceiptByKey(c.Request.Context(), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
@@ -124,7 +125,7 @@ func (h *MailboxNativeHandler) GetSendReceipt(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, e := store.New(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e := db.Queries(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -170,7 +171,7 @@ func (h *MailboxNativeHandler) RepairSendReceiptCopy(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	row, e = store.New(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e = db.Queries(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -192,7 +193,7 @@ func (h *MailboxNativeHandler) draftSubmissionLocked(c *gin.Context, folder stri
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return true
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	if len(queries) > 0 && queries[0] != nil {
 		q = queries[0]
 	}
@@ -218,7 +219,7 @@ func (h *MailboxNativeHandler) draftDeletionLocked(c *gin.Context, folder string
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return true
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	if len(queries) > 0 && queries[0] != nil {
 		q = queries[0]
 	}

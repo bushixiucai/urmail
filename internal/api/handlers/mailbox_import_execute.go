@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -89,7 +90,7 @@ func (h *MailboxImports) Confirm(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	quota, e := q.LockMailboxImportOwner(c, store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return
@@ -188,7 +189,7 @@ func (h *MailboxImports) Resume(c *gin.Context) {
 	if !h.fresh(c, sess, in.CurrentPassword) {
 		return
 	}
-	job, e := store.New(h.Native.Pool).GetMailboxImportJob(c, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if importDBError(c, e) {
 		return
 	}
@@ -209,7 +210,7 @@ func (h *MailboxImports) Reconcile(c *gin.Context) {
 	if !h.fresh(c, sess, in.CurrentPassword) {
 		return
 	}
-	job, e := store.New(h.Native.Pool).GetMailboxImportJob(c, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if importDBError(c, e) {
 		return
 	}
@@ -240,7 +241,7 @@ func (h *MailboxImports) Retry(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	job, items, e := importLoad(c, q, sess, id, true)
 	if importDBError(c, e) {
 		return
@@ -299,7 +300,7 @@ func (h *MailboxImports) Cancel(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	job, items, e := importLoad(c, q, sess, id, true)
 	if importDBError(c, e) {
 		return
@@ -347,7 +348,7 @@ func (h *MailboxImports) run(c *gin.Context, sess webmail.Session, expected stor
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if e = q.MailboxImportRecoverExpiredLeases(ctx, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
@@ -531,7 +532,7 @@ func (h *MailboxImports) saveItem(ctx context.Context, sess webmail.Session, ite
 		return false
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	current, e := q.LockMailboxImportJob(ctx, store.LockMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: item.JobID})
 	if e != nil || current.LeaseToken != token || !current.LeaseUntil.Valid || !current.LeaseUntil.Time.After(time.Now()) {
 		return false
@@ -555,7 +556,7 @@ func (h *MailboxImports) claimItem(ctx context.Context, c *gin.Context, sess web
 		return false
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	quota, e := q.LockMailboxImportOwner(ctx, store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return false
@@ -597,7 +598,7 @@ func (h *MailboxImports) release(c *gin.Context, sess webmail.Session, expected 
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	job, items, e := importLoad(ctx, q, sess, expected.ID, true)
 	if e != nil {
 		return

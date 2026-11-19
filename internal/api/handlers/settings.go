@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -134,7 +135,7 @@ func (h *PlatformHandler) Settings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	rows, err := requestStore(c, store.New(h.Pool.Pool)).PlatformListSettings(c)
+	rows, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformListSettings(c)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return

@@ -229,7 +229,7 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(c, tenant); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -272,7 +272,7 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(c, session.TenantID); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

@@ -107,7 +107,7 @@ func (h *MailboxCorporateDirectoryHandler) List(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		q = store.New(tx)
+		q = db.Queries(tx)
 	case h.Store != nil:
 		q = h.Store
 	default:
@@ -160,7 +160,7 @@ func (h *MailboxCorporateDirectoryHandler) Search(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		q = store.New(tx)
+		q = db.Queries(tx)
 	case h.Store != nil:
 		q = h.Store
 	default:
@@ -213,7 +213,7 @@ func (h *MailboxCorporateDirectoryHandler) getAdminQueries(c *gin.Context, tenan
 		if err != nil {
 			return nil, nil, err
 		}
-		return store.New(tx), func() { _ = tx.Rollback(c.Request.Context()) }, nil
+		return db.Queries(tx), func() { _ = tx.Rollback(c.Request.Context()) }, nil
 	}
 	if h.Store != nil {
 		return h.Store, func() {}, nil

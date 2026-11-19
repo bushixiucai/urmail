@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -53,7 +54,7 @@ func (h *MailboxNativeHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c.Request.Context()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	changed, passwordErr := changeMailboxPassword(c.Request.Context(), q, mailboxBridgeRequest{
 		Address:     session.Address,

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"errors"
 	"strconv"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 func (h *AIConfigurationHandler) platformTenant(c *gin.Context) (int64, bool) {
@@ -21,7 +21,7 @@ func (h *AIConfigurationHandler) platformTenant(c *gin.Context) (int64, bool) {
 		authError(c, 401, "UNAUTHORIZED")
 		return 0, false
 	}
-	allowed, err := store.New(h.Pool).CheckPlatformAdmin(c, uid)
+	allowed, err := db.Queries(h.Pool).CheckPlatformAdmin(c, uid)
 	if err != nil || !allowed {
 		authError(c, 403, "FORBIDDEN")
 		return 0, false
@@ -40,7 +40,7 @@ func (h *AIConfigurationHandler) PlatformGet(c *gin.Context) {
 	if !ok {
 		return
 	}
-	q := store.New(h.Pool)
+	q := db.Queries(h.Pool)
 	cfg, err := q.PlatformGetAIProvider(c, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"configuration": nil, "configured": false, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints), "tenant_consent": gin.H{"allowed": false, "tenant_local_only": true, "requires_confirmation": true, "scope_hash": AICloudScopeHash}})
@@ -68,7 +68,7 @@ func (h *AIConfigurationHandler) PlatformUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := store.New(h.Pool).PlatformPendingAIUsage(c, tenant)
+	rows, err := db.Queries(h.Pool).PlatformPendingAIUsage(c, tenant)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,7 +64,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	row, err := q.PlatformFindSchedulingEvent(c.Request.Context(), store.PlatformFindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Uid: message.Message.UID})
 	var linked *store.MailboxEvents
 	if err == nil {
@@ -285,7 +286,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 	}
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer finishCancel()
-	n, err := store.New(h.Pool).PlatformFinishCalendarResponse(finishCtx, store.PlatformFinishCalendarResponseParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
+	n, err := db.Queries(h.Pool).PlatformFinishCalendarResponse(finishCtx, store.PlatformFinishCalendarResponseParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
 	if err != nil || n != 1 {
 		authError(c, 409, "MAILBOX_SEND_UNCERTAIN")
 		return

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -86,7 +87,7 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 	}
 	sendAt = sendAt.UTC()
 	digest := scheduleRequestHash(req, sendAt)
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	keyArg := store.PlatformGetMailboxScheduledSendByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key}
 	existing, err := q.PlatformGetMailboxScheduledSendByKey(c.Request.Context(), keyArg)
 	if err == nil {
@@ -143,7 +144,7 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	lockedQ := store.New(tx)
+	lockedQ := db.Queries(tx)
 	if err = mailboxsend.LockDraft(c, lockedQ, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: req.DraftUID, Validity: validity}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -243,7 +244,7 @@ func (h *MailboxNativeHandler) ListScheduledSends(c *gin.Context) {
 	if offset > 100000 {
 		offset = 100000
 	}
-	rows, err := store.New(h.Pool.Pool).PlatformListMailboxScheduledSends(c.Request.Context(), store.PlatformListMailboxScheduledSendsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
+	rows, err := db.Queries(h.Pool.Pool).PlatformListMailboxScheduledSends(c.Request.Context(), store.PlatformListMailboxScheduledSendsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
@@ -274,7 +275,7 @@ func (h *MailboxNativeHandler) CancelScheduledSend(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	row, err := q.PlatformCancelMailboxScheduledSend(c.Request.Context(), store.PlatformCancelMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		_, err = q.PlatformGetMailboxScheduledSend(c.Request.Context(), store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
@@ -337,7 +338,7 @@ func (h *MailboxNativeHandler) AcknowledgeUncertainScheduledSend(c *gin.Context)
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, e := store.New(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(c, store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e := db.Queries(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(c, store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 409, "SCHEDULE_CONFLICT")
 		return

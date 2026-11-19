@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -111,7 +112,7 @@ func (h *archiveCases) currentEvidencePermission(ctx context.Context, t, request
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	allowed, err := store.New(tx).ArchiveCasesExportVisible(ctx, store.ArchiveCasesExportVisibleParams{T: t, A: request, U: u})
+	allowed, err := db.Queries(tx).ArchiveCasesExportVisible(ctx, store.ArchiveCasesExportVisibleParams{T: t, A: request, U: u})
 	if err != nil {
 		return err
 	}
@@ -335,7 +336,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		detail, _ := json.Marshal(map[string]any{"actor_id": u, "case_id": row.ID, "approval_id": id, "manifest_sha256": evidence.ManifestSha256, "bytes": count, "completed": success})
-		_, _ = store.New(h.Platform.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: t, Valid: true}, Action: "archive.evidence_transfer_finished", TargetType: pgtype.Text{String: "archive_approval", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail})
+		_, _ = db.Queries(h.Platform.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: t, Valid: true}, Action: "archive.evidence_transfer_finished", TargetType: pgtype.Text{String: "archive_approval", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: detail})
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=evidence-case-%d-approval-%d.zip", row.ID, id))
 	c.Header("Cache-Control", "no-store")

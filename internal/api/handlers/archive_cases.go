@@ -56,7 +56,7 @@ func (h *archiveCases) principal(c *gin.Context, scope string) (*store.Queries, 
 		authError(c, 401, "UNAUTHORIZED")
 		return nil, 0, 0, false
 	}
-	q := requestStore(c, store.New(h.App.Pool))
+	q := requestStore(c, db.Queries(h.App.Pool))
 	allowed, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{T: tenant, U: actor, S: scope})
 	if err != nil {
 		authError(c, 503, "ARCHIVE_UNAVAILABLE")

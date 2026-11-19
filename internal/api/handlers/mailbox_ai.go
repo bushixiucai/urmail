@@ -106,7 +106,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 		return nil, ai.ResultMeta{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(ctx, principal.TenantID); err != nil {
 		return nil, ai.ResultMeta{}, err
 	}
@@ -305,7 +305,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	}
 	settleCtx, settleCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer settleCancel()
-	finished, finishErr := store.New(s.Pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: principal.TenantID, ID: reservation.ID, Status: status, ActualTokens: actualTokens, ActualCostMicros: actualCost, Result: result})
+	finished, finishErr := db.Queries(s.Pool).PlatformFinishAIRequest(settleCtx, store.PlatformFinishAIRequestParams{TenantID: principal.TenantID, ID: reservation.ID, Status: status, ActualTokens: actualTokens, ActualCostMicros: actualCost, Result: result})
 	if finishErr != nil || finished != 1 {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}
@@ -335,7 +335,7 @@ func persistPhishingFinding(ctx context.Context, pool *db.Pool, principal store.
 	if err != nil {
 		return err
 	}
-	if err = store.New(tx).PlatformUpsertMailboxPhishingFinding(ctx, store.PlatformUpsertMailboxPhishingFindingParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, Folder: principal.Folder, UidValidity: principal.UidValidity, Uid: principal.MessageUid, InputDigest: digest, Result: result}); err != nil {
+	if err = db.Queries(tx).PlatformUpsertMailboxPhishingFinding(ctx, store.PlatformUpsertMailboxPhishingFindingParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, Folder: principal.Folder, UidValidity: principal.UidValidity, Uid: principal.MessageUid, InputDigest: digest, Result: result}); err != nil {
 		_ = tx.Rollback(ctx)
 		return err
 	}
@@ -362,7 +362,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	cfg, err := store.New(h.Pool).PlatformGetAIProvider(c, tid)
+	cfg, err := db.Queries(h.Pool).PlatformGetAIProvider(c, tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"configuration": gin.H{"enabled": false, "mode": "local", "provider": "ollama", "local_only": true}, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints), "local_endpoints": safelyListedEndpoints(h.LocalEndpoints)})
 		return
@@ -375,7 +375,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 	for key, value := range aiConfigurationQuotaFields(cfg) {
 		configuration[key] = value
 	}
-	policy, policyErr := aiTargetPolicy(c, store.New(h.Pool), cfg)
+	policy, policyErr := aiTargetPolicy(c, db.Queries(h.Pool), cfg)
 	if policyErr != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -468,7 +468,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 		authError(c, 503, "AI_DISABLED")
 		return
 	}
-	q := store.New(h.Pool)
+	q := db.Queries(h.Pool)
 	encrypted := ""
 	if input.Key != "" {
 		var err error
@@ -535,7 +535,7 @@ func (h *AIConfigurationHandler) Usage(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	rows, err := store.New(h.Pool).PlatformAIUsage(c, tid)
+	rows, err := db.Queries(h.Pool).PlatformAIUsage(c, tid)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -596,7 +596,7 @@ func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	encrypted := ""
 	credential := input.Key
 	if credential != "" {
@@ -829,7 +829,7 @@ func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockBillingTenant(c, tid); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

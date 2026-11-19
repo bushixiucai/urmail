@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -176,7 +177,7 @@ func (h MailboxCalendarHandler) previewMailInvitation(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := store.New(h.Pool).PlatformFindSchedulingEvent(c.Request.Context(), store.PlatformFindSchedulingEventParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Uid: message.Message.UID})
+	row, err := db.Queries(h.Pool).PlatformFindSchedulingEvent(c.Request.Context(), store.PlatformFindSchedulingEventParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Uid: message.Message.UID})
 	var linked *store.MailboxEvents
 	if err == nil {
 		linked = &row
@@ -205,7 +206,7 @@ func (h MailboxCalendarHandler) previewMailInvitation(c *gin.Context) {
 	actions := schedulingActions(message, linked, recipient)
 	notificationStatus := "none"
 	for _, action := range []string{"accept", "decline", "tentative"} {
-		prior, e := store.New(h.Pool).PlatformGetDataImportReceipt(c.Request.Context(), store.PlatformGetDataImportReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Kind: "calendar_response", IdempotencyKey: calendarActionKey(message, action, recipient)})
+		prior, e := db.Queries(h.Pool).PlatformGetDataImportReceipt(c.Request.Context(), store.PlatformGetDataImportReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, Kind: "calendar_response", IdempotencyKey: calendarActionKey(message, action, recipient)})
 		if e == nil {
 			if prior.Status != "done" {
 				notificationStatus = "uncertain"

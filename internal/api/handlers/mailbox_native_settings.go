@@ -73,7 +73,7 @@ func (s StoreMailboxSelfSettings) tx(ctx context.Context) (pgx.Tx, *store.Querie
 	if err != nil {
 		return nil, nil, err
 	}
-	return tx, store.New(tx), nil
+	return tx, db.Queries(tx), nil
 }
 
 // Settings returns the stored snapshot, or an empty version-0 snapshot.

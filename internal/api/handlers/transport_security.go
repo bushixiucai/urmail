@@ -52,7 +52,7 @@ func (h *TransportSecurityHandler) owned(c *gin.Context) (store.GetDomainByIDRow
 		authError(c, 503, "TRANSPORT_UNAVAILABLE")
 		return empty, false
 	}
-	row, err := requestStore(c, store.New(h.AppPool)).GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{TenantID: tenant, ID: id})
+	row, err := requestStore(c, db.Queries(h.AppPool)).GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{TenantID: tenant, ID: id})
 	if supportError(c, err) {
 		return empty, false
 	}
@@ -74,7 +74,7 @@ func (h *TransportSecurityHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := requestStore(c, store.New(h.AppPool)).GetDomainTransportSecurity(c.Request.Context(), store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
+	row, err := requestStore(c, db.Queries(h.AppPool)).GetDomainTransportSecurity(c.Request.Context(), store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"enabled": false, "version": 0, "mode": "testing", "dane_enabled": false})
 		return
@@ -102,7 +102,7 @@ func (h *TransportSecurityHandler) Publish(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	q := requestStore(c, store.New(h.AppPool))
+	q := requestStore(c, db.Queries(h.AppPool))
 	current, err := q.GetDomainTransportSecurity(c.Request.Context(), store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
 	exists := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -159,7 +159,7 @@ func (h *TransportSecurityHandler) Disable(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	n, err := requestStore(c, store.New(h.AppPool)).DisableDomainTransportSecurity(c.Request.Context(), store.DisableDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID, Version: in.Version})
+	n, err := requestStore(c, db.Queries(h.AppPool)).DisableDomainTransportSecurity(c.Request.Context(), store.DisableDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID, Version: in.Version})
 	if supportError(c, err) {
 		return
 	}
@@ -184,7 +184,7 @@ func (h *TransportSecurityHandler) Observe(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	row, err := requestStore(c, store.New(h.AppPool)).GetDomainTransportSecurity(c.Request.Context(), store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
+	row, err := requestStore(c, db.Queries(h.AppPool)).GetDomainTransportSecurity(c.Request.Context(), store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
 	if supportError(c, err) {
 		return
 	}
@@ -213,7 +213,7 @@ func (h *TransportSecurityHandler) Observe(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		n, e := store.New(tx).ObserveDomainTransportSecurity(ctx, store.ObserveDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID, Version: row.Version, ObservationDigest: pgtype.Text{String: publication.Digest(), Valid: true}, ObservationStatus: status, ObservationDetail: encoded})
+		n, e := db.Queries(tx).ObserveDomainTransportSecurity(ctx, store.ObserveDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID, Version: row.Version, ObservationDigest: pgtype.Text{String: publication.Digest(), Valid: true}, ObservationStatus: status, ObservationDetail: encoded})
 		if e != nil || n != 1 {
 			authError(c, 409, "TRANSPORT_VERSION_CONFLICT")
 			return
@@ -232,7 +232,7 @@ func (h *TransportSecurityHandler) Reports(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, store.New(h.AppPool)).ListDomainTLSReports(c.Request.Context(), store.ListDomainTLSReportsParams{TenantID: domain.TenantID, DomainID: domain.ID})
+	rows, err := requestStore(c, db.Queries(h.AppPool)).ListDomainTLSReports(c.Request.Context(), store.ListDomainTLSReportsParams{TenantID: domain.TenantID, DomainID: domain.ID})
 	if supportError(c, err) {
 		return
 	}
@@ -257,7 +257,7 @@ func (h *TransportSecurityHandler) Policy(c *gin.Context) {
 		return
 	}
 	domain := strings.TrimPrefix(host, "mta-sts.")
-	row, err := store.New(h.Pool).PlatformPublicTransportSecurity(c.Request.Context(), domain)
+	row, err := db.Queries(h.Pool).PlatformPublicTransportSecurity(c.Request.Context(), domain)
 	if err != nil {
 		c.Status(404)
 		return
@@ -291,7 +291,7 @@ func (h *TransportSecurityHandler) Intake(c *gin.Context) {
 		c.Status(400)
 		return
 	}
-	row, err := store.New(h.Pool).PlatformPublicTransportSecurity(c.Request.Context(), domain)
+	row, err := db.Queries(h.Pool).PlatformPublicTransportSecurity(c.Request.Context(), domain)
 	if err != nil {
 		c.Status(404)
 		return
@@ -327,7 +327,7 @@ func (h *TransportSecurityHandler) Intake(c *gin.Context) {
 		c.Status(503)
 		return
 	}
-	q := store.New(tx)
+	q := db.Queries(tx)
 	prior, findErr := q.PlatformFindTLSReportFingerprint(c.Request.Context(), store.PlatformFindTLSReportFingerprintParams{TenantID: row.TenantID, DomainID: row.DomainID, ReporterDigest: report.ReporterDigest, ReportIDDigest: report.IDDigest, PeriodStart: pgtype.Timestamptz{Time: report.Start, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: report.End, Valid: true}})
 	if findErr == nil {
 		if prior != report.Digest {

@@ -68,7 +68,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 		if input.Action == "change_password" {
 			action = "mailbox.password.rejected"
 		}
-		_, auditErr := store.New(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: mid > 0}, Detail: detail})
+		_, auditErr := db.Queries(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: mid > 0}, Detail: detail})
 		if auditErr != nil {
 			middleware.RecordAuditFailure(false)
 			zap.L().Error("write mailbox rejection audit", zap.Error(auditErr))
@@ -97,7 +97,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if q.PlatformPruneRoundcubeRequests(c) != nil || q.PlatformPruneMailboxTickets(c) != nil || q.PlatformPruneMailboxSessions(c) != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -349,7 +349,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			}
 			return
 		}
-		if !recordSieveAudit(c, store.New(h.Pool), tid, mid, "mailbox."+input.Action+".completed") {
+		if !recordSieveAudit(c, db.Queries(h.Pool), tid, mid, "mailbox."+input.Action+".completed") {
 			return
 		}
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -52,7 +53,7 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	current, err := q.PlatformLockCalendarInvitationEvent(ctx, store.PlatformLockCalendarInvitationEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: row.ID})
 	if err != nil {
 		return nil, err
@@ -98,7 +99,7 @@ func (h MailboxCalendarHandler) claimCalendarInvitation(ctx context.Context, p a
 			return err
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		n, err := store.New(tx).PlatformFinishCalendarInvitation(ctx, store.PlatformFinishCalendarInvitationParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
+		n, err := db.Queries(tx).PlatformFinishCalendarInvitation(ctx, store.PlatformFinishCalendarInvitationParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
 		if err != nil {
 			return err
 		}

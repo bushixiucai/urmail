@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -107,7 +108,7 @@ func (h *NativeMailboxAI) getUserAI(ctx context.Context, sess webmail.Session) (
 	if h.Service == nil || h.Service.Pool == nil {
 		return nil, false, nil
 	}
-	row, err := store.New(h.Service.Pool).PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	row, err := db.Queries(h.Service.Pool).PlatformGetMailboxSettings(ctx, store.PlatformGetMailboxSettingsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -149,7 +150,7 @@ func (h *NativeMailboxAI) customProvider(cfg *userAICustomConfig) (ai.Provider, 
 }
 
 func (h *NativeMailboxAI) customGovernance(c *gin.Context, sess webmail.Session, cfg *userAICustomConfig) bool {
-	governance, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	governance, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return false
@@ -245,7 +246,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 		})
 		return
 	}
-	cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"enabled": false, "allowed": false})
 		return
@@ -254,7 +255,7 @@ func (h *NativeMailboxAI) Target(c *gin.Context) {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
 	}
-	target, err := aiTargetPolicy(c, store.New(h.Service.Pool), cfg)
+	target, err := aiTargetPolicy(c, db.Queries(h.Service.Pool), cfg)
 	if err != nil {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return
@@ -297,7 +298,7 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 		}
 		return true
 	}
-	cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+	cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 	if err != nil || !cfg.Enabled {
 		authError(c, 503, "AI_DISABLED")
 		return false
@@ -306,7 +307,7 @@ func (h *NativeMailboxAI) requireTarget(c *gin.Context, sess webmail.Session, di
 		authError(c, 409, "AI_CLOUD_CONSENT_STALE")
 		return false
 	}
-	target, err := aiTargetPolicy(c, store.New(h.Service.Pool), cfg)
+	target, err := aiTargetPolicy(c, db.Queries(h.Service.Pool), cfg)
 	if err != nil {
 		authError(c, 503, "AI_UNAVAILABLE")
 		return false
@@ -487,7 +488,7 @@ func (h *NativeMailboxAI) Assist(c *gin.Context) {
 		if custom {
 			provider, model, endpoint = userAI.Provider, userAI.Model, userAI.Endpoint
 		} else {
-			cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+			cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 			if err != nil {
 				authError(c, 503, "AI_UNAVAILABLE")
 				return
@@ -676,7 +677,7 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 		if input.Model == "" {
 			input.Model = "gpt-4o"
 		}
-		governance, gErr := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+		governance, gErr := db.Queries(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 		if gErr == nil {
 			switch governance.PersonalMode {
 			case "disabled":
@@ -739,7 +740,7 @@ func (h *NativeMailboxAI) Models(c *gin.Context) {
 			return
 		}
 	} else {
-		cfg, err := store.New(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
+		cfg, err := db.Queries(h.Service.Pool).PlatformGetAIProvider(c, sess.TenantID)
 		if err != nil || !cfg.Enabled {
 			authError(c, 409, "AI_DISABLED")
 			return

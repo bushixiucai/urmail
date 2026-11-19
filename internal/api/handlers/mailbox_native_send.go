@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -73,7 +74,7 @@ func (h *MailboxNativeHandler) SendMessage(c *gin.Context) {
 	canonical, _ := json.Marshal(req)
 	sum := sha256.Sum256(canonical)
 	digest := hex.EncodeToString(sum[:])
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	prior, err := q.PlatformGetSendReceiptByKey(c.Request.Context(), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
 	if err == nil {
 		if prior.RequestHash != digest {

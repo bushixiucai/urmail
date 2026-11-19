@@ -82,7 +82,7 @@ func (h *MarketingSuppressionHandler) OneClick(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	_, err = store.New(tx).AddMarketingSuppression(c.Request.Context(), store.AddMarketingSuppressionParams{TenantID: tenantID, Email: email, Reason: domainMail.SuppressionReasonUnsubscribe})
+	_, err = db.Queries(tx).AddMarketingSuppression(c.Request.Context(), store.AddMarketingSuppressionParams{TenantID: tenantID, Email: email, Reason: domainMail.SuppressionReasonUnsubscribe})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "UNSUBSCRIBE_FAILED"}})
 		return

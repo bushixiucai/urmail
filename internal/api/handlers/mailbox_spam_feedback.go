@@ -104,7 +104,7 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	inserted, err := q.MailboxSpamInsertFeedback(ctx, store.MailboxSpamInsertFeedbackParams{
 		TenantID:      session.TenantID,
@@ -257,7 +257,7 @@ func (h *MailboxSpamFeedback) AddSender(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	opposite := "allow"
 	if req.List == "allow" {
@@ -324,7 +324,7 @@ func (h *MailboxSpamFeedback) DeleteSender(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	deleted, err := q.MailboxSpamRemoveSenderList(ctx, store.MailboxSpamRemoveSenderListParams{
 		TenantID:  session.TenantID,

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"sort"
 	"strconv"
@@ -41,7 +42,7 @@ func (h *MailboxNativeHandler) guardDraftMutation(c *gin.Context, client webmail
 	release = func() { _ = tx.Rollback(context.Background()) }
 	ordered := append([]uint32(nil), uids...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
-	q := store.New(tx)
+	q := db.Queries(tx)
 	for _, uid := range ordered {
 		if err = mailboxsend.LockDraft(c.Request.Context(), q, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
 			release()

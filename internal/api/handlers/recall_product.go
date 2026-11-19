@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"encoding/json"
 	"errors"
@@ -249,7 +250,7 @@ func (h *RecallHandler) recallTransaction(ctx context.Context, tenant, actor int
 	if err != nil {
 		return nil, nil, err
 	}
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockRecallTenant(ctx, tenant); err != nil {
 		_ = tx.Rollback(ctx)
 		return nil, nil, err
@@ -322,7 +323,7 @@ func (h *RecallHandler) confirmReviewed(c *gin.Context) {
 			return
 		}
 		expected := make([]store.RecallRequests, 0, len(input.Targets))
-		readQ := store.New(readTx)
+		readQ := db.Queries(readTx)
 		for _, target := range input.Targets {
 			row, e := readQ.GetRecallByID(ctx, store.GetRecallByIDParams{TenantID: tenant, ID: target.ID})
 			if e != nil {

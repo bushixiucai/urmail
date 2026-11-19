@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -200,7 +201,7 @@ func (h *MailboxImports) respond(c *gin.Context, sess webmail.Session, id int64,
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if e = q.MailboxImportRecoverExpiredLeases(c, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
@@ -238,7 +239,7 @@ func (h *MailboxImports) List(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if e = q.MailboxImportRecoverExpiredLeases(c, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
@@ -302,7 +303,7 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		return
 	}
 	// The request key freezes all source and target parameters before new I/O.
-	q := store.New(h.Native.Pool)
+	q := db.Queries(h.Native.Pool)
 	prior, e := q.GetMailboxImportByKey(c, store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key})
 	if e == nil {
 		if !importSourceMatches(prior, parsed, folder, in) {
@@ -383,7 +384,7 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q = store.New(tx)
+	q = db.Queries(tx)
 	if e = q.LockMailboxImportTenantBudget(c, sess.TenantID); importDBError(c, e) {
 		return
 	}

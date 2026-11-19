@@ -32,7 +32,7 @@ func (s StoreMailboxRules) Sieve(ctx context.Context, tenantID, mailboxID int64)
 	if s.Pool == nil {
 		return "", "", pgx.ErrNoRows
 	}
-	row, err := store.New(s.Pool).PlatformGetMailboxSieve(ctx, store.PlatformGetMailboxSieveParams{TenantID: tenantID, ID: mailboxID})
+	row, err := db.Queries(s.Pool).PlatformGetMailboxSieve(ctx, store.PlatformGetMailboxSieveParams{TenantID: tenantID, ID: mailboxID})
 	if err != nil {
 		return "", "", err
 	}
@@ -45,7 +45,7 @@ func (s StoreMailboxRules) SaveSieve(ctx context.Context, tenantID, mailboxID in
 	if s.Pool == nil {
 		return false, pgx.ErrNoRows
 	}
-	n, err := store.New(s.Pool).PlatformSetMailboxSieve(ctx, store.PlatformSetMailboxSieveParams{
+	n, err := db.Queries(s.Pool).PlatformSetMailboxSieve(ctx, store.PlatformSetMailboxSieveParams{
 		TenantID:       tenantID,
 		ID:             mailboxID,
 		SieveScript:    pgtype.Text{String: script, Valid: true},

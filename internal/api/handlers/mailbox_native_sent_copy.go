@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"encoding/json"
 	"errors"
@@ -44,7 +45,7 @@ func (h *MailboxNativeHandler) RepairScheduledSentCopy(c *gin.Context) {
 		return
 	}
 	defer func() { _ = client.Close() }()
-	q := store.New(h.Pool.Pool)
+	q := db.Queries(h.Pool.Pool)
 	row, err := q.PlatformClaimOwnedScheduledSentCopy(c.Request.Context(), store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		current, getErr := q.PlatformGetMailboxScheduledSend(c.Request.Context(), store.PlatformGetMailboxScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})

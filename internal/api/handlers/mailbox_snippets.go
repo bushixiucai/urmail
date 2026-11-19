@@ -67,7 +67,7 @@ func (h *MailboxSnippetsHandler) List(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	rows, err := q.PlatformListMailboxSnippets(ctx, store.PlatformListMailboxSnippetsParams{
 		TenantID:  session.TenantID,
@@ -124,7 +124,7 @@ func (h *MailboxSnippetsHandler) Create(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	row, err := q.PlatformInsertMailboxSnippet(ctx, store.PlatformInsertMailboxSnippetParams{
 		TenantID:  session.TenantID,
@@ -188,7 +188,7 @@ func (h *MailboxSnippetsHandler) Update(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	row, err := q.PlatformUpdateMailboxSnippet(ctx, store.PlatformUpdateMailboxSnippetParams{
 		TenantID:  session.TenantID,
@@ -238,7 +238,7 @@ func (h *MailboxSnippetsHandler) Delete(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 
 	deleted, err := q.PlatformDeleteMailboxSnippet(ctx, store.PlatformDeleteMailboxSnippetParams{
 		TenantID:  session.TenantID,

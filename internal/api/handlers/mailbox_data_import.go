@@ -259,7 +259,7 @@ func (h MailboxDataImport) Handle(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(sess.TenantID, 10), MailboxID: strconv.FormatInt(sess.MailboxID, 10), IdempotencyKey: "metadata-import"}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -370,7 +370,7 @@ func (h MailboxDataImport) History(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c) }()
-	rows, err := store.New(tx).PlatformListDataImportReceipts(c, store.PlatformListDataImportReceiptsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	rows, err := db.Queries(tx).PlatformListDataImportReceipts(c, store.PlatformListDataImportReceiptsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

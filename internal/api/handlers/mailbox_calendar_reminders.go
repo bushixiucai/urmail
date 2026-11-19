@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"encoding/json"
 	"strconv"
 
@@ -24,7 +25,7 @@ func (h MailboxCalendarHandler) listReminders(c *gin.Context) {
 		authError(c, 503, "CALENDAR_UNAVAILABLE")
 		return
 	}
-	rows, err := store.New(h.Pool).PlatformListCalendarReminders(c.Request.Context(), store.PlatformListCalendarRemindersParams{TenantID: p.TenantID, MailboxID: p.MailboxID})
+	rows, err := db.Queries(h.Pool).PlatformListCalendarReminders(c.Request.Context(), store.PlatformListCalendarRemindersParams{TenantID: p.TenantID, MailboxID: p.MailboxID})
 	if err != nil {
 		authError(c, 503, "CALENDAR_UNAVAILABLE")
 		return
@@ -49,7 +50,7 @@ func (h MailboxCalendarHandler) acknowledgeReminder(c *gin.Context) {
 		authError(c, 503, "CALENDAR_UNAVAILABLE")
 		return
 	}
-	n, err := store.New(h.Pool).PlatformAcknowledgeCalendarReminder(c.Request.Context(), store.PlatformAcknowledgeCalendarReminderParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+	n, err := db.Queries(h.Pool).PlatformAcknowledgeCalendarReminder(c.Request.Context(), store.PlatformAcknowledgeCalendarReminderParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
 	if err != nil {
 		authError(c, 503, "CALENDAR_UNAVAILABLE")
 		return

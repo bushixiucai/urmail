@@ -45,7 +45,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
-	q := store.New(h.Pool)
+	q := db.Queries(h.Pool)
 	row, err := q.PlatformGetBrandHostLifecycle(ctx, host)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
@@ -72,7 +72,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		tq := store.New(tx)
+		tq := db.Queries(tx)
 		locked, e := tq.PlatformLockBrandHost(ctx, host)
 		if e != nil || locked.BrandID != row.BrandID || !locked.UpdatedAt.Time.Equal(row.UpdatedAt.Time) {
 			authError(c, 409, "BRAND_HOST_STATE_CONFLICT")
@@ -128,7 +128,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			return
 		}
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		tq := store.New(tx)
+		tq := db.Queries(tx)
 		locked, e := tq.PlatformLockBrandHost(ctx, host)
 		if e != nil || locked.BrandID != row.BrandID || !locked.UpdatedAt.Time.Equal(row.UpdatedAt.Time) {
 			authError(c, 409, "BRAND_HOST_STATE_CONFLICT")
@@ -174,7 +174,7 @@ func (h *BrandHostLifecycleHandler) Status(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, err := store.New(h.Pool).PlatformGetBrandHostLifecycle(c, host)
+	row, err := db.Queries(h.Pool).PlatformGetBrandHostLifecycle(c, host)
 	if err != nil {
 		authError(c, 404, "NOT_FOUND")
 		return

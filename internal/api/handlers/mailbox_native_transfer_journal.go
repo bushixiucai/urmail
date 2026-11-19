@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/db"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -43,7 +44,7 @@ func (h *MailboxNativeHandler) transferJournal(c *gin.Context, key, digest strin
 		return false
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if claim {
 		err = q.PlatformLockDataImport(ctx, store.PlatformLockDataImportParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), IdempotencyKey: "transfer:" + key})
 		if err != nil {
@@ -106,6 +107,6 @@ func (h *MailboxNativeHandler) finishTransferJournal(c *gin.Context, key, digest
 	if certain {
 		status = "done"
 	}
-	count, err := store.New(tx).PlatformCompleteMailTransfer(ctx, store.PlatformCompleteMailTransferParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key, Payload: raw, Status: status})
+	count, err := db.Queries(tx).PlatformCompleteMailTransfer(ctx, store.PlatformCompleteMailTransferParams{TenantID: session.TenantID, MailboxID: session.MailboxID, IdempotencyKey: key, Payload: raw, Status: status})
 	return err == nil && count == 1 && tx.Commit(ctx) == nil
 }

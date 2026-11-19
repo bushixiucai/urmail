@@ -42,7 +42,7 @@ func (h *MailboxNativeHandler) lockDraftEdit(c *gin.Context, session webmail.Ses
 		authError(c, 503, "DB_ERROR")
 		return nil, false
 	}
-	if err = mailboxsend.LockDraft(c.Request.Context(), store.New(tx), session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
+	if err = mailboxsend.LockDraft(c.Request.Context(), db.Queries(tx), session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
 		_ = tx.Rollback(context.Background())
 		authError(c, 503, "DB_ERROR")
 		return nil, false
@@ -63,7 +63,7 @@ func (h *MailboxNativeHandler) acquireDraftJournal(c *gin.Context, session webma
 		return nil, nil, false
 	}
 	args := store.PlatformAcquireDraftSessionLockParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), Folder: folder, Uid: strconv.FormatUint(uint64(uid), 10), Validity: strconv.FormatUint(uint64(validity), 10)}
-	if err = store.New(conn).PlatformAcquireDraftSessionLock(c.Request.Context(), args); err != nil {
+	if err = db.Queries(conn).PlatformAcquireDraftSessionLock(c.Request.Context(), args); err != nil {
 		conn.Release()
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
@@ -80,7 +80,7 @@ func beginDraftJournal(ctx context.Context, conn interface {
 	if err != nil {
 		return nil, err
 	}
-	err = store.New(tx).PlatformSetDraftSaveScope(ctx, store.PlatformSetDraftSaveScopeParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10)})
+	err = db.Queries(tx).PlatformSetDraftSaveScope(ctx, store.PlatformSetDraftSaveScopeParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10)})
 	if err != nil {
 		_ = tx.Rollback(context.Background())
 		return nil, err
@@ -120,7 +120,7 @@ func (h *MailboxNativeHandler) saveDraftJournal(c *gin.Context, client webmail.C
 			_ = tx.Rollback(context.Background())
 		}
 	}()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if req.UID != 0 && h.draftSubmissionLocked(c, folder, req.UID, req.UIDValidity, q) {
 		return webmail.DraftSaveResult{}, false
 	}
@@ -199,7 +199,7 @@ func (h *MailboxNativeHandler) saveDraftJournal(c *gin.Context, client webmail.C
 			authError(c, 409, "DRAFT_SAVE_UNCERTAIN")
 			return webmail.DraftSaveResult{}, false
 		}
-		q = store.New(tx)
+		q = db.Queries(tx)
 
 		result, appendErr := appender.AppendPreparedDraft(ctx, folder, raw)
 		if appendErr != nil {

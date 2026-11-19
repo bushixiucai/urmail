@@ -73,7 +73,7 @@ func (r probeRepository) transaction(ctx context.Context, actor ProbeActor, fn f
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	// Match tenant mutations' existing lock protocol, but only for these short
 	// database phases. In particular no lock is held during DNS/HTTP I/O.
 	if err = q.PlatformLockBillingTenant(ctx, actor.TenantID); err != nil {

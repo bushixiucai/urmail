@@ -80,7 +80,7 @@ func (h *SieveBridgeHandler) Exchange(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	principal, err := q.PlatformConsumeMailboxTicket(c, store.PlatformConsumeMailboxTicketParams{TokenHash: mailboxprincipal.HashToken(source), Scope: "sieve"})
 	if err != nil {
 		mailboxAuthorizationError(c, err)
@@ -145,7 +145,7 @@ func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	principal, err := q.PlatformGetSieveBridge(c, mailboxprincipal.HashToken(token))
 	if err != nil {
 		mailboxAuthorizationError(c, err)
@@ -240,7 +240,7 @@ func (h *SieveBridgeHandler) rules(c *gin.Context, write bool) {
 			authError(c, 502, "SIEVE_ACTIVATION_FAILED")
 			return
 		}
-		if !recordSieveAudit(c, store.New(h.Pool), principal.TenantID, principal.MailboxID, "sieve.activated") {
+		if !recordSieveAudit(c, db.Queries(h.Pool), principal.TenantID, principal.MailboxID, "sieve.activated") {
 			return
 		}
 		state = "active"
@@ -266,7 +266,7 @@ func (h *SieveBridgeHandler) Logout(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	principal, lookup := q.PlatformGetSieveBridge(c, mailboxprincipal.HashToken(token))
 	if lookup != nil {
 		mailboxAuthorizationError(c, lookup)
@@ -296,7 +296,7 @@ func (h *SieveBridgeHandler) failedAudit(c *gin.Context, tid, mid int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": c.Writer.Status(), "outcome": "rejected"})
-	if _, err := store.New(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "sieve.bridge.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
+	if _, err := db.Queries(h.Pool).CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "sieve.bridge.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, Detail: detail}); err != nil {
 		middleware.RecordAuditFailure(false)
 		zap.L().Error("write sieve rejection audit", zap.Error(err))
 	}
