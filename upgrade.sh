@@ -127,7 +127,9 @@ PLAN
     # systemd touch — a one-off container therefore yields the verdict even
     # though the systemd parts of `fence` cannot work inside a container.
     note "fresh-backup pre-flight (one-off urmailctl container)"
-    preflight_out=$(docker compose run --rm --no-deps \
+    preflight_out=$(docker compose run --rm --no-deps --user 0:0 \
+        -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
+        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/backup/maintenance \
         --entrypoint /usr/local/bin/urmailctl urmaild \
         upgrade fence --reason "fresh-backup pre-flight check (compose native)" 2>&1) || true
     printf '%s\n' "$preflight_out" >>"$EVIDENCE"
@@ -190,7 +192,9 @@ PLAN
     note "readiness ok"
 
     # ---- 8. readiness-record + start writers + clear hold -------------------
-    docker compose run --rm --no-deps \
+    docker compose run --rm --no-deps --user 0:0 \
+        -e URMAIL_ENV_FILE=/srv/urmail/config/urmail.env \
+        -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/backup/maintenance \
         --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
     # intentional word split on the writer list (URMAIL_WRITERS, space list)
     # shellcheck disable=SC2086
