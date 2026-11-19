@@ -60,6 +60,9 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 
 ## install.sh / upgrade.sh（§1.3–§1.4，骨架）
 
+> **警示（QA 终判）**：compose 形态的升级链在本形态通过 Phase 3 验收前**不可用于生产**；
+> 本轮 upgrade.sh 为骨架（原生 compose fence：hold 标记在数据根 + 停写者容器）。
+
 ```sh
 ./install.sh --domain mail.example.test --primary-domain example.test \
              --admin-email admin@example.test [--data-root /srv/urmail/data] [--dry-run]
@@ -69,15 +72,20 @@ docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
 - `install.sh`：前置检查（Linux/Docker≥24/Compose≥v2.20/端口空闲/rDNS 提示）→
   `.env` 生成（0600，密钥只落文件不进日志）→ 数据目录 `install -d` 5000:5000 0750 →
   `compose build` → `up -d` → 等健康 → 打印管理员引导与 DNS 清单。
-- `upgrade.sh vX`：干净树强制（dirty 即拒）→ `urmailctl upgrade fence`
-  （内建新鲜备份 pre-flight，拒绝即原文中止，脚本不提供跳过旗标）→
+- `upgrade.sh vX`：干净树强制（dirty 即拒）→ **原生 compose fence**（hold 标记写数据根 +
+  `compose stop urmaild postfix dovecot`，pg 保留；不用宿主 systemd/urmailctl）→
+  新鲜备份 pre-flight 用一次性 urmaild 容器跑（复用二进制内建门禁，拒绝即迁移前拦住）→
   checkout tag → `compose build` → `URMAIL_AUTO_MIGRATE=0 up -d` →
-  fence 内 `urmailctl migrate up` 受控迁移 → 就绪探针 →
-  `readiness-record` → `release`；fence 后任何失败自动 resume→release
-  （必要时 break-glass）并留证据文件于 `${TMPDIR:-/tmp}`。
+  fence 内一次性容器 `urmailctl migrate up` 受控迁移 → 就绪探针（healthz）→
+  `readiness-record` → 启动写者 → 清 hold；fence 后任何失败按阶段处置：
+  `up -d` 之前失败=重启写者+清 hold（旧栈继续服务），`up -d` 之后失败=
+  **hold 保持不回滚**并打印回滚 runbook（绝不自动 release 未验证新栈）。
+- `URMAIL_AUTO_MIGRATE` 环境变量控制 urmaild 首启是否自动迁移
+  （默认 1=首次引导；upgrade.sh 走 0+受控迁移）。
+- `URMAIL_WRITERS`（默认 "postfix dovecot"）是 fence 停止/恢复的写者服务清单。
 - 两者均支持 `--dry-run`（只读检查+打印计划，不写任何状态），需通过 shellcheck；
-  fence/release 依赖 `urmailctl` 与 `URMAIL_ENV_FILE`（生产 systemd 环境自带；
-  compose 形态在配置生成器落地后由 data/config/urmail.env 接管）。
+  升级链的 fence/release 已不再依赖宿主 systemd urmailctl（QA 终判口径），
+  但**在 compose 形态完成 Phase 3 验收前不可用于生产**。
 
 ## 与 §1.1 规格差异（本轮口径）
 

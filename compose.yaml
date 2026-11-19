@@ -55,7 +55,7 @@ services:
       URMAIL_DATABASE_URL_PLATFORM: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
       URMAIL_DATABASE_URL_MIGRATE: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
       URMAIL_DATABASE_URL_DOVECOT: postgres://${URMAIL_PG_USER:-urmail}:${URMAIL_PG_PASSWORD}@pg:5432/${URMAIL_PG_DB:-urmail}?sslmode=disable
-      URMAIL_AUTO_MIGRATE: "1"
+      URMAIL_AUTO_MIGRATE: ${URMAIL_AUTO_MIGRATE:-1}
       URMAIL_POLICY_ENABLED: "true"
       # policy sock 挪进 5000 可写卷（默认 /run/urmail-policy 对非 root 不可写）
       URMAIL_POLICY_SOCKET: /srv/urmail/config/run/policy.sock

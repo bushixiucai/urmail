@@ -27,7 +27,11 @@ while [ $# -gt 0 ]; do
         --domain)       DOMAIN=$2; shift 2 ;;
         --primary-domain) PRIMARY_DOMAIN=$2; shift 2 ;;
         --admin-email)  ADMIN_EMAIL=$2; shift 2 ;;
-        --pg-password)  PG_PASSWORD=$2; shift 2 ;;
+        --pg-password)  PG_PASSWORD=$2; PG_PW_SOURCE="flag"; shift 2 ;;
+        --pg-password-file)
+            PG_PASSWORD=$(cat "$2")
+            PG_PW_SOURCE="file"
+            shift 2 ;;
         --proxy)        PROXY=$2; shift 2 ;;
         --dry-run)      DRY_RUN=1; shift ;;
         -h|--help)      usage ;;
@@ -63,6 +67,10 @@ compose_minor_ok=$(printf '%s\n' "$compose_version" | awk '{
 log "prerequisites: docker ${docker_major}.x, compose $compose_version"
 
 for port in 25 80 443 465 587 993; do
+    if ! command -v ss >/dev/null 2>&1; then
+        warn "ss not found; skipping the port-availability check for $port"
+        continue
+    fi
     if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$port\$"; then
         die "port $port is already in use on this host (free all of 25/80/443/465/587/993 first)"
     fi
@@ -105,12 +113,21 @@ else
     [ -f .env.example ] || die ".env.example missing from this checkout"
     cp .env.example .env
     chmod 600 .env
+    if [ -z "$PG_PASSWORD" ] && [ -t 0 ]; then
+        printf '[install] PG password (input hidden): '
+        read -r PG_PASSWORD
+        PG_PW_SOURCE="tty"
+    fi
     if [ -z "$PG_PASSWORD" ]; then
         PG_PASSWORD=$(openssl rand -hex 24)
-        log "generated PG password (stored in .env only)"
-    else
-        log "PG password: taken from --pg-password (stored in .env only)"
+        PG_PW_SOURCE="generated"
     fi
+    case $PG_PW_SOURCE in
+        flag)  log "PG password: taken from --pg-password (stored in .env only)" ;;
+        file)  log "PG password: taken from --pg-password-file (stored in .env only)" ;;
+        tty)   log "PG password: read interactively (stored in .env only)" ;;
+        *)     log "generated PG password (stored in .env only)" ;;
+    esac
     sed -i "s|^URMAIL_MYHOSTNAME=.*|URMAIL_MYHOSTNAME=$DOMAIN|" .env
     sed -i "s|^URMAIL_PRIMARY_DOMAIN=.*|URMAIL_PRIMARY_DOMAIN=$PRIMARY_DOMAIN|" .env
     sed -i "s|^URMAIL_PG_PASSWORD=.*|URMAIL_PG_PASSWORD=$PG_PASSWORD|" .env
