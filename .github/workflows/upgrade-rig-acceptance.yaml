@@ -1,0 +1,57 @@
+name: Upgrade rig acceptance
+
+# Phase 2 QA: run the upgrade-chain failure-injection suite on a clean
+# ubuntu-24.04 runner (no host port conflicts, no nested docker namespaces).
+# Manually triggered via workflow_dispatch — NOT part of the tag release
+# chain, NOT in verify-release-ci REQUIRED_JOBS.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade-rig-acceptance:
+    name: Upgrade rig acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up data dirs
+        run: |
+          for d in db/db/pg db mail certs config backup holds maintenance; do
+            install -d -o 5000 -g 5000 -m 0750 "data/$d"
+          done
+          mkdir -p data/db/pg && chown -R 70:70 data/db/pg
+
+      - name: Prepare .env
+        run: |
+          cp .env.example .env
+          sed -i "s/^URMAIL_PG_PASSWORD=.*/URMAIL_PG_PASSWORD=rig-$(openssl rand -hex 12)/" .env
+          sed -i "s/^URMAIL_MYHOSTNAME=.*/URMAIL_MYHOSTNAME=rig-acceptance.test/" .env
+          sed -i "s|^URMAIL_PRIMARY_DOMAIN=.*|URMAIL_PRIMARY_DOMAIN=rig-acceptance.test|" .env
+
+      - name: Compose build
+        run: docker compose build
+
+      - name: Stack up
+        run: |
+          docker compose up -d pg urmaild postfix dovecot --wait
+          docker compose ps
+
+      - name: Run upgrade-chain injection suite
+        run: |
+          chmod +x session-suite.sh 2>/dev/null || true
+          bash session-suite.sh 2>&1 | tee rig-suite-output.log
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: upgrade-rig-evidence
+          path: |
+            data/upgrade-evidence-*.log
+            rig-suite-output.log
+          retention-days: 30
