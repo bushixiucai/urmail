@@ -14,7 +14,12 @@ Linux x86_64/arm64、Docker 24+ 与 **docker compose v2.20+**（depends_on `requ
 
 ```sh
 cp .env.example .env                 # 修改 URMAIL_MYHOSTNAME/URMAIL_PRIMARY_DOMAIN 与 URMAIL_PG_PASSWORD
-chown -R 5000:5000 ${URMAIL_DATA_ROOT:-data}   # urmaild/agent 以 uid 5000 运行（QA P1-5）
+for d in db mail certs config backup; do
+  install -d -o 5000 -g 5000 -m 0750 "${URMAIL_DATA_ROOT:-data}/$d"
+done
+# ↑ 用 install -d 建目录并属主 5000（QA 终判：chown -R 对不存在目录会失败，
+#   忽略后 Docker 以 root 建 bind 源目录 → uid5000 写不进去；for 循环保证
+#   任意 POSIX shell 可直接粘贴执行）
 docker compose build                 # 多阶段构建（web -> go -> debian 运行时）
 docker compose up -d                 # pg + urmaild + postfix + dovecot + caddy + prom/alert
 docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
