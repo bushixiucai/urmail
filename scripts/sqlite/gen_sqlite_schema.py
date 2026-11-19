@@ -266,6 +266,14 @@ def main():
             if d.startswith("nextval(") or c["identity"] in ("a", "d"):
                 continue  # AUTOINCREMENT / identity 由 PK 处理
             norm = normalize(d)
+            if norm in ("false", "true"):
+                # PG boolean literal default → SQLite INTEGER 0/1.
+                translated_defaults[(t, c["column"])] = "0" if norm == "false" else "1"
+                continue
+            if re.match(r"^'\{\}'(?:\s*::\s*[a-z_ ]+(?:\[\])?)?$", d):
+                # PG 空数组默认 → JSON 数组编码（v3.2 定死：text[]/bigint[] 存 JSON）。
+                translated_defaults[(t, c["column"])] = "'[]'"
+                continue
             m_plus = now_plus_re.match(norm.strip())
             if m_plus:
                 if m_plus.group(2):
@@ -451,9 +459,17 @@ def main():
                                   "citext": "本 schema 0 列——映射 NOCASE 规则预置但不适用"}},
               open(args.registry_out, "w"), indent=1, ensure_ascii=False)
     with open(args.type_map_out, "w") as f:
-        f.write("table\tcolumn\tpg_type\tsqlite_type\n")
+        def encoding(pg_type):
+            if pg_type.endswith("[]"):
+                return "JSON array text (v3.2: PG array → JSON; '[]' 空值；迁移器同编码转换)"
+            if pg_type in ("jsonb", "json"):
+                return "JSON text"
+            if pg_type.startswith("timestamp"):
+                return "unix micro"
+            return "-"
+        f.write("table\tcolumn\tpg_type\tsqlite_type\tencoding\n")
         for row in type_rows:
-            f.write("\t".join(row) + "\n")
+            f.write("\t".join(row) + "\t" + encoding(row[2]) + "\n")
     print(json.dumps({"tables": len(tables) + 3, "autoincrement": len(autoincrement_cols),
                       "defaults_emitted": emitted_defaults, "defaults_registered": registered,
                       "type_counts": type_counts,
