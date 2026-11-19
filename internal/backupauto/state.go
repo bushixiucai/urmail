@@ -40,19 +40,45 @@ func newRunUID() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-// StartRun inserts the initial running row and returns its run uid.
-func (s *StateRecorder) StartRun(ctx context.Context, scope string) (string, error) {
+// StartRun inserts the initial running row with the scheduler's own clock
+// and returns its run uid. The caller-supplied timestamp keeps the run
+// history and the due/backoff math on one clock (tests pin it).
+func (s *StateRecorder) StartRun(ctx context.Context, scope string, startedAt time.Time) (string, error) {
 	uid, err := newRunUID()
 	if err != nil {
 		return "", err
 	}
 	_, err = s.Pool.Exec(ctx,
-		"INSERT INTO backup_runs(run_uid,state,scope) VALUES($1,$2,$3)",
-		uid, StateRunning, scope)
+		"INSERT INTO backup_runs(run_uid,state,scope,started_at) VALUES($1,$2,$3,$4)",
+		uid, StateRunning, scope, startedAt)
 	if err != nil {
 		return "", fmt.Errorf("record backup run start: %w", err)
 	}
 	return uid, nil
+}
+
+// FailureStreak counts the consecutive failed runs ending at the newest row.
+// The backoff scheduler derives its pace from it, so the pacing survives
+// restarts; any success in the chain resets it to zero. The scan is bounded
+// because the backoff itself caps out after six failures.
+func (s *StateRecorder) FailureStreak(ctx context.Context) (int, error) {
+	rows, err := s.Pool.Query(ctx, "SELECT state FROM backup_runs ORDER BY id DESC LIMIT 32")
+	if err != nil {
+		return 0, fmt.Errorf("read backup failure streak: %w", err)
+	}
+	defer rows.Close()
+	streak := 0
+	for rows.Next() {
+		var state string
+		if err := rows.Scan(&state); err != nil {
+			return 0, fmt.Errorf("read backup failure streak: %w", err)
+		}
+		if state != StateFailed {
+			break
+		}
+		streak++
+	}
+	return streak, rows.Err()
 }
 
 // MarkVerifying moves a run into the verify stage.

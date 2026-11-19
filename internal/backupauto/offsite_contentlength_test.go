@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -135,6 +136,10 @@ func TestEncryptAndUploadSpoolsCiphertextForContentLength(t *testing.T) {
 		rec.mu.Unlock()
 		t.Fatalf("ciphertext PUT must not be chunked, got %q", rec.transferEncoding)
 	}
+	if int64(len(rec.body)) != rec.contentLength {
+		rec.mu.Unlock()
+		t.Fatalf("server read %d bytes against a %d Content-Length: the digest must cover exactly the stat'd spool size", len(rec.body), rec.contentLength)
+	}
 	body := rec.body
 	rec.mu.Unlock()
 	if got := sha256.Sum256(body); hex.EncodeToString(got[:]) != entry.EncryptedSHA256 {
@@ -147,5 +152,45 @@ func TestEncryptAndUploadSpoolsCiphertextForContentLength(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Name() != "urmail-x.dump" {
 		t.Fatalf("spool file must be removed after upload; dir has %d entries", len(entries))
+	}
+}
+
+// TestCreateCipherSpoolIsPrivate pins the spool hygiene (A3): the ciphertext
+// temp file is created 0600 inside the artifact's own directory.
+func TestCreateCipherSpoolIsPrivate(t *testing.T) {
+	dir := t.TempDir()
+	f, err := createCipherSpool(filepath.Join(dir, "urmail-x.dump"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(f.Name()) != dir {
+		t.Fatalf("cipher spool must live beside the plaintext, got %s", f.Name())
+	}
+	info, err := os.Stat(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("cipher spool must be private (0600), got %v", info.Mode().Perm())
+	}
+}
+
+// TestCipherSpoolSpacePrecheck pins the A1 guard: a normal directory passes,
+// and on Linux a spool larger than the visible free space is refused before
+// any ciphertext is written.
+func TestCipherSpoolSpacePrecheck(t *testing.T) {
+	dir := t.TempDir()
+	if err := requireCipherSpoolSpace(filepath.Join(dir, "urmail-x.dump"), 1024); err != nil {
+		t.Fatalf("normal spool must pass the precheck: %v", err)
+	}
+	if runtime.GOOS != "linux" {
+		t.Skip("free-space readout is a Linux statfs contract; other platforms skip the precheck")
+	}
+	if err := requireCipherSpoolSpace(filepath.Join(dir, "urmail-x.dump"), 1<<50); err == nil {
+		t.Fatal("artifact larger than the visible free space must fail the precheck")
 	}
 }

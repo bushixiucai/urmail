@@ -54,10 +54,10 @@ func TestLastRunHealthAgainstRealTable(t *testing.T) {
 		t.Fatalf("empty table must read as no run yet, got %+v %v", health, err)
 	}
 
-	if _, err = recorder.StartRun(ctx, ScopeComplete); err != nil {
+	if _, err = recorder.StartRun(ctx, ScopeComplete, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	uid, err := recorder.StartRun(ctx, ScopeComplete)
+	uid, err := recorder.StartRun(ctx, ScopeComplete, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestLastRunHealthAgainstRealTable(t *testing.T) {
 	}
 
 	// A later successful run clears the failure for readiness purposes.
-	if _, err = recorder.StartRun(ctx, ScopeComplete); err != nil {
+	if _, err = recorder.StartRun(ctx, ScopeComplete, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	latest, err := recorder.LastRun(ctx)

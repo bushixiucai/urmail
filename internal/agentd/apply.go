@@ -148,6 +148,11 @@ type ApplyManager struct {
 	offlineRecovery       bool
 	offlineManifestWriter func() error
 	offlinePendingRemover func(string) error
+	// backupGateStrict keeps the fresh-backup readiness gate binding on the
+	// release/upgrade path (VerifyReleaseRuntime sets it). Routine applies
+	// only warn on a failed offsite run so certificate renewal and config
+	// convergence keep flowing while the offsite destination is degraded.
+	backupGateStrict bool
 }
 
 // Target returns the target filesystem path for a simulated system file.

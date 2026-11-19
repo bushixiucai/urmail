@@ -429,8 +429,11 @@ func insertBackupRun(t *testing.T, platform *db.Pool, state string, startedHours
 }
 
 // TestBackupOffsiteReadinessFollowsLastRunState proves the automated offsite
-// backup probe fails explicitly while the newest run is failed or abandoned,
-// stays healthy on success, and ignores in-progress runs.
+// backup probe only WARNS on a failed run for routine applies (B2, v0.6.25:
+// certificate renewal and convergence keep flowing), fails hard on the
+// release/upgrade path where the fresh-backup gate is strict, stays healthy
+// on success, ignores in-progress runs, and reports a crashed worker in both
+// modes.
 func TestBackupOffsiteReadinessFollowsLastRunState(t *testing.T) {
 	platform, _ := testdb.OpenMigrated(t)
 	m := &ApplyManager{pool: platform}
@@ -441,27 +444,44 @@ func TestBackupOffsiteReadinessFollowsLastRunState(t *testing.T) {
 		t.Fatalf("run-less probe must not fail: %v", err)
 	}
 
+	// Routine mode (default): a failed run degrades the published status
+	// but must never block the apply.
 	insertBackupRun(t, platform, backupauto.StateFailed, 1, "upload denied by destination")
-	err := m.probeBackupOffsite(ctx)
-	if err == nil || !strings.Contains(err.Error(), "upload denied by destination") {
-		t.Fatalf("failed run not surfaced with its error: %v", err)
+	if err := m.probeBackupOffsite(ctx); err != nil {
+		t.Fatalf("routine apply must not be blocked by a failed backup run: %v", err)
+	}
+	if !m.status.Degraded || !strings.Contains(m.status.Error, "upload denied by destination") {
+		t.Fatalf("failed run must degrade the status observably: degraded=%v error=%q", m.status.Degraded, m.status.Error)
 	}
 	if m.status.Step != "probe:backup" {
 		t.Fatalf("probe step not published: %q", m.status.Step)
 	}
 
-	// A newer successful run restores readiness.
+	// Release/upgrade mode: the same failed run fails the strict gate.
+	strict := &ApplyManager{pool: platform, backupGateStrict: true}
+	err := strict.probeBackupOffsite(ctx)
+	if err == nil || !strings.Contains(err.Error(), "upload denied by destination") {
+		t.Fatalf("strict gate must surface the failed run: %v", err)
+	}
+
+	// A newer successful run restores readiness in both modes.
 	insertBackupRun(t, platform, backupauto.StateSuccess, 0, "")
 	if err = m.probeBackupOffsite(ctx); err != nil {
 		t.Fatalf("successful run still unhealthy: %v", err)
 	}
+	if err = strict.probeBackupOffsite(ctx); err != nil {
+		t.Fatalf("successful run still unhealthy on the strict path: %v", err)
+	}
 
 	// A run abandoned by a crash (running past the stale threshold) is
-	// unhealthy; a fresh in-progress run is not.
+	// unhealthy in both modes; a fresh in-progress run is not.
 	insertBackupRun(t, platform, backupauto.StateRunning, 25, "")
 	err = m.probeBackupOffsite(ctx)
 	if err == nil || !strings.Contains(err.Error(), "stuck") {
 		t.Fatalf("abandoned run not reported: %v", err)
+	}
+	if err = strict.probeBackupOffsite(ctx); err == nil || !strings.Contains(err.Error(), "stuck") {
+		t.Fatalf("abandoned run must fail the strict gate too: %v", err)
 	}
 	insertBackupRun(t, platform, backupauto.StateVerifying, 1, "")
 	if err = m.probeBackupOffsite(ctx); err != nil {

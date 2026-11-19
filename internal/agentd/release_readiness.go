@@ -93,5 +93,8 @@ func VerifyReleaseRuntime(ctx context.Context, cfg *config.Config, desired strin
 	}
 	defer pool.Close()
 	m.pool = pool
+	// The release path keeps the fresh-backup gate strict: a release or
+	// upgrade requires the newest offsite backup run to be whole (B2).
+	m.backupGateStrict = true
 	return m.checkRuntimeReadiness(ctx)
 }

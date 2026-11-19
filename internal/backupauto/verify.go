@@ -108,6 +108,13 @@ func EncryptAndUpload(ctx context.Context, store OffsiteStore, artifact LocalArt
 	}
 	defer func() { _ = f.Close() }()
 
+	// A1 (v0.6.25): fail fast when the spool directory cannot hold the
+	// ciphertext alongside the plaintext (transient ~2x of one artifact).
+	// Unknown free space skips the check; the write surfaces a real ENOSPC.
+	if err := requireCipherSpoolSpace(artifact.Path, artifact.Size); err != nil {
+		return Artifact{}, fmt.Errorf("spool ciphertext for %s: %w", artifact.Name, err)
+	}
+
 	cipherFile, err := createCipherSpool(artifact.Path)
 	if err != nil {
 		return Artifact{}, fmt.Errorf("spool ciphertext for %s: %w", artifact.Name, err)
@@ -167,6 +174,27 @@ func createCipherSpool(artifactPath string) (*os.File, error) {
 		return f, nil
 	}
 	return os.CreateTemp("", "urmail-cipher-")
+}
+
+// requireCipherSpoolSpace refuses to start a spool when the artifact's
+// directory visibly lacks room for the ciphertext next to the plaintext
+// (A1). The estimate needs only the plaintext size plus a small age
+// envelope; free space is advisory, so an unknown value never blocks.
+func requireCipherSpoolSpace(artifactPath string, plaintextSize int64) error {
+	free, err := dirFreeBytes(filepath.Dir(artifactPath))
+	if err != nil || free == 0 {
+		return nil
+	}
+	need := plaintextSize + 64*1024 // age header, per-chunk MACs, headroom
+	if need <= 0 {
+		// Nonsensical size: skip the advisory check; the write surfaces
+		// whatever the filesystem actually reports.
+		return nil
+	}
+	if free < uint64(need) {
+		return fmt.Errorf("only %d bytes free in %s but the ciphertext spool needs about %d", free, filepath.Dir(artifactPath), need)
+	}
+	return nil
 }
 
 // decryptChecksum streams one remote ciphertext into the age decryptor and

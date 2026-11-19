@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -70,6 +71,10 @@ type Worker struct {
 	manifestRaw      string
 	retentionDeleted int
 	retentionNote    string
+	// offsiteFailed marks runs that already raised the offsite-specific
+	// backup_offsite_failed alert so the generic backup_failed row is not
+	// double-sent for the same failure (B3).
+	offsiteFailed bool
 }
 
 func (w *Worker) now() time.Time {
@@ -146,13 +151,35 @@ func (w *Worker) due(ctx context.Context, recorder *StateRecorder) (bool, error)
 		return false, nil
 	}
 	if last.State == StateFailed {
-		return true, nil
+		// B1 (v0.6.25): a failing pipeline retries on an exponential backoff
+		// derived from the consecutive failure streak, not on the next tick.
+		// The streak lives in backup_runs, so the pacing survives restarts,
+		// and one success anywhere in the chain resets it.
+		streak, err := recorder.FailureStreak(ctx)
+		if err != nil {
+			return false, err
+		}
+		return w.now().Sub(last.StartedAt) >= failureBackoff(streak), nil
 	}
 	interval := w.Interval
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
 	return w.now().Sub(last.StartedAt) >= interval, nil
+}
+
+// failureBackoff spaces retries of a failing backup pipeline: 1h, 2h, 4h,
+// 8h, 16h, then a 24h cap. Without it the hourly tick turns a degraded
+// offsite destination into an hourly full local backup with no spool
+// pruning (B1): over 24h the schedule below allows at most ~5 runs.
+func failureBackoff(consecutiveFailures int) time.Duration {
+	if consecutiveFailures < 1 {
+		consecutiveFailures = 1
+	}
+	if consecutiveFailures >= 6 {
+		return 24 * time.Hour
+	}
+	return time.Duration(1<<(consecutiveFailures-1)) * time.Hour
 }
 
 // runPipeline is the strict backup -> encrypt -> upload -> verify ->
@@ -165,8 +192,9 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	w.manifestRaw = ""
 	w.retentionDeleted = 0
 	w.retentionNote = ""
+	w.offsiteFailed = false
 	start := w.now()
-	runUID, startErr := recorder.StartRun(ctx, ScopeComplete)
+	runUID, startErr := recorder.StartRun(ctx, ScopeComplete, start)
 	if startErr != nil {
 		return startErr
 	}
@@ -180,7 +208,9 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		if returnErr == nil && finishErr != nil {
 			returnErr = finishErr
 		}
-		if !success {
+		if !success && !w.offsiteFailed {
+			// B3: an offsite failure already raised the offsite-specific
+			// alert; every other failure gets the generic one exactly once.
 			_ = w.notifyFailure(ctx, runUID, returnErr)
 		}
 	}()
@@ -220,8 +250,12 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		// untouched and retention stays refused fail-closed (this return
 		// happens before applyRetention), but the run row must record the
 		// failure -- never a success with a mere "offsite skipped" note.
+		// B1: the kept generation's disk cost rides along in the error text
+		// because failed generations are not pruned.
+		w.offsiteFailed = true
 		_ = w.notifyOffsiteFailure(ctx, runUID, offsiteErr)
-		return fmt.Errorf("offsite copy failed (local generation kept, retention skipped): %w", offsiteErr)
+		return fmt.Errorf("offsite copy failed (local generation kept: %s; retention skipped): %w",
+			localGenerationUsage(artifacts), offsiteErr)
 	}
 
 	if err := recorder.MarkVerifying(ctx, runUID); err != nil {
@@ -364,4 +398,20 @@ func (w *Worker) notifyOffsiteFailure(ctx context.Context, runUID string, _ erro
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// localGenerationUsage summarizes the disk cost of one kept-but-unshipped
+// local generation (B1): a failed offsite phase leaves its artifacts in the
+// private spool with no pruning, so the run error text reports what each
+// failure accumulates and where.
+func localGenerationUsage(artifacts []LocalArtifact) string {
+	var total int64
+	dir := ""
+	for _, artifact := range artifacts {
+		total += artifact.Size
+		if dir == "" {
+			dir = filepath.Dir(artifact.Path)
+		}
+	}
+	return fmt.Sprintf("%d artifacts, %.1f MiB in %s", len(artifacts), float64(total)/(1<<20), dir)
 }
