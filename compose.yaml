@@ -47,6 +47,8 @@ services:
       pg:
         condition: service_healthy
     environment:
+      # urmaild 在 hold 期间必须可启动（探针/readiness-record 需要），故不设 hold 门
+      URMAIL_HOLD_GUARD: "0"
       # 现行 config.Load 强制 HTTP 绑回环（安全位）；跨容器反代接入是
       # 配置生成器阶段的监听规则改造点（ARCH-PLAN §1.1 internal :8080）。
       URMAIL_LISTEN_ADDR: 127.0.0.1:8080
@@ -132,6 +134,8 @@ services:
     volumes:
       - ./compose/postfix:/srv/urmail/config/postfix:ro
       - ${URMAIL_DATA_ROOT:-./data}/config/spool:/var/spool/postfix
+      # 数据根只读挂载：entrypoint hold 门读取 upgrade.hold（QA 终判③）
+      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data:ro
     healthcheck:
       test: ["CMD", "postfix", "-c", "/srv/urmail/config/postfix", "status"]
       interval: 30s
@@ -148,6 +152,7 @@ services:
     volumes:
       - ./compose/dovecot:/srv/urmail/config/dovecot:ro
       - ${URMAIL_DATA_ROOT:-./data}/mail:/srv/urmail/data/mail
+      - ${URMAIL_DATA_ROOT:-./data}:/srv/urmail/data:ro
     healthcheck:
       # doveadm ping only: no `-a` fallback (a hung daemon must fail the check)
       test: ["CMD", "doveadm", "-c", "/srv/urmail/config/dovecot/dovecot.conf", "ping"]

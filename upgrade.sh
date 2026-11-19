@@ -55,6 +55,17 @@ main() {
     [ -n "$V" ] || usage
     printf '%s' "$V" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || die "version must look like vX.Y.Z (got: $V)"
 
+    # Self-rewrite guard (QA): `git checkout $V` rewrites this very script
+    # while bash may still be reading it (undefined behaviour). Re-exec from
+    # a private copy in TMPDIR before entering the gated section.
+    if [ "${URMAIL_UPGRADE_EXECED:-}" != "1" ]; then
+        exec_copy="${TMPDIR:-/tmp}/upgrade-exec-$(id -u).sh"
+        cp "$0" "$exec_copy"
+        chmod 0755 "$exec_copy"
+        export URMAIL_UPGRADE_EXECED=1
+        exec bash "$exec_copy" "$@"
+    fi
+
     [ "$EUID" = 0 ] || [ "$DRY_RUN" = 1 ] || die "root is required (container fence + docker need it)"
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "must run from the urMail checkout"
     [ -f compose.yaml ] || die "compose.yaml not found — run from the checkout root"
@@ -130,7 +141,9 @@ PLAN
     T0=$(date +%s)
     printf 'compose upgrade %s (%s)\n' "$V" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$HOLD"
     chmod 0644 "$HOLD"
-    docker compose stop urmaild postfix dovecot >>"$EVIDENCE" 2>&1
+    # intentional word split: URMAIL_WRITERS is a space-separated service list
+    # shellcheck disable=SC2086
+    docker compose stop urmaild ${URMAIL_WRITERS:-postfix dovecot} >>"$EVIDENCE" 2>&1
     FENCED=1
     note "native fence: hold written ($HOLD), writers stopped (pg kept)"
 
@@ -142,8 +155,10 @@ PLAN
 
     # ---- 5. build + up (auto-migrate off on the release path) ---------------
     docker compose build >>"$EVIDENCE" 2>&1
-    URMAIL_AUTO_MIGRATE=0 docker compose up -d --no-deps urmaild >>"$EVIDENCE" 2>&1
+    # PHASE flips to post-up BEFORE up: once the new image's urmaild is being
+    # started, failures must keep the fence (QA timing ruling).
     PHASE=post-up
+    URMAIL_AUTO_MIGRATE=0 docker compose up -d --no-deps urmaild >>"$EVIDENCE" 2>&1
     note "new stack up (urmaild); failures from here keep the fence and print the rollback runbook"
 
     # ---- 6. controlled migration (one-off urmailctl) ------------------------
@@ -163,7 +178,9 @@ PLAN
     # ---- 8. readiness-record + start writers + clear hold -------------------
     docker compose run --rm --no-deps \
         --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
-    docker compose start postfix dovecot >>"$EVIDENCE" 2>&1
+    # intentional word split on the writer list (URMAIL_WRITERS, space list)
+    # shellcheck disable=SC2086
+    docker compose start ${URMAIL_WRITERS:-postfix dovecot} >>"$EVIDENCE" 2>&1
     rm -f "$HOLD"
     RELEASED=1
     T1=$(date +%s)
@@ -180,7 +197,9 @@ finish_failure() {
         if [ "$PHASE" = "pre-up" ]; then
             {
                 echo "== pre-up failure (rc=$rc): old stack intact; restoring writers"
-                docker compose start urmaild postfix dovecot 2>&1 || true
+                # intentional word split: URMAIL_WRITERS is a service list
+                # shellcheck disable=SC2086
+                docker compose start urmaild ${URMAIL_WRITERS:-postfix dovecot} 2>&1 || true
                 rm -f "${URMAIL_DATA_ROOT:-data}/upgrade.hold" && echo "hold cleared"
                 echo "old stack keeps serving; no data-plane change was made"
             } >>"$EVIDENCE" 2>&1
