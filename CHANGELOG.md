@@ -2,6 +2,19 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号语义化。完整对比见 [Releases](https://github.com/bushixiucai/urmail/releases)。
 
+## [0.6.25] - 日期待定
+
+热修补丁：备份可靠性（offsite 上传、run 状态、退避与门禁）。无数据库迁移。
+
+### 备份
+
+- offsite S3 上传改带精确 `Content-Length`：age 密文先落私有 0600 spool 临时文件（明文同目录，不可写回退系统 temp），stat 出确切长度后再 PUT，上传后即删；修复 MinIO 等 S3 兼容端对 chunked PUT 回 `HTTP 411 MissingContentLength` 导致异地备份全部失败的问题（生产 run 613c652e）。`s3Store.Upload` 对未知长度（size<0）直接拒绝，负长度不再可能到达 wire。
+- 配置了异地目标（URMAIL_BACKUP_OFFSITE_URI）时，offsite 上传/验证失败将 run 标记为 failed 并在 error 中写明原因与保留代际的磁盘用量；不再出现「本地成功+异地失败=success」让发布前新鲜完整备份门禁假通过。retention 保持 fail-closed，`backup_offsite_failed` 告警保留。
+- 失败退避：连续失败的 run 按 1h→2h→4h→8h→16h→24h（封顶）指数退避重试，退避状态由 backup_runs 失败连续数推导（重启不丢，成功即重置）；S3 故障期间 24h 内最多约 5 次全量本地备份，不再每小时一次。
+- fresh-backup 门禁仅限 release/upgrade 路径（VerifyReleaseRuntime strict）；例行 apply 对 failed 备份 run 降级为 Degraded 告警，不再回滚阻断证书续期与配置收敛。
+- spool 空间预检：加密前检查明文所在目录可用空间（Linux statfs；未知空间跳过不阻断），避免明文+密文同目录瞬时约 2x 占用把盘写满。
+- offsite 告警去重：offsite 失败只发 `backup_offsite_failed`，同一次失败不再双发通用 `backup_failed`；verify 阶段校验和不匹配同样落为 failed run。
+
 ## [0.6.24] - 日期待定
 
 热修补丁：外发 SMTP 失败重试上限。无数据库迁移。
