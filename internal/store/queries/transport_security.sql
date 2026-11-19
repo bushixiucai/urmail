@@ -7,7 +7,7 @@ SELECT * FROM domain_transport_security WHERE tenant_id=?1 AND domain_id=?2;
 -- scope: tenant
 
 INSERT INTO domain_transport_security(tenant_id,domain_id,mtasts_policy_id,mtasts_mode,tls_rpt_rua,enabled,policy_mx,max_age,published_at,testing_since,cache_safe_after)
-SELECT sqlc.arg('tenant_id'),sqlc.arg('domain_id'),sqlc.arg('policy_id'),sqlc.arg('mode'),sqlc.arg('rua'),true,sqlc.arg('mx'),sqlc.arg('max_age'),(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>sqlc.arg('cache_seconds'))
+SELECT sqlc.arg('tenant_id'),sqlc.arg('domain_id'),sqlc.arg('policy_id'),sqlc.arg('mode'),sqlc.arg('rua'),true,sqlc.arg('mx'),sqlc.arg('max_age'),(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+(sqlc.arg('cache_seconds'*1000000))
 WHERE (sqlc.arg('expected_version')>0 OR NOT EXISTS(SELECT 1 FROM domain_transport_security WHERE tenant_id=sqlc.arg('tenant_id') AND domain_id=sqlc.arg('domain_id')))
 ON CONFLICT(tenant_id,domain_id) DO UPDATE SET
  mtasts_policy_id=excluded.mtasts_policy_id,mtasts_mode=excluded.mtasts_mode,tls_rpt_rua=excluded.tls_rpt_rua,

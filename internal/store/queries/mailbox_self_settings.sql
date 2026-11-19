@@ -42,7 +42,7 @@ SELECT DISTINCT a.local_part,d.fqdn FROM mailbox_aliases a
 JOIN domains d ON d.id=a.domain_id AND d.tenant_id=a.tenant_id
 WHERE a.tenant_id=sqlc.arg(tenant_id) AND a.active
   AND d.status='active' AND d.provisioning_state='ready'
-  AND sqlc.arg(sender)=ANY(a.sender_logins)
+  AND EXISTS(SELECT 1 FROM json_each(a.sender_logins) je WHERE je.value = sqlc.arg(sender))
 ORDER BY a.local_part,d.fqdn;
 
 -- name: PlatformMailboxSenderIdentityAllowed :execrows
@@ -52,6 +52,6 @@ SELECT 1 FROM mailbox_aliases a
 JOIN domains d ON d.id=a.domain_id AND d.tenant_id=a.tenant_id
 WHERE a.tenant_id=sqlc.arg(tenant_id) AND a.active
   AND d.status='active' AND d.provisioning_state='ready'
-  AND sqlc.arg(sender)=ANY(a.sender_logins)
+  AND EXISTS(SELECT 1 FROM json_each(a.sender_logins) je WHERE je.value = sqlc.arg(sender))
   AND sqlc.arg(from_address)=a.local_part||'@'||d.fqdn
 LIMIT 1;

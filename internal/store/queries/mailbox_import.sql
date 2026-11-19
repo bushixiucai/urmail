@@ -98,7 +98,7 @@ FROM mailbox_import_jobs j WHERE j.tenant_id=sqlc.arg(tenant_id) AND j.mailbox_i
 -- name: MailboxImportItemViews :one
 -- scope: tenant
 
-SELECT COALESCE(jsonb_agg(to_jsonb(i)-'raw_secret' ORDER BY item_index),'[]') AS items
+SELECT COALESCE(json_group_array(json_extract(i, '$.raw_secret') ORDER BY item_index),'[]') AS items
 FROM mailbox_import_items i WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3;
 
 -- name: LockMailboxImportTenantBudget :exec

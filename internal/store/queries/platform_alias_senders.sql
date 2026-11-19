@@ -14,7 +14,7 @@ WHERE a.tenant_id=sqlc.arg(tenant_id) AND a.id=sqlc.arg(alias_id);
 -- scope: platform
 
 SELECT m.address FROM mailboxes m JOIN domains d ON d.id=m.domain_id AND d.tenant_id=m.tenant_id
-WHERE m.tenant_id=sqlc.arg(tenant_id) AND m.address=ANY(sqlc.arg(addresses))
+WHERE m.tenant_id=sqlc.arg(tenant_id) AND EXISTS(SELECT 1 FROM json_each(sqlc.arg(addresses)) je WHERE je.value = m.address)
  AND m.status='active' AND m.send_enabled AND d.status='active' AND d.provisioning_state='ready'
 ORDER BY m.address;
 

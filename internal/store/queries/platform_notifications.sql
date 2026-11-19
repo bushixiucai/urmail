@@ -40,7 +40,7 @@ UPDATE notification_outbox SET
  delivered_at=CASE WHEN ?3='delivered' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE NULL END,
  lease_until=NULL,
  last_error=CASE WHEN ?3='delivered' THEN NULL ELSE NULLIF(?4,'') END,
- next_attempt_at=CASE WHEN ?3='pending' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>(60*(1<<min(max(attempts-1,0),6)))) ELSE next_attempt_at END
+ next_attempt_at=CASE WHEN ?3='pending' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000)+((60*(1<<min(max(attempts-1*1000000),6)))) ELSE next_attempt_at END
 WHERE id=?1 AND fence=?2 AND state='pending';
 
 -- name: PlatformQuarantinePoisonEmailNotifications :execrows

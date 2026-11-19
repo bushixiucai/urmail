@@ -46,7 +46,7 @@ RETURNING id;
 
 SELECT d.id,d.fqdn,d.dkim_selector,d.dkim_private_key,d.status,d.provisioning_state
 FROM domains d
-WHERE d.tenant_id=sqlc.arg(tenant_id) AND d.fqdn=ANY(sqlc.arg(domain_names))
+WHERE d.tenant_id=sqlc.arg(tenant_id) AND EXISTS(SELECT 1 FROM json_each(sqlc.arg(domain_names)) je WHERE je.value = d.fqdn)
  AND EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=d.tenant_id AND a.action='IMPORT legacy.mail'
   AND json_extract(a.detail, '$.private_proof_sha256')=sqlc.arg(core_proof_sha256) AND json_extract(a.detail, '$.commit_outcome')='committed')
 ORDER BY d.fqdn;

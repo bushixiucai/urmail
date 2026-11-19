@@ -66,7 +66,7 @@ SELECT * FROM onboarding_tasks WHERE id=?1 AND fence=?2 AND leased_by=?3 AND lea
 -- name: PlatformAdvanceOnboarding :execrows
 -- scope: platform
 
-UPDATE onboarding_tasks SET attempts=CASE WHEN step<>?4 THEN 0 ELSE attempts END,step=?4,status=?5,last_error_code=?6,desired_generation=?7,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs=>sqlc.arg(backoff_seconds)),leased_by=NULL,leased_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),completed_at=CASE WHEN ?5='completed' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE completed_at END WHERE id=?1 AND fence=?2 AND leased_by=?3 AND leased_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='running';
+UPDATE onboarding_tasks SET attempts=CASE WHEN step<>?4 THEN 0 ELSE attempts END,step=?4,status=?5,last_error_code=?6,desired_generation=?7,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(sqlc.arg(backoff_seconds*1000000)),leased_by=NULL,leased_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),completed_at=CASE WHEN ?5='completed' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE completed_at END WHERE id=?1 AND fence=?2 AND leased_by=?3 AND leased_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='running';
 -- name: PlatformPrepareOnboardingTenant :exec
 -- scope: platform
 

@@ -6,7 +6,7 @@ coalesce(nullif(a.raw_sha256,''),c.original_sha256,'') AS original_sha256,
 m.address,m.status AS mailbox_status,d.status AS domain_status,t.status AS tenant_status,
 EXISTS(SELECT 1 FROM archive_entries sibling WHERE sibling.tenant_id=a.tenant_id
  AND sibling.mailbox_id=a.mailbox_id AND sibling.message_id=a.message_id AND sibling.legal_hold AND sibling.deleted_at IS NULL) AS hold_conflict,
-(SELECT coalesce(jsonb_agg(json_object('entry_id',s.id,'mailbox_id',coalesce(s.mailbox_id,0),'original_sha256',coalesce(nullif(s.raw_sha256,''),sc.original_sha256,''),'held',s.legal_hold,'deleted',s.deleted_at IS NOT NULL) ORDER BY s.id),'[]')
+(SELECT coalesce(json_group_array(json_object('entry_id',s.id,'mailbox_id',coalesce(s.mailbox_id,0),'original_sha256',coalesce(nullif(s.raw_sha256,''),sc.original_sha256,''),'held',s.legal_hold,'deleted',s.deleted_at IS NOT NULL) ORDER BY s.id),'[]')
 FROM (SELECT * FROM archive_entries bounded WHERE bounded.tenant_id=a.tenant_id AND bounded.message_id=a.message_id ORDER BY bounded.id LIMIT 101) s
 LEFT JOIN archive_content sc ON sc.tenant_id=s.tenant_id AND sc.entry_id=s.id) AS sources
 FROM archive_entries a JOIN tenants t ON t.id=a.tenant_id

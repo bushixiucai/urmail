@@ -28,7 +28,7 @@ INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidat
 SELECT @tenant_id,@retention_days,count(*),md5(coalesce(group_concat(id,',' ORDER BY id),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)
 FROM archive_entries
 WHERE tenant_id= @tenant_id AND NOT legal_hold AND deleted_at IS NULL
- AND received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-make_interval(days=> @retention_days)
+ AND received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(0)
 RETURNING *;
 
 -- name: LockArchiveRetentionPreview :one

@@ -24,7 +24,7 @@ WITH target AS MATERIALIZED (
  FROM marketing_feedback f JOIN recipients r ON r.tenant_id=f.tenant_id AND r.id=f.recipient_id
  WHERE f.tenant_id=sqlc.arg(tenant_id)
 ), bounded AS MATERIALIZED (SELECT * FROM facts ORDER BY record_kind,record_id LIMIT 10001)
-SELECT json_object('name',target.name,'rows',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.record_kind,b.record_id) FROM bounded b),'[]')) AS payload FROM target;
+SELECT json_object('name',target.name,'rows',coalesce((SELECT json_group_array(to_jsonb(b) ORDER BY b.record_kind,b.record_id) FROM bounded b),'[]')) AS payload FROM target;
 
 -- name: MarketingFlowReportSnapshot :one
 -- scope: tenant
@@ -58,4 +58,4 @@ WITH target AS MATERIALIZED (
  FROM marketing_flow_node_executions x JOIN positions p ON p.tenant_id=x.tenant_id AND p.id=x.position_id
  WHERE x.tenant_id=sqlc.arg(tenant_id)
 ), bounded AS MATERIALIZED (SELECT * FROM facts ORDER BY record_kind,record_id LIMIT 10001)
-SELECT json_object('name',target.name,'rows',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.record_kind,b.record_id) FROM bounded b),'[]')) AS payload FROM target;
+SELECT json_object('name',target.name,'rows',coalesce((SELECT json_group_array(to_jsonb(b) ORDER BY b.record_kind,b.record_id) FROM bounded b),'[]')) AS payload FROM target;
