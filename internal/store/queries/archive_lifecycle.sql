@@ -25,7 +25,7 @@ ORDER BY a.received_at DESC,a.id DESC LIMIT @limit_count;
 -- scope: tenant
 
 INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
-SELECT @tenant_id,@retention_days,count(*),md5(coalesce(group_concat(id,',' ORDER BY id),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)
+SELECT @tenant_id,@retention_days,count(*),md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)
 FROM archive_entries
 WHERE tenant_id= @tenant_id AND NOT legal_hold AND deleted_at IS NULL
  AND received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(0)
@@ -39,7 +39,7 @@ SELECT * FROM retention_previews WHERE tenant_id= @tenant_id AND id= @id AND cre
 -- name: ArchiveRetentionCandidateDigest :one
 -- scope: tenant
 
-SELECT count(*) AS candidate_count,md5(coalesce(group_concat(id,',' ORDER BY id),'')) AS candidate_digest
+SELECT count(*) AS candidate_count,md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')) AS candidate_digest
 FROM archive_entries WHERE tenant_id= @tenant_id AND NOT legal_hold AND deleted_at IS NULL
  AND received_at < @cutoff;
 

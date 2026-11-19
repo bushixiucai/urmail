@@ -104,19 +104,8 @@ UPDATE users
 SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'
 WHERE id = ?1;
 
--- name: ConsumeRecoveryCode :execrows
--- scope: platform
-
--- Removes one recovery code (given as its stored SHA-256 hex hash) from the
--- user's code list. Zero rows affected means the code did not match.
-UPDATE users
-SET mfa_recovery_codes = COALESCE((
-    SELECT json_group_array(CAST(je.value AS TEXT))
-    FROM json_each(CAST(mfa_recovery_codes AS TEXT)) je
-    WHERE CAST(je.value AS TEXT) <> ?2
-), '[]')
-WHERE id = ?1 AND EXISTS(SELECT 1 FROM json_each(CAST(mfa_recovery_codes AS TEXT)) WHERE CAST(value AS TEXT) = ?2);
-
+-- ConsumeRecoveryCode 在 S2 B1b 迁移至 internal/store/sqlite_methods.go
+-- ConsumeUserRecoveryCode（JSON 过滤在 Go 层完成，sqlc sqlite 不支持 json_each）。
 
 -- name: UpdateUserPassword :exec
 -- scope: platform

@@ -14,6 +14,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -189,3 +191,44 @@ func (q *Queries) PlatformBumpMarketingFlowAttempt(ctx context.Context, arg Plat
 	}
 	return tag.RowsAffected(), nil
 }
+
+const getUserMFARecoveryCodesSQL = `SELECT mfa_recovery_codes FROM users WHERE id = ?1`
+
+const setUserMFARecoveryCodesSQL = `UPDATE users SET mfa_recovery_codes = ?2 WHERE id = ?1`
+
+// ConsumeUserRecoveryCode removes one recovery code (matched by its stored
+// SHA-256 hex hash) from the user's code list. JSON array filtering happens
+// in Go because sqlc's sqlite engine cannot resolve json_each columns.
+// Returns the number of codes removed (0 or 1).
+func (q *Queries) ConsumeUserRecoveryCode(ctx context.Context, userID int64, hash string) (int64, error) {
+	var raw string
+	if err := q.db.QueryRow(ctx, getUserMFARecoveryCodesSQL, userID).Scan(&raw); err != nil {
+		return 0, err
+	}
+	var codes []string
+	if err := json.Unmarshal([]byte(raw), &codes); err != nil {
+		return 0, fmt.Errorf("parse mfa_recovery_codes: %w", err)
+	}
+	var kept []string
+	found := false
+	for _, c := range codes {
+		if c == hash && !found {
+			found = true
+			continue
+		}
+		kept = append(kept, c)
+	}
+	if !found {
+		return 0, nil
+	}
+	out, err := json.Marshal(kept)
+	if err != nil {
+		return 0, fmt.Errorf("marshal filtered codes: %w", err)
+	}
+	tag, err := q.db.Exec(ctx, setUserMFARecoveryCodesSQL, userID, string(out))
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+

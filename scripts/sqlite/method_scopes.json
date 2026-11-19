@@ -55,7 +55,6 @@
   "SetMFASecret": "platform",
   "EnableUserMFA": "platform",
   "DisableUserMFA": "platform",
-  "ConsumeRecoveryCode": "platform",
   "UpdateUserPassword": "platform",
   "DeleteOtherUserSessions": "tenant",
   "ListSessionsForUser": "tenant",
@@ -673,7 +672,7 @@
  },
  "counts": {
   "tenant": 217,
-  "platform": 453
+  "platform": 452
  },
  "tenant_id_unbound": [
   "DeleteExpiredSessions",

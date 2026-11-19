@@ -1,0 +1,14 @@
+{
+  "note": "S2 B4 文件分类：tenant 域必须清零；platform 管理面可入 blocked（501/拒启）",
+  "tenant_files": [
+    {"file":"archive_case_product.sql","method":"ArchiveCasesRemoveMember","category":"cte-scope","reason":"DELETE FROM...USING + 列歧义"},
+    {"file":"archive_lifecycle.sql","method":"GetArchiveContent","category":"update-alias","reason":"to_tsvector/plainto_tsquery/position/FILTER/group_concat ORDER BY"},
+    {"file":"mailbox_ai_retrieval.sql","method":"GetMailboxAIChunk","category":"update-alias","reason":"jsonb_to_recordset/DISTINCT ON"},
+    {"file":"mailbox_import.sql","method":"MailboxImportRecoverExpiredLeases","category":"update-alias","reason":"FILTER(WHERE)/json_group_array ORDER BY"},
+    {"file":"marketing_flow_authoring.sql","method":"PauseMarketingRuntimeFlows","category":"cte-scope","reason":"CTE 内 tenant_id 歧义"},
+    {"file":"marketing_reports.sql","method":"MarketingCampaignReportSnapshot","category":"dml-cte","reason":"WITH MATERIALIZED + DML CTE"},
+    {"file":"transport_security.sql","method":"PublishDomainTransportSecurity","category":"syntax-residue","reason":"sqlc.arg 收到 A_Expr"}
+  ],
+  "platform_files": "31 files → b5-blocked-files.json",
+  "counts": {"tenant": 7, "platform": 31, "total": 38}
+}
