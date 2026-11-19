@@ -50,7 +50,7 @@ out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 assert "A_rc" "$rc" "4"
 assert "A_hold" "$(hold_state)" "no"
 assert "A_urmaild" "$(docker inspect --format '{{.State.Status}}' "$(docker compose ps -q urmaild)")" "running"
-assert "A_reject_in_evidence" "$(grep -c 'no offsite backup run recorded yet' "$URMAIL_DATA_ROOT"/upgrade-evidence-v0.6.26-*.log 2>/dev/null | tail -1)" "1"
+assert "A_reject_in_evidence" "$(grep -c 'no offsite backup run recorded yet' "$URMAIL_DATA_ROOT"/upgrade-evidence-v9.9.9-*.log 2>/dev/null | tail -1)" "1"
 
 echo "==================== D: happy path upgrade ======================="
 reset_stack

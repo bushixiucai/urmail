@@ -53,8 +53,10 @@ jobs:
 
       - name: Run upgrade-chain acceptance suite
         run: |
+          set -o pipefail
           chmod +x scripts/upgrade-rig-acceptance.sh
-          sudo bash scripts/upgrade-rig-acceptance.sh 2>&1 | tee rig-acceptance-output.log
+          sudo bash scripts/upgrade-rig-acceptance.sh 2>&1 | tee "$RUNNER_TEMP/rig-acceptance-output.log"
+          cp "$RUNNER_TEMP/rig-acceptance-output.log" ./rig-acceptance-output.log
 
       - name: Upload evidence artifacts
         if: always()

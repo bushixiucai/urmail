@@ -63,3 +63,8 @@ packaging/**/__pycache__/
 # runtime data + upgrade evidence (compose form)
 /data/
 mock.sql
+
+# CI/rig acceptance artifacts (not part of compose checkout)
+docker-compose.override.yml
+broken-ctl
+rig-acceptance-output.log
