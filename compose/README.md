@@ -12,10 +12,12 @@ DNS 已指向本机、rDNS 已设（骨架期仅 healthz 证明用到 18080/80�
 ## 快速开始
 
 ```sh
-cp .env.example .env                 # 修改 URMAIL_MYHOSTNAME 与 URMAIL_PG_PASSWORD
+cp .env.example .env                 # 修改 URMAIL_MYHOSTNAME/URMAIL_PRIMARY_DOMAIN 与 URMAIL_PG_PASSWORD
+chown -R 5000:5000 ${URMAIL_DATA_ROOT:-data}   # urmaild/agent 以 uid 5000 运行（QA P1-5）
 docker compose build                 # 多阶段构建（web -> go -> debian 运行时）
 docker compose up -d                 # pg + urmaild + postfix + dovecot + caddy + prom/alert
-curl http://127.0.0.1:18080/api/v1/healthz   # 期望 {"status":"ok",...} 200
+docker compose exec urmaild curl -fsS http://127.0.0.1:8080/api/v1/healthz
+# 期望 {"status":"ok",...}（现行 config 强制 HTTP 回环绑定，故用 exec 口径而非宿主端口）
 ```
 
 服务明细见 `compose.yaml` 注释；数据布局见 §1.2：`${URMAIL_DATA_ROOT}` 单根下
@@ -56,3 +58,17 @@ curl http://127.0.0.1:18080/api/v1/healthz   # 期望 {"status":"ok",...} 200
 - postfix/dovecot/caddy 以同一 urmail 镜像的不同 command 运行（§5 倾向口径），
   后续可换官方镜像（仅改 image 行）；
 - 数据卷挂点已按 §1.2 预留，placeholder 配置的替换不改挂载点。
+
+## 运行口径（QA P2，升级 runbook 落地时逐条收口）
+
+- **发布路径必须关闭自动迁移**：`upgrade.sh` 在 `compose up` 前设
+  `URMAIL_AUTO_MIGRATE=0`，迁移仅允许在升级 fence 内经 `urmailctl migrate` 受控执行；
+  首次引导（全新安装）才使用默认 `URMAIL_AUTO_MIGRATE=1`。
+- **禁止多副本**：全部服务单副本（SQLite 单写者 + Maildir 单挂载 +
+  host 网络端口独占），`docker compose up --scale` 不得使用。
+- **milter profile 启用时**，postfix 对 urmail-signer/urmail-spam 的
+  `depends_on (required=false)` 变为硬依赖（此时才允许把 milter 服务写进
+  postfix 的 smtpd_milters 渲染配置）。
+- **caddy host 网络 80/443 独占**：与现网 nginx（MIAB 遗留栈）切换时必须先
+  `stop+disable` nginx（写进 S8/切换 runbook；端口冲突会导致 caddy 反复重启）。
+- prometheus/alertmanager 使用官方镜像 `prom/prometheus` / `prom/alertmanager`。

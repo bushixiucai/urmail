@@ -56,7 +56,8 @@ RUN apt-get update \
 # Reserved uid/gid for the Maildir owner mapping (plan §5 待拍板项): keep a
 # stable vmail identity so /srv/urmail/data/mail ownership survives upgrades.
 RUN groupadd -g 5000 vmail && useradd -u 5000 -g 5000 -M -N -s /usr/sbin/nologin vmail \
-    && mkdir -p /srv/urmail/config /srv/urmail/data
+    && mkdir -p /srv/urmail/config /srv/urmail/data \
+    && mkdir -p /run/urmail-policy && chown 5000:5000 /run/urmail-policy
 
 COPY --from=build /out/bin/urmaild /usr/local/bin/urmaild
 COPY --from=build /out/bin/urmailctl /usr/local/bin/urmailctl

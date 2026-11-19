@@ -10,3 +10,7 @@ data
 *.tar.gz
 docs/reviews
 docs/planning
+# secrets must never enter the context (QA P1-3); keep the example
+.env
+.env.*
+!.env.example

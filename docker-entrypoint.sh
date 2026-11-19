@@ -11,8 +11,12 @@ CONFIG_DIR="${URMAIL_CONFIG_DIR:-/srv/urmail/config}"
 mkdir -p "$CONFIG_DIR"
 
 if [ ! -f "$CONFIG_DIR/master.key" ]; then
+    # Atomic create (QA P1-4): write to a temp name then rename, so a half
+    # written key can never be observed at the canonical path.
     umask 077
-    head -c 32 /dev/urandom > "$CONFIG_DIR/master.key"
+    tmp="$CONFIG_DIR/master.key.tmp.$$"
+    head -c 32 /dev/urandom > "$tmp"
+    mv -f "$tmp" "$CONFIG_DIR/master.key"
     umask 022
     echo "[entrypoint] generated master key at $CONFIG_DIR/master.key"
 fi
