@@ -52,13 +52,26 @@ clear_rows() {
     docker compose exec -T pg psql -U urmail -d urmail -q -c "DELETE FROM backup_runs" 2>/dev/null || true
 }
 hold_state() { [ -f "$URMAIL_DATA_ROOT/holds/upgrade.hold" ] && echo yes || echo no; }
-# port_occupy <port> : block a dovecot bind with a python listener
-# (ubuntu runner python3 guaranteed; dovecot must be stopped first so the
-# port is actually free when we bind it)
+# port_occupy <port> : block a dovecot bind with a python listener.
+# Ubuntu runner python3 is guaranteed; dovecot must be stopped first so the
+# port is actually free when we bind it. N1 (PM): wait until the port is
+# REALLY bound (connect probe, 2s cap) and the listener is alive; a silent
+# no-op would make E/C1b assertions meaningless.
 port_occupy() {
+    local port=$1 inj i=0
     python3 -c 'import socket,time,sys
-s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(1); time.sleep(600)' "$1" >/dev/null 2>&1 &
-    echo "$!"
+s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(1); time.sleep(600)' "$port" >/dev/null 2>&1 &
+    inj=$!
+    until python3 -c "import socket,sys; socket.create_connection(('127.0.0.1',int(sys.argv[1])),0.5).close()" "$port" 2>/dev/null; do
+        i=$((i+1))
+        if [ "$i" -ge 20 ] || ! kill -0 "$inj" 2>/dev/null; then
+            echo "INJECTION_FAILURE: port $port never bound (listener dead/timeout)" >&2
+            kill "$inj" 2>/dev/null
+            return 1
+        fi
+        sleep 0.1
+    done
+    echo "$inj"
 }
 port_release() { [ -n "${1:-}" ] && kill "$1" 2>/dev/null; true; }
 
@@ -97,7 +110,8 @@ echo "==================== E: post-up failure keeps hold ================"
 reset_stack
 mock_row
 docker compose stop dovecot >/dev/null 2>&1 || true
-INJ_PID=$(port_occupy 10143)
+INJ_PID=$(port_occupy 10143) || INJ_PID=""
+assert "E_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
 printf '%s\n' "$out" | grep -E "not running after start|post-up failure|Rollback runbook" | head -3
@@ -122,7 +136,8 @@ echo "==================== C1b: writer start failure ===================="
 reset_stack
 mock_row
 docker compose stop dovecot >/dev/null 2>&1 || true
-INJ_PID=$(port_occupy 10143)
+INJ_PID=$(port_occupy 10143) || INJ_PID=""
+assert "C1b_injection_ready" "$([ -n "$INJ_PID" ] && echo yes || echo no)" "yes"
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 port_release "$INJ_PID"
 printf '%s\n' "$out" | grep -E "not running after start|writers failed" | head -2
@@ -134,10 +149,17 @@ rm -f "$URMAIL_DATA_ROOT/holds/upgrade.hold"
 archive_ev "C1b"
 
 echo "==================== R1: fail-closed (no rig switch) ============="
+# TEMPORARY SENTINEL (N2, PM #26): asserts the CURRENT known gap —
+# urmailctl readiness-record requires a v2 hold+receipt pair (bound digests)
+# plus agent prepared-release evidence at fence time; the compose-native
+# fence produces neither, so the DEFAULT path must fail closed. When the
+# readiness-record fix lands (options A/B, PM ruling pending), this scenario
+# MUST flip to: rc=0, hold=cleared, and a red R1 then is a fixture
+# regression rather than a product failure.
 unset URMAIL_ALLOW_RECORDLESS_RIG
 reset_stack
 mock_row
-echo "R1 switch=${URMAIL_ALLOW_RECORDLESS_RIG:-unset}" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-r1-selfcert.log
+echo "R1 switch=${URMAIL_ALLOW_RECORDLESS_RIG:-unset}; sentinel=expected-fail until readiness-record fix (then rc=0/hold=cleared)" | tee -a "$URMAIL_DATA_ROOT"/upgrade-evidence-r1-selfcert.log
 out=$(URMAIL_DATA_ROOT="$URMAIL_DATA_ROOT" ./upgrade.sh "$V_GOOD" 2>&1); rc=$?
 printf '%s\n' "$out" | grep -E "read live upgrade fence|readiness-record" | head -3
 assert "R1_rc" "$([ "$rc" != 0 ] && echo nonzero || echo zero)" "nonzero"
