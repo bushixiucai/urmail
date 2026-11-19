@@ -26,15 +26,8 @@
    {
     "class": "db-function-call",
     "file": "archive_case_product.sql",
-    "method": "ArchiveCasesRequestApproval",
-    "line": 113,
-    "snippet": "SELECT @tenant_id,i.id,@actor_id,'export',@digest,min(i.expires_at,(CAST(strftime('%s','now') AS INTEGER)*1000"
-   },
-   {
-    "class": "db-function-call",
-    "file": "archive_case_product.sql",
     "method": "ArchiveCasesExportVisible",
-    "line": 134,
+    "line": 137,
     "snippet": "SELECT urmail_archive_export_visible(?1,?2,?3) AS visible;"
    },
    {
@@ -131,15 +124,15 @@
    {
     "class": "db-function-call",
     "file": "marketing_flow_authoring.sql",
-    "method": "RetryMarketingFlowInstance",
-    "line": 152,
+    "method": "StopMarketingFlowInstance",
+    "line": 148,
     "snippet": "SELECT urmail_retry_marketing_flow_instance(?1,?2,?3,?4) AS retried;"
    },
    {
     "class": "db-function-call",
     "file": "marketing_flow_authoring.sql",
     "method": "RecordMarketingFlowAudit",
-    "line": 168,
+    "line": 164,
     "snippet": "SELECT urmail_record_marketing_flow_audit(?1,?2,?3,?4);"
    },
    {
@@ -194,22 +187,15 @@
    {
     "class": "db-function-call",
     "file": "platform_archive_lifecycle.sql",
-    "method": "PlatformApplyArchiveRetention",
-    "line": 30,
-    "snippet": "WHERE p.active AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id) AND p.action"
-   },
-   {
-    "class": "db-function-call",
-    "file": "platform_archive_lifecycle.sql",
     "method": "PlatformListArchivePurgeCandidates",
-    "line": 49,
+    "line": 84,
     "snippet": "AND (c.purge_started_at IS NOT NULL OR c.retention_preview IS NULL OR EXISTS(SELECT 1 FROM retention_policies "
    },
    {
     "class": "db-function-call",
     "file": "platform_archive_lifecycle.sql",
-    "method": "PlatformLockRetentionPurgePolicy",
-    "line": 95,
+    "method": "PlatformSetArchiveOriginalHash",
+    "line": 128,
     "snippet": "SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tenant_id,p.cr"
    },
    {
@@ -230,7 +216,7 @@
     "class": "db-function-call",
     "file": "platform_collaboration.sql",
     "method": "PlatformDeleteContactGroup",
-    "line": 225,
+    "line": 156,
     "snippet": "SELECT urmail_delete_contact_group(?1,?2,?3);"
    },
    {
@@ -243,43 +229,43 @@
    {
     "class": "db-function-call",
     "file": "platform_marketing.sql",
-    "method": "PlatformAuthorizeMarketingSend",
-    "line": 53,
+    "method": "PlatformClaimMarketingRecipient",
+    "line": 50,
     "snippet": "SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;"
    },
    {
     "class": "db-function-call",
     "file": "platform_marketing.sql",
     "method": "PlatformFinishMarketingSend",
-    "line": 58,
+    "line": 55,
     "snippet": "SELECT urmail_finish_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence,@result) AS finished;"
    },
    {
     "class": "db-function-call",
     "file": "platform_marketing.sql",
-    "method": "PlatformResolveMarketingAttempt",
-    "line": 83,
+    "method": "PlatformCompleteMarketingCampaigns",
+    "line": 78,
     "snippet": "SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;"
    },
    {
     "class": "db-function-call",
     "file": "platform_marketing.sql",
     "method": "PlatformRecordMarketingFeedback",
-    "line": 88,
+    "line": 83,
     "snippet": "SELECT urmail_record_marketing_feedback(@channel_id,@event_id,@recipient_id,@status,@payload_hash) AS result;"
    },
    {
     "class": "db-function-call",
     "file": "platform_marketing.sql",
     "method": "PlatformMarkMarketingRecipientRevoked",
-    "line": 98,
+    "line": 93,
     "snippet": "SELECT urmail_mark_marketing_recipient_revoked(@tenant_id,@recipient_id,@lease_owner,@fence) AS revoked;"
    },
    {
     "class": "db-function-call",
     "file": "platform_marketing.sql",
     "method": "PlatformSkipMarketingRecipient",
-    "line": 103,
+    "line": 98,
     "snippet": "SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fence,@reason) AS skipped;"
    },
    {
@@ -313,15 +299,15 @@
    {
     "class": "db-function-call",
     "file": "platform_marketing_flows.sql",
-    "method": "PlatformCommitMarketingFlowWait",
-    "line": 122,
+    "method": "PlatformArmMarketingFlowWait",
+    "line": 101,
     "snippet": "SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;"
    },
    {
     "class": "db-function-call",
     "file": "platform_marketing_flows.sql",
     "method": "PlatformMarketingFlowStillAllowed",
-    "line": 148,
+    "line": 127,
     "snippet": "SELECT (urmail_marketing_flow_sendable(?1,?2,?3) NOT IN ('missing','blocked','uncertain')) AS allowed;"
    },
    {
@@ -372,7 +358,7 @@
     "class": "regex ~",
     "file": "archive_case_product.sql",
     "method": "ArchiveCasesAddSource",
-    "line": 77,
+    "line": 74,
     "snippet": "AND e.deleted_at IS NULL AND e.mailbox_id IS NOT NULL AND e.raw_sha256 ~ '^[0-9a-f]{64}$'"
    },
    {
@@ -381,6 +367,50 @@
     "method": "PlatformDataIssues",
     "line": 6,
     "snippet": "UNION ALL SELECT 'unsafe_mailbox_identity',m.id,m.tenant_id,m.tenant_id FROM mailboxes m JOIN domains d ON d.i"
+   }
+  ],
+  "make_interval": [
+   {
+    "class": "make_interval",
+    "file": "archive_lifecycle.sql",
+    "method": "PreviewArchiveRetention",
+    "line": 31,
+    "snippet": "AND received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-make_interval(days=> @retention_days)"
+   },
+   {
+    "class": "make_interval",
+    "file": "platform_dns_onboarding.sql",
+    "method": "PlatformAdvanceOnboarding",
+    "line": 69,
+    "snippet": "UPDATE onboarding_tasks SET attempts=CASE WHEN step<>?4 THEN 0 ELSE attempts END,step=?4,status=?5,last_error_"
+   },
+   {
+    "class": "make_interval",
+    "file": "platform_mailbox_send_receipts.sql",
+    "method": "PlatformDeferSendCopy",
+    "line": 86,
+    "snippet": "UPDATE mailbox_send_receipts SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*10000"
+   },
+   {
+    "class": "make_interval",
+    "file": "platform_mailbox_sent_copy.sql",
+    "method": "PlatformDeferScheduledSentCopy",
+    "line": 51,
+    "snippet": "UPDATE mailbox_scheduled_sends SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*100"
+   },
+   {
+    "class": "make_interval",
+    "file": "platform_notifications.sql",
+    "method": "PlatformFinishEmailNotification",
+    "line": 43,
+    "snippet": "next_attempt_at=CASE WHEN ?3='pending' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000)+make_interval(secs"
+   },
+   {
+    "class": "make_interval",
+    "file": "transport_security.sql",
+    "method": "PublishDomainTransportSecurity",
+    "line": 10,
+    "snippet": "SELECT sqlc.arg('tenant_id'),sqlc.arg('domain_id'),sqlc.arg('policy_id'),sqlc.arg('mode'),sqlc.arg('rua'),true"
    }
   ],
   "jsonb_agg/json_agg": [
@@ -395,7 +425,7 @@
     "class": "jsonb_agg/json_agg",
     "file": "mailbox_import.sql",
     "method": "MailboxImportItemViews",
-    "line": 108,
+    "line": 101,
     "snippet": "SELECT COALESCE(jsonb_agg(to_jsonb(i)-'raw_secret' ORDER BY item_index),'[]') AS items"
    },
    {
@@ -505,20 +535,27 @@
     "snippet": "WHERE m.tenant_id=a.tenant_id AND m.address=ANY(a.sender_logins) AND m.status='active' AND m.send_enabled"
    }
   ],
-  "LATERAL": [
+  "to_char": [
    {
-    "class": "LATERAL",
-    "file": "platform_marketing_flows.sql",
-    "method": "PlatformClaimMarketingFlowPositions",
-    "line": 69,
-    "snippet": "FROM due_tenants d CROSS JOIN LATERAL ("
+    "class": "to_char",
+    "file": "platform_dns_onboarding.sql",
+    "method": "PlatformResolveDNSOnboardingAlerts",
+    "line": 143,
+    "snippet": "SELECT a.tenant_id,a.kind,'notification.'||a.kind,json_object('workflow',CASE WHEN a.kind='dns_requires_review"
    },
    {
-    "class": "LATERAL",
-    "file": "support_diagnostics.sql",
-    "method": "SupportDiagnosticMailboxCounts",
-    "line": 9,
-    "snippet": "LEFT JOIN LATERAL ("
+    "class": "to_char",
+    "file": "platform_notifications.sql",
+    "method": "PlatformResolveStaleAIAlerts",
+    "line": 105,
+    "snippet": "SELECT a.tenant_id,a.kind,'notification.'||a.kind,'{}',a.alert_key||':'||to_char((CAST(strftime('%s','now') AS"
+   },
+   {
+    "class": "to_char",
+    "file": "platform_observability.sql",
+    "method": "PlatformEnqueueObservabilityAlerts",
+    "line": 18,
+    "snippet": "'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char((CAST(strftime('%s','now') A"
    }
   ],
   "EXTRACT": [
@@ -529,17 +566,28 @@
     "line": 18,
     "snippet": "'operational:'||alert_key||':'||state||':'||CASE WHEN state='firing' THEN to_char((CAST(strftime('%s','now') A"
    }
+  ],
+  "LATERAL": [
+   {
+    "class": "LATERAL",
+    "file": "support_diagnostics.sql",
+    "method": "SupportDiagnosticMailboxCounts",
+    "line": 9,
+    "snippet": "LEFT JOIN LATERAL ("
+   }
   ]
  },
  "totals": {
-  "db-function-call": 52,
+  "db-function-call": 50,
   "regex ~": 2,
+  "make_interval": 6,
   "jsonb_agg/json_agg": 5,
   "WITH ORDINALITY": 1,
   "jsonb-op @>": 1,
   "DISTINCT ON": 2,
   "ANY": 7,
-  "LATERAL": 2,
-  "EXTRACT": 1
+  "to_char": 3,
+  "EXTRACT": 1,
+  "LATERAL": 1
  }
 }
