@@ -23,11 +23,16 @@ CHAIN = {
     # 无 tenant_id 但行属单一租户（经 FK 链）
     "mailbox_storage_reservations": "address→mailboxes 链路（触发器维护，平台写）",
 }
+# 多作用域表（S0-a 复核改判）：行谓词 = scope/scope_id，租户行与平台/品牌
+# 行同表共存——矩阵按行谓词覆盖，不按整表归类。
+MULTISCOPE = {
+    "settings": "多作用域（scope=platform/brand/tenant，行谓词 scope/scope_id；"
+                "settings.sql 有租户域 Get/Upsert/DeleteTenantSetting 与品牌域写路径，共 7 条写语句）",
+}
 SHARED_NOTE = {
     "users": "跨租户主体（user_tenant_roles 多租户映射）",
     "tenants": "租户注册表（平台管理）",
     "platform_admins": "平台管理员",
-    "settings": "平台设置",
     "announcements": "平台广播",
     "channels": "平台频道",
     "brands": "平台品牌注册表",
@@ -41,16 +46,24 @@ SHARED_NOTE = {
     "restore_quarantine": "恢复隔离标记",
     "roundcube_bridge_requests": "roundcube 桥接请求（平台）",
 }
+# 登记撤销的遗留 GRANT（S0-c 复核）：queries 无任何对应写路径，矩阵的 app
+# 写轴不得凭空计入；S1 迁移执行 REVOKE 落地撤销。
+REGISTERED_GRANT_REVOCATIONS = {
+    "platform_admins": "urmail_app DELETE+INSERT+UPDATE 无对应写路径（queries 零命中）——遗留 GRANT，登记撤销，S1 执行 REVOKE",
+    "restore_quarantine": "urmail_app DELETE+INSERT+UPDATE 无对应写路径（queries 零命中）——遗留 GRANT，登记撤销，S1 执行 REVOKE",
+}
+# settings 的 app 写授权有真实写路径（tenant/brand 域 7 条写语句），不撤销。
 # 语义 append-only（现 PG 用 RESTRICTIVE/REVOKE 表达；SQLite 触发器补硬约束）
 APPEND_ONLY = ["audit_logs", "announcements", "channels", "ai_usage_requests", "delivery_events"]
-# 废弃函数登记（QA v3 复审：宿主表已 DROP、全仓无引用，迁移即清理）
+# 废弃函数登记（QA 复核：死表宿主或零调用死函数，迁移即清理）
 DEPRECATED_FUNCTIONS = {"revoke_renewal_on_subscription_cancel":
                         "0138 建于已 DROP 的 subscriptions 上，全仓无引用，废弃并随迁移清理"}
 # CI 门钉子：catalog 口径漂移即红（QA 实测；v3 起函数口径=业务函数，扩展
-# pg_trgm/plpgsql 自有 31 个函数被 EXTENSION 段排除，150-31=119）
+# pg_trgm/plpgsql 自有 31 个函数被 EXTENSION 段排除，150-31=119；
+# S0-a 后 shared=15 + shared_multiscope=1（settings 改判多作用域））
 PINNED = {"business_tables": 102, "tenant_direct": 85, "rls": 101, "force": 43,
-          "restrictive_tables": 4, "restrictive_policies": 10, "shared": 16,
-          "triggers": 60, "business_functions": 119}
+          "restrictive_tables": 4, "restrictive_policies": 10, "shared": 15,
+          "shared_multiscope": 1, "triggers": 60, "business_functions": 119}
 
 
 def load_catalog(path):
@@ -144,6 +157,8 @@ def main():
             cat, basis = "tenant", "tenant_id 列"
         elif t in CHAIN:
             cat, basis = "tenant(chain)", CHAIN[t]
+        elif t in MULTISCOPE:
+            cat, basis = "shared-multiscope", MULTISCOPE[t]
         else:
             cat, basis = "shared", SHARED_NOTE.get(t, "无 tenant_id（平台域）")
         tags = []
@@ -159,6 +174,9 @@ def main():
             # SQLite 去权限后必须补 no_insert 触发器防权限扩大。
             if not (app_grants.get(t, set()) & {"INSERT", "ALL"}):
                 tags.append("needs-no-insert-trigger")
+        if t in REGISTERED_GRANT_REVOCATIONS:
+            # S0-c：遗留 GRANT 登记撤销——矩阵的 app 写轴不得计入。
+            tags.append("grant-revocation-registered")
         rows[t] = {"class": cat, "basis": basis, "tags": tags,
                    "app_privs": sorted(app_grants.get(t, [])),
                    "rls": info["rls"], "force": info["force"]}
@@ -171,6 +189,7 @@ def main():
         "restrictive_tables": len(restrictive_tables),
         "restrictive_policies": restrictive_policies,
         "shared": sum(1 for r in rows.values() if r["class"] == "shared"),
+        "shared_multiscope": sum(1 for r in rows.values() if r["class"] == "shared-multiscope"),
         "triggers": len(triggers),
         # v3 口径：业务函数「条目」数（EXTENSION 段排除扩展函数；含同名
         # 重载条目，如 urmail_record_audit 双签名——distinct 名为 118）
@@ -193,6 +212,7 @@ def main():
 
     payload = json.dumps({"counts": counts, "restrictive_tables": restrictive_tables,
                           "append_only": APPEND_ONLY, "tables": rows,
+                          "registered_grant_revocations": REGISTERED_GRANT_REVOCATIONS,
                           "triggers": triggers,
                           "extensions": extensions,
                           "deprecated_functions": DEPRECATED_FUNCTIONS,

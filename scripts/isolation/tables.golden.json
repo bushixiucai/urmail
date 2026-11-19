@@ -6,7 +6,8 @@
   "force": 43,
   "restrictive_tables": 4,
   "restrictive_policies": 10,
-  "shared": 16,
+  "shared": 15,
+  "shared_multiscope": 1,
   "triggers": 60,
   "business_functions": 119
  },
@@ -1201,7 +1202,8 @@
    "class": "shared",
    "basis": "平台管理员",
    "tags": [
-    "RLS"
+    "RLS",
+    "grant-revocation-registered"
    ],
    "app_privs": [
     "DELETE",
@@ -1243,7 +1245,8 @@
    "basis": "恢复隔离标记",
    "tags": [
     "RLS",
-    "FORCE"
+    "FORCE",
+    "grant-revocation-registered"
    ],
    "app_privs": [
     "DELETE",
@@ -1305,8 +1308,8 @@
    "force": false
   },
   "settings": {
-   "class": "shared",
-   "basis": "平台设置",
+   "class": "shared-multiscope",
+   "basis": "多作用域（scope=platform/brand/tenant，行谓词 scope/scope_id；settings.sql 有租户域 Get/Upsert/DeleteTenantSetting 与品牌域写路径，共 7 条写语句）",
    "tags": [
     "RLS",
     "RESTRICTIVE"
@@ -1423,6 +1426,10 @@
    "rls": true,
    "force": false
   }
+ },
+ "registered_grant_revocations": {
+  "platform_admins": "urmail_app DELETE+INSERT+UPDATE 无对应写路径（queries 零命中）——遗留 GRANT，登记撤销，S1 执行 REVOKE",
+  "restore_quarantine": "urmail_app DELETE+INSERT+UPDATE 无对应写路径（queries 零命中）——遗留 GRANT，登记撤销，S1 执行 REVOKE"
  },
  "triggers": [
   {

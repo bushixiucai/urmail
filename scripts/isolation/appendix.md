@@ -85,15 +85,15 @@
 | notification_outbox | tenant | tenant_id 列 | RLS | SELECT |
 | onboarding_tasks | tenant | tenant_id 列 | RLS | DELETE, INSERT, SELECT, UPDATE |
 | operational_alerts | tenant | tenant_id 列 | RLS | 无 |
-| platform_admins | shared | 平台管理员 | RLS | DELETE, INSERT, SELECT, UPDATE |
+| platform_admins | shared | 平台管理员 | RLS, grant-revocation-registered | DELETE, INSERT, SELECT, UPDATE |
 | platform_marketing_dispatch | tenant | tenant_id 列 | RLS, FORCE | 无 |
 | recall_requests | tenant | tenant_id 列 | RLS | DELETE, INSERT, SELECT, UPDATE |
-| restore_quarantine | shared | 恢复隔离标记 | RLS, FORCE | DELETE, INSERT, SELECT, UPDATE |
+| restore_quarantine | shared | 恢复隔离标记 | RLS, FORCE, grant-revocation-registered | DELETE, INSERT, SELECT, UPDATE |
 | retention_policies | tenant | tenant_id 列 | RLS | DELETE, INSERT, SELECT, UPDATE |
 | retention_previews | tenant | tenant_id 列 | RLS, FORCE | INSERT, SELECT, UPDATE |
 | roundcube_bridge_requests | shared | roundcube 桥接请求（平台） | RLS | 无 |
 | sessions | tenant | tenant_id 列 | RLS | 无 |
-| settings | shared | 平台设置 | RLS, RESTRICTIVE | DELETE, INSERT, SELECT, UPDATE |
+| settings | shared-multiscope | 多作用域（scope=platform/brand/tenant，行谓词 scope/scope_id；settings.sql 有租户域 Get/Upsert/DeleteTenantSetting 与品牌域写路径，共 7 条写语句） | RLS, RESTRICTIVE | DELETE, INSERT, SELECT, UPDATE |
 | tenant_directory_contacts | tenant | tenant_id 列 | RLS | DELETE, INSERT, SELECT, UPDATE |
 | tenant_directory_settings | tenant | tenant_id 列 | RLS | DELETE, INSERT, SELECT, UPDATE |
 | tenants | shared | 租户注册表（平台管理） | RLS | SELECT |

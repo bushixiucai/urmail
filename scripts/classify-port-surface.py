@@ -33,6 +33,31 @@ DEPRECATED = {
     "urmail_plan_snapshot_fits": "plans",
     "urmail_migration_plan_guard": "plans",
     "urmail_migration_entitlement_allowed": "plans",
+    # S0-b 复核：定义+授权后零调用的死函数（0090/0091/0098，
+    # 全仓（含迁移函数体与 queries）无任何 PERFORM/SELECT 调用）
+    "urmail_decide_archive_approval": "archive_approval_requests（0090 定义+GRANT 后零调用）",
+    "urmail_store_evidence_manifest": "archive_evidence（0091 定义+GRANT 后零调用）",
+    "urmail_store_evidence_body": "archive_evidence（0098 定义+GRANT 后零调用）",
+}
+
+# ---- 显式运行链证据（S0-b 复核补齐；RLS 谓词删除即静默丢授权） ----
+EXPLICIT_EVIDENCE = {
+    "urmail_archive_case_member":
+        "RLS policy USING 谓词（0134:118/:121/:124/:127，archive_investigations/"
+        "archive_investigation_members/archive_investigation_sources/"
+        "archive_approval_requests 的 tenant_isolation——删除即静默丢授权）",
+    "urmail_archive_case_manager":
+        "RLS policy WITH CHECK 谓词（0134:122，archive_investigation_members tenant_isolation）",
+    "urmail_archive_export_visible":
+        "RLS policy USING 谓词（0134:113，archive_evidence_exports case_evidence_visible）",
+    "urmail_dns_actor":
+        "运行链：0051 DNS 过程 PERFORM 调用 8+ 处（GRANT urmail_platform，provisioning 事务内）",
+    "urmail_marketing_limits":
+        "运行链：0158 本地配额守卫函数 SELECT INTO 调用 3 处",
+    "urmail_require_tenant_content_admin":
+        "运行链：0028 compliance_grants 守卫函数体内调用（require_content_owner 触发器链）",
+    "urmail_setting_limit":
+        "运行链：0158 本地配额守卫函数体内调用（settings 限额链）",
 }
 
 # ---- 行级守卫（单行 NEW/OLD 校验 + RAISE，SQLite 触发器等价重写） ----
@@ -118,72 +143,78 @@ def gather_evidence(repo, fn):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--catalog", required=True)
+    ap.add_argument("--catalog", default="",
+                    help="catalog TSV；--check-deprecated/--self-test-deprecated 模式无需提供")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--out-dir", default="scripts/isolation")
     ap.add_argument("--check-deprecated", action="store_true",
-                    help="断言 deprecated 名单在仓库 *.go 代码零命中（CI 门）")
+                    help="断言 deprecated 名单在仓库 *.go 代码零命中（CI 门；无需 --catalog）")
     ap.add_argument("--self-test-deprecated", action="store_true",
-                    help="在 internal/ 植入 decoy 引用并断言能被检出（证明排除规则没有把门挖空）")
+                    help="在 internal/ 植入 decoy 引用并断言能被检出（无需 --catalog）")
     args = ap.parse_args()
 
-    funcs, trig = load_catalog(args.catalog)
-    entries, distinct = len(funcs), len(set(funcs))
-    if (entries, distinct) != (119, 118):
-        print(f"COUNT DRIFT: entries={entries} distinct={distinct}, want 119/118")
-        sys.exit(1)
+    if args.check_deprecated or args.self_test_deprecated:
+        # 门模式只需 DEPRECATED 名单与证据扫描，不需要 catalog。
+        funcs, trig = ["x"] * 0, []  # not used in gate modes
+    else:
+        if not args.catalog:
+            print("--catalog is required for inventory generation")
+            sys.exit(1)
+        funcs, trig = load_catalog(args.catalog)
+        entries, distinct = len(funcs), len(set(funcs))
+        if (entries, distinct) != (119, 118):
+            print(f"COUNT DRIFT: entries={entries} distinct={distinct}, want 119/118")
+            sys.exit(1)
 
     inv = {}
-    for fn in sorted(set(funcs)):
+    catalog_names = set(funcs)
+    for fn in sorted(catalog_names | set(DEPRECATED) if not args.catalog else catalog_names):
         if fn in DEPRECATED:
             inv[fn] = {"class": "deprecated", "host": DEPRECATED[fn],
-                       "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）"}
+                       "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）"}
         elif fn in SQLITE_TRIGGER:
             inv[fn] = {"class": "sqlite-trigger", "note": SQLITE_TRIGGER[fn],
                        "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）"}
         else:
             inv[fn] = {"class": "app-assume", "note": APP_ASSUME_NOTE,
                        "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联"}
-        inv[fn]["overloads"] = funcs.count(fn)
-        if fn not in DEPRECATED or args.check_deprecated is False:
-            pass
+        inv[fn]["overloads"] = funcs.count(fn) if args.catalog else 0
     # 调用证据（deprecated 也要证据=零命中断言的输入）
     for fn in inv:
         inv[fn]["evidence"] = gather_evidence(args.repo, fn)
+        if fn in EXPLICIT_EVIDENCE:
+            inv[fn]["evidence"] = [f"explicit: {EXPLICIT_EVIDENCE[fn]}"] + inv[fn]["evidence"]
+        # 触发器宿主交叉引用（S0-b）：无代码证据的宿主函数至少给出绑定触发器。
+        hosted = [t for t in trig if t["function"] == fn]
+        if hosted and not inv[fn]["evidence"]:
+            inv[fn]["evidence"] = [
+                f"trigger-host: {t['name']}({t['table']})" for t in hosted]
 
     # 触发器逐条映射宿主函数分类
     for t in trig:
         t["class"] = inv[t["function"]]["class"]
-    if len(trig) != 60:
+    if args.catalog and len(trig) != 60:
         print(f"TRIGGER COUNT DRIFT: {len(trig)}, want 60")
         sys.exit(1)
 
-    # 设计门：119 条目全覆盖（distinct 118 全分类即覆盖条目）
-    classified = {c: sum(1 for f in inv.values() if f["class"] == c)
-                  for c in ("sqlite-trigger", "app-assume", "deprecated")}
-    if sum(classified.values()) != distinct:
-        print("CLASSIFICATION INCOMPLETE")
-        sys.exit(1)
-
-    if args.self_test_deprecated:
-        decoy = os.path.join(args.repo, "internal", "zz_deprecated_selftest.go")
-        fn = next(iter(DEPRECATED))
-        try:
-            with open(decoy, "w") as f:
-                f.write(f"package x\n\n// gate self-test decoy: {fn}\n")
-            hits = {name: gather_evidence(args.repo, name) for name in DEPRECATED}
-            if not hits.get(fn):
-                print("SELF-TEST FAIL: decoy not detected — exclusion rules hollowed out the gate")
-                sys.exit(1)
-            if any(hits.get(n) for n in DEPRECATED if n != fn):
-                print(f"SELF-TEST FAIL: unexpected extra hits: {hits}")
-                sys.exit(1)
-        finally:
-            os.remove(decoy)
-        print(f"deprecated gate self-test OK (decoy {fn} detected; tooling excluded)")
-        return
-
-    if args.check_deprecated:
+    if args.check_deprecated or args.self_test_deprecated:
+        if args.self_test_deprecated:
+            decoy = os.path.join(args.repo, "internal", "zz_deprecated_selftest.go")
+            fn = next(iter(DEPRECATED))
+            try:
+                with open(decoy, "w") as f:
+                    f.write(f"package x\n\n// gate self-test decoy: {fn}\n")
+                hits = {name: gather_evidence(args.repo, name) for name in DEPRECATED}
+                if not hits.get(fn):
+                    print("SELF-TEST FAIL: decoy not detected — exclusion rules hollowed out the gate")
+                    sys.exit(1)
+                if any(hits.get(n) for n in DEPRECATED if n != fn):
+                    print(f"SELF-TEST FAIL: unexpected extra hits: {hits}")
+                    sys.exit(1)
+            finally:
+                os.remove(decoy)
+            print(f"deprecated gate self-test OK (decoy {fn} detected; tooling excluded)")
+            return
         hits = {fn: inv[fn]["evidence"] for fn in DEPRECATED if inv[fn]["evidence"]}
         if hits:
             print("DEPRECATED REFERENCE HITS:")
@@ -192,6 +223,13 @@ def main():
             sys.exit(1)
         print(f"deprecated zero-hit OK ({len(DEPRECATED)} names)")
         return
+
+    # 设计门：119 条目全覆盖（distinct 118 全分类即覆盖条目）
+    classified = {c: sum(1 for f in inv.values() if f["class"] == c)
+                  for c in ("sqlite-trigger", "app-assume", "deprecated")}
+    if sum(classified.values()) != distinct:
+        print("CLASSIFICATION INCOMPLETE")
+        sys.exit(1)
 
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "port-inventory.json"), "w") as f:

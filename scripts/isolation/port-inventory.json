@@ -4,8 +4,8 @@
   "distinct": 118,
   "triggers": 60,
   "sqlite-trigger": 30,
-  "app-assume": 73,
-  "deprecated": 15
+  "app-assume": 70,
+  "deprecated": 18
  },
  "functions": {
   "domains_touch_updated_at": {
@@ -13,12 +13,14 @@
    "note": "BEFORE UPDATE 触碰 updated_at",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: domains_updated_at_touch(domains)"
+   ]
   },
   "revoke_renewal_on_subscription_cancel": {
    "class": "deprecated",
    "host": "subscriptions",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -47,14 +49,18 @@
    "note": "非 platform 租户 consent 禁改",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: ai_configuration_consent_guard(ai_provider_configs)"
+   ]
   },
   "urmail_alias_sender_logins_guard": {
    "class": "sqlite-trigger",
    "note": "sender_logins 身份不可变",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: alias_sender_logins_guard(mailbox_aliases)"
+   ]
   },
   "urmail_alias_would_cycle": {
    "class": "app-assume",
@@ -71,21 +77,31 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: archive_approval_activity(archive_approval_requests)",
+    "trigger-host: archive_recall_activity(recall_requests)"
+   ]
   },
   "urmail_archive_approval_bound": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: archive_product_approval_insert(archive_approval_requests)",
+    "trigger-host: archive_product_approval_update(archive_approval_requests)"
+   ]
   },
   "urmail_archive_case_changed": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: archive_case_members_changed(archive_investigation_members)",
+    "trigger-host: archive_case_sources_changed(archive_investigation_sources)",
+    "trigger-host: archive_case_version(archive_investigations)"
+   ]
   },
   "urmail_archive_case_grant": {
    "class": "app-assume",
@@ -102,14 +118,18 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "explicit: RLS policy WITH CHECK 谓词（0134:122，archive_investigation_members tenant_isolation）"
+   ]
   },
   "urmail_archive_case_member": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "explicit: RLS policy USING 谓词（0134:118/:121/:124/:127，archive_investigations/archive_investigation_members/archive_investigation_sources/archive_approval_requests 的 tenant_isolation——删除即静默丢授权）"
+   ]
   },
   "urmail_archive_case_snapshot": {
    "class": "app-assume",
@@ -127,6 +147,7 @@
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
    "evidence": [
+    "explicit: RLS policy USING 谓词（0134:113，archive_evidence_exports case_evidence_visible）",
     "internal/store/archive_case_product.sql.go",
     "internal/store/queries/archive_case_product.sql"
    ]
@@ -146,7 +167,10 @@
    "note": "legal_hold 期间禁删/改",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: archive_physical_purge_guard(archive_content)",
+    "trigger-host: archive_physical_hold_guard(archive_entries)"
+   ]
   },
   "urmail_authorize_marketing_send": {
    "class": "app-assume",
@@ -180,7 +204,7 @@
   "urmail_billing_calendar_guard": {
    "class": "deprecated",
    "host": "billing_calendars",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -189,21 +213,27 @@
    "note": "billing 写权限守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: billing_profile_write_guard(settings)"
+   ]
   },
   "urmail_bump_marketing_bounce_unknown": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: marketing_feedback_bounce_unknown(marketing_feedback)"
+   ]
   },
   "urmail_bump_marketing_campaign_stats": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: marketing_campaign_stats_bump(marketing_recipients)"
+   ]
   },
   "urmail_business_timezone": {
    "class": "app-assume",
@@ -220,7 +250,9 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: marketing_campaign_cancel(marketing_campaigns)"
+   ]
   },
   "urmail_cancel_dns_plan": {
    "class": "app-assume",
@@ -308,19 +340,21 @@
    "note": "成员域守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: contact_group_member_scope(mailbox_contact_group_members)"
+   ]
   },
   "urmail_coupon_reissue_immutable": {
    "class": "deprecated",
    "host": "coupons",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_coupon_release_authority": {
    "class": "deprecated",
    "host": "coupon_redemptions",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -345,9 +379,9 @@
    ]
   },
   "urmail_decide_archive_approval": {
-   "class": "app-assume",
-   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
-   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "class": "deprecated",
+   "host": "archive_approval_requests（0090 定义+GRANT 后零调用）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -366,7 +400,9 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "explicit: 运行链：0051 DNS 过程 PERFORM 调用 8+ 处（GRANT urmail_platform，provisioning 事务内）"
+   ]
   },
   "urmail_domain_mail_ready": {
    "class": "app-assume",
@@ -387,14 +423,18 @@
    "note": "provisioning 状态守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: domain_provisioning_guard(domains)"
+   ]
   },
   "urmail_enqueue_verified_domain": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: enqueue_verified_domain(domains)"
+   ]
   },
   "urmail_evidence_manifest_visible": {
    "class": "app-assume",
@@ -419,7 +459,7 @@
   "urmail_freeze_subscription_plan": {
    "class": "deprecated",
    "host": "subscriptions",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -428,40 +468,55 @@
    "note": "hostname 命名空间守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: brand_hosts_namespace_guard(brand_hosts)",
+    "trigger-host: domains_host_namespace_guard(domains)"
+   ]
   },
   "urmail_guard_marketing_snapshot": {
    "class": "sqlite-trigger",
    "note": "快照不可变守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: guard_marketing_content(marketing_flow_content_snapshots)",
+    "trigger-host: guard_marketing_version(marketing_flow_versions)"
+   ]
   },
   "urmail_guard_nonplatform_ai_quota": {
    "class": "sqlite-trigger",
    "note": "nonplatform AI 配额守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: nonplatform_ai_quota_guard(ai_provider_configs)"
+   ]
   },
   "urmail_guard_published_marketing_step": {
    "class": "sqlite-trigger",
    "note": "已发布步骤守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: guard_published_marketing_step(marketing_flow_steps)"
+   ]
   },
   "urmail_hold_guard": {
    "class": "sqlite-trigger",
    "note": "hold 守卫（domains/mailbox 家族复用）",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: archive_hold_guard(archive_entries)",
+    "trigger-host: domain_hold_guard(domains)",
+    "trigger-host: mailbox_hold_guard(mailboxes)",
+    "trigger-host: tenant_hold_guard(tenants)"
+   ]
   },
   "urmail_invoice_document_immutable": {
    "class": "deprecated",
    "host": "invoices",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -509,21 +564,27 @@
    "note": "邮箱身份不可变守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: mailbox_storage_identity(mailboxes)"
+   ]
   },
   "urmail_mailbox_password_version_guard": {
    "class": "sqlite-trigger",
    "note": "密码版本守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: mailbox_password_version_guard(mailboxes)"
+   ]
   },
   "urmail_mailbox_sieve_mode_guard": {
    "class": "sqlite-trigger",
    "note": "sieve 模式守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: mailbox_sieve_mode_guard(mailboxes)"
+   ]
   },
   "urmail_mark_marketing_flow_uncertain": {
    "class": "app-assume",
@@ -572,33 +633,35 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "explicit: 运行链：0158 本地配额守卫函数 SELECT INTO 调用 3 处"
+   ]
   },
   "urmail_migration_entitlement_allowed": {
    "class": "deprecated",
    "host": "plans",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_migration_plan_guard": {
    "class": "deprecated",
    "host": "plans",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_migration_subscription_guard": {
    "class": "deprecated",
    "host": "subscriptions",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_order_intention_guard": {
    "class": "deprecated",
    "host": "orders",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -607,19 +670,21 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: panel_credential_version(users)"
+   ]
   },
   "urmail_payment_inbox_alert": {
    "class": "deprecated",
    "host": "payment_webhook_inbox",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_plan_snapshot_fits": {
    "class": "deprecated",
    "host": "plans",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -648,14 +713,18 @@
    "note": "recall 状态守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: recall_state_guard(recall_requests)"
+   ]
   },
   "urmail_recall_message_identity_guard": {
    "class": "sqlite-trigger",
    "note": "recall 消息身份守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: recall_message_identity_guard(recall_requests)"
+   ]
   },
   "urmail_record_audit": {
    "class": "app-assume",
@@ -690,7 +759,7 @@
   "urmail_record_rejected_webhook": {
    "class": "deprecated",
    "host": "payment_webhook_rejections",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -728,49 +797,66 @@
    "note": "owner 角色要求",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: compliance_grants_content_owner_guard(compliance_grants)"
+   ]
   },
   "urmail_require_encrypted_totp": {
    "class": "sqlite-trigger",
    "note": "TOTP 加密要求",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: totp_encrypted_writes(users)"
+   ]
   },
   "urmail_require_grant_independence": {
    "class": "sqlite-trigger",
    "note": "grant 独立性要求",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: compliance_grants_independence_guard(compliance_grants)"
+   ]
   },
   "urmail_require_marketing_admin": {
    "class": "sqlite-trigger",
    "note": "marketing admin 要求",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: marketing_admin_guard(marketing_campaigns)",
+    "trigger-host: marketing_admin_guard(marketing_contacts)",
+    "trigger-host: marketing_admin_guard(marketing_lists)",
+    "trigger-host: marketing_admin_guard(marketing_templates)"
+   ]
   },
   "urmail_require_open_ticket": {
    "class": "sqlite-trigger",
    "note": "open ticket 要求",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: ticket_messages_open_guard(ticket_messages)"
+   ]
   },
   "urmail_require_tenant_content_admin": {
    "class": "sqlite-trigger",
    "note": "content admin 要求（0028 guard 链）",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "explicit: 运行链：0028 compliance_grants 守卫函数体内调用（require_content_owner 触发器链）"
+   ]
   },
   "urmail_reserve_mailbox_storage": {
    "class": "sqlite-trigger",
    "note": "存储预约（预约行写入+核对，SQLite 触发器可等价）",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: reserve_mailbox_storage(mailboxes)"
+   ]
   },
   "urmail_resolve_marketing_attempt": {
    "class": "app-assume",
@@ -787,7 +873,10 @@
    "note": "资源域守卫（多表复用）",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: domain_resource_guard(domains)",
+    "trigger-host: mailbox_resource_guard(mailboxes)"
+   ]
   },
   "urmail_restore_quarantine_active": {
    "class": "app-assume",
@@ -808,7 +897,11 @@
    "note": "恢复隔离守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: domain_restore_quarantine_guard(domains)",
+    "trigger-host: mailbox_restore_quarantine_guard(mailboxes)",
+    "trigger-host: tenant_restore_quarantine_guard(tenants)"
+   ]
   },
   "urmail_restore_sync_epoch": {
    "class": "app-assume",
@@ -837,14 +930,19 @@
    "note": "保留确认守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: retention_confirmation_guard(retention_policies)"
+   ]
   },
   "urmail_retention_management_guard": {
    "class": "sqlite-trigger",
    "note": "保留管理守卫",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: retention_management_guard(retention_policies)",
+    "trigger-host: retention_preview_management_guard(retention_previews)"
+   ]
   },
   "urmail_retry_marketing_flow_instance": {
    "class": "app-assume",
@@ -881,7 +979,11 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: revoke_domain_mailbox_sessions(domains)",
+    "trigger-host: revoke_mailbox_sessions(mailboxes)",
+    "trigger-host: revoke_tenant_mailbox_sessions(tenants)"
+   ]
   },
   "urmail_rollback_dns_plan": {
    "class": "app-assume",
@@ -928,14 +1030,18 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: tenant_marketing_dispatch(tenants)"
+   ]
   },
   "urmail_setting_limit": {
    "class": "sqlite-trigger",
    "note": "settings 上限守卫（0158 guard 链）",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "explicit: 运行链：0158 本地配额守卫函数体内调用（settings 限额链）"
+   ]
   },
   "urmail_skip_marketing_recipient": {
    "class": "app-assume",
@@ -962,40 +1068,44 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: stop_revoked_flow_contacts(marketing_contacts)"
+   ]
   },
   "urmail_stop_suppressed_marketing_flows": {
    "class": "app-assume",
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: stop_suppressed_marketing_flows(marketing_suppressions)"
+   ]
   },
   "urmail_store_evidence_body": {
-   "class": "app-assume",
-   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
-   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "class": "deprecated",
+   "host": "archive_evidence（0098 定义+GRANT 后零调用）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_store_evidence_manifest": {
-   "class": "app-assume",
-   "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
-   "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
+   "class": "deprecated",
+   "host": "archive_evidence（0091 定义+GRANT 后零调用）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_subscription_guard": {
    "class": "deprecated",
    "host": "subscriptions",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
   "urmail_subscription_term_guard": {
    "class": "deprecated",
    "host": "subscription_terms",
-   "replacement": "随宿主死表废弃，迁移清理（v3 §3.4 废弃登记）",
+   "replacement": "随宿主死表/零调用废弃，迁移清理（v3 §3.4 废弃登记）",
    "overloads": 1,
    "evidence": []
   },
@@ -1004,14 +1114,18 @@
    "note": "跨行/副作用/函数链 → 应用层或迁移器承担",
    "replacement": "应用层/迁移器承担；库内函数链者在 S1 逐条内联",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: support_reply_notification(ticket_messages)"
+   ]
   },
   "urmail_suppression_no_weaken": {
    "class": "sqlite-trigger",
    "note": "suppression 不可弱化",
    "replacement": "SQLite 触发器等价重写（行级 NEW/OLD 校验）",
    "overloads": 1,
-   "evidence": []
+   "evidence": [
+    "trigger-host: marketing_suppressions_no_weaken(marketing_suppressions)"
+   ]
   },
   "urmail_take_mailbox_quota": {
    "class": "app-assume",
