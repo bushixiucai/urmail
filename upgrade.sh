@@ -152,6 +152,10 @@ PLAN
     mkdir -p "$(dirname "$HOLD")"
     printf 'compose upgrade %s (%s)\n' "$V" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$HOLD"
     chmod 0644 "$HOLD"
+    # FENCED=1 must be set BEFORE the stop loop (QA P2-1): if a stop fails
+    # midway, the already-stopped urmaild must be restored by the failure
+    # handler rather than left behind with no fence registration.
+    FENCED=1
     # intentional word split: URMAIL_WRITERS is a space-separated service list
     # shellcheck disable=SC2086
     # Fence stop: absent writer services (smoke rigs) must not abort the
@@ -165,8 +169,7 @@ PLAN
         fi
         docker compose stop "$w" >>"$EVIDENCE" 2>&1 || fence_stop_ok=0
     done
-    [ "$fence_stop_ok" = "1" ] || die "fence stop failed for a present writer; aborting before hold"
-    FENCED=1
+    [ "$fence_stop_ok" = "1" ] || die "aborting during fence stop; hold kept"
     note "native fence: hold written ($HOLD), writers stopped (pg kept)"
 
     # ---- 4. checkout the tag ------------------------------------------------
@@ -226,6 +229,7 @@ PLAN
         if [ -z "$ids" ]; then
             if [ "${URMAIL_SMOKE_RIG:-0}" = "1" ]; then
                 echo "writer $w absent from this rig; skipped (URMAIL_SMOKE_RIG=1)" >>"$EVIDENCE"
+                writers_absent+=" $w"
                 continue
             fi
             echo "writer $w has no container; refusing (production fail-closed)" >>"$EVIDENCE"
