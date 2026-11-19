@@ -76,9 +76,6 @@ func TestWorkerCrossSecondRecordsOffsiteManifest(t *testing.T) {
 	if state != StateSuccess || manifestName != ManifestName(StampFor(start)) {
 		t.Fatalf("cross-second backup: run_uid=%s state=%s manifest=%q error=%q", uid, state, manifestName, runError)
 	}
-	if worker.offsiteNote != "" {
-		t.Fatalf("cross-second offsite failed: run_uid=%s error=%q", uid, runError)
-	}
 }
 
 func TestBackupRunsStateTransitions(t *testing.T) {
@@ -263,12 +260,15 @@ func (failingStore) Delete(context.Context, string) error {
 	return fmt.Errorf("offsite unreachable (injected)")
 }
 
-// TestWorkerOffsiteFailureKeepsLocalSuccess is the BE-04 degradation
-// contract: the local generation is complete, so the run records success,
-// retention is refused (fail-closed: nothing may be deleted when the new
+// TestWorkerOffsiteFailureMarksRunFailed is the v0.6.25 contract: an
+// offsite destination is configured, so a failed offsite copy can never be
+// recorded as a success -- otherwise the "fresh, fully verified backup"
+// release gate passes on a generation that does not exist offsite. The run
+// row must be failed with the offsite cause in its error text, retention
+// stays refused (fail-closed: nothing may be deleted when the new
 // generation is not verified offsite) and the operator is alerted through
-// the backup_offsite_failed outbox row instead of backup_failed.
-func TestWorkerOffsiteFailureKeepsLocalSuccess(t *testing.T) {
+// the backup_offsite_failed outbox row.
+func TestWorkerOffsiteFailureMarksRunFailed(t *testing.T) {
 	platform, _ := testdb.OpenMigrated(t)
 	ctx := context.Background()
 
@@ -285,19 +285,19 @@ func TestWorkerOffsiteFailureKeepsLocalSuccess(t *testing.T) {
 		Interval:   time.Hour,
 		Now:        time.Now,
 	}
-	if err := worker.RunOnce(ctx); err != nil {
-		t.Fatalf("offsite failure must not fail the local run: %v", err)
+	if err := worker.RunOnce(ctx); err == nil {
+		t.Fatal("offsite failure must fail the run")
 	}
 	var state, note string
 	if err := platform.Pool.QueryRow(ctx,
 		"SELECT state,error FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&state, &note); err != nil {
 		t.Fatal(err)
 	}
-	if state != StateSuccess {
-		t.Fatalf("local success must be recorded despite offsite failure, got %q", state)
+	if state != StateFailed {
+		t.Fatalf("offsite failure must record a failed run, got %q", state)
 	}
-	if !strings.Contains(note, "offsite skipped") || !strings.Contains(note, "retention skipped") {
-		t.Fatalf("run note must explain the degraded state, got %q", note)
+	if !strings.Contains(note, "offsite copy failed") || strings.Contains(note, "offsite skipped") {
+		t.Fatalf("run error must name the offsite failure, got %q", note)
 	}
 	var offsiteNotices int
 	if err := platform.Pool.QueryRow(ctx,
@@ -307,31 +307,23 @@ func TestWorkerOffsiteFailureKeepsLocalSuccess(t *testing.T) {
 	if offsiteNotices != 1 {
 		t.Fatalf("expected one backup_offsite_failed alert, got %d", offsiteNotices)
 	}
-	var failedNotices int
-	if err := platform.Pool.QueryRow(ctx,
-		"SELECT count(*) FROM notification_outbox WHERE kind=$1", "backup_failed").Scan(&failedNotices); err != nil {
-		t.Fatal(err)
-	}
-	if failedNotices != 0 {
-		t.Fatal("degraded runs must not raise backup_failed")
-	}
 
-	// The next run must be allowed: an unverified offsite copy cannot be
-	// counted as a completed generation, so the interval guard must not
-	// suppress the retry.
-	worker.Interval = time.Nanosecond
-	if err := worker.RunOnce(ctx); err != nil {
-		t.Fatal(err)
+	// The next run must be allowed without waiting out the interval: a
+	// failed run never counts as a completed generation.
+	worker.Interval = time.Hour
+	if err := worker.RunOnce(ctx); err == nil {
+		t.Fatal("second offsite failure must fail the run too")
 	}
 	var runs int
 	if err := platform.Pool.QueryRow(ctx, "SELECT count(*) FROM backup_runs").Scan(&runs); err != nil {
 		t.Fatal(err)
 	}
 	if runs != 2 {
-		t.Fatalf("degraded run must not suppress the retry, got %d runs", runs)
+		t.Fatalf("failed offsite run must not suppress the retry, got %d runs", runs)
 	}
 
-	// Recovery: with a healthy store the run verifies and completes fully.
+	// Recovery: with a healthy store the run verifies and completes fully,
+	// and the fresh row carries no failure text.
 	worker.Store = newMemoryStore()
 	if err := worker.RunOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -343,11 +335,11 @@ func TestWorkerOffsiteFailureKeepsLocalSuccess(t *testing.T) {
 		t.Fatalf("recovered run must record success, got %q", state)
 	}
 	if err := platform.Pool.QueryRow(ctx,
-		"SELECT error FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&note); err != nil {
+		"SELECT COALESCE(error,'') FROM backup_runs ORDER BY id DESC LIMIT 1").Scan(&note); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(note, "offsite skipped") {
-		t.Fatalf("recovered run must not carry the degraded note, got %q", note)
+	if strings.Contains(note, "offsite copy failed") {
+		t.Fatalf("recovered run must not carry the failure note, got %q", note)
 	}
 }
 

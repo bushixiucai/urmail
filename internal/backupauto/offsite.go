@@ -210,6 +210,12 @@ func (s *s3Store) do(ctx context.Context, method, name string, body io.Reader, l
 }
 
 func (s *s3Store) Upload(ctx context.Context, name string, r io.Reader, size int64) error {
+	if size < 0 {
+		// Unknown-length uploads fall back to chunked transfer-encoding,
+		// which MinIO and several S3-compatible endpoints reject with
+		// HTTP 411. Callers must spool to a file first (see EncryptAndUpload).
+		return fmt.Errorf("s3 upload %s: object length is required; refusing chunked PUT (HTTP 411)", name)
+	}
 	resp, err := s.do(ctx, http.MethodPut, name, r, size, "")
 	if err != nil {
 		return err

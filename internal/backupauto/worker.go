@@ -70,7 +70,6 @@ type Worker struct {
 	manifestRaw      string
 	retentionDeleted int
 	retentionNote    string
-	offsiteNote      string
 }
 
 func (w *Worker) now() time.Time {
@@ -166,7 +165,6 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	w.manifestRaw = ""
 	w.retentionDeleted = 0
 	w.retentionNote = ""
-	w.offsiteNote = ""
 	start := w.now()
 	runUID, startErr := recorder.StartRun(ctx, ScopeComplete)
 	if startErr != nil {
@@ -175,17 +173,8 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 	defer func() {
 		success := returnErr == nil
 		finishReason := returnErr
-		if success {
-			reasons := make([]string, 0, 2)
-			if w.offsiteNote != "" {
-				reasons = append(reasons, w.offsiteNote)
-			}
-			if w.retentionNote != "" {
-				reasons = append(reasons, w.retentionNote)
-			}
-			if len(reasons) > 0 {
-				finishReason = errors.New(strings.Join(reasons, "; "))
-			}
+		if success && w.retentionNote != "" {
+			finishReason = errors.New(w.retentionNote)
 		}
 		finishErr := recorder.FinishRun(ctx, runUID, success, finishReason, w.totalBytes, w.now().Sub(start), w.manifestName, w.OffsiteURI, w.retentionDeleted)
 		if returnErr == nil && finishErr != nil {
@@ -225,14 +214,14 @@ func (w *Worker) runPipeline(ctx context.Context, recorder *StateRecorder) (retu
 		return err
 	}
 	if _, offsiteErr := w.runOffsitePhase(ctx, stamp, backupTime, artifacts, sourceManifest, scope, consistent); offsiteErr != nil {
-		// BE-04: the local generation is complete on disk, so the run keeps
-		// its success semantics. Retention is refused fail-closed (the new
-		// generation is not verified offsite, so nothing may be deleted)
-		// and the operator is alerted via the existing outbox channel.
-		w.offsiteNote = fmt.Sprintf("offsite skipped: %v", offsiteErr)
-		w.retentionNote = "retention skipped: offsite copy failed"
+		// v0.6.25 semantics: an offsite destination is configured, so a run
+		// whose offsite copy failed can never satisfy the "fresh, fully
+		// verified backup" release gate. The local generation stays on disk
+		// untouched and retention stays refused fail-closed (this return
+		// happens before applyRetention), but the run row must record the
+		// failure -- never a success with a mere "offsite skipped" note.
 		_ = w.notifyOffsiteFailure(ctx, runUID, offsiteErr)
-		return nil
+		return fmt.Errorf("offsite copy failed (local generation kept, retention skipped): %w", offsiteErr)
 	}
 
 	if err := recorder.MarkVerifying(ctx, runUID); err != nil {
@@ -354,8 +343,9 @@ func (w *Worker) notifyFailure(ctx context.Context, runUID string, _ error) erro
 }
 
 // notifyOffsiteFailure inserts one platform-scoped outbox row when the
-// offsite copy of an otherwise successful local backup fails (BE-04): the
-// run stays a success, the operator still sees the degraded state.
+// offsite copy of a run fails: the run row is recorded failed (v0.6.25
+// semantics), and this alert gives the operator the offsite-specific cause
+// in addition to the generic backup_failed notice raised by runPipeline.
 func (w *Worker) notifyOffsiteFailure(ctx context.Context, runUID string, _ error) error {
 	params, _ := json.Marshal(map[string]string{
 		"kind":   "backup_offsite_failed",
