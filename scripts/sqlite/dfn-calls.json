@@ -2,9 +2,9 @@
  "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
  "total_calls": 95,
  "by_strategy": {
-  "app-assume": 29,
-  "s4-closed": 22,
+  "s4-closed": 26,
   "inline": 32,
+  "app-assume": 25,
   "inline-compose": 12
  },
  "first_batch_inline_calls": 44,
@@ -16,8 +16,9 @@
    "method": "ArchiveCasesCreate",
    "line": 4,
    "snippet": "SELECT urmail_create_archive_case(@tenant_id,@actor_id,@title,@purpose,@expires_at,@request_key) AS ",
-   "strategy": "app-assume",
-   "replacement": "过程 → repo Go（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：ArchiveCasesCreate（事务；授权+有效期+request_key 幂等；42501/23514 PgError）",
+   "status": "closed"
   },
   {
    "fn": "urmail_archive_case_snapshot",
@@ -92,8 +93,9 @@
    "method": "SoftDeleteArchiveEntry",
    "line": 55,
    "snippet": "SELECT result AS id FROM urmail_soft_delete_archive(@tenant_id,@id) AS result WHERE result IS NOT NU",
-   "strategy": "app-assume",
-   "replacement": "多语句过程 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：SoftDeleteArchiveEntry（事务；role 会话语义 app_pending）",
+   "status": "closed"
   },
   {
    "fn": "urmail_retention_authorized",
@@ -334,8 +336,9 @@
    "method": "PlatformRotatePanelPassword",
    "line": 4,
    "snippet": "SELECT urmail_rotate_panel_password(sqlc.arg(user_id),sqlc.arg(expected_hash),sqlc.arg(expected_vers",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：PlatformRotatePanelPassword（事务；40001/42501 PgError）",
+   "status": "closed"
   },
   {
    "fn": "urmail_change_panel_mfa",
@@ -343,8 +346,9 @@
    "method": "PlatformChangePanelMFA",
    "line": 9,
    "snippet": "SELECT urmail_change_panel_mfa(sqlc.arg(user_id),sqlc.arg(expected_version),sqlc.narg(secret),sqlc.a",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：PlatformChangePanelMFA（事务；40001/42501 PgError）",
+   "status": "closed"
   },
   {
    "fn": "urmail_delete_contact_group",

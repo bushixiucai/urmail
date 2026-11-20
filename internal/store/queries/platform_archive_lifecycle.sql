@@ -21,7 +21,7 @@ VALUES(@entry_id,@tenant_id,@body_text,@attachments,@extraction_error,@original_
 ON CONFLICT(entry_id) DO NOTHING;
 
 -- name: PlatformApplyArchiveRetentionCandidates :many
--- scope: platform
+-- scope: system
 
 SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
 JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
@@ -35,7 +35,7 @@ WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
 ORDER BY a.id LIMIT 100;
 
 -- name: PlatformApplyArchiveRetentionMarkDeleted :execrows
--- scope: platform
+-- scope: system
 
 UPDATE archive_entries SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE (id, tenant_id) IN (SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
@@ -50,7 +50,7 @@ WHERE (id, tenant_id) IN (SELECT a.id, a.tenant_id, p.confirmed_preview FROM arc
  ORDER BY a.id LIMIT 100);
 
 -- name: PlatformApplyArchiveRetentionMarkContent :exec
--- scope: platform
+-- scope: system
 
 UPDATE archive_content SET retention_preview=(
  SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')

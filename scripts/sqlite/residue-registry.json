@@ -4,20 +4,6 @@
     "db-function-call": [
       {
         "class": "db-function-call",
-        "file": "archive_case_product.sql",
-        "method": "ArchiveCasesCreate",
-        "line": 4,
-        "snippet": "SELECT urmail_create_archive_case(@tenant_id,@actor_id,@title,@purpose,@expires_at,@request_key) AS id;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "compliance.sql",
-        "method": "SoftDeleteArchiveEntry",
-        "line": 55,
-        "snippet": "SELECT result AS id FROM urmail_soft_delete_archive(@tenant_id,@id) AS result WHERE result IS NOT NULL;"
-      },
-      {
-        "class": "db-function-call",
         "file": "dns_onboarding.sql",
         "method": "SaveDNSCredential",
         "line": 8,
@@ -123,20 +109,6 @@
       },
       {
         "class": "db-function-call",
-        "file": "platform_auth_security.sql",
-        "method": "PlatformRotatePanelPassword",
-        "line": 4,
-        "snippet": "SELECT urmail_rotate_panel_password(sqlc.arg(user_id),sqlc.arg(expected_hash),sqlc.arg(expected_version),sqlc.arg(password_hash),sqlc.arg(keep_session)) AS credential_version;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_auth_security.sql",
-        "method": "PlatformChangePanelMFA",
-        "line": 9,
-        "snippet": "SELECT urmail_change_panel_mfa(sqlc.arg(user_id),sqlc.arg(expected_version),sqlc.narg(secret),sqlc.arg(enabled),sqlc.arg(codes),sqlc.arg(keep_session)) AS credential_version;"
-      },
-      {
-        "class": "db-function-call",
         "file": "platform_marketing.sql",
         "method": "PlatformAuthorizeMarketingSend",
         "line": 52,
@@ -202,12 +174,12 @@
         "class": "db-function-call",
         "file": "platform_marketing_flows.sql",
         "method": "PlatformCommitMarketingFlowWait",
-        "line": 97,
+        "line": 102,
         "snippet": "SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;"
       }
     ]
   },
   "totals": {
-    "db-function-call": 29
+    "db-function-call": 25
   }
 }

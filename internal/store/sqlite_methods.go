@@ -22,9 +22,11 @@ import (
 	"fmt"
 	"net/netip"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/timeutil"
@@ -849,4 +851,299 @@ func jsonEqual(a string, b []byte) bool {
 		return false
 	}
 	return bytes.Equal(am, bm)
+}
+
+// ---------------------------------------------------------------------------
+// S4 batch B: multi-statement procedures (archive case create, archive soft
+// delete, panel credential rotation). PG raised named exceptions with SQLSTATE
+// codes; the same *pgconn.PgError values are returned here so the HTTP layer's
+// existing 42501→403 / 23514→409 / 40001 mapping keeps working unchanged.
+// ---------------------------------------------------------------------------
+
+// pgError reproduces a PG RAISE EXCEPTION for call sites that switch on the
+// SQLSTATE code.
+func pgError(code, message string) error {
+	return &pgconn.PgError{Code: code, Message: message}
+}
+
+// txBeginner is the transactional seam for multi-statement procedures. pgx
+// connections/pools/txs all satisfy it; the SQLite adapter (S5/B5) must
+// implement Begin(context.Context) (pgx.Tx, error) so these procedures keep
+// the PG functions' all-or-nothing guarantee.
+type txBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// runTx applies fn inside one transaction. A DBTX without transaction support
+// is refused loudly: half-applied credential rotation or archive slices would
+// be worse than a visible error.
+func (q *Queries) runTx(ctx context.Context, fn func(*Queries) error) error {
+	beginner, ok := q.db.(txBeginner)
+	if !ok {
+		return fmt.Errorf("store: procedure requires a transactional DBTX")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := fn(q.WithTx(tx)); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// timestamptzMicros converts a pgtype.Timestamptz to SQLite unix micros.
+func timestamptzMicros(ts pgtype.Timestamptz) (int64, bool) {
+	if !ts.Valid {
+		return 0, false
+	}
+	return ts.Time.UnixMicro(), true
+}
+
+var archiveCaseRequestKeyPattern = regexp.MustCompile(`^[0-9a-f-]{36}$`)
+
+const archiveCaseExistingSQL = `SELECT id, title, purpose, expires_at FROM archive_investigations
+WHERE tenant_id=?1 AND created_by=?2 AND request_key=?3`
+
+const archiveCaseInsertSQL = `INSERT INTO archive_investigations(tenant_id,title,purpose,created_by,expires_at,request_key)
+VALUES(?1,?2,?3,?4,?5,?6) RETURNING id`
+
+const archiveCaseAddMemberSQL = `INSERT INTO archive_investigation_members(tenant_id,investigation_id,user_id)
+VALUES(?1,?2,?3)`
+
+// ArchiveCasesCreate creates (or replays, exactly-once by request_key) an
+// archive investigation and enrolls its creator as a member. Mirrors
+// urmail_create_archive_case: the current_setting tenant/user self-check is the
+// S2 decorator's app_pending obligation; the grant + expiry bounds + request
+// key idempotency are enforced here.
+func (q *Queries) ArchiveCasesCreate(ctx context.Context, arg ArchiveCasesCreateParams) (int64, error) {
+	expiry, ok := timestamptzMicros(arg.ExpiresAt)
+	if !ok || !archiveCaseRequestKeyPattern.MatchString(arg.RequestKey) {
+		return 0, pgError("42501", "CASE_NOT_AUTHORIZED")
+	}
+	now := timeutil.NowMicro()
+	oneYear := timeutil.Micro(timeutil.FromMicro(now).AddDate(1, 0, 0))
+	if expiry <= now || expiry > oneYear {
+		return 0, pgError("42501", "CASE_NOT_AUTHORIZED")
+	}
+	granted, err := q.archiveCaseGrant(ctx, arg.TenantID, arg.ActorID, "full_content")
+	if err != nil {
+		return 0, err
+	}
+	if !granted {
+		return 0, pgError("42501", "CASE_NOT_AUTHORIZED")
+	}
+	var id, existingExpiry int64
+	var title, purpose string
+	err = q.db.QueryRow(ctx, archiveCaseExistingSQL, arg.TenantID, arg.ActorID, arg.RequestKey).
+		Scan(&id, &title, &purpose, &existingExpiry)
+	switch {
+	case err == nil:
+		if title != arg.Title || purpose != arg.Purpose || existingExpiry != expiry {
+			return 0, pgError("23514", "CASE_REQUEST_KEY_MISMATCH")
+		}
+		return id, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return 0, err
+	}
+	var created int64
+	err = q.runTx(ctx, func(tx *Queries) error {
+		if err := tx.db.QueryRow(ctx, archiveCaseInsertSQL, arg.TenantID, arg.Title, arg.Purpose,
+			arg.ActorID, expiry, arg.RequestKey).Scan(&created); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, archiveCaseAddMemberSQL, arg.TenantID, created, arg.ActorID)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return created, nil
+}
+
+const softDeleteArchiveSelectSQL = `SELECT a.id FROM archive_entries a
+LEFT JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
+WHERE a.tenant_id=?1 AND a.id=?2 AND NOT a.legal_hold AND a.deleted_at IS NULL AND c.purge_started_at IS NULL`
+
+const softDeleteArchiveMarkSQL = `UPDATE archive_entries SET deleted_at=?3 WHERE tenant_id=?1 AND id=?2`
+
+const softDeleteArchivePreviewSQL = `UPDATE archive_content SET retention_preview=NULL WHERE tenant_id=?1 AND entry_id=?2`
+
+// SoftDeleteArchiveEntry marks one archive entry deleted and drops its
+// retention preview, returning pgx.ErrNoRows when the entry is legally held,
+// already deleted, or mid-purge (the HTTP layer maps that to 409 LEGAL_HOLD).
+// The PG function also required current_setting('urmail.user_id') to hold
+// owner|admin; that session-role assertion is registered app_pending (S2
+// decorator) and is not silently dropped.
+func (q *Queries) SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error) {
+	var id int64
+	err := q.db.QueryRow(ctx, softDeleteArchiveSelectSQL, arg.TenantID, arg.ID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, pgx.ErrNoRows
+	}
+	if err != nil {
+		return 0, err
+	}
+	now := timeutil.NowMicro()
+	err = q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, softDeleteArchiveMarkSQL, arg.TenantID, id, now); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, softDeleteArchivePreviewSQL, arg.TenantID, id)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+const panelUserCredentialSQL = `SELECT 1 FROM users
+WHERE id=?1 AND credential_version=?2 AND status='active'`
+
+const panelUserPasswordSQL = `SELECT 1 FROM users
+WHERE id=?1 AND password_hash=?2 AND credential_version=?3 AND status='active'`
+
+const panelSessionSQL = `SELECT 1 FROM sessions
+WHERE id=?1 AND user_id=?2 AND kind='panel' AND credential_version=?3 AND expires_at>?4`
+
+const panelRotatePasswordSQL = `UPDATE users SET password_hash=?2, password_changed_at=?3 WHERE id=?1`
+
+const panelSetMFASQL = `UPDATE users SET mfa_secret=?2, mfa_enabled=?3, mfa_recovery_codes=?4 WHERE id=?1`
+
+// panelCredentialVersionSQL reads the generation after the users trigger
+// panel_credential_version bumped it (SQLite RETURNING is computed before
+// AFTER triggers fire, so the value must be read back).
+const panelCredentialVersionSQL = `SELECT credential_version FROM users WHERE id=?1`
+
+const panelDropOtherSessionsSQL = `DELETE FROM sessions WHERE user_id=?1 AND id<>?2`
+
+const panelTouchKeptSessionSQL = `UPDATE sessions SET credential_version=?3 WHERE user_id=?1 AND id=?2`
+
+const panelTouchKeptMFASessionSQL = `UPDATE sessions SET credential_version=?3, mfa_verified_at=?4
+WHERE user_id=?1 AND id=?2`
+
+const panelCredentialAuditSQL = `INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
+VALUES(?1,'auth.credential.rotate','users',?2,?3)`
+
+func (q *Queries) requireCredentialRow(ctx context.Context, query string, args ...any) error {
+	var one int64
+	switch err := q.db.QueryRow(ctx, query, args...).Scan(&one); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return err
+	case err != nil:
+		return err
+	}
+	return nil
+}
+
+// PlatformRotatePanelPassword rotates a panel password, revokes every other
+// session and returns the new credential generation. Mirrors
+// urmail_rotate_panel_password (CREDENTIAL_CHANGED→40001, SESSION_REVOKED→42501).
+func (q *Queries) PlatformRotatePanelPassword(ctx context.Context, arg PlatformRotatePanelPasswordParams) (int64, error) {
+	now := timeutil.NowMicro()
+	err := q.requireCredentialRow(ctx, panelUserPasswordSQL, arg.UserID, arg.ExpectedHash, arg.ExpectedVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, pgError("40001", "CREDENTIAL_CHANGED")
+	}
+	if err != nil {
+		return 0, err
+	}
+	err = q.requireCredentialRow(ctx, panelSessionSQL, arg.KeepSession, arg.UserID, arg.ExpectedVersion, now)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, pgError("42501", "SESSION_REVOKED")
+	}
+	if err != nil {
+		return 0, err
+	}
+	var generation int64
+	err = q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, panelRotatePasswordSQL, arg.UserID, arg.PasswordHash, now); err != nil {
+			return err
+		}
+		if err := tx.db.QueryRow(ctx, panelCredentialVersionSQL, arg.UserID).Scan(&generation); err != nil {
+			return err
+		}
+		if _, err := tx.db.Exec(ctx, panelDropOtherSessionsSQL, arg.UserID, arg.KeepSession); err != nil {
+			return err
+		}
+		if _, err := tx.db.Exec(ctx, panelTouchKeptSessionSQL, arg.UserID, arg.KeepSession, generation); err != nil {
+			return err
+		}
+		detail, err := json.Marshal(struct {
+			CredentialVersion int64 `json:"credential_version"`
+		}{generation})
+		if err != nil {
+			return err
+		}
+		_, err = tx.db.Exec(ctx, panelCredentialAuditSQL, arg.UserID,
+			strconv.FormatInt(arg.UserID, 10), string(detail))
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return generation, nil
+}
+
+// PlatformChangePanelMFA enables/disables panel MFA, revokes every other
+// session and returns the new credential generation. Mirrors
+// urmail_change_panel_mfa.
+func (q *Queries) PlatformChangePanelMFA(ctx context.Context, arg PlatformChangePanelMFAParams) (int64, error) {
+	now := timeutil.NowMicro()
+	err := q.requireCredentialRow(ctx, panelUserCredentialSQL, arg.UserID, arg.ExpectedVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, pgError("40001", "CREDENTIAL_CHANGED")
+	}
+	if err != nil {
+		return 0, err
+	}
+	err = q.requireCredentialRow(ctx, panelSessionSQL, arg.KeepSession, arg.UserID, arg.ExpectedVersion, now)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, pgError("42501", "SESSION_REVOKED")
+	}
+	if err != nil {
+		return 0, err
+	}
+	var secret any
+	if arg.Secret.Valid {
+		secret = arg.Secret.String
+	}
+	enabled := int64(0)
+	if arg.Enabled {
+		enabled = 1
+	}
+	var mfaVerified any
+	if arg.Enabled {
+		mfaVerified = now
+	}
+	var generation int64
+	err = q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, panelSetMFASQL, arg.UserID, secret, enabled, string(arg.Codes)); err != nil {
+			return err
+		}
+		if err := tx.db.QueryRow(ctx, panelCredentialVersionSQL, arg.UserID).Scan(&generation); err != nil {
+			return err
+		}
+		if _, err := tx.db.Exec(ctx, panelDropOtherSessionsSQL, arg.UserID, arg.KeepSession); err != nil {
+			return err
+		}
+		if _, err := tx.db.Exec(ctx, panelTouchKeptMFASessionSQL, arg.UserID, arg.KeepSession, generation, mfaVerified); err != nil {
+			return err
+		}
+		detail, err := json.Marshal(struct {
+			CredentialVersion int64 `json:"credential_version"`
+		}{generation})
+		if err != nil {
+			return err
+		}
+		_, err = tx.db.Exec(ctx, panelCredentialAuditSQL, arg.UserID,
+			strconv.FormatInt(arg.UserID, 10), string(detail))
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return generation, nil
 }

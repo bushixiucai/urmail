@@ -38,13 +38,13 @@ AND address=sqlc.arg(address) AND password_hash=sqlc.arg(expected_hash)
 AND password_version=sqlc.arg(expected_version) AND status='active';
 
 -- name: PlatformRevokeMailboxSessions :execrows
--- scope: platform
+-- scope: system
 
 UPDATE mailbox_sessions SET revoked_at=COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
 WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id);
 
 -- name: PlatformConsumeMailboxOperationTickets :execrows
--- scope: platform
+-- scope: system
 
 UPDATE mailbox_operation_tickets SET consumed_at=COALESCE(consumed_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
 WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id);

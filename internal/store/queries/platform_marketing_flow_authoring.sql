@@ -48,7 +48,7 @@ UPDATE marketing_flow_positions SET delivery_uncertain=true,last_error='delivery
 WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
 -- name: PlatformRecordMarketingFlowNodeExecution :execrows
--- scope: platform
+-- scope: system
 
 INSERT INTO marketing_flow_node_executions(tenant_id, position_id, lease_fence, node_key, status, error_code)
 SELECT p.tenant_id, p.id, p.lease_fence, sqlc.arg(node_key), sqlc.arg(status), sqlc.arg(error_code)
@@ -60,7 +60,7 @@ WHERE p.tenant_id=sqlc.arg(tenant_id) AND p.flow_id=sqlc.arg(flow_id) AND p.emai
 ON CONFLICT(tenant_id, position_id, lease_fence) DO NOTHING;
 
 -- name: PlatformBumpMarketingFlowAttempt :execrows
--- scope: platform
+-- scope: system
 
 UPDATE marketing_flow_positions
 SET attempt_count=attempt_count+1,

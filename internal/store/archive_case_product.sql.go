@@ -214,10 +214,6 @@ func (q *Queries) ArchiveCasesClose(ctx context.Context, arg ArchiveCasesClosePa
 	return i, err
 }
 
-const archiveCasesCreate = `-- name: ArchiveCasesCreate :one
-SELECT urmail_create_archive_case($1::bigint,$2::bigint,$3::text,$4::text,$5::timestamptz,$6::text)::bigint AS id
-`
-
 type ArchiveCasesCreateParams struct {
 	TenantID   int64              `json:"tenant_id"`
 	ActorID    int64              `json:"actor_id"`
@@ -225,20 +221,6 @@ type ArchiveCasesCreateParams struct {
 	Purpose    string             `json:"purpose"`
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	RequestKey string             `json:"request_key"`
-}
-
-func (q *Queries) ArchiveCasesCreate(ctx context.Context, arg ArchiveCasesCreateParams) (int64, error) {
-	row := q.db.QueryRow(ctx, archiveCasesCreate,
-		arg.TenantID,
-		arg.ActorID,
-		arg.Title,
-		arg.Purpose,
-		arg.ExpiresAt,
-		arg.RequestKey,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }
 
 const archiveCasesDecideApproval = `-- name: ArchiveCasesDecideApproval :one

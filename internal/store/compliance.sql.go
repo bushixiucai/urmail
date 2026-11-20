@@ -262,18 +262,8 @@ func (q *Queries) SetArchiveEntryLegalHold(ctx context.Context, arg SetArchiveEn
 	return i, err
 }
 
-const softDeleteArchiveEntry = `-- name: SoftDeleteArchiveEntry :one
-SELECT result::bigint AS id FROM urmail_soft_delete_archive($1::bigint,$2::bigint) AS result WHERE result IS NOT NULL
-`
-
 type SoftDeleteArchiveEntryParams struct {
 	TenantID int64 `json:"tenant_id"`
 	ID       int64 `json:"id"`
 }
 
-func (q *Queries) SoftDeleteArchiveEntry(ctx context.Context, arg SoftDeleteArchiveEntryParams) (int64, error) {
-	row := q.db.QueryRow(ctx, softDeleteArchiveEntry, arg.TenantID, arg.ID)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}

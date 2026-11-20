@@ -21,6 +21,9 @@ def main():
     ap.add_argument("--platform-methods", default="scripts/sqlite/platform-methods.txt")
     ap.add_argument("--out", default="scripts/sqlite/method_scopes.json")
     ap.add_argument("--write-scopes", action="store_true")
+    ap.add_argument("--handwritten-scopes",
+                    default="scripts/sqlite/handwritten-scopes.txt",
+                    help="S4 手写层（sqlite_methods.go）方法作用域，按行登记")
     args = ap.parse_args()
 
     golden = json.load(open(args.golden))
@@ -30,6 +33,18 @@ def main():
     if os.path.exists(args.platform_methods):
         platform_methods = {l.strip() for l in open(args.platform_methods)
                             if l.strip() and not l.startswith("#")}
+
+    handwritten = {}
+    if os.path.exists(args.handwritten_scopes):
+        for line in open(args.handwritten_scopes):
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) != 2 or parts[1] not in ("tenant", "platform", "system", "pre-auth"):
+                print(f"handwritten-scopes: bad line {line!r}")
+                sys.exit(1)
+            handwritten[parts[0]] = parts[1]
 
     violations = []
     unbound = []
@@ -44,7 +59,7 @@ def main():
             m = re.match(r"-- name:\s*(\w+)\s*(?::\w+)?", header)
             name = m.group(1)
             total += 1
-            sm = re.search(r"(?m)^-- scope:\s*(tenant|platform)\s*$", body)
+            sm = re.search(r"(?m)^-- scope:\s*(tenant|platform|system|pre-auth)\s*$", body)
             if not sm:
                 violations.append(f"{name} ({os.path.basename(path)}): missing -- scope")
                 continue
@@ -66,13 +81,21 @@ def main():
             print(" ", v)
         sys.exit(1)
 
-    counts = {"tenant": sum(1 for s in scopes.values() if s == "tenant"),
-              "platform": sum(1 for s in scopes.values() if s == "platform")}
+    # 手写层合并：同名方法出现两种作用域即中止（不允许静默覆盖）。
+    for name, scope in handwritten.items():
+        if name in scopes and scopes[name] != scope:
+            print(f"scope conflict: {name} annotated {scopes[name]}, handwritten {scope}")
+            sys.exit(1)
+        scopes[name] = scope
+
+    counts = {axis: sum(1 for s in scopes.values() if s == axis)
+              for axis in ("tenant", "platform", "system", "pre-auth")}
     if args.write_scopes:
         json.dump({"scopes": scopes, "counts": counts,
                    "tenant_id_unbound": sorted(unbound)},
                   open(args.out, "w"), indent=1, ensure_ascii=False)
-        print(json.dumps({"statements": total, "scopes": counts,
+        print(json.dumps({"statements": total, "handwritten": len(handwritten),
+                          "scopes": counts,
                           "tenant_id_unbound": len(unbound),
                           "method_scopes": args.out}, ensure_ascii=False))
     else:

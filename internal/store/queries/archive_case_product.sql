@@ -1,7 +1,5 @@
--- name: ArchiveCasesCreate :one
--- scope: platform
-
-SELECT urmail_create_archive_case(@tenant_id,@actor_id,@title,@purpose,@expires_at,@request_key) AS id;
+-- ArchiveCasesCreate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_create_archive_case = 授权/有效期/request_key 幂等三步过程（事务 + pgconn.PgError 码）。
 
 -- name: ArchiveCasesList :many
 -- scope: tenant

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -431,8 +432,9 @@ func TestAppPendingFrozen(t *testing.T) {
 	}
 	// S3: urmail_recall_guard 的 0142 会话条款（authority/actor/digest）显式登记为
 	// S2 装饰器承接，故守卫数由 12 升为 13（原 12 为 S1 实测值）。
-	if count != 13 {
-		t.Fatalf("app_pending guards = %d, frozen at 13", count)
+	// S4: urmail_panel_credential_version 的 rehash 会话变量（S2）登记为第 14 条。
+	if count != 14 {
+		t.Fatalf("app_pending guards = %d, frozen at 14", count)
 	}
 }
 
@@ -476,5 +478,56 @@ func TestNewTableForeignKeys(t *testing.T) {
 	if _, err := db.ExecContext(ctx,
 		"INSERT INTO message_labels(tenant_id, mailbox_id, folder, uid_validity, uid, label_id, fingerprint) VALUES(1,1,'INBOX',1,1,999,'')"); err == nil {
 		t.Fatal("message_labels FK to labels must reject orphan rows")
+	}
+}
+
+// TestHandwrittenMethodsScoped protects the S4 handwritten layer: every
+// exported *Queries method that lives in internal/store/sqlite_methods.go was
+// removed from queries/*.sql, so it has no `-- scope:` annotation left. Each
+// one must be registered in scripts/sqlite/handwritten-scopes.txt, which
+// scope_lint.py merges into method_scopes.json for the S3 decorator. A method
+// dropping out of that table would otherwise silently lose its axis.
+func TestHandwrittenMethodsScoped(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "store", "sqlite_methods.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered := map[string]bool{}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "scripts", "sqlite", "handwritten-scopes.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			t.Fatalf("handwritten-scopes.txt: bad line %q", line)
+		}
+		registered[fields[0]] = true
+	}
+	method := regexp.MustCompile(`(?m)^func \(q \*Queries\) ([A-Z]\w*)\(ctx context\.Context`)
+	for _, m := range method.FindAllStringSubmatch(string(src), -1) {
+		if !registered[m[1]] {
+			t.Fatalf("handwritten method %s has no scope registration in scripts/sqlite/handwritten-scopes.txt", m[1])
+		}
+	}
+	// The merged table must carry every registered method.
+	scopeRaw, err := os.ReadFile(filepath.Join("..", "..", "scripts", "sqlite", "method_scopes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Scopes map[string]string `json:"scopes"`
+	}
+	if err := json.Unmarshal(scopeRaw, &table); err != nil {
+		t.Fatal(err)
+	}
+	for name := range registered {
+		if table.Scopes[name] == "" {
+			t.Fatalf("method_scopes.json is stale: %s missing (run scripts/sqlite/scope_lint.py --write-scopes)", name)
+		}
 	}
 }

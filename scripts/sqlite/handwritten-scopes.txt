@@ -1,0 +1,39 @@
+# 手写查询层作用域表（S4）：internal/store/sqlite_methods.go 中从 sqlc 生成层
+# 拆出的方法没有 `-- scope:` 注解，作用域在此逐条登记，由
+# scripts/sqlite/scope_lint.py 合并进 method_scopes.json（S3 装饰器的输入）。
+#
+# 格式：<Method> <tenant|platform|system|pre-auth>
+# 取值来自被替换语句的原注解；process 级（worker/定时器，无用户会话）方法按
+# scripts/sqlite/PREAUTH-SCOPE-DRAFT.md 的四轴模型登记为 system。
+#
+# 待办（S3）：ConsumeUserRecoveryCode 位于认证前恢复码校验路径，暂按 platform
+# 保守登记；进入 pre-auth 轴需先在 scripts/sqlite/preauth-allowlist.md 逐条签核。
+
+# -- system: 后台 worker / 无会话进程
+PlatformRevokeMailboxSessions            system
+PlatformConsumeMailboxOperationTickets   system
+PlatformApplyArchiveRetentionCandidates  system
+PlatformApplyArchiveRetentionMarkContent system
+PlatformApplyArchiveRetentionMarkDeleted system
+PlatformRecordMarketingFlowNodeExecution system
+PlatformBumpMarketingFlowAttempt         system
+
+# -- tenant: 租户请求（配额日计数）
+GetMailboxDailySent          tenant
+GetMailboxDailySentForUpdate tenant
+IncrementMailboxDailySent    tenant
+
+# -- platform: 平台管理员 / 平台写入
+ConsumeUserRecoveryCode            platform
+PlatformTakeMailboxDailyQuota      platform
+RecordTenantAudit                  platform
+PlatformReadEvidenceBody           platform
+PlatformMarkMarketingFlowUncertain platform
+PlatformDeleteContactGroup         platform
+ArchiveCasesSnapshot               platform
+ArchiveCasesSnapshotDigest         platform
+ArchiveCasesExportVisible          platform
+ArchiveCasesCreate                 platform
+SoftDeleteArchiveEntry             platform
+PlatformRotatePanelPassword        platform
+PlatformChangePanelMFA             platform

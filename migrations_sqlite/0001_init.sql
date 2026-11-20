@@ -2500,6 +2500,16 @@ END;
 
 -- APP-PENDING (urmail_mailbox_sieve_mode_guard): LEGACY_SIEVE_IMPORT_AUTHORITY_REQUIRED（trusted role + migration entitlement）→ S2 装饰器
 
+-- Port of PG function urmail_panel_credential_version (panel 凭据代数自增：密码轮换或 MFA 开关/密钥变更时 +1；rehash 路径（urmail.password_rehash=true）不自增，避免无谓注销会话。PG 为 BEFORE UPDATE 改 NEW，SQLite 无 NEW 赋值，改为 AFTER UPDATE 回写。)
+CREATE TRIGGER IF NOT EXISTS panel_credential_version
+AFTER UPDATE ON users
+WHEN (NEW.password_hash IS NOT OLD.password_hash AND current_setting('urmail.password_rehash',true) IS NOT 'true') OR NEW.mfa_enabled IS NOT OLD.mfa_enabled OR NEW.mfa_secret IS NOT OLD.mfa_secret
+BEGIN
+  UPDATE users SET credential_version = OLD.credential_version + 1 WHERE id = NEW.id;
+END;
+
+-- APP-PENDING (urmail_panel_credential_version): current_setting('urmail.password_rehash') 会话变量由 S2 装饰器/S5 适配器提供（与 PlatformRehashPanelPassword 的 set_config 同源）
+
 -- Port of PG function urmail_recall_guard (0142 审核流（preview→pending→local_recalled）数据完整性子集；权限/身份/摘要应用层；JSON 访问全部 json_valid 守卫 + 2 参 json_type（单参 json_type('plain string') 抛 malformed JSON，且 SQLite 不保证 WHERE 内 AND 短路）)
 CREATE TRIGGER IF NOT EXISTS recall_state_guard_insert
 BEFORE INSERT ON recall_requests

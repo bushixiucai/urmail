@@ -685,5 +685,20 @@
         "body": "SELECT RAISE(ABORT,'SUPPRESSION_REASON_IMMUTABLE')"
       }
     ]
+  },
+  "urmail_panel_credential_version": {
+    "note": "panel 凭据代数自增：密码轮换或 MFA 开关/密钥变更时 +1；rehash 路径（urmail.password_rehash=true）不自增，避免无谓注销会话。PG 为 BEFORE UPDATE 改 NEW，SQLite 无 NEW 赋值，改为 AFTER UPDATE 回写。",
+    "app_pending": "current_setting('urmail.password_rehash') 会话变量由 S2 装饰器/S5 适配器提供（与 PlatformRehashPanelPassword 的 set_config 同源）",
+    "app_pending_slice": "S2",
+    "triggers": [
+      {
+        "name": "panel_credential_version",
+        "table": "users",
+        "timing": "AFTER",
+        "event": "UPDATE",
+        "when": "(NEW.password_hash IS NOT OLD.password_hash AND current_setting('urmail.password_rehash',true) IS NOT 'true') OR NEW.mfa_enabled IS NOT OLD.mfa_enabled OR NEW.mfa_secret IS NOT OLD.mfa_secret",
+        "body": "UPDATE users SET credential_version = OLD.credential_version + 1 WHERE id = NEW.id"
+      }
+    ]
   }
 }
