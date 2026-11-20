@@ -7,8 +7,8 @@ WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(mailbox_id) AND status='acti
 -- name: MailboxImportStorageBudget :one
 -- scope: tenant
 
-SELECT sum(CASE WHEN j.mailbox_id=sqlc.arg(mailbox_id THEN 1 ELSE 0 END)) AS mailbox_jobs,
- COALESCE(sum(CASE WHEN j.mailbox_id=sqlc.arg(mailbox_id THEN j.source_bytes ELSE 0 END)),0) AS mailbox_bytes,
+SELECT count(CASE WHEN j.mailbox_id=sqlc.arg(mailbox_id) THEN 1 END) AS mailbox_jobs,
+ COALESCE(sum(CASE WHEN j.mailbox_id=sqlc.arg(mailbox_id) THEN j.source_bytes ELSE 0 END),0) AS mailbox_bytes,
  COALESCE(sum(j.source_bytes),0) AS tenant_bytes
 FROM mailbox_import_jobs j WHERE j.tenant_id=sqlc.arg(tenant_id) AND j.payload_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND (j.status NOT IN('completed','canceled') OR EXISTS(SELECT 1 FROM mailbox_import_items i
@@ -17,7 +17,7 @@ AND (j.status NOT IN('completed','canceled') OR EXISTS(SELECT 1 FROM mailbox_imp
 -- name: ClearExpiredMailboxImportPayloads :exec
 -- scope: tenant
 
-UPDATE mailbox_import_items SET raw_secret=''  WHERE tenant_id=sqlc.arg(tenant_id) AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=tenant_id AND j.mailbox_id=mailbox_id AND j.id=job_id AND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000));-- name: CreateMailboxImportJob :one
+UPDATE mailbox_import_items SET raw_secret=''  WHERE tenant_id=sqlc.arg(tenant_id) AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=mailbox_import_items.tenant_id AND j.mailbox_id=mailbox_import_items.mailbox_id AND j.id=mailbox_import_items.job_id AND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000));-- name: CreateMailboxImportJob :one
 -- scope: tenant
 
 INSERT INTO mailbox_import_jobs(tenant_id,mailbox_id,request_key,format,filename,folder,uid_validity,source_digest,preview_digest,duplicate_policy,source_bytes)
@@ -66,14 +66,14 @@ AND version=sqlc.arg(expected_version) RETURNING *;
 -- name: SetMailboxImportItem :execrows
 -- scope: tenant
 
-UPDATE mailbox_import_items AS i SET selected=sqlc.arg(selected),status=sqlc.arg(status),error_code=sqlc.arg(error_code),
+UPDATE mailbox_import_items SET selected=sqlc.arg(selected),status=sqlc.arg(status),error_code=sqlc.arg(error_code),
  baseline_uids=sqlc.arg(baseline_uids),destination_uid=sqlc.narg(destination_uid),
  attempts=attempts+CASE WHEN sqlc.arg(start_attempt) THEN 1 ELSE 0 END,
  attempt_started_at=CASE WHEN sqlc.arg(start_attempt) THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE attempt_started_at END,
  reconciled_at=CASE WHEN sqlc.arg(reconciled) THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE reconciled_at END,
  reconcile_absent=sqlc.arg(reconcile_absent),review_reason=sqlc.arg(review_reason),
  raw_secret=CASE WHEN sqlc.arg(clear_payload) THEN '' ELSE raw_secret END,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE i.tenant_id=sqlc.arg(tenant_id) AND i.mailbox_id=sqlc.arg(mailbox_id) AND i.job_id=sqlc.arg(job_id) AND i.item_index=sqlc.arg(item_index)
+WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND job_id=sqlc.arg(job_id) AND item_index=sqlc.arg(item_index)
 AND (sqlc.arg(lease_fence)='' OR EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=sqlc.arg(tenant_id) AND j.mailbox_id=sqlc.arg(mailbox_id) AND j.id=sqlc.arg(job_id) AND j.lease_token=sqlc.arg(lease_fence)));
 
 -- name: MailboxImportReservedBytes :one
