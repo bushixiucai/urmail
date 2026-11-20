@@ -13,7 +13,7 @@ WHERE tenant_id=?1 AND mailbox_id=?2 AND kind='draft_save' AND idempotency_key=?
 -- name: PlatformDraftReplacementPending :one
 -- scope: platform
 
-SELECT EXISTS(SELECT 1 FROM mailbox_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND kind='draft_save'
+SELECT EXISTS(SELECT 1 FROM mailbox_jobs WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND kind='draft_save'
 AND status='uncertain' AND json_extract(payload, '$.previous_uid')=sqlc.arg(previous_uid)
 AND json_extract(payload, '$.previous_validity')=sqlc.arg(previous_validity));
 

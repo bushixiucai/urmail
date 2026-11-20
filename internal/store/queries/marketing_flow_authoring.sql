@@ -74,7 +74,7 @@ UPDATE marketing_flow_definitions SET status='paused',updated_at=(CAST(strftime(
 -- name: PauseMarketingRuntimeFlows :exec
 -- scope: tenant
 
-UPDATE marketing_flows SET status='paused' WHERE tenant_id=?1 AND id IN(SELECT v.runtime_flow_id  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2));
+UPDATE marketing_flows SET status='paused' WHERE tenant_id=?1 AND id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2);
 -- name: ListMarketingFlowVersions :many
 -- scope: tenant
 
