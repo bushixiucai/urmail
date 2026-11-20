@@ -58,6 +58,14 @@ type MailboxNativeHandler struct {
 	// confirmation tokens). An empty key disables those features: remote
 	// images stay blocked and links keep their plain form.
 	RenderKey []byte
+	// ProtocolValidateOnly turns ProtocolAuth into a side-effect-free
+	// credential check: password verification and the rate limiter still
+	// run, but no session row is created or revoked, no credential is
+	// vaulted and no bearer is minted. The SQLite slice-1 runtime sets this
+	// (contract V2 §5: authentication is allowed only as side-effect-free
+	// validation); the router's out-of-group gate then denies the unapproved
+	// protocol surface. PG mode must leave it false.
+	ProtocolValidateOnly bool
 	// ImageFetcher downloads proxied images. Nil uses the default fetcher
 	// with its SSRF screen and limits; tests inject their own.
 	ImageFetcher ImageProxyFetcher

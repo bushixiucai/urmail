@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -30,6 +31,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/imageproxy"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
@@ -97,12 +99,13 @@ func newSlice1Server(t *testing.T) (*sql.DB, *httptest.Server) {
 	}
 
 	engine := api.New(api.Options{
-		SQLiteStore:   db,
-		WebmailNative: true,
-		DevMode:       true,
-		MyHostname:    "localhost",
-		IMAPAddr:      "127.0.0.1:1", // unreachable by construction: slice 1 never dials IMAP
-		SMTPAddr:      "127.0.0.1:1",
+		SQLiteStore:      db,
+		WebmailNative:    true,
+		DevMode:          true,
+		MyHostname:       "localhost",
+		IMAPAddr:         "127.0.0.1:1", // unreachable by construction: slice 1 never dials IMAP
+		SMTPAddr:         "127.0.0.1:1",
+		WebmailRenderKey: []byte("slice1-render-key"),
 	})
 	server := httptest.NewServer(engine)
 	t.Cleanup(server.Close)
@@ -241,6 +244,95 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 	}
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_scheduled_sends`).Scan(&scheduledRows); err != nil || scheduledRows != 0 {
 		t.Fatalf("scheduled-sends rows = %d (err=%v), want 0: a denied route wrote storage", scheduledRows, err)
+	}
+
+	// (h3) OUT-OF-GROUP boundary (same single default-deny boundary): the
+	// EAS alias authenticates through ProtocolAuth and the image proxy is
+	// authorized by signed URL — both bypass mailboxAuthed. In SQLite mode
+	// protocol auth must be side-effect-free (NO mailbox_sessions row) and
+	// the gate must answer 503 before any provider/network work.
+	rawRequest := func(method, path string, basic bool, query url.Values) (int, string) {
+		t.Helper()
+		target := server.URL + path
+		if len(query) > 0 {
+			target += "?" + query.Encode()
+		}
+		req, err := http.NewRequestWithContext(ctx, method, target, nil)
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		if basic {
+			req.SetBasicAuth("alice@a.example.test", password)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("do %s %s: %v", method, path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		return resp.StatusCode, string(raw)
+	}
+	var sessionsBefore, sessionsAfter int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&sessionsBefore); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	// Valid Basic credentials: validation passes (rate limiter counts a
+	// success), but NO session row is written and EAS answers
+	// FEATURE_UNAVAILABLE — never the 200/501 protocol handler.
+	for _, easPath := range []string{"/api/v1/eas", "/Microsoft-Server-ActiveSync"} {
+		code, body = rawRequest(http.MethodPost, easPath, true, nil)
+		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
+			t.Fatalf("EAS Basic %s = %d %s, want 503 FEATURE_UNAVAILABLE", easPath, code, body)
+		}
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&sessionsAfter); err != nil || sessionsAfter != sessionsBefore {
+		t.Fatalf("EAS Basic mutated sessions: before=%d after=%d (err=%v)", sessionsBefore, sessionsAfter, err)
+	}
+	// Invalid Basic credentials keep the protocol's 401 semantics (and write
+	// nothing).
+	code, body = rawRequest(http.MethodPost, "/api/v1/eas", false, nil)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("EAS anonymous = %d %s, want 401", code, body)
+	}
+	req401 := func() (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/api/v1/eas", nil)
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		req.SetBasicAuth("alice@a.example.test", "not-the-password")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		return resp.StatusCode, string(raw)
+	}
+	if code, body = req401(); code != http.StatusUnauthorized {
+		t.Fatalf("EAS wrong password = %d %s, want 401", code, body)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&sessionsAfter); err != nil || sessionsAfter != sessionsBefore {
+		t.Fatalf("EAS failures mutated sessions: before=%d after=%d (err=%v)", sessionsBefore, sessionsAfter, err)
+	}
+	// Image proxy: a VALID signed URL must not reach the fetcher — the gate
+	// answers 503 before signature verification, so no external request is
+	// even attempted (the target below is unreachable loopback port 1; a
+	// handler call would have degraded to a 200 placeholder instead).
+	signer := imageproxy.NewSigner([]byte("slice1-render-key"))
+	token, signature, signErr := signer.Sign(imageproxy.Payload{MailboxID: 11, UID: 1, URL: "http://127.0.0.1:1/pixel.png"})
+	if signErr != nil {
+		t.Fatalf("sign payload: %v", signErr)
+	}
+	code, body = rawRequest(http.MethodGet, "/api/v1/mailbox/images/proxy", false, url.Values{"u": {token}, "sig": {signature}})
+	if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
+		t.Fatalf("image proxy = %d %s, want 503 FEATURE_UNAVAILABLE", code, body)
 	}
 
 	// snapshot alice's row before the isolation negatives.

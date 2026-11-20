@@ -64,6 +64,16 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 			protocolUnauthorized(c)
 			return
 		}
+		// SQLite slice-1 runtime (contract V2 §5): authentication is allowed
+		// only as side-effect-free validation. Stop here — no session row is
+		// created or revoked, no vault write, no bearer minting; the router's
+		// out-of-group gate then answers FEATURE_UNAVAILABLE. Bad credentials
+		// keep the protocol's 401 semantics above.
+		if h.ProtocolValidateOnly {
+			reservation.CompleteSuccess()
+			c.Next()
+			return
+		}
 		token, tokenHash, err := mailboxprincipal.NewToken()
 		if err != nil {
 			c.AbortWithStatus(http.StatusServiceUnavailable)

@@ -348,6 +348,10 @@ func New(opts Options) *gin.Engine {
 		SelfSettings: mailboxSelfSettings,
 		Rules:        mailboxRules,
 		Sieve:        opts.SieveActivator,
+		// SQLite slice-1: Basic protocol authentication validates
+		// credentials only — no session-row write, no vault, no bearer
+		// (contract V2 §5).
+		ProtocolValidateOnly: sqliteMode,
 	}
 	if opts.WebmailSubmitter != nil {
 		mailboxNative.Submitter = opts.WebmailSubmitter
@@ -417,10 +421,26 @@ func New(opts Options) *gin.Engine {
 		}
 	}
 	// Standard devices authenticate here, before the shared EAS transport.
-	engine.OPTIONS("/Microsoft-Server-ActiveSync", protocolAuth, mailboxNative.EASOptions)
-	engine.POST("/Microsoft-Server-ActiveSync", protocolAuth, mailboxNative.EASCommand)
-	engine.OPTIONS("/api/v1/eas", protocolAuth, mailboxNative.EASOptions)
-	engine.POST("/api/v1/eas", protocolAuth, mailboxNative.EASCommand)
+	// SQLite slice-1 single default-deny boundary for native entry points
+	// OUTSIDE the mailboxAuthed group that reach real provider/write
+	// surfaces (the EAS alias through protocol auth, the image proxy
+	// fetch). Protocol auth stays a side-effect-free validation (no
+	// session-row write via ProtocolValidateOnly); the gate then denies the
+	// surface before any provider handling — 503 FEATURE_UNAVAILABLE, no
+	// Retry-After, no fallback. PG mode never sees the gate.
+	sqliteNativeGate := func(c *gin.Context) {
+		if !sqliteMode {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+		})
+	}
+	engine.OPTIONS("/Microsoft-Server-ActiveSync", protocolAuth, sqliteNativeGate, mailboxNative.EASOptions)
+	engine.POST("/Microsoft-Server-ActiveSync", protocolAuth, sqliteNativeGate, mailboxNative.EASCommand)
+	engine.OPTIONS("/api/v1/eas", protocolAuth, sqliteNativeGate, mailboxNative.EASOptions)
+	engine.POST("/api/v1/eas", protocolAuth, sqliteNativeGate, mailboxNative.EASCommand)
 	v1 := engine.Group("/api/v1")
 	{
 		v1.GET("/healthz", healthz(opts))
@@ -432,10 +452,12 @@ func New(opts Options) *gin.Engine {
 		// The image proxy is authorized by the signed URL alone: an image
 		// inside the sandboxed message frame cannot present the mailbox
 		// bearer token. A bearer that is sent anyway must belong to the
-		// signed mailbox.
+		// signed mailbox. SQLite slice-1: the fetch is a real provider/
+		// network side effect, so the same default-deny boundary stops the
+		// request before the signed URL is even verified.
 		v1.GET("/mailbox/images/proxy", middleware.RateLimitWindow(600, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
-		}), mailboxNative.ImageProxy)
+		}), sqliteNativeGate, mailboxNative.ImageProxy)
 		v1.GET("/mailbox/links/confirm", mailboxNative.LinkConfirm)
 		v1.POST("/mailbox/links/confirm", middleware.RateLimitWindow(60, time.Minute, func(c *gin.Context) (string, bool) {
 			return c.ClientIP(), true
