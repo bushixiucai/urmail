@@ -90,12 +90,14 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fenc
 -- scope: platform
 
 UPDATE marketing_flow_positions SET wait_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(
-  SELECT s.wait_seconds*1000000  WHERE flow_id=?2 AND email=?3 AND wait_until IS NULL AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND EXISTS(SELECT 1 FROM marketing_flow_steps s2 WHERE s2.tenant_id=tenant_id AND s2.flow_id=flow_id AND s2.step_key=step_key AND s2.kind='wait' AND s2.wait_seconds>0);
+  SELECT s.wait_seconds*1000000 FROM marketing_flow_steps s
+  WHERE s.tenant_id=marketing_flow_positions.tenant_id AND s.flow_id=marketing_flow_positions.flow_id AND s.step_key=marketing_flow_positions.step_key
+   AND s.kind='wait' AND s.wait_seconds>0)
+WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND wait_until IS NULL AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
 -- Advance a wait step whose wait_until elapsed, without sending anything.
--- The database function re-checks uncertain, unsubscribe, the wait AND the
--- sending gate under FOR UPDATE, so it is the linearization point. AND EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id AND s.flow_id=flow_id AND s.step_key=step_key AND s.kind='wait' AND s.wait_seconds>0)
-WHERE tenant_id=?1);
+-- The database function re-checks uncertain, unsubscribe, the wait and the
+-- sending gate under FOR UPDATE, so it is the linearization point.
 -- name: PlatformCommitMarketingFlowWait :one
 -- scope: platform
 

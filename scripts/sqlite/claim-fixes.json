@@ -87,18 +87,25 @@
    "note": "QA 补"
   },
   {
-   "method": "PlatformClaimMarketingRecipient",
-   "file": "platform_marketing.sql",
-   "table": "marketing_recipients",
-   "predicate": "AND status='pending'",
-   "note": "QA 补"
-  },
-  {
    "method": "PlatformClaimOnboarding",
    "file": "platform_dns_onboarding.sql",
    "table": "onboarding_tasks",
    "predicate": "AND status='pending'",
    "note": "QA 补（与 PlatformClaimOnboardingTask 各自独立）"
+  },
+  {
+   "method": "PlatformClaimMarketingRecipient",
+   "file": "platform_marketing.sql",
+   "table": "marketing_recipients",
+   "predicate": "AND status='queued'",
+   "note": "S2 按最新 main 重建：status='leased'+lease_owner+lease_until=now()+2min+fence+1；dispatch-row EXISTS 保留；tenant turn 轮转 CTE 扁平化丢弃（ORDER BY r.id），轮转职责留给未接线的 PlatformAdvanceMarketingTurn；旧谓词 status='pending' 过期已删"
+  },
+  {
+   "method": "LEASE-INTERVAL-BATCH",
+   "file": "17 stmts",
+   "table": "multiple",
+   "predicate": "now()+interval / statement_timestamp()+interval -> micros+N_us",
+   "note": "S2 批量恢复：14 条租约（2min/5min）+3 条 statement_timestamp 间隔（15min/5min/1min）。批量改写丢间隔为预扫未登记类，建议 QA 补预扫"
   }
  ]
 }
