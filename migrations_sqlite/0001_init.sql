@@ -2213,31 +2213,31 @@ END;
 
 -- APP-PENDING (urmail_ai_configuration_consent_guard): AI_TENANT_CONSENT_REQUIRED / AI_CLOUD_CONSENT_STALE（role+actor 判定）与 configuration_digest（sha256）→ S2 装饰器与 S4 迁移承接
 
--- Port of PG function urmail_alias_sender_logins_guard (sender_logins 为 TEXT(JSON 数组)；catchall 禁登录、路由变更清空、逐登录校验归属)
-CREATE TRIGGER IF NOT EXISTS alias_sender_logins_catchall_guard__insert
+-- Port of PG function urmail_alias_sender_logins_guard (sender_logins 为 TEXT(JSON 数组)；catchall 禁登录、路由变更清空（校验按清空后的有效值，等价 PG 先 NEW:='{}' 再校验）、逐登录校验归属与 JSON 合法性)
+CREATE TRIGGER IF NOT EXISTS alias_sender_logins_catchall_guard_insert
 BEFORE INSERT ON mailbox_aliases
-WHEN NEW.kind = 'catchall' AND json_array_length(NEW.sender_logins) > 0
+WHEN NEW.kind = 'catchall' AND json_array_length(CASE WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) > 0
 BEGIN
   SELECT RAISE(ABORT,'ALIAS_CATCHALL_SENDER_LOGIN_FORBIDDEN');
 END;
 
-CREATE TRIGGER IF NOT EXISTS alias_sender_logins_catchall_guard__update
+CREATE TRIGGER IF NOT EXISTS alias_sender_logins_catchall_guard_update
 BEFORE UPDATE ON mailbox_aliases
-WHEN NEW.kind = 'catchall' AND json_array_length(NEW.sender_logins) > 0
+WHEN NEW.kind = 'catchall' AND json_array_length(CASE WHEN (NEW.target IS NOT OLD.target OR NEW.local_part IS NOT OLD.local_part OR NEW.kind IS NOT OLD.kind OR NEW.domain_id IS NOT OLD.domain_id) AND NEW.sender_logins IS OLD.sender_logins THEN '[]' WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) > 0
 BEGIN
   SELECT RAISE(ABORT,'ALIAS_CATCHALL_SENDER_LOGIN_FORBIDDEN');
 END;
 
-CREATE TRIGGER IF NOT EXISTS alias_sender_logins_membership_guard__insert
+CREATE TRIGGER IF NOT EXISTS alias_sender_logins_membership_guard_insert
 BEFORE INSERT ON mailbox_aliases
-WHEN EXISTS(SELECT 1 FROM json_each(NEW.sender_logins) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))
+WHEN NOT json_valid(NEW.sender_logins) OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))
 BEGIN
   SELECT RAISE(ABORT,'ALIAS_SENDER_LOGIN_NOT_TENANT_MAILBOX');
 END;
 
-CREATE TRIGGER IF NOT EXISTS alias_sender_logins_membership_guard__update
+CREATE TRIGGER IF NOT EXISTS alias_sender_logins_membership_guard_update
 BEFORE UPDATE ON mailbox_aliases
-WHEN EXISTS(SELECT 1 FROM json_each(NEW.sender_logins) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))
+WHEN NOT json_valid(NEW.sender_logins) OR EXISTS(SELECT 1 FROM json_each(CASE WHEN (NEW.target IS NOT OLD.target OR NEW.local_part IS NOT OLD.local_part OR NEW.kind IS NOT OLD.kind OR NEW.domain_id IS NOT OLD.domain_id) AND NEW.sender_logins IS OLD.sender_logins THEN '[]' WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))
 BEGIN
   SELECT RAISE(ABORT,'ALIAS_SENDER_LOGIN_NOT_TENANT_MAILBOX');
 END;
@@ -2460,6 +2460,13 @@ BEGIN
 END;
 
 -- Port of PG function urmail_mailbox_password_version_guard (改密自增版本并置 revoke_pending；非受信方改版本字段为角色语义)
+CREATE TRIGGER IF NOT EXISTS mailbox_password_version_insert_guard
+BEFORE INSERT ON mailboxes
+WHEN NEW.password_version <> 0 OR NEW.password_revoke_pending <> 0
+BEGIN
+  SELECT RAISE(ABORT,'MAILBOX_PASSWORD_VERSION_IMMUTABLE');
+END;
+
 CREATE TRIGGER IF NOT EXISTS mailbox_password_version_exhausted
 BEFORE UPDATE ON mailboxes
 WHEN NEW.password_hash IS NOT OLD.password_hash AND OLD.password_version = 9223372036854775807
@@ -2474,7 +2481,7 @@ BEGIN
   UPDATE mailboxes SET password_version = OLD.password_version + 1, password_revoke_pending = 1 WHERE id = NEW.id;
 END;
 
--- APP-PENDING (urmail_mailbox_password_version_guard): 非受信写方直接改 password_version/password_revoke_pending 的拒绝（role 判定）→ S2 装饰器；插入版本 0 断言保留
+-- APP-PENDING (urmail_mailbox_password_version_guard): 非受信写方 UPDATE 直接改 password_version/password_revoke_pending 的拒绝（role 判定）→ S2 装饰器；INSERT 版本 0 断言已在触发器保留
 
 -- Port of PG function urmail_mailbox_sieve_mode_guard (sieve_mode 不可变；legacy 元数据只读；legacy 导入授权为角色语义)
 CREATE TRIGGER IF NOT EXISTS mailbox_sieve_mode_transition_guard
@@ -2519,22 +2526,22 @@ END;
 
 -- APP-PENDING (urmail_recall_guard): S2 装饰器 + Phase 3 负向断言承接 0142 会话条款：RECALL_PREVIEW_AUTHORITY_REQUIRED（owner|admin+tenant+actor 一致）、RECALL_ORIGINAL_ACTOR_REQUIRED（requested_by=actor）、RECALL_PREVIEW_DIGEST_INVALID（sha256(preview_snapshot)=preview_digest，Go 写前校验）、snapshot.actor_id/address 一致性；INSERT pending 仅 service 夹具（Go 无此路径）
 
--- Port of PG function urmail_recall_message_identity_guard (preview 快照内 copies[] 必须为对象且 copies[].message_guid 为 JSON 字符串（SQLite json_type='text'；json_valid 守卫避免 malformed JSON；GLOB 字符类校验）)
+-- Port of PG function urmail_recall_message_identity_guard (preview 快照内 copies[] 必须为对象且 copies[].message_guid 为 JSON 字符串（SQLite json_type='text'；json_valid 守卫避免 malformed JSON）；字符集用 GLOB 首位类 + 否定类（SQLite GLOB 的 * 是任意串，不是类重复，不能直译 PG 正则）)
 CREATE TRIGGER IF NOT EXISTS recall_message_identity_guard__insert
 BEFORE INSERT ON recall_requests
-WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')
+WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9]*' OR json_extract(copy.value, '$.message_guid') GLOB '*[^A-Za-z0-9._,+:=@-]*')
 BEGIN
   SELECT RAISE(ABORT,'RECALL_IMMUTABLE_MESSAGE_IDENTITY_REQUIRED');
 END;
 
 CREATE TRIGGER IF NOT EXISTS recall_message_identity_guard__update
 BEFORE UPDATE ON recall_requests
-WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')
+WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9]*' OR json_extract(copy.value, '$.message_guid') GLOB '*[^A-Za-z0-9._,+:=@-]*')
 BEGIN
   SELECT RAISE(ABORT,'RECALL_IMMUTABLE_MESSAGE_IDENTITY_REQUIRED');
 END;
 
--- Port of PG function urmail_require_content_owner (owner 角色判定与撤销簿记为会话语义；保留不可变与基本合法性)
+-- Port of PG function urmail_require_content_owner (owner 角色判定、撤销簿记为会话语义；保留不可变 + 基本合法性（expires 必须未来、reason 非空 <=2000）)
 CREATE TRIGGER IF NOT EXISTS compliance_grants_immutable_guard
 BEFORE UPDATE ON compliance_grants
 WHEN (NEW.tenant_id IS NOT OLD.tenant_id OR NEW.user_id IS NOT OLD.user_id OR NEW.scope IS NOT OLD.scope OR NEW.expires_at IS NOT OLD.expires_at OR NEW.reason IS NOT OLD.reason OR NEW.granted_by IS NOT OLD.granted_by OR NEW.owner_confirmed_at IS NOT OLD.owner_confirmed_at) OR NOT NEW.revoked
@@ -2544,7 +2551,7 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS compliance_grants_validity_guard
 BEFORE INSERT ON compliance_grants
-WHEN NEW.scope IN('full_content','export') AND (NEW.expires_at IS NULL OR length(trim(NEW.reason)) = 0 OR length(NEW.reason) > 2000)
+WHEN NEW.scope IN('full_content','export') AND (NEW.expires_at IS NULL OR NEW.expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000) OR length(trim(NEW.reason)) = 0 OR length(NEW.reason) > 2000)
 BEGIN
   SELECT RAISE(ABORT,'COMPLIANCE_GRANT_INVALID');
 END;
@@ -2597,7 +2604,7 @@ END;
 -- Port of PG function urmail_require_tenant_content_admin (纯会话角色守卫)
 -- APP-PENDING (urmail_require_tenant_content_admin): COMPLIANCE_GRANT_ROLE_REQUIRED（owner/admin 会话判定）→ S2 装饰器全量承接，引擎层无触发器
 
--- Port of PG function urmail_reserve_mailbox_storage (邮箱身份不可变 + 地址预约登记与占用断言)
+-- Port of PG function urmail_reserve_mailbox_storage (邮箱身份不可变 + 地址预约登记与占用断言；预约必须在 AFTER（SQLite BEFORE INSERT 时 NEW.id 尚未生成，PG 的 before 触发器可见序列默认值）)
 CREATE TRIGGER IF NOT EXISTS mailbox_storage_identity_immutable
 BEFORE UPDATE ON mailboxes
 WHEN NEW.address IS NOT OLD.address OR NEW.local_part IS NOT OLD.local_part OR NEW.domain_id IS NOT OLD.domain_id OR NEW.tenant_id IS NOT OLD.tenant_id
@@ -2605,21 +2612,22 @@ BEGIN
   SELECT RAISE(ABORT,'MAILBOX_STORAGE_IDENTITY_IMMUTABLE');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mailbox_storage_reserve__insert
-BEFORE INSERT ON mailboxes
+CREATE TRIGGER IF NOT EXISTS mailbox_storage_reserve_insert
+AFTER INSERT ON mailboxes
 BEGIN
   INSERT OR IGNORE INTO mailbox_storage_reservations(address, mailbox_id) VALUES(NEW.address, NEW.id);
   SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM mailbox_storage_reservations WHERE address = NEW.address AND mailbox_id = NEW.id) THEN RAISE(ABORT,'MAILBOX_STORAGE_ADDRESS_RESERVED') END;
 END;
 
-CREATE TRIGGER IF NOT EXISTS mailbox_storage_reserve__update
-BEFORE UPDATE ON mailboxes
+CREATE TRIGGER IF NOT EXISTS mailbox_storage_reserve_update
+AFTER UPDATE ON mailboxes
+WHEN NEW.address IS NOT OLD.address OR NEW.local_part IS NOT OLD.local_part OR NEW.domain_id IS NOT OLD.domain_id OR NEW.tenant_id IS NOT OLD.tenant_id
 BEGIN
   INSERT OR IGNORE INTO mailbox_storage_reservations(address, mailbox_id) VALUES(NEW.address, NEW.id);
   SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM mailbox_storage_reservations WHERE address = NEW.address AND mailbox_id = NEW.id) THEN RAISE(ABORT,'MAILBOX_STORAGE_ADDRESS_RESERVED') END;
 END;
 
--- Port of PG function urmail_resource_guard (租户状态/配额（settings 行谓词 limit 内联）；域名删除走 SQL，非角色部分全机械；单写者替代 advisory lock；0158 补 mailboxes UPDATE 守卫)
+-- Port of PG function urmail_resource_guard (租户状态/配额（settings 行谓词 limit 内联）；域名就绪（status=active+verified+provisioning=ready 内联）；usage 字段复位；域名删除走 SQL；单写者替代 advisory lock；0158 mailboxes UPDATE 守卫)
 CREATE TRIGGER IF NOT EXISTS domains_resource_guard_insert
 BEFORE INSERT ON domains
 WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) OR (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_domain_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_domain_limit'), -1)) <> -1 AND (SELECT count(*) FROM domains WHERE tenant_id = NEW.tenant_id) >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_domain_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_domain_limit'), -1))
@@ -2636,16 +2644,17 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS mailboxes_resource_guard_insert
 BEFORE INSERT ON mailboxes
-WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) OR ((SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id = NEW.tenant_id AND status <> 'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)))
+WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) OR NOT EXISTS(SELECT 1 FROM domains WHERE tenant_id=NEW.tenant_id AND id=NEW.domain_id AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready') OR ((SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id = NEW.tenant_id AND status <> 'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)))
 BEGIN
-  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') ELSE RAISE(ABORT,'MAILBOX_QUOTA_EXCEEDED') END;
+  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') WHEN NOT EXISTS(SELECT 1 FROM domains WHERE tenant_id=NEW.tenant_id AND id=NEW.domain_id AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready') THEN RAISE(ABORT,'DOMAIN_NOT_PROVISIONED') ELSE RAISE(ABORT,'MAILBOX_QUOTA_EXCEEDED') END;
 END;
 
 CREATE TRIGGER IF NOT EXISTS mailboxes_resource_guard_update
 BEFORE UPDATE ON mailboxes
 WHEN NEW.tenant_id IS NOT OLD.tenant_id OR NEW.quota_bytes<>OLD.quota_bytes OR (OLD.status='deleted' AND NEW.status<>'deleted')
 BEGIN
-  -- 同租户同配额且非 undelete 由 WHEN 短路（PG same-tenant short-circuit 等价）;
+  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id=NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') END;
+  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM domains WHERE tenant_id=NEW.tenant_id AND id=NEW.domain_id AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready') THEN RAISE(ABORT,'DOMAIN_NOT_PROVISIONED') END;
   SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id=NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') END;
   SELECT CASE WHEN OLD.status='deleted' AND NEW.status<>'deleted' AND (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id=NEW.tenant_id AND status<>'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) THEN RAISE(ABORT,'MAILBOX_LIMIT_EXCEEDED') END;
   -- quota_bytes=0 拒绝：PG 在触发器内回填 settings 默认值，SQLite 触发器无法赋值 NEW.* → 回填在 Go 层，0 直写 fail-closed;
@@ -2661,27 +2670,48 @@ BEGIN
   SELECT RAISE(ABORT,'STORAGE_NOT_EMPTY');
 END;
 
--- APP-PENDING (urmail_resource_guard): urmail_domain_mail_ready 未就绪时 platform 豁免分支（role）→ S2 装饰器；mailbox_default_quota_bytes 回填（PG 触发器内 SET NEW，SQLite 不可）→ Go 层先读 settings 填默认（268435456 兜底），Phase 3 负向断言：直写 quota_bytes=0 必须 ABORT
+CREATE TRIGGER IF NOT EXISTS mailboxes_usage_defaults_insert
+AFTER INSERT ON mailboxes
+WHEN NEW.bytes_used <> 0 OR NEW.usage_measured_at IS NULL OR NEW.usage_error IS NOT NULL
+BEGIN
+  UPDATE mailboxes SET bytes_used = 0, usage_measured_at = (CAST(strftime('%s','now') AS INTEGER)*1000000), usage_error = NULL WHERE id = NEW.id;
+END;
 
--- Port of PG function urmail_restore_quarantine_guard (恢复隔离激活期间拒写（urmail_restore_quarantine_active 内联为单行表读取）)
-CREATE TRIGGER IF NOT EXISTS domains_restore_quarantine_guard
+-- APP-PENDING (urmail_resource_guard): urmail_domain_mail_ready 未就绪时的 platform/migrate 豁免分支（role）→ S2 装饰器；mailbox_default_quota_bytes 回填（PG 在触发器内 SET NEW，SQLite 不可）→ Go 层先读 settings 填默认（268435456 兜底），Phase 3 负向断言：直写 quota_bytes=0 必须 ABORT
+
+-- Port of PG function urmail_restore_quarantine_guard (恢复隔离激活期间拒建 tenant/domain/mailbox（urmail_restore_quarantine_active 内联为单行表读取）)
+CREATE TRIGGER IF NOT EXISTS tenant_restore_quarantine_guard
+BEFORE INSERT ON tenants
+WHEN COALESCE((SELECT active FROM restore_quarantine), 0)
+BEGIN
+  SELECT RAISE(ABORT,'restore quarantine active');
+END;
+
+CREATE TRIGGER IF NOT EXISTS domain_restore_quarantine_guard
 BEFORE INSERT ON domains
 WHEN COALESCE((SELECT active FROM restore_quarantine), 0)
 BEGIN
   SELECT RAISE(ABORT,'restore quarantine active');
 END;
 
--- Port of PG function urmail_retention_confirmation_guard (激活策略必须挂已确认 preview)
+CREATE TRIGGER IF NOT EXISTS mailbox_restore_quarantine_guard
+BEFORE INSERT ON mailboxes
+WHEN COALESCE((SELECT active FROM restore_quarantine), 0)
+BEGIN
+  SELECT RAISE(ABORT,'restore quarantine active');
+END;
+
+-- Port of PG function urmail_retention_confirmation_guard (激活策略必须挂本人、同授权、未过期的已确认 preview（PG 全条件）)
 CREATE TRIGGER IF NOT EXISTS retention_confirmation_guard__insert
 BEFORE INSERT ON retention_policies
-WHEN NEW.active AND NOT EXISTS(SELECT 1 FROM retention_previews p WHERE p.id = NEW.confirmed_preview AND p.tenant_id = NEW.tenant_id AND p.retention_days = NEW.retention_days AND p.confirmed_at IS NOT NULL)
+WHEN NEW.active AND NOT EXISTS(SELECT 1 FROM retention_previews p WHERE p.id = NEW.confirmed_preview AND p.tenant_id = NEW.tenant_id AND p.retention_days = NEW.retention_days AND p.created_by = NEW.created_by AND p.authorization_grant_id IS NEW.authorization_grant_id AND p.confirmed_at IS NOT NULL AND p.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000))
 BEGIN
   SELECT RAISE(ABORT,'RETENTION_PREVIEW_REQUIRED');
 END;
 
 CREATE TRIGGER IF NOT EXISTS retention_confirmation_guard__update
 BEFORE UPDATE ON retention_policies
-WHEN NEW.active AND NOT EXISTS(SELECT 1 FROM retention_previews p WHERE p.id = NEW.confirmed_preview AND p.tenant_id = NEW.tenant_id AND p.retention_days = NEW.retention_days AND p.confirmed_at IS NOT NULL)
+WHEN NEW.active AND NOT EXISTS(SELECT 1 FROM retention_previews p WHERE p.id = NEW.confirmed_preview AND p.tenant_id = NEW.tenant_id AND p.retention_days = NEW.retention_days AND p.created_by = NEW.created_by AND p.authorization_grant_id IS NEW.authorization_grant_id AND p.confirmed_at IS NOT NULL AND p.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000))
 BEGIN
   SELECT RAISE(ABORT,'RETENTION_PREVIEW_REQUIRED');
 END;
@@ -2700,7 +2730,20 @@ BEGIN
   SELECT RAISE(ABORT,'RETENTION_POLICY_IMMUTABLE');
 END;
 
--- APP-PENDING (urmail_retention_management_guard): RETENTION_MANAGE_REQUIRED 全链（owner/admin 会话、created_by=actor、compliance grant 授权）、preview 生成/确认簿记与 15 分钟窗 → S2 装饰器与 S4 承接
+CREATE TRIGGER IF NOT EXISTS retention_preview_stale_guard
+BEFORE UPDATE ON retention_previews
+WHEN (NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.retention_days IS NOT OLD.retention_days OR NEW.candidate_count IS NOT OLD.candidate_count OR NEW.candidate_digest IS NOT OLD.candidate_digest OR NEW.created_by IS NOT OLD.created_by OR NEW.created_at IS NOT OLD.created_at OR NEW.expires_at IS NOT OLD.expires_at OR NEW.authorization_grant_id IS NOT OLD.authorization_grant_id) OR OLD.confirmed_at IS NOT NULL OR NEW.confirmed_at IS NULL OR OLD.expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000)
+BEGIN
+  SELECT RAISE(ABORT,'RETENTION_PREVIEW_STALE');
+END;
+
+CREATE TRIGGER IF NOT EXISTS retention_preview_delete_guard
+BEFORE DELETE ON retention_previews
+BEGIN
+  SELECT RAISE(ABORT,'RETENTION_POLICY_IMMUTABLE');
+END;
+
+-- APP-PENDING (urmail_retention_management_guard): RETENTION_MANAGE_REQUIRED 全链（owner/admin 会话、created_by=actor、compliance grant 授权）、preview 生成簿记（candidate_count/digest 计算、15 分钟窗）→ S2 装饰器与 S4 承接；停用例外、preview 过期/确认窗与 DELETE 不可变已机械化
 
 -- Port of PG function urmail_setting_limit (纯 SQL 函数（settings 行谓词 limit 读取），无触发器——已内联进 urmail_resource_guard 触发器)
 -- Port of PG function urmail_suppression_no_weaken (suppression 身份不可变；强 reason 不得弱化为 manual)

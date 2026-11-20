@@ -37,22 +37,38 @@
     "app_pending_slice": "S2"
   },
   "urmail_alias_sender_logins_guard": {
-    "note": "sender_logins 为 TEXT(JSON 数组)；catchall 禁登录、路由变更清空、逐登录校验归属",
+    "note": "sender_logins 为 TEXT(JSON 数组)；catchall 禁登录、路由变更清空（校验按清空后的有效值，等价 PG 先 NEW:='{}' 再校验）、逐登录校验归属与 JSON 合法性",
     "triggers": [
       {
-        "name": "alias_sender_logins_catchall_guard",
+        "name": "alias_sender_logins_catchall_guard_insert",
         "table": "mailbox_aliases",
         "timing": "BEFORE",
-        "event": "INSERT OR UPDATE",
-        "when": "NEW.kind = 'catchall' AND json_array_length(NEW.sender_logins) > 0",
+        "event": "INSERT",
+        "when": "NEW.kind = 'catchall' AND json_array_length(CASE WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) > 0",
         "body": "SELECT RAISE(ABORT,'ALIAS_CATCHALL_SENDER_LOGIN_FORBIDDEN')"
       },
       {
-        "name": "alias_sender_logins_membership_guard",
+        "name": "alias_sender_logins_catchall_guard_update",
         "table": "mailbox_aliases",
         "timing": "BEFORE",
-        "event": "INSERT OR UPDATE",
-        "when": "EXISTS(SELECT 1 FROM json_each(NEW.sender_logins) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))",
+        "event": "UPDATE",
+        "when": "NEW.kind = 'catchall' AND json_array_length(CASE WHEN (NEW.target IS NOT OLD.target OR NEW.local_part IS NOT OLD.local_part OR NEW.kind IS NOT OLD.kind OR NEW.domain_id IS NOT OLD.domain_id) AND NEW.sender_logins IS OLD.sender_logins THEN '[]' WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) > 0",
+        "body": "SELECT RAISE(ABORT,'ALIAS_CATCHALL_SENDER_LOGIN_FORBIDDEN')"
+      },
+      {
+        "name": "alias_sender_logins_membership_guard_insert",
+        "table": "mailbox_aliases",
+        "timing": "BEFORE",
+        "event": "INSERT",
+        "when": "NOT json_valid(NEW.sender_logins) OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))",
+        "body": "SELECT RAISE(ABORT,'ALIAS_SENDER_LOGIN_NOT_TENANT_MAILBOX')"
+      },
+      {
+        "name": "alias_sender_logins_membership_guard_update",
+        "table": "mailbox_aliases",
+        "timing": "BEFORE",
+        "event": "UPDATE",
+        "when": "NOT json_valid(NEW.sender_logins) OR EXISTS(SELECT 1 FROM json_each(CASE WHEN (NEW.target IS NOT OLD.target OR NEW.local_part IS NOT OLD.local_part OR NEW.kind IS NOT OLD.kind OR NEW.domain_id IS NOT OLD.domain_id) AND NEW.sender_logins IS OLD.sender_logins THEN '[]' WHEN json_valid(NEW.sender_logins) THEN NEW.sender_logins END) je WHERE lower(je.value) IS NOT je.value OR length(je.value) > 254 OR NOT EXISTS(SELECT 1 FROM mailboxes m WHERE m.tenant_id = NEW.tenant_id AND m.address = je.value AND m.status <> 'deleted'))",
         "body": "SELECT RAISE(ABORT,'ALIAS_SENDER_LOGIN_NOT_TENANT_MAILBOX')"
       },
       {
@@ -321,8 +337,16 @@
   },
   "urmail_mailbox_password_version_guard": {
     "note": "改密自增版本并置 revoke_pending；非受信方改版本字段为角色语义",
-    "app_pending": "非受信写方直接改 password_version/password_revoke_pending 的拒绝（role 判定）→ S2 装饰器；插入版本 0 断言保留",
+    "app_pending": "非受信写方 UPDATE 直接改 password_version/password_revoke_pending 的拒绝（role 判定）→ S2 装饰器；INSERT 版本 0 断言已在触发器保留",
     "triggers": [
+      {
+        "name": "mailbox_password_version_insert_guard",
+        "table": "mailboxes",
+        "timing": "BEFORE",
+        "event": "INSERT",
+        "when": "NEW.password_version <> 0 OR NEW.password_revoke_pending <> 0",
+        "body": "SELECT RAISE(ABORT,'MAILBOX_PASSWORD_VERSION_IMMUTABLE')"
+      },
       {
         "name": "mailbox_password_version_exhausted",
         "table": "mailboxes",
@@ -387,20 +411,20 @@
     "app_pending_slice": "S2"
   },
   "urmail_recall_message_identity_guard": {
-    "note": "preview 快照内 copies[] 必须为对象且 copies[].message_guid 为 JSON 字符串（SQLite json_type='text'；json_valid 守卫避免 malformed JSON；GLOB 字符类校验）",
+    "note": "preview 快照内 copies[] 必须为对象且 copies[].message_guid 为 JSON 字符串（SQLite json_type='text'；json_valid 守卫避免 malformed JSON）；字符集用 GLOB 首位类 + 否定类（SQLite GLOB 的 * 是任意串，不是类重复，不能直译 PG 正则）",
     "triggers": [
       {
         "name": "recall_message_identity_guard",
         "table": "recall_requests",
         "timing": "BEFORE",
         "event": "INSERT OR UPDATE",
-        "when": "NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')",
+        "when": "NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9]*' OR json_extract(copy.value, '$.message_guid') GLOB '*[^A-Za-z0-9._,+:=@-]*')",
         "body": "SELECT RAISE(ABORT,'RECALL_IMMUTABLE_MESSAGE_IDENTITY_REQUIRED')"
       }
     ]
   },
   "urmail_require_content_owner": {
-    "note": "owner 角色判定与撤销簿记为会话语义；保留不可变与基本合法性",
+    "note": "owner 角色判定、撤销簿记为会话语义；保留不可变 + 基本合法性（expires 必须未来、reason 非空 <=2000）",
     "app_pending": "COMPLIANCE_OWNER_REQUIRED（owner role）、revoked_by/revoked_at 簿记、granted_by=actor 校验 → S2 装饰器；expires/reason 合法性保留为机械",
     "triggers": [
       {
@@ -416,7 +440,7 @@
         "table": "compliance_grants",
         "timing": "BEFORE",
         "event": "INSERT",
-        "when": "NEW.scope IN('full_content','export') AND (NEW.expires_at IS NULL OR length(trim(NEW.reason)) = 0 OR length(NEW.reason) > 2000)",
+        "when": "NEW.scope IN('full_content','export') AND (NEW.expires_at IS NULL OR NEW.expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000) OR length(trim(NEW.reason)) = 0 OR length(NEW.reason) > 2000)",
         "body": "SELECT RAISE(ABORT,'COMPLIANCE_GRANT_INVALID')"
       }
     ],
@@ -476,7 +500,7 @@
     "app_pending_slice": "S2"
   },
   "urmail_reserve_mailbox_storage": {
-    "note": "邮箱身份不可变 + 地址预约登记与占用断言",
+    "note": "邮箱身份不可变 + 地址预约登记与占用断言；预约必须在 AFTER（SQLite BEFORE INSERT 时 NEW.id 尚未生成，PG 的 before 触发器可见序列默认值）",
     "triggers": [
       {
         "name": "mailbox_storage_identity_immutable",
@@ -487,17 +511,25 @@
         "body": "SELECT RAISE(ABORT,'MAILBOX_STORAGE_IDENTITY_IMMUTABLE')"
       },
       {
-        "name": "mailbox_storage_reserve",
+        "name": "mailbox_storage_reserve_insert",
         "table": "mailboxes",
-        "timing": "BEFORE",
-        "event": "INSERT OR UPDATE",
+        "timing": "AFTER",
+        "event": "INSERT",
+        "body": "INSERT OR IGNORE INTO mailbox_storage_reservations(address, mailbox_id) VALUES(NEW.address, NEW.id);\nSELECT CASE WHEN NOT EXISTS(SELECT 1 FROM mailbox_storage_reservations WHERE address = NEW.address AND mailbox_id = NEW.id) THEN RAISE(ABORT,'MAILBOX_STORAGE_ADDRESS_RESERVED') END"
+      },
+      {
+        "name": "mailbox_storage_reserve_update",
+        "table": "mailboxes",
+        "timing": "AFTER",
+        "event": "UPDATE",
+        "when": "NEW.address IS NOT OLD.address OR NEW.local_part IS NOT OLD.local_part OR NEW.domain_id IS NOT OLD.domain_id OR NEW.tenant_id IS NOT OLD.tenant_id",
         "body": "INSERT OR IGNORE INTO mailbox_storage_reservations(address, mailbox_id) VALUES(NEW.address, NEW.id);\nSELECT CASE WHEN NOT EXISTS(SELECT 1 FROM mailbox_storage_reservations WHERE address = NEW.address AND mailbox_id = NEW.id) THEN RAISE(ABORT,'MAILBOX_STORAGE_ADDRESS_RESERVED') END"
       }
     ]
   },
   "urmail_resource_guard": {
-    "note": "租户状态/配额（settings 行谓词 limit 内联）；域名删除走 SQL，非角色部分全机械；单写者替代 advisory lock；0158 补 mailboxes UPDATE 守卫",
-    "app_pending": "urmail_domain_mail_ready 未就绪时 platform 豁免分支（role）→ S2 装饰器；mailbox_default_quota_bytes 回填（PG 触发器内 SET NEW，SQLite 不可）→ Go 层先读 settings 填默认（268435456 兜底），Phase 3 负向断言：直写 quota_bytes=0 必须 ABORT",
+    "note": "租户状态/配额（settings 行谓词 limit 内联）；域名就绪（status=active+verified+provisioning=ready 内联）；usage 字段复位；域名删除走 SQL；单写者替代 advisory lock；0158 mailboxes UPDATE 守卫",
+    "app_pending": "urmail_domain_mail_ready 未就绪时的 platform/migrate 豁免分支（role）→ S2 装饰器；mailbox_default_quota_bytes 回填（PG 在触发器内 SET NEW，SQLite 不可）→ Go 层先读 settings 填默认（268435456 兜底），Phase 3 负向断言：直写 quota_bytes=0 必须 ABORT",
     "triggers": [
       {
         "name": "domains_resource_guard_insert",
@@ -520,8 +552,8 @@
         "table": "mailboxes",
         "timing": "BEFORE",
         "event": "INSERT",
-        "when": "NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) OR ((SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id = NEW.tenant_id AND status <> 'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)))",
-        "body": "SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') ELSE RAISE(ABORT,'MAILBOX_QUOTA_EXCEEDED') END"
+        "when": "NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) OR NOT EXISTS(SELECT 1 FROM domains WHERE tenant_id=NEW.tenant_id AND id=NEW.domain_id AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready') OR ((SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id = NEW.tenant_id AND status <> 'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)))",
+        "body": "SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') WHEN NOT EXISTS(SELECT 1 FROM domains WHERE tenant_id=NEW.tenant_id AND id=NEW.domain_id AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready') THEN RAISE(ABORT,'DOMAIN_NOT_PROVISIONED') ELSE RAISE(ABORT,'MAILBOX_QUOTA_EXCEEDED') END"
       },
       {
         "name": "mailboxes_resource_guard_update",
@@ -529,7 +561,7 @@
         "timing": "BEFORE",
         "event": "UPDATE",
         "when": "NEW.tenant_id IS NOT OLD.tenant_id OR NEW.quota_bytes<>OLD.quota_bytes OR (OLD.status='deleted' AND NEW.status<>'deleted')",
-        "body": "-- 同租户同配额且非 undelete 由 WHEN 短路（PG same-tenant short-circuit 等价）\nSELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id=NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') END;\nSELECT CASE WHEN OLD.status='deleted' AND NEW.status<>'deleted' AND (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id=NEW.tenant_id AND status<>'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) THEN RAISE(ABORT,'MAILBOX_LIMIT_EXCEEDED') END;\n-- quota_bytes=0 拒绝：PG 在触发器内回填 settings 默认值，SQLite 触发器无法赋值 NEW.* → 回填在 Go 层，0 直写 fail-closed\nSELECT CASE WHEN NEW.quota_bytes=0 THEN RAISE(ABORT,'STORAGE_QUOTA_EXCEEDED') END;\nSELECT CASE WHEN NEW.quota_bytes<>-1 AND (OLD.quota_bytes=-1 OR NEW.quota_bytes<OLD.quota_bytes) AND (OLD.usage_measured_at IS NULL OR OLD.usage_error IS NOT NULL OR OLD.usage_measured_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-600000000) THEN RAISE(ABORT,'STORAGE_USAGE_UNKNOWN') END;\nSELECT CASE WHEN NEW.quota_bytes<>-1 AND (OLD.quota_bytes=-1 OR NEW.quota_bytes<OLD.quota_bytes) AND NEW.quota_bytes<OLD.bytes_used THEN RAISE(ABORT,'STORAGE_BELOW_USAGE') END;"
+        "body": "SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id=NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') END;\nSELECT CASE WHEN NOT EXISTS(SELECT 1 FROM domains WHERE tenant_id=NEW.tenant_id AND id=NEW.domain_id AND status='active' AND verified_at IS NOT NULL AND provisioning_state='ready') THEN RAISE(ABORT,'DOMAIN_NOT_PROVISIONED') END;\nSELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id=NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') END;\nSELECT CASE WHEN OLD.status='deleted' AND NEW.status<>'deleted' AND (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id=NEW.tenant_id AND status<>'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) THEN RAISE(ABORT,'MAILBOX_LIMIT_EXCEEDED') END;\n-- quota_bytes=0 拒绝：PG 在触发器内回填 settings 默认值，SQLite 触发器无法赋值 NEW.* → 回填在 Go 层，0 直写 fail-closed\nSELECT CASE WHEN NEW.quota_bytes=0 THEN RAISE(ABORT,'STORAGE_QUOTA_EXCEEDED') END;\nSELECT CASE WHEN NEW.quota_bytes<>-1 AND (OLD.quota_bytes=-1 OR NEW.quota_bytes<OLD.quota_bytes) AND (OLD.usage_measured_at IS NULL OR OLD.usage_error IS NOT NULL OR OLD.usage_measured_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-600000000) THEN RAISE(ABORT,'STORAGE_USAGE_UNKNOWN') END;\nSELECT CASE WHEN NEW.quota_bytes<>-1 AND (OLD.quota_bytes=-1 OR NEW.quota_bytes<OLD.quota_bytes) AND NEW.quota_bytes<OLD.bytes_used THEN RAISE(ABORT,'STORAGE_BELOW_USAGE') END;"
       },
       {
         "name": "mailboxes_resource_guard_delete",
@@ -538,16 +570,40 @@
         "event": "DELETE",
         "when": "OLD.status <> 'deleted' OR OLD.usage_measured_at IS NULL OR OLD.usage_error IS NOT NULL OR OLD.usage_measured_at < (CAST(strftime('%s','now') AS INTEGER) - 600)*1000000 OR OLD.bytes_used > 0",
         "body": "SELECT RAISE(ABORT,'STORAGE_NOT_EMPTY')"
+      },
+      {
+        "name": "mailboxes_usage_defaults_insert",
+        "table": "mailboxes",
+        "timing": "AFTER",
+        "event": "INSERT",
+        "when": "NEW.bytes_used <> 0 OR NEW.usage_measured_at IS NULL OR NEW.usage_error IS NOT NULL",
+        "body": "UPDATE mailboxes SET bytes_used = 0, usage_measured_at = (CAST(strftime('%s','now') AS INTEGER)*1000000), usage_error = NULL WHERE id = NEW.id"
       }
     ],
     "app_pending_slice": "S2"
   },
   "urmail_restore_quarantine_guard": {
-    "note": "恢复隔离激活期间拒写（urmail_restore_quarantine_active 内联为单行表读取）",
+    "note": "恢复隔离激活期间拒建 tenant/domain/mailbox（urmail_restore_quarantine_active 内联为单行表读取）",
     "triggers": [
       {
-        "name": "domains_restore_quarantine_guard",
+        "name": "tenant_restore_quarantine_guard",
+        "table": "tenants",
+        "timing": "BEFORE",
+        "event": "INSERT",
+        "when": "COALESCE((SELECT active FROM restore_quarantine), 0)",
+        "body": "SELECT RAISE(ABORT,'restore quarantine active')"
+      },
+      {
+        "name": "domain_restore_quarantine_guard",
         "table": "domains",
+        "timing": "BEFORE",
+        "event": "INSERT",
+        "when": "COALESCE((SELECT active FROM restore_quarantine), 0)",
+        "body": "SELECT RAISE(ABORT,'restore quarantine active')"
+      },
+      {
+        "name": "mailbox_restore_quarantine_guard",
+        "table": "mailboxes",
         "timing": "BEFORE",
         "event": "INSERT",
         "when": "COALESCE((SELECT active FROM restore_quarantine), 0)",
@@ -556,21 +612,21 @@
     ]
   },
   "urmail_retention_confirmation_guard": {
-    "note": "激活策略必须挂已确认 preview",
+    "note": "激活策略必须挂本人、同授权、未过期的已确认 preview（PG 全条件）",
     "triggers": [
       {
         "name": "retention_confirmation_guard",
         "table": "retention_policies",
         "timing": "BEFORE",
         "event": "INSERT OR UPDATE",
-        "when": "NEW.active AND NOT EXISTS(SELECT 1 FROM retention_previews p WHERE p.id = NEW.confirmed_preview AND p.tenant_id = NEW.tenant_id AND p.retention_days = NEW.retention_days AND p.confirmed_at IS NOT NULL)",
+        "when": "NEW.active AND NOT EXISTS(SELECT 1 FROM retention_previews p WHERE p.id = NEW.confirmed_preview AND p.tenant_id = NEW.tenant_id AND p.retention_days = NEW.retention_days AND p.created_by = NEW.created_by AND p.authorization_grant_id IS NEW.authorization_grant_id AND p.confirmed_at IS NOT NULL AND p.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000))",
         "body": "SELECT RAISE(ABORT,'RETENTION_PREVIEW_REQUIRED')"
       }
     ]
   },
   "urmail_retention_management_guard": {
     "note": "角色/授权判定为会话语义；策略不可变与停用例外保留为机械",
-    "app_pending": "RETENTION_MANAGE_REQUIRED 全链（owner/admin 会话、created_by=actor、compliance grant 授权）、preview 生成/确认簿记与 15 分钟窗 → S2 装饰器与 S4 承接",
+    "app_pending": "RETENTION_MANAGE_REQUIRED 全链（owner/admin 会话、created_by=actor、compliance grant 授权）、preview 生成簿记（candidate_count/digest 计算、15 分钟窗）→ S2 装饰器与 S4 承接；停用例外、preview 过期/确认窗与 DELETE 不可变已机械化",
     "triggers": [
       {
         "name": "retention_policy_immutable_guard",
@@ -583,6 +639,21 @@
       {
         "name": "retention_policy_delete_guard",
         "table": "retention_policies",
+        "timing": "BEFORE",
+        "event": "DELETE",
+        "body": "SELECT RAISE(ABORT,'RETENTION_POLICY_IMMUTABLE')"
+      },
+      {
+        "name": "retention_preview_stale_guard",
+        "table": "retention_previews",
+        "timing": "BEFORE",
+        "event": "UPDATE",
+        "when": "(NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.retention_days IS NOT OLD.retention_days OR NEW.candidate_count IS NOT OLD.candidate_count OR NEW.candidate_digest IS NOT OLD.candidate_digest OR NEW.created_by IS NOT OLD.created_by OR NEW.created_at IS NOT OLD.created_at OR NEW.expires_at IS NOT OLD.expires_at OR NEW.authorization_grant_id IS NOT OLD.authorization_grant_id) OR OLD.confirmed_at IS NOT NULL OR NEW.confirmed_at IS NULL OR OLD.expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000)",
+        "body": "SELECT RAISE(ABORT,'RETENTION_PREVIEW_STALE')"
+      },
+      {
+        "name": "retention_preview_delete_guard",
+        "table": "retention_previews",
         "timing": "BEFORE",
         "event": "DELETE",
         "body": "SELECT RAISE(ABORT,'RETENTION_POLICY_IMMUTABLE')"
