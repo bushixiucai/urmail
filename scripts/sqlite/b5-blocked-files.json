@@ -1,5 +1,6 @@
 {
  "note": "B5a blocked platform-only query files. Excluded from sqlc.yaml's query set; their routes must answer 501, never a silent 500.",
+ "wiring": "sqlitedb 尚未接入运行时（Phase 2 接线）。接线时这 58 个文件的路由必须先返回 501，直到 S4 手写层承接；不允许静默 500。",
  "count": 58,
  "files": [
   {

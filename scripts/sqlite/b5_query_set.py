@@ -113,6 +113,14 @@ def write_blocked(plat, census):
         })
     LEDGER.write_text(json.dumps({
         "note": "B5a blocked platform-only query files. Excluded from sqlc.yaml's query set; their routes must answer 501, never a silent 500.",
+        # Honest state of the wiring: B5a only switches the query layer. The
+        # SQLite engine is not yet opened by the daemon (internal/sqlitedb is
+        # still unwired, see Phase 2), so today these statements still reach
+        # PostgreSQL through their pre-switch *.sql.go files. The moment a
+        # SQLite handle is wired in, every file listed here must be served by a
+        # 501 route guard until S4 rewrites it — otherwise it degrades into the
+        # silent 500 this ledger exists to prevent.
+        "wiring": "sqlitedb 尚未接入运行时（Phase 2 接线）。接线时这 58 个文件的路由必须先返回 501，直到 S4 手写层承接；不允许静默 500。",
         "count": len(entries),
         "files": entries,
     }, ensure_ascii=False, indent=1) + "\n")
