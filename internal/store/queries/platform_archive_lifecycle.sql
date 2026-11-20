@@ -20,50 +20,12 @@ INSERT INTO archive_content(entry_id,tenant_id,body_text,attachments,extraction_
 VALUES(@entry_id,@tenant_id,@body_text,@attachments,@extraction_error,@original_sha256,@body_html)
 ON CONFLICT(entry_id) DO NOTHING;
 
--- name: PlatformApplyArchiveRetentionCandidates :many
--- scope: system
-
-SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
-JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
-JOIN retention_policies p ON p.tenant_id=a.tenant_id
-WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
- AND (SELECT COALESCE((SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id
-      WHERE cg.tenant_id=p.tenant_id AND cg.user_id=p.created_by AND cg.scope='retention_manage' AND NOT cg.revoked
-       AND cg.owner_confirmed_at IS NOT NULL AND ur.role IN('owner','admin')), 0))=1
- AND NOT a.legal_hold AND a.deleted_at IS NULL
- AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
-ORDER BY a.id LIMIT 100;
-
--- name: PlatformApplyArchiveRetentionMarkDeleted :execrows
--- scope: system
-
-UPDATE archive_entries SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE (id, tenant_id) IN (SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
- JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
- JOIN retention_policies p ON p.tenant_id=a.tenant_id
- WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
-  AND (SELECT COALESCE((SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id
-       WHERE cg.tenant_id=p.tenant_id AND cg.user_id=p.created_by AND cg.scope='retention_manage' AND NOT cg.revoked
-        AND cg.owner_confirmed_at IS NOT NULL AND ur.role IN('owner','admin')), 0))=1
-  AND NOT a.legal_hold AND a.deleted_at IS NULL
-  AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
- ORDER BY a.id LIMIT 100);
-
--- name: PlatformApplyArchiveRetentionMarkContent :exec
--- scope: system
-
-UPDATE archive_content SET retention_preview=(
- SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
-WHERE (entry_id, tenant_id) IN (SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
- JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
- JOIN retention_policies p ON p.tenant_id=a.tenant_id
- WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
-  AND (SELECT COALESCE((SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id
-       WHERE cg.tenant_id=p.tenant_id AND cg.user_id=p.created_by AND cg.scope='retention_manage' AND NOT cg.revoked
-        AND cg.owner_confirmed_at IS NOT NULL AND ur.role IN('owner','admin')), 0))=1
-  AND NOT a.legal_hold AND a.deleted_at IS NULL
-  AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
- ORDER BY a.id LIMIT 100);
+-- PlatformApplyArchiveRetentionCandidates 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- archiveRetentionCandidatesSQL 保留为 Go 常量，供 MarkContent/MarkDeleted 复合拼接。
+-- PlatformApplyArchiveRetentionMarkDeleted 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 修正后 IN 子查询为 2 列（archiveRetentionCandidateKeysSQL），不再与 3 列 SELECT 列数不匹配。
+-- PlatformApplyArchiveRetentionMarkContent 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 修正后 IN 子查询为 2 列；retention_preview 由 SET 标量子查询单独提供。
 -- name: PlatformListArchivePurgeCandidates :many
 -- scope: platform
 

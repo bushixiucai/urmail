@@ -77,7 +77,7 @@ func (q *Queries) PlatformConsumeMailboxOperationTickets(ctx context.Context, ar
 	return tag.RowsAffected(), nil
 }
 
-const archiveRetentionCandidatesSQL = `SELECT a.id, a.tenant_id, p.confirmed_preview FROM archive_entries a
+const archiveRetentionCandidatesWhere = ` FROM archive_entries a
  JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
  JOIN retention_policies p ON p.tenant_id=a.tenant_id
  WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
@@ -87,6 +87,14 @@ const archiveRetentionCandidatesSQL = `SELECT a.id, a.tenant_id, p.confirmed_pre
   AND NOT a.legal_hold AND a.deleted_at IS NULL
   AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
  ORDER BY a.id LIMIT 100`
+
+const archiveRetentionCandidatesSQL = `SELECT a.id, a.tenant_id, p.confirmed_preview` + archiveRetentionCandidatesWhere
+
+// The Mark* statements compare a two-column row value against the candidate
+// set, so the key SELECT must project exactly two columns. The preview is
+// supplied separately by the SET scalar subquery; projecting it here too (the
+// pre-S7 shape) made the IN a 2-vs-3 arity error.
+const archiveRetentionCandidateKeysSQL = `SELECT a.id, a.tenant_id` + archiveRetentionCandidatesWhere
 
 // PlatformApplyArchiveRetentionCandidatesRow is one retention
 // soft-delete candidate entry.
@@ -118,7 +126,7 @@ func (q *Queries) PlatformApplyArchiveRetentionCandidates(ctx context.Context) (
 
 const archiveRetentionMarkContentSQL = `UPDATE archive_content SET retention_preview=(
  SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
-WHERE (entry_id, tenant_id) IN (` + archiveRetentionCandidatesSQL + `)`
+WHERE (entry_id, tenant_id) IN (` + archiveRetentionCandidateKeysSQL + `)`
 
 // PlatformApplyArchiveRetentionMarkContent stamps the retention preview onto
 // the candidate archive content rows. MUST run BEFORE MarkDeleted (the
@@ -132,7 +140,7 @@ func (q *Queries) PlatformApplyArchiveRetentionMarkContent(ctx context.Context) 
 }
 
 const archiveRetentionMarkDeletedSQL = `UPDATE archive_entries SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE (id, tenant_id) IN (` + archiveRetentionCandidatesSQL + `)`
+WHERE (id, tenant_id) IN (` + archiveRetentionCandidateKeysSQL + `)`
 
 // PlatformApplyArchiveRetentionMarkDeleted soft-deletes the candidate entries.
 // MUST run AFTER MarkContent (ordering: content preview first, then delete).

@@ -37,17 +37,11 @@ WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(mailbox_id)
 AND address=sqlc.arg(address) AND password_hash=sqlc.arg(expected_hash)
 AND password_version=sqlc.arg(expected_version) AND status='active';
 
--- name: PlatformRevokeMailboxSessions :execrows
--- scope: system
+-- PlatformRevokeMailboxSessions 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 与手写版等价（UPDATE mailbox_sessions 置 revoked_at，按 tenant_id/mailbox_id，返回 RowsAffected）。
 
-UPDATE mailbox_sessions SET revoked_at=COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
-WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id);
-
--- name: PlatformConsumeMailboxOperationTickets :execrows
--- scope: system
-
-UPDATE mailbox_operation_tickets SET consumed_at=COALESCE(consumed_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
-WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id);
+-- PlatformConsumeMailboxOperationTickets 在 S7 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 与手写版等价（UPDATE mailbox_operation_tickets 置 consumed_at，返回 RowsAffected）。
 -- name: PlatformAckMailboxPasswordRevocation :execrows
 -- scope: platform
 
