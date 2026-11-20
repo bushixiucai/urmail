@@ -2493,32 +2493,43 @@ END;
 
 -- APP-PENDING (urmail_mailbox_sieve_mode_guard): LEGACY_SIEVE_IMPORT_AUTHORITY_REQUIRED（trusted role + migration entitlement）→ S2 装饰器
 
--- Port of PG function urmail_recall_guard (recall 起始 pending、终态受限于 pending/failed/expired)
+-- Port of PG function urmail_recall_guard (0142 审核流（preview→pending→local_recalled）数据完整性子集；权限/身份/摘要应用层；JSON 访问全部 json_valid 守卫 + 2 参 json_type（单参 json_type('plain string') 抛 malformed JSON，且 SQLite 不保证 WHERE 内 AND 短路）)
 CREATE TRIGGER IF NOT EXISTS recall_state_guard_insert
 BEFORE INSERT ON recall_requests
-WHEN NEW.status <> 'pending'
 BEGIN
-  SELECT RAISE(ABORT,'recall must start pending');
+  SELECT RAISE(ABORT,'RECALL_PREVIEW_REQUIRED') WHERE NEW.status<>'preview';
+  -- pending 直插仅 PG service 夹具/导入路径（Go 业务只写 preview：StoreRecallReviewPreview）；fail-closed;
+  SELECT RAISE(ABORT,'RECALL_PREVIEW_PROOF_REQUIRED') WHERE NEW.status='preview' AND (NEW.preview_token IS NULL OR NEW.preview_digest IS NULL OR NEW.preview_snapshot IS NULL OR NOT json_valid(CAST(NEW.preview_snapshot AS TEXT)) OR COALESCE(json_type(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END),'null')<>'object' OR NEW.preview_expires_at IS NULL OR NEW.preview_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) OR NEW.preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)+301000000 OR NEW.confirmed_at IS NOT NULL OR NEW.selected_copy_keys<>'[]' OR NEW.attempt_epoch<>1);
+  SELECT RAISE(ABORT,'RECALL_PREVIEW_TARGET_MISMATCH') WHERE NEW.status='preview' AND (NOT EXISTS(SELECT 1 FROM archive_entries a JOIN mailboxes m ON m.tenant_id=a.tenant_id AND m.id=a.mailbox_id WHERE a.tenant_id=NEW.tenant_id AND a.id=NEW.archive_entry_id AND a.mailbox_id=NEW.mailbox_id AND a.message_id=NEW.message_id) OR CAST(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.tenant_id') AS TEXT) IS NOT CAST(NEW.tenant_id AS TEXT) OR CAST(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.entry_id') AS TEXT) IS NOT CAST(NEW.archive_entry_id AS TEXT) OR CAST(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.mailbox_id') AS TEXT) IS NOT CAST(NEW.mailbox_id AS TEXT) OR json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.message_id') IS NOT NEW.message_id OR json_type(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.copies') IS NOT 'array' OR json_array_length(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.copies')>100);
 END;
 
 CREATE TRIGGER IF NOT EXISTS recall_state_guard_update
 BEFORE UPDATE ON recall_requests
-WHEN OLD.status <> 'pending' OR NEW.status NOT IN('pending','failed','expired')
 BEGIN
-  SELECT RAISE(ABORT,'remote delivery recall is not confirmed');
+  SELECT RAISE(ABORT,'RECALL_IDENTITY_IMMUTABLE') WHERE NEW.tenant_id IS NOT OLD.tenant_id OR NEW.archive_entry_id IS NOT OLD.archive_entry_id OR NEW.mailbox_id IS NOT OLD.mailbox_id OR NEW.message_id IS NOT OLD.message_id OR NEW.requested_by IS NOT OLD.requested_by;
+  SELECT RAISE(ABORT,'RECALL_IN_PROGRESS') WHERE NEW.status='preview' AND OLD.status='pending' AND OLD.preview_token IS NOT NULL;
+  SELECT RAISE(ABORT,'RECALL_PREVIEW_PROOF_REQUIRED') WHERE NEW.status='preview' AND (NEW.preview_token IS NULL OR NEW.preview_digest IS NULL OR NEW.preview_snapshot IS NULL OR NOT json_valid(CAST(NEW.preview_snapshot AS TEXT)) OR COALESCE(json_type(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END),'null')<>'object' OR NEW.preview_expires_at IS NULL OR NEW.preview_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) OR NEW.preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)+301000000 OR NEW.confirmed_at IS NOT NULL OR NEW.selected_copy_keys<>'[]' OR NEW.attempt_epoch IS NOT OLD.attempt_epoch+1);
+  SELECT RAISE(ABORT,'RECALL_PREVIEW_TARGET_MISMATCH') WHERE NEW.status='preview' AND (NOT EXISTS(SELECT 1 FROM archive_entries a JOIN mailboxes m ON m.tenant_id=a.tenant_id AND m.id=a.mailbox_id WHERE a.tenant_id=NEW.tenant_id AND a.id=NEW.archive_entry_id AND a.mailbox_id=NEW.mailbox_id AND a.message_id=NEW.message_id) OR CAST(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.tenant_id') AS TEXT) IS NOT CAST(NEW.tenant_id AS TEXT) OR CAST(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.entry_id') AS TEXT) IS NOT CAST(NEW.archive_entry_id AS TEXT) OR CAST(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.mailbox_id') AS TEXT) IS NOT CAST(NEW.mailbox_id AS TEXT) OR json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.message_id') IS NOT NEW.message_id OR json_type(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.copies') IS NOT 'array' OR json_array_length(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.copies')>100);
+  SELECT RAISE(ABORT,'RECALL_CONFIRMATION_PROOF_REQUIRED') WHERE NEW.status='pending' AND OLD.status='preview' AND (NEW.preview_actor_id IS NOT OLD.preview_actor_id OR NEW.preview_token IS NOT OLD.preview_token OR NEW.preview_digest IS NOT OLD.preview_digest OR NEW.preview_snapshot IS NOT OLD.preview_snapshot OR NEW.preview_expires_at IS NOT OLD.preview_expires_at OR NEW.attempt_epoch IS NOT OLD.attempt_epoch OR NEW.preview_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) OR NEW.confirmed_at IS NULL OR NOT json_valid(NEW.selected_copy_keys) OR json_array_length(CASE WHEN json_valid(NEW.selected_copy_keys) THEN NEW.selected_copy_keys END)=0);
+  SELECT RAISE(ABORT,'RECALL_COPY_SELECTION_INVALID') WHERE NEW.status='pending' AND OLD.status='preview' AND (EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(NEW.selected_copy_keys) THEN NEW.selected_copy_keys END) k WHERE k.type<>'text' OR NOT EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END,'$.copies')) c WHERE k.value=((json_extract(c.value,'$.guid'))||':'||(json_extract(c.value,'$.uid_validity'))||':'||(json_extract(c.value,'$.uid'))))) OR (SELECT count(*) FROM json_each(CASE WHEN json_valid(NEW.selected_copy_keys) THEN NEW.selected_copy_keys END))<>(SELECT count(DISTINCT k.value) FROM json_each(CASE WHEN json_valid(NEW.selected_copy_keys) THEN NEW.selected_copy_keys END) k));
+  SELECT RAISE(ABORT,'RECALL_HELD_COPY') WHERE NEW.status='pending' AND OLD.status='preview' AND EXISTS(SELECT 1 FROM archive_entries a WHERE a.tenant_id=NEW.tenant_id AND a.mailbox_id=NEW.mailbox_id AND a.message_id=NEW.message_id AND a.legal_hold AND a.deleted_at IS NULL);
+  SELECT RAISE(ABORT,'RECALL_VERIFIED_LOCAL_PROOF_REQUIRED') WHERE NEW.status='local_recalled' AND (OLD.status<>'pending' OR OLD.confirmed_at IS NULL OR OLD.preview_token IS NULL OR NEW.completed_at IS NULL);
+  SELECT RAISE(ABORT,'RECALL_STATE_TRANSITION_REJECTED') WHERE NOT (NEW.status='preview' OR (NEW.status='pending' AND OLD.status='preview') OR (OLD.status IN('pending','preview','uncertain') AND NEW.status IN('failed','expired','local_recalled','uncertain')));
 END;
 
--- Port of PG function urmail_recall_message_identity_guard (preview 快照内 copies[].message_guid 必须为合法字符串（JSON1 展开 + GLOB 字符类）)
+-- APP-PENDING (urmail_recall_guard): S2 装饰器 + Phase 3 负向断言承接 0142 会话条款：RECALL_PREVIEW_AUTHORITY_REQUIRED（owner|admin+tenant+actor 一致）、RECALL_ORIGINAL_ACTOR_REQUIRED（requested_by=actor）、RECALL_PREVIEW_DIGEST_INVALID（sha256(preview_snapshot)=preview_digest，Go 写前校验）、snapshot.actor_id/address 一致性；INSERT pending 仅 service 夹具（Go 无此路径）
+
+-- Port of PG function urmail_recall_message_identity_guard (preview 快照内 copies[] 必须为对象且 copies[].message_guid 为 JSON 字符串（SQLite json_type='text'；json_valid 守卫避免 malformed JSON；GLOB 字符类校验）)
 CREATE TRIGGER IF NOT EXISTS recall_message_identity_guard__insert
 BEFORE INSERT ON recall_requests
-WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CAST(NEW.preview_snapshot AS TEXT), '$.copies')) copy WHERE json_typeof(json_extract(copy.value, '$.message_guid')) <> 'string' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')
+WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')
 BEGIN
   SELECT RAISE(ABORT,'RECALL_IMMUTABLE_MESSAGE_IDENTITY_REQUIRED');
 END;
 
 CREATE TRIGGER IF NOT EXISTS recall_message_identity_guard__update
 BEFORE UPDATE ON recall_requests
-WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CAST(NEW.preview_snapshot AS TEXT), '$.copies')) copy WHERE json_typeof(json_extract(copy.value, '$.message_guid')) <> 'string' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')
+WHEN NEW.status = 'preview' AND EXISTS(SELECT 1 FROM json_each(json_extract(CASE WHEN json_valid(CAST(NEW.preview_snapshot AS TEXT)) THEN CAST(NEW.preview_snapshot AS TEXT) END, '$.copies')) copy WHERE copy.type<>'object' OR json_type(copy.value, '$.message_guid') <> 'text' OR length(json_extract(copy.value, '$.message_guid')) < 1 OR length(json_extract(copy.value, '$.message_guid')) > 512 OR json_extract(copy.value, '$.message_guid') NOT GLOB '[A-Za-z0-9][A-Za-z0-9._,+:=@-]*')
 BEGIN
   SELECT RAISE(ABORT,'RECALL_IMMUTABLE_MESSAGE_IDENTITY_REQUIRED');
 END;
@@ -2608,7 +2619,7 @@ BEGIN
   SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM mailbox_storage_reservations WHERE address = NEW.address AND mailbox_id = NEW.id) THEN RAISE(ABORT,'MAILBOX_STORAGE_ADDRESS_RESERVED') END;
 END;
 
--- Port of PG function urmail_resource_guard (租户状态/配额（settings 行谓词 limit 内联）；域名删除走 SQL，非角色部分全机械；单写者替代 advisory lock)
+-- Port of PG function urmail_resource_guard (租户状态/配额（settings 行谓词 limit 内联）；域名删除走 SQL，非角色部分全机械；单写者替代 advisory lock；0158 补 mailboxes UPDATE 守卫)
 CREATE TRIGGER IF NOT EXISTS domains_resource_guard_insert
 BEFORE INSERT ON domains
 WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) OR (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_domain_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_domain_limit'), -1)) <> -1 AND (SELECT count(*) FROM domains WHERE tenant_id = NEW.tenant_id) >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_domain_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_domain_limit'), -1))
@@ -2630,6 +2641,19 @@ BEGIN
   SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id = NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') ELSE RAISE(ABORT,'MAILBOX_QUOTA_EXCEEDED') END;
 END;
 
+CREATE TRIGGER IF NOT EXISTS mailboxes_resource_guard_update
+BEFORE UPDATE ON mailboxes
+WHEN NEW.tenant_id IS NOT OLD.tenant_id OR NEW.quota_bytes<>OLD.quota_bytes OR (OLD.status='deleted' AND NEW.status<>'deleted')
+BEGIN
+  -- 同租户同配额且非 undelete 由 WHEN 短路（PG same-tenant short-circuit 等价）;
+  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM tenants WHERE id=NEW.tenant_id AND status IN('active','pending')) THEN RAISE(ABORT,'SUBSCRIPTION_EXPIRED') END;
+  SELECT CASE WHEN OLD.status='deleted' AND NEW.status<>'deleted' AND (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) <> -1 AND (SELECT count(*) FROM mailboxes WHERE tenant_id=NEW.tenant_id AND status<>'deleted') >= (SELECT COALESCE((SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='tenant' AND scope_id=NEW.tenant_id AND key='mailbox_limit'), (SELECT CAST(json_extract(value,'$') AS INTEGER) FROM settings WHERE scope='platform' AND scope_id=0 AND key='mailbox_limit'), -1)) THEN RAISE(ABORT,'MAILBOX_LIMIT_EXCEEDED') END;
+  -- quota_bytes=0 拒绝：PG 在触发器内回填 settings 默认值，SQLite 触发器无法赋值 NEW.* → 回填在 Go 层，0 直写 fail-closed;
+  SELECT CASE WHEN NEW.quota_bytes=0 THEN RAISE(ABORT,'STORAGE_QUOTA_EXCEEDED') END;
+  SELECT CASE WHEN NEW.quota_bytes<>-1 AND (OLD.quota_bytes=-1 OR NEW.quota_bytes<OLD.quota_bytes) AND (OLD.usage_measured_at IS NULL OR OLD.usage_error IS NOT NULL OR OLD.usage_measured_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-600000000) THEN RAISE(ABORT,'STORAGE_USAGE_UNKNOWN') END;
+  SELECT CASE WHEN NEW.quota_bytes<>-1 AND (OLD.quota_bytes=-1 OR NEW.quota_bytes<OLD.quota_bytes) AND NEW.quota_bytes<OLD.bytes_used THEN RAISE(ABORT,'STORAGE_BELOW_USAGE') END;
+END;
+
 CREATE TRIGGER IF NOT EXISTS mailboxes_resource_guard_delete
 BEFORE DELETE ON mailboxes
 WHEN OLD.status <> 'deleted' OR OLD.usage_measured_at IS NULL OR OLD.usage_error IS NOT NULL OR OLD.usage_measured_at < (CAST(strftime('%s','now') AS INTEGER) - 600)*1000000 OR OLD.bytes_used > 0
@@ -2637,7 +2661,7 @@ BEGIN
   SELECT RAISE(ABORT,'STORAGE_NOT_EMPTY');
 END;
 
--- APP-PENDING (urmail_resource_guard): urmail_domain_mail_ready 未就绪时 platform 豁免分支（role）→ S2 装饰器
+-- APP-PENDING (urmail_resource_guard): urmail_domain_mail_ready 未就绪时 platform 豁免分支（role）→ S2 装饰器；mailbox_default_quota_bytes 回填（PG 触发器内 SET NEW，SQLite 不可）→ Go 层先读 settings 填默认（268435456 兜底），Phase 3 负向断言：直写 quota_bytes=0 必须 ABORT
 
 -- Port of PG function urmail_restore_quarantine_guard (恢复隔离激活期间拒写（urmail_restore_quarantine_active 内联为单行表读取）)
 CREATE TRIGGER IF NOT EXISTS domains_restore_quarantine_guard

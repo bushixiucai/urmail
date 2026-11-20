@@ -429,8 +429,10 @@ func TestAppPendingFrozen(t *testing.T) {
 			}
 		}
 	}
-	if count != 12 {
-		t.Fatalf("app_pending guards = %d, frozen at 12", count)
+	// S3: urmail_recall_guard 的 0142 会话条款（authority/actor/digest）显式登记为
+	// S2 装饰器承接，故守卫数由 12 升为 13（原 12 为 S1 实测值）。
+	if count != 13 {
+		t.Fatalf("app_pending guards = %d, frozen at 13", count)
 	}
 }
 
