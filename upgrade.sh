@@ -73,14 +73,25 @@ main() {
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "must run from the urMail checkout"
     [ -f compose.yaml ] || die "compose.yaml not found — run from the checkout root"
 
+    # DATA_ROOT is assigned BEFORE the evidence block (QA C1 fix): the
+    # evidence file and the hold marker both live under it, and the previous
+    # order forward-referenced $DATA_ROOT under `set -u`, crashing every
+    # invocation (dry-run included) before any evidence was written.
+    DATA_ROOT="${URMAIL_DATA_ROOT:-data}"
+    # The data root may not exist yet on a fresh clone (gitignored dirs are
+    # not checked out); the evidence write must not crash on it (S1 finding).
+    mkdir -p "$DATA_ROOT" || die "cannot create DATA_ROOT: $DATA_ROOT"
     # ---- 1. clean tree (plan §1.8) ----------------------------------------
-        # Evidence on ALL exit paths (QA #28 fix 2): created before the clean-tree
-    # gate so even pre-gate aborts leave a trace.
+    # Evidence on ALL exit paths (QA #28 fix 2): created before the clean-tree
+    # gate so even pre-gate aborts leave a trace. It lands in the DATA ROOT
+    # (persistent, operator-retrievable) — never in TMPDIR, which dies with
+    # the invoking session. data/ is gitignored, so the evidence file never
+    # trips the clean-tree gate below.
     EVIDENCE="$DATA_ROOT/upgrade-evidence-$V-$(date -u +%Y%m%dT%H%M%SZ).log"
     : > "$EVIDENCE"
     note() { printf '[upgrade] %s\n' "$*" | tee -a "$EVIDENCE" >&2; }
     trap 'rc=$?; printf "[upgrade] exit rc=%s\n" "$rc" >> "'"$EVIDENCE"'"; exit $rc' EXIT
-[ -z "$(git status --porcelain)" ] || die "work tree is dirty; commit or stash before upgrading"
+    [ -z "$(git status --porcelain)" ] || die "work tree is dirty; commit or stash before upgrading"
     log "work tree clean at $(git rev-parse HEAD)"
 
     # ---- 2. tag resolvable (read-only) ------------------------------------
@@ -99,7 +110,6 @@ main() {
     docker version >/dev/null 2>&1 || die "docker not reachable"
     docker compose version >/dev/null 2>&1 || die "docker compose v2 not reachable"
 
-    DATA_ROOT="${URMAIL_DATA_ROOT:-data}"
     # Dedicated holds dir (QA condition): the hold marker lives in its own
     # subdirectory so writer containers can ro-mount JUST the marker without
     # gaining read access to config/master.key or the database directory.
@@ -124,11 +134,10 @@ PLAN
     fi
 
     # ---- gated section -----------------------------------------------------
-    # Evidence lands in the DATA ROOT (persistent, operator-retrievable) —
-    # never in TMPDIR, which dies with the invoking session.
-    EVIDENCE="$DATA_ROOT/upgrade-evidence-$V-$(date -u +%Y%m%dT%H%M%SZ).log"
-    : > "$EVIDENCE"
-    note() { printf '[upgrade] %s\n' "$*" | tee -a "$EVIDENCE" >&2; }
+    # Evidence was already created BEFORE the clean-tree gate (QA #28) and the
+    # EXIT trap is already bound to that file. The duplicate re-creation that
+    # used to live here re-stamped a fresh timestamp mid-run, orphaning the
+    # trap's evidence path; removed (QA C1 fix).
 
     # ---- 2b. fresh-backup pre-flight: one-off urmailctl container ----------
     # The binary runs its own gate first (step 0 of upgrade fence), before any
@@ -146,8 +155,19 @@ PLAN
         note "fresh-backup pre-flight REJECTED the upgrade; original text above; nothing was touched"
         die "fresh-backup pre-flight rejected (see evidence)"
     fi
+    # C2 (QA/PM ruling): the four degraded paths of preflightFreshBackup
+    # (config.Load / empty platform DSN / db open / read-newest failures) all
+    # return nil and print `[preflight degraded: ...]`; letting that string
+    # pass would void the gate on EVERY upgrade once the SQLite stack drops
+    # the PG URL. Degraded output is therefore an explicit rejection; only a
+    # real verdict (`newest complete successful run` / `not provisioned on
+    # this installation`) may pass.
+    if printf '%s\n' "$preflight_out" | grep -q "preflight degraded"; then
+        note "fresh-backup pre-flight DEGRADED (platform DB unreachable); refusing (fail-closed, C2)"
+        die "fresh-backup pre-flight degraded — no fresh-backup verdict; refusing (see evidence)"
+    fi
     if ! printf '%s\n' "$preflight_out" | grep -qE \
-        "newest complete successful run|not provisioned on this installation|preflight degraded"; then
+        "newest complete successful run|not provisioned on this installation"; then
         note "pre-flight verdict unreadable (unexpected output above); aborting"
         die "pre-flight verdict unreadable"
     fi
@@ -232,13 +252,10 @@ PLAN
             -e URMAIL_MAINTENANCE_ROOT=/srv/urmail/data/maintenance \
             --entrypoint /usr/local/bin/urmailctl urmaild upgrade readiness-record >>"$EVIDENCE" 2>&1
     fi
-    # QA P2-1: hand the dir back to uid 5000 (backup-auto/usage-sync locks)
-    docker compose run --rm --no-deps --user 0:0 \
-        --entrypoint /bin/chown urmaild -R 5000:5000 \
-        /srv/urmail/data/maintenance >>"$EVIDENCE" 2>&1
-    # QA P2-1: keep the receipt persistent, then hand the dir back to uid 5000
+    # QA P2-1: hand the dir back to uid 5000 (backup-auto/usage-sync locks) —
     # the root one-off leaves root-owned files in the 5000-owned maintenance
-    # dir — hand them back so backup-auto/usage-sync (uid 5000) can lock
+    # dir; a single chown-back here covers the readiness-record receipt too
+    # (the second duplicate chown was dead code, removed per QA P3).
     docker compose run --rm --no-deps --user 0:0 \
         --entrypoint /bin/chown urmaild -R 5000:5000 \
         /srv/urmail/data/maintenance >>"$EVIDENCE" 2>&1
