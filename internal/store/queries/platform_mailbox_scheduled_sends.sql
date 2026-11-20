@@ -54,7 +54,7 @@ WITH candidate AS (
  ORDER BY next_attempt_at ASC,id ASC LIMIT 1
 )
 UPDATE mailbox_scheduled_sends SET status='preparing',attempts=attempts+1,claim_token=claim_token+1,
- lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+300000000,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE id=(SELECT id FROM candidate) AND status IN('pending','held')
 RETURNING *;
 

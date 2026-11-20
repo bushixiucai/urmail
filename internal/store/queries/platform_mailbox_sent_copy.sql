@@ -3,7 +3,7 @@
 
 UPDATE mailbox_scheduled_sends
 SET status='sent',sent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),sent_raw=NULL,sent_raw_secret=convert_from(sqlc.arg(sent_raw)::bytea,'UTF8'),sent_copy_state='pending',copy_pending_since=COALESCE(copy_pending_since,(CAST(strftime('%s','now') AS INTEGER)*1000000)),
- last_error='SENT_COPY_PENDING',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ last_error='SENT_COPY_PENDING',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id)
  AND id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token) AND status='submitting'
 RETURNING *;
@@ -17,14 +17,14 @@ WITH candidate AS (
  AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
  ORDER BY next_attempt_at,id LIMIT 1
 )
-UPDATE mailbox_scheduled_sends SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
+UPDATE mailbox_scheduled_sends SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000,copy_attempts=copy_attempts+1
 WHERE id=(SELECT id FROM candidate) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
 RETURNING *;
 
 -- name: PlatformClaimOwnedScheduledSentCopy :one
 -- scope: platform
 
-UPDATE mailbox_scheduled_sends SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE mailbox_scheduled_sends SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
  AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'') AND sent_copy_state IN('pending','unknown','held')
  AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) RETURNING *;
@@ -48,7 +48,7 @@ WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sql
 -- name: PlatformDeferScheduledSentCopy :exec
 -- scope: platform
 
-UPDATE mailbox_scheduled_sends SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(min(3600*1000000)))),sent_copy_state=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 OR smtp_secret='' THEN 'held' ELSE sent_copy_state END,smtp_secret=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 THEN '' ELSE smtp_secret END,
+UPDATE mailbox_scheduled_sends SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(min(3600, 30*(1<<min(copy_attempts,7)))*1000000),sent_copy_state=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 OR smtp_secret='' THEN 'held' ELSE sent_copy_state END,smtp_secret=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 THEN '' ELSE smtp_secret END,
  last_error='SENT_COPY_PENDING',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
  AND claim_token=sqlc.arg(claim_token) AND status='sent' AND (sent_raw IS NOT NULL OR sent_raw_secret<>'');

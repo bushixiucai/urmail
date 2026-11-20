@@ -24,7 +24,7 @@ SELECT * FROM mailbox_send_receipts WHERE tenant_id=?1 AND mailbox_id=?2 ORDER B
 -- name: PlatformBeginSendReceipt :one
 -- scope: platform
 
-UPDATE mailbox_send_receipts SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE mailbox_send_receipts SET status='submitting',claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id) AND status='prepared' AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=tenant_id AND m.id=mailbox_id AND m.status='active' AND t.status='active' AND d.status='active') RETURNING *;
 
@@ -58,14 +58,14 @@ WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accep
 -- scope: platform
 
 WITH candidate AS (SELECT id FROM mailbox_send_receipts WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown') AND raw_secret<>'' AND copy_pending_since>(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY next_attempt_at,id LIMIT 1)
-UPDATE mailbox_send_receipts SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),copy_attempts=copy_attempts+1
+UPDATE mailbox_send_receipts SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000,copy_attempts=copy_attempts+1
 WHERE id=(SELECT id FROM candidate) AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000))
 RETURNING *;
 
 -- name: PlatformClaimOwnedSendCopy :one
 -- scope: platform
 
-UPDATE mailbox_send_receipts SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+UPDATE mailbox_send_receipts SET claim_token=claim_token+1,lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='accepted' AND sent_copy_state IN('pending','unknown','held') AND raw_secret<>'' AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) RETURNING *;
 
 -- name: PlatformMarkSendCopyUnknown :one
@@ -83,7 +83,7 @@ WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 
 -- name: PlatformDeferSendCopy :execrows
 -- scope: platform
 
-UPDATE mailbox_send_receipts SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(min(3600*1000000)))),
+UPDATE mailbox_send_receipts SET lease_until=NULL,next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)+(min(3600, 30*(1<<min(copy_attempts,7)))*1000000),
  sent_copy_state=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 OR smtp_secret='' THEN 'held' ELSE sent_copy_state END,
  smtp_secret=CASE WHEN copy_pending_since<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-604800000000 THEN '' ELSE smtp_secret END,last_error='SENT_COPY_PENDING',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND claim_token=?4 AND status='accepted';
