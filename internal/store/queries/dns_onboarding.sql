@@ -2,26 +2,21 @@
 -- scope: tenant
 
 SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verified_at,revoked_at,updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2;
--- name: SaveDNSCredential :one
--- scope: platform
+-- SaveDNSCredential 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_save_dns_credential = dns_actor 授权 + zone/密文校验 + upsert 版本自增 + 失效活动计划（事务）
 
-SELECT urmail_save_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(provider),sqlc.arg(zone_name),sqlc.arg(zone_id),sqlc.arg(encrypted_secret)) AS id;
--- name: RevokeDNSCredential :exec
--- scope: platform
+-- RevokeDNSCredential 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_revoke_dns_credential = dns_actor 授权 + 凭据吊销 + 失效活动计划（事务）
 
-SELECT urmail_revoke_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id));
--- name: CreateDNSPlan :one
--- scope: platform
+-- CreateDNSPlan 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_create_dns_plan = dns_actor 授权 + kind/凭据版本校验 + 15 分钟预览计划插入
 
-SELECT urmail_create_dns_plan(sqlc.arg(id),sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.narg(credential_id),sqlc.narg(credential_version),sqlc.arg(kind),sqlc.arg(domain_digest),sqlc.arg(source_digest),sqlc.arg(before_records),sqlc.arg(desired_records),sqlc.arg(changes)) AS id;
--- name: ConfirmDNSPlan :exec
--- scope: platform
+-- ConfirmDNSPlan 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_confirm_dns_plan = 计划行锁读 + digest/过期/conflicts/凭据校验 + 确认
 
-SELECT urmail_confirm_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(source_digest));
--- name: CancelDNSPlan :exec
--- scope: platform
+-- CancelDNSPlan 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_cancel_dns_plan = 行锁读 + 状态/理由校验 + 取消
 
-SELECT urmail_cancel_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));
 -- name: ListDNSPlans :many
 -- scope: tenant
 
@@ -34,23 +29,19 @@ SELECT * FROM dns_change_plans WHERE tenant_id=?1 AND id=?2;
 -- scope: tenant
 
 SELECT * FROM dns_record_actions WHERE tenant_id=?1 AND plan_id=?2 ORDER BY ordinal;
--- name: RequestOnboardingRetry :exec
--- scope: platform
+-- RequestOnboardingRetry 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_request_onboarding = dns_actor 授权 + 恢复对账门 + 任务取代/新建 + provisioning 重置；subscriptions 条款随 0156 删除，登记 app_pending
 
-SELECT urmail_request_onboarding(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(reason));
 -- name: GetDomainProvisioning :one
 -- scope: tenant
 
 SELECT provisioning_state,dns_explicit FROM domains WHERE tenant_id=?1 AND id=?2;
--- name: RequestDNSRollback :exec
--- scope: platform
+-- RequestDNSRollback 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_rollback_dns_plan = 行锁读 + completed/理由/非 manual 校验 + 回滚排队
 
-SELECT urmail_rollback_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));
--- name: ReviewDNSPlan :exec
--- scope: platform
+-- ReviewDNSPlan 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_review_dns_plan = 行锁读 + uncertain/理由校验 + 计划完成 + 未拥有动作置 applied/owned=0
 
-SELECT urmail_review_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));
--- name: AbandonDNSPlan :exec
--- scope: platform
+-- AbandonDNSPlan 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_abandon_dns_plan = 行锁读 + uncertain|failed/理由校验 + 显式放弃
 
-SELECT urmail_abandon_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));

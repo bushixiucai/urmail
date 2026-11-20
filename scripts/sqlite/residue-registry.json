@@ -4,69 +4,6 @@
     "db-function-call": [
       {
         "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "SaveDNSCredential",
-        "line": 8,
-        "snippet": "SELECT urmail_save_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(provider),sqlc.arg(zone_name),sqlc.arg(zone_id),sqlc.arg(encrypted_secret)) AS id;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "RevokeDNSCredential",
-        "line": 12,
-        "snippet": "SELECT urmail_revoke_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "CreateDNSPlan",
-        "line": 16,
-        "snippet": "SELECT urmail_create_dns_plan(sqlc.arg(id),sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.narg(credential_id),sqlc.narg(credential_version),sqlc.arg(kind),sqlc.arg(domain_digest),sqlc.arg(source_digest),sqlc.arg(before_records),sqlc.arg(desired_records),sqlc.arg(changes)) AS id;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "ConfirmDNSPlan",
-        "line": 20,
-        "snippet": "SELECT urmail_confirm_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(source_digest));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "CancelDNSPlan",
-        "line": 24,
-        "snippet": "SELECT urmail_cancel_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "RequestOnboardingRetry",
-        "line": 40,
-        "snippet": "SELECT urmail_request_onboarding(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(reason));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "RequestDNSRollback",
-        "line": 48,
-        "snippet": "SELECT urmail_rollback_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "ReviewDNSPlan",
-        "line": 52,
-        "snippet": "SELECT urmail_review_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "dns_onboarding.sql",
-        "method": "AbandonDNSPlan",
-        "line": 56,
-        "snippet": "SELECT urmail_abandon_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));"
-      },
-      {
-        "class": "db-function-call",
         "file": "marketing_campaigns.sql",
         "method": "ScheduleMarketingCampaign",
         "line": 55,
@@ -180,6 +117,6 @@
     ]
   },
   "totals": {
-    "db-function-call": 25
+    "db-function-call": 16
   }
 }

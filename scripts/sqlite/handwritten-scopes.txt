@@ -37,3 +37,14 @@ ArchiveCasesCreate                 platform
 SoftDeleteArchiveEntry             platform
 PlatformRotatePanelPassword        platform
 PlatformChangePanelMFA             platform
+
+# -- platform: DNS/onboarding 写路径
+SaveDNSCredential      platform
+RevokeDNSCredential    platform
+CreateDNSPlan          platform
+ConfirmDNSPlan         platform
+CancelDNSPlan          platform
+RequestOnboardingRetry platform
+RequestDNSRollback     platform
+ReviewDNSPlan          platform
+AbandonDNSPlan         platform

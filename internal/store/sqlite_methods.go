@@ -23,7 +23,9 @@ import (
 	"net/netip"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -1146,4 +1148,448 @@ func (q *Queries) PlatformChangePanelMFA(ctx context.Context, arg PlatformChange
 		return 0, err
 	}
 	return generation, nil
+}
+
+// ---------------------------------------------------------------------------
+// S4 batch C: DNS credential / change-plan procedures (dns_onboarding.sql).
+// Faithful port of the urmail_*_dns_* plpgsql functions:
+//   * pg_advisory_xact_lock(51,hashtext(domain)) -> SQLite's single-writer
+//     transaction serialisation (no session semantics are dropped: the lock
+//     only ever serialised writers, never carried data).
+//   * urmail_dns_actor keeps its role/actor gate by reading the S2 decorator's
+//     session settings (current_setting('urmail.user_id')), which is how the PG
+//     function saw the caller. That seam is app_pending: the tenant self-check
+//     is redundant because every caller binds tenant_id from ctx.
+//   * urmail_request_onboarding loses only its subscriptions entitlement clause
+//     (the subscriptions table was dropped by 0156 and is absent from the
+//     SQLite schema); that gate is registered app_pending, not dropped.
+// ---------------------------------------------------------------------------
+
+const dnsActorSQL = `SELECT CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER)
+WHERE EXISTS(SELECT 1 FROM user_tenant_roles
+  WHERE tenant_id=?1 AND user_id=CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER)
+   AND role IN('owner','admin'))
+ AND EXISTS(SELECT 1 FROM domains
+  WHERE tenant_id=?1 AND id=?2 AND status IN('active','disabled') AND verified_at IS NOT NULL AND verified_at<=?3)`
+
+// dnsActor mirrors urmail_dns_actor: returns the acting user or the PG
+// SQLSTATE 42501 DNS_AUTHORIZATION_REQUIRED.
+func (q *Queries) dnsActor(ctx context.Context, tenant, domain int64) (int64, error) {
+	var uid int64
+	err := q.db.QueryRow(ctx, dnsActorSQL, tenant, domain, timeutil.NowMicro()).Scan(&uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, pgError("42501", "DNS_AUTHORIZATION_REQUIRED")
+	}
+	if err != nil {
+		return 0, err
+	}
+	return uid, nil
+}
+
+// uuidText renders a pgtype.UUID the way PG's text cast does, for the TEXT
+// uuid columns of the SQLite schema.
+func uuidText(u pgtype.UUID) (string, bool) {
+	if !u.Valid {
+		return "", false
+	}
+	b := u.Bytes
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), true
+}
+
+// dnsReasonOK mirrors length(trim(reason)) >= 10 in characters (not bytes).
+func dnsReasonOK(reason string) bool {
+	return utf8.RuneCountInString(strings.TrimSpace(reason)) >= 10
+}
+
+const dnsDomainStateSQL = `SELECT EXISTS(SELECT 1 FROM domains WHERE tenant_id=?1 AND id=?2 AND status=?3)`
+
+const dnsZoneMatchSQL = `SELECT EXISTS(SELECT 1 FROM domains WHERE tenant_id=?1 AND id=?2
+ AND (fqdn=?3 OR substr(fqdn,-(length(?3)+1))='.'||?3))`
+
+const dnsUpsertCredentialSQL = `INSERT INTO dns_credentials(tenant_id,domain_id,provider,zone_name,zone_id,encrypted_secret)
+VALUES(?1,?2,?3,?4,?5,?6)
+ON CONFLICT(tenant_id,domain_id) DO UPDATE SET
+ provider=excluded.provider,zone_name=excluded.zone_name,zone_id=excluded.zone_id,
+ encrypted_secret=excluded.encrypted_secret,version=dns_credentials.version+1,
+ enabled=1,revoked_at=NULL,verified_at=?7,updated_at=?7
+RETURNING id`
+
+const dnsInvalidatePlansOnCredentialSQL = `UPDATE dns_change_plans
+SET status=CASE WHEN status='draft' THEN 'canceled' ELSE 'uncertain' END,
+ fence=fence+1,lease_owner=NULL,lease_until=NULL,last_error_code=?3,updated_at=?4
+WHERE tenant_id=?1 AND domain_id=?2 AND status IN('draft','confirmed','applying','rollback_pending')`
+
+// SaveDNSCredential stores (or rotates) the encrypted DNS credential and
+// invalidates every live plan for the domain. Mirrors
+// urmail_save_dns_credential.
+func (q *Queries) SaveDNSCredential(ctx context.Context, arg SaveDNSCredentialParams) (int64, error) {
+	if _, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID); err != nil {
+		return 0, err
+	}
+	var active bool
+	if err := q.db.QueryRow(ctx, dnsDomainStateSQL, arg.TenantID, arg.DomainID, "active").Scan(&active); err != nil {
+		return 0, err
+	}
+	if !active {
+		return 0, pgError("23514", "DNS_DOMAIN_DISABLED")
+	}
+	var zoneOK bool
+	if err := q.db.QueryRow(ctx, dnsZoneMatchSQL, arg.TenantID, arg.DomainID, arg.ZoneName).Scan(&zoneOK); err != nil {
+		return 0, err
+	}
+	if arg.ZoneName == "" || arg.ZoneID == "" || !strings.HasPrefix(arg.EncryptedSecret, "enc:v1:") || !zoneOK {
+		return 0, pgError("23514", "DNS_ZONE_MISMATCH")
+	}
+	now := timeutil.NowMicro()
+	var cid int64
+	err := q.runTx(ctx, func(tx *Queries) error {
+		if err := tx.db.QueryRow(ctx, dnsUpsertCredentialSQL, arg.TenantID, arg.DomainID, arg.Provider,
+			arg.ZoneName, arg.ZoneID, arg.EncryptedSecret, now).Scan(&cid); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, dnsInvalidatePlansOnCredentialSQL, arg.TenantID, arg.DomainID,
+			"DNS_CREDENTIAL_CHANGED", now)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return cid, nil
+}
+
+const dnsRevokeCredentialSQL = `UPDATE dns_credentials
+SET enabled=0,version=version+1,revoked_at=?3,updated_at=?3
+WHERE tenant_id=?1 AND domain_id=?2`
+
+// RevokeDNSCredential disables the domain credential and invalidates live
+// plans. Mirrors urmail_revoke_dns_credential.
+func (q *Queries) RevokeDNSCredential(ctx context.Context, arg RevokeDNSCredentialParams) error {
+	if _, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID); err != nil {
+		return err
+	}
+	now := timeutil.NowMicro()
+	return q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, dnsRevokeCredentialSQL, arg.TenantID, arg.DomainID, now); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, dnsInvalidatePlansOnCredentialSQL, arg.TenantID, arg.DomainID,
+			"DNS_CREDENTIAL_REVOKED", now)
+		return err
+	})
+}
+
+const dnsCreatePlanSQL = `INSERT INTO dns_change_plans(id,tenant_id,domain_id,credential_id,credential_version,
+ kind,domain_digest,source_digest,before_records,desired_records,changes,created_by,expires_at)
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`
+
+const dnsCredentialLiveSQL = `SELECT EXISTS(SELECT 1 FROM dns_credentials
+WHERE tenant_id=?1 AND domain_id=?2 AND id=?3 AND version=?4 AND enabled AND revoked_at IS NULL)`
+
+// CreateDNSPlan records a 15-minute preview plan. Mirrors urmail_create_dns_plan.
+func (q *Queries) CreateDNSPlan(ctx context.Context, arg CreateDNSPlanParams) (pgtype.UUID, error) {
+	uid, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	var active bool
+	if err := q.db.QueryRow(ctx, dnsDomainStateSQL, arg.TenantID, arg.DomainID, "active").Scan(&active); err != nil {
+		return pgtype.UUID{}, err
+	}
+	if !active {
+		return pgtype.UUID{}, pgError("23514", "DNS_DOMAIN_DISABLED")
+	}
+	id, ok := uuidText(arg.ID)
+	if !ok {
+		return pgtype.UUID{}, pgError("23514", "DNS_PLAN_INVALID")
+	}
+	if arg.Kind == "provider" {
+		if !arg.CredentialID.Valid || !arg.CredentialVersion.Valid {
+			return pgtype.UUID{}, pgError("23514", "DNS_CREDENTIAL_CHANGED")
+		}
+		var live bool
+		if err := q.db.QueryRow(ctx, dnsCredentialLiveSQL, arg.TenantID, arg.DomainID,
+			arg.CredentialID.Int64, arg.CredentialVersion.Int64).Scan(&live); err != nil {
+			return pgtype.UUID{}, err
+		}
+		if !live {
+			return pgtype.UUID{}, pgError("23514", "DNS_CREDENTIAL_CHANGED")
+		}
+	} else if arg.CredentialID.Valid {
+		return pgtype.UUID{}, pgError("23514", "DNS_PLAN_INVALID")
+	}
+	var credentialID, credentialVersion any
+	if arg.CredentialID.Valid {
+		credentialID = arg.CredentialID.Int64
+	}
+	if arg.CredentialVersion.Valid {
+		credentialVersion = arg.CredentialVersion.Int64
+	}
+	_, err = q.db.Exec(ctx, dnsCreatePlanSQL, id, arg.TenantID, arg.DomainID, credentialID,
+		credentialVersion, arg.Kind, arg.DomainDigest, arg.SourceDigest,
+		string(arg.BeforeRecords), string(arg.DesiredRecords), string(arg.Changes), uid,
+		timeutil.NowMicro()+15*60*1000000)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return arg.ID, nil
+}
+
+const dnsPlanForUpdateSQL = `SELECT status,kind,domain_id,credential_id,credential_version,source_digest,
+ changes,expires_at FROM dns_change_plans WHERE tenant_id=?1 AND id=?2`
+
+type dnsPlanRow struct {
+	Status            string
+	Kind              string
+	DomainID          int64
+	CredentialID      *int64
+	CredentialVersion *int64
+	SourceDigest      string
+	Changes           string
+	ExpiresAt         int64
+}
+
+// dnsPlan loads the plan inside the caller's transaction (SQLite serialises
+// writers, so the PG FOR UPDATE is unnecessary).
+func (q *Queries) dnsPlan(ctx context.Context, tenant int64, id string) (dnsPlanRow, error) {
+	var p dnsPlanRow
+	err := q.db.QueryRow(ctx, dnsPlanForUpdateSQL, tenant, id).Scan(&p.Status, &p.Kind, &p.DomainID,
+		&p.CredentialID, &p.CredentialVersion, &p.SourceDigest, &p.Changes, &p.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, pgError("23514", "DNS_PLAN_NOT_FOUND")
+	}
+	return p, err
+}
+
+// dnsConflictFree reports whether the preview's "conflicts" array is empty
+// (jsonb_array_length(p.changes->'conflicts') = 0).
+func dnsConflictFree(changes string) bool {
+	var doc struct {
+		Conflicts []json.RawMessage `json:"conflicts"`
+	}
+	if err := json.Unmarshal([]byte(changes), &doc); err != nil {
+		return false
+	}
+	return len(doc.Conflicts) == 0
+}
+
+const dnsConfirmPlanSQL = `UPDATE dns_change_plans
+SET status='confirmed',confirmed_by=?3,confirmed_at=?4,updated_at=?4
+WHERE tenant_id=?1 AND id=?2`
+
+// ConfirmDNSPlan validates the preview digest, expiry and credential version,
+// then confirms the plan. Mirrors urmail_confirm_dns_plan.
+func (q *Queries) ConfirmDNSPlan(ctx context.Context, arg ConfirmDNSPlanParams) error {
+	id, ok := uuidText(arg.ID)
+	if !ok {
+		return pgError("23514", "DNS_PLAN_NOT_FOUND")
+	}
+	p, err := q.dnsPlan(ctx, arg.TenantID, id)
+	if err != nil {
+		return err
+	}
+	uid, err := q.dnsActor(ctx, arg.TenantID, p.DomainID)
+	if err != nil {
+		return err
+	}
+	var active bool
+	if err := q.db.QueryRow(ctx, dnsDomainStateSQL, arg.TenantID, p.DomainID, "active").Scan(&active); err != nil {
+		return err
+	}
+	if !active {
+		return pgError("23514", "DNS_DOMAIN_DISABLED")
+	}
+	now := timeutil.NowMicro()
+	if p.Status != "draft" || p.ExpiresAt <= now || p.SourceDigest != arg.SourceDigest ||
+		!dnsConflictFree(p.Changes) {
+		return pgError("23514", "DNS_PLAN_CONFIRMATION_INVALID")
+	}
+	if p.Kind == "provider" {
+		if p.CredentialID == nil || p.CredentialVersion == nil {
+			return pgError("23514", "DNS_CREDENTIAL_CHANGED")
+		}
+		var live bool
+		if err := q.db.QueryRow(ctx, dnsCredentialLiveSQL, arg.TenantID, p.DomainID,
+			*p.CredentialID, *p.CredentialVersion).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return pgError("23514", "DNS_CREDENTIAL_CHANGED")
+		}
+	}
+	_, err = q.db.Exec(ctx, dnsConfirmPlanSQL, arg.TenantID, id, uid, now)
+	return err
+}
+
+const dnsCancelPlanSQL = `UPDATE dns_change_plans
+SET status='canceled',fence=fence+1,lease_owner=NULL,lease_until=NULL,
+ last_error_code='CANCELED_BY_TENANT',updated_at=?3
+WHERE tenant_id=?1 AND id=?2`
+
+// CancelDNSPlan cancels a draft or confirmed plan. Mirrors
+// urmail_cancel_dns_plan.
+func (q *Queries) CancelDNSPlan(ctx context.Context, arg CancelDNSPlanParams) error {
+	id, ok := uuidText(arg.ID)
+	if !ok {
+		return pgError("23514", "DNS_PLAN_NOT_FOUND")
+	}
+	p, err := q.dnsPlan(ctx, arg.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if _, err := q.dnsActor(ctx, arg.TenantID, p.DomainID); err != nil {
+		return err
+	}
+	if (p.Status != "draft" && p.Status != "confirmed") || !dnsReasonOK(arg.Reason) {
+		return pgError("23514", "DNS_PLAN_CANCEL_INVALID")
+	}
+	_, err = q.db.Exec(ctx, dnsCancelPlanSQL, arg.TenantID, id, timeutil.NowMicro())
+	return err
+}
+
+const onboardingRestoreUnreconciledSQL = `SELECT EXISTS(
+ SELECT 1 FROM onboarding_tasks t
+ WHERE t.tenant_id=?1 AND t.domain_id=?2 AND t.status='blocked'
+  AND (COALESCE(t.last_error_code,'')||COALESCE(t.last_error,'')) LIKE '%RESTORE_RECONCILIATION_REQUIRED%')
+AND NOT EXISTS(
+ SELECT 1 FROM dns_change_plans p
+ WHERE p.tenant_id=?1 AND p.domain_id=?2 AND p.status='completed'
+  AND p.updated_at>(SELECT max(t.updated_at) FROM onboarding_tasks t
+   WHERE t.tenant_id=?1 AND t.domain_id=?2 AND t.status='blocked'))`
+
+const onboardingSupersedeSQL = `UPDATE onboarding_tasks
+SET status='failed',fence=fence+1,leased_until=NULL,leased_by=NULL,
+ last_error_code='SUPERSEDED_BY_EXPLICIT_RETRY',updated_at=?3
+WHERE tenant_id=?1 AND domain_id=?2 AND status IN('pending','running','failed','blocked')`
+
+const onboardingInsertTaskSQL = `INSERT INTO onboarding_tasks(tenant_id,domain_id,status,step,max_attempts)
+VALUES(?1,?2,'pending','bootstrap_config',12)`
+
+const onboardingResetDomainSQL = `UPDATE domains SET provisioning_state='pending' WHERE tenant_id=?1 AND id=?2`
+
+// RequestOnboardingRetry supersedes every live task with a fresh bootstrap
+// task. Mirrors urmail_request_onboarding minus its subscriptions
+// entitlement clause (table dropped by 0156; registered app_pending).
+func (q *Queries) RequestOnboardingRetry(ctx context.Context, arg RequestOnboardingRetryParams) error {
+	if _, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID); err != nil {
+		return err
+	}
+	var active bool
+	if err := q.db.QueryRow(ctx, dnsDomainStateSQL, arg.TenantID, arg.DomainID, "active").Scan(&active); err != nil {
+		return err
+	}
+	if !active || !dnsReasonOK(arg.Reason) {
+		return pgError("23514", "ONBOARDING_RETRY_INVALID")
+	}
+	var unreconciled bool
+	if err := q.db.QueryRow(ctx, onboardingRestoreUnreconciledSQL, arg.TenantID, arg.DomainID).Scan(&unreconciled); err != nil {
+		return err
+	}
+	if unreconciled {
+		return pgError("23514", "RESTORE_DNS_RECONCILIATION_REQUIRED")
+	}
+	now := timeutil.NowMicro()
+	return q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, onboardingSupersedeSQL, arg.TenantID, arg.DomainID, now); err != nil {
+			return err
+		}
+		if _, err := tx.db.Exec(ctx, onboardingInsertTaskSQL, arg.TenantID, arg.DomainID); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, onboardingResetDomainSQL, arg.TenantID, arg.DomainID)
+		return err
+	})
+}
+
+const dnsRollbackPlanSQL = `UPDATE dns_change_plans
+SET status='rollback_pending',fence=fence+1,lease_owner=NULL,lease_until=NULL,
+ last_error_code='ROLLBACK_EXPLICITLY_REQUESTED',updated_at=?3
+WHERE tenant_id=?1 AND id=?2`
+
+// RequestDNSRollback requests a reviewed rollback of a completed plan. Mirrors
+// urmail_rollback_dns_plan.
+func (q *Queries) RequestDNSRollback(ctx context.Context, arg RequestDNSRollbackParams) error {
+	id, ok := uuidText(arg.ID)
+	if !ok {
+		return pgError("23514", "DNS_PLAN_NOT_FOUND")
+	}
+	p, err := q.dnsPlan(ctx, arg.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if _, err := q.dnsActor(ctx, arg.TenantID, p.DomainID); err != nil {
+		return err
+	}
+	if p.Status != "completed" || !dnsReasonOK(arg.Reason) || p.Kind == "manual" {
+		return pgError("23514", "DNS_ROLLBACK_REQUIRES_REVIEW")
+	}
+	now := timeutil.NowMicro()
+	return q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, onboardingResetDomainSQL, arg.TenantID, p.DomainID); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, dnsRollbackPlanSQL, arg.TenantID, id, now)
+		return err
+	})
+}
+
+const dnsCompletePlanSQL = `UPDATE dns_change_plans
+SET status='completed',fence=fence+1,lease_owner=NULL,lease_until=NULL,
+ last_error_code='READ_ONLY_OBSERVATION_CONFIRMED',updated_at=?3
+WHERE tenant_id=?1 AND id=?2`
+
+const dnsRecordActionsObservedSQL = `UPDATE dns_record_actions
+SET status='applied',owned=0,last_error_code='MANUAL_OBSERVATION_UNOWNED',updated_at=?3
+WHERE tenant_id=?1 AND plan_id=?2 AND status IN('pending','submitted','uncertain')`
+
+// ReviewDNSPlan resolves an uncertain plan as a read-only observation and
+// leaves every unowned record unowned. Mirrors urmail_review_dns_plan.
+func (q *Queries) ReviewDNSPlan(ctx context.Context, arg ReviewDNSPlanParams) error {
+	id, ok := uuidText(arg.ID)
+	if !ok {
+		return pgError("23514", "DNS_PLAN_NOT_FOUND")
+	}
+	p, err := q.dnsPlan(ctx, arg.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if _, err := q.dnsActor(ctx, arg.TenantID, p.DomainID); err != nil {
+		return err
+	}
+	if p.Status != "uncertain" || !dnsReasonOK(arg.Reason) {
+		return pgError("23514", "DNS_REVIEW_REQUIRED")
+	}
+	now := timeutil.NowMicro()
+	return q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, dnsCompletePlanSQL, arg.TenantID, id, now); err != nil {
+			return err
+		}
+		_, err := tx.db.Exec(ctx, dnsRecordActionsObservedSQL, arg.TenantID, id, now)
+		return err
+	})
+}
+
+const dnsAbandonPlanSQL = `UPDATE dns_change_plans
+SET status='failed',fence=fence+1,lease_owner=NULL,lease_until=NULL,
+ last_error_code='ABANDONED_WITH_UNRESOLVED_EXTERNAL_FACTS',updated_at=?3
+WHERE tenant_id=?1 AND id=?2`
+
+// AbandonDNSPlan fails an uncertain/failed plan without claiming anything
+// about external state. Mirrors urmail_abandon_dns_plan.
+func (q *Queries) AbandonDNSPlan(ctx context.Context, arg AbandonDNSPlanParams) error {
+	id, ok := uuidText(arg.ID)
+	if !ok {
+		return pgError("23514", "DNS_PLAN_NOT_FOUND")
+	}
+	p, err := q.dnsPlan(ctx, arg.TenantID, id)
+	if err != nil {
+		return err
+	}
+	if _, err := q.dnsActor(ctx, arg.TenantID, p.DomainID); err != nil {
+		return err
+	}
+	if (p.Status != "uncertain" && p.Status != "failed") || !dnsReasonOK(arg.Reason) {
+		return pgError("23514", "DNS_REVIEW_REQUIRED")
+	}
+	_, err = q.db.Exec(ctx, dnsAbandonPlanSQL, arg.TenantID, id, timeutil.NowMicro())
+	return err
 }

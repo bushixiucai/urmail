@@ -2,9 +2,9 @@
  "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
  "total_calls": 95,
  "by_strategy": {
-  "s4-closed": 26,
+  "s4-closed": 35,
   "inline": 32,
-  "app-assume": 25,
+  "app-assume": 16,
   "inline-compose": 12
  },
  "first_batch_inline_calls": 44,
@@ -113,8 +113,9 @@
    "method": "SaveDNSCredential",
    "line": 8,
    "snippet": "SELECT urmail_save_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(provider),sqlc.ar",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor(current_setting actor, app_pending)+zone/enc 校验+upsert+计划失效（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_revoke_dns_credential",
@@ -122,8 +123,9 @@
    "method": "RevokeDNSCredential",
    "line": 12,
    "snippet": "SELECT urmail_revoke_dns_credential(sqlc.arg(tenant_id),sqlc.arg(domain_id));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor+凭据吊销+计划失效（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_create_dns_plan",
@@ -131,8 +133,9 @@
    "method": "CreateDNSPlan",
    "line": 16,
    "snippet": "SELECT urmail_create_dns_plan(sqlc.arg(id),sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.narg(credent",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor+kind/凭据版本校验+计划插入；advisory lock→SQLite 单写者",
+   "status": "closed"
   },
   {
    "fn": "urmail_confirm_dns_plan",
@@ -140,8 +143,9 @@
    "method": "ConfirmDNSPlan",
    "line": 20,
    "snippet": "SELECT urmail_confirm_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(source_digest));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+digest/expiry/conflicts/credential 校验+确认",
+   "status": "closed"
   },
   {
    "fn": "urmail_cancel_dns_plan",
@@ -149,8 +153,9 @@
    "method": "CancelDNSPlan",
    "line": 24,
    "snippet": "SELECT urmail_cancel_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+状态/理由（字符数≥10）校验+取消",
+   "status": "closed"
   },
   {
    "fn": "urmail_request_onboarding",
@@ -158,8 +163,9 @@
    "method": "RequestOnboardingRetry",
    "line": 40,
    "snippet": "SELECT urmail_request_onboarding(sqlc.arg(tenant_id),sqlc.arg(domain_id),sqlc.arg(reason));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：dnsActor+恢复对账门+任务取代/新建；subscriptions 条款表已删（app_pending）",
+   "status": "closed"
   },
   {
    "fn": "urmail_rollback_dns_plan",
@@ -167,8 +173,9 @@
    "method": "RequestDNSRollback",
    "line": 48,
    "snippet": "SELECT urmail_rollback_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+completed/reason/manual 门+rollback_pending",
+   "status": "closed"
   },
   {
    "fn": "urmail_review_dns_plan",
@@ -176,8 +183,9 @@
    "method": "ReviewDNSPlan",
    "line": 52,
    "snippet": "SELECT urmail_review_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+uncertain/reason 门+completed+观察动作 unowned",
+   "status": "closed"
   },
   {
    "fn": "urmail_abandon_dns_plan",
@@ -185,8 +193,9 @@
    "method": "AbandonDNSPlan",
    "line": 56,
    "snippet": "SELECT urmail_abandon_dns_plan(sqlc.arg(tenant_id),sqlc.arg(id),sqlc.arg(reason));",
-   "strategy": "app-assume",
-   "replacement": "DNS/onboarding 过程函数 → repo Go 事务（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：行读+uncertain|failed/reason 门+failed",
+   "status": "closed"
   },
   {
    "fn": "urmail_schedule_marketing",
