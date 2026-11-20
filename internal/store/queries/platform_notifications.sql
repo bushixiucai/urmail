@@ -76,8 +76,6 @@ UNION ALL SELECT 'marketing_recipient',status,count(*) FROM marketing_recipients
 UNION ALL SELECT 'dns',status,count(*) FROM dns_change_plans GROUP BY status
 UNION ALL SELECT 'onboarding',status,count(*) FROM onboarding_tasks GROUP BY status;
 
--- scope: platform
-
 -- name: PlatformUpsertAIAlerts :execrows
 -- scope: platform
 
@@ -98,7 +96,8 @@ UPDATE operational_alerts SET state='resolved',
  last_seen_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE kind IN('ai_requires_review','ai_budget_exhausted') AND state='firing'
  AND NOT EXISTS(
-  SELECT 1  WHERE EXISTS(SELECT 1 FROM ai_usage_requests u WHERE u.status='uncertain' OR (u.status='reserved' AND u.updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000)));-- name: PlatformEnqueueAIAlerts :exec
+  SELECT 1  WHERE EXISTS(SELECT 1 FROM ai_usage_requests u WHERE u.status='uncertain' OR (u.status='reserved' AND u.updated_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-300000000)));
+-- name: PlatformEnqueueAIAlerts :exec
 -- scope: platform
 
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)

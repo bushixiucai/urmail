@@ -8,8 +8,6 @@ LEFT JOIN recall_requests r ON r.tenant_id=a.tenant_id AND r.archive_entry_id=a.
 WHERE a.tenant_id=?1 AND a.message_id=(SELECT source.message_id FROM archive_entries source WHERE source.tenant_id=?1 AND source.id=?2)
 ORDER BY a.id LIMIT 101;
 
--- scope: tenant
-
 -- name: StoreRecallReviewPreview :one
 -- scope: tenant
 
@@ -29,7 +27,6 @@ RETURNING *;
 
 SELECT * FROM recall_requests r WHERE r.tenant_id= @tenant_id AND r.id= @recall_id
  AND r.preview_actor_id= @actor_id AND r.preview_token= @token AND r.preview_digest= @digest;
--- scope: tenant
 
 -- name: ConfirmRecallReview :one
 -- scope: tenant

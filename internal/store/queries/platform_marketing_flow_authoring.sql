@@ -47,8 +47,6 @@ SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;
 UPDATE marketing_flow_positions SET delivery_uncertain=true,last_error='delivery_uncertain',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND lease_owner=?4 AND lease_fence=?5 AND lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
--- scope: platform
-
 -- name: PlatformRecordMarketingFlowNodeExecution :execrows
 -- scope: platform
 

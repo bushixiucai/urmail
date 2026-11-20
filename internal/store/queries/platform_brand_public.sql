@@ -27,8 +27,6 @@ cert_issued_at=NULL,activated_at=NULL,updated_at=(CAST(strftime('%s','now') AS I
 WHERE brand_hosts.status='failed' AND brand_hosts.failure_reason='revoked'
 RETURNING hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activated_at,created_at,updated_at;
 
--- scope: platform
-
 -- name: PlatformUnbindBrandHostDeleteProof :exec
 -- scope: platform
 
@@ -65,8 +63,6 @@ ON CONFLICT(slug) DO UPDATE SET name=EXCLUDED.name,theme=EXCLUDED.theme,
 logo_url=EXCLUDED.logo_url,favicon_url=EXCLUDED.favicon_url,
 primary_color=EXCLUDED.primary_color,status=EXCLUDED.status
 RETURNING id,slug,name,theme,logo_url,favicon_url,primary_color,status,created_at;
-
--- scope: platform
 
 -- name: PlatformResetBrandThemeClearSettings :exec
 -- scope: platform

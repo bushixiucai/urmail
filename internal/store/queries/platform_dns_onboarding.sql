@@ -37,10 +37,12 @@ INSERT INTO dns_record_actions(tenant_id,plan_id,ordinal,kind,before_record,afte
 -- name: PlatformSubmitDNSAction :execrows
 -- scope: platform
 
-UPDATE dns_record_actions SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='pending' AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status='applying' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));-- name: PlatformCompleteDNSAction :execrows
+UPDATE dns_record_actions SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='pending' AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status='applying' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));
+-- name: PlatformCompleteDNSAction :execrows
 -- scope: platform
 
-UPDATE dns_record_actions SET status=?4,provider_record_id=?5,owned=?6,last_error_code=?7,observed_record=sqlc.narg(observed_record),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='submitted' AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status IN('applying','rollback_pending') AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));-- name: PlatformApplyManagedDNS :exec
+UPDATE dns_record_actions SET status=?4,provider_record_id=?5,owned=?6,last_error_code=?7,observed_record=sqlc.narg(observed_record),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='submitted' AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status IN('applying','rollback_pending') AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));
+-- name: PlatformApplyManagedDNS :exec
 -- scope: platform
 
 INSERT INTO managed_dns_zones(tenant_id,domain_id,records,plan_id) VALUES(?1,?2,?3,?4) ON CONFLICT(domain_id) DO UPDATE SET records=EXCLUDED.records,plan_id=EXCLUDED.plan_id,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000);
@@ -60,7 +62,8 @@ WHERE id=(SELECT task.id FROM onboarding_tasks task JOIN domains d ON d.id=task.
 WHERE task.status IN('pending','running') AND task.next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (task.leased_until IS NULL OR task.leased_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND task.attempts<task.max_attempts AND d.status='active' AND d.verified_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND NOT EXISTS(SELECT 1 FROM onboarding_tasks held WHERE held.tenant_id=task.tenant_id AND held.domain_id=task.domain_id AND held.status='blocked' AND (coalesce(held.last_error_code,'')||coalesce(held.last_error,'')) LIKE '%RESTORE_RECONCILIATION_REQUIRED%' AND NOT EXISTS(SELECT 1 FROM dns_change_plans reviewed WHERE reviewed.tenant_id=held.tenant_id AND reviewed.domain_id=held.domain_id AND reviewed.status='completed' AND reviewed.updated_at>held.updated_at))
 RETURNING *; * AND EXISTS(SELECT 1 FROM onboarding_tasks held WHERE held.tenant_id=task.tenant_id AND held.domain_id=task.domain_id AND held.status='blocked' AND (coalesce(held.last_error_code,'')||coalesce(held.last_error,'')) LIKE '%RESTORE_RECONCILIATION_REQUIRED%' AND NOT EXISTS(SELECT 1 FROM dns_change_plans reviewed WHERE reviewed.tenant_id=held.tenant_id AND reviewed.domain_id=held.domain_id AND reviewed.updated_at>held.updated_at))
-ORDER BY task.id LIMIT 1));-- name: PlatformFenceOnboarding :one
+ORDER BY task.id LIMIT 1));
+-- name: PlatformFenceOnboarding :one
 -- scope: platform
 
 SELECT * FROM onboarding_tasks WHERE id=?1 AND fence=?2 AND leased_by=?3 AND leased_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='running';
@@ -75,7 +78,8 @@ UPDATE tenants SET status='active' WHERE tenants.id=?1 AND tenants.status='pendi
 -- name: PlatformMarkDomainReady :execrows
 -- scope: platform
 
-UPDATE domains SET provisioning_state='ready',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE tenant_id=?1 AND id=?2 AND status='active' AND EXISTS(SELECT 1 FROM onboarding_tasks task WHERE task.tenant_id=tenant_id AND task.domain_id=id AND task.id=?3 AND task.fence=?4 AND task.leased_by=?5 AND task.leased_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND task.status='running' AND task.step='protocol_readiness');-- name: PlatformProvisioningCertificateAllowed :one
+UPDATE domains SET provisioning_state='ready',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE tenant_id=?1 AND id=?2 AND status='active' AND EXISTS(SELECT 1 FROM onboarding_tasks task WHERE task.tenant_id=tenant_id AND task.domain_id=id AND task.id=?3 AND task.fence=?4 AND task.leased_by=?5 AND task.leased_until>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND task.status='running' AND task.step='protocol_readiness');
+-- name: PlatformProvisioningCertificateAllowed :one
 -- scope: platform
 
 SELECT EXISTS(SELECT 1 FROM domains d WHERE d.fqdn=?1 AND d.status='active' AND d.custom_web_enabled AND (d.provisioning_state='ready' OR EXISTS(SELECT 1 FROM onboarding_tasks t WHERE t.domain_id=d.id AND t.tenant_id=d.tenant_id AND t.status IN('pending','running','completed') AND t.step IN('certificate_issue','mailbox_provision','configuration_apply','protocol_readiness','ready')))) AS allowed;
@@ -95,7 +99,8 @@ UPDATE onboarding_tasks SET leased_until=(CAST(strftime('%s','now') AS INTEGER)*
 -- name: PlatformSubmitDNSRollback :execrows
 -- scope: platform
 
-UPDATE dns_record_actions SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='applied' AND (owned OR kind='update') AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status='rollback_pending' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));-- name: PlatformReviewDNSPlan :execrows
+UPDATE dns_record_actions SET status='submitted',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)  WHERE id=?1 AND status='applied' AND (owned OR kind='update') AND EXISTS(SELECT 1 FROM dns_change_plans p WHERE p.id=plan_id AND p.fence=?2 AND p.lease_owner=?3 AND p.status='rollback_pending' AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000));
+-- name: PlatformReviewDNSPlan :execrows
 -- scope: platform
 
 UPDATE dns_change_plans SET status='completed',fence=fence+1,lease_owner=NULL,lease_until=NULL,last_error_code='READ_ONLY_OBSERVATION_CONFIRMED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND id=?2 AND status='uncertain';
@@ -107,7 +112,6 @@ SELECT * FROM managed_dns_zones WHERE tenant_id=?1 AND domain_id=?2;
 -- scope: platform
 
 UPDATE onboarding_tasks SET status='failed',fence=fence+1,leased_by=NULL,leased_until=NULL,last_error_code='ONBOARDING_RETRIES_EXHAUSTED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE status IN('pending','running') AND attempts>=max_attempts AND (leased_until IS NULL OR leased_until<(CAST(strftime('%s','now') AS INTEGER)*1000000));
--- scope: platform
 
 -- name: PlatformUpsertDNSOnboardingAlerts :execrows
 -- scope: platform
@@ -137,7 +141,8 @@ WITH sources AS (
 UPDATE operational_alerts SET state='resolved',
  resolved_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE kind IN('dns_requires_review','onboarding_requires_review') AND state='firing'
- AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM sources s WHERE s.key=alert_key));-- name: PlatformEnqueueDNSOnboardingAlerts :exec
+ AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM sources s WHERE s.key=alert_key));
+-- name: PlatformEnqueueDNSOnboardingAlerts :exec
 -- scope: platform
 
 INSERT INTO notification_outbox(tenant_id,kind,message_key,params,dedupe_key,channel,state)

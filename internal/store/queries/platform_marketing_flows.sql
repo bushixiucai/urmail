@@ -53,7 +53,6 @@ AND NOT EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=marketi
 -- when its owning flow is active, it is subscribed, not uncertain, unleased
 -- or expired, and either its step sends or its recorded wait has elapsed (or
 -- still needs arming).
--- scope: platform
 
 -- name: PlatformAdvanceMarketingFlowDueTenant :execrows
 -- scope: platform
@@ -78,7 +77,8 @@ UPDATE marketing_flow_positions SET lease_owner=sqlc.arg(lease_owner),
  lease_fence=lease_fence+1
 WHERE tenant_id=sqlc.arg(tenant_id)
  AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id AND s.flow_id=flow_id AND s.step_key=step_key AND s.kind<>'wait' OR (s.kind='wait' AND wait_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))) AND NOT unsubscribed AND NOT delivery_uncertain AND stopped_at IS NULL AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (lease_until IS NULL OR lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
-RETURNING tenant_id, flow_id, email, step_key, lease_fence, lease_until, event_facts AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=tenant_id AND v.runtime_flow_id=flow_id));-- name: PlatformReleaseMarketingFlowLease :execrows
+RETURNING tenant_id, flow_id, email, step_key, lease_fence, lease_until, event_facts AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=tenant_id AND v.runtime_flow_id=flow_id));
+-- name: PlatformReleaseMarketingFlowLease :execrows
 -- scope: platform
 
 UPDATE marketing_flow_positions SET lease_owner=NULL, lease_until=NULL
@@ -95,7 +95,8 @@ UPDATE marketing_flow_positions SET wait_until=(CAST(strftime('%s','now') AS INT
 -- Advance a wait step whose wait_until elapsed, without sending anything.
 -- The database function re-checks uncertain, unsubscribe, the wait AND the
 -- sending gate under FOR UPDATE, so it is the linearization point. AND EXISTS(SELECT 1 FROM marketing_flow_steps s WHERE s.tenant_id=tenant_id AND s.flow_id=flow_id AND s.step_key=step_key AND s.kind='wait' AND s.wait_seconds>0)
-WHERE tenant_id=?1)-- name: PlatformCommitMarketingFlowWait :one
+WHERE tenant_id=?1);
+-- name: PlatformCommitMarketingFlowWait :one
 -- scope: platform
 
 SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;

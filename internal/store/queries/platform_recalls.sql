@@ -1,3 +1,4 @@
+-- name: PlatformCompleteRecall :one
 -- scope: platform
 
 UPDATE recall_requests SET status=?3, reason=?4, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)

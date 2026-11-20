@@ -26,8 +26,6 @@ WHERE status='submitting' AND lease_until<=(CAST(strftime('%s','now') AS INTEGER
 UPDATE marketing_recipients SET status='queued',fence=fence+1,lease_owner=NULL,lease_until=NULL
 WHERE status='leased' AND lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
--- scope: platform
-
 -- name: PlatformAdvanceMarketingTurn :execrows
 -- scope: platform
 
@@ -44,7 +42,8 @@ WHERE EXISTS(
 UPDATE marketing_recipients SET status='sending', attempts=attempts+1, last_turn=(SELECT last_turn  WHERE next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND EXISTS(SELECT 1 FROM marketing_campaigns c WHERE c.tenant_id=tenant_id AND c.id=campaign_id AND c.status IN('scheduled','running') AND c.scheduled_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND EXISTS(SELECT 1 FROM platform_marketing_dispatch d WHERE d.tenant_id=tenant_id)
 WHERE status='queued' AND EXISTS(SELECT 1 FROM platform_marketing_dispatch d WHERE d.tenant_id=tenant_id)
 ORDER BY id LIMIT 1
-RETURNING tenant_id, id);-- name: PlatformAuthorizeMarketingSend :one
+RETURNING tenant_id, id);
+-- name: PlatformAuthorizeMarketingSend :one
 -- scope: platform
 
 SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;
@@ -72,7 +71,8 @@ WHERE r.tenant_id=?1 AND r.id=?2;
 -- scope: platform
 
 UPDATE marketing_campaigns SET status='completed' WHERE status IN('scheduled','running')
-AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_recipients r WHERE r.campaign_id=id AND r.status IN('queued','leased','submitting','uncertain')));-- name: PlatformResolveMarketingAttempt :one
+AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_recipients r WHERE r.campaign_id=id AND r.status IN('queued','leased','submitting','uncertain')));
+-- name: PlatformResolveMarketingAttempt :one
 -- scope: platform
 
 SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;

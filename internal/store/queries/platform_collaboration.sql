@@ -29,11 +29,13 @@ LIMIT sqlc.arg(page_limit);
 SELECT * FROM mailbox_contacts
 WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;
 
+-- name: PlatformInsertContact :one
 -- scope: platform
 
 INSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name, emails, phones, note)
 VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc.arg(display_name), sqlc.arg(given_name), sqlc.arg(family_name), sqlc.arg(emails), sqlc.arg(phones), sqlc.arg(note))
 RETURNING *;
+-- name: PlatformUpdateContact :one
 -- scope: platform
 
 UPDATE mailbox_contacts SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),
@@ -42,6 +44,7 @@ UPDATE mailbox_contacts SET display_name=sqlc.arg(display_name), given_name=sqlc
 WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
  AND version=sqlc.arg(expected_version) AND deleted_at IS NULL
 RETURNING *;
+-- name: PlatformDeleteContact :one
 -- scope: platform
 
 -- 成员清理（原 removed CTE）拆为顺序查询 PlatformDeleteContactMembers，与本体同事务依序执行
@@ -90,6 +93,7 @@ LIMIT sqlc.arg(page_limit);
 SELECT * FROM mailbox_events
 WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND deleted_at IS NULL;
 
+-- name: PlatformInsertEvent :one
 -- scope: platform
 
 INSERT INTO mailbox_events(tenant_id, mailbox_id, calendar_id, uid, summary, description, location,
@@ -99,6 +103,7 @@ VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(calendar_id), sqlc.ar
  sqlc.arg(starts_at), sqlc.arg(ends_at), sqlc.arg(all_day), sqlc.arg(timezone),
  sqlc.arg(rrule), sqlc.arg(status), sqlc.arg(attendees), COALESCE(sqlc.narg(recurrence_overrides),'[]'), COALESCE(sqlc.narg(reminders),'[]'))
 RETURNING *;
+-- name: PlatformUpdateEvent :one
 -- scope: platform
 
 UPDATE mailbox_events SET summary=sqlc.arg(summary), description=sqlc.arg(description), location=sqlc.arg(location),
@@ -110,12 +115,16 @@ UPDATE mailbox_events SET summary=sqlc.arg(summary), description=sqlc.arg(descri
 WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(id)
  AND version=sqlc.arg(expected_version) AND deleted_at IS NULL
 RETURNING *;
--- name: PlatformDeleteEvent :oneUPDATE mailbox_events e
+-- name: PlatformDeleteEvent :one
+-- scope: platform
+
+UPDATE mailbox_events e
 SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), status='cancelled', version=e.version+1, sequence=e.sequence+1, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.id=?3 AND e.version=?4 AND e.deleted_at IS NULL
 RETURNING e.tenant_id, e.mailbox_id, e.calendar_id, e.id, e.uid, e.summary, e.description, e.location,
  e.starts_at, e.ends_at, e.all_day, e.timezone, e.rrule, e.status, e.attendees, e.recurrence_overrides,
- e.reminders, e.sequence, e.version, e.deleted_at, e.updated_at;-- name: PlatformListChanges :many
+ e.reminders, e.sequence, e.version, e.deleted_at, e.updated_at;
+-- name: PlatformListChanges :many
 -- scope: platform
 
 SELECT * FROM mailbox_changes
@@ -137,11 +146,15 @@ UPDATE mailbox_jobs SET status='leased', attempts=attempts+1, claim_token=claim_
 WHERE id=(SELECT id FROM candidate) AND status='pending'
 RETURNING *;
 
--- name: PlatformInsertContactGroupMember :oneINSERT INTO mailbox_contact_group_members(tenant_id, mailbox_id, group_id, contact_id)
+-- name: PlatformInsertContactGroupMember :one
+-- scope: platform
+
+INSERT INTO mailbox_contact_group_members(tenant_id, mailbox_id, group_id, contact_id)
 SELECT g.tenant_id, g.mailbox_id, g.id, c.id
 FROM mailbox_contact_groups g
 JOIN mailbox_contacts c ON c.tenant_id=g.tenant_id AND c.mailbox_id=g.mailbox_id AND c.addressbook_id=g.addressbook_id
-WHERE g.tenant_id=?1 AND g.mailbox_id=?2 AND g.id=?3 AND c.id=?4 AND g.deleted_at IS NULL AND c.deleted_at IS NULL;-- name: PlatformInsertContactGroup :one
+WHERE g.tenant_id=?1 AND g.mailbox_id=?2 AND g.id=?3 AND c.id=?4 AND g.deleted_at IS NULL AND c.deleted_at IS NULL;
+-- name: PlatformInsertContactGroup :one
 -- scope: platform
 
 INSERT INTO mailbox_contact_groups(tenant_id, mailbox_id, addressbook_id, name)

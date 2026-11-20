@@ -58,7 +58,8 @@ ON CONFLICT(investigation_id,user_id) DO UPDATE SET removed_at=NULL;
 -- scope: tenant
 
 UPDATE archive_investigation_members SET removed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
- WHERE archive_investigation_members.tenant_id=?1 AND archive_investigation_members.investigation_id=?2 AND archive_investigation_members.user_id=?3 AND archive_investigation_members.removed_at IS NULL AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=?1 AND i.id=?2 AND i.created_by=?4 AND i.created_by<>?3 AND i.status='open' AND i.version=?5);-- name: ArchiveCasesSources :many
+ WHERE archive_investigation_members.tenant_id=?1 AND archive_investigation_members.investigation_id=?2 AND archive_investigation_members.user_id=?3 AND archive_investigation_members.removed_at IS NULL AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=?1 AND i.id=?2 AND i.created_by=?4 AND i.created_by<>?3 AND i.status='open' AND i.version=?5);
+-- name: ArchiveCasesSources :many
 -- scope: tenant
 
 SELECT e.id,e.mailbox_id,e.path,e.subject,e.size_bytes,e.raw_sha256,e.deleted_at,e.legal_hold
@@ -97,8 +98,6 @@ FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND ca
 
 SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
 FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND case_version>0;
-
--- scope: tenant
 
 -- name: ArchiveCasesGetPendingApproval :one
 -- scope: tenant

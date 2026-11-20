@@ -104,6 +104,7 @@ RETURNING *;
 DELETE FROM tenant_directory_contacts
 WHERE tenant_id = ?1 AND id = ?2;
 
+-- name: PlatformInsertContactEnhanced :one
 -- scope: platform
 
 INSERT INTO mailbox_contacts(tenant_id, mailbox_id, addressbook_id, display_name, given_name, family_name,
@@ -112,6 +113,7 @@ VALUES(sqlc.arg(tenant_id), sqlc.arg(mailbox_id), sqlc.arg(addressbook_id), sqlc
  sqlc.arg(given_name), sqlc.arg(family_name), sqlc.arg(emails), sqlc.arg(phones), sqlc.arg(note),
  sqlc.arg(organization), sqlc.arg(job_title), sqlc.arg(addresses), sqlc.arg(birthday), sqlc.arg(photo), sqlc.arg(vcard_extra))
 RETURNING *;
+-- name: PlatformUpdateContactEnhanced :one
 -- scope: platform
 
 UPDATE mailbox_contacts SET display_name=sqlc.arg(display_name), given_name=sqlc.arg(given_name), family_name=sqlc.arg(family_name),

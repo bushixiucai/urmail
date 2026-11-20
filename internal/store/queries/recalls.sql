@@ -1,5 +1,3 @@
--- scope: tenant
-
 -- name: CreateRecall :one
 -- scope: tenant
 

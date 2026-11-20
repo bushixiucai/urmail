@@ -55,8 +55,6 @@ SELECT EXISTS(
 SELECT h.* FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
 WHERE h.hostname=?1;
 
--- scope: platform
-
 -- name: PlatformVerifyBrandHostConsumeChallenge :one
 -- scope: platform
 
@@ -72,7 +70,8 @@ UPDATE brand_hosts SET status='verified', verified_at=(CAST(strftime('%s','now')
  activated_at=NULL, failure_reason=NULL, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE hostname=sqlc.arg(hostname) AND brand_id=sqlc.arg(brand_id)
  AND updated_at=sqlc.arg(expected_updated_at)
- AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM brand_host_challenges c WHERE c.hostname=hostname AND c.consumed_at IS NOT NULL));-- name: PlatformBrandHostCertificateTransition :execrows
+ AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM brand_host_challenges c WHERE c.hostname=hostname AND c.consumed_at IS NOT NULL));
+-- name: PlatformBrandHostCertificateTransition :execrows
 -- scope: platform
 
 UPDATE brand_hosts SET status=sqlc.arg(next_status),failure_reason=sqlc.narg(failure_reason),
@@ -80,7 +79,8 @@ UPDATE brand_hosts SET status=sqlc.arg(next_status),failure_reason=sqlc.narg(fai
  activated_at=CASE WHEN sqlc.arg(next_status)='active' THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE NULL END,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE hostname=sqlc.arg(hostname) AND brand_id=sqlc.arg(brand_id)
 AND verified_at=sqlc.arg(verified_at) AND status=sqlc.arg(expected_status)
-AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM platform_admins a JOIN users u ON u.id=a.user_id AND u.status='active' WHERE a.user_id=sqlc.arg(actor_id)) AND EXISTS(SELECT 1 FROM brands b WHERE b.id=brand_id AND b.status='active'));-- name: PlatformTenantBrandMatches :one
+AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM platform_admins a JOIN users u ON u.id=a.user_id AND u.status='active' WHERE a.user_id=sqlc.arg(actor_id)) AND EXISTS(SELECT 1 FROM brands b WHERE b.id=brand_id AND b.status='active'));
+-- name: PlatformTenantBrandMatches :one
 -- scope: platform
 
 SELECT EXISTS(SELECT 1 FROM tenants WHERE id=?1 AND brand_id=?2 AND status IN ('active','pending'));

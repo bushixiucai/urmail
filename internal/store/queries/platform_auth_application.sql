@@ -23,6 +23,7 @@ WHERE s.id = ?1 AND s.kind='legacy' AND s.expires_at > (CAST(strftime('%s','now'
   AND s.mfa_verified_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) - 900000000
   AND (s.tenant_id IS NULL OR t.status IN ('active','pending'));
 
+-- name: CreateApplicationCredential :one
 -- scope: tenant
 -- scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 
@@ -36,6 +37,7 @@ RETURNING id, user_id, name, scopes, expires_at, created_at;
 SELECT id,name,scopes,expires_at,revoked_at,created_at
 FROM application_credentials WHERE user_id=?1 ORDER BY id DESC;
 
+-- name: RevokeApplicationCredential :one
 -- scope: tenant
 -- scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 

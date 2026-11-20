@@ -37,8 +37,6 @@ WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(mailbox_id)
 AND address=sqlc.arg(address) AND password_hash=sqlc.arg(expected_hash)
 AND password_version=sqlc.arg(expected_version) AND status='active';
 
--- scope: platform
-
 -- name: PlatformRevokeMailboxSessions :execrows
 -- scope: platform
 

@@ -20,8 +20,6 @@ INSERT INTO archive_content(entry_id,tenant_id,body_text,attachments,extraction_
 VALUES(@entry_id,@tenant_id,@body_text,@attachments,@extraction_error,@original_sha256,@body_html)
 ON CONFLICT(entry_id) DO NOTHING;
 
--- scope: platform
-
 -- name: PlatformApplyArchiveRetentionCandidates :many
 -- scope: platform
 
@@ -35,8 +33,6 @@ WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
  AND NOT a.legal_hold AND a.deleted_at IS NULL
  AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
 ORDER BY a.id LIMIT 100;
-
--- scope: platform
 
 -- name: PlatformApplyArchiveRetentionMarkDeleted :execrows
 -- scope: platform
@@ -68,13 +64,6 @@ WHERE (entry_id, tenant_id) IN (SELECT a.id, a.tenant_id, p.confirmed_preview FR
   AND NOT a.legal_hold AND a.deleted_at IS NULL
   AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
  ORDER BY a.id LIMIT 100);
--- name: PlatformApplyArchiveRetentionMarkContent :exec
--- scope: platform
-
-UPDATE archive_content SET retention_preview=(
- SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
-WHERE entry_id IN (SELECT id FROM PlatformApplyArchiveRetentionCandidates)
- AND tenant_id IN (SELECT tenant_id FROM PlatformApplyArchiveRetentionCandidates);
 -- name: PlatformListArchivePurgeCandidates :many
 -- scope: platform
 
@@ -122,7 +111,8 @@ ORDER BY a.id LIMIT 100;
 
 UPDATE archive_entries SET raw_sha256= @raw_sha256
 WHERE tenant_id= @tenant_id AND id= @id AND raw_sha256=''
- AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM archive_entries b WHERE b.tenant_id=tenant_id AND b.mailbox_id IS NOT DISTINCT FROM mailbox_id AND b.message_id=message_id AND b.raw_sha256= @raw_sha256 AND b.id<>id));-- name: PlatformLockRetentionPurgePolicy :one
+ AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM archive_entries b WHERE b.tenant_id=tenant_id AND b.mailbox_id IS NOT DISTINCT FROM mailbox_id AND b.message_id=message_id AND b.raw_sha256= @raw_sha256 AND b.id<>id));
+-- name: PlatformLockRetentionPurgePolicy :one
 -- scope: platform
 
 SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id),false) AS allowed

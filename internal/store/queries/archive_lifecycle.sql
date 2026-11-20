@@ -60,7 +60,8 @@ ON CONFLICT(tenant_id) DO UPDATE SET retention_days=EXCLUDED.retention_days,acti
 
 UPDATE archive_entries SET deleted_at=NULL
 WHERE archive_entries.tenant_id= @tenant_id AND archive_entries.id= @id AND archive_entries.deleted_at IS NOT NULL
- AND EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=archive_entries.id AND c.tenant_id=archive_entries.tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL);-- name: GetArchiveOriginalForRecovery :one
+ AND EXISTS(SELECT 1 FROM archive_content c WHERE c.entry_id=archive_entries.id AND c.tenant_id=archive_entries.tenant_id AND c.purge_started_at IS NULL AND c.purged_at IS NULL);
+-- name: GetArchiveOriginalForRecovery :one
 -- scope: tenant
 
 SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256) AS raw_sha256

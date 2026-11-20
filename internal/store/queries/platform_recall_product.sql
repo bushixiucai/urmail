@@ -35,6 +35,7 @@ WHERE r.tenant_id=?1 AND r.user_id=?2 AND r.role IN('owner','admin') AND u.statu
 SELECT m.address FROM mailboxes m JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.tenant_id=?1 AND m.id=?2 AND m.status='active' AND d.status='active';
 
+-- name: PlatformFinishReviewedRecall :one
 -- scope: platform
 
 UPDATE recall_requests SET status= @status, reason= @reason, local_result= @result, completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
