@@ -50,7 +50,7 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 			return
 		}
 		defer reservation.Discard()
-		_, _, canonical, hash, lookupErr := h.Auth.Lookup(c.Request.Context(), address)
+		tenantID, _, canonical, hash, lookupErr := h.Auth.Lookup(c.Request.Context(), address)
 		if lookupErr != nil {
 			hash = dummyMailboxPasswordHash
 		}
@@ -66,10 +66,21 @@ func (h *MailboxNativeHandler) ProtocolAuth() gin.HandlerFunc {
 		}
 		// SQLite slice-1 runtime (contract V2 §5): authentication is allowed
 		// only as side-effect-free validation. Stop here — no session row is
-		// created or revoked, no vault write, no bearer minting; the router's
-		// out-of-group gate then answers FEATURE_UNAVAILABLE. Bad credentials
-		// keep the protocol's 401 semantics above.
+		// created or revoked, no vault write, no bearer minting; the brand
+		// boundary is still enforced (same 403 as the bearer middleware), and
+		// the router's out-of-group gate answers FEATURE_UNAVAILABLE. Bad
+		// credentials keep the protocol's 401 semantics above.
 		if h.ProtocolValidateOnly {
+			if brand, branded := c.Get(middleware.ContextBrandID); branded {
+				checker, ok := h.Auth.(interface {
+					BrandTenantMatches(context.Context, int64, int64) bool
+				})
+				if !ok || !checker.BrandTenantMatches(c.Request.Context(), tenantID, brand.(int64)) {
+					reservation.RecordFailure()
+					c.AbortWithStatus(http.StatusForbidden)
+					return
+				}
+			}
 			reservation.CompleteSuccess()
 			c.Next()
 			return

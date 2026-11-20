@@ -92,6 +92,21 @@ func newSlice1Server(t *testing.T) (*sql.DB, *httptest.Server) {
 		// Reviewed sender grant: alice may send From the team alias; bob has none.
 		`INSERT INTO mailbox_aliases(tenant_id,domain_id,local_part,target,kind,active,sender_logins)
 		 VALUES(7,31,'team','alice@a.example.test','alias',1,'["alice@a.example.test"]')`,
+		// Dual-brand fixtures: acme (active brand host), disb (failed host),
+		// plus a pending-verify host on the healthy brand. The lifecycle
+		// columns exist in the SQLite schema, so the boundary is fully
+		// testable without a fail-closed gap.
+		`INSERT INTO brands(id,slug,name,status) VALUES(9,'acme','Acme','active'),(10,'disb','Disabled','disabled')`,
+		`INSERT INTO brand_hosts(hostname,brand_id,status)
+		 VALUES('acme.example.test',9,'active'),
+		       ('dead.example.test',10,'failed'),
+		       ('pend.example.test',9,'pending-verify')`,
+		`INSERT INTO tenants(id,brand_id,name,slug,status) VALUES(14,9,'AcmeTenant','acme-tenant','active')`,
+		`INSERT INTO domains(id,tenant_id,fqdn,status,verification_token,verified_at,provisioning_state)
+		 VALUES(33,14,'d.acme.example.test','active','tok',1737412800123456,'pending')`,
+		`UPDATE domains SET provisioning_state='ready' WHERE id=33`,
+		`INSERT INTO mailboxes(id,tenant_id,domain_id,local_part,address,password_hash,quota_bytes,bytes_used,status,send_enabled)
+		 VALUES(21,14,33,'dave','dave@d.acme.example.test',` + hashSQL + `,4096,0,'active',1)`,
 	} {
 		if _, execErr := db.ExecContext(ctx, stmt); execErr != nil {
 			t.Fatalf("fixture %q: %v", stmt, execErr)
@@ -119,10 +134,18 @@ type slice1Client struct {
 }
 
 func (c *slice1Client) do(method, path, body string) (int, string) {
+	return c.doHost(method, path, body, "")
+}
+
+// doHost overrides the Host header (brand-host boundary testing).
+func (c *slice1Client) doHost(method, path, body, host string) (int, string) {
 	c.t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), method, c.server.URL+path, strings.NewReader(body))
 	if err != nil {
 		c.t.Fatalf("request: %v", err)
+	}
+	if host != "" {
+		req.Host = host
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.token != "" {
@@ -509,4 +532,116 @@ func TestSQLiteSingleEngineRejectsPostgreSQLPools(t *testing.T) {
 	}()
 	_ = api.New(api.Options{SQLiteStore: &sql.DB{}, PlatformPool: fakePool})
 	t.Fatal("api.New accepted SQLiteStore together with a PostgreSQL pool")
+}
+
+// TestSlice1SQLiteBrandHostBoundary exercises the dual-brand fixture over
+// the real router: correct-brand login/self-settings work end to end,
+// wrong-brand auth is rejected BEFORE a session row is issued, inactive /
+// unverified brand hosts are rejected by the boundary itself, and the
+// protocol Basic path keeps its brand boundary with zero session writes.
+func TestSlice1SQLiteBrandHostBoundary(t *testing.T) {
+	db, server := newSlice1Server(t)
+	ctx := context.Background()
+	const password = "slice1-mailbox-password"
+
+	brandClient := &slice1Client{t: t, server: server}
+	sessions := func() int {
+		t.Helper()
+		var n int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&n); err != nil {
+			t.Fatalf("count sessions: %v", err)
+		}
+		return n
+	}
+	before := sessions()
+
+	// Inactive / unverified brand hosts: the boundary rejects before any
+	// authentication storage work, with the protocol's Misdirected Request.
+	for _, host := range []string{"dead.example.test", "pend.example.test"} {
+		brandClient.token = ""
+		code, body := brandClient.doHost(http.MethodPost, "/api/v1/mailbox/session", `{"email":"dave@d.acme.example.test","password":"`+password+`"}`, host)
+		if code != http.StatusMisdirectedRequest {
+			t.Fatalf("login on %s = %d %s, want 421", host, code, body)
+		}
+	}
+	if got := sessions(); got != before {
+		t.Fatalf("inactive-host logins wrote sessions: before=%d after=%d", before, got)
+	}
+
+	// Wrong-brand login on a healthy brand host: rejected at the session
+	// boundary (403), before Sessions.Create writes anything.
+	brandClient.token = ""
+	code, body := brandClient.doHost(http.MethodPost, "/api/v1/mailbox/session", `{"email":"alice@a.example.test","password":"`+password+`"}`, "acme.example.test")
+	if code != http.StatusForbidden || !strings.Contains(body, "BRAND_HOST_TENANT_MISMATCH") {
+		t.Fatalf("wrong-brand login = %d %s, want 403 BRAND_HOST_TENANT_MISMATCH", code, body)
+	}
+	if got := sessions(); got != before {
+		t.Fatalf("wrong-brand login wrote sessions: before=%d after=%d", before, got)
+	}
+
+	// Correct-brand login: dave (tenant 14, brand 9) on acme.example.test.
+	code, body = brandClient.doHost(http.MethodPost, "/api/v1/mailbox/session", `{"email":"dave@d.acme.example.test","password":"`+password+`"}`, "acme.example.test")
+	if code != http.StatusOK {
+		t.Fatalf("brand login = %d %s", code, body)
+	}
+	var session struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(body), &session); err != nil || session.Token == "" {
+		t.Fatalf("brand login body %q", body)
+	}
+	brandClient.token = session.Token
+
+	// Branded self-settings work end to end (RequireMailboxAuth brand check
+	// passes; previously the missing interface failed every branded request).
+	code, body = brandClient.doHost(http.MethodPut, "/api/v1/mailbox/settings", `{"display_name":"Dave D.","expected_version":0}`, "acme.example.test")
+	if code != http.StatusOK {
+		t.Fatalf("brand put settings = %d %s", code, body)
+	}
+	code, body = brandClient.doHost(http.MethodGet, "/api/v1/mailbox/settings", "", "acme.example.test")
+	var settings settingsDTO
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &settings) != nil || settings.DisplayName != "Dave D." || settings.Version != 1 {
+		t.Fatalf("brand settings read = %d %s", code, body)
+	}
+
+	// The branded session is origin-bound: the same bearer on the main host
+	// must not be accepted.
+	code, body = brandClient.doHost(http.MethodGet, "/api/v1/mailbox/settings", "", "localhost")
+	if code != http.StatusUnauthorized {
+		t.Fatalf("brand token on main host = %d %s, want 401", code, body)
+	}
+
+	// Protocol Basic on the brand host: side-effect-free validation plus the
+	// brand boundary. Correct brand → gate 503 (no session row); wrong
+	// brand → 403 (no session row).
+	basicAuth := func(host, email string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/api/v1/eas", nil)
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		req.Host = host
+		req.SetBasicAuth(email, password)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		return resp.StatusCode, string(raw)
+	}
+	code, body = basicAuth("acme.example.test", "dave@d.acme.example.test")
+	if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
+		t.Fatalf("brand EAS Basic = %d %s, want 503 FEATURE_UNAVAILABLE", code, body)
+	}
+	code, body = basicAuth("acme.example.test", "alice@a.example.test")
+	if code != http.StatusForbidden {
+		t.Fatalf("wrong-brand EAS Basic = %d %s, want 403", code, body)
+	}
+	if got := sessions(); got != before+1 {
+		t.Fatalf("brand flow session rows: want exactly the one branded login (%d), got %d", before+1, got)
+	}
 }

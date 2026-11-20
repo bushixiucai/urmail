@@ -317,6 +317,73 @@ WHERE a.tenant_id=?1 AND a.active
   AND ?3=a.local_part||'@'||d.fqdn
 LIMIT 1`
 
+// --- brand host boundary (slice 1) ---
+//
+// The SQLite schema carries the full brand_hosts lifecycle (status,
+// verified/cert/activated timestamps), so the boundary semantics are the
+// same statements the PG adapter runs; only the binding differs.
+
+const brandHostLifecycleSQL = `SELECT hostname, brand_id, status, failure_reason, verified_at, cert_issued_at, activated_at, created_at, updated_at FROM brand_hosts WHERE hostname = ?1`
+
+// BrandHostLifecycle reports found=false for hosts that are not brand hosts.
+func (s SQLiteMailboxStore) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
+	if s.DB == nil {
+		return 0, "", false, sql.ErrNoRows
+	}
+	var (
+		hostname      string
+		brandID       int64
+		status        string
+		failureReason sql.NullString
+		verifiedAt    sql.NullInt64
+		certIssuedAt  sql.NullInt64
+		activatedAt   sql.NullInt64
+		createdAt     int64
+		updatedAt     int64
+	)
+	err := s.DB.QueryRowContext(ctx, brandHostLifecycleSQL, host).
+		Scan(&hostname, &brandID, &status, &failureReason, &verifiedAt, &certIssuedAt, &activatedAt, &createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	return brandID, status, true, nil
+}
+
+const brandHostCertEligibleSQL = `SELECT EXISTS(
+  SELECT 1 FROM brand_hosts h JOIN brands b ON b.id=h.brand_id AND b.status='active'
+  WHERE h.hostname = ?1 AND h.status IN ('verified','cert-issued','active')
+)`
+
+// BrandHostCertEligible mirrors PlatformBrandHostCertEligible.
+func (s SQLiteMailboxStore) BrandHostCertEligible(ctx context.Context, host string) (bool, error) {
+	if s.DB == nil {
+		return false, sql.ErrNoRows
+	}
+	var eligible int64
+	if err := s.DB.QueryRowContext(ctx, brandHostCertEligibleSQL, host).Scan(&eligible); err != nil {
+		return false, err
+	}
+	return eligible == 1, nil
+}
+
+const tenantBrandMatchesSQL = `SELECT EXISTS(SELECT 1 FROM tenants WHERE id=?1 AND brand_id=?2 AND status IN ('active','pending'))`
+
+// BrandTenantMatches carries the brand boundary through session creation
+// and bearer authentication; errors fail closed.
+func (s SQLiteMailboxStore) BrandTenantMatches(ctx context.Context, tenant, brand int64) bool {
+	if s.DB == nil {
+		return false
+	}
+	var matches int64
+	if err := s.DB.QueryRowContext(ctx, tenantBrandMatchesSQL, tenant, brand).Scan(&matches); err != nil {
+		return false
+	}
+	return matches == 1
+}
+
 // SenderIdentityAllowed rechecks one From candidate against the same grants.
 func (s SQLiteMailboxStore) SenderIdentityAllowed(ctx context.Context, tenantID int64, sender, from string) (bool, error) {
 	if s.DB == nil {

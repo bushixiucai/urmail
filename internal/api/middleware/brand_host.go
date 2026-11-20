@@ -25,16 +25,27 @@ func OriginHost(raw string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(raw), "."))
 }
 
-// BrandHostBoundary rejects stale routes immediately after revocation, and
-// scopes active branded requests before authentication or public handlers run.
-func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
+// BrandHostLookup is the storage seam behind the brand boundary: one
+// lifecycle lookup plus TLS eligibility per branded host. The PostgreSQL
+// pool adapter and the SQLite slice-1 store both implement it.
+type BrandHostLookup interface {
+	// BrandHostLifecycle reports found=false for hosts that are not brand
+	// hosts at all (the boundary passes them through).
+	BrandHostLifecycle(ctx context.Context, host string) (brandID int64, status string, found bool, err error)
+	BrandHostCertEligible(ctx context.Context, host string) (eligible bool, err error)
+}
+
+// brandHostBoundary is the shared core: stale routes are rejected
+// immediately after revocation and active branded requests are scoped
+// before authentication or public handlers run.
+func brandHostBoundary(lookup BrandHostLookup, canonical ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := OriginHost(c.Request.Host)
 		if len(canonical) > 0 && canonical[0] != "" {
 			c.Set(canonicalOriginKey, OriginHost(canonical[0]))
 		}
 		c.Request = c.Request.WithContext(webmail.WithOriginHost(c.Request.Context(), origin))
-		if pool == nil {
+		if lookup == nil {
 			c.Next()
 			return
 		}
@@ -43,8 +54,8 @@ func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
 			host = value
 		}
 		host = strings.TrimSuffix(host, ".")
-		row, err := store.New(pool).PlatformGetBrandHostLifecycle(c, host)
-		if errors.Is(err, pgx.ErrNoRows) {
+		brandID, status, found, err := lookup.BrandHostLifecycle(c.Request.Context(), host)
+		if !found {
 			c.Next()
 			return
 		}
@@ -52,18 +63,52 @@ func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "DB_ERROR", "message": "error.DB_ERROR"}})
 			return
 		}
-		if row.Status != "active" {
+		if status != "active" {
 			c.AbortWithStatusJSON(http.StatusMisdirectedRequest, gin.H{"error": gin.H{"code": "BRAND_HOST_INACTIVE", "message": "error.BRAND_HOST_INACTIVE"}})
 			return
 		}
-		eligible, err := store.New(pool).PlatformBrandHostCertEligible(c, host)
+		eligible, err := lookup.BrandHostCertEligible(c.Request.Context(), host)
 		if err != nil || !eligible {
 			c.AbortWithStatus(http.StatusMisdirectedRequest)
 			return
 		}
-		c.Set(ContextBrandID, row.BrandID)
+		c.Set(ContextBrandID, brandID)
 		c.Next()
 	}
+}
+
+// BrandHostBoundaryLookup scopes requests through an explicit storage
+// lookup — the SQLite slice-1 runtime wires its store here; the semantics
+// are the shared core above.
+func BrandHostBoundaryLookup(lookup BrandHostLookup, canonical ...string) gin.HandlerFunc {
+	return brandHostBoundary(lookup, canonical...)
+}
+
+// BrandHostBoundary scopes requests through the PostgreSQL pool. Behavior
+// (including the nil-pool pass-through) is identical to the lookup-based
+// core; the pool adapter resolves the two brand queries per request.
+func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
+	if pool == nil {
+		return brandHostBoundary(nil, canonical...)
+	}
+	return brandHostBoundary(pgBrandHostLookup{pool: pool}, canonical...)
+}
+
+type pgBrandHostLookup struct{ pool *db.Pool }
+
+func (p pgBrandHostLookup) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
+	row, err := store.New(p.pool).PlatformGetBrandHostLifecycle(ctx, host)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	return row.BrandID, row.Status, true, nil
+}
+
+func (p pgBrandHostLookup) BrandHostCertEligible(ctx context.Context, host string) (bool, error) {
+	return store.New(p.pool).PlatformBrandHostCertEligible(ctx, host)
 }
 
 // BrandTenantAllowed is checked after current session authentication.

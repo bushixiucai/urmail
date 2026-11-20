@@ -169,7 +169,18 @@ func New(opts Options) *gin.Engine {
 	if opts.DevMode {
 		devCanonical = ""
 	}
-	engine.Use(middleware.BrandHostBoundary(opts.PlatformPool, devCanonical))
+	// Brand boundary keeps the same lookup-based core in both engines: the
+	// SQLite slice-1 store implements BrandHostLookup directly, so branded
+	// requests are scoped (and stale hosts rejected) even with no PG pool.
+	sqliteMode := opts.SQLiteStore != nil
+	sqliteStore := handlers.SQLiteMailboxStore{DB: opts.SQLiteStore}
+	var brandHostBoundaryMiddleware gin.HandlerFunc
+	if sqliteMode {
+		brandHostBoundaryMiddleware = middleware.BrandHostBoundaryLookup(sqliteStore, devCanonical)
+	} else {
+		brandHostBoundaryMiddleware = middleware.BrandHostBoundary(opts.PlatformPool, devCanonical)
+	}
+	engine.Use(brandHostBoundaryMiddleware)
 	engine.Use(collaborationProtocolGate(opts))
 	clientConfig := autoconfig.Config{PrimaryMailHost: opts.MyHostname, POP3Enabled: true, CardDAVPath: "/api/v1/carddav/", CalDAVPath: "/caldav/", EASPath: "/Microsoft-Server-ActiveSync"}
 	if !protocolEnabled(opts.CardDAVEnabled) {
@@ -303,9 +314,9 @@ func New(opts Options) *gin.Engine {
 	nativeStore := handlers.StoreMailboxNative{Q: platformQueries}
 	// Runtime engine selection (V2 §1.9): SQLiteStore routes the slice-1
 	// mailbox surface to the authoritative SQLite file; everything else
-	// keeps its PG wiring. No PG fallback exists inside the slice.
-	sqliteMode := opts.SQLiteStore != nil
-	sqliteStore := handlers.SQLiteMailboxStore{DB: opts.SQLiteStore}
+	// keeps its PG wiring. No PG fallback exists inside the slice. The
+	// sqliteMode/sqliteStore values are established at the top of New for
+	// the brand boundary and reused here.
 	mailboxSessionLookup := middleware.MailboxSessionLookup(nativeStore)
 	mailboxAuthStore := handlers.MailboxNativeAuth(nativeStore)
 	mailboxSessionsStore := handlers.MailboxNativeSessions(nativeStore)
