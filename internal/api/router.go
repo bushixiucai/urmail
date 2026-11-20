@@ -144,6 +144,17 @@ func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth *store.Queries,
 
 // New builds the gin engine with all middleware and routes attached.
 func New(opts Options) *gin.Engine {
+	// Single-engine guard (V2 §1.9): the SQLite runtime candidate must never
+	// share a process with PostgreSQL pools — any non-nil pool would let a
+	// feature route bypass the authoritative single store. Fail before any
+	// route, middleware or default pool wiring exists.
+	if opts.SQLiteStore != nil {
+		for _, pool := range []*db.Pool{opts.AppPool, opts.PlatformPool, opts.AIAppPool, opts.AIPlatformPool, opts.MarketingAppPool, opts.MarketingPlatformPool} {
+			if pool != nil {
+				panic("api.New: SQLiteStore and PostgreSQL pools are mutually exclusive (single-engine ruling, contract V2 §1.9)")
+			}
+		}
+	}
 	opts = workloadPoolDefaults(opts)
 	if opts.Logger == nil {
 		opts.Logger = zap.NewNop()
@@ -299,11 +310,16 @@ func New(opts Options) *gin.Engine {
 	mailboxAuthStore := handlers.MailboxNativeAuth(nativeStore)
 	mailboxSessionsStore := handlers.MailboxNativeSessions(nativeStore)
 	mailboxSelfSettings := handlers.MailboxSelfSettingsStore(handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool})
+	// Rules stay PG-only: the managed-Sieve queries are not part of the
+	// slice-1 allow set. In SQLite mode the concrete PG implementation must
+	// not be reachable at all, so the interface stays nil (rulesReady 503s).
+	var mailboxRules handlers.MailboxRulesStore = handlers.StoreMailboxRules{Pool: opts.PlatformPool}
 	if sqliteMode {
 		mailboxSessionLookup = sqliteStore
 		mailboxAuthStore = sqliteStore
 		mailboxSessionsStore = sqliteStore
 		mailboxSelfSettings = sqliteStore
+		mailboxRules = nil
 	}
 	smtpAddr := opts.SMTPAddr
 	if smtpAddr == "" {
@@ -329,10 +345,8 @@ func New(opts Options) *gin.Engine {
 		RenderCache:      rendercache.New(),
 		// WEBMAIL-005/006 mailbox self-service: signature, identities,
 		// quota and managed-sieve rules through the existing safe pipeline.
-		// Rules stay PG-only: the managed-Sieve queries are not part of the
-		// slice-1 allow set, so they stay nil (503) in SQLite mode.
 		SelfSettings: mailboxSelfSettings,
-		Rules:        handlers.StoreMailboxRules{Pool: opts.PlatformPool},
+		Rules:        mailboxRules,
 		Sieve:        opts.SieveActivator,
 	}
 	if opts.WebmailSubmitter != nil {
@@ -435,6 +449,25 @@ func New(opts Options) *gin.Engine {
 		}), mailboxNative.CreateSession)
 		mailboxAuthed := v1.Group("/mailbox")
 		mailboxAuthed.Use(middleware.RequireMailboxAuth(mailboxSessionLookup, webmailVault))
+		if sqliteMode {
+			// Slice-1 gate (V2 §5): run AFTER authentication (unauthenticated
+			// callers keep the original 401) and BEFORE any handler side
+			// effect — IMAP dial, SMTP submit, secret unseal, PG query. Only
+			// login/logout, settings, quota and identities are approved in
+			// the SQLite candidate; every other mailbox route answers 503
+			// FEATURE_UNAVAILABLE with no Retry-After and no fallback.
+			mailboxAuthed.Use(func(c *gin.Context) {
+				switch c.FullPath() {
+				case "/api/v1/mailbox/settings", "/api/v1/mailbox/quota",
+					"/api/v1/mailbox/identities", "/api/v1/mailbox/session":
+					c.Next()
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+				})
+			})
+		}
 		{
 			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
 			mailboxAuthed.POST("/folders", mailboxNative.CreateFolder)

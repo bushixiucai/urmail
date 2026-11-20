@@ -16,16 +16,19 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/bushixiucai/urmail/internal/api"
 	"github.com/bushixiucai/urmail/internal/api/handlers"
+	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
@@ -79,7 +82,8 @@ func newSlice1Server(t *testing.T) (*sql.DB, *httptest.Server) {
 		`UPDATE domains SET provisioning_state='ready' WHERE id IN (31,32)`,
 		`INSERT INTO mailboxes(id,tenant_id,domain_id,local_part,address,password_hash,quota_bytes,bytes_used,status,send_enabled)
 		 VALUES(11,7,31,'alice','alice@a.example.test',` + hashSQL + `,8192,2048,'active',1),
-		       (12,8,32,'bob','bob@b.example.test',` + hashSQL + `,4096,0,'active',1)`,
+		       (12,8,32,'bob','bob@b.example.test',` + hashSQL + `,4096,0,'active',1),
+		       (13,7,31,'carol','carol@a.example.test',` + hashSQL + `,4096,0,'active',1)`,
 		// The usage-defaults trigger resets a non-zero bytes_used on INSERT
 		// (usage must be measured); model a measured mailbox with an UPDATE.
 		`UPDATE mailboxes SET bytes_used=2048 WHERE id=11`,
@@ -214,6 +218,31 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 		t.Fatalf("identities = %d %s", code, body)
 	}
 
+	// (h2) slice-1 gate: with a VALID session, every non-slice mailbox route
+	// must answer 503 FEATURE_UNAVAILABLE BEFORE any handler side effect —
+	// no IMAP dial (that would be 502 IMAP_UNAVAILABLE), no SMTP submit, no
+	// storage write. Gate runs after authentication, so these all carry the
+	// valid bearer.
+	var scheduledRows int
+	denyProbes := []struct {
+		method, path, body string
+	}{
+		{http.MethodGet, "/api/v1/mailbox/folders", ""},
+		{http.MethodPost, "/api/v1/mailbox/send", `{"to":["bob@b.example.test"],"text":"hi"}`},
+		{http.MethodGet, "/api/v1/mailbox/rules", ""},
+		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"draft_uid":1,"draft_uidvalidity":1,"send_at":"2030-01-01T00:00:00Z"}`},
+		{http.MethodPost, "/api/v1/mailbox/password", `{"old_password":"x","new_password":"y"}`},
+	}
+	for _, probe := range denyProbes {
+		code, body = client.do(probe.method, probe.path, probe.body)
+		if code != http.StatusServiceUnavailable || !strings.Contains(body, "FEATURE_UNAVAILABLE") {
+			t.Fatalf("non-slice %s %s = %d %s, want 503 FEATURE_UNAVAILABLE", probe.method, probe.path, code, body)
+		}
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_scheduled_sends`).Scan(&scheduledRows); err != nil || scheduledRows != 0 {
+		t.Fatalf("scheduled-sends rows = %d (err=%v), want 0: a denied route wrote storage", scheduledRows, err)
+	}
+
 	// snapshot alice's row before the isolation negatives.
 	type snap struct {
 		name      string
@@ -290,6 +319,52 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 		t.Fatalf("alice row changed by bob's write: before=%+v after=%+v", aliceBefore, aliceAfter)
 	}
 
+	// (l2) SAME-TENANT other mailbox: carol sits in alice's tenant 7. Her
+	// session must expose only her own defaults; her write must not touch
+	// alice's row — the handler derives (tenant, mailbox) from the session
+	// principal, and there is no client-supplied mailbox parameter.
+	carol := &slice1Client{t: t, server: server}
+	code, body = carol.do(http.MethodPost, "/api/v1/mailbox/session", `{"email":"carol@a.example.test","password":"`+password+`"}`)
+	if code != http.StatusOK {
+		t.Fatalf("carol login = %d %s", code, body)
+	}
+	if err := json.Unmarshal([]byte(body), &session); err != nil || session.Token == "" {
+		t.Fatalf("carol login body %q", body)
+	}
+	carol.token = session.Token
+	code, body = carol.do(http.MethodGet, "/api/v1/mailbox/settings", "")
+	if code != http.StatusOK {
+		t.Fatalf("carol settings = %d %s", code, body)
+	}
+	if err := json.Unmarshal([]byte(body), &settings); err != nil || settings.Version != 0 || settings.DisplayName == "Alice A." {
+		t.Fatalf("carol must not see alice's settings, got %s", body)
+	}
+	code, body = carol.do(http.MethodPut, "/api/v1/mailbox/settings", `{"display_name":"Carol C.","expected_version":0}`)
+	if code != http.StatusOK {
+		t.Fatalf("carol put = %d %s", code, body)
+	}
+	aliceAfterCarol := readAlice()
+	if aliceBefore != aliceAfterCarol {
+		t.Fatalf("alice row changed by same-tenant carol write: before=%+v after=%+v", aliceBefore, aliceAfterCarol)
+	}
+
+	// (l3) REAL expired session (DB-level expiry, not logout revocation):
+	// rewind carol's session expiry into the past; the same bearer must
+	// become 401 while the physical row stays (nothing deleted).
+	carolHash := mailboxprincipal.HashToken(carol.token)
+	if _, err := db.ExecContext(ctx,
+		`UPDATE mailbox_sessions SET expires_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)-1000 WHERE token_hash=?`,
+		carolHash); err != nil {
+		t.Fatalf("expire carol session: %v", err)
+	}
+	if code, _ := carol.do(http.MethodGet, "/api/v1/mailbox/settings", ""); code != http.StatusUnauthorized {
+		t.Fatalf("expired session settings = %d, want 401", code)
+	}
+	var expiredRows int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions WHERE token_hash=?`, carolHash).Scan(&expiredRows); err != nil || expiredRows != 1 {
+		t.Fatalf("expired session row missing: rows=%d err=%v", expiredRows, err)
+	}
+
 	// (m) adapter-misuse probes: wrong tenant/mailbox binding must neither
 	// read nor write alice's row. The probe reuses the production adapter
 	// itself, so the SQL predicates are the thing under test.
@@ -321,7 +396,25 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 	// this process (Options.PlatformPool stayed nil), yet every slice route
 	// above served from the SQLite file — the asserted rows live there.
 	var settingsRows int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_settings`).Scan(&settingsRows); err != nil || settingsRows != 2 {
-		t.Fatalf("sqlite settings rows = %d (err=%v), want alice+bob", settingsRows, err)
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_settings`).Scan(&settingsRows); err != nil || settingsRows != 3 {
+		t.Fatalf("sqlite settings rows = %d (err=%v), want alice+bob+carol", settingsRows, err)
 	}
+}
+
+// TestSQLiteSingleEngineRejectsPostgreSQLPools pins the mutual-exclusion
+// guard: configuring SQLiteStore together with ANY PostgreSQL pool must fail
+// the composition — that combination is exactly how a feature could bypass
+// the single authoritative store (contract V2 §1.9).
+func TestSQLiteSingleEngineRejectsPostgreSQLPools(t *testing.T) {
+	// A *db.Pool cannot be constructed outside package db; a non-nil pointer
+	// to the zero value is enough to trip the guard, which only checks nil.
+	fakePool := reflect.New(reflect.TypeOf((*db.Pool)(nil)).Elem()).Interface().(*db.Pool)
+	defer func() {
+		r := recover()
+		if r == nil || !strings.Contains(fmt.Sprint(r), "mutually exclusive") {
+			t.Fatalf("want single-engine panic, got %v", r)
+		}
+	}()
+	_ = api.New(api.Options{SQLiteStore: &sql.DB{}, PlatformPool: fakePool})
+	t.Fatal("api.New accepted SQLiteStore together with a PostgreSQL pool")
 }
