@@ -103,7 +103,7 @@ FROM mailbox_import_jobs j WHERE j.tenant_id=sqlc.arg(tenant_id) AND j.mailbox_i
 SELECT COALESCE(json_group_array(json_extract(i, '$.raw_secret')),'[]') AS items
 FROM mailbox_import_items i WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3;
 
--- name: LockMailboxImportTenantBudget :exec
--- scope: platform
+-- LockMailboxImportTenantBudget 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PG 用事务级 advisory lock 串行化同一租户的导入预算；SQLite 改为单写者事务串行
+-- （BEGIN IMMEDIATE），详见 scripts/sqlite/lock-semantics.md。
 
-SELECT pg_advisory_xact_lock(hashtextextended('urmail/mailimport/'||sqlc.arg(tenant_id),0));

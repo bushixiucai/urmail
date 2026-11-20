@@ -101,9 +101,11 @@ SELECT token_hash,tenant_id,mailbox_id FROM mailbox_sessions WHERE token_hash=?1
 
 -- ttl is the Postgres interval literal for the session lifetime: '30 minutes'
 -- by default or '30 days' when the login requested a remembered session.
--- Both values are caller constants, never raw user input.
+-- Both values are caller constants, never raw user input. SQLite stores the
+-- deadline in integer microseconds (B5b converts the pgtype.Interval caller to
+-- the same microseconds before binding).
 INSERT INTO mailbox_sessions(token_hash,tenant_id,mailbox_id,password_version,expires_at,origin_host)
-SELECT sqlc.arg(token_hash),m.tenant_id,m.id,md5(m.password_hash),(CAST(strftime('%s','now') AS INTEGER)*1000000)+sqlc.arg(ttl)erval,sqlc.arg(origin_host)
+SELECT sqlc.arg(token_hash),m.tenant_id,m.id,md5(m.password_hash),(CAST(strftime('%s','now') AS INTEGER)*1000000)+sqlc.arg(ttl),sqlc.arg(origin_host)
 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
 WHERE m.address=sqlc.arg(address) AND m.password_hash=sqlc.arg(expected_hash)
 AND m.status='active' AND t.status='active' AND d.status='active'

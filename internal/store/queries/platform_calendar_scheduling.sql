@@ -66,7 +66,7 @@ SELECT id,payload,created_at FROM mailbox_jobs WHERE tenant_id=?1 AND mailbox_id
 -- name: PlatformAcknowledgeCalendarReminder :execrows
 -- scope: platform
 
-UPDATE mailbox_jobs SET payload=jsonb_set(payload,'{acknowledged}','true'),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND kind='calendar_reminder' AND status='done';
+UPDATE mailbox_jobs SET payload=json_set(payload,'$.acknowledged',json('true')),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND kind='calendar_reminder' AND status='done';
 
 -- name: PlatformBindOwnedCalendarOrganizer :execrows
 -- scope: platform

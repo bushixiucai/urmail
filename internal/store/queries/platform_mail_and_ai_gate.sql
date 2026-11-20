@@ -8,10 +8,10 @@ SELECT COALESCE(
   (SELECT json_extract(value,'$') FROM settings WHERE scope='platform' AND scope_id=0 AND key='business_timezone'),
   'Asia/Shanghai') AS timezone;
 
--- name: PlatformLockBillingTenant :exec
--- scope: platform
+-- PlatformLockBillingTenant 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PG 用事务级 advisory lock 串行化租户计费写入；SQLite 改为单写者事务串行
+-- （BEGIN IMMEDIATE），详见 scripts/sqlite/lock-semantics.md。
 
-SELECT pg_advisory_xact_lock(?1);
 
 -- name: MailServiceAllowed :one
 -- scope: platform

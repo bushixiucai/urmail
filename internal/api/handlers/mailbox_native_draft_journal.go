@@ -68,8 +68,20 @@ func (h *MailboxNativeHandler) acquireDraftJournal(c *gin.Context, session webma
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
 	}
-	// Discarding the leased connection releases every session advisory lock.
-	release := conn.Release
+	// PG released the session advisory lock by discarding the leased connection.
+	// SQLite has no session lock: the port holds a process-wide keyed mutex, and
+	// releasing the connection alone would leak it. Explicit release first, then
+	// return the connection to the pool.
+	release := func() {
+		_, _ = db.Queries(conn).PlatformReleaseDraftSessionLock(context.Background(), store.PlatformReleaseDraftSessionLockParams{
+			TenantID:  args.TenantID,
+			MailboxID: args.MailboxID,
+			Folder:    args.Folder,
+			Validity:  args.Validity,
+			Uid:       args.Uid,
+		})
+		conn.Release()
+	}
 	return conn, release, true
 }
 

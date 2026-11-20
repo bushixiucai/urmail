@@ -17,10 +17,10 @@ JOIN tenants t ON t.id=r.tenant_id
 LEFT JOIN domains d ON d.id=m.domain_id AND d.tenant_id=r.tenant_id
 WHERE r.tenant_id=?1 AND r.id=?2;
 
--- name: PlatformLockRecallTenant :exec
--- scope: platform
+-- PlatformLockRecallTenant 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PG 用事务级 advisory lock 串行化租户召回；SQLite 改为单写者事务串行
+-- （BEGIN IMMEDIATE），详见 scripts/sqlite/lock-semantics.md。
 
-SELECT pg_advisory_xact_lock(?1);
 -- name: PlatformRecallHoldConflict :one
 -- scope: platform
 

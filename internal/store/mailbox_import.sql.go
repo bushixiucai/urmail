@@ -371,15 +371,6 @@ func (q *Queries) LockMailboxImportOwner(ctx context.Context, arg LockMailboxImp
 	return i, err
 }
 
-const lockMailboxImportTenantBudget = `-- name: LockMailboxImportTenantBudget :exec
-SELECT pg_advisory_xact_lock(hashtextextended('urmail/mailimport/'||$1::bigint::text,0))
-`
-
-func (q *Queries) LockMailboxImportTenantBudget(ctx context.Context, tenantID int64) error {
-	_, err := q.db.Exec(ctx, lockMailboxImportTenantBudget, tenantID)
-	return err
-}
-
 const mailboxImportItemViews = `-- name: MailboxImportItemViews :one
 SELECT COALESCE(jsonb_agg(to_jsonb(i)-'raw_secret' ORDER BY item_index),'[]'::jsonb)::jsonb AS items
 FROM mailbox_import_items i WHERE tenant_id=$1 AND mailbox_id=$2 AND job_id=$3

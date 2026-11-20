@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -3253,4 +3254,121 @@ func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSe
 		_, err := tx.refreshAIConfigurationDigest(ctx, arg.TenantID)
 		return err
 	})
+}
+
+// ---------------------------------------------------------------------------
+// S5：PG advisory lock（8 处）的 SQLite 替代
+//
+// PG 有两种作用域：事务级（pg_advisory_xact_lock）与会话级（pg_advisory_lock /
+// pg_advisory_unlock）。SQLite 没有 advisory lock：
+//   - 事务级锁的用途是让同一键上的「读 → 判断 → 写」不被并发交叉。SQLite 只有
+//     一个写者，且 sqlitedb.Open 以 _txlock=immediate 开启事务（见 open.go），
+//     因此整个事务从 BEGIN 起就串行化，等价于事务级锁。这些方法保留为同一签名
+//     的显式空操作，绝不静默消失：逐条登记在 scripts/sqlite/lock-semantics.md。
+//   - 会话级草稿锁跨多个事务、要显式释放，不能靠事务串行化替代，故实现为进程内
+//     按键互斥量。一个 SQLite 数据库由一个进程服务（单写者设计），进程作用域
+//     即原 PG 的服务端作用域。
+// ---------------------------------------------------------------------------
+
+// LockMailboxEASSync（原 hashtextextended(tenant:mailbox:device,421932)）：
+// 同一设备 EAS 同步由事务串行化互斥。
+func (q *Queries) LockMailboxEASSync(_ context.Context, _ LockMailboxEASSyncParams) error { return nil }
+
+// LockMailboxImportTenantBudget（原 hashtextextended('urmail/mailimport/'||tenant,0)）：
+// 同一租户导入预算由事务串行化互斥。
+func (q *Queries) LockMailboxImportTenantBudget(_ context.Context, _ int64) error { return nil }
+
+// PlatformLockBillingTenant：租户计费/配额写入由事务串行化互斥。
+func (q *Queries) PlatformLockBillingTenant(_ context.Context, _ int64) error { return nil }
+
+// PlatformLockSendDraft（原 hashtextextended(tenant:mailbox:folder:validity:uid,974152)）：
+// 草稿发送与草稿编辑互斥；PG 在事务级持锁，SQLite 用事务串行化。
+func (q *Queries) PlatformLockSendDraft(_ context.Context, _ PlatformLockSendDraftParams) error {
+	return nil
+}
+
+// PlatformLockDataImport（原 hashtextextended(tenant:mailbox:idempotency_key,782314)）：
+// 同一幂等键的导入由事务串行化互斥。
+func (q *Queries) PlatformLockDataImport(_ context.Context, _ PlatformLockDataImportParams) error {
+	return nil
+}
+
+// PlatformLockRecallTenant：租户召回由事务串行化互斥。
+func (q *Queries) PlatformLockRecallTenant(_ context.Context, _ int64) error { return nil }
+
+// draftSessionLocks is the process-wide session lock registry. Keys are the
+// same text PG hashed for hashtextextended(...,974152); the digest itself is
+// irrelevant once the lock is not in the database.
+var draftSessionLocks = struct {
+	mu    sync.Mutex
+	locks map[string]*draftSessionLock
+}{locks: map[string]*draftSessionLock{}}
+
+type draftSessionLock struct {
+	token   chan struct{} // buffered(1); a token present means the lock is free
+	held    bool          // owned by exactly one caller right now
+	waiters int           // callers blocked on token, for map garbage collection
+}
+
+func draftSessionLockKey(tenant, mailbox, folder, validity, uid string) string {
+	return tenant + ":" + mailbox + ":" + folder + ":" + validity + ":" + uid
+}
+
+// PlatformAcquireDraftSessionLock blocks until this process owns the key. It
+// replaces pg_advisory_lock: the caller must pair it with
+// PlatformReleaseDraftSessionLock, and cancellation while waiting is honored
+// (PG's blocking acquire is cancelled by statement_timeout/context too).
+func (q *Queries) PlatformAcquireDraftSessionLock(ctx context.Context, arg PlatformAcquireDraftSessionLockParams) error {
+	key := draftSessionLockKey(arg.TenantID, arg.MailboxID, arg.Folder, arg.Validity, arg.Uid)
+	reg := &draftSessionLocks
+	reg.mu.Lock()
+	l := reg.locks[key]
+	if l == nil {
+		l = &draftSessionLock{token: make(chan struct{}, 1)}
+		l.token <- struct{}{}
+		reg.locks[key] = l
+	}
+	l.waiters++
+	reg.mu.Unlock()
+
+	select {
+	case <-l.token:
+		reg.mu.Lock()
+		l.waiters--
+		l.held = true
+		reg.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		reg.mu.Lock()
+		l.waiters--
+		if !l.held && l.waiters == 0 {
+			delete(reg.locks, key)
+		}
+		reg.mu.Unlock()
+		return ctx.Err()
+	}
+}
+
+// PlatformReleaseDraftSessionLock releases one acquire. It returns false when
+// the key is not currently held, matching pg_advisory_unlock's boolean.
+func (q *Queries) PlatformReleaseDraftSessionLock(_ context.Context, arg PlatformReleaseDraftSessionLockParams) (bool, error) {
+	key := draftSessionLockKey(arg.TenantID, arg.MailboxID, arg.Folder, arg.Validity, arg.Uid)
+	reg := &draftSessionLocks
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	l := reg.locks[key]
+	if l == nil || !l.held {
+		return false, nil
+	}
+	l.held = false
+	if l.waiters > 0 {
+		// Hand the free token to a blocked acquirer. The buffer is empty while
+		// held, so this never blocks.
+		l.token <- struct{}{}
+	} else {
+		// No holder and no waiter: drop the entry instead of keeping a token
+		// nobody references.
+		delete(reg.locks, key)
+	}
+	return true, nil
 }

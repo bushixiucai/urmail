@@ -674,27 +674,12 @@ func (q *Queries) PlatformListSendReceipts(ctx context.Context, arg PlatformList
 	return items, nil
 }
 
-const platformLockSendDraft = `-- name: PlatformLockSendDraft :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1::text||':'||$2::text||':'||$3::text||':'||$4::text||':'||$5::text, 974152))
-`
-
 type PlatformLockSendDraftParams struct {
 	TenantID  string `json:"tenant_id"`
 	MailboxID string `json:"mailbox_id"`
 	Folder    string `json:"folder"`
 	Validity  string `json:"validity"`
 	Uid       string `json:"uid"`
-}
-
-func (q *Queries) PlatformLockSendDraft(ctx context.Context, arg PlatformLockSendDraftParams) error {
-	_, err := q.db.Exec(ctx, platformLockSendDraft,
-		arg.TenantID,
-		arg.MailboxID,
-		arg.Folder,
-		arg.Validity,
-		arg.Uid,
-	)
-	return err
 }
 
 const platformMarkSendCopyUnknown = `-- name: PlatformMarkSendCopyUnknown :one

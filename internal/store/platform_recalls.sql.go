@@ -168,15 +168,6 @@ func (q *Queries) PlatformLockRecallForExpunge(ctx context.Context, arg Platform
 	return i, err
 }
 
-const platformLockRecallTenant = `-- name: PlatformLockRecallTenant :exec
-SELECT pg_advisory_xact_lock($1::bigint)
-`
-
-func (q *Queries) PlatformLockRecallTenant(ctx context.Context, dollar_1 int64) error {
-	_, err := q.db.Exec(ctx, platformLockRecallTenant, dollar_1)
-	return err
-}
-
 const platformRecallHoldConflict = `-- name: PlatformRecallHoldConflict :one
 SELECT count(*) > 0 AS conflict
 FROM archive_entries

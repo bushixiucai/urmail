@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -201,5 +202,112 @@ func TestAIConfigurationDigest(t *testing.T) {
 	b := aiConfigurationDigest(2, "byo", "openai", "https://api.example.test/v1", "gpt-4", "abc123")
 	if a == b {
 		t.Error("configuration_version must participate in the digest")
+	}
+}
+
+func draftLockArgs(tenant, uid string) PlatformAcquireDraftSessionLockParams {
+	return PlatformAcquireDraftSessionLockParams{TenantID: tenant, MailboxID: "1", Folder: "Drafts", Validity: "9", Uid: uid}
+}
+
+func releaseDraftLock(t *testing.T, arg PlatformAcquireDraftSessionLockParams) bool {
+	t.Helper()
+	held, err := (&Queries{}).PlatformReleaseDraftSessionLock(context.Background(), PlatformReleaseDraftSessionLockParams{
+		TenantID: arg.TenantID, MailboxID: arg.MailboxID, Folder: arg.Folder, Validity: arg.Validity, Uid: arg.Uid,
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	return held
+}
+
+// TestDraftSessionLockSerializes covers the S5 replacement for PG's session-level
+// pg_advisory_lock: a second acquire on the same draft key blocks until release,
+// and release without a matching acquire reports false like pg_advisory_unlock.
+func TestDraftSessionLockSerializes(t *testing.T) {
+	q := &Queries{}
+	arg := draftLockArgs("s5-serialize", "1")
+	if err := q.PlatformAcquireDraftSessionLock(context.Background(), arg); err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+
+	acquired := make(chan error, 1)
+	go func() {
+		acquired <- q.PlatformAcquireDraftSessionLock(context.Background(), arg)
+	}()
+	select {
+	case err := <-acquired:
+		t.Fatalf("second acquire did not block (err=%v)", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	if !releaseDraftLock(t, arg) {
+		t.Fatal("holder release must report true")
+	}
+	select {
+	case err := <-acquired:
+		if err != nil {
+			t.Fatalf("blocked acquire: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second acquire did not wake after release")
+	}
+	if !releaseDraftLock(t, arg) {
+		t.Fatal("second release must report true")
+	}
+
+	// Nothing is held now: a third release must report false (PG boolean).
+	if releaseDraftLock(t, arg) {
+		t.Fatal("release without a holder must report false")
+	}
+}
+
+// TestDraftSessionLockCancel honors cancellation while waiting and leaves the
+// lock with its holder.
+func TestDraftSessionLockCancel(t *testing.T) {
+	q := &Queries{}
+	arg := draftLockArgs("s5-cancel", "2")
+	if err := q.PlatformAcquireDraftSessionLock(context.Background(), arg); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- q.PlatformAcquireDraftSessionLock(ctx, arg) }()
+	cancel()
+	if err := <-done; err != context.Canceled {
+		t.Fatalf("waiting acquire = %v, want context.Canceled", err)
+	}
+	// The holder still owns the lock: a fresh acquire must still block, and the
+	// holder's release must report true.
+	again := make(chan error, 1)
+	go func() { again <- q.PlatformAcquireDraftSessionLock(context.Background(), arg) }()
+	select {
+	case err := <-again:
+		t.Fatalf("canceled waiter stole the lock (err=%v)", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if !releaseDraftLock(t, arg) {
+		t.Fatal("holder release after a canceled waiter must report true")
+	}
+	if err := <-again; err != nil {
+		t.Fatalf("waiter after release: %v", err)
+	}
+	if !releaseDraftLock(t, arg) {
+		t.Fatal("final release must report true")
+	}
+}
+
+// TestDraftSessionLockDistinctKeys do not serialize unrelated drafts.
+func TestDraftSessionLockDistinctKeys(t *testing.T) {
+	q := &Queries{}
+	a := draftLockArgs("s5-distinct", "1")
+	b := draftLockArgs("s5-distinct", "2")
+	if err := q.PlatformAcquireDraftSessionLock(context.Background(), a); err != nil {
+		t.Fatalf("acquire a: %v", err)
+	}
+	if err := q.PlatformAcquireDraftSessionLock(context.Background(), b); err != nil {
+		t.Fatalf("acquire b must not block: %v", err)
+	}
+	if !releaseDraftLock(t, a) || !releaseDraftLock(t, b) {
+		t.Fatal("both releases must report true")
 	}
 }

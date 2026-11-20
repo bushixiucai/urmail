@@ -5,21 +5,8 @@
 
 package store
 
-import (
-	"context"
-)
-
-const lockMailboxEASSync = `-- name: LockMailboxEASSync :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':' || $3::text, 421932))
-`
-
 type LockMailboxEASSyncParams struct {
 	TenantID  string `json:"tenant_id"`
 	MailboxID string `json:"mailbox_id"`
 	DeviceID  string `json:"device_id"`
-}
-
-func (q *Queries) LockMailboxEASSync(ctx context.Context, arg LockMailboxEASSyncParams) error {
-	_, err := q.db.Exec(ctx, lockMailboxEASSync, arg.TenantID, arg.MailboxID, arg.DeviceID)
-	return err
 }

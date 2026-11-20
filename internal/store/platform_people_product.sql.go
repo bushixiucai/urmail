@@ -490,19 +490,10 @@ func (q *Queries) PlatformLockCalendarInvitationEvent(ctx context.Context, arg P
 	return i, err
 }
 
-const platformLockDataImport = `-- name: PlatformLockDataImport :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':' || $3::text, 782314))
-`
-
 type PlatformLockDataImportParams struct {
 	TenantID       string `json:"tenant_id"`
 	MailboxID      string `json:"mailbox_id"`
 	IdempotencyKey string `json:"idempotency_key"`
-}
-
-func (q *Queries) PlatformLockDataImport(ctx context.Context, arg PlatformLockDataImportParams) error {
-	_, err := q.db.Exec(ctx, platformLockDataImport, arg.TenantID, arg.MailboxID, arg.IdempotencyKey)
-	return err
 }
 
 const platformRemoveContactGroupMember = `-- name: PlatformRemoveContactGroupMember :execrows

@@ -72,4 +72,12 @@ TenantConsentAICloud                 platform
 PlatformConfigureTenantAIGovernance  platform
 PlatformSetAIProvider                platform
 PlatformSetActiveAIService           platform
+LockMailboxEASSync                  platform
+LockMailboxImportTenantBudget       platform
+PlatformLockBillingTenant           platform
+PlatformLockSendDraft               platform
+PlatformLockDataImport              platform
+PlatformLockRecallTenant            platform
+PlatformAcquireDraftSessionLock     platform
+PlatformReleaseDraftSessionLock     platform
 

@@ -9,27 +9,12 @@ import (
 	"context"
 )
 
-const platformAcquireDraftSessionLock = `-- name: PlatformAcquireDraftSessionLock :exec
-SELECT pg_advisory_lock(hashtextextended($1::text||':'||$2::text||':'||$3::text||':'||$4::text||':'||$5::text, 974152))
-`
-
 type PlatformAcquireDraftSessionLockParams struct {
 	TenantID  string `json:"tenant_id"`
 	MailboxID string `json:"mailbox_id"`
 	Folder    string `json:"folder"`
 	Validity  string `json:"validity"`
 	Uid       string `json:"uid"`
-}
-
-func (q *Queries) PlatformAcquireDraftSessionLock(ctx context.Context, arg PlatformAcquireDraftSessionLockParams) error {
-	_, err := q.db.Exec(ctx, platformAcquireDraftSessionLock,
-		arg.TenantID,
-		arg.MailboxID,
-		arg.Folder,
-		arg.Validity,
-		arg.Uid,
-	)
-	return err
 }
 
 const platformClaimDraftSave = `-- name: PlatformClaimDraftSave :exec
@@ -104,29 +89,12 @@ func (q *Queries) PlatformDraftReplacementPending(ctx context.Context, arg Platf
 	return exists, err
 }
 
-const platformReleaseDraftSessionLock = `-- name: PlatformReleaseDraftSessionLock :one
-SELECT pg_advisory_unlock(hashtextextended($1::text||':'||$2::text||':'||$3::text||':'||$4::text||':'||$5::text, 974152))
-`
-
 type PlatformReleaseDraftSessionLockParams struct {
 	TenantID  string `json:"tenant_id"`
 	MailboxID string `json:"mailbox_id"`
 	Folder    string `json:"folder"`
 	Validity  string `json:"validity"`
 	Uid       string `json:"uid"`
-}
-
-func (q *Queries) PlatformReleaseDraftSessionLock(ctx context.Context, arg PlatformReleaseDraftSessionLockParams) (bool, error) {
-	row := q.db.QueryRow(ctx, platformReleaseDraftSessionLock,
-		arg.TenantID,
-		arg.MailboxID,
-		arg.Folder,
-		arg.Validity,
-		arg.Uid,
-	)
-	var pg_advisory_unlock bool
-	err := row.Scan(&pg_advisory_unlock)
-	return pg_advisory_unlock, err
 }
 
 const platformSetDraftSaveScope = `-- name: PlatformSetDraftSaveScope :exec

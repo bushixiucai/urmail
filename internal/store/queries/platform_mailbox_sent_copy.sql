@@ -2,7 +2,7 @@
 -- scope: platform
 
 UPDATE mailbox_scheduled_sends
-SET status='sent',sent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),sent_raw=NULL,sent_raw_secret=convert_from(sqlc.arg(sent_raw)::bytea,'UTF8'),sent_copy_state='pending',copy_pending_since=COALESCE(copy_pending_since,(CAST(strftime('%s','now') AS INTEGER)*1000000)),
+SET status='sent',sent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),sent_raw=NULL,sent_raw_secret=CAST(sqlc.arg(sent_raw) AS TEXT),sent_copy_state='pending',copy_pending_since=COALESCE(copy_pending_since,(CAST(strftime('%s','now') AS INTEGER)*1000000)),
  last_error='SENT_COPY_PENDING',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id)
  AND id=sqlc.arg(id) AND claim_token=sqlc.arg(claim_token) AND status='submitting'

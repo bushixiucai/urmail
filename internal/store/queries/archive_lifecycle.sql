@@ -24,11 +24,24 @@ ORDER BY a.received_at DESC,a.id DESC LIMIT @limit_count;
 -- name: PreviewArchiveRetention :one
 -- scope: tenant
 
-INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
-SELECT @tenant_id,@retention_days,count(*),md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+900000000000
+-- The candidate set and its digest must be the same set: the previous port left
+-- `-(0)` where make_interval(days=>retention_days) was, and the digest subquery
+-- had no WHERE (whole-table, cross-tenant). Both are restored here from the PG
+-- definition in PHASE1-S2-PG-BUILTIN-FUNCS-AUDIT-20261120.md §D. `id` supplies
+-- the UUID default the PG DDL carried (gen_random_uuid is not expressible in
+-- the generated SQLite schema); it is a v4-shaped lowercase UUID text.
+INSERT INTO retention_previews(id,tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
+SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'||substr('89ab',1+(abs(random())%4),1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),
+ @tenant_id,@retention_days,count(*),
+ md5(coalesce((SELECT group_concat(id, ',') FROM (
+   SELECT a.id FROM archive_entries a
+   WHERE a.tenant_id=@tenant_id AND NOT a.legal_hold AND a.deleted_at IS NULL
+    AND a.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(@retention_days*86400000000)
+   ORDER BY a.id)),'')),
+ @created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+900000000000
 FROM archive_entries
 WHERE archive_entries.tenant_id= @tenant_id AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
- AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(0)
+ AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(@retention_days*86400000000)
 RETURNING *;
 
 -- name: LockArchiveRetentionPreview :one
@@ -39,7 +52,15 @@ SELECT * FROM retention_previews WHERE tenant_id= @tenant_id AND id= @id AND cre
 -- name: ArchiveRetentionCandidateDigest :one
 -- scope: tenant
 
-SELECT count(*) AS candidate_count,md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')) AS candidate_digest
+-- Same WHERE as PreviewArchiveRetention (tenant-scoped candidate set), so the
+-- confirmation evidence and the preview describe the same rows. The previous
+-- port hashed every tenant's ids and ignored the cutoff.
+SELECT count(*) AS candidate_count,
+ md5(coalesce((SELECT group_concat(id, ',') FROM (
+   SELECT a.id FROM archive_entries a
+   WHERE a.tenant_id=@tenant_id AND NOT a.legal_hold AND a.deleted_at IS NULL
+    AND a.received_at < @cutoff
+   ORDER BY a.id)),'')) AS candidate_digest
 FROM archive_entries WHERE archive_entries.tenant_id= @tenant_id AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
  AND archive_entries.received_at < @cutoff;
 

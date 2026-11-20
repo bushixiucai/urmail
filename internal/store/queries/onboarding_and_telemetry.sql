@@ -25,9 +25,12 @@ SELECT * FROM onboarding_tasks WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT
 -- Compatibility writes hash the typed canonical payload; unknown tenant IDs
 -- remain NULL. The managed collector uses its physical source-event identity.
 -- occurred_at must come from the source line, never the replay wall clock.
+-- json_array (TEXT) replaces jsonb_build_array: the fingerprint is only compared
+-- against rows written by this engine, and the SQLite timestamps are already
+-- integer micros, so byte-for-byte PG jsonb rendering is not reachable.
 INSERT INTO delivery_events (tenant_id,instance,queue_id,message_id,sender,sender_domain,recipient,recipient_domain,relay,status,dsn,delay_seconds,response_detail,occurred_at,source_event_id)
 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,
- 'compat:' || md5(jsonb_build_array(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)))
+ 'compat:' || md5(json_array(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)))
 ON CONFLICT DO NOTHING
 RETURNING id;
 

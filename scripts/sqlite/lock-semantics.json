@@ -1,5 +1,5 @@
 {
- "note": "S2 行锁语义损失登记（v3.2 §3.2：FOR UPDATE/FOR SHARE 删除必须逐条登记用途与替代，S3/S4 复核）",
+ "note": "S2 行锁语义损失登记（v3.2 §3.2：FOR UPDATE/FOR SHARE 删除必须逐条登记用途与替代，S3/S4 复核）；S5 另登记 8 处 PG advisory lock 的替代",
  "rows": [
   {
    "method": "ArchiveCasesLock",
@@ -790,6 +790,86 @@
    ],
    "purpose": "事务内一致性读锁",
    "replacement": "SQLite 单写者 + 事务串行"
+  },
+  {
+   "method": "LockMailboxEASSync",
+   "file": "mailbox_eas_sync_lock.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:device",
+   "purpose": "防同一设备并发 EAS 同步",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；方法保留为显式空操作"
+  },
+  {
+   "method": "LockMailboxImportTenantBudget",
+   "file": "mailbox_import.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "urmail/mailimport/tenant",
+   "purpose": "防同一租户并发导入",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockBillingTenant",
+   "file": "platform_mail_and_ai_gate.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant_id",
+   "purpose": "防计费/配额并发写",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockSendDraft",
+   "file": "platform_mailbox_send_receipts.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:folder:validity:uid",
+   "purpose": "发送与草稿编辑互斥",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockDataImport",
+   "file": "platform_people_product.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:idempotency_key",
+   "purpose": "防同一幂等键并发导入",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformLockRecallTenant",
+   "file": "platform_recalls.sql",
+   "kind": "pg_advisory_xact_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant_id",
+   "purpose": "防并发召回",
+   "replacement": "事务串行化（BEGIN IMMEDIATE）；显式空操作"
+  },
+  {
+   "method": "PlatformAcquireDraftSessionLock",
+   "file": "platform_mailbox_draft_journal.sql",
+   "kind": "pg_advisory_lock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:folder:validity:uid",
+   "purpose": "草稿保存跨事务互斥",
+   "replacement": "进程内按键互斥量；调用方显式配对释放"
+  },
+  {
+   "method": "PlatformReleaseDraftSessionLock",
+   "file": "platform_mailbox_draft_journal.sql",
+   "kind": "pg_advisory_unlock",
+   "targets": null,
+   "tables": [],
+   "lock_key": "tenant:mailbox:folder:validity:uid",
+   "purpose": "释放草稿锁（未持有返回 false）",
+   "replacement": "进程内按键互斥量释放"
   }
  ]
 }

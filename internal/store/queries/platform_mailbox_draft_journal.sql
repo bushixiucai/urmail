@@ -17,15 +17,15 @@ SELECT EXISTS(SELECT 1 FROM mailbox_jobs WHERE tenant_id=sqlc.arg(tenant_id) AND
 AND status='uncertain' AND json_extract(payload, '$.previous_uid')=sqlc.arg(previous_uid)
 AND json_extract(payload, '$.previous_validity')=sqlc.arg(previous_validity));
 
--- name: PlatformAcquireDraftSessionLock :exec
--- scope: platform
+-- PlatformAcquireDraftSessionLock 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PG 的会话级 advisory lock 跨多个事务持有，丢弃连接才释放；SQLite 无会话锁，
+-- 改为进程内按 (tenant,mailbox,folder,validity,uid) 键控的互斥量，须由
+-- PlatformReleaseDraftSessionLock 配对释放，详见 scripts/sqlite/lock-semantics.md。
 
-SELECT pg_advisory_lock(hashtextextended(sqlc.arg(tenant_id)||':'||sqlc.arg(mailbox_id)||':'||sqlc.arg(folder)||':'||sqlc.arg(validity)||':'||sqlc.arg(uid), 974152));
 
--- name: PlatformReleaseDraftSessionLock :one
--- scope: platform
+-- PlatformReleaseDraftSessionLock 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 释放 PlatformAcquireDraftSessionLock 持有的进程内互斥量；未持有时返回 false。
 
-SELECT pg_advisory_unlock(hashtextextended(sqlc.arg(tenant_id)||':'||sqlc.arg(mailbox_id)||':'||sqlc.arg(folder)||':'||sqlc.arg(validity)||':'||sqlc.arg(uid), 974152));
 
 -- name: PlatformSetDraftSaveScope :exec
 -- scope: platform

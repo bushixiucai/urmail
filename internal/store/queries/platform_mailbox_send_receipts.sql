@@ -99,17 +99,17 @@ SELECT EXISTS(SELECT 1 FROM mailbox_send_receipts r WHERE r.tenant_id=?1 AND r.m
 UPDATE mailbox_send_receipts SET draft_released=true,raw_secret='',smtp_secret='',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND tenant_id=?1 AND mailbox_id=?2 AND id=?3 AND status='uncertain' AND NOT draft_released AND draft_folder=?4 AND draft_uid=?5 AND draft_uidvalidity=?6;
 
--- name: PlatformLockSendDraft :exec
--- scope: platform
+-- PlatformLockSendDraft 在 S5 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PG 用事务级 advisory lock 串行化草稿发送与草稿编辑；SQLite 改为单写者事务串行
+-- （BEGIN IMMEDIATE），详见 scripts/sqlite/lock-semantics.md。
 
-SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(tenant_id)||':'||sqlc.arg(mailbox_id)||':'||sqlc.arg(folder)||':'||sqlc.arg(validity)||':'||sqlc.arg(uid), 974152));
 
 -- name: PlatformHoldUnauthorizedSendCopies :execrows
 -- scope: platform
 
-UPDATE mailbox_send_receipts SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND status='accepted' AND sent_copy_state IN('pending','unknown')
-AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=tenant_id AND m.id=mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=smtp_password_version);
+UPDATE mailbox_send_receipts AS r SET sent_copy_state='held',smtp_secret='',lease_until=NULL,claim_token=claim_token+1,last_error='SENT_COPY_REAUTH_REQUIRED',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE NOT COALESCE((SELECT active FROM restore_quarantine), 0) AND r.status='accepted' AND r.sent_copy_state IN('pending','unknown')
+AND NOT EXISTS(SELECT 1 FROM mailboxes m JOIN tenants t ON t.id=m.tenant_id JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id WHERE m.tenant_id=r.tenant_id AND m.id=r.mailbox_id AND m.status='active' AND t.status='active' AND d.status='active' AND md5(m.password_hash)=r.smtp_password_version);
 
 -- name: PlatformDraftDeleteLocked :one
 -- scope: platform

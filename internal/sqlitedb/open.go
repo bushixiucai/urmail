@@ -7,8 +7,12 @@ package sqlitedb
 
 import (
 	"context"
+	"crypto/md5"
 	"database/sql"
+	"database/sql/driver"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,12 +45,60 @@ func pragmaStatements() []string {
 	}
 }
 
+// md5Scalar is PG's md5(text): the lowercase 32-character hex digest of the
+// UTF-8 bytes. NULL stays NULL (PG md5(NULL) IS NULL), and any non-text argument
+// is refused exactly like PG's missing md5(integer) overload — silently hashing
+// an integer's decimal text would produce a digest PG never produced.
+//
+// This is a UDF rather than a rewrite to a builtin because the value participates
+// in equality checks written before the migration (mailbox_sessions.password_version
+// = md5(mailboxes.password_hash)), where "close enough" is a silent auth failure.
+func md5Scalar(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("md5: want 1 argument, got %d", len(args))
+	}
+	var raw []byte
+	switch v := args[0].(type) {
+	case nil:
+		return nil, nil
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	default:
+		return nil, fmt.Errorf("md5: unsupported argument type %T (PG has md5(text) only)", args[0])
+	}
+	sum := md5.Sum(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// withTxLock forces every transaction the driver begins to be BEGIN IMMEDIATE.
+// SQLite has no pg_advisory_xact_lock: the port replaces it with single-writer
+// transaction serialization (see scripts/sqlite/lock-semantics.md). A deferred
+// transaction does not serialize the read-then-write window — two transactions
+// can both read, and the second write fails with SQLITE_BUSY_SNAPSHOT instead of
+// waiting — so the lock semantic requires IMMEDIATE.
+func withTxLock(path string) string {
+	if strings.Contains(path, "_txlock=") {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_txlock=immediate"
+}
+
 // RegisterConnectionHook wires the per-connection PRAGMA contract into the
-// "sqlite" driver exactly once. Every connection the pool ever creates
-// executes the pragmas; without this, foreign_keys silently defaults OFF on
-// each new connection.
+// "sqlite" driver exactly once, and registers the PG builtin UDFs the query
+// layer depends on (md5). Every connection the pool ever creates executes the
+// pragmas; without this, foreign_keys silently defaults OFF on each new
+// connection.
 func RegisterConnectionHook() {
 	hookOnce.Do(func() {
+		if err := sqlite.RegisterScalarFunction("md5", 1, md5Scalar); err != nil {
+			panic(fmt.Sprintf("register md5 UDF: %v", err))
+		}
 		sqlite.RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, _ string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), pragmaTimeout)
 			defer cancel()
@@ -65,7 +117,7 @@ func RegisterConnectionHook() {
 // assertion so misconfiguration fails at startup, not on first write.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
 	RegisterConnectionHook()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", withTxLock(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
