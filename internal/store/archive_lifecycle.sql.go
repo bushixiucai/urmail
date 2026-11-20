@@ -170,7 +170,7 @@ func (q *Queries) GetArchiveOriginalForRecovery(ctx context.Context, arg GetArch
 
 const lockArchiveRetentionPreview = `-- name: LockArchiveRetentionPreview :one
 
-SELECT id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, expires_at, confirmed_at, authorization_grant_id FROM retention_previews WHERE tenant_id= ?1 AND id= ?2 AND created_by= ?3 AND confirmed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+SELECT id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, coalesce(expires_at, 0) AS expires_at, coalesce(confirmed_at, 0) AS confirmed_at, authorization_grant_id FROM retention_previews WHERE tenant_id= ?1 AND id= ?2 AND created_by= ?3 AND confirmed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
 type LockArchiveRetentionPreviewParams struct {
@@ -212,7 +212,7 @@ SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(rando
 FROM archive_entries
 WHERE archive_entries.tenant_id= ?1 AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
  AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(?2*86400000000)
-RETURNING id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, expires_at, confirmed_at, authorization_grant_id
+RETURNING id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, coalesce(expires_at, 0) AS expires_at, coalesce(confirmed_at, 0) AS confirmed_at, authorization_grant_id
 `
 
 type PreviewArchiveRetentionParams struct {
@@ -268,7 +268,7 @@ func (q *Queries) RestoreArchiveCopy(ctx context.Context, arg RestoreArchiveCopy
 
 const searchArchiveContent = `-- name: SearchArchiveContent :many
 
-SELECT a.id,a.mailbox_id,a.message_id,a.subject,a.from_addr,a.to_addr,a.received_at,a.size_bytes,a.legal_hold,a.deleted_at
+SELECT a.id, a.mailbox_id, a.message_id, a.subject, a.from_addr, a.to_addr, a.received_at, a.size_bytes, a.legal_hold, coalesce(a.deleted_at, 0) AS deleted_at
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
 WHERE a.tenant_id= ?1 AND (a.deleted_at IS NOT NULL)=CAST(?2 AS BOOLEAN) AND c.purge_started_at IS NULL
  AND (CAST(?3 AS TEXT)='' OR a.subject LIKE '%' || CAST(?3 AS TEXT) || '%' OR c.body_text LIKE '%' || CAST(?3 AS TEXT) || '%'

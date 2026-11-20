@@ -17,7 +17,7 @@ INSERT INTO compliance_grants (
     tenant_id, user_id, scope, expires_at, reason, granted_by
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6
-) RETURNING id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at, owner_confirmed_at
+) RETURNING id, tenant_id, user_id, scope, coalesce(expires_at, 0) AS expires_at, revoked, reason, granted_by, revoked_by, coalesce(revoked_at, 0) AS revoked_at, created_at, updated_at, coalesce(owner_confirmed_at, 0) AS owner_confirmed_at
 `
 
 type CreateComplianceGrantParams struct {
@@ -72,7 +72,7 @@ func (q *Queries) DisableTenantRetentionPolicy(ctx context.Context, tenantID int
 const getComplianceGrant = `-- name: GetComplianceGrant :one
 
 
-SELECT grant_row.id, grant_row.tenant_id, grant_row.user_id, grant_row.scope, grant_row.expires_at, grant_row.revoked, grant_row.reason, grant_row.granted_by, grant_row.revoked_by, grant_row.revoked_at, grant_row.created_at, grant_row.updated_at, grant_row.owner_confirmed_at
+SELECT grant_row.id, grant_row.tenant_id, grant_row.user_id, grant_row.scope, coalesce(grant_row.expires_at, 0) AS expires_at, grant_row.revoked, grant_row.reason, grant_row.granted_by, grant_row.revoked_by, coalesce(grant_row.revoked_at, 0) AS revoked_at, grant_row.created_at, grant_row.updated_at, coalesce(grant_row.owner_confirmed_at, 0) AS owner_confirmed_at
 FROM compliance_grants AS grant_row
 WHERE grant_row.tenant_id = ?1 AND grant_row.user_id = ?2
   AND grant_row.scope = ?3 AND grant_row.revoked = false
@@ -202,7 +202,7 @@ func (q *Queries) ListComplianceGrantRecipients(ctx context.Context, tenantID in
 
 const listComplianceGrantsByTenant = `-- name: ListComplianceGrantsByTenant :many
 
-SELECT id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at, owner_confirmed_at
+SELECT id, tenant_id, user_id, scope, coalesce(expires_at, 0) AS expires_at, revoked, reason, granted_by, revoked_by, coalesce(revoked_at, 0) AS revoked_at, created_at, updated_at, coalesce(owner_confirmed_at, 0) AS owner_confirmed_at
 FROM compliance_grants
 WHERE tenant_id = ?1
 ORDER BY created_at DESC
@@ -248,7 +248,7 @@ const revokeComplianceGrant = `-- name: RevokeComplianceGrant :one
 UPDATE compliance_grants
 SET revoked = true, updated_at = (CAST(strftime('%s','now') AS INTEGER)*1000000), revoked_by = ?3, revoked_at = (CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, user_id, scope, expires_at, revoked, reason, granted_by, revoked_by, revoked_at, created_at, updated_at, owner_confirmed_at
+RETURNING id, tenant_id, user_id, scope, coalesce(expires_at, 0) AS expires_at, revoked, reason, granted_by, revoked_by, coalesce(revoked_at, 0) AS revoked_at, created_at, updated_at, coalesce(owner_confirmed_at, 0) AS owner_confirmed_at
 `
 
 type RevokeComplianceGrantParams struct {

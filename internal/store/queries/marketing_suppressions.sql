@@ -10,7 +10,7 @@ SET reason = CASE
     WHEN marketing_suppressions.reason IN ('unsubscribe', 'bounce', 'complaint') THEN marketing_suppressions.reason
     ELSE EXCLUDED.reason
 END
-RETURNING *;
+RETURNING id, tenant_id, email, reason, created_at;
 
 -- name: CheckMarketingSuppression :one
 -- scope: tenant
@@ -25,9 +25,9 @@ DELETE FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2 AND reaso
 -- name: ListMarketingSuppressions :many
 -- scope: tenant
 
-SELECT * FROM marketing_suppressions WHERE tenant_id = ?1 ORDER BY created_at DESC LIMIT 500;
+SELECT id, tenant_id, email, reason, created_at FROM marketing_suppressions WHERE tenant_id = ?1 ORDER BY created_at DESC LIMIT 500;
 
 -- name: GetMarketingSuppression :one
 -- scope: tenant
 
-SELECT * FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2;
+SELECT id, tenant_id, email, reason, created_at FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2;

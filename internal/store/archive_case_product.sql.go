@@ -77,7 +77,7 @@ func (q *Queries) ArchiveCasesAddSource(ctx context.Context, arg ArchiveCasesAdd
 
 const archiveCasesApproval = `-- name: ArchiveCasesApproval :one
 
-SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
+SELECT id, tenant_id, investigation_id, requester_user_id, action, source_digest, state, approver_user_id, coalesce(decided_at, 0) AS decided_at, coalesce(expires_at, 0) AS expires_at, case_version, source_snapshot, decision_reason
 FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND case_version>0
 `
 
@@ -127,7 +127,7 @@ func (q *Queries) ArchiveCasesApproval(ctx context.Context, arg ArchiveCasesAppr
 
 const archiveCasesApprovals = `-- name: ArchiveCasesApprovals :many
 
-SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
+SELECT id, tenant_id, investigation_id, requester_user_id, action, source_digest, state, approver_user_id, coalesce(decided_at, 0) AS decided_at, coalesce(expires_at, 0) AS expires_at, case_version, source_snapshot, decision_reason
 FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND case_version>0 ORDER BY id DESC LIMIT 100
 `
 
@@ -189,7 +189,7 @@ func (q *Queries) ArchiveCasesApprovals(ctx context.Context, arg ArchiveCasesApp
 
 const archiveCasesClose = `-- name: ArchiveCasesClose :one
 
-UPDATE archive_investigations SET status='closed' WHERE tenant_id=?1 AND id=?2 AND created_by=?3 AND status='open' AND version=?4 RETURNING id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at
+UPDATE archive_investigations SET status='closed' WHERE tenant_id=?1 AND id=?2 AND created_by=?3 AND status='open' AND version=?4 RETURNING id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at
 `
 
 type ArchiveCasesCloseParams struct {
@@ -291,7 +291,7 @@ func (q *Queries) ArchiveCasesEligibleMembers(ctx context.Context, tenantID int6
 
 const archiveCasesGet = `-- name: ArchiveCasesGet :one
 
-SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2
+SELECT id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2
 `
 
 type ArchiveCasesGetParams struct {
@@ -428,7 +428,7 @@ func (q *Queries) ArchiveCasesInsertApproval(ctx context.Context, arg ArchiveCas
 
 const archiveCasesList = `-- name: ArchiveCasesList :many
 
-SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
+SELECT id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
 `
 
 // scope: tenant
@@ -466,7 +466,7 @@ func (q *Queries) ArchiveCasesList(ctx context.Context, tenantID int64) ([]Archi
 
 const archiveCasesLock = `-- name: ArchiveCasesLock :one
 
-SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2
+SELECT id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2
 `
 
 type ArchiveCasesLockParams struct {
@@ -496,7 +496,7 @@ func (q *Queries) ArchiveCasesLock(ctx context.Context, arg ArchiveCasesLockPara
 
 const archiveCasesMembers = `-- name: ArchiveCasesMembers :many
 
-SELECT m.user_id,u.email,m.removed_at FROM archive_investigation_members m JOIN users u ON u.id=m.user_id
+SELECT m.user_id, u.email, coalesce(m.removed_at, 0) AS removed_at FROM archive_investigation_members m JOIN users u ON u.id=m.user_id
 WHERE m.tenant_id=?1 AND m.investigation_id=?2 ORDER BY m.user_id
 `
 
@@ -626,7 +626,7 @@ func (q *Queries) ArchiveCasesSaveEvidence(ctx context.Context, arg ArchiveCases
 
 const archiveCasesSources = `-- name: ArchiveCasesSources :many
 
-SELECT e.id,e.mailbox_id,e.path,e.subject,e.size_bytes,e.raw_sha256,e.deleted_at,e.legal_hold
+SELECT e.id, e.mailbox_id, e.path, e.subject, e.size_bytes, e.raw_sha256, coalesce(e.deleted_at, 0) AS deleted_at, e.legal_hold
 FROM archive_investigation_sources s JOIN archive_entries e ON e.tenant_id=s.tenant_id AND e.id=s.archive_entry_id
 WHERE s.tenant_id=?1 AND s.investigation_id=?2 ORDER BY e.id
 `

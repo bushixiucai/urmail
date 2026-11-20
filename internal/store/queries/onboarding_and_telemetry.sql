@@ -1,22 +1,22 @@
 -- name: CreateOnboardingTask :one
 -- scope: tenant
 
-INSERT INTO onboarding_tasks (tenant_id, domain_id, order_id, status, step, max_attempts) VALUES (?1,?2,?3,'pending',?4,?5) RETURNING *;
+INSERT INTO onboarding_tasks (tenant_id, domain_id, order_id, status, step, max_attempts) VALUES (?1,?2,?3,'pending',?4,?5) RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code;
 
 -- name: CreateOrderOnboardingTask :one
 -- scope: tenant
 
-INSERT INTO onboarding_tasks (tenant_id, order_id, status, step, max_attempts,domain_id) VALUES (?1,?2,'pending',?3,?4,sqlc.narg(domain_id)) ON CONFLICT (tenant_id, order_id) WHERE order_id IS NOT NULL DO UPDATE SET order_id=EXCLUDED.order_id RETURNING *;
+INSERT INTO onboarding_tasks (tenant_id, order_id, status, step, max_attempts,domain_id) VALUES (?1,?2,'pending',?3,?4,sqlc.narg(domain_id)) ON CONFLICT (tenant_id, order_id) WHERE order_id IS NOT NULL DO UPDATE SET order_id=EXCLUDED.order_id RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code;
 
 -- name: GetOnboardingTaskByDomain :one
 -- scope: tenant
 
-SELECT * FROM onboarding_tasks WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC LIMIT 1;
+SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC LIMIT 1;
 
 -- name: ListOnboardingTasksByTenant :many
 -- scope: tenant
 
-SELECT * FROM onboarding_tasks WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT 50;
+SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT 50;
 
 -- name: RecordDeliveryEvent :execrows
 -- scope: tenant
@@ -37,7 +37,7 @@ RETURNING id;
 -- name: ListDeliveryEventsByTenant :many
 -- scope: tenant
 
-SELECT * FROM delivery_events WHERE tenant_id=?1 ORDER BY occurred_at DESC LIMIT 100;
+SELECT id, tenant_id, instance, queue_id, message_id, sender, sender_domain, recipient, recipient_domain, relay, status, dsn, delay_seconds, response_detail, occurred_at, source_event_id, lifecycle_id FROM delivery_events WHERE tenant_id=?1 ORDER BY occurred_at DESC LIMIT 100;
 
 -- name: CountDeliveryEventsByStatus :many
 -- scope: tenant

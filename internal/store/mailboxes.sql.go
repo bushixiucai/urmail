@@ -32,7 +32,7 @@ INSERT INTO mailboxes (
     tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
-) RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
+) RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
 type CreateMailboxParams struct {
@@ -103,8 +103,7 @@ func (q *Queries) DeleteMailbox(ctx context.Context, arg DeleteMailboxParams) er
 
 const getMailboxByAddress = `-- name: GetMailboxByAddress :one
 
-SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND address = ?2 AND status <> 'deleted'
 `
 
@@ -142,8 +141,7 @@ func (q *Queries) GetMailboxByAddress(ctx context.Context, arg GetMailboxByAddre
 
 const getMailboxByID = `-- name: GetMailboxByID :one
 
-SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND id = ?2 AND status <> 'deleted'
 `
 
@@ -181,8 +179,7 @@ func (q *Queries) GetMailboxByID(ctx context.Context, arg GetMailboxByIDParams) 
 
 const listMailboxesByDomain = `-- name: ListMailboxesByDomain :many
 
-SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND domain_id = ?2 AND status <> 'deleted'
 ORDER BY address ASC
 `
@@ -234,8 +231,7 @@ func (q *Queries) ListMailboxesByDomain(ctx context.Context, arg ListMailboxesBy
 
 const listMailboxesByTenant = `-- name: ListMailboxesByTenant :many
 
-SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND status <> 'deleted'
 ORDER BY address ASC
 `
@@ -285,7 +281,7 @@ const updateMailboxPassword = `-- name: UpdateMailboxPassword :one
 UPDATE mailboxes
 SET password_hash = ?3
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
 type UpdateMailboxPasswordParams struct {
@@ -326,7 +322,7 @@ const updateMailboxQuota = `-- name: UpdateMailboxQuota :one
 UPDATE mailboxes
 SET quota_bytes = ?3
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
 type UpdateMailboxQuotaParams struct {
@@ -423,7 +419,7 @@ const updateMailboxStatus = `-- name: UpdateMailboxStatus :one
 UPDATE mailboxes
 SET status = ?3
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
 type UpdateMailboxStatusParams struct {

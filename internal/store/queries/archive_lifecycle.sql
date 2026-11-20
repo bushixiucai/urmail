@@ -8,7 +8,7 @@ WHERE a.tenant_id= @tenant_id AND a.id= @id AND a.deleted_at IS NULL AND c.purge
 -- name: SearchArchiveContent :many
 -- scope: tenant
 
-SELECT a.id,a.mailbox_id,a.message_id,a.subject,a.from_addr,a.to_addr,a.received_at,a.size_bytes,a.legal_hold,a.deleted_at
+SELECT a.id, a.mailbox_id, a.message_id, a.subject, a.from_addr, a.to_addr, a.received_at, a.size_bytes, a.legal_hold, coalesce(a.deleted_at, 0) AS deleted_at
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
 WHERE a.tenant_id= @tenant_id AND (a.deleted_at IS NOT NULL)=CAST(@include_deleted AS BOOLEAN) AND c.purge_started_at IS NULL
  AND (CAST(@query AS TEXT)='' OR a.subject LIKE '%' || CAST(@query AS TEXT) || '%' OR c.body_text LIKE '%' || CAST(@query AS TEXT) || '%'
@@ -41,12 +41,12 @@ SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(rando
 FROM archive_entries
 WHERE archive_entries.tenant_id= @tenant_id AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
  AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(@retention_days*86400000000)
-RETURNING *;
+RETURNING id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, coalesce(expires_at, 0) AS expires_at, coalesce(confirmed_at, 0) AS confirmed_at, authorization_grant_id;
 
 -- name: LockArchiveRetentionPreview :one
 -- scope: tenant
 
-SELECT * FROM retention_previews WHERE tenant_id= @tenant_id AND id= @id AND created_by= @created_by AND confirmed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000);
+SELECT id, tenant_id, retention_days, candidate_count, candidate_digest, created_by, created_at, coalesce(expires_at, 0) AS expires_at, coalesce(confirmed_at, 0) AS confirmed_at, authorization_grant_id FROM retention_previews WHERE tenant_id= @tenant_id AND id= @id AND created_by= @created_by AND confirmed_at IS NULL AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000);
 
 -- name: ArchiveRetentionCandidateDigest :one
 -- scope: tenant

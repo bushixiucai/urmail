@@ -1,31 +1,27 @@
 -- name: ListMailboxesByTenant :many
 -- scope: tenant
 
-SELECT *
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND status <> 'deleted'
 ORDER BY address ASC;
 
 -- name: ListMailboxesByDomain :many
 -- scope: tenant
 
-SELECT *
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND domain_id = ?2 AND status <> 'deleted'
 ORDER BY address ASC;
 
 -- name: GetMailboxByID :one
 -- scope: tenant
 
-SELECT *
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND id = ?2 AND status <> 'deleted';
 
 -- name: GetMailboxByAddress :one
 -- scope: tenant
 
-SELECT *
-FROM mailboxes
+SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode FROM mailboxes
 WHERE tenant_id = ?1 AND address = ?2 AND status <> 'deleted';
 
 -- name: CreateMailbox :one
@@ -35,7 +31,7 @@ INSERT INTO mailboxes (
     tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
-) RETURNING *;
+) RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode;
 
 -- name: UpdateMailboxPassword :one
 -- scope: tenant
@@ -43,7 +39,7 @@ INSERT INTO mailboxes (
 UPDATE mailboxes
 SET password_hash = ?3
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING *;
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode;
 
 -- name: UpdateMailboxQuota :one
 -- scope: tenant
@@ -51,7 +47,7 @@ RETURNING *;
 UPDATE mailboxes
 SET quota_bytes = ?3
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING *;
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode;
 
 -- name: UpdateMailboxStatus :one
 -- scope: tenant
@@ -59,7 +55,7 @@ RETURNING *;
 UPDATE mailboxes
 SET status = ?3
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING *;
+RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, coalesce(usage_measured_at, 0) AS usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode;
 
 -- name: DeleteMailbox :exec
 -- scope: tenant

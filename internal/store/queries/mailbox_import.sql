@@ -22,7 +22,7 @@ UPDATE mailbox_import_items SET raw_secret=''  WHERE mailbox_import_items.tenant
 -- scope: tenant
 
 INSERT INTO mailbox_import_jobs(tenant_id,mailbox_id,request_key,format,filename,folder,uid_validity,source_digest,preview_digest,duplicate_policy,source_bytes)
-VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) RETURNING *;
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at;
 
 -- name: CreateMailboxImportItem :exec
 -- scope: tenant
@@ -33,27 +33,27 @@ VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13);
 -- name: GetMailboxImportByKey :one
 -- scope: tenant
 
-SELECT * FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND request_key=?3;
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND request_key=?3;
 
 -- name: GetMailboxImportJob :one
 -- scope: tenant
 
-SELECT * FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3;
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3;
 
 -- name: LockMailboxImportJob :one
 -- scope: tenant
 
-SELECT * FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3;
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3;
 
 -- name: ListMailboxImportJobs :many
 -- scope: tenant
 
-SELECT * FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 ORDER BY id DESC LIMIT 20;
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 ORDER BY id DESC LIMIT 20;
 
 -- name: ListMailboxImportItems :many
 -- scope: tenant
 
-SELECT * FROM mailbox_import_items WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3 ORDER BY item_index;
+SELECT tenant_id, mailbox_id, job_id, item_index, subject, message_id, raw_sha256, raw_bytes, raw_secret, selected, status, error_code, duplicate_of, baseline_uids, destination_uid, attempts, coalesce(attempt_started_at, 0) AS attempt_started_at, coalesce(reconciled_at, 0) AS reconciled_at, reconcile_absent, review_reason, updated_at FROM mailbox_import_items WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3 ORDER BY item_index;
 
 -- name: SetMailboxImportJob :one
 -- scope: tenant
@@ -62,7 +62,7 @@ UPDATE mailbox_import_jobs SET status=sqlc.arg(status),version=version+1,
  confirmed_at=CASE WHEN CAST(sqlc.arg(confirm) AS BOOLEAN) THEN COALESCE(confirmed_at,(CAST(strftime('%s','now') AS INTEGER)*1000000)) ELSE confirmed_at END,
  cancel_requested=sqlc.arg(cancel_requested),lease_token=sqlc.arg(lease_token),lease_until=sqlc.narg(lease_until),updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id=sqlc.arg(tenant_id) AND mailbox_id=sqlc.arg(mailbox_id) AND id=sqlc.arg(job_id)
-AND version=sqlc.arg(expected_version) RETURNING *;
+AND version=sqlc.arg(expected_version) RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at;
 
 -- name: SetMailboxImportItem :execrows
 -- scope: tenant

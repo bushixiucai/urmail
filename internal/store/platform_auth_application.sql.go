@@ -62,7 +62,7 @@ const createApplicationCredential = `-- name: CreateApplicationCredential :one
 INSERT INTO application_credentials(user_id, name, token_hash, scopes, expires_at, credential_version)
 SELECT u.id, ?1, ?2, ?3, ?4, u.credential_version FROM users u
 WHERE u.id=?5 AND u.status='active' AND u.credential_version=?6
-RETURNING id, user_id, name, scopes, expires_at, created_at
+RETURNING id, user_id, name, scopes, coalesce(expires_at, 0) AS expires_at, created_at
 `
 
 type CreateApplicationCredentialParams struct {
@@ -107,7 +107,7 @@ func (q *Queries) CreateApplicationCredential(ctx context.Context, arg CreateApp
 
 const getLegacySession = `-- name: GetLegacySession :one
 
-SELECT s.id, s.user_id, s.csrf_token, s.expires_at, s.mfa_verified_at
+SELECT s.id, s.user_id, s.csrf_token, coalesce(s.expires_at, 0) AS expires_at, coalesce(s.mfa_verified_at, 0) AS mfa_verified_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 JOIN platform_admins p ON p.user_id = u.id
@@ -141,7 +141,7 @@ func (q *Queries) GetLegacySession(ctx context.Context, id string) (GetLegacySes
 
 const listApplicationCredentials = `-- name: ListApplicationCredentials :many
 
-SELECT id,name,scopes,expires_at,revoked_at,created_at
+SELECT id, name, scopes, coalesce(expires_at, 0) AS expires_at, coalesce(revoked_at, 0) AS revoked_at, created_at
 FROM application_credentials WHERE user_id=?1 ORDER BY id DESC
 `
 

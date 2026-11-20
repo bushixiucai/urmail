@@ -49,7 +49,7 @@ func (q *Queries) CountDeliveryEventsByStatus(ctx context.Context, arg CountDeli
 
 const createOnboardingTask = `-- name: CreateOnboardingTask :one
 
-INSERT INTO onboarding_tasks (tenant_id, domain_id, order_id, status, step, max_attempts) VALUES (?1,?2,?3,'pending',?4,?5) RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code
+INSERT INTO onboarding_tasks (tenant_id, domain_id, order_id, status, step, max_attempts) VALUES (?1,?2,?3,'pending',?4,?5) RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code
 `
 
 type CreateOnboardingTaskParams struct {
@@ -95,7 +95,7 @@ func (q *Queries) CreateOnboardingTask(ctx context.Context, arg CreateOnboarding
 
 const createOrderOnboardingTask = `-- name: CreateOrderOnboardingTask :one
 
-INSERT INTO onboarding_tasks (tenant_id, order_id, status, step, max_attempts,domain_id) VALUES (?1,?2,'pending',?3,?4,?5) ON CONFLICT (tenant_id, order_id) WHERE order_id IS NOT NULL DO UPDATE SET order_id=EXCLUDED.order_id RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code
+INSERT INTO onboarding_tasks (tenant_id, order_id, status, step, max_attempts,domain_id) VALUES (?1,?2,'pending',?3,?4,?5) ON CONFLICT (tenant_id, order_id) WHERE order_id IS NOT NULL DO UPDATE SET order_id=EXCLUDED.order_id RETURNING id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code
 `
 
 type CreateOrderOnboardingTaskParams struct {
@@ -141,7 +141,7 @@ func (q *Queries) CreateOrderOnboardingTask(ctx context.Context, arg CreateOrder
 
 const getOnboardingTaskByDomain = `-- name: GetOnboardingTaskByDomain :one
 
-SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC LIMIT 1
+SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC LIMIT 1
 `
 
 type GetOnboardingTaskByDomainParams struct {
@@ -222,7 +222,7 @@ func (q *Queries) ListDeliveryEventsByTenant(ctx context.Context, tenantID pgtyp
 
 const listOnboardingTasksByTenant = `-- name: ListOnboardingTasksByTenant :many
 
-SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, leased_until, leased_by, created_at, updated_at, completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT 50
+SELECT id, tenant_id, domain_id, order_id, status, step, attempts, max_attempts, last_error, coalesce(leased_until, 0) AS leased_until, leased_by, created_at, updated_at, coalesce(completed_at, 0) AS completed_at, fence, next_attempt_at, desired_generation, last_error_code FROM onboarding_tasks WHERE tenant_id=?1 ORDER BY created_at DESC LIMIT 50
 `
 
 // scope: tenant

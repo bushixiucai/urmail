@@ -16,7 +16,7 @@ const clearArchiveEntryLegalHold = `-- name: ClearArchiveEntryLegalHold :one
 UPDATE archive_entries
 SET legal_hold = false
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 `
 
 type ClearArchiveEntryLegalHoldParams struct {
@@ -49,7 +49,7 @@ func (q *Queries) ClearArchiveEntryLegalHold(ctx context.Context, arg ClearArchi
 
 const getArchiveEntryByID = `-- name: GetArchiveEntryByID :one
 
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = ?1 AND id = ?2
 `
@@ -109,7 +109,7 @@ INSERT INTO archive_entries (
     tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
-) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 `
 
 type InsertArchiveEntryParams struct {
@@ -163,7 +163,7 @@ func (q *Queries) InsertArchiveEntry(ctx context.Context, arg InsertArchiveEntry
 
 const listArchiveEntriesByTenant = `-- name: ListArchiveEntriesByTenant :many
 
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = ?1 AND deleted_at IS NULL
 ORDER BY received_at DESC, id DESC
@@ -245,7 +245,7 @@ const setArchiveEntryLegalHold = `-- name: SetArchiveEntryLegalHold :one
 UPDATE archive_entries
 SET legal_hold = true, deleted_at = NULL
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 `
 
 type SetArchiveEntryLegalHoldParams struct {

@@ -8,12 +8,12 @@ INSERT INTO archive_entries (
     tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
-) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
+) RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256;
 
 -- name: ListArchiveEntriesByTenant :many
 -- scope: tenant
 
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = ?1 AND deleted_at IS NULL
 ORDER BY received_at DESC, id DESC
@@ -22,7 +22,7 @@ LIMIT ?2 OFFSET ?3;
 -- name: GetArchiveEntryByID :one
 -- scope: tenant
 
-SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256
+SELECT id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256
 FROM archive_entries
 WHERE tenant_id = ?1 AND id = ?2;
 
@@ -39,7 +39,7 @@ WHERE tenant_id = ?1 AND id = ?2 AND deleted_at IS NULL;
 UPDATE archive_entries
 SET legal_hold = true, deleted_at = NULL
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256;
 
 -- name: ClearArchiveEntryLegalHold :one
 -- scope: tenant
@@ -47,7 +47,7 @@ RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_ad
 UPDATE archive_entries
 SET legal_hold = false
 WHERE tenant_id = ?1 AND id = ?2
-RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
+RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, coalesce(deleted_at, 0) AS deleted_at, created_at, raw_sha256;
 
 
 -- name: ListMailboxesWithLegalHold :many

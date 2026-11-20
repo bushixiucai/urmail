@@ -30,7 +30,7 @@ const createDomain = `-- name: CreateDomain :one
 
 INSERT INTO domains (tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, tls_mode, dkim_selector, dkim_private_key)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 `
 
 type CreateDomainParams struct {
@@ -124,7 +124,7 @@ func (q *Queries) DeleteDomain(ctx context.Context, arg DeleteDomainParams) erro
 
 const getDomainByFQDN = `-- name: GetDomainByFQDN :one
 
-SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 FROM domains
 WHERE tenant_id = ?1 AND fqdn = ?2
 `
@@ -184,7 +184,7 @@ func (q *Queries) GetDomainByFQDN(ctx context.Context, arg GetDomainByFQDNParams
 
 const getDomainByID = `-- name: GetDomainByID :one
 
-SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 FROM domains
 WHERE tenant_id = ?1 AND id = ?2
 `
@@ -244,7 +244,7 @@ func (q *Queries) GetDomainByID(ctx context.Context, arg GetDomainByIDParams) (G
 
 const listDomainsByTenant = `-- name: ListDomainsByTenant :many
 
-SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+SELECT id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 FROM domains
 WHERE tenant_id = ?1
 ORDER BY fqdn ASC
@@ -360,7 +360,7 @@ SET mode = ?3, status = ?4
 WHERE tenant_id = ?1 AND id = ?2
   AND (?4 <> 'active' OR verified_at IS NOT NULL)
   AND (?4 <> 'pending_dns' OR verified_at IS NULL)
-RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 `
 
 type UpdateDomainModeStatusParams struct {
@@ -428,7 +428,7 @@ const updateDomainStatus = `-- name: UpdateDomainStatus :one
 UPDATE domains
 SET status = ?3, verified_at = ?4
 WHERE tenant_id = ?1 AND id = ?2 AND (?3 <> 'active' OR ?4 IS NOT NULL)
-RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 `
 
 type UpdateDomainStatusParams struct {
@@ -499,9 +499,7 @@ WHERE tenant_id = ?1 AND id = ?2 AND verification_token = ?3
   AND status <> 'active'
   AND verification_issued_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000)
   AND verification_expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000)
-RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref,
-          verification_token, verified_at, mx_host, tls_mode, dkim_selector,
-          dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
+RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verification_token, coalesce(verified_at, 0) AS verified_at, mx_host, tls_mode, dkim_selector, dkim_private_key, created_at, verification_issued_at, verification_expires_at, provisioning_state, dns_explicit
 `
 
 type VerifyDomainChallengeParams struct {

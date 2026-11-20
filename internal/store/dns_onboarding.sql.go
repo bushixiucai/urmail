@@ -13,7 +13,7 @@ import (
 
 const getDNSPlan = `-- name: GetDNSPlan :one
 
-SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND id=?2
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, coalesce(confirmed_at, 0) AS confirmed_at, coalesce(expires_at, 0) AS expires_at, fence, lease_owner, coalesce(lease_until, 0) AS lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND id=?2
 `
 
 type GetDNSPlanParams struct {
@@ -124,7 +124,7 @@ func (q *Queries) ListDNSActions(ctx context.Context, arg ListDNSActionsParams) 
 
 const listDNSCredentials = `-- name: ListDNSCredentials :many
 
-SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verified_at,revoked_at,updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2
+SELECT id, tenant_id, domain_id, provider, zone_name, zone_id, version, enabled, coalesce(verified_at, 0) AS verified_at, coalesce(revoked_at, 0) AS revoked_at, updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2
 `
 
 type ListDNSCredentialsParams struct {
@@ -181,7 +181,7 @@ func (q *Queries) ListDNSCredentials(ctx context.Context, arg ListDNSCredentials
 
 const listDNSPlans = `-- name: ListDNSPlans :many
 
-SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC,id LIMIT 20
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, coalesce(confirmed_at, 0) AS confirmed_at, coalesce(expires_at, 0) AS expires_at, fence, lease_owner, coalesce(lease_until, 0) AS lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC,id LIMIT 20
 `
 
 type ListDNSPlansParams struct {

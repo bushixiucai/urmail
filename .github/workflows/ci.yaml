@@ -139,8 +139,10 @@ jobs:
 
       # B5a: sqlc runs on the SQLite engine and only over the tenant query set
       # (platform-only files are blocked in scripts/sqlite/b5-blocked-files.json);
-      # querier.go is the union of the whole *Queries surface. All four checks
-      # must be green before the tree is considered consistent.
+      # querier.go is the union of the whole *Queries surface. All five checks
+      # must be green before the tree is considered consistent (the fifth is the
+      # B5b nullable-timestamp gate: every projection of a NULLable timestamp
+      # column must read coalesce(col, 0), or the int64 scan fails on SQLite).
       - name: sqlc drift check
         run: |
           bash scripts/ci-go-install.sh github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
@@ -149,6 +151,7 @@ jobs:
           python3 scripts/sqlite/gen_sqlc_overrides.py --check
           python3 scripts/sqlite/gen_sqlc.py --check
           python3 scripts/sqlite/gen_querier.py --check
+          python3 scripts/sqlite/nullable_timestamp_scan.py --check
           git diff --exit-code -- internal/store
 
       # Phase 1 S0: deprecated DB functions must stay unreferenced in code.

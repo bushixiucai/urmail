@@ -522,8 +522,7 @@ func (q *Queries) ListMarketingFlowEligibleContacts(ctx context.Context, arg Lis
 
 const listMarketingFlowInstances = `-- name: ListMarketingFlowInstances :many
 
-SELECT p.id,p.email,p.step_key,p.unsubscribed,p.wait_until,p.delivery_uncertain,p.lease_until,p.last_error,p.next_attempt_at,p.attempt_count,p.stopped_at,p.updated_at,
- v.version,f.status AS flow_status,s.kind
+SELECT p.id, p.email, p.step_key, p.unsubscribed, coalesce(p.wait_until, 0) AS wait_until, p.delivery_uncertain, coalesce(p.lease_until, 0) AS lease_until, p.last_error, p.next_attempt_at, p.attempt_count, coalesce(p.stopped_at, 0) AS stopped_at, p.updated_at, v.version, f.status AS flow_status, s.kind
 FROM marketing_flow_positions p JOIN marketing_flow_versions v ON v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id
 JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
 JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key

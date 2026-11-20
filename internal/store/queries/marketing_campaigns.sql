@@ -6,48 +6,48 @@ SELECT id,tenant_id,name,kind,enabled,created_at FROM marketing_channels WHERE t
 -- name: ListMarketingTemplates :many
 -- scope: tenant
 
-SELECT * FROM marketing_templates WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
+SELECT id, tenant_id, name, subject, text_body, created_at FROM marketing_templates WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
 
 -- name: CreateMarketingTemplate :one
 -- scope: tenant
 
-INSERT INTO marketing_templates(tenant_id,name,subject,text_body) VALUES(?1,?2,?3,?4) RETURNING *;
+INSERT INTO marketing_templates(tenant_id,name,subject,text_body) VALUES(?1,?2,?3,?4) RETURNING id, tenant_id, name, subject, text_body, created_at;
 
 -- name: ListMarketingLists :many
 -- scope: tenant
 
-SELECT * FROM marketing_lists WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
+SELECT id, tenant_id, name, created_at FROM marketing_lists WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
 
 -- name: CreateMarketingList :one
 -- scope: tenant
 
-INSERT INTO marketing_lists(tenant_id,name) VALUES(?1,?2) RETURNING *;
+INSERT INTO marketing_lists(tenant_id,name) VALUES(?1,?2) RETURNING id, tenant_id, name, created_at;
 
 -- name: UpsertMarketingContact :one
 -- scope: tenant
 
 INSERT INTO marketing_contacts(tenant_id,list_id,email,consent_source,opted_in) VALUES(?1,?2,?3,?4,?5)
-ON CONFLICT(tenant_id,list_id,email) DO UPDATE SET opted_in=EXCLUDED.opted_in,consent_source=EXCLUDED.consent_source,consent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) RETURNING *;
+ON CONFLICT(tenant_id,list_id,email) DO UPDATE SET opted_in=EXCLUDED.opted_in,consent_source=EXCLUDED.consent_source,consent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) RETURNING tenant_id, list_id, email, consent_source, opted_in, consent_at;
 
 -- name: ListMarketingContacts :many
 -- scope: tenant
 
-SELECT * FROM marketing_contacts WHERE tenant_id=?1 AND list_id=?2 ORDER BY email LIMIT 1000;
+SELECT tenant_id, list_id, email, consent_source, opted_in, consent_at FROM marketing_contacts WHERE tenant_id=?1 AND list_id=?2 ORDER BY email LIMIT 1000;
 
 -- name: CreateMarketingCampaign :one
 -- scope: tenant
 
-INSERT INTO marketing_campaigns(tenant_id,name,channel_id,template_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNING *;
+INSERT INTO marketing_campaigns(tenant_id,name,channel_id,template_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at;
 
 -- name: ListMarketingCampaigns :many
 -- scope: tenant
 
-SELECT * FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
+SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
 
 -- name: GetMarketingCampaign :one
 -- scope: tenant
 
-SELECT * FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2;
+SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2;
 
 
 -- name: ChangeMarketingCampaignState :one
@@ -55,7 +55,7 @@ SELECT * FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2;
 
 UPDATE marketing_campaigns SET status=?3 WHERE tenant_id=?1 AND id=?2 AND
  ((?3='paused' AND status IN('scheduled','running')) OR (?3='scheduled' AND status='paused') OR (?3='canceled' AND status IN('draft','scheduled','running','paused')))
-RETURNING *;
+RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at;
 
 -- name: CancelQueuedMarketingRecipients :execrows
 -- scope: tenant
@@ -66,7 +66,7 @@ WHERE tenant_id=?1 AND campaign_id=?2 AND status IN('queued','leased');
 -- name: ListMarketingRecipients :many
 -- scope: tenant
 
-SELECT * FROM marketing_recipients WHERE tenant_id=?1 AND campaign_id=?2 ORDER BY id LIMIT 1000;
+SELECT id, tenant_id, campaign_id, email, status, lease_owner, coalesce(lease_until, 0) AS lease_until, fence, attempts, window_id, reserved, result_code, next_attempt_at, created_at, coalesce(completed_at, 0) AS completed_at, resolution_reason FROM marketing_recipients WHERE tenant_id=?1 AND campaign_id=?2 ORDER BY id LIMIT 1000;
 
 -- MKT-005 outcome report. Counters come from the incremental
 -- marketing_campaign_stats row; pending/total come from recipient facts.

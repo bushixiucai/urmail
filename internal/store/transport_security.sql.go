@@ -34,7 +34,7 @@ func (q *Queries) DisableDomainTransportSecurity(ctx context.Context, arg Disabl
 
 const getDomainTransportSecurity = `-- name: GetDomainTransportSecurity :one
 
-SELECT id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, published_at, testing_since, cache_safe_after, observation_digest, observed_at, observation_status, observation_detail, version FROM domain_transport_security WHERE tenant_id=?1 AND domain_id=?2
+SELECT id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, coalesce(published_at, 0) AS published_at, coalesce(testing_since, 0) AS testing_since, cache_safe_after, observation_digest, coalesce(observed_at, 0) AS observed_at, observation_status, observation_detail, version FROM domain_transport_security WHERE tenant_id=?1 AND domain_id=?2
 `
 
 type GetDomainTransportSecurityParams struct {
@@ -165,7 +165,7 @@ ON CONFLICT(tenant_id,domain_id) DO UPDATE SET
  enabled=true,policy_mx=excluded.policy_mx,max_age=excluded.max_age,published_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),
  testing_since=CASE WHEN domain_transport_security.policy_mx=excluded.policy_mx AND domain_transport_security.mtasts_mode='testing' AND excluded.mtasts_mode='enforce' THEN domain_transport_security.testing_since ELSE (CAST(strftime('%s','now') AS INTEGER)*1000000) END,
  cache_safe_after=max(domain_transport_security.cache_safe_after,excluded.cache_safe_after),observation_digest=NULL,observed_at=NULL,observation_status='unverified',observation_detail='{}',version=domain_transport_security.version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE domain_transport_security.version=sqlc.arg('expected_version') RETURNING id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, published_at, testing_since, cache_safe_after, observation_digest, observed_at, observation_status, observation_detail, version
+WHERE domain_transport_security.version=sqlc.arg('expected_version') RETURNING id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, coalesce(published_at, 0) AS published_at, coalesce(testing_since, 0) AS testing_since, cache_safe_after, observation_digest, coalesce(observed_at, 0) AS observed_at, observation_status, observation_detail, version
 `
 
 type PublishDomainTransportSecurityParams struct {

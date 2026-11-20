@@ -1,7 +1,7 @@
 -- name: ListDNSCredentials :many
 -- scope: tenant
 
-SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verified_at,revoked_at,updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2;
+SELECT id, tenant_id, domain_id, provider, zone_name, zone_id, version, enabled, coalesce(verified_at, 0) AS verified_at, coalesce(revoked_at, 0) AS revoked_at, updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2;
 
 
 
@@ -10,15 +10,15 @@ SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verifie
 -- name: ListDNSPlans :many
 -- scope: tenant
 
-SELECT * FROM dns_change_plans WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC,id LIMIT 20;
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, coalesce(confirmed_at, 0) AS confirmed_at, coalesce(expires_at, 0) AS expires_at, fence, lease_owner, coalesce(lease_until, 0) AS lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC,id LIMIT 20;
 -- name: GetDNSPlan :one
 -- scope: tenant
 
-SELECT * FROM dns_change_plans WHERE tenant_id=?1 AND id=?2;
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, coalesce(confirmed_at, 0) AS confirmed_at, coalesce(expires_at, 0) AS expires_at, fence, lease_owner, coalesce(lease_until, 0) AS lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND id=?2;
 -- name: ListDNSActions :many
 -- scope: tenant
 
-SELECT * FROM dns_record_actions WHERE tenant_id=?1 AND plan_id=?2 ORDER BY ordinal;
+SELECT id, tenant_id, plan_id, ordinal, kind, before_record, after_record, provider_record_id, observed_record, owned, status, last_error_code, created_at, updated_at FROM dns_record_actions WHERE tenant_id=?1 AND plan_id=?2 ORDER BY ordinal;
 
 -- name: GetDomainProvisioning :one
 -- scope: tenant

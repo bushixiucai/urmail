@@ -33,7 +33,7 @@ const changeMarketingCampaignState = `-- name: ChangeMarketingCampaignState :one
 
 UPDATE marketing_campaigns SET status=?3 WHERE tenant_id=?1 AND id=?2 AND
  ((?3='paused' AND status IN('scheduled','running')) OR (?3='scheduled' AND status='paused') OR (?3='canceled' AND status IN('draft','scheduled','running','paused')))
-RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at
+RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at
 `
 
 type ChangeMarketingCampaignStateParams struct {
@@ -64,7 +64,7 @@ func (q *Queries) ChangeMarketingCampaignState(ctx context.Context, arg ChangeMa
 
 const createMarketingCampaign = `-- name: CreateMarketingCampaign :one
 
-INSERT INTO marketing_campaigns(tenant_id,name,channel_id,template_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at
+INSERT INTO marketing_campaigns(tenant_id,name,channel_id,template_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at
 `
 
 type CreateMarketingCampaignParams struct {
@@ -158,7 +158,7 @@ func (q *Queries) CreateMarketingTemplate(ctx context.Context, arg CreateMarketi
 
 const getMarketingCampaign = `-- name: GetMarketingCampaign :one
 
-SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2
+SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2
 `
 
 type GetMarketingCampaignParams struct {
@@ -241,7 +241,7 @@ func (q *Queries) GetMarketingCampaignReport(ctx context.Context, arg GetMarketi
 
 const listMarketingCampaigns = `-- name: ListMarketingCampaigns :many
 
-SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
+SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, coalesce(scheduled_at, 0) AS scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
 `
 
 // scope: tenant
@@ -390,7 +390,7 @@ func (q *Queries) ListMarketingLists(ctx context.Context, tenantID int64) ([]Mar
 
 const listMarketingRecipients = `-- name: ListMarketingRecipients :many
 
-SELECT id, tenant_id, campaign_id, email, status, lease_owner, lease_until, fence, attempts, window_id, reserved, result_code, next_attempt_at, created_at, completed_at, resolution_reason FROM marketing_recipients WHERE tenant_id=?1 AND campaign_id=?2 ORDER BY id LIMIT 1000
+SELECT id, tenant_id, campaign_id, email, status, lease_owner, coalesce(lease_until, 0) AS lease_until, fence, attempts, window_id, reserved, result_code, next_attempt_at, created_at, coalesce(completed_at, 0) AS completed_at, resolution_reason FROM marketing_recipients WHERE tenant_id=?1 AND campaign_id=?2 ORDER BY id LIMIT 1000
 `
 
 type ListMarketingRecipientsParams struct {

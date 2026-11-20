@@ -67,7 +67,7 @@ func (q *Queries) CreateMailboxImportItem(ctx context.Context, arg CreateMailbox
 const createMailboxImportJob = `-- name: CreateMailboxImportJob :one
 
 INSERT INTO mailbox_import_jobs(tenant_id,mailbox_id,request_key,format,filename,folder,uid_validity,source_digest,preview_digest,duplicate_policy,source_bytes)
-VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at
 `
 
 type CreateMailboxImportJobParams struct {
@@ -129,7 +129,7 @@ func (q *Queries) CreateMailboxImportJob(ctx context.Context, arg CreateMailboxI
 
 const getMailboxImportByKey = `-- name: GetMailboxImportByKey :one
 
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND request_key=?3
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND request_key=?3
 `
 
 type GetMailboxImportByKeyParams struct {
@@ -171,7 +171,7 @@ func (q *Queries) GetMailboxImportByKey(ctx context.Context, arg GetMailboxImpor
 
 const getMailboxImportJob = `-- name: GetMailboxImportJob :one
 
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3
 `
 
 type GetMailboxImportJobParams struct {
@@ -213,7 +213,7 @@ func (q *Queries) GetMailboxImportJob(ctx context.Context, arg GetMailboxImportJ
 
 const listMailboxImportItems = `-- name: ListMailboxImportItems :many
 
-SELECT tenant_id, mailbox_id, job_id, item_index, subject, message_id, raw_sha256, raw_bytes, raw_secret, selected, status, error_code, duplicate_of, baseline_uids, destination_uid, attempts, attempt_started_at, reconciled_at, reconcile_absent, review_reason, updated_at FROM mailbox_import_items WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3 ORDER BY item_index
+SELECT tenant_id, mailbox_id, job_id, item_index, subject, message_id, raw_sha256, raw_bytes, raw_secret, selected, status, error_code, duplicate_of, baseline_uids, destination_uid, attempts, coalesce(attempt_started_at, 0) AS attempt_started_at, coalesce(reconciled_at, 0) AS reconciled_at, reconcile_absent, review_reason, updated_at FROM mailbox_import_items WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3 ORDER BY item_index
 `
 
 type ListMailboxImportItemsParams struct {
@@ -267,7 +267,7 @@ func (q *Queries) ListMailboxImportItems(ctx context.Context, arg ListMailboxImp
 
 const listMailboxImportJobs = `-- name: ListMailboxImportJobs :many
 
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 ORDER BY id DESC LIMIT 20
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 ORDER BY id DESC LIMIT 20
 `
 
 type ListMailboxImportJobsParams struct {
@@ -321,7 +321,7 @@ func (q *Queries) ListMailboxImportJobs(ctx context.Context, arg ListMailboxImpo
 
 const lockMailboxImportJob = `-- name: LockMailboxImportJob :one
 
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3
 `
 
 type LockMailboxImportJobParams struct {
@@ -563,7 +563,7 @@ UPDATE mailbox_import_jobs SET status=?1,version=version+1,
  confirmed_at=CASE WHEN CAST(?2 AS BOOLEAN) THEN COALESCE(confirmed_at,(CAST(strftime('%s','now') AS INTEGER)*1000000)) ELSE confirmed_at END,
  cancel_requested=?3,lease_token=?4,lease_until=?5,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id=?6 AND mailbox_id=?7 AND id=?8
-AND version=?9 RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at
+AND version=?9 RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, coalesce(preview_expires_at, 0) AS preview_expires_at, payload_expires_at, coalesce(confirmed_at, 0) AS confirmed_at, cancel_requested, lease_token, coalesce(lease_until, 0) AS lease_until, created_at, updated_at
 `
 
 type SetMailboxImportJobParams struct {

@@ -33,7 +33,7 @@ INSERT INTO sessions (
     id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, credential_version, origin_host
 ) SELECT ?1,u.id,?2,?3,?4,?5,?6,u.credential_version,?7
 FROM users u WHERE u.id=?8 AND u.status='active' AND u.password_hash=?9 AND u.credential_version=?10
-RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind, credential_version, origin_host
+RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, coalesce(expires_at, 0) AS expires_at, created_at, coalesce(mfa_verified_at, 0) AS mfa_verified_at, kind, credential_version, origin_host
 `
 
 type CreateSessionParams struct {
@@ -173,7 +173,7 @@ func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) er
 
 const getSessionByID = `-- name: GetSessionByID :one
 
-SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind, s.credential_version, s.origin_host
+SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, coalesce(s.expires_at, 0) AS expires_at, s.created_at, coalesce(s.mfa_verified_at, 0) AS mfa_verified_at, s.kind, s.credential_version, s.origin_host
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 LEFT JOIN tenants t ON t.id = s.tenant_id
@@ -364,7 +364,7 @@ func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTe
 
 const listSessionsForUser = `-- name: ListSessionsForUser :many
 
-SELECT id, user_id, tenant_id, user_agent, created_at, expires_at
+SELECT id, user_id, tenant_id, user_agent, created_at, coalesce(expires_at, 0) AS expires_at
 FROM sessions
 WHERE user_id = ?1 AND expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000)
 ORDER BY created_at DESC

@@ -339,7 +339,7 @@ func (q *Queries) ListSupportTickets(ctx context.Context, arg ListSupportTickets
 
 const listVisibleAnnouncements = `-- name: ListVisibleAnnouncements :many
 
-SELECT a.id, a.brand_id, a.title, a.body, a.published_at, a.created_at, a.state, a.ends_at FROM announcements a JOIN tenants t ON t.id = ?1 WHERE (a.brand_id IS NULL OR a.brand_id=t.brand_id) AND a.state='published' AND a.published_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (a.ends_at IS NULL OR a.ends_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY a.published_at DESC,a.id DESC LIMIT 100
+SELECT a.id, a.brand_id, a.title, a.body, coalesce(a.published_at, 0) AS published_at, a.created_at, a.state, coalesce(a.ends_at, 0) AS ends_at FROM announcements a JOIN tenants t ON t.id = ?1 WHERE (a.brand_id IS NULL OR a.brand_id=t.brand_id) AND a.state='published' AND a.published_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (a.ends_at IS NULL OR a.ends_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY a.published_at DESC,a.id DESC LIMIT 100
 `
 
 // scope: platform

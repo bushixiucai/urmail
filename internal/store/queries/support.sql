@@ -1,32 +1,32 @@
 -- name: CreateSupportTicket :one
 -- scope: tenant
 
-INSERT INTO tickets(tenant_id,opened_by,subject,priority) VALUES(?1,?2,?3,?4) RETURNING *;
+INSERT INTO tickets(tenant_id,opened_by,subject,priority) VALUES(?1,?2,?3,?4) RETURNING id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at;
 
 -- name: ListSupportTickets :many
 -- scope: tenant
 
-SELECT * FROM tickets WHERE tenant_id=?1 AND opened_by=?2 AND id < @before_id ORDER BY id DESC LIMIT 51;
+SELECT id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at FROM tickets WHERE tenant_id=?1 AND opened_by=?2 AND id < @before_id ORDER BY id DESC LIMIT 51;
 
 -- name: GetSupportTicket :one
 -- scope: tenant
 
-SELECT * FROM tickets WHERE tenant_id=?1 AND opened_by=?2 AND id=?3;
+SELECT id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at FROM tickets WHERE tenant_id=?1 AND opened_by=?2 AND id=?3;
 
 -- name: AddSupportMessage :one
 -- scope: tenant
 
-INSERT INTO ticket_messages(tenant_id,ticket_id,author_id,body,is_staff) VALUES(?1,?2,?3,?4,false) RETURNING *;
+INSERT INTO ticket_messages(tenant_id,ticket_id,author_id,body,is_staff) VALUES(?1,?2,?3,?4,false) RETURNING id, ticket_id, author_id, body, is_staff, created_at, tenant_id;
 
 -- name: ListSupportMessages :many
 -- scope: tenant
 
-SELECT * FROM ticket_messages WHERE tenant_id=?1 AND ticket_id=?2 AND id > @after_id ORDER BY id LIMIT 101;
+SELECT id, ticket_id, author_id, body, is_staff, created_at, tenant_id FROM ticket_messages WHERE tenant_id=?1 AND ticket_id=?2 AND id > @after_id ORDER BY id LIMIT 101;
 
 -- name: ChangeSupportTicketStatus :one
 -- scope: tenant
 
-UPDATE tickets SET status=?4 WHERE tenant_id=?1 AND opened_by=?2 AND id=?3 AND status<>?4 RETURNING *;
+UPDATE tickets SET status=?4 WHERE tenant_id=?1 AND opened_by=?2 AND id=?3 AND status<>?4 RETURNING id, tenant_id, opened_by, subject, status, priority, created_at, assigned_to, updated_at;
 
 -- name: AddSupportAttachment :one
 -- scope: tenant
@@ -41,9 +41,9 @@ SELECT a.id,a.message_id,a.filename,a.content_type,a.created_at FROM ticket_atta
 -- name: GetSupportAttachment :one
 -- scope: tenant
 
-SELECT * FROM ticket_attachments WHERE tenant_id=?1 AND id=?2;
+SELECT id, tenant_id, message_id, filename, content_type, content, created_at FROM ticket_attachments WHERE tenant_id=?1 AND id=?2;
 
 -- name: ListVisibleAnnouncements :many
 -- scope: platform
 
-SELECT a.* FROM announcements a JOIN tenants t ON t.id = @tenant_id WHERE (a.brand_id IS NULL OR a.brand_id=t.brand_id) AND a.state='published' AND a.published_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (a.ends_at IS NULL OR a.ends_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY a.published_at DESC,a.id DESC LIMIT 100;
+SELECT a.id, a.brand_id, a.title, a.body, coalesce(a.published_at, 0) AS published_at, a.created_at, a.state, coalesce(a.ends_at, 0) AS ends_at FROM announcements a JOIN tenants t ON t.id = @tenant_id WHERE (a.brand_id IS NULL OR a.brand_id=t.brand_id) AND a.state='published' AND a.published_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND (a.ends_at IS NULL OR a.ends_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)) ORDER BY a.published_at DESC,a.id DESC LIMIT 100;

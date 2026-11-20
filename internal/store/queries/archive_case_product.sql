@@ -2,24 +2,24 @@
 -- name: ArchiveCasesList :many
 -- scope: tenant
 
-SELECT * FROM archive_investigations WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
+SELECT id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
 
 -- name: ArchiveCasesGet :one
 -- scope: tenant
 
-SELECT * FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
+SELECT id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
 
 -- name: ArchiveCasesLock :one
 -- scope: tenant
 
-SELECT * FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
+SELECT id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
 
 
 
 -- name: ArchiveCasesMembers :many
 -- scope: tenant
 
-SELECT m.user_id,u.email,m.removed_at FROM archive_investigation_members m JOIN users u ON u.id=m.user_id
+SELECT m.user_id, u.email, coalesce(m.removed_at, 0) AS removed_at FROM archive_investigation_members m JOIN users u ON u.id=m.user_id
 WHERE m.tenant_id=?1 AND m.investigation_id=?2 ORDER BY m.user_id;
 
 -- name: ArchiveCasesEligibleMembers :many
@@ -50,7 +50,7 @@ UPDATE archive_investigation_members SET removed_at=(CAST(strftime('%s','now') A
 -- name: ArchiveCasesSources :many
 -- scope: tenant
 
-SELECT e.id,e.mailbox_id,e.path,e.subject,e.size_bytes,e.raw_sha256,e.deleted_at,e.legal_hold
+SELECT e.id, e.mailbox_id, e.path, e.subject, e.size_bytes, e.raw_sha256, coalesce(e.deleted_at, 0) AS deleted_at, e.legal_hold
 FROM archive_investigation_sources s JOIN archive_entries e ON e.tenant_id=s.tenant_id AND e.id=s.archive_entry_id
 WHERE s.tenant_id=?1 AND s.investigation_id=?2 ORDER BY e.id;
 
@@ -73,18 +73,18 @@ WHERE archive_investigation_sources.tenant_id=?1 AND archive_investigation_sourc
 -- name: ArchiveCasesClose :one
 -- scope: tenant
 
-UPDATE archive_investigations SET status='closed' WHERE tenant_id=?1 AND id=?2 AND created_by=?3 AND status='open' AND version=?4 RETURNING *;
+UPDATE archive_investigations SET status='closed' WHERE tenant_id=?1 AND id=?2 AND created_by=?3 AND status='open' AND version=?4 RETURNING id, tenant_id, title, purpose, status, created_by, coalesce(expires_at, 0) AS expires_at, created_at, request_key, version, updated_at;
 
 -- name: ArchiveCasesApprovals :many
 -- scope: tenant
 
-SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
+SELECT id, tenant_id, investigation_id, requester_user_id, action, source_digest, state, approver_user_id, coalesce(decided_at, 0) AS decided_at, coalesce(expires_at, 0) AS expires_at, case_version, source_snapshot, decision_reason
 FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND case_version>0 ORDER BY id DESC LIMIT 100;
 
 -- name: ArchiveCasesApproval :one
 -- scope: tenant
 
-SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
+SELECT id, tenant_id, investigation_id, requester_user_id, action, source_digest, state, approver_user_id, coalesce(decided_at, 0) AS decided_at, coalesce(expires_at, 0) AS expires_at, case_version, source_snapshot, decision_reason
 FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND case_version>0;
 
 -- name: ArchiveCasesGetPendingApproval :one
@@ -123,12 +123,12 @@ WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND requester_user_id=?4 AN
 -- scope: tenant
 
 INSERT INTO archive_evidence_exports(tenant_id,approval_id,created_by,manifest,manifest_sha256)
-VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tenant_id,approval_id) DO NOTHING RETURNING *;
+VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tenant_id,approval_id) DO NOTHING RETURNING tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at;
 
 -- name: ArchiveCasesGetEvidence :one
 -- scope: tenant
 
-SELECT * FROM archive_evidence_exports WHERE tenant_id=?1 AND approval_id=?2;
+SELECT tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at FROM archive_evidence_exports WHERE tenant_id=?1 AND approval_id=?2;
 
 -- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
 -- file note: ArchiveCasesCreate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：

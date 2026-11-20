@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""List generated queries that project a nullable timestamp column bare.
+"""Gate: nullable-timestamp projections must read coalesce(col, 0).
 
 Why: B5b made every timestamp an int64 unix-micro value (0 = zero value), but
 the SQLite schema keeps nullable timestamp columns as NULL because triggers
 depend on `IS NULL` / `IS NOT NULL`. Scanning SQL NULL into int64 fails, so a
-projection of a nullable timestamp must be wrapped in `coalesce(col, 0)` (or
-the Phase 2 DBTX adapter must translate NULL to 0).
+projection of a nullable timestamp must be wrapped in `coalesce(col, 0)`.
 
-This is an inventory, not a gate: it prints the statement/column pairs that
-still project bare, so the Phase 2 wiring can drive the count to zero and a
-CI ratchet can be added there.
+A projection counts as compliant only when its expression is exactly
+`coalesce(col, 0)` / `coalesce(t.col, 0)` (the wrapper produced by
+scripts/sqlite/wrap_nullable_ts_projections.py). Anything else — a bare
+column reference, an aggregate, a CASE — can surface SQL NULL to the int64
+scan target and is reported as a violation. `--check` exits 1 while any
+violation remains; it runs in CI next to the other sqlc drift checks.
 
-Usage: python3 scripts/sqlite/nullable_timestamp_scan.py
+Usage: python3 scripts/sqlite/nullable_timestamp_scan.py [--check]
 """
 import pathlib
 import re
@@ -22,6 +24,7 @@ SCHEMA = ROOT / "migrations_sqlite" / "0001_init.sql"
 SQLC = ROOT / "sqlc.yaml"
 
 TIMESTAMP = re.compile(r'(at|until|since|time)$')
+COALESCED = re.compile(r'^coalesce\s*\(\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)\s*,\s*0\s*\)$', re.I)
 
 
 def nullable_timestamps():
@@ -73,8 +76,9 @@ def projections(sql):
 
 
 def main():
+    check = "--check" in sys.argv[1:]
     nullcols = nullable_timestamps()
-    pairs = {}
+    pairs, ok_count = {}, 0
     for name in query_files():
         path = ROOT / "internal" / "store" / f"{name}.sql.go"
         if not path.exists():
@@ -95,13 +99,31 @@ def main():
                 continue
             for field, expr in zip(fields, projs):
                 value = expr.strip()
-                if re.search(r"\bas\b", value, re.I):
-                    value = re.split(r"\bas\b", value, flags=re.I)[-1].strip()
-                base = value.split(".")[-1].strip()
-                if base in nullcols:
-                    pairs.setdefault(f"{base} ({','.join(nullcols[base])})", set()).add(method)
+                # split "expr AS alias" at the final alias boundary
+                m = re.match(r"^(.*?)\s+AS\s+([A-Za-z_]\w*)$", value, re.I | re.S)
+                body, base = (m.group(1), m.group(2)) if m else (value, value)
+                base = base.split(".")[-1].strip()
+                if base not in nullcols:
+                    continue
+                cm = COALESCED.match(body.strip())
+                if cm and cm.group(1).split(".")[-1].lower() == base.lower():
+                    ok_count += 1
+                    continue
+                pairs.setdefault(f"{base} ({','.join(nullcols[base])})",
+                                 set()).add(method)
     total = sum(len(v) for v in pairs.values())
-    print(f"{len(pairs)} nullable timestamp columns bare-projected by {total} statements")
+    if check:
+        if total:
+            print(f"FAIL: {len(pairs)} nullable timestamp columns bare-projected "
+                  f"by {total} statements ({ok_count} compliant)", file=sys.stderr)
+            for col in sorted(pairs):
+                print(f"  {col}: {', '.join(sorted(pairs[col]))}", file=sys.stderr)
+            return 1
+        print(f"nullable-timestamp projections: all wrapped "
+              f"({ok_count} coalesce projections, 0 violations)")
+        return 0
+    print(f"{len(pairs)} nullable timestamp columns with unwrapped projections "
+          f"({total} statements); {ok_count} projections compliant")
     for col in sorted(pairs):
         print(f"  {col}: {', '.join(sorted(pairs[col]))}")
     return 0

@@ -1,7 +1,7 @@
 -- name: ListTenantNotifications :many
 -- scope: tenant
 
-SELECT n.id,n.kind,n.message_key,n.params,n.channel,n.state,n.created_at,n.read_at
+SELECT n.id, n.kind, n.message_key, n.params, n.channel, n.state, n.created_at, coalesce(n.read_at, 0) AS read_at
 FROM notification_outbox n
 WHERE n.tenant_id=?1 AND (n.user_id IS NULL OR n.user_id=nullif(current_setting('urmail.user_id',true),''))
 AND (CASE WHEN n.kind NOT IN('archive_approval','archive_recall') THEN 1 ELSE
