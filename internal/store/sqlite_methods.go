@@ -23,6 +23,7 @@ import (
 	"math"
 	"net/netip"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	report "github.com/bushixiucai/urmail/internal/domain/marketingreport"
 	"github.com/bushixiucai/urmail/internal/timeutil"
 )
 
@@ -254,6 +256,22 @@ func (q *Queries) ConsumeUserRecoveryCode(ctx context.Context, userID int64, has
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// ConsumeRecoveryCodeParams is the pre-B5a parameter struct for
+// ConsumeRecoveryCode. It is kept verbatim (field names, json tags) because
+// both the AuthStore interface and its test fake construct it.
+type ConsumeRecoveryCodeParams struct {
+	ID      int64  `json:"id"`
+	Column2 string `json:"column_2"`
+}
+
+// ConsumeRecoveryCode is the historical name of ConsumeUserRecoveryCode. The
+// PG statement rewrote the jsonb array in SQL (jsonb_agg + WITH ORDINALITY);
+// the SQLite path does the same rewrite in Go, so this is a thin alias that
+// keeps the handler-facing API stable.
+func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error) {
+	return q.ConsumeUserRecoveryCode(ctx, arg.ID, arg.Column2)
 }
 
 // ---------------------------------------------------------------------------
@@ -783,6 +801,79 @@ func (q *Queries) ArchiveCasesSnapshotDigest(ctx context.Context, arg ArchiveCas
 	}
 	sum := sha256.Sum256(snap)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// ArchiveCasesRequestApprovalParams is the parameter set for
+// ArchiveCasesRequestApproval (kept with the pre-B5a name because the handler
+// and its test construct it).
+type ArchiveCasesRequestApprovalParams struct {
+	TenantID int64  `json:"tenant_id"`
+	CaseID   int64  `json:"case_id"`
+	ActorID  int64  `json:"actor_id"`
+	Digest   string `json:"digest"`
+	Version  int64  `json:"version"`
+}
+
+// ArchiveCasesRequestApproval creates (or replays, exactly-once per digest) an
+// export approval request. The PG statement used the
+// urmail_archive_case_snapshot() function to freeze the case snapshot and
+// least(expires_at, now()+24h) for the request deadline; both are done here,
+// with the snapshot built by archiveCaseSnapshotText and the deadline clamped
+// in Go. A missing case, a stale version, or a non-member actor yields
+// pgx.ErrNoRows exactly like the PG INSERT ... SELECT did.
+func (q *Queries) ArchiveCasesRequestApproval(ctx context.Context, arg ArchiveCasesRequestApprovalParams) (int64, error) {
+	now := timeutil.NowMicro()
+	var existing int64
+	err := q.db.QueryRow(ctx, `SELECT r.id FROM archive_approval_requests r
+WHERE r.tenant_id=?1 AND r.investigation_id=?2 AND r.requester_user_id=?3
+ AND r.source_digest=?4 AND r.state='pending' AND r.expires_at>?5
+ORDER BY r.id LIMIT 1`,
+		arg.TenantID, arg.CaseID, arg.ActorID, arg.Digest, now).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
+	var caseVersion, caseExpires int64
+	err = q.db.QueryRow(ctx, `SELECT version, expires_at FROM archive_investigations
+WHERE tenant_id=?1 AND id=?2 AND status='open'`, arg.TenantID, arg.CaseID).Scan(&caseVersion, &caseExpires)
+	if err != nil {
+		return 0, err
+	}
+	if caseVersion != arg.Version {
+		return 0, pgx.ErrNoRows
+	}
+	snap, err := q.archiveCaseSnapshotText(ctx, arg.TenantID, arg.CaseID, arg.ActorID)
+	if err != nil {
+		return 0, err
+	}
+	if snap == nil {
+		return 0, pgx.ErrNoRows
+	}
+	expires := now + 24*int64(time.Hour/time.Microsecond)
+	if caseExpires < expires {
+		expires = caseExpires
+	}
+	var id int64
+	err = q.db.QueryRow(ctx, `INSERT INTO archive_approval_requests(tenant_id,investigation_id,requester_user_id,action,source_digest,expires_at,case_version,source_snapshot)
+SELECT ?1, i.id, ?3, 'export', ?4, ?6, i.version, ?7
+FROM archive_investigations i
+WHERE i.tenant_id=?1 AND i.id=?2 AND i.status='open' AND i.version=?5
+ AND NOT EXISTS(SELECT 1 FROM archive_approval_requests r
+  WHERE r.tenant_id=?1 AND r.investigation_id=?2 AND r.requester_user_id=?3
+   AND r.source_digest=?4 AND r.state='pending' AND r.expires_at>?8)
+RETURNING id`,
+		arg.TenantID, arg.CaseID, arg.ActorID, arg.Digest, arg.Version, expires, snap, now).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Lost the replay race: the concurrent request is now the pending one.
+		err = q.db.QueryRow(ctx, `SELECT r.id FROM archive_approval_requests r
+WHERE r.tenant_id=?1 AND r.investigation_id=?2 AND r.requester_user_id=?3
+ AND r.source_digest=?4 AND r.state='pending' AND r.expires_at>?5
+ORDER BY r.id LIMIT 1`,
+			arg.TenantID, arg.CaseID, arg.ActorID, arg.Digest, now).Scan(&id)
+	}
+	return id, err
 }
 
 // ArchiveCasesExportVisible reports whether the approved export request is
@@ -3380,3 +3471,354 @@ func (q *Queries) PlatformReleaseDraftSessionLock(_ context.Context, arg Platfor
 	}
 	return true, nil
 }
+
+// ---------------------------------------------------------------------------
+// Marketing report snapshots (S7).
+//
+// The PG versions were one bounded statement each: a `WITH ... AS MATERIALIZED`
+// chain plus `jsonb_agg(to_jsonb(...) ORDER BY ...)`, with the report actor read
+// from `current_setting('urmail.user_id')`. None of that survives a SQLite port
+// (no MATERIALIZED, no session settings, different JSON aggregate), and the
+// sqlc SQLite parser rejects the aggregate inside a CTE, so the snapshot is
+// assembled here from the same bounded facts. The fact set, its ordering and
+// the 10001-row probe are unchanged: `report.Build` still rejects >10000 rows,
+// which the handler maps to 413.
+// ---------------------------------------------------------------------------
+
+// MarketingCampaignReportSnapshotParams is the parameter set for
+// MarketingCampaignReportSnapshot.
+type MarketingCampaignReportSnapshotParams struct {
+	TenantID    int64
+	ResourceID  int64
+	ActorUserID int64
+	FromTime    pgtype.Timestamptz
+	UntilTime   pgtype.Timestamptz
+}
+
+// MarketingFlowReportSnapshotParams is the parameter set for
+// MarketingFlowReportSnapshot.
+type MarketingFlowReportSnapshotParams struct {
+	TenantID    int64
+	ResourceID  int64
+	ActorUserID int64
+	FromTime    pgtype.Timestamptz
+	UntilTime   pgtype.Timestamptz
+}
+
+// reportWindowMicro converts the pgtype window into the microsecond bounds the
+// schema stores. A NULL bound would compare as NULL in PG and yield no rows, so
+// it is reported as ErrNoRows rather than silently scanning everything.
+func reportWindowMicro(from, until pgtype.Timestamptz) (int64, int64, error) {
+	if !from.Valid || !until.Valid {
+		return 0, 0, pgx.ErrNoRows
+	}
+	return from.Time.UnixMicro(), until.Time.UnixMicro(), nil
+}
+
+// microValue normalizes a timestamp-ish scanned value. The same handwritten
+// statement runs against PG (time.Time) today and against the SQLite INTEGER
+// columns after the engine switch.
+func microValue(v any) (int64, error) {
+	switch t := v.(type) {
+	case nil:
+		return 0, nil
+	case int64:
+		return t, nil
+	case time.Time:
+		return t.UnixMicro(), nil
+	case string:
+		if n, err := strconv.ParseInt(t, 10, 64); err == nil {
+			return n, nil
+		}
+		ts, err := time.Parse(time.RFC3339Nano, t)
+		if err != nil {
+			return 0, fmt.Errorf("report timestamp %q: %w", t, err)
+		}
+		return ts.UnixMicro(), nil
+	case []byte:
+		return microValue(string(t))
+	}
+	return 0, fmt.Errorf("report timestamp: unsupported scan type %T", v)
+}
+
+// boolValue normalizes a boolean-ish scanned value (PG bool, SQLite 0/1).
+func boolValue(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case int64:
+		return t != 0
+	case float64:
+		return t != 0
+	case string:
+		return t != "" && t != "0" && !strings.EqualFold(t, "false")
+	case []byte:
+		return boolValue(string(t))
+	}
+	return false
+}
+
+// reportFacts sorts the bounded fact set exactly like the PG statement's
+// `ORDER BY record_kind,record_id` and keeps the 10001st row so Build can
+// reject the snapshot.
+func reportFacts(facts []report.Fact) []report.Fact {
+	sort.Slice(facts, func(i, j int) bool {
+		if facts[i].RecordKind != facts[j].RecordKind {
+			return facts[i].RecordKind < facts[j].RecordKind
+		}
+		return facts[i].RecordID < facts[j].RecordID
+	})
+	if len(facts) > report.MaxFacts+1 {
+		facts = facts[:report.MaxFacts+1]
+	}
+	return facts
+}
+
+func reportPayload(name string, facts []report.Fact) ([]byte, error) {
+	if facts == nil {
+		facts = []report.Fact{}
+	}
+	return json.Marshal(struct {
+		Name string        `json:"name"`
+		Rows []report.Fact `json:"rows"`
+	}{Name: name, Rows: facts})
+}
+
+// MarketingCampaignReportSnapshot renders one bounded campaign snapshot. The
+// target SELECT doubles as the owner/admin authorization check the PG statement
+// performed with the session user setting.
+func (q *Queries) MarketingCampaignReportSnapshot(ctx context.Context, arg MarketingCampaignReportSnapshotParams) ([]byte, error) {
+	from, until, err := reportWindowMicro(arg.FromTime, arg.UntilTime)
+	if err != nil {
+		return nil, err
+	}
+	var name string
+	err = q.db.QueryRow(ctx, `SELECT c.name FROM marketing_campaigns c
+WHERE c.tenant_id=$1 AND c.id=$2
+AND EXISTS(SELECT 1 FROM user_tenant_roles role JOIN users actor ON actor.id=role.user_id
+ WHERE role.tenant_id=c.tenant_id AND role.user_id=$3 AND role.role IN('owner','admin') AND actor.status='active')`,
+		arg.TenantID, arg.ResourceID, arg.ActorUserID).Scan(&name)
+	if err != nil {
+		return nil, err
+	}
+	facts := []report.Fact{}
+	rows, err := q.db.Query(ctx, `SELECT r.id, r.email, r.status, COALESCE(r.result_code,''), r.created_at
+FROM marketing_recipients r
+WHERE r.tenant_id=$1 AND r.campaign_id=$2 AND r.created_at>=$3 AND r.created_at<$4`,
+		arg.TenantID, arg.ResourceID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id, created int64
+		var email, status, result string
+		if err := rows.Scan(&id, &email, &status, &result, &created); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		facts = append(facts, report.Fact{
+			RecordKind: "recipient", RecordID: strconv.FormatInt(id, 10), InstanceID: id,
+			Email: email, State: status, ResultCode: result,
+			OccurredAt: time.UnixMicro(created).UTC(), Weight: 1,
+			Uncertain: status == "uncertain" || status == "submitting",
+		})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows, err = q.db.Query(ctx, `SELECT f.channel_id, f.event_id, f.status, f.created_at, r.id, r.email
+FROM marketing_feedback f JOIN marketing_recipients r ON r.tenant_id=f.tenant_id AND r.id=f.recipient_id
+WHERE f.tenant_id=$1 AND r.campaign_id=$2 AND r.created_at>=$3 AND r.created_at<$4`,
+		arg.TenantID, arg.ResourceID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var channel, recipient, created int64
+		var eventID, status, email string
+		if err := rows.Scan(&channel, &eventID, &status, &created, &recipient, &email); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		facts = append(facts, report.Fact{
+			RecordKind: "feedback", RecordID: strconv.FormatInt(channel, 10) + ":" + eventID,
+			InstanceID: recipient, Email: email, State: status,
+			OccurredAt: time.UnixMicro(created).UTC(), Weight: 1,
+		})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	suppressed, err := q.marketingSuppressed(ctx, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range facts {
+		if facts[i].RecordKind == "recipient" && suppressed[facts[i].Email] {
+			facts[i].Suppressed = true
+		}
+	}
+	return reportPayload(name, reportFacts(facts))
+}
+
+// MarketingFlowReportSnapshot renders one bounded flow snapshot (entries,
+// positions and node executions).
+func (q *Queries) MarketingFlowReportSnapshot(ctx context.Context, arg MarketingFlowReportSnapshotParams) ([]byte, error) {
+	from, until, err := reportWindowMicro(arg.FromTime, arg.UntilTime)
+	if err != nil {
+		return nil, err
+	}
+	var name string
+	err = q.db.QueryRow(ctx, `SELECT d.name FROM marketing_flow_definitions d
+WHERE d.tenant_id=$1 AND d.id=$2
+AND EXISTS(SELECT 1 FROM user_tenant_roles role JOIN users actor ON actor.id=role.user_id
+ WHERE role.tenant_id=d.tenant_id AND role.user_id=$3 AND role.role IN('owner','admin') AND actor.status='active')`,
+		arg.TenantID, arg.ResourceID, arg.ActorUserID).Scan(&name)
+	if err != nil {
+		return nil, err
+	}
+	suppressed, err := q.marketingSuppressed(ctx, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	facts := []report.Fact{}
+	rows, err := q.db.Query(ctx, `SELECT e.id, e.source, e.event_key, e.created_at, e.recipient_count, v.version
+FROM marketing_flow_entries e
+JOIN marketing_flow_versions v ON v.tenant_id=e.tenant_id AND v.id=e.version_id AND v.definition_id=e.definition_id
+WHERE e.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_at<$4`,
+		arg.TenantID, arg.ResourceID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id, created, count, version int64
+		var source, eventKey string
+		if err := rows.Scan(&id, &source, &eventKey, &created, &count, &version); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		facts = append(facts, report.Fact{
+			RecordKind: "entry", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			State: source, ResultCode: eventKey, OccurredAt: time.UnixMicro(created).UTC(), Weight: count,
+		})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows, err = q.db.Query(ctx, `SELECT p.id, p.email, p.stopped_at, p.unsubscribed, p.delivery_uncertain, p.wait_until,
+ p.last_error, e.version, e.created_at, f.status, s.kind
+FROM marketing_flow_positions p
+JOIN marketing_flow_entries e ON e.tenant_id=p.tenant_id AND e.id=p.entry_id
+JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
+JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
+WHERE p.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_at<$4`,
+		arg.TenantID, arg.ResourceID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UnixMicro()
+	for rows.Next() {
+		var id, version int64
+		var email, lastError, flowStatus, stepKind string
+		var stopped, unsubscribed, uncertain, waitUntil, entered any
+		if err := rows.Scan(&id, &email, &stopped, &unsubscribed, &uncertain, &waitUntil,
+			&lastError, &version, &entered, &flowStatus, &stepKind); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		state := "pending"
+		waitMicro, err := microValue(waitUntil)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		switch {
+		case stopped != nil:
+			state = "stopped"
+		case boolValue(unsubscribed):
+			state = "unsubscribed"
+		case boolValue(uncertain):
+			state = "uncertain"
+		case stepKind == "stop":
+			state = "completed"
+		case flowStatus != "active":
+			state = "paused"
+		case lastError != "":
+			state = "failed"
+		case waitUntil != nil && waitMicro > now:
+			state = "waiting"
+		}
+		enteredMicro, err := microValue(entered)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		facts = append(facts, report.Fact{
+			RecordKind: "instance", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			InstanceID: id, Email: email, State: state, ResultCode: lastError,
+			OccurredAt: time.UnixMicro(enteredMicro).UTC(), Weight: 1,
+			Suppressed: suppressed[email], Uncertain: boolValue(uncertain),
+		})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows, err = q.db.Query(ctx, `SELECT x.id, p.version, p.id, p.email, x.status, x.error_code, x.created_at
+FROM marketing_flow_node_executions x
+JOIN marketing_flow_positions p ON p.tenant_id=x.tenant_id AND p.id=x.position_id
+JOIN marketing_flow_entries e ON e.tenant_id=p.tenant_id AND e.id=p.entry_id
+WHERE x.tenant_id=$1 AND e.definition_id=$2 AND e.created_at>=$3 AND e.created_at<$4`,
+		arg.TenantID, arg.ResourceID, from, until)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id, version, position, created int64
+		var email, status, errorCode string
+		if err := rows.Scan(&id, &version, &position, &email, &status, &errorCode, &created); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		facts = append(facts, report.Fact{
+			RecordKind: "execution", RecordID: strconv.FormatInt(id, 10), Version: int32(version),
+			InstanceID: position, Email: email, State: status, ResultCode: errorCode,
+			OccurredAt: time.UnixMicro(created).UTC(), Weight: 1,
+			Uncertain: status == "uncertain",
+		})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return reportPayload(name, reportFacts(facts))
+}
+
+// marketingSuppressed returns the tenant's suppressed addresses; the PG
+// statements tested suppression with a correlated EXISTS per fact.
+func (q *Queries) marketingSuppressed(ctx context.Context, tenant int64) (map[string]bool, error) {
+	rows, err := q.db.Query(ctx, `SELECT DISTINCT email FROM marketing_suppressions WHERE tenant_id=$1`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		out[email] = true
+	}
+	return out, rows.Err()
+}
+
+// SetMarketingReportBudget is the SQLite replacement for the PG statement-level
+// `set_config('statement_timeout','5000ms',true)`. SQLite has no per-statement
+// timeout; the bounded window and the 10001-row probe already cap the work, and
+// the connection-level busy_timeout bounds waiting. Keeping the method (rather
+// than deleting it) preserves the handler's fail-closed sequence.
+func (q *Queries) SetMarketingReportBudget(ctx context.Context) error { return nil }

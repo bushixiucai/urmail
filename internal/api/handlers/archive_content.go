@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -191,11 +192,11 @@ func (h *ArchiveContentHandler) Search(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		args.MailboxID = pgtype.Int8{Int64: id, Valid: true}
+		args.MailboxID = sql.NullInt64{Int64: id, Valid: true}
 	}
 	for _, field := range []struct {
 		name   string
-		target *pgtype.Timestamptz
+		target *sql.NullInt64
 	}{{"after", &args.AfterTime}, {"before", &args.BeforeTime}} {
 		if raw := c.Query(field.name); raw != "" {
 			parsed, e := time.Parse(time.RFC3339, raw)
@@ -203,10 +204,10 @@ func (h *ArchiveContentHandler) Search(c *gin.Context) {
 				authError(c, 400, "INVALID_PARAMS")
 				return
 			}
-			*field.target = pgtype.Timestamptz{Time: parsed, Valid: true}
+			*field.target = sql.NullInt64{Int64: parsed.UnixMicro(), Valid: true}
 		}
 	}
-	if args.AfterTime.Valid && args.BeforeTime.Valid && !args.BeforeTime.Time.After(args.AfterTime.Time) {
+	if args.AfterTime.Valid && args.BeforeTime.Valid && args.BeforeTime.Int64 <= args.AfterTime.Int64 {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
@@ -228,8 +229,8 @@ func (h *ArchiveContentHandler) Search(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		args.CursorTime = pgtype.Timestamptz{Time: cursor.Time, Valid: true}
-		args.CursorID = pgtype.Int8{Int64: cursor.ID, Valid: true}
+		args.CursorTime = sql.NullInt64{Int64: cursor.Time.UnixMicro(), Valid: true}
+		args.CursorID = sql.NullInt64{Int64: cursor.ID, Valid: true}
 	}
 	rows, err := q.SearchArchiveContent(c, args)
 	if err != nil {

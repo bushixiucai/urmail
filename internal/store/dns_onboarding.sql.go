@@ -11,40 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type AbandonDNSPlanParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-type CancelDNSPlanParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-type ConfirmDNSPlanParams struct {
-	TenantID     int64       `json:"tenant_id"`
-	ID           pgtype.UUID `json:"id"`
-	SourceDigest string      `json:"source_digest"`
-}
-
-type CreateDNSPlanParams struct {
-	ID                pgtype.UUID `json:"id"`
-	TenantID          int64       `json:"tenant_id"`
-	DomainID          int64       `json:"domain_id"`
-	CredentialID      pgtype.Int8 `json:"credential_id"`
-	CredentialVersion pgtype.Int8 `json:"credential_version"`
-	Kind              string      `json:"kind"`
-	DomainDigest      string      `json:"domain_digest"`
-	SourceDigest      string      `json:"source_digest"`
-	BeforeRecords     []byte      `json:"before_records"`
-	DesiredRecords    []byte      `json:"desired_records"`
-	Changes           []byte      `json:"changes"`
-}
-
 const getDNSPlan = `-- name: GetDNSPlan :one
-SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=$1 AND id=$2
+
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND id=?2
 `
 
 type GetDNSPlanParams struct {
@@ -52,6 +21,7 @@ type GetDNSPlanParams struct {
 	ID       pgtype.UUID `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetDNSPlan(ctx context.Context, arg GetDNSPlanParams) (DnsChangePlans, error) {
 	row := q.db.QueryRow(ctx, getDNSPlan, arg.TenantID, arg.ID)
 	var i DnsChangePlans
@@ -84,7 +54,8 @@ func (q *Queries) GetDNSPlan(ctx context.Context, arg GetDNSPlanParams) (DnsChan
 }
 
 const getDomainProvisioning = `-- name: GetDomainProvisioning :one
-SELECT provisioning_state,dns_explicit FROM domains WHERE tenant_id=$1 AND id=$2
+
+SELECT provisioning_state,dns_explicit FROM domains WHERE tenant_id=?1 AND id=?2
 `
 
 type GetDomainProvisioningParams struct {
@@ -97,6 +68,7 @@ type GetDomainProvisioningRow struct {
 	DnsExplicit       bool   `json:"dns_explicit"`
 }
 
+// scope: tenant
 func (q *Queries) GetDomainProvisioning(ctx context.Context, arg GetDomainProvisioningParams) (GetDomainProvisioningRow, error) {
 	row := q.db.QueryRow(ctx, getDomainProvisioning, arg.TenantID, arg.ID)
 	var i GetDomainProvisioningRow
@@ -105,7 +77,8 @@ func (q *Queries) GetDomainProvisioning(ctx context.Context, arg GetDomainProvis
 }
 
 const listDNSActions = `-- name: ListDNSActions :many
-SELECT id, tenant_id, plan_id, ordinal, kind, before_record, after_record, provider_record_id, observed_record, owned, status, last_error_code, created_at, updated_at FROM dns_record_actions WHERE tenant_id=$1 AND plan_id=$2 ORDER BY ordinal
+
+SELECT id, tenant_id, plan_id, ordinal, kind, before_record, after_record, provider_record_id, observed_record, owned, status, last_error_code, created_at, updated_at FROM dns_record_actions WHERE tenant_id=?1 AND plan_id=?2 ORDER BY ordinal
 `
 
 type ListDNSActionsParams struct {
@@ -113,6 +86,7 @@ type ListDNSActionsParams struct {
 	PlanID   pgtype.UUID `json:"plan_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListDNSActions(ctx context.Context, arg ListDNSActionsParams) ([]DnsRecordActions, error) {
 	rows, err := q.db.Query(ctx, listDNSActions, arg.TenantID, arg.PlanID)
 	if err != nil {
@@ -149,7 +123,8 @@ func (q *Queries) ListDNSActions(ctx context.Context, arg ListDNSActionsParams) 
 }
 
 const listDNSCredentials = `-- name: ListDNSCredentials :many
-SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verified_at,revoked_at,updated_at FROM dns_credentials WHERE tenant_id=$1 AND domain_id=$2
+
+SELECT id,tenant_id,domain_id,provider,zone_name,zone_id,version,enabled,verified_at,revoked_at,updated_at FROM dns_credentials WHERE tenant_id=?1 AND domain_id=?2
 `
 
 type ListDNSCredentialsParams struct {
@@ -171,6 +146,7 @@ type ListDNSCredentialsRow struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListDNSCredentials(ctx context.Context, arg ListDNSCredentialsParams) ([]ListDNSCredentialsRow, error) {
 	rows, err := q.db.Query(ctx, listDNSCredentials, arg.TenantID, arg.DomainID)
 	if err != nil {
@@ -204,7 +180,8 @@ func (q *Queries) ListDNSCredentials(ctx context.Context, arg ListDNSCredentials
 }
 
 const listDNSPlans = `-- name: ListDNSPlans :many
-SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=$1 AND domain_id=$2 ORDER BY created_at DESC,id LIMIT 20
+
+SELECT id, tenant_id, domain_id, credential_id, credential_version, kind, status, domain_digest, source_digest, before_records, desired_records, changes, created_by, confirmed_by, confirmed_at, expires_at, fence, lease_owner, lease_until, next_attempt_at, last_error_code, created_at, updated_at FROM dns_change_plans WHERE tenant_id=?1 AND domain_id=?2 ORDER BY created_at DESC,id LIMIT 20
 `
 
 type ListDNSPlansParams struct {
@@ -212,6 +189,7 @@ type ListDNSPlansParams struct {
 	DomainID int64 `json:"domain_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListDNSPlans(ctx context.Context, arg ListDNSPlansParams) ([]DnsChangePlans, error) {
 	rows, err := q.db.Query(ctx, listDNSPlans, arg.TenantID, arg.DomainID)
 	if err != nil {
@@ -255,36 +233,3 @@ func (q *Queries) ListDNSPlans(ctx context.Context, arg ListDNSPlansParams) ([]D
 	}
 	return items, nil
 }
-
-type RequestDNSRollbackParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-type RequestOnboardingRetryParams struct {
-	TenantID int64  `json:"tenant_id"`
-	DomainID int64  `json:"domain_id"`
-	Reason   string `json:"reason"`
-}
-
-type ReviewDNSPlanParams struct {
-	TenantID int64       `json:"tenant_id"`
-	ID       pgtype.UUID `json:"id"`
-	Reason   string      `json:"reason"`
-}
-
-type RevokeDNSCredentialParams struct {
-	TenantID int64 `json:"tenant_id"`
-	DomainID int64 `json:"domain_id"`
-}
-
-type SaveDNSCredentialParams struct {
-	TenantID        int64  `json:"tenant_id"`
-	DomainID        int64  `json:"domain_id"`
-	Provider        string `json:"provider"`
-	ZoneName        string `json:"zone_name"`
-	ZoneID          string `json:"zone_id"`
-	EncryptedSecret string `json:"encrypted_secret"`
-}
-

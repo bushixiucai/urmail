@@ -12,9 +12,11 @@ import (
 )
 
 const countMarketingFlowDefinitions = `-- name: CountMarketingFlowDefinitions :one
-SELECT count(*) FROM marketing_flow_definitions WHERE tenant_id=$1
+
+SELECT count(*) FROM marketing_flow_definitions WHERE tenant_id=?1
 `
 
+// scope: tenant
 func (q *Queries) CountMarketingFlowDefinitions(ctx context.Context, tenantID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countMarketingFlowDefinitions, tenantID)
 	var count int64
@@ -23,11 +25,13 @@ func (q *Queries) CountMarketingFlowDefinitions(ctx context.Context, tenantID in
 }
 
 const countMarketingFlowLiveInstances = `-- name: CountMarketingFlowLiveInstances :one
+
 SELECT count(*) FROM marketing_flow_positions p JOIN marketing_flow_versions v ON v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id
 JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
-WHERE p.tenant_id=$1 AND NOT p.unsubscribed AND p.stopped_at IS NULL AND s.kind<>'stop'
+WHERE p.tenant_id=?1 AND NOT p.unsubscribed AND p.stopped_at IS NULL AND s.kind<>'stop'
 `
 
+// scope: tenant
 func (q *Queries) CountMarketingFlowLiveInstances(ctx context.Context, tenantID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countMarketingFlowLiveInstances, tenantID)
 	var count int64
@@ -36,7 +40,8 @@ func (q *Queries) CountMarketingFlowLiveInstances(ctx context.Context, tenantID 
 }
 
 const createMarketingFlowContentSnapshot = `-- name: CreateMarketingFlowContentSnapshot :exec
-INSERT INTO marketing_flow_content_snapshots(tenant_id,runtime_flow_id,step_key,template_id,subject,text_body) VALUES($1,$2,$3,$4,$5,$6)
+
+INSERT INTO marketing_flow_content_snapshots(tenant_id,runtime_flow_id,step_key,template_id,subject,text_body) VALUES(?1,?2,?3,?4,?5,?6)
 `
 
 type CreateMarketingFlowContentSnapshotParams struct {
@@ -48,6 +53,7 @@ type CreateMarketingFlowContentSnapshotParams struct {
 	TextBody      string `json:"text_body"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingFlowContentSnapshot(ctx context.Context, arg CreateMarketingFlowContentSnapshotParams) error {
 	_, err := q.db.Exec(ctx, createMarketingFlowContentSnapshot,
 		arg.TenantID,
@@ -61,7 +67,8 @@ func (q *Queries) CreateMarketingFlowContentSnapshot(ctx context.Context, arg Cr
 }
 
 const createMarketingFlowDefinition = `-- name: CreateMarketingFlowDefinition :one
-INSERT INTO marketing_flow_definitions(tenant_id,name,draft) VALUES($1,$2,$3) RETURNING id, tenant_id, name, draft, draft_revision, status, published_version, created_at, updated_at
+
+INSERT INTO marketing_flow_definitions(tenant_id,name,draft) VALUES(?1,?2,?3) RETURNING id, tenant_id, name, draft, draft_revision, status, published_version, created_at, updated_at
 `
 
 type CreateMarketingFlowDefinitionParams struct {
@@ -70,6 +77,7 @@ type CreateMarketingFlowDefinitionParams struct {
 	Draft    []byte `json:"draft"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingFlowDefinition(ctx context.Context, arg CreateMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error) {
 	row := q.db.QueryRow(ctx, createMarketingFlowDefinition, arg.TenantID, arg.Name, arg.Draft)
 	var i MarketingFlowDefinitions
@@ -88,8 +96,9 @@ func (q *Queries) CreateMarketingFlowDefinition(ctx context.Context, arg CreateM
 }
 
 const createMarketingFlowEntry = `-- name: CreateMarketingFlowEntry :one
+
 INSERT INTO marketing_flow_entries(tenant_id,definition_id,version_id,event_key,source,list_id,recipient_count)
-VALUES($1,$2,$3,$4,'contact_enrolled',$5,$6) RETURNING id, tenant_id, definition_id, version_id, event_key, source, list_id, recipient_count, created_at
+VALUES(?1,?2,?3,?4,'contact_enrolled',?5,?6) RETURNING id, tenant_id, definition_id, version_id, event_key, source, list_id, recipient_count, created_at
 `
 
 type CreateMarketingFlowEntryParams struct {
@@ -101,6 +110,7 @@ type CreateMarketingFlowEntryParams struct {
 	RecipientCount int32  `json:"recipient_count"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingFlowEntry(ctx context.Context, arg CreateMarketingFlowEntryParams) (MarketingFlowEntries, error) {
 	row := q.db.QueryRow(ctx, createMarketingFlowEntry,
 		arg.TenantID,
@@ -126,8 +136,9 @@ func (q *Queries) CreateMarketingFlowEntry(ctx context.Context, arg CreateMarket
 }
 
 const createMarketingFlowInstance = `-- name: CreateMarketingFlowInstance :execrows
+
 INSERT INTO marketing_flow_positions(tenant_id,flow_id,email,step_key,entry_id,event_facts)
-VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,flow_id,email) DO NOTHING
+VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(tenant_id,flow_id,email) DO NOTHING
 `
 
 type CreateMarketingFlowInstanceParams struct {
@@ -139,6 +150,7 @@ type CreateMarketingFlowInstanceParams struct {
 	EventFacts []byte      `json:"event_facts"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingFlowInstance(ctx context.Context, arg CreateMarketingFlowInstanceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, createMarketingFlowInstance,
 		arg.TenantID,
@@ -155,8 +167,9 @@ func (q *Queries) CreateMarketingFlowInstance(ctx context.Context, arg CreateMar
 }
 
 const createMarketingFlowVersion = `-- name: CreateMarketingFlowVersion :one
+
 INSERT INTO marketing_flow_versions(tenant_id,definition_id,version,draft_revision,runtime_flow_id,definition,published_by)
-VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, tenant_id, definition_id, version, draft_revision, runtime_flow_id, definition, published_by, created_at
+VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id, tenant_id, definition_id, version, draft_revision, runtime_flow_id, definition, published_by, created_at
 `
 
 type CreateMarketingFlowVersionParams struct {
@@ -169,6 +182,7 @@ type CreateMarketingFlowVersionParams struct {
 	PublishedBy   int64  `json:"published_by"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingFlowVersion(ctx context.Context, arg CreateMarketingFlowVersionParams) (MarketingFlowVersions, error) {
 	row := q.db.QueryRow(ctx, createMarketingFlowVersion,
 		arg.TenantID,
@@ -195,7 +209,8 @@ func (q *Queries) CreateMarketingFlowVersion(ctx context.Context, arg CreateMark
 }
 
 const createMarketingRuntimeFlow = `-- name: CreateMarketingRuntimeFlow :one
-INSERT INTO marketing_flows(tenant_id,name,status) VALUES($1,$2,'active') RETURNING id
+
+INSERT INTO marketing_flows(tenant_id,name,status) VALUES(?1,?2,'active') RETURNING id
 `
 
 type CreateMarketingRuntimeFlowParams struct {
@@ -203,6 +218,7 @@ type CreateMarketingRuntimeFlowParams struct {
 	Name     string `json:"name"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingRuntimeFlow(ctx context.Context, arg CreateMarketingRuntimeFlowParams) (int64, error) {
 	row := q.db.QueryRow(ctx, createMarketingRuntimeFlow, arg.TenantID, arg.Name)
 	var id int64
@@ -211,8 +227,9 @@ func (q *Queries) CreateMarketingRuntimeFlow(ctx context.Context, arg CreateMark
 }
 
 const createMarketingRuntimeStep = `-- name: CreateMarketingRuntimeStep :exec
+
 INSERT INTO marketing_flow_steps(tenant_id,flow_id,step_key,kind,next_key,opened_key,position,wait_seconds,condition_field,condition_operator,condition_value)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
 `
 
 type CreateMarketingRuntimeStepParams struct {
@@ -229,6 +246,7 @@ type CreateMarketingRuntimeStepParams struct {
 	ConditionValue    string `json:"condition_value"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingRuntimeStep(ctx context.Context, arg CreateMarketingRuntimeStepParams) error {
 	_, err := q.db.Exec(ctx, createMarketingRuntimeStep,
 		arg.TenantID,
@@ -247,7 +265,8 @@ func (q *Queries) CreateMarketingRuntimeStep(ctx context.Context, arg CreateMark
 }
 
 const getMarketingFlowDefinition = `-- name: GetMarketingFlowDefinition :one
-SELECT id, tenant_id, name, draft, draft_revision, status, published_version, created_at, updated_at FROM marketing_flow_definitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE
+
+SELECT id, tenant_id, name, draft, draft_revision, status, published_version, created_at, updated_at FROM marketing_flow_definitions WHERE tenant_id=?1 AND id=?2
 `
 
 type GetMarketingFlowDefinitionParams struct {
@@ -255,6 +274,7 @@ type GetMarketingFlowDefinitionParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowDefinition(ctx context.Context, arg GetMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowDefinition, arg.TenantID, arg.ID)
 	var i MarketingFlowDefinitions
@@ -273,7 +293,8 @@ func (q *Queries) GetMarketingFlowDefinition(ctx context.Context, arg GetMarketi
 }
 
 const getMarketingFlowEntry = `-- name: GetMarketingFlowEntry :one
-SELECT id, tenant_id, definition_id, version_id, event_key, source, list_id, recipient_count, created_at FROM marketing_flow_entries WHERE tenant_id=$1 AND definition_id=$2 AND event_key=$3
+
+SELECT id, tenant_id, definition_id, version_id, event_key, source, list_id, recipient_count, created_at FROM marketing_flow_entries WHERE tenant_id=?1 AND definition_id=?2 AND event_key=?3
 `
 
 type GetMarketingFlowEntryParams struct {
@@ -282,6 +303,7 @@ type GetMarketingFlowEntryParams struct {
 	EventKey     string `json:"event_key"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowEntry(ctx context.Context, arg GetMarketingFlowEntryParams) (MarketingFlowEntries, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowEntry, arg.TenantID, arg.DefinitionID, arg.EventKey)
 	var i MarketingFlowEntries
@@ -300,8 +322,9 @@ func (q *Queries) GetMarketingFlowEntry(ctx context.Context, arg GetMarketingFlo
 }
 
 const getMarketingFlowInstance = `-- name: GetMarketingFlowInstance :one
+
 SELECT p.id FROM marketing_flow_positions p JOIN marketing_flow_versions v ON v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id
-WHERE p.tenant_id=$1 AND v.definition_id=$2 AND p.id=$3
+WHERE p.tenant_id=?1 AND v.definition_id=?2 AND p.id=?3
 `
 
 type GetMarketingFlowInstanceParams struct {
@@ -310,6 +333,7 @@ type GetMarketingFlowInstanceParams struct {
 	ID           int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowInstance(ctx context.Context, arg GetMarketingFlowInstanceParams) (int64, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowInstance, arg.TenantID, arg.DefinitionID, arg.ID)
 	var id int64
@@ -318,7 +342,8 @@ func (q *Queries) GetMarketingFlowInstance(ctx context.Context, arg GetMarketing
 }
 
 const getMarketingFlowList = `-- name: GetMarketingFlowList :one
-SELECT id FROM marketing_lists WHERE tenant_id=$1 AND id=$2
+
+SELECT id FROM marketing_lists WHERE tenant_id=?1 AND id=?2
 `
 
 type GetMarketingFlowListParams struct {
@@ -326,6 +351,7 @@ type GetMarketingFlowListParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowList(ctx context.Context, arg GetMarketingFlowListParams) (int64, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowList, arg.TenantID, arg.ID)
 	var id int64
@@ -334,7 +360,8 @@ func (q *Queries) GetMarketingFlowList(ctx context.Context, arg GetMarketingFlow
 }
 
 const getMarketingFlowTemplate = `-- name: GetMarketingFlowTemplate :one
-SELECT id,subject,text_body FROM marketing_templates WHERE tenant_id=$1 AND id=$2
+
+SELECT id,subject,text_body FROM marketing_templates WHERE tenant_id=?1 AND id=?2
 `
 
 type GetMarketingFlowTemplateParams struct {
@@ -348,6 +375,7 @@ type GetMarketingFlowTemplateRow struct {
 	TextBody string `json:"text_body"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowTemplate(ctx context.Context, arg GetMarketingFlowTemplateParams) (GetMarketingFlowTemplateRow, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowTemplate, arg.TenantID, arg.ID)
 	var i GetMarketingFlowTemplateRow
@@ -356,7 +384,8 @@ func (q *Queries) GetMarketingFlowTemplate(ctx context.Context, arg GetMarketing
 }
 
 const getMarketingFlowVersion = `-- name: GetMarketingFlowVersion :one
-SELECT id, tenant_id, definition_id, version, draft_revision, runtime_flow_id, definition, published_by, created_at FROM marketing_flow_versions WHERE tenant_id=$1 AND definition_id=$2 AND version=$3
+
+SELECT id, tenant_id, definition_id, version, draft_revision, runtime_flow_id, definition, published_by, created_at FROM marketing_flow_versions WHERE tenant_id=?1 AND definition_id=?2 AND version=?3
 `
 
 type GetMarketingFlowVersionParams struct {
@@ -365,6 +394,7 @@ type GetMarketingFlowVersionParams struct {
 	Version      int32 `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowVersion(ctx context.Context, arg GetMarketingFlowVersionParams) (MarketingFlowVersions, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowVersion, arg.TenantID, arg.DefinitionID, arg.Version)
 	var i MarketingFlowVersions
@@ -383,7 +413,8 @@ func (q *Queries) GetMarketingFlowVersion(ctx context.Context, arg GetMarketingF
 }
 
 const getMarketingFlowVersionForRevision = `-- name: GetMarketingFlowVersionForRevision :one
-SELECT id, tenant_id, definition_id, version, draft_revision, runtime_flow_id, definition, published_by, created_at FROM marketing_flow_versions WHERE tenant_id=$1 AND definition_id=$2 AND draft_revision=$3
+
+SELECT id, tenant_id, definition_id, version, draft_revision, runtime_flow_id, definition, published_by, created_at FROM marketing_flow_versions WHERE tenant_id=?1 AND definition_id=?2 AND draft_revision=?3
 `
 
 type GetMarketingFlowVersionForRevisionParams struct {
@@ -392,6 +423,7 @@ type GetMarketingFlowVersionForRevisionParams struct {
 	DraftRevision int64 `json:"draft_revision"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingFlowVersionForRevision(ctx context.Context, arg GetMarketingFlowVersionForRevisionParams) (MarketingFlowVersions, error) {
 	row := q.db.QueryRow(ctx, getMarketingFlowVersionForRevision, arg.TenantID, arg.DefinitionID, arg.DraftRevision)
 	var i MarketingFlowVersions
@@ -410,7 +442,8 @@ func (q *Queries) GetMarketingFlowVersionForRevision(ctx context.Context, arg Ge
 }
 
 const listMarketingFlowDefinitions = `-- name: ListMarketingFlowDefinitions :many
-SELECT id,name,draft_revision,status,published_version,created_at,updated_at FROM marketing_flow_definitions WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
+
+SELECT id,name,draft_revision,status,published_version,created_at,updated_at FROM marketing_flow_definitions WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
 `
 
 type ListMarketingFlowDefinitionsRow struct {
@@ -423,6 +456,7 @@ type ListMarketingFlowDefinitionsRow struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingFlowDefinitions(ctx context.Context, tenantID int64) ([]ListMarketingFlowDefinitionsRow, error) {
 	rows, err := q.db.Query(ctx, listMarketingFlowDefinitions, tenantID)
 	if err != nil {
@@ -452,9 +486,10 @@ func (q *Queries) ListMarketingFlowDefinitions(ctx context.Context, tenantID int
 }
 
 const listMarketingFlowEligibleContacts = `-- name: ListMarketingFlowEligibleContacts :many
-SELECT c.email FROM marketing_contacts c WHERE c.tenant_id=$1 AND c.list_id=$2 AND c.opted_in
+
+SELECT c.email FROM marketing_contacts c WHERE c.tenant_id=?1 AND c.list_id=?2 AND c.opted_in
 AND NOT EXISTS(SELECT 1 FROM marketing_suppressions s WHERE s.tenant_id=c.tenant_id AND s.email=c.email)
-AND NOT EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=c.tenant_id AND p.flow_id=$3 AND p.email=c.email)
+AND c.email NOT IN (SELECT p.email FROM marketing_flow_positions p WHERE p.tenant_id=c.tenant_id AND p.flow_id=?3 AND p.email=c.email)
 ORDER BY c.email LIMIT 1001
 `
 
@@ -464,6 +499,7 @@ type ListMarketingFlowEligibleContactsParams struct {
 	FlowID   int64 `json:"flow_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingFlowEligibleContacts(ctx context.Context, arg ListMarketingFlowEligibleContactsParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listMarketingFlowEligibleContacts, arg.TenantID, arg.ListID, arg.FlowID)
 	if err != nil {
@@ -485,21 +521,22 @@ func (q *Queries) ListMarketingFlowEligibleContacts(ctx context.Context, arg Lis
 }
 
 const listMarketingFlowInstances = `-- name: ListMarketingFlowInstances :many
+
 SELECT p.id,p.email,p.step_key,p.unsubscribed,p.wait_until,p.delivery_uncertain,p.lease_until,p.last_error,p.next_attempt_at,p.attempt_count,p.stopped_at,p.updated_at,
  v.version,f.status AS flow_status,s.kind
 FROM marketing_flow_positions p JOIN marketing_flow_versions v ON v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id
 JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
 JOIN marketing_flow_steps s ON s.tenant_id=p.tenant_id AND s.flow_id=p.flow_id AND s.step_key=p.step_key
-WHERE p.tenant_id=$1 AND v.definition_id=$2 AND ($3::bigint=0 OR p.id<$3::bigint)
-AND ($4::text='' OR p.email=$4::text)
+WHERE p.tenant_id=?1 AND v.definition_id=?2 AND (?3=0 OR p.id<?3)
+AND (?4='' OR p.email=?4)
 ORDER BY p.id DESC LIMIT 101
 `
 
 type ListMarketingFlowInstancesParams struct {
-	TenantID     int64  `json:"tenant_id"`
-	DefinitionID int64  `json:"definition_id"`
-	BeforeID     int64  `json:"before_id"`
-	Email        string `json:"email"`
+	TenantID     int64       `json:"tenant_id"`
+	DefinitionID int64       `json:"definition_id"`
+	BeforeID     interface{} `json:"before_id"`
+	Email        interface{} `json:"email"`
 }
 
 type ListMarketingFlowInstancesRow struct {
@@ -520,6 +557,7 @@ type ListMarketingFlowInstancesRow struct {
 	Kind              string             `json:"kind"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingFlowInstances(ctx context.Context, arg ListMarketingFlowInstancesParams) ([]ListMarketingFlowInstancesRow, error) {
 	rows, err := q.db.Query(ctx, listMarketingFlowInstances,
 		arg.TenantID,
@@ -562,10 +600,11 @@ func (q *Queries) ListMarketingFlowInstances(ctx context.Context, arg ListMarket
 }
 
 const listMarketingFlowNodeExecutions = `-- name: ListMarketingFlowNodeExecutions :many
+
 SELECT e.node_key,e.lease_fence,e.status,e.error_code,e.created_at FROM marketing_flow_node_executions e
 JOIN marketing_flow_positions p ON p.tenant_id=e.tenant_id AND p.id=e.position_id
 JOIN marketing_flow_versions v ON v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id
-WHERE e.tenant_id=$1 AND v.definition_id=$2 AND e.position_id=$3 ORDER BY e.id DESC LIMIT 100
+WHERE e.tenant_id=?1 AND v.definition_id=?2 AND e.position_id=?3 ORDER BY e.id DESC LIMIT 100
 `
 
 type ListMarketingFlowNodeExecutionsParams struct {
@@ -582,6 +621,7 @@ type ListMarketingFlowNodeExecutionsRow struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingFlowNodeExecutions(ctx context.Context, arg ListMarketingFlowNodeExecutionsParams) ([]ListMarketingFlowNodeExecutionsRow, error) {
 	rows, err := q.db.Query(ctx, listMarketingFlowNodeExecutions, arg.TenantID, arg.DefinitionID, arg.PositionID)
 	if err != nil {
@@ -609,7 +649,8 @@ func (q *Queries) ListMarketingFlowNodeExecutions(ctx context.Context, arg ListM
 }
 
 const listMarketingFlowPublishedContent = `-- name: ListMarketingFlowPublishedContent :many
-SELECT step_key,subject,text_body FROM marketing_flow_content_snapshots WHERE tenant_id=$1 AND runtime_flow_id=$2 ORDER BY step_key
+
+SELECT step_key,subject,text_body FROM marketing_flow_content_snapshots WHERE tenant_id=?1 AND runtime_flow_id=?2 ORDER BY step_key
 `
 
 type ListMarketingFlowPublishedContentParams struct {
@@ -623,6 +664,7 @@ type ListMarketingFlowPublishedContentRow struct {
 	TextBody string `json:"text_body"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingFlowPublishedContent(ctx context.Context, arg ListMarketingFlowPublishedContentParams) ([]ListMarketingFlowPublishedContentRow, error) {
 	rows, err := q.db.Query(ctx, listMarketingFlowPublishedContent, arg.TenantID, arg.RuntimeFlowID)
 	if err != nil {
@@ -644,14 +686,15 @@ func (q *Queries) ListMarketingFlowPublishedContent(ctx context.Context, arg Lis
 }
 
 const listMarketingFlowVersions = `-- name: ListMarketingFlowVersions :many
+
 SELECT id,version,draft_revision,runtime_flow_id,published_by,created_at FROM marketing_flow_versions
-WHERE tenant_id=$1 AND definition_id=$2 AND ($3::bigint=0 OR id<$3::bigint) ORDER BY id DESC LIMIT 51
+WHERE tenant_id=?1 AND definition_id=?2 AND (?3=0 OR id<?3) ORDER BY id DESC LIMIT 51
 `
 
 type ListMarketingFlowVersionsParams struct {
-	TenantID     int64 `json:"tenant_id"`
-	DefinitionID int64 `json:"definition_id"`
-	BeforeID     int64 `json:"before_id"`
+	TenantID     int64       `json:"tenant_id"`
+	DefinitionID int64       `json:"definition_id"`
+	BeforeID     interface{} `json:"before_id"`
 }
 
 type ListMarketingFlowVersionsRow struct {
@@ -663,6 +706,7 @@ type ListMarketingFlowVersionsRow struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingFlowVersions(ctx context.Context, arg ListMarketingFlowVersionsParams) ([]ListMarketingFlowVersionsRow, error) {
 	rows, err := q.db.Query(ctx, listMarketingFlowVersions, arg.TenantID, arg.DefinitionID, arg.BeforeID)
 	if err != nil {
@@ -691,7 +735,8 @@ func (q *Queries) ListMarketingFlowVersions(ctx context.Context, arg ListMarketi
 }
 
 const pauseMarketingFlowDefinition = `-- name: PauseMarketingFlowDefinition :exec
-UPDATE marketing_flow_definitions SET status='paused',updated_at=now() WHERE tenant_id=$1 AND id=$2
+
+UPDATE marketing_flow_definitions SET status='paused',updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND id=?2
 `
 
 type PauseMarketingFlowDefinitionParams struct {
@@ -699,13 +744,15 @@ type PauseMarketingFlowDefinitionParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) PauseMarketingFlowDefinition(ctx context.Context, arg PauseMarketingFlowDefinitionParams) error {
 	_, err := q.db.Exec(ctx, pauseMarketingFlowDefinition, arg.TenantID, arg.ID)
 	return err
 }
 
 const pauseMarketingRuntimeFlows = `-- name: PauseMarketingRuntimeFlows :exec
-UPDATE marketing_flows f SET status='paused' WHERE f.tenant_id=$1 AND f.id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=$1 AND v.definition_id=$2)
+
+UPDATE marketing_flows SET status='paused' WHERE marketing_flows.tenant_id=?1 AND marketing_flows.id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2)
 `
 
 type PauseMarketingRuntimeFlowsParams struct {
@@ -713,13 +760,15 @@ type PauseMarketingRuntimeFlowsParams struct {
 	DefinitionID int64 `json:"definition_id"`
 }
 
+// scope: tenant
 func (q *Queries) PauseMarketingRuntimeFlows(ctx context.Context, arg PauseMarketingRuntimeFlowsParams) error {
 	_, err := q.db.Exec(ctx, pauseMarketingRuntimeFlows, arg.TenantID, arg.DefinitionID)
 	return err
 }
 
 const publishMarketingFlowDefinition = `-- name: PublishMarketingFlowDefinition :exec
-UPDATE marketing_flow_definitions SET status='active',published_version=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2
+
+UPDATE marketing_flow_definitions SET status='active',published_version=?3,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id=?1 AND id=?2
 `
 
 type PublishMarketingFlowDefinitionParams struct {
@@ -728,29 +777,17 @@ type PublishMarketingFlowDefinitionParams struct {
 	PublishedVersion int32 `json:"published_version"`
 }
 
+// scope: tenant
 func (q *Queries) PublishMarketingFlowDefinition(ctx context.Context, arg PublishMarketingFlowDefinitionParams) error {
 	_, err := q.db.Exec(ctx, publishMarketingFlowDefinition, arg.TenantID, arg.ID, arg.PublishedVersion)
 	return err
 }
 
-type RecordMarketingFlowAuditParams struct {
-	PTenant     int64  `json:"p_tenant"`
-	PDefinition int64  `json:"p_definition"`
-	PAction     string `json:"p_action"`
-	PDetail     []byte `json:"p_detail"`
-}
-
-type RetryMarketingFlowInstanceParams struct {
-	PTenant               int64 `json:"p_tenant"`
-	PDefinition           int64 `json:"p_definition"`
-	PPosition             int64 `json:"p_position"`
-	PConfirmedNotAccepted bool  `json:"p_confirmed_not_accepted"`
-}
-
 const stopMarketingFlowInstance = `-- name: StopMarketingFlowInstance :execrows
-UPDATE marketing_flow_positions p SET stopped_at=now(),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=now()
-WHERE p.tenant_id=$1 AND p.id=$3 AND p.stopped_at IS NULL
-AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id AND v.definition_id=$2)
+
+UPDATE marketing_flow_positions SET stopped_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE marketing_flow_positions.tenant_id=?1 AND marketing_flow_positions.id=?3 AND stopped_at IS NULL
+AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=marketing_flow_positions.tenant_id AND v.runtime_flow_id=marketing_flow_positions.flow_id AND v.definition_id=?2))
 `
 
 type StopMarketingFlowInstanceParams struct {
@@ -759,6 +796,7 @@ type StopMarketingFlowInstanceParams struct {
 	ID           int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) StopMarketingFlowInstance(ctx context.Context, arg StopMarketingFlowInstanceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, stopMarketingFlowInstance, arg.TenantID, arg.DefinitionID, arg.ID)
 	if err != nil {
@@ -768,8 +806,9 @@ func (q *Queries) StopMarketingFlowInstance(ctx context.Context, arg StopMarketi
 }
 
 const updateMarketingFlowDefinition = `-- name: UpdateMarketingFlowDefinition :one
-UPDATE marketing_flow_definitions SET name=$3,draft=$4,draft_revision=draft_revision+1,updated_at=now()
-WHERE tenant_id=$1 AND id=$2 AND draft_revision=$5 RETURNING id, tenant_id, name, draft, draft_revision, status, published_version, created_at, updated_at
+
+UPDATE marketing_flow_definitions SET name=?3,draft=?4,draft_revision=draft_revision+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND id=?2 AND draft_revision=?5 RETURNING id, tenant_id, name, draft, draft_revision, status, published_version, created_at, updated_at
 `
 
 type UpdateMarketingFlowDefinitionParams struct {
@@ -780,6 +819,7 @@ type UpdateMarketingFlowDefinitionParams struct {
 	DraftRevision int64  `json:"draft_revision"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateMarketingFlowDefinition(ctx context.Context, arg UpdateMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error) {
 	row := q.db.QueryRow(ctx, updateMarketingFlowDefinition,
 		arg.TenantID,

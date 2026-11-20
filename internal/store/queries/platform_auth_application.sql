@@ -1,13 +1,11 @@
 -- Platform-only authentication queries; never used as tenant-scoped stores.
 -- name: MarkSessionMFAVerified :exec
 -- scope: tenant
--- scope-reason: 会话按 (id/user_id) 更新；user-scoped
 
 UPDATE sessions SET mfa_verified_at = (CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id = ?1;
 
 -- name: MarkSessionLegacyOnly :exec
 -- scope: tenant
--- scope-reason: 会话按 (id/user_id) 更新；user-scoped
 
 UPDATE sessions SET kind='legacy',mfa_verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id=?1;
 
@@ -25,7 +23,6 @@ WHERE s.id = ?1 AND s.kind='legacy' AND s.expires_at > (CAST(strftime('%s','now'
 
 -- name: CreateApplicationCredential :one
 -- scope: tenant
--- scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 
 INSERT INTO application_credentials(user_id, name, token_hash, scopes, expires_at, credential_version)
 SELECT u.id, sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(scopes), sqlc.arg(expires_at), u.credential_version FROM users u
@@ -39,11 +36,10 @@ FROM application_credentials WHERE user_id=?1 ORDER BY id DESC;
 
 -- name: RevokeApplicationCredential :one
 -- scope: tenant
--- scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 
 UPDATE application_credentials SET revoked_at = COALESCE(revoked_at, (CAST(strftime('%s','now') AS INTEGER)*1000000))
 WHERE application_credentials.id=?1 AND application_credentials.user_id=?2
-RETURNING id, user_id;
+RETURNING id;
 -- name: AuthenticateApplicationCredential :one
 -- scope: platform
 
@@ -55,7 +51,13 @@ WHERE a.token_hash=?1 AND u.email=?2 AND a.revoked_at IS NULL AND a.expires_at>(
 
 -- name: AuditLegacyCredentialUse :exec
 -- scope: tenant
--- scope-reason: 平台审计行（audit_logs.tenant_id 可空）：平台/系统入口写审计，标 platform 语义
 
 INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
 VALUES(?1,?2,'legacy_auth',?3,'{}');
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- MarkSessionMFAVerified: scope-reason: 会话按 (id/user_id) 更新；user-scoped
+-- MarkSessionLegacyOnly: scope-reason: 会话按 (id/user_id) 更新；user-scoped
+-- CreateApplicationCredential: scope-reason: 平台审计行（audit_logs）写入；平台管理操作
+-- RevokeApplicationCredential: scope-reason: 平台审计行（audit_logs）写入；平台管理操作
+-- AuditLegacyCredentialUse: scope-reason: 平台审计行（audit_logs.tenant_id 可空）：平台/系统入口写审计，标 platform 语义

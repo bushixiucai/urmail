@@ -110,13 +110,18 @@ migrate-version: ## 打印当前 schema 版本
 	$(GO) run ./cmd/urmailctl migrate version
 
 .PHONY: sqlc
-sqlc: ## 生成 sqlc 代码
-	sqlc generate
+sqlc: ## 生成 sqlc 代码（B5a：仅 tenant 查询文件，见 scripts/sqlite/gen_sqlc.py）
+	python3 scripts/sqlite/b5_query_set.py --check
+	python3 scripts/sqlite/gen_sqlc_overrides.py
+	python3 scripts/sqlite/gen_sqlc.py
+	python3 scripts/sqlite/gen_querier.py
 
 .PHONY: sqlc-check
 sqlc-check: ## 校验 sqlc 生成物与仓库一致
-	sqlc generate
-	git diff --exit-code -- internal/store
+	python3 scripts/sqlite/b5_query_set.py --check
+	python3 scripts/sqlite/gen_sqlc_overrides.py --check
+	python3 scripts/sqlite/gen_sqlc.py --check
+	python3 scripts/sqlite/gen_querier.py --check
 
 .PHONY: i18n-check
 i18n-check: ## 校验所有 locale 的 key 集合一致

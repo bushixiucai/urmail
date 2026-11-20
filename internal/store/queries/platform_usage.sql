@@ -5,14 +5,8 @@
 -- a platform_*.sql file (M3 review P1-2).
 -- (moved verbatim from usage.sql)
 
--- GetMailboxDailySent 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- 业务时区的 day key 需 Go 侧时区库；PG 复用 urmail_quota_day。
 
--- GetMailboxDailySentForUpdate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- 同上（day key 由 Go 计算；SQLite 无行锁，事务串行）。
 
--- IncrementMailboxDailySent 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- 同上（day key 由 Go 计算）。
 
 -- name: GetTenantIDBySenderDomain :one
 -- scope: tenant
@@ -38,13 +32,19 @@ LIMIT 1;
 -- name: PlatformInboundAllowed :one
 -- scope: platform
 
-SELECT COALESCE((SELECT EXISTS(SELECT 1 FROM tenants rt WHERE rt.id=d.tenant_id AND rt.status='active') AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=d.tenant_id AND rd.id=d.id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready') FROM domains d WHERE d.fqdn=substr(?1, instr(?1,'@')+1)),true) AS allowed;
+SELECT CAST(COALESCE((SELECT EXISTS(SELECT 1 FROM tenants rt WHERE rt.id=d.tenant_id AND rt.status='active') AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=d.tenant_id AND rd.id=d.id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready') FROM domains d WHERE d.fqdn=substr(CAST(?1 AS TEXT), instr(CAST(?1 AS TEXT),'@')+1)),true) AS BOOLEAN) AS allowed;
 
 -- name: PlatformCommissionRate :one
 -- scope: platform
 
 SELECT commission_bps FROM channels WHERE id=?1;
 
--- PlatformTakeMailboxDailyQuota 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_take_mailbox_quota = 多步配额校验 + 时区日 + 原子自增。
-
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- file note: GetMailboxDailySent 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- file note: 业务时区的 day key 需 Go 侧时区库；PG 复用 urmail_quota_day。
+-- file note: GetMailboxDailySentForUpdate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- file note: 同上（day key 由 Go 计算；SQLite 无行锁，事务串行）。
+-- file note: IncrementMailboxDailySent 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- file note: 同上（day key 由 Go 计算）。
+-- PlatformCommissionRate: PlatformTakeMailboxDailyQuota 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- PlatformCommissionRate: urmail_take_mailbox_quota = 多步配额校验 + 时区日 + 原子自增。

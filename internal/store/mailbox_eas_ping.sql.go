@@ -10,8 +10,9 @@ import (
 )
 
 const getMailboxEASPingConfig = `-- name: GetMailboxEASPingConfig :one
+
 SELECT ping_heartbeat, ping_folders FROM mailbox_eas_devices
-WHERE tenant_id=$1 AND mailbox_id=$2 AND device_id=$3
+WHERE tenant_id=?1 AND mailbox_id=?2 AND device_id=?3
 `
 
 type GetMailboxEASPingConfigParams struct {
@@ -25,6 +26,7 @@ type GetMailboxEASPingConfigRow struct {
 	PingFolders   []byte `json:"ping_folders"`
 }
 
+// scope: tenant
 func (q *Queries) GetMailboxEASPingConfig(ctx context.Context, arg GetMailboxEASPingConfigParams) (GetMailboxEASPingConfigRow, error) {
 	row := q.db.QueryRow(ctx, getMailboxEASPingConfig, arg.TenantID, arg.MailboxID, arg.DeviceID)
 	var i GetMailboxEASPingConfigRow
@@ -33,14 +35,15 @@ func (q *Queries) GetMailboxEASPingConfig(ctx context.Context, arg GetMailboxEAS
 }
 
 const mailboxEASPingCollectionChanged = `-- name: MailboxEASPingCollectionChanged :one
-SELECT EXISTS(SELECT 1 FROM mailbox_changes c
-WHERE c.tenant_id=$1 AND c.mailbox_id=$2 AND c.id>$5 AND (
- (c.resource_type=$3 AND c.resource_id=$4)
- OR ($3='addressbook' AND c.resource_type='contact' AND c.resource_id IN (
-  SELECT p.id FROM mailbox_contacts p WHERE p.tenant_id=$1 AND p.mailbox_id=$2 AND p.addressbook_id=$4))
- OR ($3='calendar' AND c.resource_type='event' AND c.resource_id IN (
-  SELECT e.id FROM mailbox_events e WHERE e.tenant_id=$1 AND e.mailbox_id=$2 AND e.calendar_id=$4))
-))
+
+SELECT CAST(EXISTS(SELECT 1 FROM mailbox_changes c
+WHERE c.tenant_id=?1 AND c.mailbox_id=?2 AND c.id>?5 AND (
+ (c.resource_type=?3 AND c.resource_id=?4)
+ OR (?3='addressbook' AND c.resource_type='contact' AND c.resource_id IN (
+  SELECT p.id FROM mailbox_contacts p WHERE p.tenant_id=?1 AND p.mailbox_id=?2 AND p.addressbook_id=?4))
+ OR (?3='calendar' AND c.resource_type='event' AND c.resource_id IN (
+  SELECT e.id FROM mailbox_events e WHERE e.tenant_id=?1 AND e.mailbox_id=?2 AND e.calendar_id=?4))
+)) AS BOOLEAN)
 `
 
 type MailboxEASPingCollectionChangedParams struct {
@@ -51,6 +54,7 @@ type MailboxEASPingCollectionChangedParams struct {
 	ID           int64  `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxEASPingCollectionChanged(ctx context.Context, arg MailboxEASPingCollectionChangedParams) (bool, error) {
 	row := q.db.QueryRow(ctx, mailboxEASPingCollectionChanged,
 		arg.TenantID,
@@ -59,14 +63,15 @@ func (q *Queries) MailboxEASPingCollectionChanged(ctx context.Context, arg Mailb
 		arg.ResourceID,
 		arg.ID,
 	)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setMailboxEASPingConfig = `-- name: SetMailboxEASPingConfig :execrows
-UPDATE mailbox_eas_devices SET ping_heartbeat=$4, ping_folders=$5
-WHERE tenant_id=$1 AND mailbox_id=$2 AND device_id=$3
+
+UPDATE mailbox_eas_devices SET ping_heartbeat=?4, ping_folders=?5
+WHERE tenant_id=?1 AND mailbox_id=?2 AND device_id=?3
 `
 
 type SetMailboxEASPingConfigParams struct {
@@ -77,6 +82,7 @@ type SetMailboxEASPingConfigParams struct {
 	PingFolders   []byte `json:"ping_folders"`
 }
 
+// scope: tenant
 func (q *Queries) SetMailboxEASPingConfig(ctx context.Context, arg SetMailboxEASPingConfigParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setMailboxEASPingConfig,
 		arg.TenantID,

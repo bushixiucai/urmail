@@ -1,8 +1,40 @@
 version: "2"
 sql:
-  - engine: "postgresql"
-    schema: "migrations"
-    queries: "internal/store/queries"
+  - engine: "sqlite"
+    schema: "migrations_sqlite"
+    queries:
+      - "internal/store/queries/aliases.sql"
+      - "internal/store/queries/archive_case_product.sql"
+      - "internal/store/queries/archive_lifecycle.sql"
+      - "internal/store/queries/audit.sql"
+      - "internal/store/queries/auth.sql"
+      - "internal/store/queries/compliance.sql"
+      - "internal/store/queries/compliance_and_retention.sql"
+      - "internal/store/queries/delivery_health.sql"
+      - "internal/store/queries/distribution.sql"
+      - "internal/store/queries/dns_onboarding.sql"
+      - "internal/store/queries/domains.sql"
+      - "internal/store/queries/mailbox_ai_retrieval.sql"
+      - "internal/store/queries/mailbox_eas_ping.sql"
+      - "internal/store/queries/mailbox_eas_send.sql"
+      - "internal/store/queries/mailbox_eas_sync_lock.sql"
+      - "internal/store/queries/mailbox_import.sql"
+      - "internal/store/queries/mailbox_spam.sql"
+      - "internal/store/queries/mailboxes.sql"
+      - "internal/store/queries/marketing_campaigns.sql"
+      - "internal/store/queries/marketing_flow_authoring.sql"
+      - "internal/store/queries/marketing_reports.sql"
+      - "internal/store/queries/marketing_suppressions.sql"
+      - "internal/store/queries/notifications.sql"
+      - "internal/store/queries/onboarding_and_telemetry.sql"
+      - "internal/store/queries/platform_auth_application.sql"
+      - "internal/store/queries/platform_usage.sql"
+      - "internal/store/queries/recall_product.sql"
+      - "internal/store/queries/recalls.sql"
+      - "internal/store/queries/support.sql"
+      - "internal/store/queries/support_diagnostics.sql"
+      - "internal/store/queries/tenant_usage.sql"
+      - "internal/store/queries/transport_security.sql"
     gen:
       go:
         package: "store"
@@ -13,3 +45,1622 @@ sql:
         emit_interface: true
         emit_exact_table_names: true
         emit_empty_slices: true
+        # >>> generated overrides (scripts/sqlite/gen_sqlc_overrides.py)
+        overrides:
+          - column: "ai_provider_configs.enabled"
+            go_type: "bool"
+          - column: "ai_provider_configs.local_only"
+            go_type: "bool"
+          - column: "ai_provider_configs.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_provider_configs.tenant_local_only"
+            go_type: "bool"
+          - column: "ai_provider_configs.cloud_consent_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "ai_provider_configs.cloud_consent_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_provider_configs.cloud_consent_revoked_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_provider_configs.platform_enabled"
+            go_type: "bool"
+          - column: "ai_provider_configs.enterprise_enabled"
+            go_type: "bool"
+          - column: "ai_provider_configs.enterprise_local_only"
+            go_type: "bool"
+          - column: "ai_provider_configs.approved_endpoints"
+            go_type:
+              type: "string"
+              slice: true
+          - column: "ai_usage_requests.period_start"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_usage_requests.period_end"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_usage_requests.actual_tokens"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "ai_usage_requests.actual_cost_micros"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "ai_usage_requests.result"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "ai_usage_requests.review_reason"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "ai_usage_requests.reviewed_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "ai_usage_requests.reviewed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_usage_requests.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ai_usage_requests.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "announcements.brand_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "announcements.title"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "announcements.body"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "announcements.published_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "announcements.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "announcements.ends_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "api_tokens.tenant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "api_tokens.user_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "api_tokens.scopes"
+            go_type:
+              type: "string"
+              slice: true
+          - column: "api_tokens.quota_limit"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "api_tokens.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "api_tokens.revoked_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "api_tokens.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "application_credentials.scopes"
+            go_type:
+              type: "string"
+              slice: true
+          - column: "application_credentials.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "application_credentials.revoked_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "application_credentials.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_approval_requests.approver_user_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "archive_approval_requests.decided_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_approval_requests.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_approval_requests.evidence_digest"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "archive_approval_requests.source_snapshot"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "archive_content.retention_preview"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: UUID
+          - column: "archive_content.attachments"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "archive_content.purge_started_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_content.purged_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_entries.mailbox_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "archive_entries.subject"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "archive_entries.from_addr"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "archive_entries.to_addr"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "archive_entries.received_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_entries.legal_hold"
+            go_type: "bool"
+          - column: "archive_entries.deleted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_entries.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_evidence_exports.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_investigation_members.removed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_investigation_sources.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_investigations.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_investigations.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "archive_investigations.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "audit_logs.tenant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "audit_logs.actor_user_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "audit_logs.actor_ip"
+            go_type:
+              import: net/netip
+              type: Addr
+              pointer: true
+          - column: "audit_logs.target_type"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "audit_logs.target_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "audit_logs.detail"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "audit_logs.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "backup_runs.started_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "backup_runs.finished_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "backup_runs.retention_deleted"
+            go_type: "int32"
+          - column: "brand_host_challenges.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_host_challenges.consumed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_host_challenges.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_hosts.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_hosts.failure_reason"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "brand_hosts.verified_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_hosts.cert_issued_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_hosts.activated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brand_hosts.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "brands.settings"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "brands.theme"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "brands.logo_url"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "brands.favicon_url"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "brands.primary_color"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "brands.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "channel_attribution.ref_code"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "channel_attribution.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "channels.brand_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "channels.commission_bps"
+            go_type: "int32"
+          - column: "channels.parent_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "channels.contact"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "channels.active"
+            go_type: "bool"
+          - column: "channels.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "collector_checkpoints.gap_reason"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "collector_checkpoints.observed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "collector_checkpoints.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "commissions.bps"
+            go_type: "int32"
+          - column: "commissions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "commissions.source_payment_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "compliance_grants.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "compliance_grants.revoked"
+            go_type: "bool"
+          - column: "compliance_grants.granted_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "compliance_grants.revoked_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "compliance_grants.revoked_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "compliance_grants.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "compliance_grants.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "compliance_grants.owner_confirmed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "delivery_events.tenant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "delivery_events.message_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "delivery_events.recipient"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "delivery_events.recipient_domain"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "delivery_events.relay"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "delivery_events.dsn"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "delivery_events.response_detail"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "delivery_events.occurred_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "delivery_queue_contexts.started_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "delivery_queue_contexts.closed"
+            go_type: "bool"
+          - column: "delivery_queue_contexts.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_change_plans.id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: UUID
+          - column: "dns_change_plans.credential_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "dns_change_plans.credential_version"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "dns_change_plans.before_records"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "dns_change_plans.desired_records"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "dns_change_plans.changes"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "dns_change_plans.confirmed_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "dns_change_plans.confirmed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_change_plans.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_change_plans.lease_owner"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "dns_change_plans.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_change_plans.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_change_plans.last_error_code"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "dns_change_plans.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_change_plans.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_credentials.enabled"
+            go_type: "bool"
+          - column: "dns_credentials.verified_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_credentials.revoked_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_credentials.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_credentials.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_record_actions.plan_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: UUID
+          - column: "dns_record_actions.ordinal"
+            go_type: "int32"
+          - column: "dns_record_actions.before_record"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "dns_record_actions.after_record"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "dns_record_actions.provider_record_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "dns_record_actions.observed_record"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "dns_record_actions.owned"
+            go_type: "bool"
+          - column: "dns_record_actions.last_error_code"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "dns_record_actions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_record_actions.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "dns_zone_versions.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_dns_security.dnssec_enabled"
+            go_type: "bool"
+          - column: "domain_dns_security.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_tls_reports.period_start"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_tls_reports.period_end"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_tls_reports.failures"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "domain_tls_reports.received_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_tls_reports.source_verified"
+            go_type: "bool"
+          - column: "domain_transport_security.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_transport_security.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_transport_security.enabled"
+            go_type: "bool"
+          - column: "domain_transport_security.policy_mx"
+            go_type:
+              type: "string"
+              slice: true
+          - column: "domain_transport_security.max_age"
+            go_type: "int32"
+          - column: "domain_transport_security.published_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_transport_security.testing_since"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_transport_security.cache_safe_after"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_transport_security.observation_digest"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "domain_transport_security.observed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domain_transport_security.observation_detail"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "domains.dns_provider"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "domains.provider_ref"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "domains.verified_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domains.mx_host"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "domains.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domains.dkim_private_key"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "domains.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domains.verification_issued_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domains.verification_expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "domains.dns_explicit"
+            go_type: "bool"
+          - column: "domains.custom_web_enabled"
+            go_type: "bool"
+          - column: "mailbox_addressbooks.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_addressbooks.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_addressbooks.deleted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_ai_chunks.chunk_index"
+            go_type: "int32"
+          - column: "mailbox_ai_chunks.content_version"
+            go_type: "int32"
+          - column: "mailbox_ai_chunks.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_ai_drafts.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_ai_phishing_findings.result"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_ai_phishing_findings.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_ai_phishing_findings.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_aliases.active"
+            go_type: "bool"
+          - column: "mailbox_aliases.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_aliases.sender_logins"
+            go_type:
+              type: "string"
+              slice: true
+          - column: "mailbox_calendars.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_calendars.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_calendars.deleted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_changes.deleted"
+            go_type: "bool"
+          - column: "mailbox_changes.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_contact_groups.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_contact_groups.deleted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_contacts.emails"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_contacts.phones"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_contacts.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_contacts.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_contacts.deleted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_contacts.addresses"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_contacts.vcard_extra"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_eas_collection_state.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_eas_devices.provisioned"
+            go_type: "bool"
+          - column: "mailbox_eas_devices.last_seen_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_eas_devices.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_eas_devices.ping_heartbeat"
+            go_type: "int32"
+          - column: "mailbox_eas_devices.ping_folders"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_eas_folder_state.folder_type"
+            go_type: "int32"
+          - column: "mailbox_events.sequence"
+            go_type: "int32"
+          - column: "mailbox_events.starts_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_events.ends_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_events.all_day"
+            go_type: "bool"
+          - column: "mailbox_events.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_events.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_events.deleted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_events.attendees"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_events.recurrence_overrides"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_events.invitation_sequence"
+            go_type: "int32"
+          - column: "mailbox_events.invitation_stamp"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_events.reminders"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_events.reminder_scanned_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_items.item_index"
+            go_type: "int32"
+          - column: "mailbox_import_items.selected"
+            go_type: "bool"
+          - column: "mailbox_import_items.duplicate_of"
+            go_type: "int32"
+          - column: "mailbox_import_items.baseline_uids"
+            go_type:
+              type: "int64"
+              slice: true
+          - column: "mailbox_import_items.destination_uid"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "mailbox_import_items.attempts"
+            go_type: "int32"
+          - column: "mailbox_import_items.attempt_started_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_items.reconciled_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_items.reconcile_absent"
+            go_type: "bool"
+          - column: "mailbox_import_items.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_jobs.preview_expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_jobs.payload_expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_jobs.confirmed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_jobs.cancel_requested"
+            go_type: "bool"
+          - column: "mailbox_import_jobs.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_jobs.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_import_jobs.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_jobs.payload"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_jobs.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_jobs.attempts"
+            go_type: "int32"
+          - column: "mailbox_jobs.last_error"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "mailbox_jobs.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_jobs.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_operation_tickets.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_operation_tickets.consumed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_operation_tickets.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.send_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.attempts"
+            go_type: "int32"
+          - column: "mailbox_scheduled_sends.last_error"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "mailbox_scheduled_sends.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.sent_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.copy_pending_since"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_scheduled_sends.copy_attempts"
+            go_type: "int32"
+          - column: "mailbox_send_receipts.draft_released"
+            go_type: "bool"
+          - column: "mailbox_send_receipts.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_send_receipts.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_send_receipts.copy_attempts"
+            go_type: "int32"
+          - column: "mailbox_send_receipts.copy_pending_since"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_send_receipts.accepted_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_send_receipts.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_send_receipts.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_sessions.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_sessions.revoked_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_sessions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_settings.version"
+            go_type: "int32"
+          - column: "mailbox_settings.preferences"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_settings.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_settings.identity_profiles"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "mailbox_snippets.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_snippets.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_spam_feedback.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_spam_senders.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_spam_tokens.spam_count"
+            go_type: "int32"
+          - column: "mailbox_spam_tokens.ham_count"
+            go_type: "int32"
+          - column: "mailbox_spam_tokens.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_sync_cursors.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailbox_usage.day"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Date
+          - column: "mailbox_usage.messages_sent"
+            go_type: "int32"
+          - column: "mailbox_usage.messages_recv"
+            go_type: "int32"
+          - column: "mailboxes.display_name"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "mailboxes.send_enabled"
+            go_type: "bool"
+          - column: "mailboxes.sieve_script"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "mailboxes.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailboxes.usage_measured_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "mailboxes.usage_error"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "mailboxes.password_revoke_pending"
+            go_type: "bool"
+          - column: "managed_dns_zones.records"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "managed_dns_zones.plan_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: UUID
+          - column: "managed_dns_zones.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_campaign_stats.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_campaigns.subject_snapshot"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "marketing_campaigns.body_snapshot"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "marketing_campaigns.scheduled_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_campaigns.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_channels.enabled"
+            go_type: "bool"
+          - column: "marketing_channels.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_contacts.opted_in"
+            go_type: "bool"
+          - column: "marketing_contacts.consent_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_feedback.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_definitions.draft"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "marketing_flow_definitions.published_version"
+            go_type: "int32"
+          - column: "marketing_flow_definitions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_definitions.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_entries.recipient_count"
+            go_type: "int32"
+          - column: "marketing_flow_entries.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_node_executions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_positions.unsubscribed"
+            go_type: "bool"
+          - column: "marketing_flow_positions.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_positions.wait_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_positions.delivery_uncertain"
+            go_type: "bool"
+          - column: "marketing_flow_positions.lease_owner"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "marketing_flow_positions.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_positions.entry_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "marketing_flow_positions.event_facts"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "marketing_flow_positions.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_positions.attempt_count"
+            go_type: "int32"
+          - column: "marketing_flow_positions.stopped_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flow_positions.flow_window_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "marketing_flow_positions.flow_reserved"
+            go_type: "bool"
+          - column: "marketing_flow_steps.position"
+            go_type: "int32"
+          - column: "marketing_flow_steps.wait_seconds"
+            go_type: "int32"
+          - column: "marketing_flow_versions.version"
+            go_type: "int32"
+          - column: "marketing_flow_versions.definition"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "marketing_flow_versions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_flows.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_lists.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_quota_windows.starts_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_quota_windows.ends_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_quota_windows.next_send_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_recipients.lease_owner"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "marketing_recipients.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_recipients.attempts"
+            go_type: "int32"
+          - column: "marketing_recipients.window_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "marketing_recipients.reserved"
+            go_type: "bool"
+          - column: "marketing_recipients.result_code"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "marketing_recipients.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_recipients.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_recipients.completed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_recipients.resolution_reason"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "marketing_suppressions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "marketing_templates.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "notification_outbox.tenant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "notification_outbox.user_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "notification_outbox.params"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "notification_outbox.recipient"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "notification_outbox.recipient_verified"
+            go_type: "bool"
+          - column: "notification_outbox.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "notification_outbox.read_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "notification_outbox.delivered_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "notification_outbox.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "notification_outbox.lease_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "notification_outbox.attempts"
+            go_type: "int32"
+          - column: "notification_outbox.secret_payload"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "notification_outbox.last_error"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "onboarding_tasks.domain_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "onboarding_tasks.order_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "onboarding_tasks.attempts"
+            go_type: "int32"
+          - column: "onboarding_tasks.max_attempts"
+            go_type: "int32"
+          - column: "onboarding_tasks.last_error"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "onboarding_tasks.leased_until"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "onboarding_tasks.leased_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "onboarding_tasks.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "onboarding_tasks.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "onboarding_tasks.completed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "onboarding_tasks.next_attempt_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "onboarding_tasks.desired_generation"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "onboarding_tasks.last_error_code"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "operational_alerts.tenant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "operational_alerts.first_seen_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "operational_alerts.last_seen_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "operational_alerts.resolved_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "platform_admins.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "recall_requests.reason"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "recall_requests.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "recall_requests.archive_entry_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "recall_requests.mailbox_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "recall_requests.completed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "recall_requests.preview_actor_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "recall_requests.preview_token"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "recall_requests.preview_digest"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "recall_requests.preview_expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "recall_requests.confirmed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "recall_requests.selected_copy_keys"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "recall_requests.local_result"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "recall_requests.result_history"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "restore_quarantine.singleton"
+            go_type: "bool"
+          - column: "restore_quarantine.active"
+            go_type: "bool"
+          - column: "restore_quarantine.started_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "retention_policies.retention_days"
+            go_type: "int32"
+          - column: "retention_policies.active"
+            go_type: "bool"
+          - column: "retention_policies.created_by"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "retention_policies.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "retention_policies.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "retention_policies.confirmed_preview"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: UUID
+          - column: "retention_policies.authorization_grant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "retention_previews.id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: UUID
+          - column: "retention_previews.retention_days"
+            go_type: "int32"
+          - column: "retention_previews.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "retention_previews.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "retention_previews.confirmed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "retention_previews.authorization_grant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "roundcube_bridge_requests.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "sessions.tenant_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "sessions.user_agent"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "sessions.ip"
+            go_type:
+              import: net/netip
+              type: Addr
+              pointer: true
+          - column: "sessions.expires_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "sessions.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "sessions.mfa_verified_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "settings.value"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "settings.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "tenant_directory_contacts.emails"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "tenant_directory_contacts.phones"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "tenant_directory_contacts.addresses"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "tenant_directory_contacts.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "tenant_directory_contacts.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "tenant_directory_settings.enabled"
+            go_type: "bool"
+          - column: "tenant_directory_settings.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "tenants.owner_user_id"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "tenants.settings"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "tenants.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ticket_attachments.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "ticket_messages.is_staff"
+            go_type: "bool"
+          - column: "ticket_messages.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "tickets.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "tickets.assigned_to"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Int8
+          - column: "tickets.updated_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "users.display_name"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "users.mfa_secret"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Text
+          - column: "users.mfa_enabled"
+            go_type: "bool"
+          - column: "users.password_changed_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "users.created_at"
+            go_type:
+              import: github.com/jackc/pgx/v5/pgtype
+              type: Timestamptz
+          - column: "users.mfa_recovery_codes"
+            go_type:
+              type: "byte"
+              slice: true
+        # <<< generated overrides

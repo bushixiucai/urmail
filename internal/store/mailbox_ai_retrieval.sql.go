@@ -7,11 +7,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 const deleteMailboxAIChunkFolder = `-- name: DeleteMailboxAIChunkFolder :execrows
+
 DELETE FROM mailbox_ai_chunks
-WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3
+WHERE tenant_id = ?1 AND mailbox_id = ?2 AND folder = ?3
 `
 
 type DeleteMailboxAIChunkFolderParams struct {
@@ -20,6 +22,7 @@ type DeleteMailboxAIChunkFolderParams struct {
 	Folder    string `json:"folder"`
 }
 
+// scope: tenant
 func (q *Queries) DeleteMailboxAIChunkFolder(ctx context.Context, arg DeleteMailboxAIChunkFolderParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteMailboxAIChunkFolder, arg.TenantID, arg.MailboxID, arg.Folder)
 	if err != nil {
@@ -29,26 +32,30 @@ func (q *Queries) DeleteMailboxAIChunkFolder(ctx context.Context, arg DeleteMail
 }
 
 const deleteMailboxAIChunkMessages = `-- name: DeleteMailboxAIChunkMessages :execrows
+
 DELETE FROM mailbox_ai_chunks
-WHERE tenant_id = $1 AND mailbox_id = $2 AND folder = $3
-  AND folder_uidvalidity = $4 AND message_uid = ANY($5::bigint[])
+WHERE tenant_id = ?1 AND mailbox_id = ?2 AND folder = ?3
+  AND folder_uidvalidity = ?4
+  AND CAST(?5 AS TEXT) <> ''
+  AND message_uid IN (SELECT CAST(value AS INTEGER) FROM json_each(CAST(sqlc.arg(message_uids) AS TEXT)))
 `
 
 type DeleteMailboxAIChunkMessagesParams struct {
-	TenantID          int64   `json:"tenant_id"`
-	MailboxID         int64   `json:"mailbox_id"`
-	Folder            string  `json:"folder"`
-	FolderUidvalidity int64   `json:"folder_uidvalidity"`
-	Column5           []int64 `json:"column_5"`
+	TenantID          int64  `json:"tenant_id"`
+	MailboxID         int64  `json:"mailbox_id"`
+	Folder            string `json:"folder"`
+	FolderUidvalidity int64  `json:"folder_uidvalidity"`
+	MessageUids       string `json:"message_uids"`
 }
 
+// scope: tenant
 func (q *Queries) DeleteMailboxAIChunkMessages(ctx context.Context, arg DeleteMailboxAIChunkMessagesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteMailboxAIChunkMessages,
 		arg.TenantID,
 		arg.MailboxID,
 		arg.Folder,
 		arg.FolderUidvalidity,
-		arg.Column5,
+		arg.MessageUids,
 	)
 	if err != nil {
 		return 0, err
@@ -57,10 +64,11 @@ func (q *Queries) DeleteMailboxAIChunkMessages(ctx context.Context, arg DeleteMa
 }
 
 const getMailboxAIChunk = `-- name: GetMailboxAIChunk :one
+
 SELECT id, folder, folder_uidvalidity, message_uid, chunk_index,
        content_version, content, content_digest
 FROM mailbox_ai_chunks
-WHERE id = $3 AND tenant_id = $1 AND mailbox_id = $2
+WHERE id = ?3 AND tenant_id = ?1 AND mailbox_id = ?2
 `
 
 type GetMailboxAIChunkParams struct {
@@ -80,6 +88,7 @@ type GetMailboxAIChunkRow struct {
 	ContentDigest     string `json:"content_digest"`
 }
 
+// scope: tenant
 func (q *Queries) GetMailboxAIChunk(ctx context.Context, arg GetMailboxAIChunkParams) (GetMailboxAIChunkRow, error) {
 	row := q.db.QueryRow(ctx, getMailboxAIChunk, arg.TenantID, arg.MailboxID, arg.ID)
 	var i GetMailboxAIChunkRow
@@ -97,10 +106,11 @@ func (q *Queries) GetMailboxAIChunk(ctx context.Context, arg GetMailboxAIChunkPa
 }
 
 const insertMailboxAIChunk = `-- name: InsertMailboxAIChunk :one
+
 INSERT INTO mailbox_ai_chunks
  (tenant_id, mailbox_id, folder, folder_uidvalidity, message_uid,
   chunk_index, content_version, content, content_digest)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
 RETURNING id
 `
 
@@ -116,6 +126,7 @@ type InsertMailboxAIChunkParams struct {
 	ContentDigest     string `json:"content_digest"`
 }
 
+// scope: tenant
 func (q *Queries) InsertMailboxAIChunk(ctx context.Context, arg InsertMailboxAIChunkParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertMailboxAIChunk,
 		arg.TenantID,
@@ -135,11 +146,13 @@ func (q *Queries) InsertMailboxAIChunk(ctx context.Context, arg InsertMailboxAIC
 
 const mailboxAIChunkMessageStates = `-- name: MailboxAIChunkMessageStates :many
 
-SELECT DISTINCT ON (folder, folder_uidvalidity, message_uid)
-       folder, folder_uidvalidity, message_uid, content_version, content_digest
-FROM mailbox_ai_chunks
-WHERE tenant_id = $1 AND mailbox_id = $2
-ORDER BY folder, folder_uidvalidity, message_uid, chunk_index
+
+SELECT folder, folder_uidvalidity, message_uid, content_version, content_digest FROM (
+ SELECT folder, folder_uidvalidity, message_uid, content_version, content_digest,
+  ROW_NUMBER() OVER (PARTITION BY folder, folder_uidvalidity, message_uid ORDER BY chunk_index) AS rn
+ FROM mailbox_ai_chunks
+ WHERE tenant_id = ?1 AND mailbox_id = ?2
+) WHERE rn = 1
 `
 
 type MailboxAIChunkMessageStatesParams struct {
@@ -159,6 +172,7 @@ type MailboxAIChunkMessageStatesRow struct {
 // Every statement repeats the tenant and mailbox predicates; RLS on
 // mailbox_ai_chunks is the authoritative boundary fail-closing without a
 // mailbox principal context.
+// scope: tenant
 func (q *Queries) MailboxAIChunkMessageStates(ctx context.Context, arg MailboxAIChunkMessageStatesParams) ([]MailboxAIChunkMessageStatesRow, error) {
 	rows, err := q.db.Query(ctx, mailboxAIChunkMessageStates, arg.TenantID, arg.MailboxID)
 	if err != nil {
@@ -186,8 +200,9 @@ func (q *Queries) MailboxAIChunkMessageStates(ctx context.Context, arg MailboxAI
 }
 
 const purgeMailboxAIChunks = `-- name: PurgeMailboxAIChunks :execrows
+
 DELETE FROM mailbox_ai_chunks
-WHERE tenant_id = $1 AND mailbox_id = $2
+WHERE tenant_id = ?1 AND mailbox_id = ?2
 `
 
 type PurgeMailboxAIChunksParams struct {
@@ -195,6 +210,7 @@ type PurgeMailboxAIChunksParams struct {
 	MailboxID int64 `json:"mailbox_id"`
 }
 
+// scope: tenant
 func (q *Queries) PurgeMailboxAIChunks(ctx context.Context, arg PurgeMailboxAIChunksParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeMailboxAIChunks, arg.TenantID, arg.MailboxID)
 	if err != nil {
@@ -204,20 +220,21 @@ func (q *Queries) PurgeMailboxAIChunks(ctx context.Context, arg PurgeMailboxAICh
 }
 
 const searchMailboxAIChunks = `-- name: SearchMailboxAIChunks :many
+
 SELECT id, folder, folder_uidvalidity, message_uid, chunk_index,
        content_version, content, content_digest
 FROM mailbox_ai_chunks
-WHERE tenant_id = $1 AND mailbox_id = $2
-  AND content ILIKE '%' || $3::text || '%'
+WHERE tenant_id = ?1 AND mailbox_id = ?2
+  AND content LIKE '%' || ?3 || '%'
 ORDER BY id
-LIMIT $4::int
+LIMIT ?4
 `
 
 type SearchMailboxAIChunksParams struct {
-	TenantID  int64  `json:"tenant_id"`
-	MailboxID int64  `json:"mailbox_id"`
-	Column3   string `json:"column_3"`
-	Column4   int32  `json:"column_4"`
+	TenantID  int64          `json:"tenant_id"`
+	MailboxID int64          `json:"mailbox_id"`
+	Column3   sql.NullString `json:"column_3"`
+	Limit     int64          `json:"limit"`
 }
 
 type SearchMailboxAIChunksRow struct {
@@ -231,12 +248,13 @@ type SearchMailboxAIChunksRow struct {
 	ContentDigest     string `json:"content_digest"`
 }
 
+// scope: tenant
 func (q *Queries) SearchMailboxAIChunks(ctx context.Context, arg SearchMailboxAIChunksParams) ([]SearchMailboxAIChunksRow, error) {
 	rows, err := q.db.Query(ctx, searchMailboxAIChunks,
 		arg.TenantID,
 		arg.MailboxID,
 		arg.Column3,
-		arg.Column4,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -266,21 +284,23 @@ func (q *Queries) SearchMailboxAIChunks(ctx context.Context, arg SearchMailboxAI
 }
 
 const searchMailboxAIChunksInScope = `-- name: SearchMailboxAIChunksInScope :many
+
 SELECT c.id,c.folder,c.folder_uidvalidity,c.message_uid,c.chunk_index,c.content_version,c.content,c.content_digest
 FROM mailbox_ai_chunks c
-WHERE c.tenant_id=$1 AND c.mailbox_id=$2
-AND c.content ILIKE '%' || $3::text || '%'
-AND EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS s(folder text,validity bigint,uids bigint[])
- WHERE s.folder=c.folder AND s.validity=c.folder_uidvalidity AND c.message_uid=ANY(s.uids))
-ORDER BY c.id LIMIT $5::int
+WHERE c.tenant_id=?1 AND c.mailbox_id=?2
+AND c.content LIKE '%' || ?3 || '%'
+AND CAST(?4 AS TEXT) <> ''
+AND EXISTS (SELECT 1 FROM json_each(sqlc.arg(scope)) AS s
+ WHERE s.folder=c.folder AND s.validity=c.folder_uidvalidity AND EXISTS(SELECT 1 FROM json_each(s.uids) je WHERE je.value = c.message_uid))
+ORDER BY c.id LIMIT ?5
 `
 
 type SearchMailboxAIChunksInScopeParams struct {
-	TenantID    int64  `json:"tenant_id"`
-	MailboxID   int64  `json:"mailbox_id"`
-	Query       string `json:"query"`
-	Scope       []byte `json:"scope"`
-	ResultLimit int32  `json:"result_limit"`
+	TenantID    int64          `json:"tenant_id"`
+	MailboxID   int64          `json:"mailbox_id"`
+	Query       sql.NullString `json:"query"`
+	Scope       string         `json:"scope"`
+	ResultLimit int64          `json:"result_limit"`
 }
 
 type SearchMailboxAIChunksInScopeRow struct {
@@ -294,6 +314,7 @@ type SearchMailboxAIChunksInScopeRow struct {
 	ContentDigest     string `json:"content_digest"`
 }
 
+// scope: tenant
 func (q *Queries) SearchMailboxAIChunksInScope(ctx context.Context, arg SearchMailboxAIChunksInScopeParams) ([]SearchMailboxAIChunksInScopeRow, error) {
 	rows, err := q.db.Query(ctx, searchMailboxAIChunksInScope,
 		arg.TenantID,

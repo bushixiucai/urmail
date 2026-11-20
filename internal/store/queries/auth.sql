@@ -26,9 +26,9 @@ ORDER BY t.name ASC;
 -- name: CheckPlatformAdmin :one
 -- scope: platform
 
-SELECT EXISTS (
+SELECT CAST(EXISTS (
     SELECT 1 FROM platform_admins WHERE user_id = ?1
-) AS is_admin;
+) AS BOOLEAN) AS is_admin;
 
 -- name: CreateSession :one
 -- scope: tenant
@@ -56,14 +56,12 @@ WHERE s.id = ?1 AND s.kind = 'panel'
 
 -- name: DeleteSession :exec
 -- scope: tenant
--- scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
 
 DELETE FROM sessions
 WHERE id = ?1;
 
 -- name: DeleteExpiredSessions :exec
 -- scope: tenant
--- scope-reason: 过期会话清扫，按时间谓词（系统入口）user-scoped
 
 DELETE FROM sessions
 WHERE expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000);
@@ -104,8 +102,6 @@ UPDATE users
 SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'
 WHERE id = ?1;
 
--- ConsumeRecoveryCode 在 S2 B1b 迁移至 internal/store/sqlite_methods.go
--- ConsumeUserRecoveryCode（JSON 过滤在 Go 层完成，sqlc sqlite 不支持 json_each）。
 
 -- name: UpdateUserPassword :exec
 -- scope: platform
@@ -114,7 +110,6 @@ UPDATE users SET password_hash = ?2, password_changed_at = (CAST(strftime('%s','
 
 -- name: DeleteOtherUserSessions :exec
 -- scope: tenant
--- scope-reason: 会话按 (id/user_id) 用户域操作；user-scoped
 
 DELETE FROM sessions WHERE user_id = ?1 AND id <> ?2;
 
@@ -129,7 +124,13 @@ ORDER BY created_at DESC;
 
 -- name: DeleteUserSession :execrows
 -- scope: tenant
--- scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
 
 DELETE FROM sessions WHERE user_id = ?1 AND id = ?2;
 
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- DeleteSession: scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
+-- DeleteExpiredSessions: scope-reason: 过期会话清扫，按时间谓词（系统入口）user-scoped
+-- DisableUserMFA: ConsumeRecoveryCode 在 S2 B1b 迁移至 internal/store/sqlite_methods.go
+-- DisableUserMFA: ConsumeUserRecoveryCode（JSON 过滤在 Go 层完成，sqlc sqlite 不支持 json_each）。
+-- DeleteOtherUserSessions: scope-reason: 会话按 (id/user_id) 用户域操作；user-scoped
+-- DeleteUserSession: scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行

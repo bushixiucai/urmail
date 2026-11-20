@@ -56,6 +56,10 @@ def main():
     total = 0
     for path in sorted(glob.glob(os.path.join(args.dir, "*.sql"))):
         src = open(path).read()
+        # sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都会破坏其后语句；
+        # 因此 `-- scope-reason:` 的中文理由统一搬到文件末尾，写成
+        # `-- <Method>: scope-reason: ...`，这里按方法名回填，理由不允许消失。
+        relocated_reasons = set(re.findall(r"(?m)^-- (\w+): scope-reason:\s*\S", src))
         parts = re.split(r"(?m)^(-- name:\s*\w+.*)$", src)
         for i in range(1, len(parts), 2):
             header = parts[i]
@@ -75,7 +79,7 @@ def main():
             if scope == "platform" and touches_tenant and name not in platform_methods:
                 violations.append(f"{name}: platform without exemption-list entry")
             if scope == "tenant" and touches_tenant and "tenant_id" not in body.lower():
-                if not re.search(r"(?m)^-- scope-reason:\s*\S", body):
+                if not re.search(r"(?m)^-- scope-reason:\s*\S", body) and name not in relocated_reasons:
                     violations.append(f"{name}: tenant-table statement without tenant_id lacks -- scope-reason")
                 else:
                     unbound.append(name)

@@ -191,9 +191,6 @@
   "StopMarketingFlowInstance": "tenant",
   "GetMarketingFlowInstance": "tenant",
   "ListMarketingFlowPublishedContent": "tenant",
-  "SetMarketingReportBudget": "platform",
-  "MarketingCampaignReportSnapshot": "tenant",
-  "MarketingFlowReportSnapshot": "tenant",
   "AddMarketingSuppression": "tenant",
   "CheckMarketingSuppression": "tenant",
   "RemoveMarketingSuppression": "tenant",
@@ -704,23 +701,26 @@
   "PlatformLockDataImport": "platform",
   "PlatformLockRecallTenant": "platform",
   "PlatformAcquireDraftSessionLock": "platform",
-  "PlatformReleaseDraftSessionLock": "platform"
+  "PlatformReleaseDraftSessionLock": "platform",
+  "ConsumeRecoveryCode": "platform",
+  "ArchiveCasesRequestApproval": "tenant",
+  "SetMarketingReportBudget": "platform",
+  "MarketingCampaignReportSnapshot": "tenant",
+  "MarketingFlowReportSnapshot": "tenant"
  },
  "counts": {
-  "tenant": 224,
-  "platform": 464,
+  "tenant": 225,
+  "platform": 465,
   "system": 17,
   "pre-auth": 0
  },
  "tenant_id_unbound": [
-  "CreateApplicationCredential",
   "DeleteExpiredSessions",
   "DeleteOtherUserSessions",
   "DeleteSession",
   "DeleteUserSession",
   "MarkSessionLegacyOnly",
-  "MarkSessionMFAVerified",
-  "RevokeApplicationCredential"
+  "MarkSessionMFAVerified"
  ],
  "audit_writers": {
   "statements": [

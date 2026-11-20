@@ -13,11 +13,13 @@ import (
 )
 
 const checkPlatformAdmin = `-- name: CheckPlatformAdmin :one
-SELECT EXISTS (
-    SELECT 1 FROM platform_admins WHERE user_id = $1
-) AS is_admin
+
+SELECT CAST(EXISTS (
+    SELECT 1 FROM platform_admins WHERE user_id = ?1
+) AS BOOLEAN) AS is_admin
 `
 
+// scope: platform
 func (q *Queries) CheckPlatformAdmin(ctx context.Context, userID int64) (bool, error) {
 	row := q.db.QueryRow(ctx, checkPlatformAdmin, userID)
 	var is_admin bool
@@ -25,37 +27,12 @@ func (q *Queries) CheckPlatformAdmin(ctx context.Context, userID int64) (bool, e
 	return is_admin, err
 }
 
-const consumeRecoveryCode = `-- name: ConsumeRecoveryCode :execrows
-UPDATE users
-SET mfa_recovery_codes = COALESCE((
-    SELECT jsonb_agg(v ORDER BY ord)
-    FROM jsonb_array_elements(mfa_recovery_codes) WITH ORDINALITY AS t(v, ord)
-    WHERE v <> to_jsonb($2::text)
-), '[]'::jsonb)
-WHERE id = $1 AND mfa_recovery_codes @> to_jsonb($2::text)
-`
-
-type ConsumeRecoveryCodeParams struct {
-	ID      int64  `json:"id"`
-	Column2 string `json:"column_2"`
-}
-
-// Removes one recovery code (given as its stored SHA-256 hex hash) from the
-// user's code list. Zero rows affected means the code did not match.
-func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, consumeRecoveryCode, arg.ID, arg.Column2)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const createSession = `-- name: CreateSession :one
+
 INSERT INTO sessions (
     id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, credential_version, origin_host
-) SELECT $1,u.id,$2,$3,$4,$5,$6,u.credential_version,$7::text
-FROM users u WHERE u.id=$8 AND u.status='active' AND u.password_hash=$9 AND u.credential_version=$10
-FOR UPDATE OF u
+) SELECT ?1,u.id,?2,?3,?4,?5,?6,u.credential_version,?7
+FROM users u WHERE u.id=?8 AND u.status='active' AND u.password_hash=?9 AND u.credential_version=?10
 RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, created_at, mfa_verified_at, kind, credential_version, origin_host
 `
 
@@ -72,6 +49,7 @@ type CreateSessionParams struct {
 	ExpectedVersion int64              `json:"expected_version"`
 }
 
+// scope: tenant
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessions, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.ID,
@@ -104,17 +82,20 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 }
 
 const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
+
 DELETE FROM sessions
-WHERE expires_at <= now()
+WHERE expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
+// scope: tenant
 func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteExpiredSessions)
 	return err
 }
 
 const deleteOtherUserSessions = `-- name: DeleteOtherUserSessions :exec
-DELETE FROM sessions WHERE user_id = $1 AND id <> $2
+
+DELETE FROM sessions WHERE user_id = ?1 AND id <> ?2
 `
 
 type DeleteOtherUserSessionsParams struct {
@@ -122,23 +103,27 @@ type DeleteOtherUserSessionsParams struct {
 	ID     string `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) DeleteOtherUserSessions(ctx context.Context, arg DeleteOtherUserSessionsParams) error {
 	_, err := q.db.Exec(ctx, deleteOtherUserSessions, arg.UserID, arg.ID)
 	return err
 }
 
 const deleteSession = `-- name: DeleteSession :exec
+
 DELETE FROM sessions
-WHERE id = $1
+WHERE id = ?1
 `
 
+// scope: tenant
 func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteSession, id)
 	return err
 }
 
 const deleteUserSession = `-- name: DeleteUserSession :execrows
-DELETE FROM sessions WHERE user_id = $1 AND id = $2
+
+DELETE FROM sessions WHERE user_id = ?1 AND id = ?2
 `
 
 type DeleteUserSessionParams struct {
@@ -146,6 +131,7 @@ type DeleteUserSessionParams struct {
 	ID     string `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserSession, arg.UserID, arg.ID)
 	if err != nil {
@@ -155,20 +141,23 @@ func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionPa
 }
 
 const disableUserMFA = `-- name: DisableUserMFA :exec
+
 UPDATE users
-SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'::jsonb
-WHERE id = $1
+SET mfa_enabled = false, mfa_secret = NULL, mfa_recovery_codes = '[]'
+WHERE id = ?1
 `
 
+// scope: platform
 func (q *Queries) DisableUserMFA(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, disableUserMFA, id)
 	return err
 }
 
 const enableUserMFA = `-- name: EnableUserMFA :exec
+
 UPDATE users
-SET mfa_enabled = true, mfa_recovery_codes = $2
-WHERE id = $1
+SET mfa_enabled = true, mfa_recovery_codes = ?2
+WHERE id = ?1
 `
 
 type EnableUserMFAParams struct {
@@ -176,21 +165,24 @@ type EnableUserMFAParams struct {
 	MfaRecoveryCodes []byte `json:"mfa_recovery_codes"`
 }
 
+// scope: platform
 func (q *Queries) EnableUserMFA(ctx context.Context, arg EnableUserMFAParams) error {
 	_, err := q.db.Exec(ctx, enableUserMFA, arg.ID, arg.MfaRecoveryCodes)
 	return err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
+
 SELECT s.id, s.user_id, s.tenant_id, s.csrf_token, s.user_agent, s.ip, s.expires_at, s.created_at, s.mfa_verified_at, s.kind, s.credential_version, s.origin_host
 FROM sessions s
 JOIN users u ON u.id = s.user_id AND u.status = 'active'
 LEFT JOIN tenants t ON t.id = s.tenant_id
-WHERE s.id = $1 AND s.kind = 'panel'
-  AND s.expires_at > now() AND s.credential_version=u.credential_version
+WHERE s.id = ?1 AND s.kind = 'panel'
+  AND s.expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000) AND s.credential_version=u.credential_version
   AND (s.tenant_id IS NULL OR t.status IN ('active', 'pending'))
 `
 
+// scope: tenant
 // Authentication is valid only while the user is active and, when the
 // session is bound to a tenant, while that tenant is active or pending.
 // This makes disabling a user / suspending a tenant take effect on the next
@@ -216,10 +208,11 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Sessions, erro
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
+
 SELECT id, email, password_hash, display_name, locale, timezone, status,
        mfa_secret, mfa_recovery_codes, mfa_enabled, created_at, credential_version
 FROM users
-WHERE email = $1 AND status = 'active'
+WHERE email = ?1 AND status = 'active'
 `
 
 type GetUserByEmailRow struct {
@@ -237,6 +230,7 @@ type GetUserByEmailRow struct {
 	CredentialVersion int64              `json:"credential_version"`
 }
 
+// scope: platform
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
 	var i GetUserByEmailRow
@@ -258,10 +252,11 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 }
 
 const getUserByID = `-- name: GetUserByID :one
+
 SELECT id, email, password_hash, display_name, locale, timezone, status,
        mfa_secret, mfa_recovery_codes, mfa_enabled, created_at, credential_version
 FROM users
-WHERE id = $1 AND status = 'active'
+WHERE id = ?1 AND status = 'active'
 `
 
 type GetUserByIDRow struct {
@@ -279,6 +274,7 @@ type GetUserByIDRow struct {
 	CredentialVersion int64              `json:"credential_version"`
 }
 
+// scope: platform
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
 	var i GetUserByIDRow
@@ -300,10 +296,11 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 }
 
 const getUserRoleForTenant = `-- name: GetUserRoleForTenant :one
+
 SELECT r.role
 FROM user_tenant_roles r
 JOIN users u ON u.id=r.user_id AND u.status='active'
-WHERE r.user_id = $1 AND r.tenant_id = $2
+WHERE r.user_id = ?1 AND r.tenant_id = ?2
 `
 
 type GetUserRoleForTenantParams struct {
@@ -311,6 +308,7 @@ type GetUserRoleForTenantParams struct {
 	TenantID int64 `json:"tenant_id"`
 }
 
+// scope: tenant
 func (q *Queries) GetUserRoleForTenant(ctx context.Context, arg GetUserRoleForTenantParams) (string, error) {
 	row := q.db.QueryRow(ctx, getUserRoleForTenant, arg.UserID, arg.TenantID)
 	var role string
@@ -319,10 +317,11 @@ func (q *Queries) GetUserRoleForTenant(ctx context.Context, arg GetUserRoleForTe
 }
 
 const getUserTenants = `-- name: GetUserTenants :many
+
 SELECT t.id, t.brand_id, t.name, t.slug, t.status, r.role
 FROM user_tenant_roles r
 JOIN tenants t ON r.tenant_id = t.id
-WHERE r.user_id = $1 AND t.status IN ('active', 'pending')
+WHERE r.user_id = ?1 AND t.status IN ('active', 'pending')
 ORDER BY t.name ASC
 `
 
@@ -335,6 +334,7 @@ type GetUserTenantsRow struct {
 	Role    string `json:"role"`
 }
 
+// scope: tenant
 func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTenantsRow, error) {
 	rows, err := q.db.Query(ctx, getUserTenants, userID)
 	if err != nil {
@@ -363,9 +363,10 @@ func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTe
 }
 
 const listSessionsForUser = `-- name: ListSessionsForUser :many
+
 SELECT id, user_id, tenant_id, user_agent, created_at, expires_at
 FROM sessions
-WHERE user_id = $1 AND expires_at > now()
+WHERE user_id = ?1 AND expires_at > (CAST(strftime('%s','now') AS INTEGER)*1000000)
 ORDER BY created_at DESC
 `
 
@@ -378,6 +379,7 @@ type ListSessionsForUserRow struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error) {
 	rows, err := q.db.Query(ctx, listSessionsForUser, userID)
 	if err != nil {
@@ -406,9 +408,10 @@ func (q *Queries) ListSessionsForUser(ctx context.Context, userID int64) ([]List
 }
 
 const setMFASecret = `-- name: SetMFASecret :exec
+
 UPDATE users
-SET mfa_secret = $2
-WHERE id = $1
+SET mfa_secret = ?2
+WHERE id = ?1
 `
 
 type SetMFASecretParams struct {
@@ -416,15 +419,17 @@ type SetMFASecretParams struct {
 	MfaSecret pgtype.Text `json:"mfa_secret"`
 }
 
+// scope: platform
 func (q *Queries) SetMFASecret(ctx context.Context, arg SetMFASecretParams) error {
 	_, err := q.db.Exec(ctx, setMFASecret, arg.ID, arg.MfaSecret)
 	return err
 }
 
 const updateSessionTenant = `-- name: UpdateSessionTenant :exec
+
 UPDATE sessions
-SET tenant_id = $2
-WHERE id = $1
+SET tenant_id = ?2
+WHERE id = ?1
 `
 
 type UpdateSessionTenantParams struct {
@@ -432,13 +437,15 @@ type UpdateSessionTenantParams struct {
 	TenantID pgtype.Int8 `json:"tenant_id"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error {
 	_, err := q.db.Exec(ctx, updateSessionTenant, arg.ID, arg.TenantID)
 	return err
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
-UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1
+
+UPDATE users SET password_hash = ?2, password_changed_at = (CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id = ?1
 `
 
 type UpdateUserPasswordParams struct {
@@ -446,6 +453,7 @@ type UpdateUserPasswordParams struct {
 	PasswordHash string `json:"password_hash"`
 }
 
+// scope: platform
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err

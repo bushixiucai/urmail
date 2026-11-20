@@ -49,8 +49,6 @@ SELECT * FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
 
 SELECT * FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2;
 
--- ScheduleMarketingCampaign 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_schedule_marketing = 管理员授权 + 模板快照/排期 + 收件人去重入队（opted_in 且非抑制）；day_limit/通道/发件人前置校验返回状态串
 
 -- name: ChangeMarketingCampaignState :one
 -- scope: tenant
@@ -91,3 +89,7 @@ SELECT c.id,c.tenant_id,c.name,c.status,t.subject,t.text_body,
  (SELECT count(*) FROM marketing_contacts mc WHERE mc.tenant_id=c.tenant_id AND mc.list_id=c.list_id AND mc.opted_in) AS opted_in_count,
  (SELECT count(*) FROM marketing_contacts mc JOIN marketing_suppressions s ON s.tenant_id=mc.tenant_id AND s.email=mc.email WHERE mc.tenant_id=c.tenant_id AND mc.list_id=c.list_id AND mc.opted_in) AS suppressed_count
 FROM marketing_campaigns c JOIN marketing_templates t ON t.tenant_id=c.tenant_id AND t.id=c.template_id WHERE c.tenant_id=?1 AND c.id=?2;
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- GetMarketingCampaign: ScheduleMarketingCampaign 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- GetMarketingCampaign: urmail_schedule_marketing = 管理员授权 + 模板快照/排期 + 收件人去重入队（opted_in 且非抑制）；day_limit/通道/发件人前置校验返回状态串

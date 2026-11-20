@@ -81,3 +81,8 @@ PlatformLockRecallTenant            platform
 PlatformAcquireDraftSessionLock     platform
 PlatformReleaseDraftSessionLock     platform
 
+ConsumeRecoveryCode platform
+ArchiveCasesRequestApproval tenant
+SetMarketingReportBudget platform
+MarketingCampaignReportSnapshot tenant
+MarketingFlowReportSnapshot tenant

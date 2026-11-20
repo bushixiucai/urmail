@@ -68,16 +68,16 @@ func (h *ArchiveHandler) List(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	limit := int32(50)
-	offset := int32(0)
+	limit := int64(50)
+	offset := int64(0)
 	if raw := c.Query("limit"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 && v <= 200 {
-			limit = int32(v)
+			limit = v
 		}
 	}
 	if raw := c.Query("offset"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v >= 0 {
-			offset = int32(v)
+			offset = v
 		}
 	}
 	entries, err := q.ListArchiveEntriesByTenant(c, store.ListArchiveEntriesByTenantParams{

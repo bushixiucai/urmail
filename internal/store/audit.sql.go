@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,10 +15,11 @@ import (
 
 const createAuditLog = `-- name: CreateAuditLog :one
 
+
 INSERT INTO audit_logs (
     tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7
 ) RETURNING id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
 `
 
@@ -32,6 +34,7 @@ type CreateAuditLogParams struct {
 }
 
 // Append-only audit trail for tenant-visible history.
+// scope: tenant
 func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLogs, error) {
 	row := q.db.QueryRow(ctx, createAuditLog,
 		arg.TenantID,
@@ -58,30 +61,32 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 }
 
 const exportAuditLogsByTenant = `-- name: ExportAuditLogsByTenant :many
+
 SELECT id, tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail, created_at
 FROM audit_logs
-WHERE tenant_id = $1
-  AND ($2::bigint IS NULL OR actor_user_id = $2)
-  AND ($3::text IS NULL OR action = $3)
-  AND ($4::text IS NULL OR target_type = $4)
-  AND ($5::text IS NULL OR target_id = $5)
-  AND ($6::timestamptz IS NULL OR created_at >= $6)
-  AND ($7::timestamptz IS NULL OR created_at < $7)
+WHERE tenant_id = ?1
+  AND (?2 IS NULL OR actor_user_id = ?2)
+  AND (?3 IS NULL OR action = ?3)
+  AND (?4 IS NULL OR target_type = ?4)
+  AND (?5 IS NULL OR target_id = ?5)
+  AND (?6 IS NULL OR created_at >= ?6)
+  AND (?7 IS NULL OR created_at < ?7)
 ORDER BY created_at DESC, id DESC LIMIT 10001
 `
 
 type ExportAuditLogsByTenantParams struct {
-	TenantID    pgtype.Int8        `json:"tenant_id"`
-	ActorUserID pgtype.Int8        `json:"actor_user_id"`
-	Action      pgtype.Text        `json:"action"`
-	TargetType  pgtype.Text        `json:"target_type"`
-	TargetID    pgtype.Text        `json:"target_id"`
-	FromTime    pgtype.Timestamptz `json:"from_time"`
-	ToTime      pgtype.Timestamptz `json:"to_time"`
+	TenantID    pgtype.Int8 `json:"tenant_id"`
+	ActorUserID interface{} `json:"actor_user_id"`
+	Action      interface{} `json:"action"`
+	TargetType  interface{} `json:"target_type"`
+	TargetID    interface{} `json:"target_id"`
+	FromTime    interface{} `json:"from_time"`
+	ToTime      interface{} `json:"to_time"`
 }
 
 // A single bounded statement gives a consistent export snapshot. The extra
 // row lets the API reject oversized exports without silently truncating them.
+// scope: tenant
 func (q *Queries) ExportAuditLogsByTenant(ctx context.Context, arg ExportAuditLogsByTenantParams) ([]AuditLogs, error) {
 	rows, err := q.db.Query(ctx, exportAuditLogsByTenant,
 		arg.TenantID,
@@ -121,7 +126,8 @@ func (q *Queries) ExportAuditLogsByTenant(ctx context.Context, arg ExportAuditLo
 }
 
 const getAuditCursorAnchor = `-- name: GetAuditCursorAnchor :one
-SELECT created_at FROM audit_logs WHERE tenant_id = $1 AND id = $2
+
+SELECT created_at FROM audit_logs WHERE tenant_id = ?1 AND id = ?2
 `
 
 type GetAuditCursorAnchorParams struct {
@@ -129,6 +135,7 @@ type GetAuditCursorAnchorParams struct {
 	ID       int64       `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (pgtype.Timestamptz, error) {
 	row := q.db.QueryRow(ctx, getAuditCursorAnchor, arg.TenantID, arg.ID)
 	var created_at pgtype.Timestamptz
@@ -137,42 +144,44 @@ func (q *Queries) GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAn
 }
 
 const listAuditLogsByTenant = `-- name: ListAuditLogsByTenant :many
+
 SELECT audit.id, audit.tenant_id, audit.actor_user_id, audit.actor_ip, audit.action, audit.target_type, audit.target_id, audit.detail, audit.created_at
 FROM audit_logs AS audit
-WHERE audit.tenant_id = $1
-  AND ($2::bigint IS NULL OR audit.actor_user_id = $2)
-  AND ($3::text IS NULL OR audit.action = $3)
-  AND ($4::text IS NULL OR audit.target_type = $4)
-  AND ($5::text IS NULL OR audit.target_id = $5)
-  AND ($6::timestamptz IS NULL OR audit.created_at >= $6)
-  AND ($7::timestamptz IS NULL OR audit.created_at < $7)
-  AND ($8::bigint IS NULL OR
+WHERE audit.tenant_id = ?1
+  AND (CAST(?2 AS INTEGER) IS NULL OR audit.actor_user_id = CAST(?2 AS INTEGER))
+  AND (CAST(?3 AS TEXT) IS NULL OR audit.action = CAST(?3 AS TEXT))
+  AND (CAST(?4 AS TEXT) IS NULL OR audit.target_type = CAST(?4 AS TEXT))
+  AND (CAST(?5 AS TEXT) IS NULL OR audit.target_id = CAST(?5 AS TEXT))
+  AND (CAST(?6 AS INTEGER) IS NULL OR audit.created_at >= CAST(?6 AS INTEGER))
+  AND (CAST(?7 AS INTEGER) IS NULL OR audit.created_at < CAST(?7 AS INTEGER))
+  AND (CAST(?8 AS INTEGER) IS NULL OR
        (audit.created_at, audit.id) < (
-           COALESCE($9::timestamptz,
+           COALESCE(CAST(?9 AS INTEGER),
                     (SELECT cursor.created_at FROM audit_logs cursor
-                     WHERE cursor.tenant_id = $1 AND cursor.id = $8)),
-           $8::bigint))
+                     WHERE cursor.tenant_id = ?1 AND cursor.id = CAST(?8 AS INTEGER))),
+           CAST(?8 AS INTEGER)))
 ORDER BY audit.created_at DESC, audit.id DESC
-LIMIT $10
+LIMIT CAST(?10 AS INTEGER)
 `
 
 type ListAuditLogsByTenantParams struct {
-	TenantID    pgtype.Int8        `json:"tenant_id"`
-	ActorUserID pgtype.Int8        `json:"actor_user_id"`
-	Action      pgtype.Text        `json:"action"`
-	TargetType  pgtype.Text        `json:"target_type"`
-	TargetID    pgtype.Text        `json:"target_id"`
-	FromTime    pgtype.Timestamptz `json:"from_time"`
-	ToTime      pgtype.Timestamptz `json:"to_time"`
-	BeforeID    pgtype.Int8        `json:"before_id"`
-	BeforeTime  pgtype.Timestamptz `json:"before_time"`
-	Limit       int32              `json:"limit"`
+	TenantID    pgtype.Int8    `json:"tenant_id"`
+	ActorUserID sql.NullInt64  `json:"actor_user_id"`
+	Action      sql.NullString `json:"action"`
+	TargetType  sql.NullString `json:"target_type"`
+	TargetID    sql.NullString `json:"target_id"`
+	FromTime    sql.NullInt64  `json:"from_time"`
+	ToTime      sql.NullInt64  `json:"to_time"`
+	BeforeID    sql.NullInt64  `json:"before_id"`
+	BeforeTime  sql.NullInt64  `json:"before_time"`
+	Limit       int64          `json:"limit"`
 }
 
 // id is the pagination tiebreaker: created_at alone is not stable because
 // several audit rows can share the same timestamp (M6 review D11).
 // The remaining filters are optional (NULL = unfiltered) so the tenant UI can
 // narrow by actor, action or time range without separate endpoints.
+// scope: tenant
 func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsByTenantParams) ([]AuditLogs, error) {
 	rows, err := q.db.Query(ctx, listAuditLogsByTenant,
 		arg.TenantID,
@@ -213,4 +222,3 @@ func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsBy
 	}
 	return items, nil
 }
-

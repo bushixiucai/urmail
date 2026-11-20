@@ -79,13 +79,18 @@ func (h *marketingReportHandler) load(c *gin.Context, kind string, input marketi
 		authError(c, 503, "MARKETING_UNAVAILABLE")
 		return nil, report.Snapshot{}, false
 	}
+	actor, ok := middleware.GetUserID(c)
+	if !ok {
+		authError(c, 401, "NO_USER_CONTEXT")
+		return nil, report.Snapshot{}, false
+	}
 	ts := func(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
 	var raw []byte
 	var err error
 	if kind == "campaigns" {
-		raw, err = q.MarketingCampaignReportSnapshot(c, store.MarketingCampaignReportSnapshotParams{TenantID: tenant, ResourceID: id, FromTime: ts(from), UntilTime: ts(until)})
+		raw, err = q.MarketingCampaignReportSnapshot(c, store.MarketingCampaignReportSnapshotParams{TenantID: tenant, ResourceID: id, ActorUserID: actor, FromTime: ts(from), UntilTime: ts(until)})
 	} else {
-		raw, err = q.MarketingFlowReportSnapshot(c, store.MarketingFlowReportSnapshotParams{TenantID: tenant, ResourceID: id, FromTime: ts(from), UntilTime: ts(until)})
+		raw, err = q.MarketingFlowReportSnapshot(c, store.MarketingFlowReportSnapshotParams{TenantID: tenant, ResourceID: id, ActorUserID: actor, FromTime: ts(from), UntilTime: ts(until)})
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")

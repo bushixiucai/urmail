@@ -1,5 +1,3 @@
--- ArchiveCasesCreate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_create_archive_case = 授权/有效期/request_key 幂等三步过程（事务 + pgconn.PgError 码）。
 
 -- name: ArchiveCasesList :many
 -- scope: tenant
@@ -16,11 +14,7 @@ SELECT * FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
 
 SELECT * FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
 
--- ArchiveCasesSnapshot 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_archive_case_snapshot = jsonb 聚合 + 成员/授权嵌套，Go 侧构造稳定 JSON。
 
--- ArchiveCasesSnapshotDigest 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- encode(sha256(convert_to(snapshot))) 需 Go 侧哈希。
 
 -- name: ArchiveCasesMembers :many
 -- scope: tenant
@@ -37,7 +31,7 @@ WHERE r.tenant_id=?1 AND EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_ten
 -- name: ArchiveCasesGrantEligible :one
 -- scope: platform
 
-SELECT EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id=?3 AND cg.scope=?2 AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>?3 AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) AS allowed;
+SELECT CAST(EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id=?3 AND cg.scope=?2 AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>?3 AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) AS BOOLEAN) AS allowed;
 
 -- name: ArchiveCasesAddMember :execrows
 -- scope: tenant
@@ -124,8 +118,6 @@ AND requester_user_id<> @actor_id AND source_digest= @digest RETURNING id;
 UPDATE archive_approval_requests SET state='withdrawn',decision_reason=?5,decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND requester_user_id=?4 AND state='pending' RETURNING id;
 
--- ArchiveCasesExportVisible 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_archive_export_visible 复用 snapshot/成员/授权函数，随 Snapshot 一起 Go 化。
 
 -- name: ArchiveCasesSaveEvidence :one
 -- scope: tenant
@@ -137,3 +129,13 @@ VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tenant_id,approval_id) DO NOTHING RETURNING *
 -- scope: tenant
 
 SELECT * FROM archive_evidence_exports WHERE tenant_id=?1 AND approval_id=?2;
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- file note: ArchiveCasesCreate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- file note: urmail_create_archive_case = 授权/有效期/request_key 幂等三步过程（事务 + pgconn.PgError 码）。
+-- ArchiveCasesLock: ArchiveCasesSnapshot 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- ArchiveCasesLock: urmail_archive_case_snapshot = jsonb 聚合 + 成员/授权嵌套，Go 侧构造稳定 JSON。
+-- ArchiveCasesLock: ArchiveCasesSnapshotDigest 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- ArchiveCasesLock: encode(sha256(convert_to(snapshot))) 需 Go 侧哈希。
+-- ArchiveCasesWithdrawApproval: ArchiveCasesExportVisible 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- ArchiveCasesWithdrawApproval: urmail_archive_export_visible 复用 snapshot/成员/授权函数，随 Snapshot 一起 Go 化。

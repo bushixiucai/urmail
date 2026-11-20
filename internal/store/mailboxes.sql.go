@@ -12,11 +12,13 @@ import (
 )
 
 const countMailboxesByTenant = `-- name: CountMailboxesByTenant :one
+
 SELECT COUNT(*)
 FROM mailboxes
-WHERE tenant_id = $1 AND status <> 'deleted'
+WHERE tenant_id = ?1 AND status <> 'deleted'
 `
 
+// scope: tenant
 func (q *Queries) CountMailboxesByTenant(ctx context.Context, tenantID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countMailboxesByTenant, tenantID)
 	var count int64
@@ -25,10 +27,11 @@ func (q *Queries) CountMailboxesByTenant(ctx context.Context, tenantID int64) (i
 }
 
 const createMailbox = `-- name: CreateMailbox :one
+
 INSERT INTO mailboxes (
     tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
 ) RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
@@ -44,6 +47,7 @@ type CreateMailboxParams struct {
 	SendEnabled  bool        `json:"send_enabled"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMailbox(ctx context.Context, arg CreateMailboxParams) (Mailboxes, error) {
 	row := q.db.QueryRow(ctx, createMailbox,
 		arg.TenantID,
@@ -81,8 +85,9 @@ func (q *Queries) CreateMailbox(ctx context.Context, arg CreateMailboxParams) (M
 }
 
 const deleteMailbox = `-- name: DeleteMailbox :exec
+
 UPDATE mailboxes SET status = 'deleted'
-WHERE tenant_id = $1 AND id = $2 AND status <> 'deleted'
+WHERE tenant_id = ?1 AND id = ?2 AND status <> 'deleted'
 `
 
 type DeleteMailboxParams struct {
@@ -90,15 +95,17 @@ type DeleteMailboxParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) DeleteMailbox(ctx context.Context, arg DeleteMailboxParams) error {
 	_, err := q.db.Exec(ctx, deleteMailbox, arg.TenantID, arg.ID)
 	return err
 }
 
 const getMailboxByAddress = `-- name: GetMailboxByAddress :one
+
 SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 FROM mailboxes
-WHERE tenant_id = $1 AND address = $2 AND status <> 'deleted'
+WHERE tenant_id = ?1 AND address = ?2 AND status <> 'deleted'
 `
 
 type GetMailboxByAddressParams struct {
@@ -106,6 +113,7 @@ type GetMailboxByAddressParams struct {
 	Address  string `json:"address"`
 }
 
+// scope: tenant
 func (q *Queries) GetMailboxByAddress(ctx context.Context, arg GetMailboxByAddressParams) (Mailboxes, error) {
 	row := q.db.QueryRow(ctx, getMailboxByAddress, arg.TenantID, arg.Address)
 	var i Mailboxes
@@ -133,9 +141,10 @@ func (q *Queries) GetMailboxByAddress(ctx context.Context, arg GetMailboxByAddre
 }
 
 const getMailboxByID = `-- name: GetMailboxByID :one
+
 SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 FROM mailboxes
-WHERE tenant_id = $1 AND id = $2 AND status <> 'deleted'
+WHERE tenant_id = ?1 AND id = ?2 AND status <> 'deleted'
 `
 
 type GetMailboxByIDParams struct {
@@ -143,6 +152,7 @@ type GetMailboxByIDParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetMailboxByID(ctx context.Context, arg GetMailboxByIDParams) (Mailboxes, error) {
 	row := q.db.QueryRow(ctx, getMailboxByID, arg.TenantID, arg.ID)
 	var i Mailboxes
@@ -170,9 +180,10 @@ func (q *Queries) GetMailboxByID(ctx context.Context, arg GetMailboxByIDParams) 
 }
 
 const listMailboxesByDomain = `-- name: ListMailboxesByDomain :many
+
 SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 FROM mailboxes
-WHERE tenant_id = $1 AND domain_id = $2 AND status <> 'deleted'
+WHERE tenant_id = ?1 AND domain_id = ?2 AND status <> 'deleted'
 ORDER BY address ASC
 `
 
@@ -181,6 +192,7 @@ type ListMailboxesByDomainParams struct {
 	DomainID int64 `json:"domain_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListMailboxesByDomain(ctx context.Context, arg ListMailboxesByDomainParams) ([]Mailboxes, error) {
 	rows, err := q.db.Query(ctx, listMailboxesByDomain, arg.TenantID, arg.DomainID)
 	if err != nil {
@@ -221,12 +233,14 @@ func (q *Queries) ListMailboxesByDomain(ctx context.Context, arg ListMailboxesBy
 }
 
 const listMailboxesByTenant = `-- name: ListMailboxesByTenant :many
+
 SELECT id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 FROM mailboxes
-WHERE tenant_id = $1 AND status <> 'deleted'
+WHERE tenant_id = ?1 AND status <> 'deleted'
 ORDER BY address ASC
 `
 
+// scope: tenant
 func (q *Queries) ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]Mailboxes, error) {
 	rows, err := q.db.Query(ctx, listMailboxesByTenant, tenantID)
 	if err != nil {
@@ -267,9 +281,10 @@ func (q *Queries) ListMailboxesByTenant(ctx context.Context, tenantID int64) ([]
 }
 
 const updateMailboxPassword = `-- name: UpdateMailboxPassword :one
+
 UPDATE mailboxes
-SET password_hash = $3
-WHERE tenant_id = $1 AND id = $2
+SET password_hash = ?3
+WHERE tenant_id = ?1 AND id = ?2
 RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
@@ -279,6 +294,7 @@ type UpdateMailboxPasswordParams struct {
 	PasswordHash string `json:"password_hash"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateMailboxPassword(ctx context.Context, arg UpdateMailboxPasswordParams) (Mailboxes, error) {
 	row := q.db.QueryRow(ctx, updateMailboxPassword, arg.TenantID, arg.ID, arg.PasswordHash)
 	var i Mailboxes
@@ -306,9 +322,10 @@ func (q *Queries) UpdateMailboxPassword(ctx context.Context, arg UpdateMailboxPa
 }
 
 const updateMailboxQuota = `-- name: UpdateMailboxQuota :one
+
 UPDATE mailboxes
-SET quota_bytes = $3
-WHERE tenant_id = $1 AND id = $2
+SET quota_bytes = ?3
+WHERE tenant_id = ?1 AND id = ?2
 RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
@@ -318,6 +335,7 @@ type UpdateMailboxQuotaParams struct {
 	QuotaBytes int64 `json:"quota_bytes"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuotaParams) (Mailboxes, error) {
 	row := q.db.QueryRow(ctx, updateMailboxQuota, arg.TenantID, arg.ID, arg.QuotaBytes)
 	var i Mailboxes
@@ -345,9 +363,10 @@ func (q *Queries) UpdateMailboxQuota(ctx context.Context, arg UpdateMailboxQuota
 }
 
 const updateMailboxSettings = `-- name: UpdateMailboxSettings :one
+
 UPDATE mailboxes
-SET display_name = $3, status = $4, send_enabled = $5
-WHERE tenant_id = $1 AND id = $2
+SET display_name = ?3, status = ?4, send_enabled = ?5
+WHERE tenant_id = ?1 AND id = ?2
 RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, created_at
 `
 
@@ -373,6 +392,7 @@ type UpdateMailboxSettingsRow struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateMailboxSettings(ctx context.Context, arg UpdateMailboxSettingsParams) (UpdateMailboxSettingsRow, error) {
 	row := q.db.QueryRow(ctx, updateMailboxSettings,
 		arg.TenantID,
@@ -399,9 +419,10 @@ func (q *Queries) UpdateMailboxSettings(ctx context.Context, arg UpdateMailboxSe
 }
 
 const updateMailboxStatus = `-- name: UpdateMailboxStatus :one
+
 UPDATE mailboxes
-SET status = $3
-WHERE tenant_id = $1 AND id = $2
+SET status = ?3
+WHERE tenant_id = ?1 AND id = ?2
 RETURNING id, tenant_id, domain_id, local_part, address, display_name, password_hash, quota_bytes, status, send_enabled, sieve_script, created_at, bytes_used, usage_measured_at, usage_error, password_version, password_revoke_pending, sieve_mode
 `
 
@@ -411,6 +432,7 @@ type UpdateMailboxStatusParams struct {
 	Status   string `json:"status"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateMailboxStatus(ctx context.Context, arg UpdateMailboxStatusParams) (Mailboxes, error) {
 	row := q.db.QueryRow(ctx, updateMailboxStatus, arg.TenantID, arg.ID, arg.Status)
 	var i Mailboxes

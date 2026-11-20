@@ -10,16 +10,16 @@ WHERE a.tenant_id= @tenant_id AND a.id= @id AND a.deleted_at IS NULL AND c.purge
 
 SELECT a.id,a.mailbox_id,a.message_id,a.subject,a.from_addr,a.to_addr,a.received_at,a.size_bytes,a.legal_hold,a.deleted_at
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
-WHERE a.tenant_id= @tenant_id AND (a.deleted_at IS NOT NULL)= @include_deleted AND c.purge_started_at IS NULL
- AND (@query='' OR a.subject LIKE '%' || @query || '%' OR c.body_text LIKE '%' || @query || '%'
- OR coalesce(a.subject,'') LIKE '%'||@query||'%'
- OR c.body_text LIKE '%'||@query||'%')
- AND (sqlc.narg('mailbox_id') IS NULL OR a.mailbox_id=sqlc.narg('mailbox_id'))
- AND (@from_addr='' OR instr(lower(coalesce(a.from_addr,'')), lower(@from_addr))>0)
- AND (sqlc.narg('after_time') IS NULL OR a.received_at>=sqlc.narg('after_time'))
- AND (sqlc.narg('before_time') IS NULL OR a.received_at<sqlc.narg('before_time'))
- AND (sqlc.narg('cursor_time') IS NULL OR (a.received_at,a.id)<(sqlc.narg('cursor_time'),sqlc.narg('cursor_id')))
-ORDER BY a.received_at DESC,a.id DESC LIMIT @limit_count;
+WHERE a.tenant_id= @tenant_id AND (a.deleted_at IS NOT NULL)=CAST(@include_deleted AS BOOLEAN) AND c.purge_started_at IS NULL
+ AND (CAST(@query AS TEXT)='' OR a.subject LIKE '%' || CAST(@query AS TEXT) || '%' OR c.body_text LIKE '%' || CAST(@query AS TEXT) || '%'
+ OR coalesce(a.subject,'') LIKE '%'||CAST(@query AS TEXT)||'%'
+ OR c.body_text LIKE '%'||CAST(@query AS TEXT)||'%')
+ AND (CAST(sqlc.narg('mailbox_id') AS INTEGER) IS NULL OR a.mailbox_id=CAST(sqlc.narg('mailbox_id') AS INTEGER))
+ AND (CAST(@from_addr AS TEXT)='' OR instr(lower(coalesce(a.from_addr,'')), lower(CAST(@from_addr AS TEXT)))>0)
+ AND (CAST(sqlc.narg('after_time') AS INTEGER) IS NULL OR a.received_at>=CAST(sqlc.narg('after_time') AS INTEGER))
+ AND (CAST(sqlc.narg('before_time') AS INTEGER) IS NULL OR a.received_at<CAST(sqlc.narg('before_time') AS INTEGER))
+ AND (CAST(sqlc.narg('cursor_time') AS INTEGER) IS NULL OR (a.received_at,a.id)<(CAST(sqlc.narg('cursor_time') AS INTEGER),CAST(sqlc.narg('cursor_id') AS INTEGER)))
+ORDER BY a.received_at DESC,a.id DESC LIMIT CAST(@limit_count AS INTEGER);
 
 -- name: PreviewArchiveRetention :one
 -- scope: tenant
@@ -27,7 +27,6 @@ ORDER BY a.received_at DESC,a.id DESC LIMIT @limit_count;
 -- The candidate set and its digest must be the same set: the previous port left
 -- `-(0)` where make_interval(days=>retention_days) was, and the digest subquery
 -- had no WHERE (whole-table, cross-tenant). Both are restored here from the PG
--- definition in PHASE1-S2-PG-BUILTIN-FUNCS-AUDIT-20261120.md §D. `id` supplies
 -- the UUID default the PG DDL carried (gen_random_uuid is not expressible in
 -- the generated SQLite schema); it is a v4-shaped lowercase UUID text.
 INSERT INTO retention_previews(id,tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
@@ -88,3 +87,6 @@ WHERE archive_entries.tenant_id= @tenant_id AND archive_entries.id= @id AND arch
 SELECT a.id,a.tenant_id,a.mailbox_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256) AS raw_sha256
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
 WHERE a.tenant_id= @tenant_id AND a.id= @id AND a.deleted_at IS NOT NULL AND c.purge_started_at IS NULL AND c.purged_at IS NULL;
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- PreviewArchiveRetention: definition in PHASE1-S2-PG-BUILTIN-FUNCS-AUDIT-20261120.md §D. `id` supplies

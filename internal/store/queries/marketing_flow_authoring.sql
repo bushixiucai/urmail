@@ -74,7 +74,7 @@ UPDATE marketing_flow_definitions SET status='paused',updated_at=(CAST(strftime(
 -- name: PauseMarketingRuntimeFlows :exec
 -- scope: tenant
 
-UPDATE marketing_flows SET status='paused' WHERE tenant_id=?1 AND id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2);
+UPDATE marketing_flows SET status='paused' WHERE marketing_flows.tenant_id=?1 AND marketing_flows.id IN(SELECT v.runtime_flow_id FROM marketing_flow_versions v WHERE v.tenant_id=?1 AND v.definition_id=?2);
 -- name: ListMarketingFlowVersions :many
 -- scope: tenant
 
@@ -96,7 +96,7 @@ SELECT id FROM marketing_lists WHERE tenant_id=?1 AND id=?2;
 
 SELECT c.email FROM marketing_contacts c WHERE c.tenant_id=?1 AND c.list_id=?2 AND c.opted_in
 AND NOT EXISTS(SELECT 1 FROM marketing_suppressions s WHERE s.tenant_id=c.tenant_id AND s.email=c.email)
-AND NOT EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=c.tenant_id AND p.flow_id=?3 AND p.email=c.email)
+AND c.email NOT IN (SELECT p.email FROM marketing_flow_positions p WHERE p.tenant_id=c.tenant_id AND p.flow_id=sqlc.arg(flow_id) AND p.email=c.email)
 ORDER BY c.email LIMIT 1001;
 
 -- name: CountMarketingFlowLiveInstances :one
@@ -142,10 +142,8 @@ WHERE e.tenant_id=?1 AND v.definition_id=?2 AND e.position_id=?3 ORDER BY e.id D
 -- scope: tenant
 
 UPDATE marketing_flow_positions SET stopped_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),lease_fence=lease_fence+1,lease_owner=NULL,lease_until=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
-WHERE tenant_id=?1 AND id=?3 AND stopped_at IS NULL
-AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=tenant_id AND v.runtime_flow_id=flow_id AND v.definition_id=?2));
--- RetryMarketingFlowInstance 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_retry_marketing_flow_instance = 平台角色或管理员 / 版本定义绑定 / 租约过期 + 失败或确认未接收 / 释放预留 / 复位位置
+WHERE marketing_flow_positions.tenant_id=?1 AND marketing_flow_positions.id=?3 AND stopped_at IS NULL
+AND EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=marketing_flow_positions.tenant_id AND v.runtime_flow_id=marketing_flow_positions.flow_id AND v.definition_id=?2));
 
 -- name: GetMarketingFlowInstance :one
 -- scope: tenant
@@ -158,6 +156,8 @@ WHERE p.tenant_id=?1 AND v.definition_id=?2 AND p.id=?3;
 
 SELECT step_key,subject,text_body FROM marketing_flow_content_snapshots WHERE tenant_id=?1 AND runtime_flow_id=?2 ORDER BY step_key;
 
--- RecordMarketingFlowAudit 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_record_marketing_flow_audit = 管理员 + 定义存在 + 动作白名单 + jsonb 对象与 4000 字节上限 / audit_logs 写入
-
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- StopMarketingFlowInstance: RetryMarketingFlowInstance 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- StopMarketingFlowInstance: urmail_retry_marketing_flow_instance = 平台角色或管理员 / 版本定义绑定 / 租约过期 + 失败或确认未接收 / 释放预留 / 复位位置
+-- ListMarketingFlowPublishedContent: RecordMarketingFlowAudit 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- ListMarketingFlowPublishedContent: urmail_record_marketing_flow_audit = 管理员 + 定义存在 + 动作白名单 + jsonb 对象与 4000 字节上限 / audit_logs 写入

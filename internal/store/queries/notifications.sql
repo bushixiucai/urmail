@@ -1,8 +1,6 @@
 -- name: ListTenantNotifications :many
 -- scope: tenant
 
--- app-pending: current_setting('urmail.tenant_id'/'urmail.user_id') 会话绑定由
--- S2 装饰器承接（S4 只内联 urmail_archive_notification_visible 的谓词本体）。
 SELECT n.id,n.kind,n.message_key,n.params,n.channel,n.state,n.created_at,n.read_at
 FROM notification_outbox n
 WHERE n.tenant_id=?1 AND (n.user_id IS NULL OR n.user_id=nullif(current_setting('urmail.user_id',true),''))
@@ -31,3 +29,7 @@ AND (CASE WHEN n.kind NOT IN('archive_approval','archive_recall') THEN 1 ELSE
   ELSE 0 END END)
 AND (sqlc.arg(before_id)=0 OR n.id<sqlc.arg(before_id))
 ORDER BY n.id DESC LIMIT 50;
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- ListTenantNotifications: app-pending: current_setting('urmail.tenant_id'/'urmail.user_id') 会话绑定由
+-- ListTenantNotifications: S2 装饰器承接（S4 只内联 urmail_archive_notification_visible 的谓词本体）。

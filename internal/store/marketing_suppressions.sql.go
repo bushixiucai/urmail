@@ -11,8 +11,9 @@ import (
 
 const addMarketingSuppression = `-- name: AddMarketingSuppression :one
 
+
 INSERT INTO marketing_suppressions (tenant_id, email, reason)
-VALUES ($1, $2, $3)
+VALUES (?1, ?2, ?3)
 ON CONFLICT (tenant_id, email) DO UPDATE
 SET reason = CASE
     WHEN marketing_suppressions.reason IN ('unsubscribe', 'bounce', 'complaint') THEN marketing_suppressions.reason
@@ -28,6 +29,7 @@ type AddMarketingSuppressionParams struct {
 }
 
 // Tenant-scoped marketing suppression operations.
+// scope: tenant
 func (q *Queries) AddMarketingSuppression(ctx context.Context, arg AddMarketingSuppressionParams) (MarketingSuppressions, error) {
 	row := q.db.QueryRow(ctx, addMarketingSuppression, arg.TenantID, arg.Email, arg.Reason)
 	var i MarketingSuppressions
@@ -42,7 +44,8 @@ func (q *Queries) AddMarketingSuppression(ctx context.Context, arg AddMarketingS
 }
 
 const checkMarketingSuppression = `-- name: CheckMarketingSuppression :one
-SELECT EXISTS (SELECT 1 FROM marketing_suppressions WHERE tenant_id = $1 AND email = $2) AS suppressed
+
+SELECT CAST(EXISTS (SELECT 1 FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2) AS BOOLEAN) AS suppressed
 `
 
 type CheckMarketingSuppressionParams struct {
@@ -50,6 +53,7 @@ type CheckMarketingSuppressionParams struct {
 	Email    string `json:"email"`
 }
 
+// scope: tenant
 func (q *Queries) CheckMarketingSuppression(ctx context.Context, arg CheckMarketingSuppressionParams) (bool, error) {
 	row := q.db.QueryRow(ctx, checkMarketingSuppression, arg.TenantID, arg.Email)
 	var suppressed bool
@@ -58,7 +62,8 @@ func (q *Queries) CheckMarketingSuppression(ctx context.Context, arg CheckMarket
 }
 
 const getMarketingSuppression = `-- name: GetMarketingSuppression :one
-SELECT id, tenant_id, email, reason, created_at FROM marketing_suppressions WHERE tenant_id = $1 AND email = $2
+
+SELECT id, tenant_id, email, reason, created_at FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2
 `
 
 type GetMarketingSuppressionParams struct {
@@ -66,6 +71,7 @@ type GetMarketingSuppressionParams struct {
 	Email    string `json:"email"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingSuppression(ctx context.Context, arg GetMarketingSuppressionParams) (MarketingSuppressions, error) {
 	row := q.db.QueryRow(ctx, getMarketingSuppression, arg.TenantID, arg.Email)
 	var i MarketingSuppressions
@@ -80,9 +86,11 @@ func (q *Queries) GetMarketingSuppression(ctx context.Context, arg GetMarketingS
 }
 
 const listMarketingSuppressions = `-- name: ListMarketingSuppressions :many
-SELECT id, tenant_id, email, reason, created_at FROM marketing_suppressions WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 500
+
+SELECT id, tenant_id, email, reason, created_at FROM marketing_suppressions WHERE tenant_id = ?1 ORDER BY created_at DESC LIMIT 500
 `
 
+// scope: tenant
 func (q *Queries) ListMarketingSuppressions(ctx context.Context, tenantID int64) ([]MarketingSuppressions, error) {
 	rows, err := q.db.Query(ctx, listMarketingSuppressions, tenantID)
 	if err != nil {
@@ -110,7 +118,8 @@ func (q *Queries) ListMarketingSuppressions(ctx context.Context, tenantID int64)
 }
 
 const removeMarketingSuppression = `-- name: RemoveMarketingSuppression :execrows
-DELETE FROM marketing_suppressions WHERE tenant_id = $1 AND email = $2 AND reason = 'manual'
+
+DELETE FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2 AND reason = 'manual'
 `
 
 type RemoveMarketingSuppressionParams struct {
@@ -118,6 +127,7 @@ type RemoveMarketingSuppressionParams struct {
 	Email    string `json:"email"`
 }
 
+// scope: tenant
 func (q *Queries) RemoveMarketingSuppression(ctx context.Context, arg RemoveMarketingSuppressionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, removeMarketingSuppression, arg.TenantID, arg.Email)
 	if err != nil {

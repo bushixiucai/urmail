@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -53,7 +54,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("limit"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 32); err == nil && v > 0 && v <= 500 {
-			params.Limit = int32(v)
+			params.Limit = v
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -61,18 +62,18 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("actor_user_id"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
-			params.ActorUserID = pgtype.Int8{Int64: v, Valid: true}
+			params.ActorUserID = sql.NullInt64{Int64: v, Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
 	}
 	if raw := c.Query("action"); raw != "" {
-		params.Action = pgtype.Text{String: raw, Valid: true}
+		params.Action = sql.NullString{String: raw, Valid: true}
 	}
 	if raw := c.Query("from"); raw != "" {
 		if t, err := parseTimeParam(raw); err == nil {
-			params.FromTime = pgtype.Timestamptz{Time: t, Valid: true}
+			params.FromTime = sql.NullInt64{Int64: t.UnixMicro(), Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -80,7 +81,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("to"); raw != "" {
 		if t, err := parseTimeParam(raw); err == nil {
-			params.ToTime = pgtype.Timestamptz{Time: t, Valid: true}
+			params.ToTime = sql.NullInt64{Int64: t.UnixMicro(), Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -88,21 +89,21 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	if raw := c.Query("before_id"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
-			params.BeforeID = pgtype.Int8{Int64: v, Valid: true}
+			params.BeforeID = sql.NullInt64{Int64: v, Valid: true}
 		} else {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
 	}
-	if params.FromTime.Valid && params.ToTime.Valid && !params.FromTime.Time.Before(params.ToTime.Time) {
+	if params.FromTime.Valid && params.ToTime.Valid && params.FromTime.Int64 >= params.ToTime.Int64 {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
 	if raw := c.Query("target_type"); raw != "" {
-		params.TargetType = pgtype.Text{String: raw, Valid: true}
+		params.TargetType = sql.NullString{String: raw, Valid: true}
 	}
 	if raw := c.Query("target_id"); raw != "" {
-		params.TargetID = pgtype.Text{String: raw, Valid: true}
+		params.TargetID = sql.NullString{String: raw, Valid: true}
 	}
 	q := requestStore(c, h.Store)
 	if export, _ := c.Get("urmail.audit_export"); export == true {
@@ -126,8 +127,8 @@ func (h *AuditHandler) List(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		params.BeforeID = pgtype.Int8{Int64: cursor.ID, Valid: true}
-		params.BeforeTime = pgtype.Timestamptz{Time: cursor.Time, Valid: true}
+		params.BeforeID = sql.NullInt64{Int64: cursor.ID, Valid: true}
+		params.BeforeTime = sql.NullInt64{Int64: cursor.Time.UnixMicro(), Valid: true}
 	}
 	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(c, params)
 	if err != nil {

@@ -12,9 +12,10 @@ import (
 )
 
 const getDeliveryEventTenantByQueueID = `-- name: GetDeliveryEventTenantByQueueID :one
+
 SELECT tenant_id, sender, sender_domain, message_id
 FROM delivery_events
-WHERE queue_id = $1 AND instance = $2
+WHERE queue_id = ?1 AND instance = ?2
 ORDER BY (status = 'queued') DESC, occurred_at DESC
 LIMIT 1
 `
@@ -31,6 +32,7 @@ type GetDeliveryEventTenantByQueueIDRow struct {
 	MessageID    pgtype.Text `json:"message_id"`
 }
 
+// scope: tenant
 // Platform-only correlation lets recipient status lines inherit the tenant
 // from the earlier queue acceptance event without exposing cross-tenant APIs.
 // Queue IDs are only unique per Postfix instance, so the instance name is
@@ -50,9 +52,21 @@ func (q *Queries) GetDeliveryEventTenantByQueueID(ctx context.Context, arg GetDe
 }
 
 const getTenantIDBySenderDomain = `-- name: GetTenantIDBySenderDomain :one
-SELECT tenant_id FROM domains WHERE fqdn = $1 AND status = 'active'
+
+
+
+
+
+SELECT tenant_id FROM domains WHERE fqdn = ?1 AND status = 'active'
 `
 
+// Platform-side daily-sent usage queries used by the SMTP policy service
+// (internal/mail/policy). The policy service resolves the tenant from the
+// mailbox address itself and runs outside a tenant context, so these queries
+// are exempt from the tenant_id predicate per AGENTS.md and therefore live in
+// a platform_*.sql file (M3 review P1-2).
+// (moved verbatim from usage.sql)
+// scope: tenant
 // Platform-only collector resolution; sender domain is matched to active owned domain.
 func (q *Queries) GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (int64, error) {
 	row := q.db.QueryRow(ctx, getTenantIDBySenderDomain, fqdn)
@@ -62,9 +76,11 @@ func (q *Queries) GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (i
 }
 
 const platformCommissionRate = `-- name: PlatformCommissionRate :one
-SELECT commission_bps FROM channels WHERE id=$1
+
+SELECT commission_bps FROM channels WHERE id=?1
 `
 
+// scope: platform
 func (q *Queries) PlatformCommissionRate(ctx context.Context, id int64) (int32, error) {
 	row := q.db.QueryRow(ctx, platformCommissionRate, id)
 	var commission_bps int32
@@ -73,13 +89,14 @@ func (q *Queries) PlatformCommissionRate(ctx context.Context, id int64) (int32, 
 }
 
 const platformInboundAllowed = `-- name: PlatformInboundAllowed :one
-SELECT COALESCE((SELECT urmail_mail_readable(d.tenant_id) AND urmail_domain_mail_ready(d.tenant_id,d.id) FROM domains d WHERE d.fqdn=split_part($1,'@',2)),true)::boolean AS allowed
+
+SELECT CAST(COALESCE((SELECT EXISTS(SELECT 1 FROM tenants rt WHERE rt.id=d.tenant_id AND rt.status='active') AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=d.tenant_id AND rd.id=d.id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready') FROM domains d WHERE d.fqdn=substr(CAST(?1 AS TEXT), instr(CAST(?1 AS TEXT),'@')+1)),true) AS BOOLEAN) AS allowed
 `
 
-func (q *Queries) PlatformInboundAllowed(ctx context.Context, splitPart string) (bool, error) {
-	row := q.db.QueryRow(ctx, platformInboundAllowed, splitPart)
+// scope: platform
+func (q *Queries) PlatformInboundAllowed(ctx context.Context, dollar_1 string) (bool, error) {
+	row := q.db.QueryRow(ctx, platformInboundAllowed, dollar_1)
 	var allowed bool
 	err := row.Scan(&allowed)
 	return allowed, err
 }
-

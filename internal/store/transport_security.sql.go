@@ -12,8 +12,9 @@ import (
 )
 
 const disableDomainTransportSecurity = `-- name: DisableDomainTransportSecurity :execrows
-UPDATE domain_transport_security SET enabled=false,version=version+1,updated_at=now()
-WHERE tenant_id=$1 AND domain_id=$2 AND version=$3 AND mtasts_mode='none' AND cache_safe_after<=now()
+
+UPDATE domain_transport_security SET enabled=false,version=version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND domain_id=?2 AND version=?3 AND mtasts_mode='none' AND cache_safe_after<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
 type DisableDomainTransportSecurityParams struct {
@@ -22,6 +23,7 @@ type DisableDomainTransportSecurityParams struct {
 	Version  int64 `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) DisableDomainTransportSecurity(ctx context.Context, arg DisableDomainTransportSecurityParams) (int64, error) {
 	result, err := q.db.Exec(ctx, disableDomainTransportSecurity, arg.TenantID, arg.DomainID, arg.Version)
 	if err != nil {
@@ -31,7 +33,8 @@ func (q *Queries) DisableDomainTransportSecurity(ctx context.Context, arg Disabl
 }
 
 const getDomainTransportSecurity = `-- name: GetDomainTransportSecurity :one
-SELECT id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, published_at, testing_since, cache_safe_after, observation_digest, observed_at, observation_status, observation_detail, version FROM domain_transport_security WHERE tenant_id=$1 AND domain_id=$2
+
+SELECT id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, published_at, testing_since, cache_safe_after, observation_digest, observed_at, observation_status, observation_detail, version FROM domain_transport_security WHERE tenant_id=?1 AND domain_id=?2
 `
 
 type GetDomainTransportSecurityParams struct {
@@ -39,6 +42,7 @@ type GetDomainTransportSecurityParams struct {
 	DomainID int64 `json:"domain_id"`
 }
 
+// scope: tenant
 func (q *Queries) GetDomainTransportSecurity(ctx context.Context, arg GetDomainTransportSecurityParams) (DomainTransportSecurity, error) {
 	row := q.db.QueryRow(ctx, getDomainTransportSecurity, arg.TenantID, arg.DomainID)
 	var i DomainTransportSecurity
@@ -67,8 +71,9 @@ func (q *Queries) GetDomainTransportSecurity(ctx context.Context, arg GetDomainT
 }
 
 const listDomainTLSReports = `-- name: ListDomainTLSReports :many
+
 SELECT id,report_digest,period_start,period_end,successful,failed,failures,received_at,source_verified
-FROM domain_tls_reports WHERE tenant_id=$1 AND domain_id=$2 ORDER BY received_at DESC,id DESC LIMIT 100
+FROM domain_tls_reports WHERE tenant_id=?1 AND domain_id=?2 ORDER BY received_at DESC,id DESC LIMIT 100
 `
 
 type ListDomainTLSReportsParams struct {
@@ -88,6 +93,7 @@ type ListDomainTLSReportsRow struct {
 	SourceVerified bool               `json:"source_verified"`
 }
 
+// scope: tenant
 func (q *Queries) ListDomainTLSReports(ctx context.Context, arg ListDomainTLSReportsParams) ([]ListDomainTLSReportsRow, error) {
 	rows, err := q.db.Query(ctx, listDomainTLSReports, arg.TenantID, arg.DomainID)
 	if err != nil {
@@ -119,8 +125,9 @@ func (q *Queries) ListDomainTLSReports(ctx context.Context, arg ListDomainTLSRep
 }
 
 const observeDomainTransportSecurity = `-- name: ObserveDomainTransportSecurity :execrows
-UPDATE domain_transport_security SET observation_digest=$3,observed_at=now(),observation_status=$4,observation_detail=$5
-WHERE tenant_id=$1 AND domain_id=$2 AND version=$6
+
+UPDATE domain_transport_security SET observation_digest=?3,observed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),observation_status=?4,observation_detail=?5
+WHERE tenant_id=?1 AND domain_id=?2 AND version=?6
 `
 
 type ObserveDomainTransportSecurityParams struct {
@@ -132,6 +139,7 @@ type ObserveDomainTransportSecurityParams struct {
 	Version           int64       `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) ObserveDomainTransportSecurity(ctx context.Context, arg ObserveDomainTransportSecurityParams) (int64, error) {
 	result, err := q.db.Exec(ctx, observeDomainTransportSecurity,
 		arg.TenantID,
@@ -148,29 +156,31 @@ func (q *Queries) ObserveDomainTransportSecurity(ctx context.Context, arg Observ
 }
 
 const publishDomainTransportSecurity = `-- name: PublishDomainTransportSecurity :one
+
 INSERT INTO domain_transport_security(tenant_id,domain_id,mtasts_policy_id,mtasts_mode,tls_rpt_rua,enabled,policy_mx,max_age,published_at,testing_since,cache_safe_after)
-SELECT $1,$2,$3,$4,$5,true,$6::text[],$7,now(),now(),now()+make_interval(secs=>$8::double precision)
-WHERE ($9::bigint>0 OR NOT EXISTS(SELECT 1 FROM domain_transport_security WHERE tenant_id=$1 AND domain_id=$2))
+SELECT ?1,?2,?3,?4,?5,true,?6,?7,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+(?8*1000000)
+WHERE (?9>0 OR NOT EXISTS(SELECT 1 FROM domain_transport_security WHERE tenant_id=sqlc.arg('tenant_id') AND domain_id=sqlc.arg('domain_id')))
 ON CONFLICT(tenant_id,domain_id) DO UPDATE SET
  mtasts_policy_id=excluded.mtasts_policy_id,mtasts_mode=excluded.mtasts_mode,tls_rpt_rua=excluded.tls_rpt_rua,
- enabled=true,policy_mx=excluded.policy_mx,max_age=excluded.max_age,published_at=now(),
- testing_since=CASE WHEN domain_transport_security.policy_mx=excluded.policy_mx AND domain_transport_security.mtasts_mode='testing' AND excluded.mtasts_mode='enforce' THEN domain_transport_security.testing_since ELSE now() END,
- cache_safe_after=greatest(domain_transport_security.cache_safe_after,excluded.cache_safe_after),observation_digest=NULL,observed_at=NULL,observation_status='unverified',observation_detail='{}',version=domain_transport_security.version+1,updated_at=now()
-WHERE domain_transport_security.version=$9 RETURNING id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, published_at, testing_since, cache_safe_after, observation_digest, observed_at, observation_status, observation_detail, version
+ enabled=true,policy_mx=excluded.policy_mx,max_age=excluded.max_age,published_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),
+ testing_since=CASE WHEN domain_transport_security.policy_mx=excluded.policy_mx AND domain_transport_security.mtasts_mode='testing' AND excluded.mtasts_mode='enforce' THEN domain_transport_security.testing_since ELSE (CAST(strftime('%s','now') AS INTEGER)*1000000) END,
+ cache_safe_after=max(domain_transport_security.cache_safe_after,excluded.cache_safe_after),observation_digest=NULL,observed_at=NULL,observation_status='unverified',observation_detail='{}',version=domain_transport_security.version+1,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE domain_transport_security.version=sqlc.arg('expected_version') RETURNING id, tenant_id, domain_id, mtasts_policy_id, mtasts_mode, tls_rpt_rua, created_at, updated_at, enabled, policy_mx, max_age, published_at, testing_since, cache_safe_after, observation_digest, observed_at, observation_status, observation_detail, version
 `
 
 type PublishDomainTransportSecurityParams struct {
-	TenantID        int64    `json:"tenant_id"`
-	DomainID        int64    `json:"domain_id"`
-	PolicyID        string   `json:"policy_id"`
-	Mode            string   `json:"mode"`
-	Rua             string   `json:"rua"`
-	Mx              []string `json:"mx"`
-	MaxAge          int32    `json:"max_age"`
-	CacheSeconds    float64  `json:"cache_seconds"`
-	ExpectedVersion int64    `json:"expected_version"`
+	TenantID        int64       `json:"tenant_id"`
+	DomainID        int64       `json:"domain_id"`
+	PolicyID        string      `json:"policy_id"`
+	Mode            string      `json:"mode"`
+	Rua             string      `json:"rua"`
+	Mx              []string    `json:"mx"`
+	MaxAge          int32       `json:"max_age"`
+	CacheSeconds    interface{} `json:"cache_seconds"`
+	ExpectedVersion interface{} `json:"expected_version"`
 }
 
+// scope: tenant
 func (q *Queries) PublishDomainTransportSecurity(ctx context.Context, arg PublishDomainTransportSecurityParams) (DomainTransportSecurity, error) {
 	row := q.db.QueryRow(ctx, publishDomainTransportSecurity,
 		arg.TenantID,

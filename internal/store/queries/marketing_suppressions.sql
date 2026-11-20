@@ -15,7 +15,7 @@ RETURNING *;
 -- name: CheckMarketingSuppression :one
 -- scope: tenant
 
-SELECT EXISTS (SELECT 1 FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2) AS suppressed;
+SELECT CAST(EXISTS (SELECT 1 FROM marketing_suppressions WHERE tenant_id = ?1 AND email = ?2) AS BOOLEAN) AS suppressed;
 
 -- name: RemoveMarketingSuppression :execrows
 -- scope: tenant

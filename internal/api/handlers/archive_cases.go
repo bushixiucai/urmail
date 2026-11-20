@@ -57,7 +57,7 @@ func (h *archiveCases) principal(c *gin.Context, scope string) (*store.Queries, 
 		return nil, 0, 0, false
 	}
 	q := requestStore(c, db.Queries(h.App.Pool))
-	allowed, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{T: tenant, U: actor, S: scope})
+	allowed, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{TenantID: tenant, UserID: actor, Scope: scope})
 	if err != nil {
 		authError(c, 503, "ARCHIVE_UNAVAILABLE")
 		return nil, 0, 0, false
@@ -237,7 +237,7 @@ func (h *archiveCases) detail(c *gin.Context) {
 	if members == nil {
 		members = []store.ArchiveCasesMembersRow{}
 	}
-	canExport, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{T: t, U: u, S: "export"})
+	canExport, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{TenantID: t, UserID: u, Scope: "export"})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -462,7 +462,7 @@ func (h *archiveCases) decide(c *gin.Context) {
 		authError(c, 403, "ARCHIVE_INDEPENDENT_APPROVAL_REQUIRED")
 		return
 	}
-	_, err = q.ArchiveCasesDecideApproval(c, store.ArchiveCasesDecideApprovalParams{TenantID: t, CaseID: row.ID, ApprovalID: id, ActorID: u, Decision: input.Decision, Reason: strings.TrimSpace(input.Reason), Digest: input.Digest})
+	_, err = q.ArchiveCasesDecideApproval(c, store.ArchiveCasesDecideApprovalParams{TenantID: t, CaseID: row.ID, ApprovalID: id, ActorID: pgtype.Int8{Int64: u, Valid: true}, Decision: input.Decision, Reason: strings.TrimSpace(input.Reason), Digest: input.Digest})
 	if err != nil {
 		archiveCaseError(c, err)
 		return

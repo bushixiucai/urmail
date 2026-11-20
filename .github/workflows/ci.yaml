@@ -137,10 +137,18 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # B5a: sqlc runs on the SQLite engine and only over the tenant query set
+      # (platform-only files are blocked in scripts/sqlite/b5-blocked-files.json);
+      # querier.go is the union of the whole *Queries surface. All four checks
+      # must be green before the tree is considered consistent.
       - name: sqlc drift check
         run: |
           bash scripts/ci-go-install.sh github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
-          "$(go env GOPATH)/bin/sqlc" generate
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          python3 scripts/sqlite/b5_query_set.py --check
+          python3 scripts/sqlite/gen_sqlc_overrides.py --check
+          python3 scripts/sqlite/gen_sqlc.py --check
+          python3 scripts/sqlite/gen_querier.py --check
           git diff --exit-code -- internal/store
 
       # Phase 1 S0: deprecated DB functions must stay unreferenced in code.

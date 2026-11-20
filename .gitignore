@@ -40,6 +40,7 @@ api/docs/api-docs.html
 # --- 本地数据 ---
 /data/
 /tmp/
+/.tmp/
 
 # Playwright
 web/test-results/

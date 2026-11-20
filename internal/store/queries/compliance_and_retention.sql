@@ -80,8 +80,10 @@ UPDATE retention_policies SET active=false,updated_at=(CAST(strftime('%s','now')
 -- name: GetRetentionPolicyAuthority :one
 -- scope: platform
 
--- app-pending: role/current_setting tenant gate → S2 decorator.
-SELECT EXISTS(SELECT 1 FROM compliance_grants g JOIN user_tenant_roles r ON r.tenant_id=g.tenant_id AND r.user_id=g.user_id
+SELECT CAST(EXISTS(SELECT 1 FROM compliance_grants g JOIN user_tenant_roles r ON r.tenant_id=g.tenant_id AND r.user_id=g.user_id
  WHERE g.tenant_id=@tenant_id AND g.id=@grant_id AND g.user_id=@created_by AND g.scope='retention_manage'
   AND NOT g.revoked AND g.owner_confirmed_at IS NOT NULL AND g.owner_confirmed_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND g.granted_by IS NOT NULL
-  AND length(trim(g.reason))>0 AND g.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND r.role IN('owner','admin')) AS allowed;
+  AND length(trim(g.reason))>0 AND g.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND r.role IN('owner','admin')) AS BOOLEAN) AS allowed;
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- GetRetentionPolicyAuthority: app-pending: role/current_setting tenant gate → S2 decorator.

@@ -7,21 +7,17 @@ package store
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const confirmRecallReview = `-- name: ConfirmRecallReview :one
-WITH changed AS (
- UPDATE recall_requests r SET status='pending',confirmed_at=statement_timestamp(),selected_copy_keys= $1::jsonb
- WHERE r.tenant_id= $2 AND r.id= $3 AND r.preview_actor_id= $4 AND r.preview_token= $5 AND r.preview_digest= $6
- AND r.preview_expires_at>statement_timestamp() AND r.status='preview'
- RETURNING r.id, r.tenant_id, r.message_id, r.requested_by, r.status, r.reason, r.created_at, r.archive_entry_id, r.mailbox_id, r.completed_at, r.preview_actor_id, r.preview_token, r.preview_digest, r.preview_snapshot, r.preview_expires_at, r.confirmed_at, r.selected_copy_keys, r.attempt_epoch, r.local_result, r.result_history
-)
-SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM changed UNION ALL SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests r
-WHERE r.tenant_id= $2 AND r.id= $3 AND r.preview_actor_id= $4 AND r.preview_token= $5 AND r.preview_digest= $6
-AND r.status IN('pending','local_recalled','failed','uncertain','expired') AND r.selected_copy_keys= $1::jsonb
-AND NOT EXISTS(SELECT 1 FROM changed) LIMIT 1
+
+UPDATE recall_requests SET status='pending', confirmed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000), selected_copy_keys= ?1
+WHERE tenant_id= ?2 AND id= ?3 AND preview_actor_id= ?4 AND preview_token= ?5 AND preview_digest= ?6
+ AND preview_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND status='preview'
+RETURNING id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history
 `
 
 type ConfirmRecallReviewParams struct {
@@ -33,30 +29,8 @@ type ConfirmRecallReviewParams struct {
 	Digest   pgtype.Text `json:"digest"`
 }
 
-type ConfirmRecallReviewRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
-}
-
-func (q *Queries) ConfirmRecallReview(ctx context.Context, arg ConfirmRecallReviewParams) (ConfirmRecallReviewRow, error) {
+// scope: tenant
+func (q *Queries) ConfirmRecallReview(ctx context.Context, arg ConfirmRecallReviewParams) (RecallRequests, error) {
 	row := q.db.QueryRow(ctx, confirmRecallReview,
 		arg.Selected,
 		arg.TenantID,
@@ -65,7 +39,56 @@ func (q *Queries) ConfirmRecallReview(ctx context.Context, arg ConfirmRecallRevi
 		arg.Token,
 		arg.Digest,
 	)
-	var i ConfirmRecallReviewRow
+	var i RecallRequests
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.MessageID,
+		&i.RequestedBy,
+		&i.Status,
+		&i.Reason,
+		&i.CreatedAt,
+		&i.ArchiveEntryID,
+		&i.MailboxID,
+		&i.CompletedAt,
+		&i.PreviewActorID,
+		&i.PreviewToken,
+		&i.PreviewDigest,
+		&i.PreviewSnapshot,
+		&i.PreviewExpiresAt,
+		&i.ConfirmedAt,
+		&i.SelectedCopyKeys,
+		&i.AttemptEpoch,
+		&i.LocalResult,
+		&i.ResultHistory,
+	)
+	return i, err
+}
+
+const getRecallReviewPreview = `-- name: GetRecallReviewPreview :one
+
+SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests r WHERE r.tenant_id= ?1 AND r.id= ?2
+ AND r.preview_actor_id= ?3 AND r.preview_token= ?4 AND r.preview_digest= ?5
+`
+
+type GetRecallReviewPreviewParams struct {
+	TenantID int64       `json:"tenant_id"`
+	RecallID int64       `json:"recall_id"`
+	ActorID  pgtype.Int8 `json:"actor_id"`
+	Token    pgtype.Text `json:"token"`
+	Digest   pgtype.Text `json:"digest"`
+}
+
+// scope: tenant
+func (q *Queries) GetRecallReviewPreview(ctx context.Context, arg GetRecallReviewPreviewParams) (RecallRequests, error) {
+	row := q.db.QueryRow(ctx, getRecallReviewPreview,
+		arg.TenantID,
+		arg.RecallID,
+		arg.ActorID,
+		arg.Token,
+		arg.Digest,
+	)
+	var i RecallRequests
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -92,11 +115,12 @@ func (q *Queries) ConfirmRecallReview(ctx context.Context, arg ConfirmRecallRevi
 }
 
 const recallMessageCopies = `-- name: RecallMessageCopies :many
+
 SELECT a.id,a.mailbox_id,a.subject,a.message_id,a.legal_hold,a.deleted_at,m.address,m.status AS mailbox_status,
 r.id AS recall_id,r.status AS recall_status,r.requested_by
 FROM archive_entries a LEFT JOIN mailboxes m ON m.tenant_id=a.tenant_id AND m.id=a.mailbox_id
 LEFT JOIN recall_requests r ON r.tenant_id=a.tenant_id AND r.archive_entry_id=a.id
-WHERE a.tenant_id=$1 AND a.message_id=(SELECT source.message_id FROM archive_entries source WHERE source.tenant_id=$1 AND source.id=$2)
+WHERE a.tenant_id=?1 AND a.message_id=(SELECT source.message_id FROM archive_entries source WHERE source.tenant_id=?1 AND source.id=?2)
 ORDER BY a.id LIMIT 101
 `
 
@@ -112,13 +136,14 @@ type RecallMessageCopiesRow struct {
 	MessageID     string             `json:"message_id"`
 	LegalHold     bool               `json:"legal_hold"`
 	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Address       pgtype.Text        `json:"address"`
-	MailboxStatus pgtype.Text        `json:"mailbox_status"`
-	RecallID      pgtype.Int8        `json:"recall_id"`
-	RecallStatus  pgtype.Text        `json:"recall_status"`
-	RequestedBy   pgtype.Int8        `json:"requested_by"`
+	Address       sql.NullString     `json:"address"`
+	MailboxStatus sql.NullString     `json:"mailbox_status"`
+	RecallID      sql.NullInt64      `json:"recall_id"`
+	RecallStatus  sql.NullString     `json:"recall_status"`
+	RequestedBy   sql.NullInt64      `json:"requested_by"`
 }
 
+// scope: tenant
 func (q *Queries) RecallMessageCopies(ctx context.Context, arg RecallMessageCopiesParams) ([]RecallMessageCopiesRow, error) {
 	rows, err := q.db.Query(ctx, recallMessageCopies, arg.TenantID, arg.ID)
 	if err != nil {
@@ -152,55 +177,30 @@ func (q *Queries) RecallMessageCopies(ctx context.Context, arg RecallMessageCopi
 }
 
 const storeRecallReviewPreview = `-- name: StoreRecallReviewPreview :one
-WITH changed AS (
- INSERT INTO recall_requests(tenant_id,archive_entry_id,mailbox_id,message_id,requested_by,status,
- preview_actor_id,preview_token,preview_digest,preview_snapshot,preview_expires_at,attempt_epoch)
- SELECT a.tenant_id,a.id,a.mailbox_id,a.message_id, $1::bigint,'preview', $1::bigint, $2::text, $3::text, $4::bytea,
- statement_timestamp()+interval '5 minutes',1 FROM archive_entries a WHERE a.tenant_id= $5 AND a.id= $6
- ON CONFLICT(tenant_id,archive_entry_id) DO UPDATE SET status='preview',reason=NULL,completed_at=NULL,
- preview_actor_id=EXCLUDED.preview_actor_id,preview_token=EXCLUDED.preview_token,preview_digest=EXCLUDED.preview_digest,preview_snapshot=EXCLUDED.preview_snapshot,
- preview_expires_at=EXCLUDED.preview_expires_at,confirmed_at=NULL,selected_copy_keys='[]',attempt_epoch=recall_requests.attempt_epoch+1,
- result_history=CASE WHEN recall_requests.confirmed_at IS NOT NULL THEN recall_requests.result_history||jsonb_build_array(jsonb_build_object('actor_id',recall_requests.preview_actor_id,'epoch',recall_requests.attempt_epoch,'digest',recall_requests.preview_digest,'selection',recall_requests.selected_copy_keys,'status',recall_requests.status,'result',recall_requests.local_result,'completed_at',recall_requests.completed_at)) ELSE recall_requests.result_history END,
- local_result='{"items":[]}'::jsonb
- WHERE (recall_requests.status<>'pending' OR recall_requests.preview_token IS NULL)
- RETURNING recall_requests.id, recall_requests.tenant_id, recall_requests.message_id, recall_requests.requested_by, recall_requests.status, recall_requests.reason, recall_requests.created_at, recall_requests.archive_entry_id, recall_requests.mailbox_id, recall_requests.completed_at, recall_requests.preview_actor_id, recall_requests.preview_token, recall_requests.preview_digest, recall_requests.preview_snapshot, recall_requests.preview_expires_at, recall_requests.confirmed_at, recall_requests.selected_copy_keys, recall_requests.attempt_epoch, recall_requests.local_result, recall_requests.result_history
-)
-SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM changed UNION ALL SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests r WHERE r.tenant_id= $5 AND r.archive_entry_id= $6 AND NOT EXISTS(SELECT 1 FROM changed) LIMIT 1
+
+INSERT INTO recall_requests(tenant_id, archive_entry_id, mailbox_id, message_id, requested_by, status,
+ preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, attempt_epoch)
+SELECT a.tenant_id, a.id, a.mailbox_id, a.message_id, ?1, 'preview', ?1, ?2, ?3, ?4,
+ (CAST(strftime('%s','now') AS INTEGER)*1000000)+300000000, 1 FROM archive_entries a
+WHERE a.tenant_id= ?5 AND a.id= ?6
+ON CONFLICT(tenant_id, archive_entry_id) DO UPDATE SET status='preview', reason=NULL, completed_at=NULL,
+ preview_actor_id=EXCLUDED.preview_actor_id, preview_token=EXCLUDED.preview_token, preview_digest=EXCLUDED.preview_digest,
+ preview_snapshot=EXCLUDED.preview_snapshot, preview_expires_at=EXCLUDED.preview_expires_at, confirmed_at=NULL,
+ selected_copy_keys='[]', attempt_epoch=recall_requests.attempt_epoch+1
+RETURNING id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history
 `
 
 type StoreRecallReviewPreviewParams struct {
-	ActorID  int64  `json:"actor_id"`
-	Token    string `json:"token"`
-	Digest   string `json:"digest"`
-	Snapshot []byte `json:"snapshot"`
-	TenantID int64  `json:"tenant_id"`
-	EntryID  int64  `json:"entry_id"`
+	ActorID  int64       `json:"actor_id"`
+	Token    pgtype.Text `json:"token"`
+	Digest   pgtype.Text `json:"digest"`
+	Snapshot []byte      `json:"snapshot"`
+	TenantID int64       `json:"tenant_id"`
+	EntryID  int64       `json:"entry_id"`
 }
 
-type StoreRecallReviewPreviewRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
-}
-
-func (q *Queries) StoreRecallReviewPreview(ctx context.Context, arg StoreRecallReviewPreviewParams) (StoreRecallReviewPreviewRow, error) {
+// scope: tenant
+func (q *Queries) StoreRecallReviewPreview(ctx context.Context, arg StoreRecallReviewPreviewParams) (RecallRequests, error) {
 	row := q.db.QueryRow(ctx, storeRecallReviewPreview,
 		arg.ActorID,
 		arg.Token,
@@ -209,7 +209,7 @@ func (q *Queries) StoreRecallReviewPreview(ctx context.Context, arg StoreRecallR
 		arg.TenantID,
 		arg.EntryID,
 	)
-	var i StoreRecallReviewPreviewRow
+	var i RecallRequests
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,

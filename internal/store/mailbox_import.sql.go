@@ -12,19 +12,20 @@ import (
 )
 
 const clearExpiredMailboxImportPayloads = `-- name: ClearExpiredMailboxImportPayloads :exec
-UPDATE mailbox_import_items i SET raw_secret='' FROM mailbox_import_jobs j
-WHERE i.tenant_id=$1 AND j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id
-AND j.payload_expires_at<=now()
+
+UPDATE mailbox_import_items SET raw_secret=''  WHERE mailbox_import_items.tenant_id=?1 AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=mailbox_import_items.tenant_id AND j.mailbox_id=mailbox_import_items.mailbox_id AND j.id=mailbox_import_items.job_id AND j.payload_expires_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000))
 `
 
+// scope: tenant
 func (q *Queries) ClearExpiredMailboxImportPayloads(ctx context.Context, tenantID int64) error {
 	_, err := q.db.Exec(ctx, clearExpiredMailboxImportPayloads, tenantID)
 	return err
 }
 
 const createMailboxImportItem = `-- name: CreateMailboxImportItem :exec
+
 INSERT INTO mailbox_import_items(tenant_id,mailbox_id,job_id,item_index,subject,message_id,raw_sha256,raw_bytes,raw_secret,status,error_code,duplicate_of,baseline_uids)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
 `
 
 type CreateMailboxImportItemParams struct {
@@ -43,6 +44,7 @@ type CreateMailboxImportItemParams struct {
 	BaselineUids []int64 `json:"baseline_uids"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMailboxImportItem(ctx context.Context, arg CreateMailboxImportItemParams) error {
 	_, err := q.db.Exec(ctx, createMailboxImportItem,
 		arg.TenantID,
@@ -63,8 +65,9 @@ func (q *Queries) CreateMailboxImportItem(ctx context.Context, arg CreateMailbox
 }
 
 const createMailboxImportJob = `-- name: CreateMailboxImportJob :one
+
 INSERT INTO mailbox_import_jobs(tenant_id,mailbox_id,request_key,format,filename,folder,uid_validity,source_digest,preview_digest,duplicate_policy,source_bytes)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at
 `
 
 type CreateMailboxImportJobParams struct {
@@ -81,6 +84,7 @@ type CreateMailboxImportJobParams struct {
 	SourceBytes     int64  `json:"source_bytes"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMailboxImportJob(ctx context.Context, arg CreateMailboxImportJobParams) (MailboxImportJobs, error) {
 	row := q.db.QueryRow(ctx, createMailboxImportJob,
 		arg.TenantID,
@@ -124,7 +128,8 @@ func (q *Queries) CreateMailboxImportJob(ctx context.Context, arg CreateMailboxI
 }
 
 const getMailboxImportByKey = `-- name: GetMailboxImportByKey :one
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=$1 AND mailbox_id=$2 AND request_key=$3
+
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND request_key=?3
 `
 
 type GetMailboxImportByKeyParams struct {
@@ -133,6 +138,7 @@ type GetMailboxImportByKeyParams struct {
 	RequestKey string `json:"request_key"`
 }
 
+// scope: tenant
 func (q *Queries) GetMailboxImportByKey(ctx context.Context, arg GetMailboxImportByKeyParams) (MailboxImportJobs, error) {
 	row := q.db.QueryRow(ctx, getMailboxImportByKey, arg.TenantID, arg.MailboxID, arg.RequestKey)
 	var i MailboxImportJobs
@@ -164,7 +170,8 @@ func (q *Queries) GetMailboxImportByKey(ctx context.Context, arg GetMailboxImpor
 }
 
 const getMailboxImportJob = `-- name: GetMailboxImportJob :one
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3
+
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3
 `
 
 type GetMailboxImportJobParams struct {
@@ -173,6 +180,7 @@ type GetMailboxImportJobParams struct {
 	ID        int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetMailboxImportJob(ctx context.Context, arg GetMailboxImportJobParams) (MailboxImportJobs, error) {
 	row := q.db.QueryRow(ctx, getMailboxImportJob, arg.TenantID, arg.MailboxID, arg.ID)
 	var i MailboxImportJobs
@@ -204,7 +212,8 @@ func (q *Queries) GetMailboxImportJob(ctx context.Context, arg GetMailboxImportJ
 }
 
 const listMailboxImportItems = `-- name: ListMailboxImportItems :many
-SELECT tenant_id, mailbox_id, job_id, item_index, subject, message_id, raw_sha256, raw_bytes, raw_secret, selected, status, error_code, duplicate_of, baseline_uids, destination_uid, attempts, attempt_started_at, reconciled_at, reconcile_absent, review_reason, updated_at FROM mailbox_import_items WHERE tenant_id=$1 AND mailbox_id=$2 AND job_id=$3 ORDER BY item_index
+
+SELECT tenant_id, mailbox_id, job_id, item_index, subject, message_id, raw_sha256, raw_bytes, raw_secret, selected, status, error_code, duplicate_of, baseline_uids, destination_uid, attempts, attempt_started_at, reconciled_at, reconcile_absent, review_reason, updated_at FROM mailbox_import_items WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3 ORDER BY item_index
 `
 
 type ListMailboxImportItemsParams struct {
@@ -213,6 +222,7 @@ type ListMailboxImportItemsParams struct {
 	JobID     int64 `json:"job_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListMailboxImportItems(ctx context.Context, arg ListMailboxImportItemsParams) ([]MailboxImportItems, error) {
 	rows, err := q.db.Query(ctx, listMailboxImportItems, arg.TenantID, arg.MailboxID, arg.JobID)
 	if err != nil {
@@ -256,7 +266,8 @@ func (q *Queries) ListMailboxImportItems(ctx context.Context, arg ListMailboxImp
 }
 
 const listMailboxImportJobs = `-- name: ListMailboxImportJobs :many
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=$1 AND mailbox_id=$2 ORDER BY id DESC LIMIT 20
+
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 ORDER BY id DESC LIMIT 20
 `
 
 type ListMailboxImportJobsParams struct {
@@ -264,6 +275,7 @@ type ListMailboxImportJobsParams struct {
 	MailboxID int64 `json:"mailbox_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListMailboxImportJobs(ctx context.Context, arg ListMailboxImportJobsParams) ([]MailboxImportJobs, error) {
 	rows, err := q.db.Query(ctx, listMailboxImportJobs, arg.TenantID, arg.MailboxID)
 	if err != nil {
@@ -308,7 +320,8 @@ func (q *Queries) ListMailboxImportJobs(ctx context.Context, arg ListMailboxImpo
 }
 
 const lockMailboxImportJob = `-- name: LockMailboxImportJob :one
-SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 FOR UPDATE
+
+SELECT id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at FROM mailbox_import_jobs WHERE tenant_id=?1 AND mailbox_id=?2 AND id=?3
 `
 
 type LockMailboxImportJobParams struct {
@@ -317,6 +330,7 @@ type LockMailboxImportJobParams struct {
 	ID        int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) LockMailboxImportJob(ctx context.Context, arg LockMailboxImportJobParams) (MailboxImportJobs, error) {
 	row := q.db.QueryRow(ctx, lockMailboxImportJob, arg.TenantID, arg.MailboxID, arg.ID)
 	var i MailboxImportJobs
@@ -348,9 +362,9 @@ func (q *Queries) LockMailboxImportJob(ctx context.Context, arg LockMailboxImpor
 }
 
 const lockMailboxImportOwner = `-- name: LockMailboxImportOwner :one
+
 SELECT id,bytes_used,quota_bytes FROM mailboxes
-WHERE tenant_id=$1 AND id=$2 AND status='active'
-FOR UPDATE
+WHERE tenant_id=?1 AND id=?2 AND status='active'
 `
 
 type LockMailboxImportOwnerParams struct {
@@ -364,6 +378,7 @@ type LockMailboxImportOwnerRow struct {
 	QuotaBytes int64 `json:"quota_bytes"`
 }
 
+// scope: tenant
 func (q *Queries) LockMailboxImportOwner(ctx context.Context, arg LockMailboxImportOwnerParams) (LockMailboxImportOwnerRow, error) {
 	row := q.db.QueryRow(ctx, lockMailboxImportOwner, arg.TenantID, arg.MailboxID)
 	var i LockMailboxImportOwnerRow
@@ -372,8 +387,9 @@ func (q *Queries) LockMailboxImportOwner(ctx context.Context, arg LockMailboxImp
 }
 
 const mailboxImportItemViews = `-- name: MailboxImportItemViews :one
-SELECT COALESCE(jsonb_agg(to_jsonb(i)-'raw_secret' ORDER BY item_index),'[]'::jsonb)::jsonb AS items
-FROM mailbox_import_items i WHERE tenant_id=$1 AND mailbox_id=$2 AND job_id=$3
+
+SELECT CAST(COALESCE(json_group_array(json_extract(i, '$.raw_secret')),'[]') AS BLOB) AS items
+FROM mailbox_import_items i WHERE tenant_id=?1 AND mailbox_id=?2 AND job_id=?3
 `
 
 type MailboxImportItemViewsParams struct {
@@ -382,6 +398,7 @@ type MailboxImportItemViewsParams struct {
 	JobID     int64 `json:"job_id"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxImportItemViews(ctx context.Context, arg MailboxImportItemViewsParams) ([]byte, error) {
 	row := q.db.QueryRow(ctx, mailboxImportItemViews, arg.TenantID, arg.MailboxID, arg.JobID)
 	var items []byte
@@ -390,9 +407,9 @@ func (q *Queries) MailboxImportItemViews(ctx context.Context, arg MailboxImportI
 }
 
 const mailboxImportRecoverExpiredLeases = `-- name: MailboxImportRecoverExpiredLeases :exec
-UPDATE mailbox_import_items i SET status='unknown',error_code='MAIL_IMPORT_ACK_UNKNOWN',reconciled_at=NULL,reconcile_absent=false,updated_at=now()
-FROM mailbox_import_jobs j WHERE i.tenant_id=$1 AND i.mailbox_id=$2 AND j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id
-AND i.status='importing' AND (j.lease_until IS NULL OR j.lease_until<=now())
+
+UPDATE mailbox_import_items SET status='unknown',error_code='MAIL_IMPORT_ACK_UNKNOWN',reconciled_at=NULL,reconcile_absent=false,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ WHERE mailbox_import_items.tenant_id=?1 AND mailbox_import_items.mailbox_id=?2 AND status='importing' AND EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=mailbox_import_items.tenant_id AND j.mailbox_id=mailbox_import_items.mailbox_id AND j.id=mailbox_import_items.job_id AND (j.lease_until IS NULL OR j.lease_until<=(CAST(strftime('%s','now') AS INTEGER)*1000000)))
 `
 
 type MailboxImportRecoverExpiredLeasesParams struct {
@@ -400,15 +417,17 @@ type MailboxImportRecoverExpiredLeasesParams struct {
 	MailboxID int64 `json:"mailbox_id"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxImportRecoverExpiredLeases(ctx context.Context, arg MailboxImportRecoverExpiredLeasesParams) error {
 	_, err := q.db.Exec(ctx, mailboxImportRecoverExpiredLeases, arg.TenantID, arg.MailboxID)
 	return err
 }
 
 const mailboxImportReservedBytes = `-- name: MailboxImportReservedBytes :one
-SELECT COALESCE(sum(i.raw_bytes),0)::bigint FROM mailbox_import_items i
+
+SELECT CAST(COALESCE(sum(i.raw_bytes),0) AS INTEGER) FROM mailbox_import_items i
 JOIN mailbox_import_jobs j ON j.tenant_id=i.tenant_id AND j.mailbox_id=i.mailbox_id AND j.id=i.job_id
-WHERE i.tenant_id=$1 AND i.mailbox_id=$2 AND j.id<>$3 AND j.status NOT IN('completed','canceled')
+WHERE i.tenant_id=?1 AND i.mailbox_id=?2 AND j.id<>?3 AND j.status NOT IN('completed','canceled')
 AND i.status IN('pending','importing','unknown')
 `
 
@@ -418,6 +437,7 @@ type MailboxImportReservedBytesParams struct {
 	ID        int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxImportReservedBytes(ctx context.Context, arg MailboxImportReservedBytesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, mailboxImportReservedBytes, arg.TenantID, arg.MailboxID, arg.ID)
 	var column_1 int64
@@ -426,10 +446,11 @@ func (q *Queries) MailboxImportReservedBytes(ctx context.Context, arg MailboxImp
 }
 
 const mailboxImportStorageBudget = `-- name: MailboxImportStorageBudget :one
-SELECT count(*) FILTER(WHERE j.mailbox_id=$1)::bigint AS mailbox_jobs,
- COALESCE(sum(j.source_bytes)FILTER(WHERE j.mailbox_id=$1),0)::bigint AS mailbox_bytes,
- COALESCE(sum(j.source_bytes),0)::bigint AS tenant_bytes
-FROM mailbox_import_jobs j WHERE j.tenant_id=$2 AND j.payload_expires_at>now()
+
+SELECT count(CASE WHEN j.mailbox_id=?1 THEN 1 END) AS mailbox_jobs,
+ CAST(COALESCE(sum(CASE WHEN j.mailbox_id=?1 THEN j.source_bytes ELSE 0 END),0) AS INTEGER) AS mailbox_bytes,
+ CAST(COALESCE(sum(j.source_bytes),0) AS INTEGER) AS tenant_bytes
+FROM mailbox_import_jobs j WHERE j.tenant_id=?2 AND j.payload_expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
 AND (j.status NOT IN('completed','canceled') OR EXISTS(SELECT 1 FROM mailbox_import_items i
  WHERE i.tenant_id=j.tenant_id AND i.mailbox_id=j.mailbox_id AND i.job_id=j.id AND i.raw_secret<>''))
 `
@@ -445,6 +466,7 @@ type MailboxImportStorageBudgetRow struct {
 	TenantBytes  int64 `json:"tenant_bytes"`
 }
 
+// scope: tenant
 func (q *Queries) MailboxImportStorageBudget(ctx context.Context, arg MailboxImportStorageBudgetParams) (MailboxImportStorageBudgetRow, error) {
 	row := q.db.QueryRow(ctx, mailboxImportStorageBudget, arg.MailboxID, arg.TenantID)
 	var i MailboxImportStorageBudgetRow
@@ -453,19 +475,21 @@ func (q *Queries) MailboxImportStorageBudget(ctx context.Context, arg MailboxImp
 }
 
 const recordMailboxImportAudit = `-- name: RecordMailboxImportAudit :exec
+
 INSERT INTO audit_logs(tenant_id,action,target_id,detail)
-SELECT j.tenant_id,$1::text,j.id::text,jsonb_build_object('mailbox_id',j.mailbox_id,'version',j.version,'detail',$2::jsonb)
-FROM mailbox_import_jobs j WHERE j.tenant_id=$3 AND j.mailbox_id=$4 AND j.id=$5
+SELECT j.tenant_id,?1,j.id,json_object('mailbox_id',j.mailbox_id,'version',j.version,'detail',?2)
+FROM mailbox_import_jobs j WHERE j.tenant_id=?3 AND j.mailbox_id=?4 AND j.id=?5
 `
 
 type RecordMailboxImportAuditParams struct {
-	Action    string `json:"action"`
-	Detail    []byte `json:"detail"`
-	TenantID  int64  `json:"tenant_id"`
-	MailboxID int64  `json:"mailbox_id"`
-	JobID     int64  `json:"job_id"`
+	Action    string      `json:"action"`
+	Detail    interface{} `json:"detail"`
+	TenantID  int64       `json:"tenant_id"`
+	MailboxID int64       `json:"mailbox_id"`
+	JobID     int64       `json:"job_id"`
 }
 
+// scope: tenant
 func (q *Queries) RecordMailboxImportAudit(ctx context.Context, arg RecordMailboxImportAuditParams) error {
 	_, err := q.db.Exec(ctx, recordMailboxImportAudit,
 		arg.Action,
@@ -478,15 +502,16 @@ func (q *Queries) RecordMailboxImportAudit(ctx context.Context, arg RecordMailbo
 }
 
 const setMailboxImportItem = `-- name: SetMailboxImportItem :execrows
-UPDATE mailbox_import_items AS i SET selected=$1,status=$2,error_code=$3,
- baseline_uids=$4::bigint[],destination_uid=$5,
- attempts=attempts+CASE WHEN $6::boolean THEN 1 ELSE 0 END,
- attempt_started_at=CASE WHEN $6::boolean THEN now() ELSE attempt_started_at END,
- reconciled_at=CASE WHEN $7::boolean THEN now() ELSE reconciled_at END,
- reconcile_absent=$8,review_reason=$9,
- raw_secret=CASE WHEN $10::boolean THEN '' ELSE raw_secret END,updated_at=now()
-WHERE i.tenant_id=$11 AND i.mailbox_id=$12 AND i.job_id=$13 AND i.item_index=$14
-AND ($15::text='' OR EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=$11 AND j.mailbox_id=$12 AND j.id=$13 AND j.lease_token=$15))
+
+UPDATE mailbox_import_items SET selected=?1,status=?2,error_code=?3,
+ baseline_uids=?4,destination_uid=?5,
+ attempts=attempts+CASE WHEN CAST(?6 AS BOOLEAN) THEN 1 ELSE 0 END,
+ attempt_started_at=CASE WHEN CAST(?6 AS BOOLEAN) THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE attempt_started_at END,
+ reconciled_at=CASE WHEN CAST(?7 AS BOOLEAN) THEN (CAST(strftime('%s','now') AS INTEGER)*1000000) ELSE reconciled_at END,
+ reconcile_absent=?8,review_reason=?9,
+ raw_secret=CASE WHEN CAST(?10 AS BOOLEAN) THEN '' ELSE raw_secret END,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE mailbox_import_items.tenant_id=?11 AND mailbox_import_items.mailbox_id=?12 AND mailbox_import_items.job_id=?13 AND mailbox_import_items.item_index=?14
+AND (CAST(?15 AS TEXT)='' OR EXISTS(SELECT 1 FROM mailbox_import_jobs j WHERE j.tenant_id=?11 AND j.mailbox_id=?12 AND j.id=?13 AND j.lease_token=CAST(?15 AS TEXT)))
 `
 
 type SetMailboxImportItemParams struct {
@@ -507,6 +532,7 @@ type SetMailboxImportItemParams struct {
 	LeaseFence      string      `json:"lease_fence"`
 }
 
+// scope: tenant
 func (q *Queries) SetMailboxImportItem(ctx context.Context, arg SetMailboxImportItemParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setMailboxImportItem,
 		arg.Selected,
@@ -532,11 +558,12 @@ func (q *Queries) SetMailboxImportItem(ctx context.Context, arg SetMailboxImport
 }
 
 const setMailboxImportJob = `-- name: SetMailboxImportJob :one
-UPDATE mailbox_import_jobs SET status=$1,version=version+1,
- confirmed_at=CASE WHEN $2::boolean THEN COALESCE(confirmed_at,now()) ELSE confirmed_at END,
- cancel_requested=$3,lease_token=$4,lease_until=$5,updated_at=now()
-WHERE tenant_id=$6 AND mailbox_id=$7 AND id=$8
-AND version=$9 RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at
+
+UPDATE mailbox_import_jobs SET status=?1,version=version+1,
+ confirmed_at=CASE WHEN CAST(?2 AS BOOLEAN) THEN COALESCE(confirmed_at,(CAST(strftime('%s','now') AS INTEGER)*1000000)) ELSE confirmed_at END,
+ cancel_requested=?3,lease_token=?4,lease_until=?5,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?6 AND mailbox_id=?7 AND id=?8
+AND version=?9 RETURNING id, tenant_id, mailbox_id, request_key, format, filename, folder, uid_validity, source_digest, preview_digest, duplicate_policy, source_bytes, status, version, preview_expires_at, payload_expires_at, confirmed_at, cancel_requested, lease_token, lease_until, created_at, updated_at
 `
 
 type SetMailboxImportJobParams struct {
@@ -551,6 +578,7 @@ type SetMailboxImportJobParams struct {
 	ExpectedVersion int64              `json:"expected_version"`
 }
 
+// scope: tenant
 func (q *Queries) SetMailboxImportJob(ctx context.Context, arg SetMailboxImportJobParams) (MailboxImportJobs, error) {
 	row := q.db.QueryRow(ctx, setMailboxImportJob,
 		arg.Status,

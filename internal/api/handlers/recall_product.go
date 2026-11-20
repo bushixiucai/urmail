@@ -218,7 +218,7 @@ func (h *RecallHandler) Preview(c *gin.Context) {
 				authError(c, 503, "ARCHIVE_UNAVAILABLE")
 				return
 			}
-			stored, saveErr := q.StoreRecallReviewPreview(ctx, store.StoreRecallReviewPreviewParams{TenantID: tenant, ActorID: actor, EntryID: source.ID, Token: uuid.NewString(), Digest: digest, Snapshot: encoded})
+			stored, saveErr := q.StoreRecallReviewPreview(ctx, store.StoreRecallReviewPreviewParams{TenantID: tenant, ActorID: actor, EntryID: source.ID, Token: pgtype.Text{String: uuid.NewString(), Valid: true}, Digest: pgtype.Text{String: digest, Valid: true}, Snapshot: encoded})
 			if saveErr != nil {
 				recallProductError(c, saveErr)
 				return

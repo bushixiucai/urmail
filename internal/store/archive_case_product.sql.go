@@ -12,10 +12,11 @@ import (
 )
 
 const archiveCasesAddMember = `-- name: ArchiveCasesAddMember :execrows
+
 INSERT INTO archive_investigation_members(tenant_id,investigation_id,user_id)
-SELECT $1::bigint,i.id,$2::bigint FROM archive_investigations i
-WHERE i.tenant_id= $1 AND i.id= $3 AND i.created_by= $4 AND i.status='open' AND i.version= $5
-AND urmail_archive_case_grant($1,$2,'full_content')
+SELECT ?1,i.id,?2 FROM archive_investigations i
+WHERE i.tenant_id= ?1 AND i.id= ?3 AND i.created_by= ?4 AND i.status='open' AND i.version= ?5
+AND EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id='full_content' AND cg.scope=?2 AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>'full_content' AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin'))
 ON CONFLICT(investigation_id,user_id) DO UPDATE SET removed_at=NULL
 `
 
@@ -27,6 +28,7 @@ type ArchiveCasesAddMemberParams struct {
 	Version  int64 `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesAddMember(ctx context.Context, arg ArchiveCasesAddMemberParams) (int64, error) {
 	result, err := q.db.Exec(ctx, archiveCasesAddMember,
 		arg.TenantID,
@@ -42,10 +44,11 @@ func (q *Queries) ArchiveCasesAddMember(ctx context.Context, arg ArchiveCasesAdd
 }
 
 const archiveCasesAddSource = `-- name: ArchiveCasesAddSource :execrows
+
 INSERT INTO archive_investigation_sources(tenant_id,investigation_id,archive_entry_id,added_by)
-SELECT $1::bigint,i.id,e.id,$2::bigint FROM archive_investigations i JOIN archive_entries e ON e.tenant_id=i.tenant_id
-WHERE i.tenant_id= $1 AND i.id= $3 AND i.status='open' AND i.version= $4 AND e.id= $5
-AND e.deleted_at IS NULL AND e.mailbox_id IS NOT NULL AND e.raw_sha256 ~ '^[0-9a-f]{64}$'
+SELECT ?1,i.id,e.id,?2 FROM archive_investigations i JOIN archive_entries e ON e.tenant_id=i.tenant_id
+WHERE i.tenant_id= ?1 AND i.id= ?3 AND i.status='open' AND i.version= ?4 AND e.id= ?5
+AND e.deleted_at IS NULL AND e.mailbox_id IS NOT NULL AND (length(e.raw_sha256)=64 AND e.raw_sha256 GLOB '[0-9a-f]*')
 ON CONFLICT(investigation_id,archive_entry_id) DO NOTHING
 `
 
@@ -57,6 +60,7 @@ type ArchiveCasesAddSourceParams struct {
 	EntryID  int64 `json:"entry_id"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesAddSource(ctx context.Context, arg ArchiveCasesAddSourceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, archiveCasesAddSource,
 		arg.TenantID,
@@ -72,8 +76,9 @@ func (q *Queries) ArchiveCasesAddSource(ctx context.Context, arg ArchiveCasesAdd
 }
 
 const archiveCasesApproval = `-- name: ArchiveCasesApproval :one
+
 SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
-FROM archive_approval_requests WHERE tenant_id=$1 AND investigation_id=$2 AND id=$3 AND case_version>0 FOR UPDATE
+FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND case_version>0
 `
 
 type ArchiveCasesApprovalParams struct {
@@ -98,6 +103,7 @@ type ArchiveCasesApprovalRow struct {
 	DecisionReason  string             `json:"decision_reason"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesApproval(ctx context.Context, arg ArchiveCasesApprovalParams) (ArchiveCasesApprovalRow, error) {
 	row := q.db.QueryRow(ctx, archiveCasesApproval, arg.TenantID, arg.InvestigationID, arg.ID)
 	var i ArchiveCasesApprovalRow
@@ -120,8 +126,9 @@ func (q *Queries) ArchiveCasesApproval(ctx context.Context, arg ArchiveCasesAppr
 }
 
 const archiveCasesApprovals = `-- name: ArchiveCasesApprovals :many
+
 SELECT id,tenant_id,investigation_id,requester_user_id,action,source_digest,state,approver_user_id,decided_at,expires_at,case_version,source_snapshot,decision_reason
-FROM archive_approval_requests WHERE tenant_id=$1 AND investigation_id=$2 AND case_version>0 ORDER BY id DESC LIMIT 100
+FROM archive_approval_requests WHERE tenant_id=?1 AND investigation_id=?2 AND case_version>0 ORDER BY id DESC LIMIT 100
 `
 
 type ArchiveCasesApprovalsParams struct {
@@ -145,6 +152,7 @@ type ArchiveCasesApprovalsRow struct {
 	DecisionReason  string             `json:"decision_reason"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesApprovals(ctx context.Context, arg ArchiveCasesApprovalsParams) ([]ArchiveCasesApprovalsRow, error) {
 	rows, err := q.db.Query(ctx, archiveCasesApprovals, arg.TenantID, arg.InvestigationID)
 	if err != nil {
@@ -180,7 +188,8 @@ func (q *Queries) ArchiveCasesApprovals(ctx context.Context, arg ArchiveCasesApp
 }
 
 const archiveCasesClose = `-- name: ArchiveCasesClose :one
-UPDATE archive_investigations SET status='closed' WHERE tenant_id=$1 AND id=$2 AND created_by=$3 AND status='open' AND version=$4 RETURNING id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at
+
+UPDATE archive_investigations SET status='closed' WHERE tenant_id=?1 AND id=?2 AND created_by=?3 AND status='open' AND version=?4 RETURNING id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at
 `
 
 type ArchiveCasesCloseParams struct {
@@ -190,6 +199,7 @@ type ArchiveCasesCloseParams struct {
 	Version   int64 `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesClose(ctx context.Context, arg ArchiveCasesCloseParams) (ArchiveInvestigations, error) {
 	row := q.db.QueryRow(ctx, archiveCasesClose,
 		arg.TenantID,
@@ -214,31 +224,24 @@ func (q *Queries) ArchiveCasesClose(ctx context.Context, arg ArchiveCasesClosePa
 	return i, err
 }
 
-type ArchiveCasesCreateParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	ActorID    int64              `json:"actor_id"`
-	Title      string             `json:"title"`
-	Purpose    string             `json:"purpose"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-	RequestKey string             `json:"request_key"`
-}
-
 const archiveCasesDecideApproval = `-- name: ArchiveCasesDecideApproval :one
-UPDATE archive_approval_requests SET state= $1::text,approver_user_id= $2::bigint,decided_at=now(),decision_reason= $3::text
-WHERE tenant_id= $4 AND investigation_id= $5 AND id= $6 AND state='pending' AND expires_at>now()
-AND requester_user_id<> $2 AND source_digest= $7 RETURNING id
+
+UPDATE archive_approval_requests SET state= ?1,approver_user_id= ?2,decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),decision_reason= ?3
+WHERE tenant_id= ?4 AND investigation_id= ?5 AND id= ?6 AND state='pending' AND expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+AND requester_user_id<> ?2 AND source_digest= ?7 RETURNING id
 `
 
 type ArchiveCasesDecideApprovalParams struct {
-	Decision   string `json:"decision"`
-	ActorID    int64  `json:"actor_id"`
-	Reason     string `json:"reason"`
-	TenantID   int64  `json:"tenant_id"`
-	CaseID     int64  `json:"case_id"`
-	ApprovalID int64  `json:"approval_id"`
-	Digest     string `json:"digest"`
+	Decision   string      `json:"decision"`
+	ActorID    pgtype.Int8 `json:"actor_id"`
+	Reason     string      `json:"reason"`
+	TenantID   int64       `json:"tenant_id"`
+	CaseID     int64       `json:"case_id"`
+	ApprovalID int64       `json:"approval_id"`
+	Digest     string      `json:"digest"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesDecideApproval(ctx context.Context, arg ArchiveCasesDecideApprovalParams) (int64, error) {
 	row := q.db.QueryRow(ctx, archiveCasesDecideApproval,
 		arg.Decision,
@@ -255,8 +258,9 @@ func (q *Queries) ArchiveCasesDecideApproval(ctx context.Context, arg ArchiveCas
 }
 
 const archiveCasesEligibleMembers = `-- name: ArchiveCasesEligibleMembers :many
+
 SELECT r.user_id,u.email FROM user_tenant_roles r JOIN users u ON u.id=r.user_id
-WHERE r.tenant_id=$1 AND urmail_archive_case_grant(r.tenant_id,r.user_id,'full_content') ORDER BY u.email
+WHERE r.tenant_id=?1 AND EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=r.tenant_id AND cg.user_id='full_content' AND cg.scope=r.user_id AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>'full_content' AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) ORDER BY u.email
 `
 
 type ArchiveCasesEligibleMembersRow struct {
@@ -264,6 +268,7 @@ type ArchiveCasesEligibleMembersRow struct {
 	Email  string `json:"email"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesEligibleMembers(ctx context.Context, tenantID int64) ([]ArchiveCasesEligibleMembersRow, error) {
 	rows, err := q.db.Query(ctx, archiveCasesEligibleMembers, tenantID)
 	if err != nil {
@@ -285,7 +290,8 @@ func (q *Queries) ArchiveCasesEligibleMembers(ctx context.Context, tenantID int6
 }
 
 const archiveCasesGet = `-- name: ArchiveCasesGet :one
-SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=$1 AND id=$2
+
+SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2
 `
 
 type ArchiveCasesGetParams struct {
@@ -293,6 +299,7 @@ type ArchiveCasesGetParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesGet(ctx context.Context, arg ArchiveCasesGetParams) (ArchiveInvestigations, error) {
 	row := q.db.QueryRow(ctx, archiveCasesGet, arg.TenantID, arg.ID)
 	var i ArchiveInvestigations
@@ -313,7 +320,8 @@ func (q *Queries) ArchiveCasesGet(ctx context.Context, arg ArchiveCasesGetParams
 }
 
 const archiveCasesGetEvidence = `-- name: ArchiveCasesGetEvidence :one
-SELECT tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at FROM archive_evidence_exports WHERE tenant_id=$1 AND approval_id=$2
+
+SELECT tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at FROM archive_evidence_exports WHERE tenant_id=?1 AND approval_id=?2
 `
 
 type ArchiveCasesGetEvidenceParams struct {
@@ -321,6 +329,7 @@ type ArchiveCasesGetEvidenceParams struct {
 	ApprovalID int64 `json:"approval_id"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesGetEvidence(ctx context.Context, arg ArchiveCasesGetEvidenceParams) (ArchiveEvidenceExports, error) {
 	row := q.db.QueryRow(ctx, archiveCasesGetEvidence, arg.TenantID, arg.ApprovalID)
 	var i ArchiveEvidenceExports
@@ -335,27 +344,94 @@ func (q *Queries) ArchiveCasesGetEvidence(ctx context.Context, arg ArchiveCasesG
 	return i, err
 }
 
+const archiveCasesGetPendingApproval = `-- name: ArchiveCasesGetPendingApproval :one
+
+SELECT r.id FROM archive_approval_requests r
+WHERE r.tenant_id=?1 AND r.investigation_id=?2
+ AND r.requester_user_id=?3 AND r.source_digest=?4 AND r.state='pending'
+ AND r.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ORDER BY r.id LIMIT 1
+`
+
+type ArchiveCasesGetPendingApprovalParams struct {
+	TenantID int64  `json:"tenant_id"`
+	CaseID   int64  `json:"case_id"`
+	ActorID  int64  `json:"actor_id"`
+	Digest   string `json:"digest"`
+}
+
+// scope: tenant
+func (q *Queries) ArchiveCasesGetPendingApproval(ctx context.Context, arg ArchiveCasesGetPendingApprovalParams) (int64, error) {
+	row := q.db.QueryRow(ctx, archiveCasesGetPendingApproval,
+		arg.TenantID,
+		arg.CaseID,
+		arg.ActorID,
+		arg.Digest,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const archiveCasesGrantEligible = `-- name: ArchiveCasesGrantEligible :one
-SELECT urmail_archive_case_grant($1,$2,$3)::boolean AS allowed
+
+SELECT CAST(EXISTS(SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id WHERE cg.tenant_id=?1 AND cg.user_id=?3 AND cg.scope=?2 AND NOT cg.revoked AND cg.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND cg.owner_confirmed_at IS NOT NULL AND cg.granted_by IS NOT NULL AND cg.granted_by<>?3 AND length(trim(cg.reason))>0 AND ur.role IN('owner','admin')) AS BOOLEAN) AS allowed
 `
 
 type ArchiveCasesGrantEligibleParams struct {
-	T int64  `json:"t"`
-	U int64  `json:"u"`
-	S string `json:"s"`
+	TenantID int64  `json:"tenant_id"`
+	Scope    string `json:"scope"`
+	UserID   int64  `json:"user_id"`
 }
 
+// scope: platform
 func (q *Queries) ArchiveCasesGrantEligible(ctx context.Context, arg ArchiveCasesGrantEligibleParams) (bool, error) {
-	row := q.db.QueryRow(ctx, archiveCasesGrantEligible, arg.T, arg.U, arg.S)
+	row := q.db.QueryRow(ctx, archiveCasesGrantEligible, arg.TenantID, arg.Scope, arg.UserID)
 	var allowed bool
 	err := row.Scan(&allowed)
 	return allowed, err
 }
 
-const archiveCasesList = `-- name: ArchiveCasesList :many
-SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
+const archiveCasesInsertApproval = `-- name: ArchiveCasesInsertApproval :one
+
+INSERT INTO archive_approval_requests(tenant_id, investigation_id, requester_user_id, action, source_digest, expires_at, case_version, source_snapshot)
+SELECT ?1, i.id, ?2, 'export', ?3,
+ min(i.expires_at, (CAST(strftime('%s','now') AS INTEGER)*1000000)), i.version, ?4
+FROM archive_investigations i
+WHERE i.tenant_id=?1 AND i.id=?5 AND i.status='open' AND i.version=?6
+RETURNING id
 `
 
+type ArchiveCasesInsertApprovalParams struct {
+	TenantID       int64  `json:"tenant_id"`
+	ActorID        int64  `json:"actor_id"`
+	Digest         string `json:"digest"`
+	SourceSnapshot []byte `json:"source_snapshot"`
+	CaseID         int64  `json:"case_id"`
+	Version        int64  `json:"version"`
+}
+
+// scope: tenant
+func (q *Queries) ArchiveCasesInsertApproval(ctx context.Context, arg ArchiveCasesInsertApprovalParams) (int64, error) {
+	row := q.db.QueryRow(ctx, archiveCasesInsertApproval,
+		arg.TenantID,
+		arg.ActorID,
+		arg.Digest,
+		arg.SourceSnapshot,
+		arg.CaseID,
+		arg.Version,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const archiveCasesList = `-- name: ArchiveCasesList :many
+
+SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
+`
+
+// scope: tenant
 func (q *Queries) ArchiveCasesList(ctx context.Context, tenantID int64) ([]ArchiveInvestigations, error) {
 	rows, err := q.db.Query(ctx, archiveCasesList, tenantID)
 	if err != nil {
@@ -389,7 +465,8 @@ func (q *Queries) ArchiveCasesList(ctx context.Context, tenantID int64) ([]Archi
 }
 
 const archiveCasesLock = `-- name: ArchiveCasesLock :one
-SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=$1 AND id=$2 FOR UPDATE
+
+SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=?1 AND id=?2
 `
 
 type ArchiveCasesLockParams struct {
@@ -397,6 +474,7 @@ type ArchiveCasesLockParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesLock(ctx context.Context, arg ArchiveCasesLockParams) (ArchiveInvestigations, error) {
 	row := q.db.QueryRow(ctx, archiveCasesLock, arg.TenantID, arg.ID)
 	var i ArchiveInvestigations
@@ -417,8 +495,9 @@ func (q *Queries) ArchiveCasesLock(ctx context.Context, arg ArchiveCasesLockPara
 }
 
 const archiveCasesMembers = `-- name: ArchiveCasesMembers :many
+
 SELECT m.user_id,u.email,m.removed_at FROM archive_investigation_members m JOIN users u ON u.id=m.user_id
-WHERE m.tenant_id=$1 AND m.investigation_id=$2 ORDER BY m.user_id
+WHERE m.tenant_id=?1 AND m.investigation_id=?2 ORDER BY m.user_id
 `
 
 type ArchiveCasesMembersParams struct {
@@ -432,6 +511,7 @@ type ArchiveCasesMembersRow struct {
 	RemovedAt pgtype.Timestamptz `json:"removed_at"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesMembers(ctx context.Context, arg ArchiveCasesMembersParams) ([]ArchiveCasesMembersRow, error) {
 	rows, err := q.db.Query(ctx, archiveCasesMembers, arg.TenantID, arg.InvestigationID)
 	if err != nil {
@@ -453,9 +533,9 @@ func (q *Queries) ArchiveCasesMembers(ctx context.Context, arg ArchiveCasesMembe
 }
 
 const archiveCasesRemoveMember = `-- name: ArchiveCasesRemoveMember :execrows
-UPDATE archive_investigation_members m SET removed_at=now()
-FROM archive_investigations i WHERE m.tenant_id=$1 AND m.investigation_id=$2 AND m.user_id=$3 AND m.removed_at IS NULL
-AND i.tenant_id=m.tenant_id AND i.id=m.investigation_id AND i.created_by=$4 AND i.created_by<>m.user_id AND i.status='open' AND i.version=$5
+
+UPDATE archive_investigation_members SET removed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ WHERE archive_investigation_members.tenant_id=?1 AND archive_investigation_members.investigation_id=?2 AND archive_investigation_members.user_id=?3 AND archive_investigation_members.removed_at IS NULL AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=?1 AND i.id=?2 AND i.created_by=?4 AND i.created_by<>?3 AND i.status='open' AND i.version=?5)
 `
 
 type ArchiveCasesRemoveMemberParams struct {
@@ -466,6 +546,7 @@ type ArchiveCasesRemoveMemberParams struct {
 	Version         int64 `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesRemoveMember(ctx context.Context, arg ArchiveCasesRemoveMemberParams) (int64, error) {
 	result, err := q.db.Exec(ctx, archiveCasesRemoveMember,
 		arg.TenantID,
@@ -481,9 +562,10 @@ func (q *Queries) ArchiveCasesRemoveMember(ctx context.Context, arg ArchiveCases
 }
 
 const archiveCasesRemoveSource = `-- name: ArchiveCasesRemoveSource :execrows
-DELETE FROM archive_investigation_sources s USING archive_investigations i
-WHERE s.tenant_id=$1 AND s.investigation_id=$2 AND s.archive_entry_id=$3
-AND i.tenant_id=s.tenant_id AND i.id=s.investigation_id AND i.status='open' AND i.version=$4
+
+DELETE FROM archive_investigation_sources
+WHERE archive_investigation_sources.tenant_id=?1 AND archive_investigation_sources.investigation_id=?2 AND archive_investigation_sources.archive_entry_id=?3
+ AND EXISTS(SELECT 1 FROM archive_investigations i WHERE i.tenant_id=?1 AND i.id=?2 AND i.status='open' AND i.version=?4)
 `
 
 type ArchiveCasesRemoveSourceParams struct {
@@ -493,6 +575,7 @@ type ArchiveCasesRemoveSourceParams struct {
 	Version         int64 `json:"version"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesRemoveSource(ctx context.Context, arg ArchiveCasesRemoveSourceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, archiveCasesRemoveSource,
 		arg.TenantID,
@@ -506,43 +589,10 @@ func (q *Queries) ArchiveCasesRemoveSource(ctx context.Context, arg ArchiveCases
 	return result.RowsAffected(), nil
 }
 
-const archiveCasesRequestApproval = `-- name: ArchiveCasesRequestApproval :one
-WITH existing AS (
- SELECT r.id FROM archive_approval_requests r WHERE r.tenant_id= $1 AND r.investigation_id= $2
- AND r.requester_user_id= $3 AND r.source_digest= $4 AND r.state='pending' AND r.expires_at>now()
- ORDER BY r.id LIMIT 1
-), inserted AS (
- INSERT INTO archive_approval_requests(tenant_id,investigation_id,requester_user_id,action,source_digest,expires_at,case_version,source_snapshot)
- SELECT $1::bigint,i.id,$3::bigint,'export',$4::text,least(i.expires_at,now()+interval '24 hours'),i.version,urmail_archive_case_snapshot(i.tenant_id,i.id,$3)
- FROM archive_investigations i WHERE i.tenant_id= $1 AND i.id= $2 AND i.status='open' AND i.version= $5 AND NOT EXISTS(SELECT 1 FROM existing)
- RETURNING id
-) SELECT id FROM existing UNION ALL SELECT id FROM inserted LIMIT 1
-`
-
-type ArchiveCasesRequestApprovalParams struct {
-	TenantID int64  `json:"tenant_id"`
-	CaseID   int64  `json:"case_id"`
-	ActorID  int64  `json:"actor_id"`
-	Digest   string `json:"digest"`
-	Version  int64  `json:"version"`
-}
-
-func (q *Queries) ArchiveCasesRequestApproval(ctx context.Context, arg ArchiveCasesRequestApprovalParams) (int64, error) {
-	row := q.db.QueryRow(ctx, archiveCasesRequestApproval,
-		arg.TenantID,
-		arg.CaseID,
-		arg.ActorID,
-		arg.Digest,
-		arg.Version,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const archiveCasesSaveEvidence = `-- name: ArchiveCasesSaveEvidence :one
+
 INSERT INTO archive_evidence_exports(tenant_id,approval_id,created_by,manifest,manifest_sha256)
-VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,approval_id) DO NOTHING RETURNING tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at
+VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tenant_id,approval_id) DO NOTHING RETURNING tenant_id, approval_id, created_by, manifest, manifest_sha256, created_at
 `
 
 type ArchiveCasesSaveEvidenceParams struct {
@@ -553,6 +603,7 @@ type ArchiveCasesSaveEvidenceParams struct {
 	ManifestSha256 string `json:"manifest_sha256"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesSaveEvidence(ctx context.Context, arg ArchiveCasesSaveEvidenceParams) (ArchiveEvidenceExports, error) {
 	row := q.db.QueryRow(ctx, archiveCasesSaveEvidence,
 		arg.TenantID,
@@ -574,9 +625,10 @@ func (q *Queries) ArchiveCasesSaveEvidence(ctx context.Context, arg ArchiveCases
 }
 
 const archiveCasesSources = `-- name: ArchiveCasesSources :many
+
 SELECT e.id,e.mailbox_id,e.path,e.subject,e.size_bytes,e.raw_sha256,e.deleted_at,e.legal_hold
 FROM archive_investigation_sources s JOIN archive_entries e ON e.tenant_id=s.tenant_id AND e.id=s.archive_entry_id
-WHERE s.tenant_id=$1 AND s.investigation_id=$2 ORDER BY e.id
+WHERE s.tenant_id=?1 AND s.investigation_id=?2 ORDER BY e.id
 `
 
 type ArchiveCasesSourcesParams struct {
@@ -595,6 +647,7 @@ type ArchiveCasesSourcesRow struct {
 	LegalHold bool               `json:"legal_hold"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesSources(ctx context.Context, arg ArchiveCasesSourcesParams) ([]ArchiveCasesSourcesRow, error) {
 	rows, err := q.db.Query(ctx, archiveCasesSources, arg.TenantID, arg.InvestigationID)
 	if err != nil {
@@ -625,8 +678,9 @@ func (q *Queries) ArchiveCasesSources(ctx context.Context, arg ArchiveCasesSourc
 }
 
 const archiveCasesWithdrawApproval = `-- name: ArchiveCasesWithdrawApproval :one
-UPDATE archive_approval_requests SET state='withdrawn',decision_reason=$5,decided_at=now()
-WHERE tenant_id=$1 AND investigation_id=$2 AND id=$3 AND requester_user_id=$4 AND state='pending' RETURNING id
+
+UPDATE archive_approval_requests SET state='withdrawn',decision_reason=?5,decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND requester_user_id=?4 AND state='pending' RETURNING id
 `
 
 type ArchiveCasesWithdrawApprovalParams struct {
@@ -637,6 +691,7 @@ type ArchiveCasesWithdrawApprovalParams struct {
 	DecisionReason  string `json:"decision_reason"`
 }
 
+// scope: tenant
 func (q *Queries) ArchiveCasesWithdrawApproval(ctx context.Context, arg ArchiveCasesWithdrawApprovalParams) (int64, error) {
 	row := q.db.QueryRow(ctx, archiveCasesWithdrawApproval,
 		arg.TenantID,

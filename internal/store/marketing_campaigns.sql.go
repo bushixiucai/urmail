@@ -12,8 +12,9 @@ import (
 )
 
 const cancelQueuedMarketingRecipients = `-- name: CancelQueuedMarketingRecipients :execrows
-UPDATE marketing_recipients SET status='canceled',completed_at=now(),result_code='campaign_canceled'
-WHERE tenant_id=$1 AND campaign_id=$2 AND status IN('queued','leased')
+
+UPDATE marketing_recipients SET status='canceled',completed_at=(CAST(strftime('%s','now') AS INTEGER)*1000000),result_code='campaign_canceled'
+WHERE tenant_id=?1 AND campaign_id=?2 AND status IN('queued','leased')
 `
 
 type CancelQueuedMarketingRecipientsParams struct {
@@ -21,6 +22,7 @@ type CancelQueuedMarketingRecipientsParams struct {
 	CampaignID int64 `json:"campaign_id"`
 }
 
+// scope: tenant
 func (q *Queries) CancelQueuedMarketingRecipients(ctx context.Context, arg CancelQueuedMarketingRecipientsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cancelQueuedMarketingRecipients, arg.TenantID, arg.CampaignID)
 	if err != nil {
@@ -30,8 +32,9 @@ func (q *Queries) CancelQueuedMarketingRecipients(ctx context.Context, arg Cance
 }
 
 const changeMarketingCampaignState = `-- name: ChangeMarketingCampaignState :one
-UPDATE marketing_campaigns SET status=$3 WHERE tenant_id=$1 AND id=$2 AND
- (($3='paused' AND status IN('scheduled','running')) OR ($3='scheduled' AND status='paused') OR ($3='canceled' AND status IN('draft','scheduled','running','paused')))
+
+UPDATE marketing_campaigns SET status=?3 WHERE tenant_id=?1 AND id=?2 AND
+ ((?3='paused' AND status IN('scheduled','running')) OR (?3='scheduled' AND status='paused') OR (?3='canceled' AND status IN('draft','scheduled','running','paused')))
 RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at
 `
 
@@ -41,6 +44,7 @@ type ChangeMarketingCampaignStateParams struct {
 	Status   string `json:"status"`
 }
 
+// scope: tenant
 func (q *Queries) ChangeMarketingCampaignState(ctx context.Context, arg ChangeMarketingCampaignStateParams) (MarketingCampaigns, error) {
 	row := q.db.QueryRow(ctx, changeMarketingCampaignState, arg.TenantID, arg.ID, arg.Status)
 	var i MarketingCampaigns
@@ -61,7 +65,8 @@ func (q *Queries) ChangeMarketingCampaignState(ctx context.Context, arg ChangeMa
 }
 
 const createMarketingCampaign = `-- name: CreateMarketingCampaign :one
-INSERT INTO marketing_campaigns(tenant_id,name,channel_id,template_id,list_id) VALUES($1,$2,$3,$4,$5) RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at
+
+INSERT INTO marketing_campaigns(tenant_id,name,channel_id,template_id,list_id) VALUES(?1,?2,?3,?4,?5) RETURNING id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at
 `
 
 type CreateMarketingCampaignParams struct {
@@ -72,6 +77,7 @@ type CreateMarketingCampaignParams struct {
 	ListID     int64  `json:"list_id"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingCampaign(ctx context.Context, arg CreateMarketingCampaignParams) (MarketingCampaigns, error) {
 	row := q.db.QueryRow(ctx, createMarketingCampaign,
 		arg.TenantID,
@@ -98,7 +104,8 @@ func (q *Queries) CreateMarketingCampaign(ctx context.Context, arg CreateMarketi
 }
 
 const createMarketingList = `-- name: CreateMarketingList :one
-INSERT INTO marketing_lists(tenant_id,name) VALUES($1,$2) RETURNING id, tenant_id, name, created_at
+
+INSERT INTO marketing_lists(tenant_id,name) VALUES(?1,?2) RETURNING id, tenant_id, name, created_at
 `
 
 type CreateMarketingListParams struct {
@@ -106,6 +113,7 @@ type CreateMarketingListParams struct {
 	Name     string `json:"name"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingList(ctx context.Context, arg CreateMarketingListParams) (MarketingLists, error) {
 	row := q.db.QueryRow(ctx, createMarketingList, arg.TenantID, arg.Name)
 	var i MarketingLists
@@ -119,7 +127,8 @@ func (q *Queries) CreateMarketingList(ctx context.Context, arg CreateMarketingLi
 }
 
 const createMarketingTemplate = `-- name: CreateMarketingTemplate :one
-INSERT INTO marketing_templates(tenant_id,name,subject,text_body) VALUES($1,$2,$3,$4) RETURNING id, tenant_id, name, subject, text_body, created_at
+
+INSERT INTO marketing_templates(tenant_id,name,subject,text_body) VALUES(?1,?2,?3,?4) RETURNING id, tenant_id, name, subject, text_body, created_at
 `
 
 type CreateMarketingTemplateParams struct {
@@ -129,6 +138,7 @@ type CreateMarketingTemplateParams struct {
 	TextBody string `json:"text_body"`
 }
 
+// scope: tenant
 func (q *Queries) CreateMarketingTemplate(ctx context.Context, arg CreateMarketingTemplateParams) (MarketingTemplates, error) {
 	row := q.db.QueryRow(ctx, createMarketingTemplate,
 		arg.TenantID,
@@ -149,7 +159,8 @@ func (q *Queries) CreateMarketingTemplate(ctx context.Context, arg CreateMarketi
 }
 
 const getMarketingCampaign = `-- name: GetMarketingCampaign :one
-SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=$1 AND id=$2
+
+SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2
 `
 
 type GetMarketingCampaignParams struct {
@@ -157,6 +168,7 @@ type GetMarketingCampaignParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) GetMarketingCampaign(ctx context.Context, arg GetMarketingCampaignParams) (MarketingCampaigns, error) {
 	row := q.db.QueryRow(ctx, getMarketingCampaign, arg.TenantID, arg.ID)
 	var i MarketingCampaigns
@@ -177,14 +189,15 @@ func (q *Queries) GetMarketingCampaign(ctx context.Context, arg GetMarketingCamp
 }
 
 const getMarketingCampaignReport = `-- name: GetMarketingCampaignReport :one
+
 SELECT c.id AS campaign_id,c.name,c.status,
- COALESCE(s.sent,0)::bigint AS sent,COALESCE(s.failed,0)::bigint AS failed,
- COALESCE(s.uncertain,0)::bigint AS uncertain,COALESCE(s.unsubscribed,0)::bigint AS unsubscribed,
- COALESCE(s.bounced,0)::bigint AS bounced,COALESCE(s.bounced_unknown,0)::bigint AS bounced_unknown,
- (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id)::bigint AS total_recipients,
- (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id AND r.status IN('queued','leased','submitting'))::bigint AS pending_recipients
+ COALESCE(s.sent,0) AS sent,COALESCE(s.failed,0) AS failed,
+ COALESCE(s.uncertain,0) AS uncertain,COALESCE(s.unsubscribed,0) AS unsubscribed,
+ COALESCE(s.bounced,0) AS bounced,COALESCE(s.bounced_unknown,0) AS bounced_unknown,
+ (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id) AS total_recipients,
+ (SELECT count(*) FROM marketing_recipients r WHERE r.tenant_id=c.tenant_id AND r.campaign_id=c.id AND r.status IN('queued','leased','submitting')) AS pending_recipients
 FROM marketing_campaigns c LEFT JOIN marketing_campaign_stats s ON s.tenant_id=c.tenant_id AND s.campaign_id=c.id
-WHERE c.tenant_id=$1 AND c.id=$2
+WHERE c.tenant_id=?1 AND c.id=?2
 `
 
 type GetMarketingCampaignReportParams struct {
@@ -208,6 +221,7 @@ type GetMarketingCampaignReportRow struct {
 
 // MKT-005 outcome report. Counters come from the incremental
 // marketing_campaign_stats row; pending/total come from recipient facts.
+// scope: tenant
 func (q *Queries) GetMarketingCampaignReport(ctx context.Context, arg GetMarketingCampaignReportParams) (GetMarketingCampaignReportRow, error) {
 	row := q.db.QueryRow(ctx, getMarketingCampaignReport, arg.TenantID, arg.ID)
 	var i GetMarketingCampaignReportRow
@@ -228,9 +242,11 @@ func (q *Queries) GetMarketingCampaignReport(ctx context.Context, arg GetMarketi
 }
 
 const listMarketingCampaigns = `-- name: ListMarketingCampaigns :many
-SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
+
+SELECT id, tenant_id, name, channel_id, template_id, list_id, status, subject_snapshot, body_snapshot, scheduled_at, created_at FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
 `
 
+// scope: tenant
 func (q *Queries) ListMarketingCampaigns(ctx context.Context, tenantID int64) ([]MarketingCampaigns, error) {
 	rows, err := q.db.Query(ctx, listMarketingCampaigns, tenantID)
 	if err != nil {
@@ -264,7 +280,8 @@ func (q *Queries) ListMarketingCampaigns(ctx context.Context, tenantID int64) ([
 }
 
 const listMarketingChannels = `-- name: ListMarketingChannels :many
-SELECT id,tenant_id,name,kind,enabled,created_at FROM marketing_channels WHERE tenant_id=$1 ORDER BY id
+
+SELECT id,tenant_id,name,kind,enabled,created_at FROM marketing_channels WHERE tenant_id=?1 ORDER BY id
 `
 
 type ListMarketingChannelsRow struct {
@@ -276,6 +293,7 @@ type ListMarketingChannelsRow struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingChannels(ctx context.Context, tenantID int64) ([]ListMarketingChannelsRow, error) {
 	rows, err := q.db.Query(ctx, listMarketingChannels, tenantID)
 	if err != nil {
@@ -304,7 +322,8 @@ func (q *Queries) ListMarketingChannels(ctx context.Context, tenantID int64) ([]
 }
 
 const listMarketingContacts = `-- name: ListMarketingContacts :many
-SELECT tenant_id, list_id, email, consent_source, opted_in, consent_at FROM marketing_contacts WHERE tenant_id=$1 AND list_id=$2 ORDER BY email LIMIT 1000
+
+SELECT tenant_id, list_id, email, consent_source, opted_in, consent_at FROM marketing_contacts WHERE tenant_id=?1 AND list_id=?2 ORDER BY email LIMIT 1000
 `
 
 type ListMarketingContactsParams struct {
@@ -312,6 +331,7 @@ type ListMarketingContactsParams struct {
 	ListID   int64 `json:"list_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingContacts(ctx context.Context, arg ListMarketingContactsParams) ([]MarketingContacts, error) {
 	rows, err := q.db.Query(ctx, listMarketingContacts, arg.TenantID, arg.ListID)
 	if err != nil {
@@ -340,9 +360,11 @@ func (q *Queries) ListMarketingContacts(ctx context.Context, arg ListMarketingCo
 }
 
 const listMarketingLists = `-- name: ListMarketingLists :many
-SELECT id, tenant_id, name, created_at FROM marketing_lists WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
+
+SELECT id, tenant_id, name, created_at FROM marketing_lists WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
 `
 
+// scope: tenant
 func (q *Queries) ListMarketingLists(ctx context.Context, tenantID int64) ([]MarketingLists, error) {
 	rows, err := q.db.Query(ctx, listMarketingLists, tenantID)
 	if err != nil {
@@ -369,7 +391,8 @@ func (q *Queries) ListMarketingLists(ctx context.Context, tenantID int64) ([]Mar
 }
 
 const listMarketingRecipients = `-- name: ListMarketingRecipients :many
-SELECT id, tenant_id, campaign_id, email, status, lease_owner, lease_until, fence, attempts, window_id, reserved, result_code, next_attempt_at, created_at, completed_at, resolution_reason FROM marketing_recipients WHERE tenant_id=$1 AND campaign_id=$2 ORDER BY id LIMIT 1000
+
+SELECT id, tenant_id, campaign_id, email, status, lease_owner, lease_until, fence, attempts, window_id, reserved, result_code, next_attempt_at, created_at, completed_at, resolution_reason FROM marketing_recipients WHERE tenant_id=?1 AND campaign_id=?2 ORDER BY id LIMIT 1000
 `
 
 type ListMarketingRecipientsParams struct {
@@ -377,6 +400,7 @@ type ListMarketingRecipientsParams struct {
 	CampaignID int64 `json:"campaign_id"`
 }
 
+// scope: tenant
 func (q *Queries) ListMarketingRecipients(ctx context.Context, arg ListMarketingRecipientsParams) ([]MarketingRecipients, error) {
 	rows, err := q.db.Query(ctx, listMarketingRecipients, arg.TenantID, arg.CampaignID)
 	if err != nil {
@@ -415,9 +439,11 @@ func (q *Queries) ListMarketingRecipients(ctx context.Context, arg ListMarketing
 }
 
 const listMarketingTemplates = `-- name: ListMarketingTemplates :many
-SELECT id, tenant_id, name, subject, text_body, created_at FROM marketing_templates WHERE tenant_id=$1 ORDER BY id DESC LIMIT 100
+
+SELECT id, tenant_id, name, subject, text_body, created_at FROM marketing_templates WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100
 `
 
+// scope: tenant
 func (q *Queries) ListMarketingTemplates(ctx context.Context, tenantID int64) ([]MarketingTemplates, error) {
 	rows, err := q.db.Query(ctx, listMarketingTemplates, tenantID)
 	if err != nil {
@@ -446,10 +472,11 @@ func (q *Queries) ListMarketingTemplates(ctx context.Context, tenantID int64) ([
 }
 
 const previewMarketingCampaign = `-- name: PreviewMarketingCampaign :one
+
 SELECT c.id,c.tenant_id,c.name,c.status,t.subject,t.text_body,
  (SELECT count(*) FROM marketing_contacts mc WHERE mc.tenant_id=c.tenant_id AND mc.list_id=c.list_id AND mc.opted_in) AS opted_in_count,
  (SELECT count(*) FROM marketing_contacts mc JOIN marketing_suppressions s ON s.tenant_id=mc.tenant_id AND s.email=mc.email WHERE mc.tenant_id=c.tenant_id AND mc.list_id=c.list_id AND mc.opted_in) AS suppressed_count
-FROM marketing_campaigns c JOIN marketing_templates t ON t.tenant_id=c.tenant_id AND t.id=c.template_id WHERE c.tenant_id=$1 AND c.id=$2
+FROM marketing_campaigns c JOIN marketing_templates t ON t.tenant_id=c.tenant_id AND t.id=c.template_id WHERE c.tenant_id=?1 AND c.id=?2
 `
 
 type PreviewMarketingCampaignParams struct {
@@ -468,6 +495,7 @@ type PreviewMarketingCampaignRow struct {
 	SuppressedCount int64  `json:"suppressed_count"`
 }
 
+// scope: tenant
 func (q *Queries) PreviewMarketingCampaign(ctx context.Context, arg PreviewMarketingCampaignParams) (PreviewMarketingCampaignRow, error) {
 	row := q.db.QueryRow(ctx, previewMarketingCampaign, arg.TenantID, arg.ID)
 	var i PreviewMarketingCampaignRow
@@ -484,15 +512,10 @@ func (q *Queries) PreviewMarketingCampaign(ctx context.Context, arg PreviewMarke
 	return i, err
 }
 
-type ScheduleMarketingCampaignParams struct {
-	TenantID    int64              `json:"tenant_id"`
-	CampaignID  int64              `json:"campaign_id"`
-	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
-}
-
 const upsertMarketingContact = `-- name: UpsertMarketingContact :one
-INSERT INTO marketing_contacts(tenant_id,list_id,email,consent_source,opted_in) VALUES($1,$2,$3,$4,$5)
-ON CONFLICT(tenant_id,list_id,email) DO UPDATE SET opted_in=EXCLUDED.opted_in,consent_source=EXCLUDED.consent_source,consent_at=now() RETURNING tenant_id, list_id, email, consent_source, opted_in, consent_at
+
+INSERT INTO marketing_contacts(tenant_id,list_id,email,consent_source,opted_in) VALUES(?1,?2,?3,?4,?5)
+ON CONFLICT(tenant_id,list_id,email) DO UPDATE SET opted_in=EXCLUDED.opted_in,consent_source=EXCLUDED.consent_source,consent_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) RETURNING tenant_id, list_id, email, consent_source, opted_in, consent_at
 `
 
 type UpsertMarketingContactParams struct {
@@ -503,6 +526,7 @@ type UpsertMarketingContactParams struct {
 	OptedIn       bool   `json:"opted_in"`
 }
 
+// scope: tenant
 func (q *Queries) UpsertMarketingContact(ctx context.Context, arg UpsertMarketingContactParams) (MarketingContacts, error) {
 	row := q.db.QueryRow(ctx, upsertMarketingContact,
 		arg.TenantID,

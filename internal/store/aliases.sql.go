@@ -12,10 +12,11 @@ import (
 )
 
 const createAlias = `-- name: CreateAlias :one
+
 INSERT INTO mailbox_aliases (
     tenant_id, domain_id, local_part, target, kind, active
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    ?1, ?2, ?3, ?4, ?5, ?6
 ) RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at, sender_logins
 `
 
@@ -28,6 +29,7 @@ type CreateAliasParams struct {
 	Active    bool   `json:"active"`
 }
 
+// scope: tenant
 func (q *Queries) CreateAlias(ctx context.Context, arg CreateAliasParams) (MailboxAliases, error) {
 	row := q.db.QueryRow(ctx, createAlias,
 		arg.TenantID,
@@ -53,8 +55,9 @@ func (q *Queries) CreateAlias(ctx context.Context, arg CreateAliasParams) (Mailb
 }
 
 const deleteAlias = `-- name: DeleteAlias :exec
+
 DELETE FROM mailbox_aliases
-WHERE tenant_id = $1 AND id = $2
+WHERE tenant_id = ?1 AND id = ?2
 `
 
 type DeleteAliasParams struct {
@@ -62,16 +65,18 @@ type DeleteAliasParams struct {
 	ID       int64 `json:"id"`
 }
 
+// scope: tenant
 func (q *Queries) DeleteAlias(ctx context.Context, arg DeleteAliasParams) error {
 	_, err := q.db.Exec(ctx, deleteAlias, arg.TenantID, arg.ID)
 	return err
 }
 
 const getAliasByDomainAndLocalPart = `-- name: GetAliasByDomainAndLocalPart :one
+
 SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, a.sender_logins, d.fqdn AS domain_fqdn
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
-WHERE a.tenant_id = $1 AND a.domain_id = $2 AND a.local_part = $3
+WHERE a.tenant_id = ?1 AND a.domain_id = ?2 AND a.local_part = ?3
 `
 
 type GetAliasByDomainAndLocalPartParams struct {
@@ -93,6 +98,7 @@ type GetAliasByDomainAndLocalPartRow struct {
 	DomainFqdn   string             `json:"domain_fqdn"`
 }
 
+// scope: tenant
 func (q *Queries) GetAliasByDomainAndLocalPart(ctx context.Context, arg GetAliasByDomainAndLocalPartParams) (GetAliasByDomainAndLocalPartRow, error) {
 	row := q.db.QueryRow(ctx, getAliasByDomainAndLocalPart, arg.TenantID, arg.DomainID, arg.LocalPart)
 	var i GetAliasByDomainAndLocalPartRow
@@ -112,10 +118,11 @@ func (q *Queries) GetAliasByDomainAndLocalPart(ctx context.Context, arg GetAlias
 }
 
 const getAliasByID = `-- name: GetAliasByID :one
+
 SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, a.sender_logins, d.fqdn AS domain_fqdn
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
-WHERE a.tenant_id = $1 AND a.id = $2
+WHERE a.tenant_id = ?1 AND a.id = ?2
 `
 
 type GetAliasByIDParams struct {
@@ -136,6 +143,7 @@ type GetAliasByIDRow struct {
 	DomainFqdn   string             `json:"domain_fqdn"`
 }
 
+// scope: tenant
 func (q *Queries) GetAliasByID(ctx context.Context, arg GetAliasByIDParams) (GetAliasByIDRow, error) {
 	row := q.db.QueryRow(ctx, getAliasByID, arg.TenantID, arg.ID)
 	var i GetAliasByIDRow
@@ -155,10 +163,11 @@ func (q *Queries) GetAliasByID(ctx context.Context, arg GetAliasByIDParams) (Get
 }
 
 const listAliasesByTenant = `-- name: ListAliasesByTenant :many
+
 SELECT a.id, a.tenant_id, a.domain_id, a.local_part, a.target, a.kind, a.active, a.created_at, a.sender_logins, d.fqdn AS domain_fqdn
 FROM mailbox_aliases a
 JOIN domains d ON a.domain_id = d.id
-WHERE a.tenant_id = $1
+WHERE a.tenant_id = ?1
 ORDER BY d.fqdn ASC, a.local_part ASC
 `
 
@@ -175,6 +184,7 @@ type ListAliasesByTenantRow struct {
 	DomainFqdn   string             `json:"domain_fqdn"`
 }
 
+// scope: tenant
 func (q *Queries) ListAliasesByTenant(ctx context.Context, tenantID int64) ([]ListAliasesByTenantRow, error) {
 	rows, err := q.db.Query(ctx, listAliasesByTenant, tenantID)
 	if err != nil {
@@ -207,9 +217,10 @@ func (q *Queries) ListAliasesByTenant(ctx context.Context, tenantID int64) ([]Li
 }
 
 const updateAlias = `-- name: UpdateAlias :one
+
 UPDATE mailbox_aliases
-SET local_part = $3, target = $4, kind = $5, active = $6
-WHERE tenant_id = $1 AND id = $2
+SET local_part = ?3, target = ?4, kind = ?5, active = ?6
+WHERE tenant_id = ?1 AND id = ?2
 RETURNING id, tenant_id, domain_id, local_part, target, kind, active, created_at, sender_logins
 `
 
@@ -222,6 +233,7 @@ type UpdateAliasParams struct {
 	Active    bool   `json:"active"`
 }
 
+// scope: tenant
 func (q *Queries) UpdateAlias(ctx context.Context, arg UpdateAliasParams) (MailboxAliases, error) {
 	row := q.db.QueryRow(ctx, updateAlias,
 		arg.TenantID,

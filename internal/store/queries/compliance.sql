@@ -49,8 +49,6 @@ SET legal_hold = false
 WHERE tenant_id = ?1 AND id = ?2
 RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_addr, received_at, size_bytes, legal_hold, deleted_at, created_at, raw_sha256;
 
--- SoftDeleteArchiveEntry 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
--- urmail_soft_delete_archive = 行选择 + 软删 + 清 retention_preview（事务；未命中返回 pgx.ErrNoRows）。
 
 -- name: ListMailboxesWithLegalHold :many
 -- scope: tenant
@@ -58,3 +56,7 @@ RETURNING id, tenant_id, mailbox_id, message_id, path, subject, from_addr, to_ad
 SELECT DISTINCT mailbox_id
 FROM archive_entries
 WHERE tenant_id = ?1 AND legal_hold = true AND mailbox_id IS NOT NULL AND deleted_at IS NULL;
+
+-- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
+-- ClearArchiveEntryLegalHold: SoftDeleteArchiveEntry 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- ClearArchiveEntryLegalHold: urmail_soft_delete_archive = 行选择 + 软删 + 清 retention_preview（事务；未命中返回 pgx.ErrNoRows）。

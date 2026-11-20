@@ -18,7 +18,9 @@ SELECT folder, folder_uidvalidity, message_uid, content_version, content_digest 
 
 DELETE FROM mailbox_ai_chunks
 WHERE tenant_id = ?1 AND mailbox_id = ?2 AND folder = ?3
-  AND folder_uidvalidity = ?4 AND message_uid IN (SELECT CAST(value AS INTEGER) FROM json_each(?5));
+  AND folder_uidvalidity = ?4
+  AND CAST(sqlc.arg(message_uids) AS TEXT) <> ''
+  AND message_uid IN (SELECT CAST(value AS INTEGER) FROM json_each(CAST(sqlc.arg(message_uids) AS TEXT)));
 
 -- name: DeleteMailboxAIChunkFolder :execrows
 -- scope: tenant
@@ -67,6 +69,7 @@ SELECT c.id,c.folder,c.folder_uidvalidity,c.message_uid,c.chunk_index,c.content_
 FROM mailbox_ai_chunks c
 WHERE c.tenant_id=sqlc.arg(tenant_id) AND c.mailbox_id=sqlc.arg(mailbox_id)
 AND c.content LIKE '%' || sqlc.arg(query) || '%'
-AND EXISTS (SELECT 1 FROM json_each(sqlc.arg(scope))
+AND CAST(sqlc.arg(scope) AS TEXT) <> ''
+AND EXISTS (SELECT 1 FROM json_each(sqlc.arg(scope)) AS s
  WHERE s.folder=c.folder AND s.validity=c.folder_uidvalidity AND EXISTS(SELECT 1 FROM json_each(s.uids) je WHERE je.value = c.message_uid))
 ORDER BY c.id LIMIT sqlc.arg(result_limit);
