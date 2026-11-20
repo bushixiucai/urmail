@@ -484,21 +484,10 @@ func (q *Queries) PreviewMarketingCampaign(ctx context.Context, arg PreviewMarke
 	return i, err
 }
 
-const scheduleMarketingCampaign = `-- name: ScheduleMarketingCampaign :one
-SELECT urmail_schedule_marketing($1::bigint,$2::bigint,$3::timestamptz)::text AS result
-`
-
 type ScheduleMarketingCampaignParams struct {
 	TenantID    int64              `json:"tenant_id"`
 	CampaignID  int64              `json:"campaign_id"`
 	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
-}
-
-func (q *Queries) ScheduleMarketingCampaign(ctx context.Context, arg ScheduleMarketingCampaignParams) (string, error) {
-	row := q.db.QueryRow(ctx, scheduleMarketingCampaign, arg.TenantID, arg.CampaignID, arg.ScheduledAt)
-	var result string
-	err := row.Scan(&result)
-	return result, err
 }
 
 const upsertMarketingContact = `-- name: UpsertMarketingContact :one

@@ -28,6 +28,11 @@ FORBIDDEN = [
      "触发器体内跨库 ATTACH"),
     (re.compile(r"\bmaster\.\w+\s*\.", re.I),
      "跨库引用 master.*"),
+    # PG 的 '-infinity'::timestamptz 落进 INTEGER 列后会以 TEXT 存储，而
+    # SQLite 里 INTEGER < TEXT 恒成立，于是 `<column> > now` 永远为真
+    # （限速窗口/有效期判断整体反转）。生成器把它翻成 int64 端点，这里防止回潮。
+    (re.compile(r"DEFAULT\s+'-infinity'|DEFAULT\s+'infinity'", re.I),
+     "时间戳哨兵默认值未翻译为 int64 端点"),
 ]
 
 

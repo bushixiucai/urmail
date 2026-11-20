@@ -11,10 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const platformBeginMarketingFlowSend = `-- name: PlatformBeginMarketingFlowSend :one
-SELECT urmail_begin_marketing_flow_send($1,$2,$3,$4,$5,$6)::text AS result
-`
-
 type PlatformBeginMarketingFlowSendParams struct {
 	PTenant  int64  `json:"p_tenant"`
 	PFlow    int64  `json:"p_flow"`
@@ -22,20 +18,6 @@ type PlatformBeginMarketingFlowSendParams struct {
 	POwner   string `json:"p_owner"`
 	PFence   int64  `json:"p_fence"`
 	PChannel int64  `json:"p_channel"`
-}
-
-func (q *Queries) PlatformBeginMarketingFlowSend(ctx context.Context, arg PlatformBeginMarketingFlowSendParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformBeginMarketingFlowSend,
-		arg.PTenant,
-		arg.PFlow,
-		arg.PEmail,
-		arg.POwner,
-		arg.PFence,
-		arg.PChannel,
-	)
-	var result string
-	err := row.Scan(&result)
-	return result, err
 }
 
 const platformCheckMarketingFlowLease = `-- name: PlatformCheckMarketingFlowLease :one
@@ -64,10 +46,6 @@ func (q *Queries) PlatformCheckMarketingFlowLease(ctx context.Context, arg Platf
 	return allowed, err
 }
 
-const platformCommitMarketingFlowFenced = `-- name: PlatformCommitMarketingFlowFenced :one
-SELECT urmail_commit_marketing_flow_fenced($1,$2,$3,$4,$5,$6,$7,$8)::text AS result
-`
-
 type PlatformCommitMarketingFlowFencedParams struct {
 	PTenant       int64  `json:"p_tenant"`
 	PFlow         int64  `json:"p_flow"`
@@ -77,22 +55,6 @@ type PlatformCommitMarketingFlowFencedParams struct {
 	PNext         string `json:"p_next"`
 	PUnsubscribed bool   `json:"p_unsubscribed"`
 	PConfirmed    bool   `json:"p_confirmed"`
-}
-
-func (q *Queries) PlatformCommitMarketingFlowFenced(ctx context.Context, arg PlatformCommitMarketingFlowFencedParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformCommitMarketingFlowFenced,
-		arg.PTenant,
-		arg.PFlow,
-		arg.PEmail,
-		arg.POwner,
-		arg.PFence,
-		arg.PNext,
-		arg.PUnsubscribed,
-		arg.PConfirmed,
-	)
-	var result string
-	err := row.Scan(&result)
-	return result, err
 }
 
 const platformGetMarketingFlowSnapshotContent = `-- name: PlatformGetMarketingFlowSnapshotContent :one
@@ -204,29 +166,12 @@ func (q *Queries) PlatformRecordMarketingFlowExecution(ctx context.Context, arg 
 	return result.RowsAffected(), nil
 }
 
-const platformReleaseMarketingFlowReservation = `-- name: PlatformReleaseMarketingFlowReservation :one
-SELECT urmail_release_marketing_flow_reservation($1,$2,$3,$4,$5)::boolean AS released
-`
-
 type PlatformReleaseMarketingFlowReservationParams struct {
 	PTenant int64  `json:"p_tenant"`
 	PFlow   int64  `json:"p_flow"`
 	PEmail  string `json:"p_email"`
 	POwner  string `json:"p_owner"`
 	PFence  int64  `json:"p_fence"`
-}
-
-func (q *Queries) PlatformReleaseMarketingFlowReservation(ctx context.Context, arg PlatformReleaseMarketingFlowReservationParams) (bool, error) {
-	row := q.db.QueryRow(ctx, platformReleaseMarketingFlowReservation,
-		arg.PTenant,
-		arg.PFlow,
-		arg.PEmail,
-		arg.POwner,
-		arg.PFence,
-	)
-	var released bool
-	err := row.Scan(&released)
-	return released, err
 }
 
 const platformVersionedMarketingFlowMayAdvance = `-- name: PlatformVersionedMarketingFlowMayAdvance :one

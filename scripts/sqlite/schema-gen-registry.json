@@ -1,0 +1,374 @@
+{
+ "type_counts": {
+  "bigint": 360,
+  "text": 375,
+  "boolean": 41,
+  "timestamp with time zone": 217,
+  "text[]": 5,
+  "jsonb": 43,
+  "bytea": 5,
+  "uuid": 6,
+  "inet": 2,
+  "integer": 35,
+  "double precision": 1,
+  "bigint[]": 1,
+  "date": 1
+ },
+ "stripped_checks": [
+  {
+   "table": "ai_usage_requests",
+   "name": "ai_usage_requests_input_digest_check",
+   "def": "CHECK (input_digest ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "application_credentials",
+   "name": "application_credentials_scopes_check",
+   "def": "CHECK (cardinality(scopes) > 0 AND scopes <@ ARRAY['legacy:read'::text, 'legacy:write'::text])",
+   "risk": "语义校验缺失：应用层需等价断言",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "application_credentials",
+   "name": "application_credentials_token_hash_check",
+   "def": "CHECK (token_hash ~ '^[0-9a-f]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_requests_evidence_digest_check",
+   "def": "CHECK (evidence_digest IS NULL OR evidence_digest ~ '^[0-9a-f]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "archive_approval_requests",
+   "name": "archive_approval_requests_source_digest_check",
+   "def": "CHECK (source_digest ~ '^[0-9a-f]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "archive_content",
+   "name": "archive_content_original_sha256_check",
+   "def": "CHECK (original_sha256 = ''::text OR original_sha256 ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "digest 完整性校验缺失：可能写入与字段不匹配的摘要",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_raw_sha",
+   "def": "CHECK (raw_sha256 = ''::text OR raw_sha256 ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "digest 完整性校验缺失：可能写入与字段不匹配的摘要",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "archive_evidence_exports",
+   "name": "archive_evidence_exports_check",
+   "def": "CHECK (encode(sha256(manifest), 'hex'::text) = manifest_sha256)",
+   "risk": "digest 完整性校验缺失：可能写入与字段不匹配的摘要",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "archive_evidence_exports",
+   "name": "archive_evidence_exports_manifest_sha256_check",
+   "def": "CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'::text)",
+   "risk": "digest 完整性校验缺失：可能写入与字段不匹配的摘要",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "brand_host_challenges",
+   "name": "brand_host_challenges_token_digest_check",
+   "def": "CHECK (token_digest ~ '^[0-9a-f]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "dns_credentials",
+   "name": "dns_credentials_encrypted_secret_check",
+   "def": "CHECK (encrypted_secret ~~ 'enc:v1:%'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "domains",
+   "name": "domains_storage_fqdn_check",
+   "def": "CHECK (length(fqdn) <= 253 AND fqdn = lower(fqdn) AND fqdn ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_ai_chunks",
+   "name": "mailbox_ai_chunks_content_digest_check",
+   "def": "CHECK (content_digest ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_ai_phishing_findings",
+   "name": "mailbox_ai_phishing_findings_input_digest_check",
+   "def": "CHECK (input_digest ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_aliases",
+   "name": "alias_target_email_syntax",
+   "def": "CHECK (cardinality(string_to_array(target, '@'::text)) = 2 AND length(split_part(target, '@'::text, 1)) >= 1 AND length(split_part(target, '@'::text, 1)) <= 64 AND strpos(target, '*'::text) = 0 AND strpos(target, '?'::text) = 0 AND strpos(target, '/'::text) = 0 AND strpos(target, '\\'::text) = 0 AND target = lower(target)) NOT VALID",
+   "risk": "语义校验缺失：应用层需等价断言",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_aliases",
+   "name": "mailbox_aliases_sender_logins_shape",
+   "def": "CHECK (cardinality(sender_logins) <= 100 AND array_position(sender_logins, NULL::text) IS NULL AND (cardinality(sender_logins) = 0 OR array_ndims(sender_logins) = 1))",
+   "risk": "语义校验缺失：应用层需等价断言",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_events",
+   "name": "mailbox_events_organizer_check",
+   "def": "CHECK (length(organizer) <= 320 AND organizer !~ '[  ]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_import_items",
+   "name": "mailbox_import_items_raw_sha256_check",
+   "def": "CHECK (length(raw_sha256) = ANY (ARRAY[0, 64]))",
+   "risk": "digest 完整性校验缺失：可能写入与字段不匹配的摘要",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_operation_tickets",
+   "name": "mailbox_operation_tickets_token_hash_check",
+   "def": "CHECK (token_hash ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailbox_sessions",
+   "name": "mailbox_sessions_token_hash_check",
+   "def": "CHECK (token_hash ~ '^[a-f0-9]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailboxes_no_command_wildcard",
+   "def": "CHECK (local_part !~ '[*?]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "mailboxes",
+   "name": "mailboxes_storage_local_check",
+   "def": "CHECK (length(local_part) >= 1 AND length(local_part) <= 64 AND (local_part <> ALL (ARRAY['.'::text, '..'::text])) AND local_part !~ '[/\\\\]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "marketing_channels",
+   "name": "marketing_channels_encrypted_config_check",
+   "def": "CHECK (encrypted_config ~~ 'enc:v1:%'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "marketing_channels",
+   "name": "marketing_channels_sender_address_check",
+   "def": "CHECK (sender_address = lower(sender_address) AND sender_address !~ '[\\r\\n]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "marketing_contacts",
+   "name": "marketing_contacts_email_check",
+   "def": "CHECK (email = lower(email) AND length(email) <= 254 AND email !~ '[\\r\\n]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "marketing_templates",
+   "name": "marketing_templates_subject_check",
+   "def": "CHECK (length(subject) >= 1 AND length(subject) <= 998 AND subject !~ '[\\r\\n]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_preview_digest_check",
+   "def": "CHECK (preview_digest IS NULL OR preview_digest ~ '^[0-9a-f]{64}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "recall_requests",
+   "name": "recall_requests_preview_token_check",
+   "def": "CHECK (preview_token IS NULL OR preview_token ~ '^[0-9a-f-]{36}$'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  },
+  {
+   "table": "ticket_attachments",
+   "name": "ticket_attachments_filename_check",
+   "def": "CHECK (length(filename) >= 1 AND length(filename) <= 200 AND filename !~ '[\\r\\n/\\\\]'::text)",
+   "risk": "文本模式校验缺失：可能写入非法格式值",
+   "slice": "S4",
+   "reason": "CHECK 内调函数/PG 语义不可译——S4 应用层等价断言承接"
+  }
+ ],
+ "stripped_defaults": [
+  {
+   "table": "delivery_events",
+   "column": "source_event_id",
+   "default": "('legacy:'::text || (gen_random_uuid())::text)",
+   "reason": "默认值含不可译函数/表达式——SQLite 侧由应用层供给"
+  },
+  {
+   "table": "retention_previews",
+   "column": "id",
+   "default": "gen_random_uuid()",
+   "reason": "默认值含不可译函数/表达式——SQLite 侧由应用层供给"
+  }
+ ],
+ "dropped_indexes": [
+  {
+   "table": "archive_content",
+   "name": "archive_content_body_trgm",
+   "def": "CREATE INDEX archive_content_body_trgm ON public.archive_content USING gin (body_text gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_content",
+   "name": "archive_content_search",
+   "def": "CREATE INDEX archive_content_search ON public.archive_content USING gin (to_tsvector('simple'::regconfig, body_text))",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_from_addr_trgm_idx",
+   "def": "CREATE INDEX archive_entries_from_addr_trgm_idx ON public.archive_entries USING gin (from_addr gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_message_id_trgm_idx",
+   "def": "CREATE INDEX archive_entries_message_id_trgm_idx ON public.archive_entries USING gin (message_id gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_subject_trgm_idx",
+   "def": "CREATE INDEX archive_entries_subject_trgm_idx ON public.archive_entries USING gin (subject gin_trgm_ops)",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  },
+  {
+   "table": "archive_entries",
+   "name": "archive_entries_to_tsvector_idx",
+   "def": "CREATE INDEX archive_entries_to_tsvector_idx ON public.archive_entries USING gin (to_tsvector('simple'::regconfig, COALESCE(subject, ''::text)))",
+   "reason": "trigram GIN 无 SQLite 对应，§3.5 降级（LIKE 或 FTS5）"
+  }
+ ],
+ "autoincrement_columns": [
+  "ai_usage_requests.id",
+  "announcements.id",
+  "api_tokens.id",
+  "application_credentials.id",
+  "archive_approval_requests.id",
+  "archive_entries.id",
+  "archive_investigation_sources.id",
+  "archive_investigations.id",
+  "audit_logs.id",
+  "backup_runs.id",
+  "brands.id",
+  "channels.id",
+  "commissions.id",
+  "compliance_grants.id",
+  "delivery_events.id",
+  "dns_credentials.id",
+  "dns_record_actions.id",
+  "domain_tls_reports.id",
+  "domain_transport_security.id",
+  "domains.id",
+  "mailbox_addressbooks.id",
+  "mailbox_ai_chunks.id",
+  "mailbox_ai_drafts.id",
+  "mailbox_ai_phishing_findings.id",
+  "mailbox_aliases.id",
+  "mailbox_calendars.id",
+  "mailbox_changes.id",
+  "mailbox_contact_groups.id",
+  "mailbox_contacts.id",
+  "mailbox_eas_collection_state.id",
+  "mailbox_eas_devices.id",
+  "mailbox_eas_folder_state.id",
+  "mailbox_events.id",
+  "mailbox_import_jobs.id",
+  "mailbox_jobs.id",
+  "mailbox_scheduled_sends.id",
+  "mailbox_send_receipts.id",
+  "mailbox_snippets.id",
+  "mailbox_spam_feedback.id",
+  "mailbox_sync_cursors.id",
+  "mailboxes.id",
+  "marketing_campaigns.id",
+  "marketing_channels.id",
+  "marketing_flow_definitions.id",
+  "marketing_flow_entries.id",
+  "marketing_flow_node_executions.id",
+  "marketing_flow_positions.id",
+  "marketing_flow_steps.id",
+  "marketing_flow_versions.id",
+  "marketing_flows.id",
+  "marketing_lists.id",
+  "marketing_quota_windows.id",
+  "marketing_recipients.id",
+  "marketing_suppressions.id",
+  "marketing_templates.id",
+  "notification_outbox.id",
+  "onboarding_tasks.id",
+  "recall_requests.id",
+  "retention_policies.id",
+  "tenant_directory_contacts.id",
+  "tenants.id",
+  "ticket_attachments.id",
+  "ticket_messages.id",
+  "tickets.id",
+  "users.id"
+ ],
+ "type_map_notes": {
+  "numeric": "本 schema 0 列——映射 TEXT 定点规则预置但不适用（与 citext 同）",
+  "citext": "本 schema 0 列——映射 NOCASE 规则预置但不适用"
+ }
+}

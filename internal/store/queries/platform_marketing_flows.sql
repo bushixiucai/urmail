@@ -96,12 +96,9 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3 AND wait_until IS NULL AND lease_
 -- Advance a wait step whose wait_until elapsed, without sending anything.
 -- The database function re-checks uncertain, unsubscribe, the wait and the
 -- sending gate under FOR UPDATE, so it is the linearization point.
--- name: PlatformCommitMarketingFlowWait :one
--- scope: platform
+-- PlatformCommitMarketingFlowWait 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_commit_marketing_flow_step = 位置重读 + uncertain/unsubscribe/wait/发送门 + 步进提交（等待步不发送）
 
-SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;
-
--- The durable marketingflow.Store lives on the same tables.
 -- name: PlatformGetMarketingFlowPosition :one
 -- scope: platform
 

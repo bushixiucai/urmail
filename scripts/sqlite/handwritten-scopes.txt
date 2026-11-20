@@ -48,3 +48,21 @@ RequestOnboardingRetry platform
 RequestDNSRollback     platform
 ReviewDNSPlan          platform
 AbandonDNSPlan         platform
+
+# -- system: marketing worker（dispatch / flow 发送与提交；role='urmail_platform'）
+PlatformAuthorizeMarketingSend           system
+PlatformFinishMarketingSend              system
+PlatformResolveMarketingAttempt          system
+PlatformRecordMarketingFeedback          system
+PlatformMarkMarketingRecipientRevoked    system
+PlatformSkipMarketingRecipient           system
+PlatformBeginMarketingFlowSend           system
+PlatformReleaseMarketingFlowReservation  system
+PlatformCommitMarketingFlowFenced        system
+PlatformCommitMarketingFlowWait          system
+
+# -- platform: 营销管理面（沿用被替换语句原 `-- scope: platform` 注解，不擅自放宽为 system）
+ScheduleMarketingCampaign platform
+RetryMarketingFlowInstance platform
+RecordMarketingFlowAudit  platform
+

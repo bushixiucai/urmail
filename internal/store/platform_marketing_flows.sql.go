@@ -227,10 +227,6 @@ func (q *Queries) PlatformClaimMarketingFlowPositions(ctx context.Context, arg P
 	return items, nil
 }
 
-const platformCommitMarketingFlowWait = `-- name: PlatformCommitMarketingFlowWait :one
-SELECT urmail_commit_marketing_flow_step($1,$2,$3,$4::text,$5::text) AS result
-`
-
 type PlatformCommitMarketingFlowWaitParams struct {
 	PTenant int64  `json:"p_tenant"`
 	PFlow   int64  `json:"p_flow"`
@@ -242,19 +238,6 @@ type PlatformCommitMarketingFlowWaitParams struct {
 // Advance a wait step whose wait_until elapsed, without sending anything.
 // The database function re-checks uncertain, unsubscribe, the wait and the
 // sending gate under FOR UPDATE, so it is the linearization point.
-func (q *Queries) PlatformCommitMarketingFlowWait(ctx context.Context, arg PlatformCommitMarketingFlowWaitParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformCommitMarketingFlowWait,
-		arg.PTenant,
-		arg.PFlow,
-		arg.PEmail,
-		arg.Event,
-		arg.NextKey,
-	)
-	var result string
-	err := row.Scan(&result)
-	return result, err
-}
-
 const platformGetMarketingFlowPosition = `-- name: PlatformGetMarketingFlowPosition :one
 SELECT step_key, unsubscribed FROM marketing_flow_positions
 WHERE tenant_id=$1 AND flow_id=$2 AND email=$3

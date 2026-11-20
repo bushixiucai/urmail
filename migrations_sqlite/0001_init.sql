@@ -1607,7 +1607,7 @@ CREATE TABLE IF NOT EXISTS "marketing_quota_windows" (
   "ends_at" INTEGER NOT NULL,
   "timezone" TEXT NOT NULL,
   "used_count" INTEGER NOT NULL DEFAULT 0,
-  "next_send_at" INTEGER NOT NULL DEFAULT '-infinity',
+  "next_send_at" INTEGER NOT NULL DEFAULT -9223372036854775808,
   UNIQUE (tenant_id, id),
   UNIQUE (tenant_id, starts_at),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id),

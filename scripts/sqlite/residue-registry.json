@@ -4,27 +4,6 @@
     "db-function-call": [
       {
         "class": "db-function-call",
-        "file": "marketing_campaigns.sql",
-        "method": "ScheduleMarketingCampaign",
-        "line": 55,
-        "snippet": "SELECT urmail_schedule_marketing(@tenant_id,@campaign_id,@scheduled_at) AS result;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "marketing_flow_authoring.sql",
-        "method": "RetryMarketingFlowInstance",
-        "line": 150,
-        "snippet": "SELECT urmail_retry_marketing_flow_instance(?1,?2,?3,?4) AS retried;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "marketing_flow_authoring.sql",
-        "method": "RecordMarketingFlowAudit",
-        "line": 166,
-        "snippet": "SELECT urmail_record_marketing_flow_audit(?1,?2,?3,?4);"
-      },
-      {
-        "class": "db-function-call",
         "file": "platform_ai.sql",
         "method": "PlatformConfigureTenantAI",
         "line": 126,
@@ -43,80 +22,10 @@
         "method": "PlatformConfigureTenantAIGovernance",
         "line": 177,
         "snippet": "SELECT urmail_configure_tenant_ai_governance(sqlc.arg(personal_mode), sqlc.arg(approved_endpoints));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing.sql",
-        "method": "PlatformAuthorizeMarketingSend",
-        "line": 52,
-        "snippet": "SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing.sql",
-        "method": "PlatformFinishMarketingSend",
-        "line": 57,
-        "snippet": "SELECT urmail_finish_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence,@result) AS finished;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing.sql",
-        "method": "PlatformResolveMarketingAttempt",
-        "line": 81,
-        "snippet": "SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing.sql",
-        "method": "PlatformRecordMarketingFeedback",
-        "line": 86,
-        "snippet": "SELECT urmail_record_marketing_feedback(@channel_id,@event_id,@recipient_id,@status,@payload_hash) AS result;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing.sql",
-        "method": "PlatformMarkMarketingRecipientRevoked",
-        "line": 96,
-        "snippet": "SELECT urmail_mark_marketing_recipient_revoked(@tenant_id,@recipient_id,@lease_owner,@fence) AS revoked;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing.sql",
-        "method": "PlatformSkipMarketingRecipient",
-        "line": 101,
-        "snippet": "SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fence,@reason) AS skipped;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing_flow_authoring.sql",
-        "method": "PlatformCommitMarketingFlowFenced",
-        "line": 32,
-        "snippet": "SELECT urmail_commit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8) AS result;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing_flow_authoring.sql",
-        "method": "PlatformBeginMarketingFlowSend",
-        "line": 37,
-        "snippet": "SELECT urmail_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS result;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing_flow_authoring.sql",
-        "method": "PlatformReleaseMarketingFlowReservation",
-        "line": 42,
-        "snippet": "SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_marketing_flows.sql",
-        "method": "PlatformCommitMarketingFlowWait",
-        "line": 102,
-        "snippet": "SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;"
       }
     ]
   },
   "totals": {
-    "db-function-call": 16
+    "db-function-call": 3
   }
 }

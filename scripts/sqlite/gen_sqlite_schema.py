@@ -274,6 +274,13 @@ def main():
                 # PG 空数组默认 → JSON 数组编码（v3.2 定死：text[]/bigint[] 存 JSON）。
                 translated_defaults[(t, c["column"])] = "'[]'"
                 continue
+            if norm in ("'-infinity'", "'infinity'", "'-infinity'::date", "'infinity'::date"):
+                # PG 时间戳哨兵值 → int64 端点。若原样保留，SQLite 会把 TEXT
+                # 存进 INTEGER 列，而 INTEGER < TEXT 恒成立，于是
+                # `next_send_at > now()` 永远为真（限速窗口永不发送）。
+                translated_defaults[(t, c["column"])] = (
+                    "-9223372036854775808" if norm.startswith("'-") else "9223372036854775807")
+                continue
             m_plus = now_plus_re.match(norm.strip())
             if m_plus:
                 if m_plus.group(2):

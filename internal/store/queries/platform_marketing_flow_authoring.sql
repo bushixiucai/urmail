@@ -26,20 +26,14 @@ WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND NOT p.unsubscribed AND 
 AND NOT EXISTS(SELECT 1 FROM marketing_suppressions sup WHERE sup.tenant_id=?1 AND sup.email=?3)
 ELSE (EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM marketing_flow_positions fp WHERE fp.tenant_id=?1 AND fp.flow_id=?2 AND fp.email=?3 AND NOT fp.unsubscribed) AND NOT EXISTS(SELECT 1 FROM marketing_suppressions ms WHERE ms.tenant_id=?1 AND ms.email=?3)) END AS allowed;
 
--- name: PlatformCommitMarketingFlowFenced :one
--- scope: platform
+-- PlatformCommitMarketingFlowFenced 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_commit_marketing_flow_fenced = fence 校验 + 确认则清预留/uncertain + 流程活动/steps 校验 + 委托 step 提交
 
-SELECT urmail_commit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8) AS result;
+-- PlatformBeginMarketingFlowSend 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_begin_marketing_flow_send = worker 角色 + 租约/fence + uncertain/reserved + 退订/抑制/权益/限额/通道/含 verified 的发件人 + 配额窗口预留
 
--- name: PlatformBeginMarketingFlowSend :one
--- scope: platform
-
-SELECT urmail_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS result;
-
--- name: PlatformReleaseMarketingFlowReservation :one
--- scope: platform
-
-SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;
+-- PlatformReleaseMarketingFlowReservation 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_release_marketing_flow_reservation = 租约/fence + 释放配额预留 + 清 delivery_uncertain/flow_reserved/flow_window_id
 
 -- name: PlatformMarkMarketingFlowUncertainFenced :execrows
 -- scope: platform

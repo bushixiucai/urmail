@@ -733,10 +733,6 @@ func (q *Queries) PublishMarketingFlowDefinition(ctx context.Context, arg Publis
 	return err
 }
 
-const recordMarketingFlowAudit = `-- name: RecordMarketingFlowAudit :exec
-SELECT urmail_record_marketing_flow_audit($1,$2,$3,$4)
-`
-
 type RecordMarketingFlowAuditParams struct {
 	PTenant     int64  `json:"p_tenant"`
 	PDefinition int64  `json:"p_definition"`
@@ -744,37 +740,11 @@ type RecordMarketingFlowAuditParams struct {
 	PDetail     []byte `json:"p_detail"`
 }
 
-func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarketingFlowAuditParams) error {
-	_, err := q.db.Exec(ctx, recordMarketingFlowAudit,
-		arg.PTenant,
-		arg.PDefinition,
-		arg.PAction,
-		arg.PDetail,
-	)
-	return err
-}
-
-const retryMarketingFlowInstance = `-- name: RetryMarketingFlowInstance :one
-SELECT urmail_retry_marketing_flow_instance($1,$2,$3,$4)::boolean AS retried
-`
-
 type RetryMarketingFlowInstanceParams struct {
 	PTenant               int64 `json:"p_tenant"`
 	PDefinition           int64 `json:"p_definition"`
 	PPosition             int64 `json:"p_position"`
 	PConfirmedNotAccepted bool  `json:"p_confirmed_not_accepted"`
-}
-
-func (q *Queries) RetryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error) {
-	row := q.db.QueryRow(ctx, retryMarketingFlowInstance,
-		arg.PTenant,
-		arg.PDefinition,
-		arg.PPosition,
-		arg.PConfirmedNotAccepted,
-	)
-	var retried bool
-	err := row.Scan(&retried)
-	return retried, err
 }
 
 const stopMarketingFlowInstance = `-- name: StopMarketingFlowInstance :execrows

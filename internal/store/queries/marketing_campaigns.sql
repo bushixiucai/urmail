@@ -49,10 +49,8 @@ SELECT * FROM marketing_campaigns WHERE tenant_id=?1 ORDER BY id DESC LIMIT 100;
 
 SELECT * FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2;
 
--- name: ScheduleMarketingCampaign :one
--- scope: platform
-
-SELECT urmail_schedule_marketing(@tenant_id,@campaign_id,@scheduled_at) AS result;
+-- ScheduleMarketingCampaign 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_schedule_marketing = 管理员授权 + 模板快照/排期 + 收件人去重入队（opted_in 且非抑制）；day_limit/通道/发件人前置校验返回状态串
 
 -- name: ChangeMarketingCampaignState :one
 -- scope: tenant

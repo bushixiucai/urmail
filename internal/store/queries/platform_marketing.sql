@@ -46,15 +46,11 @@ WHERE id=(SELECT r.id FROM marketing_recipients r JOIN marketing_campaigns c ON 
  ORDER BY r.id LIMIT 1)
  AND status='queued' RETURNING *;
 
--- name: PlatformAuthorizeMarketingSend :one
--- scope: platform
+-- PlatformAuthorizeMarketingSend 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_authorize_marketing_send = worker 角色 + 收件人租约/fence + 活动态 + 抑制/退订 + 权益/限额/通道/发件人 + 配额窗口预留
 
-SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;
-
--- name: PlatformFinishMarketingSend :one
--- scope: platform
-
-SELECT urmail_finish_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence,@result) AS finished;
+-- PlatformFinishMarketingSend 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_finish_marketing_send = worker 角色 + 结果白名单 + 提交态租约/fence + 失败退配额 + 5 次内重排（2^n 退避）+ 退信抑制
 
 -- name: PlatformReleaseMarketingClaim :execrows
 -- scope: platform
@@ -75,30 +71,22 @@ WHERE r.tenant_id=?1 AND r.id=?2;
 
 UPDATE marketing_campaigns SET status='completed' WHERE status IN('scheduled','running')
 AND NOT EXISTS(SELECT 1  WHERE EXISTS(SELECT 1 FROM marketing_recipients r WHERE r.campaign_id=id AND r.status IN('queued','leased','submitting','uncertain')));
--- name: PlatformResolveMarketingAttempt :one
--- scope: platform
+-- PlatformResolveMarketingAttempt 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_resolve_marketing_attempt = worker 角色 + 结果/理由（1..2048 字符）+ uncertain 态 + 未提交退配额 + 人工确认终态
 
-SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;
-
--- name: PlatformRecordMarketingFeedback :one
--- scope: platform
-
-SELECT urmail_record_marketing_feedback(@channel_id,@event_id,@recipient_id,@status,@payload_hash) AS result;
+-- PlatformRecordMarketingFeedback 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_record_marketing_feedback = worker 角色 + 事件/哈希白名单 + (channel,event) 幂等去重 + 硬退信/投诉抑制 + 收件人置 bounced
 
 -- name: PlatformUpdateMarketingChannel :one
 -- scope: platform
 
 UPDATE marketing_channels SET name=?3,kind=?4,sender_address=?5,encrypted_config=?6,enabled=?7 WHERE tenant_id=?1 AND id=?2 RETURNING id,tenant_id,name,kind,enabled,created_at;
 
--- name: PlatformMarkMarketingRecipientRevoked :one
--- scope: platform
+-- PlatformMarkMarketingRecipientRevoked 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_mark_marketing_recipient_revoked = worker 角色 + submitting/租约/fence + 退配额 + 运行中退订抑制
 
-SELECT urmail_mark_marketing_recipient_revoked(@tenant_id,@recipient_id,@lease_owner,@fence) AS revoked;
-
--- name: PlatformSkipMarketingRecipient :one
--- scope: platform
-
-SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fence,@reason) AS skipped;
+-- PlatformSkipMarketingRecipient 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_skip_marketing_recipient = worker 角色 + 原因白名单 + leased/租约/fence + 退配额 + canceled
 
 -- name: PlatformMarketingAttemptStillAllowed :one
 -- scope: platform

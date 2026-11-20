@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/netip"
 	"regexp"
 	"strconv"
@@ -1360,16 +1361,28 @@ func (q *Queries) dnsPlan(ctx context.Context, tenant int64, id string) (dnsPlan
 	return p, err
 }
 
-// dnsConflictFree reports whether the preview's "conflicts" array is empty
-// (jsonb_array_length(p.changes->'conflicts') = 0).
+// dnsConflictFree reports whether the preview's "conflicts" array is empty,
+// mirroring `jsonb_array_length(p.changes->'conflicts')>0` in
+// urmail_confirm_dns_plan: a missing key is NULL (not >0), while an explicit
+// null or a non-array makes PG raise, so confirm must be refused there too.
 func dnsConflictFree(changes string) bool {
-	var doc struct {
-		Conflicts []json.RawMessage `json:"conflicts"`
-	}
+	var doc map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(changes), &doc); err != nil {
 		return false
 	}
-	return len(doc.Conflicts) == 0
+	raw, ok := doc["conflicts"]
+	if !ok {
+		return true
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	return len(list) == 0
 }
 
 const dnsConfirmPlanSQL = `UPDATE dns_change_plans
@@ -1592,4 +1605,1247 @@ func (q *Queries) AbandonDNSPlan(ctx context.Context, arg AbandonDNSPlanParams) 
 	}
 	_, err = q.db.Exec(ctx, dnsAbandonPlanSQL, arg.TenantID, id, timeutil.NowMicro())
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// S4 batch D: marketing dispatch + flow procedures.
+//
+// Every urmail_*_marketing* function below ran inside the caller's transaction
+// and asserted the caller's identity through session settings:
+// current_setting('urmail.tenant_id'/'urmail.user_id') plus an owner|admin
+// membership row, or current_setting('role')='urmail_platform' for the
+// dispatch worker. Those settings are the S2 decorator's / S5 adapter's
+// contract, so the Go ports read them through current_setting() exactly like
+// the PG functions did: an unbound session therefore fails closed instead of
+// granting access. The role/tenant assertions that cannot be reproduced from
+// data are the same app_pending seam already recorded for the DNS and archive
+// procedures, never silently dropped.
+//
+// pg_advisory_xact_lock(tenant) calls are replaced by SQLite's single-writer
+// transaction serialisation; the lock only ever ordered writers and carried no
+// data.
+// ---------------------------------------------------------------------------
+
+const marketingSessionSQL = `SELECT CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER),
+ COALESCE(current_setting('role',true),'')`
+
+// marketingSession returns the acting user id (0 when unbound) and the session
+// role string.
+func (q *Queries) marketingSession(ctx context.Context) (int64, string, error) {
+	var uid *int64
+	var role string
+	if err := q.db.QueryRow(ctx, marketingSessionSQL).Scan(&uid, &role); err != nil {
+		return 0, "", err
+	}
+	if uid == nil {
+		return 0, role, nil
+	}
+	return *uid, role, nil
+}
+
+const marketingAdminSQL = `SELECT EXISTS(SELECT 1 FROM user_tenant_roles
+ WHERE tenant_id=?1 AND user_id=CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER)
+  AND role IN('owner','admin'))`
+
+// marketingAdmin mirrors the `user_id=current_setting(...) AND role IN
+// ('owner','admin')` predicate of the tenant-facing marketing functions.
+func (q *Queries) marketingAdmin(ctx context.Context, tenant int64) (bool, error) {
+	var ok bool
+	err := q.db.QueryRow(ctx, marketingAdminSQL, tenant).Scan(&ok)
+	return ok, err
+}
+
+const marketingWorkerSQL = `SELECT COALESCE(current_setting('role',true),'')='urmail_platform'`
+
+// requireMarketingWorker reproduces urmail_platform's worker-only gate. A
+// session without the role setting fails closed with the PG SQLSTATE 42501 the
+// callers already map.
+func (q *Queries) requireMarketingWorker(ctx context.Context) error {
+	var ok bool
+	if err := q.db.QueryRow(ctx, marketingWorkerSQL).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return pgError("42501", "MARKETING_WORKER_REQUIRED")
+	}
+	return nil
+}
+
+const marketingMailAllowedSQL = `SELECT EXISTS(
+ SELECT 1 FROM tenants t WHERE t.id=?1 AND t.status='active'
+  AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=t.id)
+   OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=t.id
+        AND gd.status='active' AND gd.provisioning_state='ready')))`
+
+// mailAllowed is urmail_mail_allowed after 0156 (subscriptions dropped).
+func (q *Queries) mailAllowed(ctx context.Context, tenant int64) (bool, error) {
+	var ok bool
+	err := q.db.QueryRow(ctx, marketingMailAllowedSQL, tenant).Scan(&ok)
+	return ok, err
+}
+
+const marketingLimitsSQL = `SELECT
+ (SELECT COALESCE(
+   (SELECT CAST(json_extract(value,'$') AS TEXT) FROM settings
+     WHERE scope='tenant' AND scope_id=?1 AND key='marketing_daily_recipient_limit'),
+   (SELECT CAST(json_extract(value,'$') AS TEXT) FROM settings
+     WHERE scope='platform' AND scope_id=0 AND key='marketing_daily_recipient_limit'))),
+ (SELECT COALESCE(
+   (SELECT CAST(json_extract(value,'$') AS TEXT) FROM settings
+     WHERE scope='tenant' AND scope_id=?1 AND key='marketing_rate_per_minute'),
+   (SELECT CAST(json_extract(value,'$') AS TEXT) FROM settings
+     WHERE scope='platform' AND scope_id=0 AND key='marketing_rate_per_minute')))`
+
+var (
+	marketingDayLimitPattern  = regexp.MustCompile(`^[1-9][0-9]{0,8}$`)
+	marketingRateLimitPattern = regexp.MustCompile(`^[1-9][0-9]{0,5}$`)
+)
+
+// marketingLimits is urmail_marketing_limits: tenant setting, else platform
+// setting, and both limits are unusable unless each matches PG's regex.
+func (q *Queries) marketingLimits(ctx context.Context, tenant int64) (day, rate int64, ok bool, err error) {
+	var dayText, rateText *string
+	if err := q.db.QueryRow(ctx, marketingLimitsSQL, tenant).Scan(&dayText, &rateText); err != nil {
+		return 0, 0, false, err
+	}
+	if dayText == nil || rateText == nil ||
+		!marketingDayLimitPattern.MatchString(*dayText) ||
+		!marketingRateLimitPattern.MatchString(*rateText) {
+		return 0, 0, false, nil
+	}
+	day, _ = strconv.ParseInt(*dayText, 10, 64)
+	rate, _ = strconv.ParseInt(*rateText, 10, 64)
+	return day, rate, true, nil
+}
+
+const marketingTimezoneSQL = `SELECT COALESCE(
+ (SELECT CAST(json_extract(value,'$') AS TEXT) FROM settings
+   WHERE scope='tenant' AND scope_id=?1 AND key='business_timezone'),
+ (SELECT CAST(json_extract(s.value,'$') AS TEXT) FROM settings s
+   JOIN tenants t ON t.brand_id=s.scope_id
+   WHERE t.id=?1 AND s.scope='brand' AND s.key='business_timezone'),
+ (SELECT CAST(json_extract(value,'$') AS TEXT) FROM settings
+   WHERE scope='platform' AND scope_id=0 AND key='business_timezone'),
+ 'Asia/Shanghai')`
+
+// marketingTimezone is urmail_business_timezone. PG validates against
+// pg_timezone_names; Go validates with time.LoadLocation and rejects "Local"
+// exactly like the handler-side aiQuotaLocation, keeping INVALID_TIMEZONE.
+func (q *Queries) marketingTimezone(ctx context.Context, tenant int64) (*time.Location, error) {
+	var tz string
+	if err := q.db.QueryRow(ctx, marketingTimezoneSQL, tenant).Scan(&tz); err != nil {
+		return nil, err
+	}
+	if tz == "" || tz == "Local" {
+		return nil, pgError("23514", "INVALID_TIMEZONE")
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return nil, pgError("23514", "INVALID_TIMEZONE")
+	}
+	return loc, nil
+}
+
+// marketingNextBoundary is PG's
+// (date_trunc('day', t AT TIME ZONE tz) + interval '1 day') AT TIME ZONE tz:
+// the next local midnight in loc.
+func marketingNextBoundary(micros int64, loc *time.Location) int64 {
+	t := time.UnixMicro(micros).In(loc)
+	return time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, loc).UnixMicro()
+}
+
+const marketingChannelSQL = `SELECT EXISTS(SELECT 1 FROM marketing_channels
+ WHERE tenant_id=?1 AND id=?2 AND enabled AND kind='dedicated_gateway')`
+
+const marketingSenderSQL = `SELECT EXISTS(SELECT 1 FROM marketing_channels ch
+ JOIN mailboxes m ON m.tenant_id=ch.tenant_id AND m.address=ch.sender_address
+ JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
+ WHERE ch.tenant_id=?1 AND ch.id=?2 AND m.status='active' AND m.send_enabled
+  AND d.status='active' AND d.provisioning_state='ready')`
+
+// marketingSenderReadySQL is the flow variant, which additionally calls
+// urmail_domain_mail_ready (verified_at IS NOT NULL).
+const marketingSenderReadySQL = `SELECT EXISTS(SELECT 1 FROM marketing_channels ch
+ JOIN mailboxes m ON m.tenant_id=ch.tenant_id AND m.address=ch.sender_address
+ JOIN domains d ON d.tenant_id=m.tenant_id AND d.id=m.domain_id
+ WHERE ch.tenant_id=?1 AND ch.id=?2 AND m.status='active' AND m.send_enabled
+  AND d.status='active' AND d.verified_at IS NOT NULL AND d.provisioning_state='ready')`
+
+type marketingWindowRow struct {
+	ID         int64
+	EndsAt     int64
+	Timezone   string
+	UsedCount  int64
+	NextSendAt int64
+}
+
+const marketingLatestWindowSQL = `SELECT id,ends_at,timezone,used_count,next_send_at
+ FROM marketing_quota_windows WHERE tenant_id=?1 ORDER BY starts_at DESC LIMIT 1`
+
+const marketingInsertWindowSQL = `INSERT INTO marketing_quota_windows(tenant_id,starts_at,ends_at,timezone)
+ VALUES(?1,?2,?3,?4) RETURNING id`
+
+const marketingConsumeWindowSQL = `UPDATE marketing_quota_windows
+ SET used_count=used_count+1,next_send_at=?3 WHERE tenant_id=?1 AND id=?2`
+
+// marketingReserveSend is the rate/quota window shared by
+// urmail_authorize_marketing_send and urmail_begin_marketing_flow_send: it
+// opens a new window when the last one closed or the tenant timezone changed,
+// then reserves one slot. ok=false means the caller must return status
+// verbatim (quota_exhausted / rate_limited).
+func (q *Queries) marketingReserveSend(ctx context.Context, tenant int64, now, dayLimit, rateLimit int64,
+	loc *time.Location) (status string, windowID int64, ok bool, err error) {
+	var w marketingWindowRow
+	err = q.db.QueryRow(ctx, marketingLatestWindowSQL, tenant).
+		Scan(&w.ID, &w.EndsAt, &w.Timezone, &w.UsedCount, &w.NextSendAt)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		err = nil
+		w.ID = 0
+	case err != nil:
+		return "", 0, false, err
+	}
+	if w.ID == 0 || w.EndsAt <= now {
+		start := now
+		boundary := marketingNextBoundary(now, loc)
+		// A timezone change on a short DST day must not shrink the window
+		// below 24h: PG pushes the boundary one more local midnight out.
+		if w.ID != 0 && w.Timezone != loc.String() && boundary < start+86400000000 {
+			boundary = marketingNextBoundary(start+86400000000, loc)
+		}
+		if err := q.db.QueryRow(ctx, marketingInsertWindowSQL, tenant, start, boundary, loc.String()).
+			Scan(&w.ID); err != nil {
+			return "", 0, false, err
+		}
+		w.UsedCount = 0
+		w.NextSendAt = math.MinInt64
+	}
+	if w.UsedCount >= dayLimit {
+		return "quota_exhausted", 0, false, nil
+	}
+	if w.NextSendAt > now {
+		return "rate_limited", 0, false, nil
+	}
+	next := now + int64(math.Round(60000000.0/float64(rateLimit)))
+	if _, err := q.db.Exec(ctx, marketingConsumeWindowSQL, tenant, w.ID, next); err != nil {
+		return "", 0, false, err
+	}
+	return "", w.ID, true, nil
+}
+
+const marketingCampaignForScheduleSQL = `SELECT status,channel_id,template_id,list_id
+ FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2`
+
+const marketingCampaignSnapshotSQL = `UPDATE marketing_campaigns
+SET subject_snapshot=t.subject,body_snapshot=t.text_body,scheduled_at=?3,status='scheduled'
+FROM marketing_templates t
+WHERE marketing_campaigns.tenant_id=?1 AND marketing_campaigns.id=?2
+ AND t.tenant_id=?1 AND t.id=marketing_campaigns.template_id`
+
+const marketingEnqueueRecipientsSQL = `INSERT INTO marketing_recipients(tenant_id,campaign_id,email)
+SELECT ?1,?2,mc.email FROM marketing_contacts mc
+WHERE mc.tenant_id=?1 AND mc.list_id=?3 AND mc.opted_in
+ AND NOT EXISTS(SELECT 1 FROM marketing_suppressions s WHERE s.tenant_id=?1 AND s.email=mc.email)
+ON CONFLICT(campaign_id,email) DO NOTHING`
+
+// ScheduleMarketingCampaign mirrors urmail_schedule_marketing: it snapshots the
+// template, schedules the campaign and enqueues every opted-in, non-suppressed
+// list contact. Every precondition returns a status string instead of an error,
+// as the PG function did.
+func (q *Queries) ScheduleMarketingCampaign(ctx context.Context, arg ScheduleMarketingCampaignParams) (string, error) {
+	var result string
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		result, err = tx.scheduleMarketing(ctx, arg)
+		return err
+	})
+	return result, err
+}
+
+func (q *Queries) scheduleMarketing(ctx context.Context, arg ScheduleMarketingCampaignParams) (string, error) {
+	ok, err := q.marketingAdmin(ctx, arg.TenantID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", pgError("42501", "MARKETING_FORBIDDEN")
+	}
+	var status string
+	var channelID, templateID, listID int64
+	err = q.db.QueryRow(ctx, marketingCampaignForScheduleSQL, arg.TenantID, arg.CampaignID).
+		Scan(&status, &channelID, &templateID, &listID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "not_found", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if status != "draft" {
+		return status, nil
+	}
+	at, valid := timestamptzMicros(arg.ScheduledAt)
+	if !valid {
+		return "invalid_schedule", nil
+	}
+	allowed, err := q.mailAllowed(ctx, arg.TenantID)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "entitlement_denied", nil
+	}
+	if _, _, configured, err := q.marketingLimits(ctx, arg.TenantID); err != nil {
+		return "", err
+	} else if !configured {
+		return "quota_unconfigured", nil
+	}
+	var channelOK bool
+	if err := q.db.QueryRow(ctx, marketingChannelSQL, arg.TenantID, channelID).Scan(&channelOK); err != nil {
+		return "", err
+	}
+	if !channelOK {
+		return "channel_unavailable", nil
+	}
+	var senderOK bool
+	if err := q.db.QueryRow(ctx, marketingSenderSQL, arg.TenantID, channelID).Scan(&senderOK); err != nil {
+		return "", err
+	}
+	if !senderOK {
+		return "sender_unavailable", nil
+	}
+	if _, err := q.db.Exec(ctx, marketingCampaignSnapshotSQL, arg.TenantID, arg.CampaignID, at); err != nil {
+		return "", err
+	}
+	if _, err := q.db.Exec(ctx, marketingEnqueueRecipientsSQL, arg.TenantID, arg.CampaignID, listID); err != nil {
+		return "", err
+	}
+	return "scheduled", nil
+}
+
+type marketingFlowPositionRow struct {
+	ID                int64
+	LeaseOwner        *string
+	LeaseFence        int64
+	LeaseUntil        *int64
+	DeliveryUncertain bool
+	FlowReserved      bool
+	FlowWindowID      *int64
+	StoppedAt         *int64
+	Unsubscribed      bool
+	StepKey           string
+	WaitUntil         *int64
+	EntryID           *int64
+}
+
+const marketingFlowPositionSQL = `SELECT id,lease_owner,lease_fence,lease_until,delivery_uncertain,
+ flow_reserved,flow_window_id,stopped_at,unsubscribed,step_key,wait_until,entry_id
+ FROM marketing_flow_positions WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
+
+func (q *Queries) marketingFlowPosition(ctx context.Context, tenant, flow int64, email string) (marketingFlowPositionRow, error) {
+	var r marketingFlowPositionRow
+	err := q.db.QueryRow(ctx, marketingFlowPositionSQL, tenant, flow, email).Scan(
+		&r.ID, &r.LeaseOwner, &r.LeaseFence, &r.LeaseUntil, &r.DeliveryUncertain,
+		&r.FlowReserved, &r.FlowWindowID, &r.StoppedAt, &r.Unsubscribed, &r.StepKey,
+		&r.WaitUntil, &r.EntryID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r, pgx.ErrNoRows
+	}
+	return r, err
+}
+
+// leaseStale mirrors PG's
+// `lease_owner IS DISTINCT FROM p_owner OR lease_fence<>p_fence
+//
+//	OR lease_until IS NULL OR lease_until<=now()`.
+func leaseStale(r marketingFlowPositionRow, owner string, fence, now int64, checkExpiry bool) bool {
+	if r.LeaseOwner == nil || *r.LeaseOwner != owner || r.LeaseFence != fence {
+		return true
+	}
+	if checkExpiry && (r.LeaseUntil == nil || *r.LeaseUntil <= now) {
+		return true
+	}
+	return false
+}
+
+const marketingQuotaReleaseSQL = `UPDATE marketing_quota_windows
+ SET used_count=max(0,used_count-1) WHERE tenant_id=?1 AND id=?2`
+
+const marketingFlowRetrySQL = `UPDATE marketing_flow_positions
+SET delivery_uncertain=0,flow_reserved=0,flow_window_id=NULL,last_error='',
+ next_attempt_at=?3,lease_owner=NULL,lease_until=NULL,lease_fence=lease_fence+1,updated_at=?3
+WHERE tenant_id=?1 AND id=?2`
+
+const marketingFlowRetrySelectSQL = `SELECT p.id,p.stopped_at,p.unsubscribed,p.lease_until,
+ p.delivery_uncertain,p.last_error,p.flow_reserved,p.flow_window_id
+FROM marketing_flow_positions p
+JOIN marketing_flow_versions v ON v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id
+JOIN marketing_flows f ON f.tenant_id=p.tenant_id AND f.id=p.flow_id
+WHERE p.tenant_id=?1 AND p.id=?2 AND v.definition_id=?3 AND f.status='active'`
+
+// RetryMarketingFlowInstance mirrors urmail_retry_marketing_flow_instance: only
+// a failed or delivery-uncertain position whose lease lapsed is made runnable
+// again, and any reserved quota slot is given back.
+func (q *Queries) RetryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error) {
+	_, role, err := q.marketingSession(ctx)
+	if err != nil {
+		return false, err
+	}
+	if role != "urmail_platform" {
+		ok, err := q.marketingAdmin(ctx, arg.PTenant)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, pgError("42501", "MARKETING_ADMIN_REQUIRED")
+		}
+	}
+	var retried bool
+	err = q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		retried, err = tx.retryMarketingFlowInstance(ctx, arg)
+		return err
+	})
+	return retried, err
+}
+
+func (q *Queries) retryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error) {
+	var stoppedAt, leaseUntil *int64
+	var unsubscribed, uncertain, reserved bool
+	var lastError string
+	var windowID *int64
+	var positionID int64
+	err := q.db.QueryRow(ctx, marketingFlowRetrySelectSQL, arg.PTenant, arg.PPosition, arg.PDefinition).
+		Scan(&positionID, &stoppedAt, &unsubscribed, &leaseUntil, &uncertain, &lastError, &reserved, &windowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	now := timeutil.NowMicro()
+	if stoppedAt != nil || unsubscribed ||
+		(leaseUntil != nil && *leaseUntil > now) ||
+		(!uncertain && lastError == "") ||
+		(uncertain && !arg.PConfirmedNotAccepted) {
+		return false, nil
+	}
+	if reserved && windowID != nil {
+		if _, err := q.db.Exec(ctx, marketingQuotaReleaseSQL, arg.PTenant, *windowID); err != nil {
+			return false, err
+		}
+	}
+	if _, err := q.db.Exec(ctx, marketingFlowRetrySQL, arg.PTenant, positionID, now); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+var marketingFlowAuditActions = map[string]bool{
+	"published": true, "deactivated": true, "enrolled": true,
+	"retry_requested": true, "instance_stopped": true,
+}
+
+const marketingFlowDefinitionSQL = `SELECT EXISTS(SELECT 1 FROM marketing_flow_definitions
+ WHERE tenant_id=?1 AND id=?2)`
+
+const marketingFlowAuditInsertSQL = `INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
+VALUES(?1,?2,?3,'marketing_flow',?4,?5)`
+
+// RecordMarketingFlowAudit mirrors urmail_record_marketing_flow_audit. The audit
+// table's append-only INSERT trigger still rejects this row until S6 removes the
+// no_insert guard, exactly as it did for RecordTenantAudit in batch A.
+func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarketingFlowAuditParams) error {
+	actor, _, err := q.marketingSession(ctx)
+	if err != nil {
+		return err
+	}
+	if actor == 0 {
+		return pgError("42501", "MARKETING_ADMIN_REQUIRED")
+	}
+	ok, err := q.marketingAdmin(ctx, arg.PTenant)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return pgError("42501", "MARKETING_ADMIN_REQUIRED")
+	}
+	var definitionExists bool
+	if err := q.db.QueryRow(ctx, marketingFlowDefinitionSQL, arg.PTenant, arg.PDefinition).
+		Scan(&definitionExists); err != nil {
+		return err
+	}
+	if !definitionExists {
+		return pgError("42501", "MARKETING_ADMIN_REQUIRED")
+	}
+	if !marketingFlowAuditActions[arg.PAction] {
+		return pgError("22023", "INVALID_FLOW_AUDIT")
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(arg.PDetail, &doc); err != nil || doc == nil {
+		return pgError("22023", "INVALID_FLOW_AUDIT")
+	}
+	// PG measures octet_length(p_detail::text). jsonb renders ", " / ": " so its
+	// text can be a few bytes longer than the compact form; the compact bound is
+	// the stricter side and never admits a payload PG would reject.
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, arg.PDetail); err != nil || compact.Len() > 4000 {
+		return pgError("22023", "INVALID_FLOW_AUDIT")
+	}
+	_, err = q.db.Exec(ctx, marketingFlowAuditInsertSQL, arg.PTenant, actor,
+		"marketing.flow."+arg.PAction, strconv.FormatInt(arg.PDefinition, 10),
+		string(compact.Bytes()))
+	return err
+}
+
+const marketingRecipientSQL = `SELECT status,lease_owner,lease_until,fence,email,campaign_id,
+ window_id,reserved,attempts FROM marketing_recipients WHERE tenant_id=?1 AND id=?2`
+
+type marketingRecipientRow struct {
+	Status     string
+	LeaseOwner *string
+	LeaseUntil *int64
+	Fence      int64
+	Email      string
+	CampaignID int64
+	WindowID   *int64
+	Reserved   bool
+	Attempts   int64
+}
+
+func (q *Queries) marketingRecipient(ctx context.Context, tenant, id int64) (marketingRecipientRow, error) {
+	var r marketingRecipientRow
+	err := q.db.QueryRow(ctx, marketingRecipientSQL, tenant, id).Scan(&r.Status, &r.LeaseOwner,
+		&r.LeaseUntil, &r.Fence, &r.Email, &r.CampaignID, &r.WindowID, &r.Reserved, &r.Attempts)
+	return r, err
+}
+
+const marketingCampaignRunSQL = `SELECT status,channel_id,list_id,scheduled_at
+ FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2`
+
+const marketingRecipientSuppressSQL = `UPDATE marketing_recipients
+ SET status='suppressed',completed_at=?3,result_code='suppressed' WHERE tenant_id=?1 AND id=?2`
+
+const marketingRecipientSubmitSQL = `UPDATE marketing_recipients
+ SET status='submitting',window_id=?3,reserved=1,attempts=attempts+1 WHERE tenant_id=?1 AND id=?2`
+
+const marketingCampaignRunningSQL = `UPDATE marketing_campaigns SET status='running'
+ WHERE tenant_id=?1 AND id=?2`
+
+const marketingSuppressionHitSQL = `SELECT EXISTS(SELECT 1 FROM marketing_suppressions
+ WHERE tenant_id=?1 AND email=?2)
+ OR NOT EXISTS(SELECT 1 FROM marketing_contacts
+  WHERE tenant_id=?1 AND list_id=?3 AND email=?2 AND opted_in)`
+
+// PlatformAuthorizeMarketingSend mirrors urmail_authorize_marketing_send. It
+// reserves a quota slot and moves the recipient to submitting, or returns the
+// terminal status that the worker logs and skips on.
+func (q *Queries) PlatformAuthorizeMarketingSend(ctx context.Context, arg PlatformAuthorizeMarketingSendParams) (string, error) {
+	var result string
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		result, err = tx.authorizeMarketingSend(ctx, arg)
+		return err
+	})
+	return result, err
+}
+
+func (q *Queries) authorizeMarketingSend(ctx context.Context, arg PlatformAuthorizeMarketingSendParams) (string, error) {
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return "", err
+	}
+	now := timeutil.NowMicro()
+	r, err := q.marketingRecipient(ctx, arg.TenantID, arg.RecipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "stale", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if r.Status != "leased" || r.LeaseOwner == nil || *r.LeaseOwner != arg.LeaseOwner ||
+		r.Fence != arg.Fence || r.LeaseUntil == nil || *r.LeaseUntil <= now {
+		return "stale", nil
+	}
+	var campaignStatus string
+	var channelID, listID, scheduledAt int64
+	err = q.db.QueryRow(ctx, marketingCampaignRunSQL, arg.TenantID, r.CampaignID).
+		Scan(&campaignStatus, &channelID, &listID, &scheduledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The recipient FK guarantees a campaign row; treat an orphan as paused.
+		return "paused", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if (campaignStatus != "scheduled" && campaignStatus != "running") || scheduledAt > now {
+		return "paused", nil
+	}
+	var suppressed bool
+	if err := q.db.QueryRow(ctx, marketingSuppressionHitSQL, arg.TenantID, r.Email, listID).
+		Scan(&suppressed); err != nil {
+		return "", err
+	}
+	if suppressed {
+		if _, err := q.db.Exec(ctx, marketingRecipientSuppressSQL, arg.TenantID, arg.RecipientID, now); err != nil {
+			return "", err
+		}
+		return "suppressed", nil
+	}
+	allowed, err := q.mailAllowed(ctx, arg.TenantID)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "entitlement_denied", nil
+	}
+	dayLimit, rateLimit, configured, err := q.marketingLimits(ctx, arg.TenantID)
+	if err != nil {
+		return "", err
+	}
+	if !configured {
+		return "quota_unconfigured", nil
+	}
+	var channelOK bool
+	if err := q.db.QueryRow(ctx, marketingChannelSQL, arg.TenantID, channelID).Scan(&channelOK); err != nil {
+		return "", err
+	}
+	if !channelOK {
+		return "channel_unavailable", nil
+	}
+	var senderOK bool
+	if err := q.db.QueryRow(ctx, marketingSenderSQL, arg.TenantID, channelID).Scan(&senderOK); err != nil {
+		return "", err
+	}
+	if !senderOK {
+		return "sender_unavailable", nil
+	}
+	loc, err := q.marketingTimezone(ctx, arg.TenantID)
+	if err != nil {
+		return "", err
+	}
+	status, windowID, reserved, err := q.marketingReserveSend(ctx, arg.TenantID, now, dayLimit, rateLimit, loc)
+	if err != nil {
+		return "", err
+	}
+	if !reserved {
+		return status, nil
+	}
+	if _, err := q.db.Exec(ctx, marketingRecipientSubmitSQL, arg.TenantID, arg.RecipientID, windowID); err != nil {
+		return "", err
+	}
+	if _, err := q.db.Exec(ctx, marketingCampaignRunningSQL, arg.TenantID, r.CampaignID); err != nil {
+		return "", err
+	}
+	return "authorized", nil
+}
+
+const marketingRecipientFinishSQL = `UPDATE marketing_recipients
+SET status=CASE WHEN ?3='failed' AND attempts<5 THEN 'queued' ELSE ?3 END,
+ reserved=CASE WHEN ?3 IN('failed','bounced') THEN 0 ELSE 1 END,
+ result_code=?3,
+ completed_at=CASE WHEN ?3='failed' AND attempts<5 THEN NULL ELSE ?4 END,
+ next_attempt_at=?5,lease_until=NULL
+WHERE tenant_id=?1 AND id=?2`
+
+const marketingSuppressionBounceSQL = `INSERT INTO marketing_suppressions(tenant_id,email,reason)
+ VALUES(?1,?2,'bounce') ON CONFLICT(tenant_id,email) DO NOTHING`
+
+var marketingFinishResults = map[string]bool{
+	"sent": true, "uncertain": true, "failed": true, "bounced": true,
+}
+
+// PlatformFinishMarketingSend mirrors urmail_finish_marketing_send: it records
+// the SMTP outcome, refunds a bounced/failed slot, retries a failed send up to
+// five times with exponential backoff, and suppresses bounce addresses.
+func (q *Queries) PlatformFinishMarketingSend(ctx context.Context, arg PlatformFinishMarketingSendParams) (bool, error) {
+	if !marketingFinishResults[arg.Result] {
+		return false, pgError("42501", "MARKETING_WORKER_REQUIRED")
+	}
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return false, err
+	}
+	var finished bool
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		finished, err = tx.finishMarketingSend(ctx, arg)
+		return err
+	})
+	return finished, err
+}
+
+func (q *Queries) finishMarketingSend(ctx context.Context, arg PlatformFinishMarketingSendParams) (bool, error) {
+	now := timeutil.NowMicro()
+	r, err := q.marketingRecipient(ctx, arg.TenantID, arg.RecipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if r.Status != "submitting" || r.LeaseOwner == nil || *r.LeaseOwner != arg.LeaseOwner ||
+		r.Fence != arg.Fence || r.LeaseUntil == nil || *r.LeaseUntil <= now {
+		return false, nil
+	}
+	if (arg.Result == "failed" || arg.Result == "bounced") && r.Reserved && r.WindowID != nil {
+		if _, err := q.db.Exec(ctx, marketingQuotaReleaseSQL, arg.TenantID, *r.WindowID); err != nil {
+			return false, err
+		}
+	}
+	backoff := int64(1) << uint(min(r.Attempts, 10))
+	if _, err := q.db.Exec(ctx, marketingRecipientFinishSQL, arg.TenantID, arg.RecipientID,
+		arg.Result, now, now+backoff*1000000); err != nil {
+		return false, err
+	}
+	if arg.Result == "bounced" {
+		if _, err := q.db.Exec(ctx, marketingSuppressionBounceSQL, arg.TenantID, r.Email); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+const marketingRecipientUncertainSQL = `SELECT status,reserved,window_id,campaign_id
+ FROM marketing_recipients WHERE tenant_id=?1 AND id=?2`
+
+const marketingCampaignStatusSQL = `SELECT status FROM marketing_campaigns WHERE tenant_id=?1 AND id=?2`
+
+const marketingAttemptResolveSQL = `UPDATE marketing_recipients
+SET status=CASE WHEN ?3='accepted' THEN 'sent' WHEN ?4='canceled' THEN 'canceled' ELSE 'queued' END,
+ reserved=CASE WHEN ?3='accepted' THEN 1 ELSE 0 END,
+ fence=fence+1,lease_owner=NULL,lease_until=NULL,resolution_reason=?5,
+ result_code='manually_confirmed_'||?3,next_attempt_at=?6
+WHERE tenant_id=?1 AND id=?2`
+
+// PlatformResolveMarketingAttempt mirrors urmail_resolve_marketing_attempt: an
+// operator says whether an uncertain submit actually reached the provider.
+func (q *Queries) PlatformResolveMarketingAttempt(ctx context.Context, arg PlatformResolveMarketingAttemptParams) (bool, error) {
+	if (arg.Outcome != "accepted" && arg.Outcome != "not_submitted") ||
+		utf8.RuneCountInString(strings.TrimSpace(arg.Reason)) < 1 ||
+		utf8.RuneCountInString(strings.TrimSpace(arg.Reason)) > 2048 {
+		return false, pgError("42501", "MARKETING_RESOLUTION_INVALID")
+	}
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return false, err
+	}
+	var resolved bool
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		resolved, err = tx.resolveMarketingAttempt(ctx, arg)
+		return err
+	})
+	return resolved, err
+}
+
+func (q *Queries) resolveMarketingAttempt(ctx context.Context, arg PlatformResolveMarketingAttemptParams) (bool, error) {
+	var status string
+	var reserved bool
+	var windowID *int64
+	var campaignID int64
+	err := q.db.QueryRow(ctx, marketingRecipientUncertainSQL, arg.TenantID, arg.RecipientID).
+		Scan(&status, &reserved, &windowID, &campaignID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if status != "uncertain" {
+		return false, nil
+	}
+	var campaignStatus string
+	if err := q.db.QueryRow(ctx, marketingCampaignStatusSQL, arg.TenantID, campaignID).
+		Scan(&campaignStatus); err != nil {
+		return false, err
+	}
+	if arg.Outcome == "not_submitted" && reserved && windowID != nil {
+		if _, err := q.db.Exec(ctx, marketingQuotaReleaseSQL, arg.TenantID, *windowID); err != nil {
+			return false, err
+		}
+	}
+	if _, err := q.db.Exec(ctx, marketingAttemptResolveSQL, arg.TenantID, arg.RecipientID,
+		arg.Outcome, campaignStatus, arg.Reason, timeutil.NowMicro()); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+const marketingFeedbackChannelSQL = `SELECT tenant_id FROM marketing_channels WHERE id=?1`
+
+const marketingFeedbackRecipientSQL = `SELECT r.status,r.email FROM marketing_recipients r
+WHERE r.tenant_id=?1 AND r.id=?2 AND EXISTS(SELECT 1 FROM marketing_campaigns c
+ WHERE c.tenant_id=?1 AND c.id=r.campaign_id AND c.channel_id=?3)`
+
+const marketingFeedbackPriorSQL = `SELECT payload_hash FROM marketing_feedback
+ WHERE channel_id=?1 AND event_id=?2`
+
+const marketingFeedbackInsertSQL = `INSERT INTO marketing_feedback(channel_id,event_id,tenant_id,recipient_id,status,payload_hash)
+ VALUES(?1,?2,?3,?4,?5,?6)`
+
+const marketingSuppressionUpsertSQL = `INSERT INTO marketing_suppressions(tenant_id,email,reason)
+ VALUES(?1,?2,?3)
+ON CONFLICT(tenant_id,email) DO UPDATE SET reason=CASE
+ WHEN marketing_suppressions.reason IN('unsubscribe','bounce','complaint')
+ THEN marketing_suppressions.reason ELSE excluded.reason END`
+
+const marketingRecipientBouncedSQL = `UPDATE marketing_recipients
+SET status='bounced',result_code=?3,completed_at=?4,fence=fence+1 WHERE tenant_id=?1 AND id=?2`
+
+var (
+	marketingFeedbackStatuses = map[string]bool{"bounced": true, "complaint": true, "deferred": true}
+	marketingPayloadHashShape = regexp.MustCompile(`^[a-f0-9]{64}$`)
+)
+
+// PlatformRecordMarketingFeedback mirrors urmail_record_marketing_feedback: an
+// idempotent provider report keyed on (channel, event) that suppresses hard
+// bounces and complaints.
+func (q *Queries) PlatformRecordMarketingFeedback(ctx context.Context, arg PlatformRecordMarketingFeedbackParams) (string, error) {
+	eventLen := utf8.RuneCountInString(arg.EventID)
+	if !marketingFeedbackStatuses[arg.Status] || eventLen < 1 || eventLen > 200 ||
+		!marketingPayloadHashShape.MatchString(arg.PayloadHash) {
+		return "", pgError("42501", "MARKETING_FEEDBACK_INVALID")
+	}
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return "", err
+	}
+	var result string
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		result, err = tx.recordMarketingFeedback(ctx, arg)
+		return err
+	})
+	return result, err
+}
+
+func (q *Queries) recordMarketingFeedback(ctx context.Context, arg PlatformRecordMarketingFeedbackParams) (string, error) {
+	var tenant *int64
+	err := q.db.QueryRow(ctx, marketingFeedbackChannelSQL, arg.ChannelID).Scan(&tenant)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "not_found", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if tenant == nil {
+		return "not_found", nil
+	}
+	var status, email string
+	err = q.db.QueryRow(ctx, marketingFeedbackRecipientSQL, *tenant, arg.RecipientID, arg.ChannelID).
+		Scan(&status, &email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "not_found", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	switch status {
+	case "submitting", "sent", "uncertain", "bounced":
+	default:
+		return "not_found", nil
+	}
+	var prior *string
+	err = q.db.QueryRow(ctx, marketingFeedbackPriorSQL, arg.ChannelID, arg.EventID).Scan(&prior)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	if prior != nil {
+		if *prior == arg.PayloadHash {
+			return "duplicate", nil
+		}
+		return "conflict", nil
+	}
+	if _, err := q.db.Exec(ctx, marketingFeedbackInsertSQL, arg.ChannelID, arg.EventID, *tenant,
+		arg.RecipientID, arg.Status, arg.PayloadHash); err != nil {
+		return "", err
+	}
+	if arg.Status == "bounced" || arg.Status == "complaint" {
+		reason := "bounce"
+		if arg.Status == "complaint" {
+			reason = "complaint"
+		}
+		if _, err := q.db.Exec(ctx, marketingSuppressionUpsertSQL, *tenant, email, reason); err != nil {
+			return "", err
+		}
+		if _, err := q.db.Exec(ctx, marketingRecipientBouncedSQL, *tenant, arg.RecipientID,
+			arg.Status, timeutil.NowMicro()); err != nil {
+			return "", err
+		}
+	}
+	return "recorded", nil
+}
+
+const marketingRecipientRevokedSQL = `UPDATE marketing_recipients
+SET status='suppressed',reserved=0,result_code='unsubscribed_mid_run',completed_at=?3,
+ lease_owner=NULL,lease_until=NULL WHERE tenant_id=?1 AND id=?2`
+
+// PlatformMarkMarketingRecipientRevoked mirrors
+// urmail_mark_marketing_recipient_revoked: a mid-run unsubscribe freezes the
+// reserved slot and cancels the send (note: PG checks the lease owner and fence
+// but not lease expiry here).
+func (q *Queries) PlatformMarkMarketingRecipientRevoked(ctx context.Context, arg PlatformMarkMarketingRecipientRevokedParams) (bool, error) {
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return false, err
+	}
+	var revoked bool
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		revoked, err = tx.markMarketingRecipientRevoked(ctx, arg)
+		return err
+	})
+	return revoked, err
+}
+
+func (q *Queries) markMarketingRecipientRevoked(ctx context.Context, arg PlatformMarkMarketingRecipientRevokedParams) (bool, error) {
+	r, err := q.marketingRecipient(ctx, arg.TenantID, arg.RecipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if r.Status != "submitting" || r.LeaseOwner == nil || *r.LeaseOwner != arg.LeaseOwner || r.Fence != arg.Fence {
+		return false, nil
+	}
+	if r.Reserved && r.WindowID != nil {
+		if _, err := q.db.Exec(ctx, marketingQuotaReleaseSQL, arg.TenantID, *r.WindowID); err != nil {
+			return false, err
+		}
+	}
+	if _, err := q.db.Exec(ctx, marketingRecipientRevokedSQL, arg.TenantID, arg.RecipientID,
+		timeutil.NowMicro()); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+const marketingRecipientSkippedSQL = `UPDATE marketing_recipients
+SET status='canceled',reserved=0,result_code=?3,completed_at=?4,lease_owner=NULL,lease_until=NULL
+WHERE tenant_id=?1 AND id=?2`
+
+var marketingSkipReasons = map[string]bool{
+	"entitlement_denied": true, "quota_unconfigured": true,
+	"channel_unavailable": true, "sender_unavailable": true, "timezone_invalid": true,
+}
+
+// PlatformSkipMarketingRecipient mirrors urmail_skip_marketing_recipient: it
+// parks a leased recipient as canceled with the blocking reason.
+func (q *Queries) PlatformSkipMarketingRecipient(ctx context.Context, arg PlatformSkipMarketingRecipientParams) (bool, error) {
+	if !marketingSkipReasons[arg.Reason] {
+		return false, pgError("42501", "MARKETING_WORKER_REQUIRED")
+	}
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return false, err
+	}
+	var skipped bool
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		skipped, err = tx.skipMarketingRecipient(ctx, arg)
+		return err
+	})
+	return skipped, err
+}
+
+func (q *Queries) skipMarketingRecipient(ctx context.Context, arg PlatformSkipMarketingRecipientParams) (bool, error) {
+	r, err := q.marketingRecipient(ctx, arg.TenantID, arg.RecipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if r.Status != "leased" || r.LeaseOwner == nil || *r.LeaseOwner != arg.LeaseOwner || r.Fence != arg.Fence {
+		return false, nil
+	}
+	if r.Reserved && r.WindowID != nil {
+		if _, err := q.db.Exec(ctx, marketingQuotaReleaseSQL, arg.TenantID, *r.WindowID); err != nil {
+			return false, err
+		}
+	}
+	now := timeutil.NowMicro()
+	if _, err := q.db.Exec(ctx, marketingRecipientSkippedSQL, arg.TenantID, arg.RecipientID,
+		arg.Reason, now); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+const marketingFlowClearReservationSQL = `UPDATE marketing_flow_positions
+SET delivery_uncertain=0,flow_reserved=0,flow_window_id=NULL
+WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
+
+const marketingFlowActiveSQL = `SELECT EXISTS(SELECT 1 FROM marketing_flows
+ WHERE tenant_id=?1 AND id=?2 AND status='active')`
+
+const marketingFlowStepExistsSQL = `SELECT EXISTS(SELECT 1 FROM marketing_flow_steps
+ WHERE tenant_id=?1 AND flow_id=?2 AND step_key=?3)`
+
+const marketingFlowStepUpdateSQL = `UPDATE marketing_flow_positions
+SET step_key=?4,unsubscribed=?5,wait_until=NULL,updated_at=?6
+WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
+
+const marketingFlowStepReadSQL = `SELECT step_key,unsubscribed,wait_until,delivery_uncertain
+ FROM marketing_flow_positions WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
+
+const marketingFlowAdvanceSQL = `SELECT EXISTS(SELECT 1 FROM tenants t
+ WHERE t.id=?1 AND t.status='active'
+  AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=t.id)
+   OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=t.id
+        AND gd.status='active' AND gd.provisioning_state='ready')))
+ AND EXISTS(SELECT 1 FROM marketing_flow_positions p
+  WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND NOT p.unsubscribed)
+ AND NOT EXISTS(SELECT 1 FROM marketing_suppressions s
+  WHERE s.tenant_id=?1 AND s.email=?3)`
+
+// commitMarketingFlowStep is urmail_commit_marketing_flow_step: the
+// linearization point that re-checks uncertainty, unsubscribe, the wait and the
+// sending gate before moving a position.
+func (q *Queries) commitMarketingFlowStep(ctx context.Context, tenant, flow int64, email, event, next string) (string, error) {
+	var stepKey string
+	var unsubscribed, uncertain bool
+	var waitUntil *int64
+	err := q.db.QueryRow(ctx, marketingFlowStepReadSQL, tenant, flow, email).
+		Scan(&stepKey, &unsubscribed, &waitUntil, &uncertain)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "missing", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if uncertain {
+		return "uncertain", nil
+	}
+	now := timeutil.NowMicro()
+	blockedWait := waitUntil != nil && *waitUntil > now
+	advance := false
+	if !unsubscribed && !blockedWait {
+		if err := q.db.QueryRow(ctx, marketingFlowAdvanceSQL, tenant, flow, email).Scan(&advance); err != nil {
+			return "", err
+		}
+	}
+	if unsubscribed || blockedWait || !advance {
+		return "blocked", nil
+	}
+	if event == "unsubscribed" {
+		unsubscribed = true
+	}
+	if next != "" {
+		stepKey = next
+	}
+	if _, err := q.db.Exec(ctx, marketingFlowStepUpdateSQL, tenant, flow, email, stepKey, unsubscribed, now); err != nil {
+		return "", err
+	}
+	return stepKey, nil
+}
+
+// PlatformCommitMarketingFlowFenced mirrors
+// urmail_commit_marketing_flow_fenced: a fenced commit that clears the
+// uncertainty/reservation marker when the worker confirmed the delivery, then
+// delegates to the step commit.
+func (q *Queries) PlatformCommitMarketingFlowFenced(ctx context.Context, arg PlatformCommitMarketingFlowFencedParams) (string, error) {
+	var result string
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		result, err = tx.commitMarketingFlowFenced(ctx, arg)
+		return err
+	})
+	return result, err
+}
+
+func (q *Queries) commitMarketingFlowFenced(ctx context.Context, arg PlatformCommitMarketingFlowFencedParams) (string, error) {
+	r, err := q.marketingFlowPosition(ctx, arg.PTenant, arg.PFlow, arg.PEmail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "missing", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	now := timeutil.NowMicro()
+	if arg.POwner == "" || leaseStale(r, arg.POwner, arg.PFence, now, true) {
+		return "stale_lease", nil
+	}
+	if arg.PConfirmed {
+		if _, err := q.db.Exec(ctx, marketingFlowClearReservationSQL, arg.PTenant, arg.PFlow, arg.PEmail); err != nil {
+			return "", err
+		}
+	}
+	if r.StoppedAt != nil {
+		return "blocked", nil
+	}
+	var active bool
+	if err := q.db.QueryRow(ctx, marketingFlowActiveSQL, arg.PTenant, arg.PFlow).Scan(&active); err != nil {
+		return "", err
+	}
+	if !active {
+		return "blocked", nil
+	}
+	if arg.PNext != "" {
+		var exists bool
+		if err := q.db.QueryRow(ctx, marketingFlowStepExistsSQL, arg.PTenant, arg.PFlow, arg.PNext).
+			Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return "blocked", nil
+		}
+	}
+	if r.DeliveryUncertain && !arg.PConfirmed {
+		return "uncertain", nil
+	}
+	event := ""
+	if arg.PUnsubscribed {
+		event = "unsubscribed"
+	}
+	return q.commitMarketingFlowStep(ctx, arg.PTenant, arg.PFlow, arg.PEmail, event, arg.PNext)
+}
+
+// PlatformCommitMarketingFlowWait mirrors the same PG function used for a
+// wait/condition step: no send happens, but the step commits atomically.
+func (q *Queries) PlatformCommitMarketingFlowWait(ctx context.Context, arg PlatformCommitMarketingFlowWaitParams) (string, error) {
+	var result string
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		result, err = tx.commitMarketingFlowStep(ctx, arg.PTenant, arg.PFlow, arg.PEmail, arg.Event, arg.NextKey)
+		return err
+	})
+	return result, err
+}
+
+const marketingFlowEntrySuppressedSQL = `SELECT EXISTS(SELECT 1 FROM marketing_suppressions
+ WHERE tenant_id=?1 AND email=?2)
+ OR NOT EXISTS(SELECT 1 FROM marketing_flow_entries e
+  JOIN marketing_contacts c ON c.tenant_id=e.tenant_id AND c.list_id=e.list_id AND c.email=?2
+  WHERE e.tenant_id=?1 AND e.id=?3 AND c.opted_in)`
+
+const marketingFlowReserveSQL = `UPDATE marketing_flow_positions
+SET delivery_uncertain=1,flow_reserved=1,flow_window_id=?4,updated_at=?5
+WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
+
+// PlatformBeginMarketingFlowSend mirrors urmail_begin_marketing_flow_send: it
+// reserves a quota slot and marks the position uncertain until the worker
+// commits the outcome.
+func (q *Queries) PlatformBeginMarketingFlowSend(ctx context.Context, arg PlatformBeginMarketingFlowSendParams) (string, error) {
+	if err := q.requireMarketingWorker(ctx); err != nil {
+		return "", err
+	}
+	var result string
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		result, err = tx.beginMarketingFlowSend(ctx, arg)
+		return err
+	})
+	return result, err
+}
+
+func (q *Queries) beginMarketingFlowSend(ctx context.Context, arg PlatformBeginMarketingFlowSendParams) (string, error) {
+	now := timeutil.NowMicro()
+	r, err := q.marketingFlowPosition(ctx, arg.PTenant, arg.PFlow, arg.PEmail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "stale_lease", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if leaseStale(r, arg.POwner, arg.PFence, now, true) {
+		return "stale_lease", nil
+	}
+	if r.DeliveryUncertain || r.FlowReserved {
+		return "uncertain", nil
+	}
+	if r.StoppedAt != nil || r.Unsubscribed {
+		return "paused", nil
+	}
+	var active bool
+	if err := q.db.QueryRow(ctx, marketingFlowActiveSQL, arg.PTenant, arg.PFlow).Scan(&active); err != nil {
+		return "", err
+	}
+	if !active {
+		return "paused", nil
+	}
+	var suppressed bool
+	if err := q.db.QueryRow(ctx, marketingFlowEntrySuppressedSQL, arg.PTenant, arg.PEmail, r.EntryID).
+		Scan(&suppressed); err != nil {
+		return "", err
+	}
+	if suppressed {
+		return "suppressed", nil
+	}
+	allowed, err := q.mailAllowed(ctx, arg.PTenant)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "entitlement_denied", nil
+	}
+	dayLimit, rateLimit, configured, err := q.marketingLimits(ctx, arg.PTenant)
+	if err != nil {
+		return "", err
+	}
+	if !configured {
+		return "quota_unconfigured", nil
+	}
+	var channelOK bool
+	if err := q.db.QueryRow(ctx, marketingChannelSQL, arg.PTenant, arg.PChannel).Scan(&channelOK); err != nil {
+		return "", err
+	}
+	if !channelOK {
+		return "channel_unavailable", nil
+	}
+	var senderOK bool
+	if err := q.db.QueryRow(ctx, marketingSenderReadySQL, arg.PTenant, arg.PChannel).Scan(&senderOK); err != nil {
+		return "", err
+	}
+	if !senderOK {
+		return "sender_unavailable", nil
+	}
+	loc, err := q.marketingTimezone(ctx, arg.PTenant)
+	if err != nil {
+		return "", err
+	}
+	status, windowID, reserved, err := q.marketingReserveSend(ctx, arg.PTenant, now, dayLimit, rateLimit, loc)
+	if err != nil {
+		return "", err
+	}
+	if !reserved {
+		return status, nil
+	}
+	if _, err := q.db.Exec(ctx, marketingFlowReserveSQL, arg.PTenant, arg.PFlow, arg.PEmail,
+		windowID, now); err != nil {
+		return "", err
+	}
+	return "authorized", nil
+}
+
+// PlatformReleaseMarketingFlowReservation mirrors
+// urmail_release_marketing_flow_reservation: it refunds the reservation and
+// clears the flags, and deliberately leaves the lease untouched like the PG
+// function does.
+func (q *Queries) PlatformReleaseMarketingFlowReservation(ctx context.Context, arg PlatformReleaseMarketingFlowReservationParams) (bool, error) {
+	var released bool
+	err := q.runTx(ctx, func(tx *Queries) error {
+		var err error
+		released, err = tx.releaseMarketingFlowReservation(ctx, arg)
+		return err
+	})
+	return released, err
+}
+
+func (q *Queries) releaseMarketingFlowReservation(ctx context.Context, arg PlatformReleaseMarketingFlowReservationParams) (bool, error) {
+	r, err := q.marketingFlowPosition(ctx, arg.PTenant, arg.PFlow, arg.PEmail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	now := timeutil.NowMicro()
+	if leaseStale(r, arg.POwner, arg.PFence, now, true) {
+		return false, nil
+	}
+	if r.FlowReserved && r.FlowWindowID != nil {
+		if _, err := q.db.Exec(ctx, marketingQuotaReleaseSQL, arg.PTenant, *r.FlowWindowID); err != nil {
+			return false, err
+		}
+	}
+	if _, err := q.db.Exec(ctx, marketingFlowClearReservationSQL, arg.PTenant, arg.PFlow, arg.PEmail); err != nil {
+		return false, err
+	}
+	return true, nil
 }

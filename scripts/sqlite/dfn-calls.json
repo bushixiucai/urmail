@@ -2,9 +2,9 @@
  "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
  "total_calls": 95,
  "by_strategy": {
-  "s4-closed": 35,
+  "s4-closed": 48,
   "inline": 32,
-  "app-assume": 16,
+  "app-assume": 3,
   "inline-compose": 12
  },
  "first_batch_inline_calls": 44,
@@ -203,8 +203,9 @@
    "method": "ScheduleMarketingCampaign",
    "line": 55,
    "snippet": "SELECT urmail_schedule_marketing(@tenant_id,@campaign_id,@scheduled_at) AS result;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：管理员授权 + 模板快照/排期 + 收件人去重入队（事务）；advisory lock→SQLite 单写者",
+   "status": "closed"
   },
   {
    "fn": "urmail_retry_marketing_flow_instance",
@@ -212,8 +213,9 @@
    "method": "RetryMarketingFlowInstance",
    "line": 152,
    "snippet": "SELECT urmail_retry_marketing_flow_instance(?1,?2,?3,?4) AS retried;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：平台角色/管理员 + 版本绑定 + 租约过期判定 + 释放预留（事务）；会话变量 app_pending（S2 装饰器/S5 适配器）",
+   "status": "closed"
   },
   {
    "fn": "urmail_record_marketing_flow_audit",
@@ -221,8 +223,9 @@
    "method": "RecordMarketingFlowAudit",
    "line": 168,
    "snippet": "SELECT urmail_record_marketing_flow_audit(?1,?2,?3,?4);",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：管理员 + 动作白名单 + jsonb 对象/4000 字节 + audit_logs 写入（append-only 触发器 S6 前拒绝）",
+   "status": "closed"
   },
   {
    "fn": "urmail_archive_notification_visible",
@@ -619,8 +622,9 @@
    "method": "PlatformAuthorizeMarketingSend",
    "line": 53,
    "snippet": "SELECT urmail_authorize_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence) AS result;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 租约/fence + 权益/限额/通道/发件人 + 配额窗口（事务）；role 会话变量 app_pending",
+   "status": "closed"
   },
   {
    "fn": "urmail_finish_marketing_send",
@@ -628,8 +632,9 @@
    "method": "PlatformFinishMarketingSend",
    "line": 58,
    "snippet": "SELECT urmail_finish_marketing_send(@tenant_id,@recipient_id,@lease_owner,@fence,@result) AS finishe",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 结果白名单 + 退配额 + 2^n 退避重排 + 退信抑制（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_resolve_marketing_attempt",
@@ -637,8 +642,9 @@
    "method": "PlatformResolveMarketingAttempt",
    "line": 83,
    "snippet": "SELECT urmail_resolve_marketing_attempt(@tenant_id,@recipient_id,@outcome,@reason) AS resolved;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 理由字符数 1..2048 + uncertain 态 + 退配额 + 人工确认终态（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_record_marketing_feedback",
@@ -646,8 +652,9 @@
    "method": "PlatformRecordMarketingFeedback",
    "line": 88,
    "snippet": "SELECT urmail_record_marketing_feedback(@channel_id,@event_id,@recipient_id,@status,@payload_hash) A",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + (channel,event) 幂等 + 硬退信/投诉抑制（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_mark_marketing_recipient_revoked",
@@ -655,8 +662,9 @@
    "method": "PlatformMarkMarketingRecipientRevoked",
    "line": 98,
    "snippet": "SELECT urmail_mark_marketing_recipient_revoked(@tenant_id,@recipient_id,@lease_owner,@fence) AS revo",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 运行中退订抑制 + 退配额（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_skip_marketing_recipient",
@@ -664,8 +672,9 @@
    "method": "PlatformSkipMarketingRecipient",
    "line": 103,
    "snippet": "SELECT urmail_skip_marketing_recipient(@tenant_id,@recipient_id,@lease_owner,@fence,@reason) AS skip",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 原因白名单 + leased 跳过 + 退配额（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -700,8 +709,9 @@
    "method": "PlatformCommitMarketingFlowFenced",
    "line": 32,
    "snippet": "SELECT urmail_commit_marketing_flow_fenced(?1,?2,?3,?4,?5,?6,?7,?8) AS result;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：fence 校验 + 确认清预留 + 活动/steps 门 + step 提交（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_begin_marketing_flow_send",
@@ -709,8 +719,9 @@
    "method": "PlatformBeginMarketingFlowSend",
    "line": 37,
    "snippet": "SELECT urmail_begin_marketing_flow_send(?1,?2,?3,?4,?5,?6) AS result;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：worker 角色 + 租约/fence + 权益/限额/通道/发件人(verified) + 配额窗口（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_release_marketing_flow_reservation",
@@ -718,8 +729,9 @@
    "method": "PlatformReleaseMarketingFlowReservation",
    "line": 42,
    "snippet": "SELECT urmail_release_marketing_flow_reservation(?1,?2,?3,?4,?5) AS released;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：租约/fence + 释放预留 + 清 uncertain/flags（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_mark_marketing_flow_uncertain",
@@ -737,8 +749,9 @@
    "method": "PlatformCommitMarketingFlowWait",
    "line": 121,
    "snippet": "SELECT urmail_commit_marketing_flow_step(?1,?2,?3,sqlc.arg(event),sqlc.arg(next_key)) AS result;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：位置重读 + uncertain/unsubscribe/wait/发送门 + 步进提交（事务）",
+   "status": "closed"
   },
   {
    "fn": "urmail_marketing_flow_may_advance",
