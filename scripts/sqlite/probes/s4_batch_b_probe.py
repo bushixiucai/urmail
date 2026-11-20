@@ -32,9 +32,10 @@ con.create_function("current_setting", 2, current_setting)
 for f in ["0001_init.sql", "0002_write_side_effects.sql"]:
     con.executescript((ROOT / "migrations_sqlite" / f).read_text())
 
-# S6 removes the append-only INSERT trigger for the platform writer path; the
-# probe drops it so the credential procedures can write their audit row.
-con.execute("DROP TRIGGER audit_logs_append_only_insert")
+# S6 removed the append-only INSERT trigger for the platform writer path, so
+# the credential procedures can write their audit row. IF EXISTS keeps the
+# probe runnable against a pre-S6 schema too.
+con.execute("DROP TRIGGER IF EXISTS audit_logs_append_only_insert")
 
 NOW = con.execute("SELECT CAST(strftime('%s','now') AS INTEGER)*1000000").fetchone()[0]
 DAY = 86400000000

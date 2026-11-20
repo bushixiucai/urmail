@@ -438,14 +438,14 @@ def main():
             out.append(f"-- APP-PENDING ({fn}): {entry['app_pending']}")
             out.append("")
 
-    # append-only 触发器（v3.2 §2.4：5 表，4 张含 no_insert）
+    # append-only 触发器（v3.2 §2.4：5 表）。S6 取消 4 张表的 no_insert 触发器
+    # （与 0002 审计触发器族互斥，见
+    # PHASE1-S2-APPEND-ONLY-AUDIT-CONFLICT-20261120.md 方案①）：INSERT 由应用层
+    # 写集守卫（scripts/sqlite/audit-write-paths.txt + scope_lint）接管，仅
+    # UPDATE/DELETE 仍由触发器兜底。此处删除是显式登记，不是静默丢失。
     APPEND_ONLY = ["audit_logs", "announcements", "channels", "ai_usage_requests", "delivery_events"]
-    NO_INSERT = ["audit_logs", "announcements", "channels", "ai_usage_requests"]
     for t in APPEND_ONLY:
-        ops = []
-        if t in NO_INSERT:
-            ops.append("INSERT")
-        ops += ["UPDATE", "DELETE"]
+        ops = ["UPDATE", "DELETE"]
         for op in ops:
             out.append(f"CREATE TRIGGER IF NOT EXISTS {t}_append_only_{op.lower()}")
             out.append(f"BEFORE {op} ON {t}")

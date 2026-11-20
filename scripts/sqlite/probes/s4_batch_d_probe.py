@@ -720,7 +720,7 @@ check("retry refunds the reservation",
 check("retry against a foreign definition", retry(1, 2, 1, True), False)
 
 # -------------------------------------------------------------------- audit
-con.execute("DROP TRIGGER audit_logs_append_only_insert")
+con.execute("DROP TRIGGER IF EXISTS audit_logs_append_only_insert")
 SESSION["urmail.user_id"] = "1"
 definition_ok = one(SQL["marketingFlowDefinitionSQL"], 1, 1)
 check("audit action whitelist", definition_ok, 1)

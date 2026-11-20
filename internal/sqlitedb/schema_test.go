@@ -5,8 +5,9 @@ package sqlitedb_test
 //   - 106 tables (102 business + snoozes/labels/message_labels + schema_migrations)
 //   - foreign_key_check = 0 rows, integrity_check = ok
 //   - user_version = 1; re-running the chain is a no-op (idempotent)
-//   - the 5 append-only tables reject (INSERT where the app never had the
-//     grant; UPDATE/DELETE on a seeded delivery_events row)
+//   - the 5 append-only tables reject UPDATE/DELETE; S6 removed the four
+//     no_insert triggers so audit writers insert normally (see
+//     PHASE1-S2-APPEND-ONLY-AUDIT-CONFLICT-20261120.md 方案①)
 //   - the ported trigger family and append-only family are all present
 //   - settings is shared-multiscope shaped; new tables carry mailbox_id
 //     composite uniqueness
@@ -106,13 +107,17 @@ func TestAppendOnlyRejection(t *testing.T) {
 	db := openMigrated(t)
 	ctx := context.Background()
 
-	// The four needs-no-insert tables: any INSERT hits the RAISE trigger
-	// before NOT NULL evaluation, so DEFAULT VALUES is enough to prove it.
-	for _, table := range []string{"audit_logs", "announcements", "channels", "ai_usage_requests"} {
-		if _, err := db.ExecContext(ctx, "INSERT INTO "+table+" DEFAULT VALUES"); err == nil {
-			t.Fatalf("%s INSERT must hit the append-only trigger", table)
-		} else if !strings.Contains(err.Error(), "append-only") {
-			t.Fatalf("%s INSERT rejected for the wrong reason: %v", table, err)
+	// S6: the four no_insert triggers are gone, so the audit-writer paths may
+	// insert. The 0002 AFTER triggers also insert into audit_logs; before S6
+	// those statements rolled the whole DML back. These inserts are the exact
+	// writes the application layer now guards through audit-write-paths.txt.
+	for _, stmt := range []string{
+		"INSERT INTO audit_logs(tenant_id,action) VALUES(NULL,'S6-append-only-probe')",
+		"INSERT INTO announcements(title,body) VALUES('S6','probe')",
+		"INSERT INTO channels(code,name) VALUES('s6-probe','S6')",
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("S6 must allow %q: %v", stmt, err)
 		}
 	}
 
@@ -151,7 +156,7 @@ func TestTriggerPortFamily(t *testing.T) {
 	}
 	_ = rows.Close()
 
-	// Append-only family: 5 tables x update+delete (+4 inserts).
+	// Append-only family: 5 tables x update+delete (S6 dropped the 4 inserts).
 	for _, table := range []string{"audit_logs", "announcements", "channels", "ai_usage_requests", "delivery_events"} {
 		for _, op := range []string{"update", "delete"} {
 			if !names[table+"_append_only_"+op] {
@@ -159,9 +164,11 @@ func TestTriggerPortFamily(t *testing.T) {
 			}
 		}
 	}
+	// S6: the no_insert triggers must be absent (the audit-writer set is
+	// enforced by scripts/sqlite/audit-write-paths.txt + scope_lint instead).
 	for _, table := range []string{"audit_logs", "announcements", "channels", "ai_usage_requests"} {
-		if !names[table+"_append_only_insert"] {
-			t.Fatalf("missing no-insert trigger %s_append_only_insert", table)
+		if names[table+"_append_only_insert"] {
+			t.Fatalf("S6 removed the no_insert trigger %s_append_only_insert, found it again", table)
 		}
 	}
 
@@ -438,32 +445,25 @@ func TestAppPendingFrozen(t *testing.T) {
 	}
 }
 
-func TestMaintenanceChannelWrite(t *testing.T) {
+func TestAuditWriteSetCommitsWithoutMaintenance(t *testing.T) {
 	db := openMigrated(t)
 	ctx := context.Background()
-	// The append-only contract has a documented maintenance path: drop the
-	// trigger inside one transaction, write, recreate — commits atomically.
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, "DROP TRIGGER audit_logs_append_only_insert"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO audit_logs(tenant_id, actor_user_id, action, target_type, target_id, detail) VALUES(NULL,NULL,'maintenance.probe','probe','1','{}')"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		"CREATE TRIGGER audit_logs_append_only_insert BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	// S6 removed the no_insert trigger, so the audit writer commits directly —
+	// no drop/write/recreate maintenance window is needed any more. UPDATE and
+	// DELETE keep the append-only contract (the 0002 triggers still insert).
 	if _, err := db.ExecContext(ctx,
-		"INSERT INTO audit_logs(tenant_id, actor_user_id, action, target_type, target_id, detail) VALUES(NULL,NULL,'x','x','1','{}')"); err == nil {
-		t.Fatal("append-only trigger must be restored after maintenance window")
+		"INSERT INTO audit_logs(tenant_id, actor_user_id, action, target_type, target_id, detail) VALUES(NULL,NULL,'maintenance.probe','probe','1','{}')"); err != nil {
+		t.Fatalf("audit writer must commit directly after S6: %v", err)
+	}
+	for _, stmt := range []string{
+		"UPDATE audit_logs SET action = action",
+		"DELETE FROM audit_logs",
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err == nil {
+			t.Fatalf("%s must stay append-only", stmt)
+		} else if !strings.Contains(err.Error(), "append-only") {
+			t.Fatalf("%s rejected for the wrong reason: %v", stmt, err)
+		}
 	}
 }
 
@@ -528,6 +528,45 @@ func TestHandwrittenMethodsScoped(t *testing.T) {
 	for name := range registered {
 		if table.Scopes[name] == "" {
 			t.Fatalf("method_scopes.json is stale: %s missing (run scripts/sqlite/scope_lint.py --write-scopes)", name)
+		}
+	}
+}
+
+// TestAuditWriteSetRegistered protects the S6 replacement for the removed
+// no_insert triggers: audit_logs INSERTs are allowed only through the closed
+// set recorded in method_scopes.json (produced by scope_lint.py from
+// scripts/sqlite/audit-write-paths.txt). A writer appearing or disappearing
+// without a matching ledger entry fails here, so the "audit by discipline"
+// risk is at least visible.
+func TestAuditWriteSetRegistered(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "scripts", "sqlite", "method_scopes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		AuditWriters struct {
+			Statements []string `json:"statements"`
+			Consts     []string `json:"consts"`
+			Triggers   []string `json:"triggers"`
+		} `json:"audit_writers"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"statements": {"AuditLegacyCredentialUse", "CreateAuditLog", "RecordMailboxImportAudit"},
+		"consts":     {"marketingFlowAuditInsertSQL", "panelCredentialAuditSQL", "recordTenantAuditInsertSQL"},
+		"triggers": {"application_credentials_audit_create", "application_credentials_audit_revoke",
+			"recall_requests_audit_complete", "recall_requests_audit_complete_direct"},
+	}
+	got := map[string][]string{
+		"statements": doc.AuditWriters.Statements,
+		"consts":     doc.AuditWriters.Consts,
+		"triggers":   doc.AuditWriters.Triggers,
+	}
+	for kind, expected := range want {
+		if strings.Join(got[kind], ",") != strings.Join(expected, ",") {
+			t.Fatalf("audit_writers.%s = %v, want %v (run scope_lint.py --write-scopes)", kind, got[kind], expected)
 		}
 	}
 }

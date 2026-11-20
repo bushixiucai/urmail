@@ -721,5 +721,23 @@
   "MarkSessionLegacyOnly",
   "MarkSessionMFAVerified",
   "RevokeApplicationCredential"
- ]
+ ],
+ "audit_writers": {
+  "statements": [
+   "AuditLegacyCredentialUse",
+   "CreateAuditLog",
+   "RecordMailboxImportAudit"
+  ],
+  "consts": [
+   "marketingFlowAuditInsertSQL",
+   "panelCredentialAuditSQL",
+   "recordTenantAuditInsertSQL"
+  ],
+  "triggers": [
+   "application_credentials_audit_create",
+   "application_credentials_audit_revoke",
+   "recall_requests_audit_complete",
+   "recall_requests_audit_complete_direct"
+  ]
+ }
 }

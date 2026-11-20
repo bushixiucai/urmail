@@ -2771,9 +2771,6 @@ BEGIN
   SELECT RAISE(ABORT,'SUPPRESSION_REASON_IMMUTABLE');
 END;
 
-CREATE TRIGGER IF NOT EXISTS audit_logs_append_only_insert
-BEFORE INSERT ON audit_logs
-BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_logs_append_only_update
 BEFORE UPDATE ON audit_logs
 BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END;
@@ -2781,9 +2778,6 @@ CREATE TRIGGER IF NOT EXISTS audit_logs_append_only_delete
 BEFORE DELETE ON audit_logs
 BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END;
 
-CREATE TRIGGER IF NOT EXISTS announcements_append_only_insert
-BEFORE INSERT ON announcements
-BEGIN SELECT RAISE(ABORT, 'announcements is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS announcements_append_only_update
 BEFORE UPDATE ON announcements
 BEGIN SELECT RAISE(ABORT, 'announcements is append-only'); END;
@@ -2791,9 +2785,6 @@ CREATE TRIGGER IF NOT EXISTS announcements_append_only_delete
 BEFORE DELETE ON announcements
 BEGIN SELECT RAISE(ABORT, 'announcements is append-only'); END;
 
-CREATE TRIGGER IF NOT EXISTS channels_append_only_insert
-BEFORE INSERT ON channels
-BEGIN SELECT RAISE(ABORT, 'channels is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS channels_append_only_update
 BEFORE UPDATE ON channels
 BEGIN SELECT RAISE(ABORT, 'channels is append-only'); END;
@@ -2801,9 +2792,6 @@ CREATE TRIGGER IF NOT EXISTS channels_append_only_delete
 BEFORE DELETE ON channels
 BEGIN SELECT RAISE(ABORT, 'channels is append-only'); END;
 
-CREATE TRIGGER IF NOT EXISTS ai_usage_requests_append_only_insert
-BEFORE INSERT ON ai_usage_requests
-BEGIN SELECT RAISE(ABORT, 'ai_usage_requests is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS ai_usage_requests_append_only_update
 BEFORE UPDATE ON ai_usage_requests
 BEGIN SELECT RAISE(ABORT, 'ai_usage_requests is append-only'); END;
