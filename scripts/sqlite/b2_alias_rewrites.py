@@ -72,8 +72,30 @@ def main():
             pos = m.end(1)
         out.append(src[pos:])
         open(path, "w").write("".join(out))
+    dump_registry(changes, "scripts/sqlite/b2-alias-rewrites.json")
+
+
+def load_existing_registry(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def dump_registry(changes, path):
+    """登记落地：空结果不覆盖已有非空登记（防重跑丢证据），改写 .new.json。"""
+    if not changes:
+        existing = load_existing_registry(path)
+        if existing and existing.get("changes"):
+            alt = path.replace(".json", ".new.json")
+            json.dump({"count": len(changes), "changes": changes},
+                      open(alt, "w"), indent=1, ensure_ascii=False)
+            print(json.dumps({"rewritten": 0, "registry_preserved": path,
+                              "empty_dump": alt}, ensure_ascii=False))
+            return
     json.dump({"count": len(changes), "changes": changes},
-              open("scripts/sqlite/b2-alias-rewrites.json", "w"), indent=1, ensure_ascii=False)
+              open(path, "w"), indent=1, ensure_ascii=False)
     print(json.dumps({"rewritten": len(changes)}, ensure_ascii=False))
 
 
