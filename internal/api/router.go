@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -87,6 +88,12 @@ type Options struct {
 
 	// Audit receives one row per successful mutating tenant request.
 	Audit middleware.AuditWriter
+	// SQLiteStore, when non-nil, wires the slice-1 mailbox native surface
+	// (login/session + self settings, V2 contract §5) to the authoritative
+	// SQLite file instead of PostgreSQL. It is a runtime engine selector for
+	// the migration candidate, never a fallback: routes outside the slice
+	// keep their PG wiring and stay unavailable in SQLite mode.
+	SQLiteStore *sql.DB
 	// Secrets encrypts TOTP seeds at rest. Nil keeps legacy plaintext support.
 	Secrets handlers.SecretsBox
 	// DNSProvider writes verification records for delegated domains when set.
@@ -283,6 +290,21 @@ func New(opts Options) *gin.Engine {
 		mailboxHandler.Vault = revoker
 	}
 	nativeStore := handlers.StoreMailboxNative{Q: platformQueries}
+	// Runtime engine selection (V2 §1.9): SQLiteStore routes the slice-1
+	// mailbox surface to the authoritative SQLite file; everything else
+	// keeps its PG wiring. No PG fallback exists inside the slice.
+	sqliteMode := opts.SQLiteStore != nil
+	sqliteStore := handlers.SQLiteMailboxStore{DB: opts.SQLiteStore}
+	mailboxSessionLookup := middleware.MailboxSessionLookup(nativeStore)
+	mailboxAuthStore := handlers.MailboxNativeAuth(nativeStore)
+	mailboxSessionsStore := handlers.MailboxNativeSessions(nativeStore)
+	mailboxSelfSettings := handlers.MailboxSelfSettingsStore(handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool})
+	if sqliteMode {
+		mailboxSessionLookup = sqliteStore
+		mailboxAuthStore = sqliteStore
+		mailboxSessionsStore = sqliteStore
+		mailboxSelfSettings = sqliteStore
+	}
 	smtpAddr := opts.SMTPAddr
 	if smtpAddr == "" {
 		smtpAddr = "127.0.0.1:587"
@@ -293,9 +315,9 @@ func New(opts Options) *gin.Engine {
 	aiBudgetStatus := &handlers.AISearchAskAccounting{Pool: opts.AIPlatformPool}
 	mailboxNative := &handlers.MailboxNativeHandler{
 		MailHost:         opts.MyHostname,
-		Enabled:          opts.WebmailNative && platformQueries != nil,
-		Auth:             nativeStore,
-		Sessions:         nativeStore,
+		Enabled:          opts.WebmailNative && (platformQueries != nil || sqliteMode),
+		Auth:             mailboxAuthStore,
+		Sessions:         mailboxSessionsStore,
 		Vault:            webmailVault,
 		Dialer:           webmail.NetDialer{Addr: opts.IMAPAddr, AuthenticationSecrets: opts.Secrets},
 		Submitter:        webmail.NetSubmitter{Addr: smtpAddr},
@@ -307,7 +329,9 @@ func New(opts Options) *gin.Engine {
 		RenderCache:      rendercache.New(),
 		// WEBMAIL-005/006 mailbox self-service: signature, identities,
 		// quota and managed-sieve rules through the existing safe pipeline.
-		SelfSettings: handlers.StoreMailboxSelfSettings{Pool: opts.PlatformPool},
+		// Rules stay PG-only: the managed-Sieve queries are not part of the
+		// slice-1 allow set, so they stay nil (503) in SQLite mode.
+		SelfSettings: mailboxSelfSettings,
 		Rules:        handlers.StoreMailboxRules{Pool: opts.PlatformPool},
 		Sieve:        opts.SieveActivator,
 	}
@@ -410,7 +434,7 @@ func New(opts Options) *gin.Engine {
 			return c.ClientIP(), true
 		}), mailboxNative.CreateSession)
 		mailboxAuthed := v1.Group("/mailbox")
-		mailboxAuthed.Use(middleware.RequireMailboxAuth(nativeStore, webmailVault))
+		mailboxAuthed.Use(middleware.RequireMailboxAuth(mailboxSessionLookup, webmailVault))
 		{
 			mailboxAuthed.GET("/folders", mailboxNative.ListFolders)
 			mailboxAuthed.POST("/folders", mailboxNative.CreateFolder)
