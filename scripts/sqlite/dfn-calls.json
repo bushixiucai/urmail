@@ -2,9 +2,8 @@
  "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
  "total_calls": 95,
  "by_strategy": {
-  "s4-closed": 48,
+  "s4-closed": 51,
   "inline": 32,
-  "app-assume": 3,
   "inline-compose": 12
  },
  "first_batch_inline_calls": 44,
@@ -243,8 +242,9 @@
    "method": "PlatformConfigureTenantAI",
    "line": 126,
    "snippet": "SELECT urmail_configure_tenant_ai(sqlc.arg(mode),sqlc.arg(provider),sqlc.arg(endpoint),sqlc.arg(mode",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：租户/用户会话变量（owner|admin）+ 模式组合校验 + enterprise 快照/基础列同写（事务）；会话变量 app_pending（S2 装饰器/S5 适配器）",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -270,8 +270,9 @@
    "method": "TenantConsentAICloud",
    "line": 153,
    "snippet": "SELECT urmail_consent_tenant_ai(@configuration_digest,@scope_hash,@allow_cloud);",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：会话变量（owner|admin）+ 授权必须引用现状 digest/scope_hash 且非 ollama 已启用 + 本地优先开关（事务）；configuration_digest 的 sha256 计算与 consent guard 触发器 app_pending",
+   "status": "closed"
   },
   {
    "fn": "urmail_ai_cloud_authorized",
@@ -289,8 +290,9 @@
    "method": "PlatformConfigureTenantAIGovernance",
    "line": 169,
    "snippet": "SELECT urmail_configure_tenant_ai_governance(sqlc.arg(personal_mode), sqlc.arg(approved_endpoints));",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：会话变量（owner|admin）+ personal_mode 白名单 + approved_endpoints（PG text[] → SQLite JSON 文本）；AI_QUOTA_PLATFORM_REQUIRED 触发器分支 app_pending",
+   "status": "closed"
   },
   {
    "fn": "urmail_evidence_manifest_visible",

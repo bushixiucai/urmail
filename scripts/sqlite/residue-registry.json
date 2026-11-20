@@ -1,31 +1,9 @@
 {
   "note": "S2 残留登记（文件:方法:行）；rewrite_verify 断言 scan==registry。db-function-call 替代物见 dfn-calls.json。",
   "classes": {
-    "db-function-call": [
-      {
-        "class": "db-function-call",
-        "file": "platform_ai.sql",
-        "method": "PlatformConfigureTenantAI",
-        "line": 126,
-        "snippet": "SELECT urmail_configure_tenant_ai(sqlc.arg(mode),sqlc.arg(provider),sqlc.arg(endpoint),sqlc.arg(model),sqlc.arg(encrypted_key),sqlc.arg(enabled),sqlc.arg(local_only));"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_ai.sql",
-        "method": "TenantConsentAICloud",
-        "line": 153,
-        "snippet": "SELECT urmail_consent_tenant_ai(@configuration_digest,@scope_hash,@allow_cloud);"
-      },
-      {
-        "class": "db-function-call",
-        "file": "platform_ai.sql",
-        "method": "PlatformConfigureTenantAIGovernance",
-        "line": 177,
-        "snippet": "SELECT urmail_configure_tenant_ai_governance(sqlc.arg(personal_mode), sqlc.arg(approved_endpoints));"
-      }
-    ]
+    "db-function-call": []
   },
   "totals": {
-    "db-function-call": 3
+    "db-function-call": 0
   }
 }

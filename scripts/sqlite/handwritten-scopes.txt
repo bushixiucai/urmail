@@ -66,3 +66,10 @@ ScheduleMarketingCampaign platform
 RetryMarketingFlowInstance platform
 RecordMarketingFlowAudit  platform
 
+# -- platform: AI 配置面（沿用被替换语句原 `-- scope: platform` 注解；调用方为租户 owner|admin）
+PlatformConfigureTenantAI            platform
+TenantConsentAICloud                 platform
+PlatformConfigureTenantAIGovernance  platform
+PlatformSetAIProvider                platform
+PlatformSetActiveAIService           platform
+

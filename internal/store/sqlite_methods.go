@@ -1626,32 +1626,37 @@ func (q *Queries) AbandonDNSPlan(ctx context.Context, arg AbandonDNSPlanParams) 
 // data.
 // ---------------------------------------------------------------------------
 
-const marketingSessionSQL = `SELECT CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER),
+const sessionActorSQL = `SELECT CAST(nullif(current_setting('urmail.tenant_id',true),'') AS INTEGER),
+ CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER),
  COALESCE(current_setting('role',true),'')`
 
-// marketingSession returns the acting user id (0 when unbound) and the session
-// role string.
-func (q *Queries) marketingSession(ctx context.Context) (int64, string, error) {
-	var uid *int64
-	var role string
-	if err := q.db.QueryRow(ctx, marketingSessionSQL).Scan(&uid, &role); err != nil {
-		return 0, "", err
+// sessionActor reads the tenant/user/role the PG procedures asserted through
+// current_setting(). Every field is 0/"" when the setting is unbound, which
+// makes the owner|admin lookup and the worker gate fail closed.
+func (q *Queries) sessionActor(ctx context.Context) (tenant, user int64, role string, err error) {
+	var tid, uid *int64
+	if err := q.db.QueryRow(ctx, sessionActorSQL).Scan(&tid, &uid, &role); err != nil {
+		return 0, 0, "", err
 	}
-	if uid == nil {
-		return 0, role, nil
+	if tid != nil {
+		tenant = *tid
 	}
-	return *uid, role, nil
+	if uid != nil {
+		user = *uid
+	}
+	return tenant, user, role, nil
 }
 
-const marketingAdminSQL = `SELECT EXISTS(SELECT 1 FROM user_tenant_roles
+const tenantAdminSQL = `SELECT EXISTS(SELECT 1 FROM user_tenant_roles
  WHERE tenant_id=?1 AND user_id=CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER)
   AND role IN('owner','admin'))`
 
-// marketingAdmin mirrors the `user_id=current_setting(...) AND role IN
-// ('owner','admin')` predicate of the tenant-facing marketing functions.
-func (q *Queries) marketingAdmin(ctx context.Context, tenant int64) (bool, error) {
+// tenantAdmin mirrors the `user_id=current_setting(...) AND role IN
+// ('owner','admin')` predicate shared by the tenant-facing marketing and AI
+// configuration procedures.
+func (q *Queries) tenantAdmin(ctx context.Context, tenant int64) (bool, error) {
 	var ok bool
-	err := q.db.QueryRow(ctx, marketingAdminSQL, tenant).Scan(&ok)
+	err := q.db.QueryRow(ctx, tenantAdminSQL, tenant).Scan(&ok)
 	return ok, err
 }
 
@@ -1863,7 +1868,7 @@ func (q *Queries) ScheduleMarketingCampaign(ctx context.Context, arg ScheduleMar
 }
 
 func (q *Queries) scheduleMarketing(ctx context.Context, arg ScheduleMarketingCampaignParams) (string, error) {
-	ok, err := q.marketingAdmin(ctx, arg.TenantID)
+	ok, err := q.tenantAdmin(ctx, arg.TenantID)
 	if err != nil {
 		return "", err
 	}
@@ -1986,12 +1991,12 @@ WHERE p.tenant_id=?1 AND p.id=?2 AND v.definition_id=?3 AND f.status='active'`
 // a failed or delivery-uncertain position whose lease lapsed is made runnable
 // again, and any reserved quota slot is given back.
 func (q *Queries) RetryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error) {
-	_, role, err := q.marketingSession(ctx)
+	_, _, role, err := q.sessionActor(ctx)
 	if err != nil {
 		return false, err
 	}
 	if role != "urmail_platform" {
-		ok, err := q.marketingAdmin(ctx, arg.PTenant)
+		ok, err := q.tenantAdmin(ctx, arg.PTenant)
 		if err != nil {
 			return false, err
 		}
@@ -2055,14 +2060,14 @@ VALUES(?1,?2,?3,'marketing_flow',?4,?5)`
 // table's append-only INSERT trigger still rejects this row until S6 removes the
 // no_insert guard, exactly as it did for RecordTenantAudit in batch A.
 func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarketingFlowAuditParams) error {
-	actor, _, err := q.marketingSession(ctx)
+	_, actor, _, err := q.sessionActor(ctx)
 	if err != nil {
 		return err
 	}
 	if actor == 0 {
 		return pgError("42501", "MARKETING_ADMIN_REQUIRED")
 	}
-	ok, err := q.marketingAdmin(ctx, arg.PTenant)
+	ok, err := q.tenantAdmin(ctx, arg.PTenant)
 	if err != nil {
 		return err
 	}
@@ -2848,4 +2853,404 @@ func (q *Queries) releaseMarketingFlowReservation(ctx context.Context, arg Platf
 		return false, err
 	}
 	return true, nil
+}
+
+// ---------------------------------------------------------------------------
+// S4 batch E: AI configuration procedures (the last db-function-call residue).
+//
+// urmail_configure_tenant_ai / urmail_consent_tenant_ai /
+// urmail_configure_tenant_ai_governance all asserted `current_setting(
+// 'urmail.tenant_id') IS NOT NULL AND current_setting('urmail.user_id') IS NOT
+// NULL` plus an owner|admin membership row, so the ports read the same settings
+// and fail closed on an unbound session. The parts of those procedures that
+// depended on session state alone — AI_TENANT_CONSENT_REQUIRED /
+// AI_QUOTA_PLATFORM_REQUIRED in the ai_configuration_consent_guard and
+// nonplatform_ai_quota_guard triggers — stay app_pending (S2 decorator / S5
+// adapter), exactly as recorded in trigger-port.json.
+//
+// configuration_digest is a sha256 the PG guard trigger computes from the
+// configuration row; that computation is app_pending too, so the SQLite column
+// keeps its '' default and urmail_consent_tenant_ai's digest comparison behaves
+// like the PG function body: an allow request whose digest does not match the
+// stored value is refused rather than silently consented.
+// ---------------------------------------------------------------------------
+
+const aiConfigExistsSQL = `SELECT EXISTS(SELECT 1 FROM ai_provider_configs WHERE tenant_id=?1)`
+
+const aiConfigureSQL = `INSERT INTO ai_provider_configs(
+ tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,
+ enterprise_mode,enterprise_provider,enterprise_endpoint,enterprise_model,
+ enterprise_encrypted_key,enterprise_enabled,enterprise_local_only,active_service,updated_at
+)
+VALUES(?1,?2,?3,?4,?5,?6,?7,?8,
+ ?2,?3,?4,?5,?6,?7,?8,'enterprise',(CAST(strftime('%s','now') AS INTEGER)*1000000))
+ON CONFLICT(tenant_id) DO UPDATE SET
+ enterprise_mode=excluded.enterprise_mode,
+ enterprise_provider=excluded.enterprise_provider,
+ enterprise_endpoint=excluded.enterprise_endpoint,
+ enterprise_model=excluded.enterprise_model,
+ enterprise_encrypted_key=CASE WHEN excluded.encrypted_key<>'' THEN excluded.encrypted_key ELSE ai_provider_configs.enterprise_encrypted_key END,
+ enterprise_enabled=excluded.enterprise_enabled,
+ enterprise_local_only=excluded.enterprise_local_only,
+ active_service='enterprise',
+ mode=excluded.mode,
+ provider=excluded.provider,
+ endpoint=excluded.endpoint,
+ model=excluded.model,
+ encrypted_key=CASE WHEN excluded.encrypted_key<>'' THEN excluded.encrypted_key ELSE ai_provider_configs.enterprise_encrypted_key END,
+ enabled=excluded.enabled,
+ local_only=excluded.local_only,
+ updated_at=excluded.updated_at`
+
+// PlatformConfigureTenantAI mirrors urmail_configure_tenant_ai: it writes the
+// tenant's own (enterprise) provider *and* the enterprise snapshot, keeping the
+// previous enterprise key when the caller sent an empty key. PG deliberately
+// reads ai_provider_configs.enterprise_encrypted_key for both columns, so a
+// first write without a key keeps ” rather than resurrecting a platform key.
+func (q *Queries) PlatformConfigureTenantAI(ctx context.Context, arg PlatformConfigureTenantAIParams) error {
+	if arg.Mode != "byo" && arg.Mode != "local" {
+		return pgError("23514", "AI_CONFIGURATION_INVALID")
+	}
+	if (arg.Mode == "local") != (arg.Provider == "ollama") {
+		return pgError("23514", "AI_CONFIGURATION_INVALID")
+	}
+	if arg.LocalOnly && arg.Provider != "ollama" {
+		return pgError("23514", "AI_CONFIGURATION_INVALID")
+	}
+	return q.runTx(ctx, func(tx *Queries) error {
+		tenant, actor, _, err := tx.sessionActor(ctx)
+		if err != nil {
+			return err
+		}
+		if tenant == 0 || actor == 0 {
+			return pgError("42501", "AI_CONFIGURATION_FORBIDDEN")
+		}
+		ok, err := tx.tenantAdmin(ctx, tenant)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return pgError("42501", "AI_CONFIGURATION_FORBIDDEN")
+		}
+		var existed bool
+		if err := tx.db.QueryRow(ctx, aiConfigExistsSQL, tenant).Scan(&existed); err != nil {
+			return err
+		}
+		if _, err = tx.db.Exec(ctx, aiConfigureSQL, tenant, arg.Mode, arg.Provider, arg.Endpoint,
+			arg.Model, arg.EncryptedKey, arg.Enabled, arg.LocalOnly); err != nil {
+			return err
+		}
+		// PG's guard trigger revokes the stored cloud consent when an app-role
+		// *update* switches the tenant to local mode (TG_OP='UPDATE'), so a stale
+		// consent cannot outlive the export policy. SQLite has no session role to
+		// test (app_pending), so the port applies the revoke on every local-mode
+		// update: that is the strict direction and never grants anything.
+		if existed && arg.Mode == "local" {
+			if _, err := tx.db.Exec(ctx, aiConsentResetSQL, tenant, actor); err != nil {
+				return err
+			}
+		}
+		_, err = tx.refreshAIConfigurationDigest(ctx, tenant)
+		return err
+	})
+}
+
+const aiConsentConfigSQL = `SELECT provider,enabled,configuration_digest,cloud_scope_hash
+ FROM ai_provider_configs WHERE tenant_id=?1`
+
+const aiConsentUpdateSQL = `UPDATE ai_provider_configs SET
+ tenant_local_only=?2,cloud_consent_digest=?3,cloud_consent_scope_hash=?4,
+ cloud_consent_by=?5,cloud_consent_at=?6,cloud_consent_revoked_at=?7
+WHERE tenant_id=?1`
+
+// TenantConsentAICloud mirrors urmail_consent_tenant_ai: granting cloud consent
+// must cite the digest and scope hash of the *current* enabled non-ollama
+// configuration, while revoking always succeeds and records the timestamp.
+func (q *Queries) TenantConsentAICloud(ctx context.Context, arg TenantConsentAICloudParams) error {
+	return q.runTx(ctx, func(tx *Queries) error {
+		tenant, actor, _, err := tx.sessionActor(ctx)
+		if err != nil {
+			return err
+		}
+		if tenant == 0 || actor == 0 {
+			return pgError("42501", "AI_CONFIGURATION_FORBIDDEN")
+		}
+		ok, err := tx.tenantAdmin(ctx, tenant)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return pgError("42501", "AI_CONFIGURATION_FORBIDDEN")
+		}
+		var provider string
+		var enabled bool
+		var digest, scope string
+		err = tx.db.QueryRow(ctx, aiConsentConfigSQL, tenant).
+			Scan(&provider, &enabled, &digest, &scope)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgError("23514", "AI_DISABLED")
+		}
+		if err != nil {
+			return err
+		}
+		now := timeutil.NowMicro()
+		if arg.AllowCloud {
+			// digest=="" cannot happen under PG (the guard always writes a sha256);
+			// it means the SQLite port has not produced a digest yet, so consent must
+			// be refused rather than matched against the empty column.
+			if provider == "ollama" || !enabled || digest == "" ||
+				arg.ConfigurationDigest != digest || arg.ScopeHash != scope {
+				return pgError("23514", "AI_CLOUD_CONSENT_STALE")
+			}
+			if _, err = tx.db.Exec(ctx, aiConsentUpdateSQL, tenant,
+				false, digest, scope, actor, now, nil); err != nil {
+				return err
+			}
+		} else if _, err = tx.db.Exec(ctx, aiConsentUpdateSQL, tenant, true, "", "", actor, nil, now); err != nil {
+			return err
+		}
+		// The consent columns are not part of the digest input, but PG recomputes
+		// the digest on every UPDATE, so the port keeps that invariant.
+		_, err = tx.refreshAIConfigurationDigest(ctx, tenant)
+		return err
+	})
+}
+
+const aiGovernanceSQL = `INSERT INTO ai_provider_configs(
+ tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,
+ personal_mode,approved_endpoints,updated_at
+)
+VALUES(?1,'byo','openai','','','',0,1,?2,?3,(CAST(strftime('%s','now') AS INTEGER)*1000000))
+ON CONFLICT(tenant_id) DO UPDATE SET
+ personal_mode=excluded.personal_mode,
+ approved_endpoints=excluded.approved_endpoints,
+ updated_at=excluded.updated_at`
+
+// PlatformConfigureTenantAIGovernance mirrors
+// urmail_configure_tenant_ai_governance: it stores the tenant's personal-AI
+// policy. approved_endpoints is a PG text[]; SQLite keeps it as JSON, and a nil
+// slice becomes [] (PG's COALESCE(...,'{}')), never JSON null.
+func (q *Queries) PlatformConfigureTenantAIGovernance(ctx context.Context, arg PlatformConfigureTenantAIGovernanceParams) error {
+	switch arg.PersonalMode {
+	case "disabled", "approved", "public":
+	default:
+		return pgError("23514", "AI_GOVERNANCE_INVALID")
+	}
+	endpoints := arg.ApprovedEndpoints
+	if endpoints == nil {
+		endpoints = []string{}
+	}
+	encoded, err := json.Marshal(endpoints)
+	if err != nil {
+		return pgError("23514", "AI_GOVERNANCE_INVALID")
+	}
+	return q.runTx(ctx, func(tx *Queries) error {
+		tenant, actor, _, err := tx.sessionActor(ctx)
+		if err != nil {
+			return err
+		}
+		if tenant == 0 || actor == 0 {
+			return pgError("42501", "AI_CONFIGURATION_FORBIDDEN")
+		}
+		ok, err := tx.tenantAdmin(ctx, tenant)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return pgError("42501", "AI_CONFIGURATION_FORBIDDEN")
+		}
+		if _, err = tx.db.Exec(ctx, aiGovernanceSQL, tenant, arg.PersonalMode, string(encoded)); err != nil {
+			return err
+		}
+		_, err = tx.refreshAIConfigurationDigest(ctx, tenant)
+		return err
+	})
+}
+
+// ---------------------------------------------------------------------------
+// ai_provider_configs 的 configuration_digest：urmail_ai_configuration_consent_guard
+// 触发器里的机械部分（S4 承接；role/consent 判定分支仍按 trigger-port.json 记
+// app_pending）。
+//
+// PG 的算法是
+//   encode(sha256(convert_to(jsonb_build_array(version,mode,provider,endpoint,
+//                                          model,cloud_scope_hash)::text,'UTF8')),'hex')
+// 其中 jsonb 文本渲染用 ", " 分隔元素。这个摘要决定云同意是否仍然有效：
+// 配置身份变了而摘要没变，已授予的云同意就会被错误地当作继续有效，因此每条写
+// 入 ai_provider_configs 的 Go 路径都要重算。
+// ---------------------------------------------------------------------------
+
+// jsonbTextString 复刻 PG jsonb 的字符串渲染（escape_json）：只转义 "、\ 与
+// 命名控制字符，其余（含 DEL 与所有非 ASCII）原样输出 UTF-8。
+func jsonbTextString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// aiConfigurationDigest is the Go port of the guard trigger's digest expression.
+func aiConfigurationDigest(version int64, mode, provider, endpoint, model, scope string) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	b.WriteString(strconv.FormatInt(version, 10))
+	for _, s := range []string{mode, provider, endpoint, model, scope} {
+		b.WriteString(", ")
+		b.WriteString(jsonbTextString(s))
+	}
+	b.WriteByte(']')
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+const aiConfigurationIdentitySQL = `SELECT configuration_version,mode,provider,endpoint,model,cloud_scope_hash
+ FROM ai_provider_configs WHERE tenant_id=?1`
+
+const aiConfigurationDigestSQL = `UPDATE ai_provider_configs SET configuration_digest=?2 WHERE tenant_id=?1`
+
+// refreshAIConfigurationDigest recomputes configuration_digest from the stored
+// row. It must run after the write (and after ai_config_version_keep_or_bump
+// repaired the version) because the digest covers configuration_version.
+func (q *Queries) refreshAIConfigurationDigest(ctx context.Context, tenant int64) (string, error) {
+	var version int64
+	var mode, provider, endpoint, model, scope string
+	if err := q.db.QueryRow(ctx, aiConfigurationIdentitySQL, tenant).
+		Scan(&version, &mode, &provider, &endpoint, &model, &scope); err != nil {
+		return "", err
+	}
+	digest := aiConfigurationDigest(version, mode, provider, endpoint, model, scope)
+	if _, err := q.db.Exec(ctx, aiConfigurationDigestSQL, tenant, digest); err != nil {
+		return "", err
+	}
+	return digest, nil
+}
+
+const aiConsentResetSQL = `UPDATE ai_provider_configs SET
+ tenant_local_only=1,cloud_consent_digest='',cloud_consent_scope_hash='',
+ cloud_consent_by=?2,cloud_consent_at=NULL,
+ cloud_consent_revoked_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?1`
+
+// aiSetProviderSQL is PlatformSetAIProvider after the sqlite conversion. It keeps
+// PG's split between the platform snapshot, the enterprise snapshot and the base
+// columns, including the "keep the old value when the request came from the
+// other service" CASE arms.
+const aiSetProviderSQL = `INSERT INTO ai_provider_configs(
+ tenant_id,mode,provider,endpoint,model,encrypted_key,enabled,local_only,
+ platform_provider,platform_endpoint,platform_model,platform_encrypted_key,platform_enabled,
+ enterprise_mode,enterprise_provider,enterprise_endpoint,enterprise_model,
+ enterprise_encrypted_key,enterprise_enabled,enterprise_local_only,
+ active_service,input_micros_per_million,output_micros_per_million,cost_currency
+)
+VALUES(
+ ?1,?2,?3,?4,?5,?6,?7,?8,
+ CASE WHEN ?2='platform' THEN ?3 ELSE 'openai' END,
+ CASE WHEN ?2='platform' THEN ?4 ELSE '' END,
+ CASE WHEN ?2='platform' THEN ?5 ELSE '' END,
+ CASE WHEN ?2='platform' THEN ?6 ELSE '' END,
+ CASE WHEN ?2='platform' THEN ?7 ELSE 0 END,
+ CASE WHEN ?2<>'platform' THEN ?2 ELSE 'byo' END,
+ CASE WHEN ?2<>'platform' THEN ?3 ELSE 'openai' END,
+ CASE WHEN ?2<>'platform' THEN ?4 ELSE '' END,
+ CASE WHEN ?2<>'platform' THEN ?5 ELSE '' END,
+ CASE WHEN ?2<>'platform' THEN ?6 ELSE '' END,
+ CASE WHEN ?2<>'platform' THEN ?7 ELSE 0 END,
+ CASE WHEN ?2<>'platform' THEN ?8 ELSE 1 END,
+ CASE WHEN ?2='platform' THEN 'platform' ELSE 'enterprise' END,
+ ?9,?10,COALESCE(NULLIF(?11,''),'CNY')
+)
+ON CONFLICT(tenant_id) DO UPDATE SET
+ platform_provider=CASE WHEN excluded.mode='platform' THEN excluded.provider ELSE ai_provider_configs.platform_provider END,
+ platform_endpoint=CASE WHEN excluded.mode='platform' THEN excluded.endpoint ELSE ai_provider_configs.platform_endpoint END,
+ platform_model=CASE WHEN excluded.mode='platform' THEN excluded.model ELSE ai_provider_configs.platform_model END,
+ platform_encrypted_key=CASE WHEN excluded.mode='platform' THEN excluded.encrypted_key ELSE ai_provider_configs.platform_encrypted_key END,
+ platform_enabled=CASE WHEN excluded.mode='platform' THEN excluded.enabled ELSE ai_provider_configs.platform_enabled END,
+ enterprise_mode=CASE WHEN excluded.mode<>'platform' THEN excluded.mode ELSE ai_provider_configs.enterprise_mode END,
+ enterprise_provider=CASE WHEN excluded.mode<>'platform' THEN excluded.provider ELSE ai_provider_configs.enterprise_provider END,
+ enterprise_endpoint=CASE WHEN excluded.mode<>'platform' THEN excluded.endpoint ELSE ai_provider_configs.enterprise_endpoint END,
+ enterprise_model=CASE WHEN excluded.mode<>'platform' THEN excluded.model ELSE ai_provider_configs.enterprise_model END,
+ enterprise_encrypted_key=CASE WHEN excluded.mode<>'platform' THEN excluded.encrypted_key ELSE ai_provider_configs.enterprise_encrypted_key END,
+ enterprise_enabled=CASE WHEN excluded.mode<>'platform' THEN excluded.enabled ELSE ai_provider_configs.enterprise_enabled END,
+ enterprise_local_only=CASE WHEN excluded.mode<>'platform' THEN excluded.local_only ELSE ai_provider_configs.enterprise_local_only END,
+ active_service=CASE WHEN excluded.mode='platform' THEN 'platform' ELSE 'enterprise' END,
+ mode=excluded.mode,
+ provider=excluded.provider,
+ endpoint=excluded.endpoint,
+ model=excluded.model,
+ encrypted_key=excluded.encrypted_key,
+ enabled=excluded.enabled,
+ local_only=excluded.local_only,
+ input_micros_per_million=excluded.input_micros_per_million,
+ output_micros_per_million=excluded.output_micros_per_million,
+ cost_currency=excluded.cost_currency,
+ updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)`
+
+// PlatformSetAIProvider re-implements the generated statement only to refresh the
+// digest in the same transaction; the RETURNING projection is re-read through
+// PlatformGetAIProvider so the trigger-repaired row is what the caller sees.
+func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIProviderParams) (AiProviderConfigs, error) {
+	var out AiProviderConfigs
+	err := q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, aiSetProviderSQL, arg.TenantID, arg.Mode, arg.Provider,
+			arg.Endpoint, arg.Model, arg.EncryptedKey, arg.Enabled, arg.LocalOnly,
+			arg.InputMicrosPerMillion, arg.OutputMicrosPerMillion, arg.CostCurrency); err != nil {
+			return err
+		}
+		if _, err := tx.refreshAIConfigurationDigest(ctx, arg.TenantID); err != nil {
+			return err
+		}
+		var err error
+		out, err = tx.PlatformGetAIProvider(ctx, arg.TenantID)
+		return err
+	})
+	return out, err
+}
+
+const aiSetActiveServiceSQL = `UPDATE ai_provider_configs SET
+ active_service=?1,
+ mode=CASE WHEN ?1='platform' THEN 'platform' ELSE enterprise_mode END,
+ provider=CASE WHEN ?1='platform' THEN platform_provider ELSE enterprise_provider END,
+ endpoint=CASE WHEN ?1='platform' THEN platform_endpoint ELSE enterprise_endpoint END,
+ model=CASE WHEN ?1='platform' THEN platform_model ELSE enterprise_model END,
+ encrypted_key=CASE WHEN ?1='platform' THEN platform_encrypted_key ELSE enterprise_encrypted_key END,
+ enabled=CASE WHEN ?1='platform' THEN platform_enabled ELSE enterprise_enabled END,
+ local_only=CASE WHEN ?1='platform' THEN 0 ELSE enterprise_local_only END,
+ updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+WHERE tenant_id=?2`
+
+// PlatformSetActiveAIService switches between the platform and enterprise
+// snapshots. That rewrites mode/provider/endpoint/model, so the digest must be
+// recomputed or an existing cloud consent would survive the switch.
+func (q *Queries) PlatformSetActiveAIService(ctx context.Context, arg PlatformSetActiveAIServiceParams) error {
+	return q.runTx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.Exec(ctx, aiSetActiveServiceSQL, arg.ActiveService, arg.TenantID); err != nil {
+			return err
+		}
+		_, err := tx.refreshAIConfigurationDigest(ctx, arg.TenantID)
+		return err
+	})
 }

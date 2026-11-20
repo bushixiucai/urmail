@@ -64,7 +64,7 @@ def rows(sql, *args):
 
 
 SQL = {n: go_const(n) for n in [
-    "marketingSessionSQL", "marketingAdminSQL", "marketingWorkerSQL",
+    "sessionActorSQL", "tenantAdminSQL", "marketingWorkerSQL",
     "marketingMailAllowedSQL", "marketingLimitsSQL", "marketingTimezoneSQL",
     "marketingChannelSQL", "marketingSenderSQL", "marketingSenderReadySQL",
     "marketingLatestWindowSQL", "marketingInsertWindowSQL", "marketingConsumeWindowSQL",
@@ -122,7 +122,7 @@ settings("tenant", 1, "business_timezone", '"UTC"')
 def admin(tenant=1, uid=1):
     SESSION["urmail.user_id"] = str(uid)
     SESSION["role"] = ""
-    return bool(one(SQL["marketingAdminSQL"], tenant))
+    return bool(one(SQL["tenantAdminSQL"], tenant))
 
 
 def worker(role="urmail_platform"):
@@ -131,7 +131,7 @@ def worker(role="urmail_platform"):
 
 check("admin gate accepts owner", admin(), True)
 check("admin gate rejects member", admin(uid=2), False)
-check("admin gate rejects unbound session", one(SQL["marketingAdminSQL"], 1), False)
+check("admin gate rejects unbound session", one(SQL["tenantAdminSQL"], 1), False)
 worker()
 check("worker gate accepts urmail_platform", one(SQL["marketingWorkerSQL"]), 1)
 worker("")
@@ -231,7 +231,7 @@ admin()
 
 def schedule(tenant, campaign, at, uid=1):
     SESSION["urmail.user_id"] = str(uid)
-    if not one(SQL["marketingAdminSQL"], tenant):
+    if not one(SQL["tenantAdminSQL"], tenant):
         return "MARKETING_FORBIDDEN"
     row = con.execute(SQL["marketingCampaignForScheduleSQL"], (tenant, campaign)).fetchone()
     if row is None:

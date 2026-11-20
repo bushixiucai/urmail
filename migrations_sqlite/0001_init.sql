@@ -2195,7 +2195,7 @@ BEGIN
   UPDATE domains SET updated_at = CAST(strftime('%s','now') AS INTEGER)*1000000 WHERE id = NEW.id;
 END;
 
--- Port of PG function urmail_ai_configuration_consent_guard (版本自增与插入默认为机械部分；role/consent/sha256 为会话语义)
+-- Port of PG function urmail_ai_configuration_consent_guard (版本自增、插入默认与 configuration_digest 已承接（前三者由触发器，digest 由 internal/store/sqlite_methods.go 的 refreshAIConfigurationDigest 在每条写入路径后重算）；consent 落库前的 role/actor 判定仍为会话语义)
 CREATE TRIGGER IF NOT EXISTS ai_config_version_keep_or_bump
 AFTER UPDATE ON ai_provider_configs
 WHEN NEW.configuration_version IS NOT (CASE WHEN NEW.mode IS NOT OLD.mode OR NEW.provider IS NOT OLD.provider OR NEW.endpoint IS NOT OLD.endpoint OR NEW.model IS NOT OLD.model OR NEW.cloud_scope_hash IS NOT OLD.cloud_scope_hash THEN OLD.configuration_version + 1 ELSE OLD.configuration_version END)
@@ -2211,7 +2211,7 @@ BEGIN
   UPDATE ai_provider_configs SET configuration_version = 1, tenant_local_only = 1, cloud_consent_digest = '', cloud_consent_scope_hash = '', cloud_consent_by = NULL, cloud_consent_at = NULL, cloud_consent_revoked_at = NULL WHERE tenant_id = NEW.tenant_id;
 END;
 
--- APP-PENDING (urmail_ai_configuration_consent_guard): AI_TENANT_CONSENT_REQUIRED / AI_CLOUD_CONSENT_STALE（role+actor 判定）与 configuration_digest（sha256）→ S2 装饰器与 S4 迁移承接
+-- APP-PENDING (urmail_ai_configuration_consent_guard): AI_TENANT_CONSENT_REQUIRED / AI_CLOUD_CONSENT_STALE（BEFORE UPDATE 里对 consent 列变更的 role+actor 校验）→ S2 装饰器；urmail_app 角色下切到 local 时撤销同意由 Go 手写方法按“local 即撤销”的严格方向承接（SQLite 无会话角色）
 
 -- Port of PG function urmail_alias_sender_logins_guard (sender_logins 为 TEXT(JSON 数组)；catchall 禁登录、路由变更清空（校验按清空后的有效值，等价 PG 先 NEW:='{}' 再校验）、逐登录校验归属与 JSON 合法性)
 CREATE TRIGGER IF NOT EXISTS alias_sender_logins_catchall_guard_insert

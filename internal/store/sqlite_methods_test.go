@@ -160,3 +160,46 @@ func TestTimestamptzMicros(t *testing.T) {
 		t.Error("NULL timestamptz must report invalid")
 	}
 }
+
+// TestAIConfigurationDigest pins the Go port of the guard trigger's
+// encode(sha256(convert_to(jsonb_build_array(...)::text,'UTF8')),'hex'). The
+// expected values were produced independently from PG's jsonb text rendering
+// ("[1, \"byo\", ...]", elements joined with ", ").
+func TestAIConfigurationDigest(t *testing.T) {
+	cases := []struct {
+		name                                             string
+		version                                          int64
+		mode, provider, endpoint, model, scope, expected string
+	}{
+		{
+			name: "tenant byo provider", version: 1,
+			mode: "byo", provider: "openai", endpoint: "https://api.example.test/v1",
+			model: "gpt-4", scope: "abc123",
+			expected: "bb4e0f3ce1295ebfbb17a73a47a8410e3a4dcbeb3c2f073160c8c3a9bc9fd178",
+		},
+		{
+			name: "local ollama provider", version: 7,
+			mode: "local", provider: "ollama", endpoint: "http://127.0.0.1:11434",
+			model:    "qwen2.5",
+			scope:    "e2c6e77cf242166013d200a355f30a3c18f2798ae245d891d58c50ad8a57ab82",
+			expected: "55ae6a858cdb9f246aea3ee771f87aa69a2d83b70d6b704649653488b5e76886",
+		},
+		{
+			name: "escaped characters", version: 1,
+			mode: "byo", provider: "openai",
+			endpoint: "q\"uote\\back\nline\ttab", model: "m", scope: "s",
+			expected: "0687a26191f05f1ef38fac3cc52bd73a7e8dd3878859de1500cf276249ee3055",
+		},
+	}
+	for _, tc := range cases {
+		if got := aiConfigurationDigest(tc.version, tc.mode, tc.provider, tc.endpoint, tc.model, tc.scope); got != tc.expected {
+			t.Errorf("%s: digest = %s, want %s", tc.name, got, tc.expected)
+		}
+	}
+	// The digest is version-sensitive: a bump must invalidate an earlier consent.
+	a := aiConfigurationDigest(1, "byo", "openai", "https://api.example.test/v1", "gpt-4", "abc123")
+	b := aiConfigurationDigest(2, "byo", "openai", "https://api.example.test/v1", "gpt-4", "abc123")
+	if a == b {
+		t.Error("configuration_version must participate in the digest")
+	}
+}
