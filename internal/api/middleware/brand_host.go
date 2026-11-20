@@ -55,12 +55,16 @@ func brandHostBoundary(lookup BrandHostLookup, canonical ...string) gin.HandlerF
 		}
 		host = strings.TrimSuffix(host, ".")
 		brandID, status, found, err := lookup.BrandHostLifecycle(c.Request.Context(), host)
-		if !found {
-			c.Next()
-			return
-		}
+		// Error FIRST: a lookup/scan failure must fail closed with the
+		// fixed 503 DB_ERROR body (no engine detail leaks). Only an explicit
+		// "no such brand host" (err == nil, found == false) passes through;
+		// found=false with err≠nil never skips the boundary.
 		if err != nil {
 			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "DB_ERROR", "message": "error.DB_ERROR"}})
+			return
+		}
+		if !found {
+			c.Next()
 			return
 		}
 		if status != "active" {

@@ -645,3 +645,61 @@ func TestSlice1SQLiteBrandHostBoundary(t *testing.T) {
 		t.Fatalf("brand flow session rows: want exactly the one branded login (%d), got %d", before+1, got)
 	}
 }
+
+// TestSlice1SQLiteBrandLookupFailureFailsClosed injects a real SQLite query
+// failure at the brand boundary, proves no session or feature method runs,
+// then restores the exact schema DDL and proves the same healthy brand
+// login/settings path recovers. This pins error-before-found ordering
+// against SQLite driver's (found=false, err!=nil) result shape.
+func TestSlice1SQLiteBrandLookupFailureFailsClosed(t *testing.T) {
+	db, server := newSlice1Server(t)
+	ctx := context.Background()
+	var brandHostsDDL string
+	if err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='table' AND name='brand_hosts'`).Scan(&brandHostsDDL); err != nil || brandHostsDDL == "" {
+		t.Fatalf("read brand_hosts DDL: ddl=%q err=%v", brandHostsDDL, err)
+	}
+	var before int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE brand_hosts`); err != nil {
+		t.Fatalf("drop brand_hosts for failure injection: %v", err)
+	}
+	client := &slice1Client{t: t, server: server}
+	code, body := client.doHost(http.MethodPost, "/api/v1/mailbox/session", `{"email":"dave@d.acme.example.test","password":"slice1-mailbox-password"}`, "acme.example.test")
+	if code != http.StatusServiceUnavailable || !strings.Contains(body, "DB_ERROR") {
+		t.Fatalf("failed brand lookup = %d %s, want fixed 503 DB_ERROR", code, body)
+	}
+	if strings.Contains(strings.ToLower(body), "no such table") || strings.Contains(body, "brand_hosts") || strings.Contains(body, "sqlite") {
+		t.Fatalf("brand DB detail leaked: %s", body)
+	}
+	var afterFailure int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mailbox_sessions`).Scan(&afterFailure); err != nil || afterFailure != before {
+		t.Fatalf("failed brand lookup changed session rows: before=%d after=%d err=%v", before, afterFailure, err)
+	}
+
+	// Restore precisely the schema emitted by the migration, then add the
+	// healthy active host; no app-side migration path is involved.
+	if _, err := db.ExecContext(ctx, brandHostsDDL); err != nil {
+		t.Fatalf("restore brand_hosts DDL: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO brand_hosts(hostname,brand_id,status) VALUES('acme.example.test',9,'active')`); err != nil {
+		t.Fatalf("restore healthy brand fixture: %v", err)
+	}
+	code, body = client.doHost(http.MethodPost, "/api/v1/mailbox/session", `{"email":"dave@d.acme.example.test","password":"slice1-mailbox-password"}`, "acme.example.test")
+	if code != http.StatusOK {
+		t.Fatalf("healthy brand login after restore = %d %s", code, body)
+	}
+	var session struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(body), &session); err != nil || session.Token == "" {
+		t.Fatalf("restored brand login body %q", body)
+	}
+	client.token = session.Token
+	code, body = client.doHost(http.MethodGet, "/api/v1/mailbox/settings", "", "acme.example.test")
+	var settings settingsDTO
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &settings) != nil || settings.Version != 0 {
+		t.Fatalf("restored brand settings = %d %s", code, body)
+	}
+}
