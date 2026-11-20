@@ -142,7 +142,7 @@ WITH candidate AS (
  LIMIT 1
 )
 UPDATE mailbox_jobs SET status='leased', attempts=attempts+1, claim_token=claim_token+1,
- lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000), updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000, updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE id=(SELECT id FROM candidate) AND status='pending'
 RETURNING *;
 

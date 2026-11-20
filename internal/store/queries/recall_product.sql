@@ -14,7 +14,7 @@ ORDER BY a.id LIMIT 101;
 INSERT INTO recall_requests(tenant_id, archive_entry_id, mailbox_id, message_id, requested_by, status,
  preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, attempt_epoch)
 SELECT a.tenant_id, a.id, a.mailbox_id, a.message_id, @actor_id, 'preview', @actor_id, @token, @digest, @snapshot,
- (CAST(strftime('%s','now') AS INTEGER)*1000000), 1 FROM archive_entries a
+ (CAST(strftime('%s','now') AS INTEGER)*1000000)+300000000, 1 FROM archive_entries a
 WHERE a.tenant_id= @tenant_id AND a.id= @entry_id
 ON CONFLICT(tenant_id, archive_entry_id) DO UPDATE SET status='preview', reason=NULL, completed_at=NULL,
  preview_actor_id=EXCLUDED.preview_actor_id, preview_token=EXCLUDED.preview_token, preview_digest=EXCLUDED.preview_digest,

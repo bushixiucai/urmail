@@ -21,7 +21,7 @@ SELECT value FROM settings WHERE scope='platform' AND scope_id=0 AND key='notifi
 -- row stays 'pending' while leased, so a crashed worker's lease expiry makes
 -- it reclaimable (at-least-once delivery); only a confirmed-ambiguous SMTP
 -- submission later moves it to the unreplayable 'uncertain' state.
-UPDATE notification_outbox SET lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000),fence=fence+1,attempts=attempts+1
+UPDATE notification_outbox SET lease_until=(CAST(strftime('%s','now') AS INTEGER)*1000000)+120000000,fence=fence+1,attempts=attempts+1
 WHERE id=(SELECT id FROM notification_outbox WHERE channel='email' AND state='pending' AND next_attempt_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)
  AND (lease_until IS NULL OR lease_until<(CAST(strftime('%s','now') AS INTEGER)*1000000)) AND attempts<8
  ORDER BY id LIMIT 1)

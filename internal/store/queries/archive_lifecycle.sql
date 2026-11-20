@@ -25,7 +25,7 @@ ORDER BY a.received_at DESC,a.id DESC LIMIT @limit_count;
 -- scope: tenant
 
 INSERT INTO retention_previews(tenant_id,retention_days,candidate_count,candidate_digest,created_by,created_at,expires_at)
-SELECT @tenant_id,@retention_days,count(*),md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)
+SELECT @tenant_id,@retention_days,count(*),md5(coalesce((SELECT group_concat(id, ',') FROM (SELECT id FROM archive_entries ORDER BY id)),'')),@created_by,(CAST(strftime('%s','now') AS INTEGER)*1000000),(CAST(strftime('%s','now') AS INTEGER)*1000000)+900000000000
 FROM archive_entries
 WHERE archive_entries.tenant_id= @tenant_id AND NOT archive_entries.legal_hold AND archive_entries.deleted_at IS NULL
  AND archive_entries.received_at<(CAST(strftime('%s','now') AS INTEGER)*1000000)-(0)

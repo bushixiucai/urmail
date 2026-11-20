@@ -78,4 +78,4 @@ WHERE instance=?1 AND lifecycle_id=?2 AND tenant_id IS NULL;
 
 UPDATE collector_checkpoints SET gap_reason=NULL,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE stream= @stream AND generation= @generation AND gap_reason IS NOT NULL
- AND observed_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)-120000000 AND observed_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000);
+ AND observed_at>(CAST(strftime('%s','now') AS INTEGER)*1000000)-120000000 AND observed_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)+60000000;
