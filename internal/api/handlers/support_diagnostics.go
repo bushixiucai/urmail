@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"time"
 
@@ -84,7 +85,7 @@ func (h *SupportHandler) Diagnostics(c *gin.Context) {
 		return
 	}
 	now := time.Now().UTC()
-	rows, err := q.TenantDeliveryOutcomeCounts(c.Request.Context(), store.TenantDeliveryOutcomeCountsParams{TenantID: pgtype.Int8{Int64: tenant, Valid: true}, OccurredAt: pgtype.Timestamptz{Time: now.Add(-24 * time.Hour), Valid: true}, WindowEnd: pgtype.Timestamptz{Time: now, Valid: true}})
+	rows, err := q.TenantDeliveryOutcomeCounts(c.Request.Context(), store.TenantDeliveryOutcomeCountsParams{TenantID: pgtype.Int8{Int64: tenant, Valid: true}, OccurredAt: timeutil.Micro(now.Add(-24 * time.Hour)), WindowEnd: timeutil.Micro(now)})
 	if supportError(c, err) {
 		return
 	}

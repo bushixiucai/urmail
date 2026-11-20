@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"time"
 
@@ -275,7 +276,7 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		TenantID:  defaultTenantID,
 		CsrfToken: csrfToken,
 		UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true},
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+		ExpiresAt: timeutil.Micro(time.Now().Add(7 * 24 * time.Hour)),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

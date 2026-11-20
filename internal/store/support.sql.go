@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addSupportAttachment = `-- name: AddSupportAttachment :one
@@ -25,12 +23,12 @@ type AddSupportAttachmentParams struct {
 }
 
 type AddSupportAttachmentRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	MessageID   int64              `json:"message_id"`
-	Filename    string             `json:"filename"`
-	ContentType string             `json:"content_type"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64  `json:"id"`
+	TenantID    int64  `json:"tenant_id"`
+	MessageID   int64  `json:"message_id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
 // scope: tenant
@@ -223,11 +221,11 @@ type ListSupportAttachmentsParams struct {
 }
 
 type ListSupportAttachmentsRow struct {
-	ID          int64              `json:"id"`
-	MessageID   int64              `json:"message_id"`
-	Filename    string             `json:"filename"`
-	ContentType string             `json:"content_type"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64  `json:"id"`
+	MessageID   int64  `json:"message_id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
 // scope: tenant

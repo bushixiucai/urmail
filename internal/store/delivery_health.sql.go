@@ -24,9 +24,9 @@ SELECT status,count(*) AS count FROM (
 `
 
 type TenantDeliveryOutcomeCountsParams struct {
-	TenantID   pgtype.Int8        `json:"tenant_id"`
-	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
-	WindowEnd  pgtype.Timestamptz `json:"window_end"`
+	TenantID   pgtype.Int8 `json:"tenant_id"`
+	OccurredAt int64       `json:"occurred_at"`
+	WindowEnd  int64       `json:"window_end"`
 }
 
 type TenantDeliveryOutcomeCountsRow struct {

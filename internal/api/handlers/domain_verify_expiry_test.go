@@ -1,12 +1,12 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -15,8 +15,8 @@ func TestVerifyExpiredChallengeReturnsGoneBeforeDNSLookup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fake := &shapeFakeDomainStore{byID: store.GetDomainByIDRow{
 		ID: 1, TenantID: shapeTenantID, Fqdn: "example.com", Status: "pending_dns",
-		VerificationIssuedAt:  pgtype.Timestamptz{Time: time.Now().Add(-8 * 24 * time.Hour), Valid: true},
-		VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(-24 * time.Hour), Valid: true},
+		VerificationIssuedAt:  timeutil.Micro(time.Now().Add(-8 * 24 * time.Hour)),
+		VerificationExpiresAt: timeutil.Micro(time.Now().Add(-24 * time.Hour)),
 	}}
 	assertDomainChallengeExpired(t, fake)
 }
@@ -33,8 +33,8 @@ func TestVerifyFutureChallengeTimestampFailsClosed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fake := &shapeFakeDomainStore{byID: store.GetDomainByIDRow{
 		ID: 1, TenantID: shapeTenantID, Fqdn: "example.com", Status: "pending_dns",
-		VerificationIssuedAt:  pgtype.Timestamptz{Time: time.Now().Add(2 * time.Hour), Valid: true},
-		VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+		VerificationIssuedAt:  timeutil.Micro(time.Now().Add(2 * time.Hour)),
+		VerificationExpiresAt: timeutil.Micro(time.Now().Add(7 * 24 * time.Hour)),
 	}}
 	assertDomainChallengeExpired(t, fake)
 }

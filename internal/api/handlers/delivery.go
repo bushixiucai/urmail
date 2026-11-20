@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strings"
 	"time"
@@ -57,7 +58,7 @@ func (h *DeliveryHandler) Health(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	start := now.Add(-window)
-	counts, err := requestStore(c, h.Store).TenantDeliveryOutcomeCounts(c, store.TenantDeliveryOutcomeCountsParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, OccurredAt: pgtype.Timestamptz{Time: start, Valid: true}, WindowEnd: pgtype.Timestamptz{Time: now, Valid: true}})
+	counts, err := requestStore(c, h.Store).TenantDeliveryOutcomeCounts(c, store.TenantDeliveryOutcomeCountsParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, OccurredAt: timeutil.Micro(start), WindowEnd: timeutil.Micro(now)})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "TELEMETRY_UNAVAILABLE")
 		return
@@ -92,8 +93,8 @@ func (h *DeliveryHandler) freshness(ctx context.Context, now time.Time) (bool, *
 		return false, nil, false, err
 	}
 	for _, row := range rows {
-		if row.Stream == h.Stream && row.ObservedAt.Valid {
-			observed := row.ObservedAt.Time
+		if row.Stream == h.Stream && row.ObservedAt != 0 {
+			observed := timeutil.FromMicro(row.ObservedAt)
 			gap := row.GapReason.Valid
 			return now.Sub(observed) >= -time.Minute && now.Sub(observed) <= 2*time.Minute && !gap, &observed, gap, nil
 		}
@@ -121,7 +122,7 @@ func (h *DeliveryHandler) QueueForTenant(c *gin.Context) {
 	}
 	visible := []agentd.QueueEntry{}
 	for _, entry := range snapshot.Entries {
-		owner, ownerErr := h.Platform.PlatformQueueAuthenticatedTenant(c, store.PlatformQueueAuthenticatedTenantParams{Stream: h.Stream, Instance: h.Stream + "/postfix", QueueID: entry.QueueID, Column4: pgtype.Timestamptz{Time: time.Unix(entry.ArrivalTime, 0), Valid: true}})
+		owner, ownerErr := h.Platform.PlatformQueueAuthenticatedTenant(c, store.PlatformQueueAuthenticatedTenantParams{Stream: h.Stream, Instance: h.Stream + "/postfix", QueueID: entry.QueueID, Column4: timeutil.Micro(time.Unix(entry.ArrivalTime, 0))})
 		if ownerErr != nil && !errors.Is(ownerErr, pgx.ErrNoRows) {
 			authError(c, http.StatusServiceUnavailable, "QUEUE_UNAVAILABLE")
 			return

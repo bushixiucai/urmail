@@ -7,6 +7,7 @@ package caldav
 import (
 	"encoding/json"
 	"encoding/xml"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"strconv"
@@ -152,7 +153,7 @@ func rowEvent(row store.MailboxEvents) (collab.Event, error) {
 	ev := collab.Event{
 		UID: row.Uid, Overrides: overrides,
 		Summary: row.Summary, Description: row.Description, Location: row.Location,
-		StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, AllDay: row.AllDay,
+		StartsAt: timeutil.FromMicro(row.StartsAt), EndsAt: timeutil.FromMicro(row.EndsAt), AllDay: row.AllDay,
 		Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status, Attendees: attendees,
 	}
 	// Normalize validates the stored row the same way a fresh write is

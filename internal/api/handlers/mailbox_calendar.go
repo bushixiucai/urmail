@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"mime"
 	"net/http"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
@@ -460,8 +460,8 @@ func eventWindow(c *gin.Context) (time.Time, time.Time, bool) {
 	return start, end, true
 }
 
-func timestamptz(t time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
+func timestamptz(t time.Time) int64 {
+	return timeutil.Micro(t.UTC())
 }
 
 // ImportEventsCSV parses an uploaded CSV of events and stores the rows it

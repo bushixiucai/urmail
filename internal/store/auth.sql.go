@@ -37,16 +37,16 @@ RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, create
 `
 
 type CreateSessionParams struct {
-	ID              string             `json:"id"`
-	TenantID        pgtype.Int8        `json:"tenant_id"`
-	CsrfToken       string             `json:"csrf_token"`
-	UserAgent       pgtype.Text        `json:"user_agent"`
-	Ip              *netip.Addr        `json:"ip"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	OriginHost      string             `json:"origin_host"`
-	UserID          int64              `json:"user_id"`
-	ExpectedHash    string             `json:"expected_hash"`
-	ExpectedVersion int64              `json:"expected_version"`
+	ID              string      `json:"id"`
+	TenantID        pgtype.Int8 `json:"tenant_id"`
+	CsrfToken       string      `json:"csrf_token"`
+	UserAgent       pgtype.Text `json:"user_agent"`
+	Ip              *netip.Addr `json:"ip"`
+	ExpiresAt       int64       `json:"expires_at"`
+	OriginHost      string      `json:"origin_host"`
+	UserID          int64       `json:"user_id"`
+	ExpectedHash    string      `json:"expected_hash"`
+	ExpectedVersion int64       `json:"expected_version"`
 }
 
 // scope: tenant
@@ -216,18 +216,18 @@ WHERE email = ?1 AND status = 'active'
 `
 
 type GetUserByEmailRow struct {
-	ID                int64              `json:"id"`
-	Email             string             `json:"email"`
-	PasswordHash      string             `json:"password_hash"`
-	DisplayName       pgtype.Text        `json:"display_name"`
-	Locale            string             `json:"locale"`
-	Timezone          string             `json:"timezone"`
-	Status            string             `json:"status"`
-	MfaSecret         pgtype.Text        `json:"mfa_secret"`
-	MfaRecoveryCodes  []byte             `json:"mfa_recovery_codes"`
-	MfaEnabled        bool               `json:"mfa_enabled"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	CredentialVersion int64              `json:"credential_version"`
+	ID                int64       `json:"id"`
+	Email             string      `json:"email"`
+	PasswordHash      string      `json:"password_hash"`
+	DisplayName       pgtype.Text `json:"display_name"`
+	Locale            string      `json:"locale"`
+	Timezone          string      `json:"timezone"`
+	Status            string      `json:"status"`
+	MfaSecret         pgtype.Text `json:"mfa_secret"`
+	MfaRecoveryCodes  []byte      `json:"mfa_recovery_codes"`
+	MfaEnabled        bool        `json:"mfa_enabled"`
+	CreatedAt         int64       `json:"created_at"`
+	CredentialVersion int64       `json:"credential_version"`
 }
 
 // scope: platform
@@ -260,18 +260,18 @@ WHERE id = ?1 AND status = 'active'
 `
 
 type GetUserByIDRow struct {
-	ID                int64              `json:"id"`
-	Email             string             `json:"email"`
-	PasswordHash      string             `json:"password_hash"`
-	DisplayName       pgtype.Text        `json:"display_name"`
-	Locale            string             `json:"locale"`
-	Timezone          string             `json:"timezone"`
-	Status            string             `json:"status"`
-	MfaSecret         pgtype.Text        `json:"mfa_secret"`
-	MfaRecoveryCodes  []byte             `json:"mfa_recovery_codes"`
-	MfaEnabled        bool               `json:"mfa_enabled"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	CredentialVersion int64              `json:"credential_version"`
+	ID                int64       `json:"id"`
+	Email             string      `json:"email"`
+	PasswordHash      string      `json:"password_hash"`
+	DisplayName       pgtype.Text `json:"display_name"`
+	Locale            string      `json:"locale"`
+	Timezone          string      `json:"timezone"`
+	Status            string      `json:"status"`
+	MfaSecret         pgtype.Text `json:"mfa_secret"`
+	MfaRecoveryCodes  []byte      `json:"mfa_recovery_codes"`
+	MfaEnabled        bool        `json:"mfa_enabled"`
+	CreatedAt         int64       `json:"created_at"`
+	CredentialVersion int64       `json:"credential_version"`
 }
 
 // scope: platform
@@ -371,12 +371,12 @@ ORDER BY created_at DESC
 `
 
 type ListSessionsForUserRow struct {
-	ID        string             `json:"id"`
-	UserID    int64              `json:"user_id"`
-	TenantID  pgtype.Int8        `json:"tenant_id"`
-	UserAgent pgtype.Text        `json:"user_agent"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	ID        string      `json:"id"`
+	UserID    int64       `json:"user_id"`
+	TenantID  pgtype.Int8 `json:"tenant_id"`
+	UserAgent pgtype.Text `json:"user_agent"`
+	CreatedAt int64       `json:"created_at"`
+	ExpiresAt int64       `json:"expires_at"`
 }
 
 // scope: tenant

@@ -29,26 +29,26 @@ type PlatformCompleteRecallParams struct {
 }
 
 type PlatformCompleteRecallRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
+	ID               int64       `json:"id"`
+	TenantID         int64       `json:"tenant_id"`
+	MessageID        string      `json:"message_id"`
+	RequestedBy      int64       `json:"requested_by"`
+	Status           string      `json:"status"`
+	Reason           pgtype.Text `json:"reason"`
+	CreatedAt        int64       `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8 `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8 `json:"mailbox_id"`
+	CompletedAt      int64       `json:"completed_at"`
+	PreviewActorID   pgtype.Int8 `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text `json:"preview_token"`
+	PreviewDigest    pgtype.Text `json:"preview_digest"`
+	PreviewSnapshot  []byte      `json:"preview_snapshot"`
+	PreviewExpiresAt int64       `json:"preview_expires_at"`
+	ConfirmedAt      int64       `json:"confirmed_at"`
+	SelectedCopyKeys []byte      `json:"selected_copy_keys"`
+	AttemptEpoch     int64       `json:"attempt_epoch"`
+	LocalResult      []byte      `json:"local_result"`
+	ResultHistory    []byte      `json:"result_history"`
 }
 
 func (q *Queries) PlatformCompleteRecall(ctx context.Context, arg PlatformCompleteRecallParams) (PlatformCompleteRecallRow, error) {
@@ -100,35 +100,35 @@ type PlatformLockRecallForExpungeParams struct {
 }
 
 type PlatformLockRecallForExpungeRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
-	ArchiveEntryID_2 int64              `json:"archive_entry_id_2"`
-	LegalHold        bool               `json:"legal_hold"`
-	ArchiveDeletedAt pgtype.Timestamptz `json:"archive_deleted_at"`
-	ArchiveMessageID string             `json:"archive_message_id"`
-	ArchiveMailboxID pgtype.Int8        `json:"archive_mailbox_id"`
-	Address          pgtype.Text        `json:"address"`
-	MailboxStatus    pgtype.Text        `json:"mailbox_status"`
-	TenantStatus     string             `json:"tenant_status"`
-	DomainStatus     pgtype.Text        `json:"domain_status"`
+	ID               int64       `json:"id"`
+	TenantID         int64       `json:"tenant_id"`
+	MessageID        string      `json:"message_id"`
+	RequestedBy      int64       `json:"requested_by"`
+	Status           string      `json:"status"`
+	Reason           pgtype.Text `json:"reason"`
+	CreatedAt        int64       `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8 `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8 `json:"mailbox_id"`
+	CompletedAt      int64       `json:"completed_at"`
+	PreviewActorID   pgtype.Int8 `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text `json:"preview_token"`
+	PreviewDigest    pgtype.Text `json:"preview_digest"`
+	PreviewSnapshot  []byte      `json:"preview_snapshot"`
+	PreviewExpiresAt int64       `json:"preview_expires_at"`
+	ConfirmedAt      int64       `json:"confirmed_at"`
+	SelectedCopyKeys []byte      `json:"selected_copy_keys"`
+	AttemptEpoch     int64       `json:"attempt_epoch"`
+	LocalResult      []byte      `json:"local_result"`
+	ResultHistory    []byte      `json:"result_history"`
+	ArchiveEntryID_2 int64       `json:"archive_entry_id_2"`
+	LegalHold        bool        `json:"legal_hold"`
+	ArchiveDeletedAt int64       `json:"archive_deleted_at"`
+	ArchiveMessageID string      `json:"archive_message_id"`
+	ArchiveMailboxID pgtype.Int8 `json:"archive_mailbox_id"`
+	Address          pgtype.Text `json:"address"`
+	MailboxStatus    pgtype.Text `json:"mailbox_status"`
+	TenantStatus     string      `json:"tenant_status"`
+	DomainStatus     pgtype.Text `json:"domain_status"`
 }
 
 func (q *Queries) PlatformLockRecallForExpunge(ctx context.Context, arg PlatformLockRecallForExpungeParams) (PlatformLockRecallForExpungeRow, error) {

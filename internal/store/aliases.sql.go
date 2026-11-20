@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createAlias = `-- name: CreateAlias :one
@@ -86,16 +84,16 @@ type GetAliasByDomainAndLocalPartParams struct {
 }
 
 type GetAliasByDomainAndLocalPartRow struct {
-	ID           int64              `json:"id"`
-	TenantID     int64              `json:"tenant_id"`
-	DomainID     int64              `json:"domain_id"`
-	LocalPart    string             `json:"local_part"`
-	Target       string             `json:"target"`
-	Kind         string             `json:"kind"`
-	Active       bool               `json:"active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	SenderLogins []string           `json:"sender_logins"`
-	DomainFqdn   string             `json:"domain_fqdn"`
+	ID           int64    `json:"id"`
+	TenantID     int64    `json:"tenant_id"`
+	DomainID     int64    `json:"domain_id"`
+	LocalPart    string   `json:"local_part"`
+	Target       string   `json:"target"`
+	Kind         string   `json:"kind"`
+	Active       bool     `json:"active"`
+	CreatedAt    int64    `json:"created_at"`
+	SenderLogins []string `json:"sender_logins"`
+	DomainFqdn   string   `json:"domain_fqdn"`
 }
 
 // scope: tenant
@@ -131,16 +129,16 @@ type GetAliasByIDParams struct {
 }
 
 type GetAliasByIDRow struct {
-	ID           int64              `json:"id"`
-	TenantID     int64              `json:"tenant_id"`
-	DomainID     int64              `json:"domain_id"`
-	LocalPart    string             `json:"local_part"`
-	Target       string             `json:"target"`
-	Kind         string             `json:"kind"`
-	Active       bool               `json:"active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	SenderLogins []string           `json:"sender_logins"`
-	DomainFqdn   string             `json:"domain_fqdn"`
+	ID           int64    `json:"id"`
+	TenantID     int64    `json:"tenant_id"`
+	DomainID     int64    `json:"domain_id"`
+	LocalPart    string   `json:"local_part"`
+	Target       string   `json:"target"`
+	Kind         string   `json:"kind"`
+	Active       bool     `json:"active"`
+	CreatedAt    int64    `json:"created_at"`
+	SenderLogins []string `json:"sender_logins"`
+	DomainFqdn   string   `json:"domain_fqdn"`
 }
 
 // scope: tenant
@@ -172,16 +170,16 @@ ORDER BY d.fqdn ASC, a.local_part ASC
 `
 
 type ListAliasesByTenantRow struct {
-	ID           int64              `json:"id"`
-	TenantID     int64              `json:"tenant_id"`
-	DomainID     int64              `json:"domain_id"`
-	LocalPart    string             `json:"local_part"`
-	Target       string             `json:"target"`
-	Kind         string             `json:"kind"`
-	Active       bool               `json:"active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	SenderLogins []string           `json:"sender_logins"`
-	DomainFqdn   string             `json:"domain_fqdn"`
+	ID           int64    `json:"id"`
+	TenantID     int64    `json:"tenant_id"`
+	DomainID     int64    `json:"domain_id"`
+	LocalPart    string   `json:"local_part"`
+	Target       string   `json:"target"`
+	Kind         string   `json:"kind"`
+	Active       bool     `json:"active"`
+	CreatedAt    int64    `json:"created_at"`
+	SenderLogins []string `json:"sender_logins"`
+	DomainFqdn   string   `json:"domain_fqdn"`
 }
 
 // scope: tenant

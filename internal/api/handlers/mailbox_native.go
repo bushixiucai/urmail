@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strings"
 	"time"
@@ -22,11 +23,8 @@ import (
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
-func timestamptzTime(v pgtype.Timestamptz) time.Time {
-	if !v.Valid {
-		return time.Time{}
-	}
-	return v.Time
+func timestamptzTime(v int64) time.Time {
+	return timeutil.FromMicro(v)
 }
 
 // MailboxNativeHandler serves the native webmail API (IMAP proxy).

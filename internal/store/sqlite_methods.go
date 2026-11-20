@@ -996,12 +996,14 @@ func (q *Queries) runTx(ctx context.Context, fn func(*Queries) error) error {
 	return tx.Commit(ctx)
 }
 
-// timestamptzMicros converts a pgtype.Timestamptz to SQLite unix micros.
-func timestamptzMicros(ts pgtype.Timestamptz) (int64, bool) {
-	if !ts.Valid {
+// timestamptzMicros reports whether a B5b microsecond timestamp is set. The
+// engine stores timestamps as INTEGER unix micros, so "zero" is the NULL/zero
+// value and needs no wrapper struct.
+func timestamptzMicros(ts int64) (int64, bool) {
+	if ts == 0 {
 		return 0, false
 	}
-	return ts.Time.UnixMicro(), true
+	return ts, true
 }
 
 var archiveCaseRequestKeyPattern = regexp.MustCompile(`^[0-9a-f-]{36}$`)
@@ -3491,8 +3493,8 @@ type MarketingCampaignReportSnapshotParams struct {
 	TenantID    int64
 	ResourceID  int64
 	ActorUserID int64
-	FromTime    pgtype.Timestamptz
-	UntilTime   pgtype.Timestamptz
+	FromTime    int64
+	UntilTime   int64
 }
 
 // MarketingFlowReportSnapshotParams is the parameter set for
@@ -3501,18 +3503,17 @@ type MarketingFlowReportSnapshotParams struct {
 	TenantID    int64
 	ResourceID  int64
 	ActorUserID int64
-	FromTime    pgtype.Timestamptz
-	UntilTime   pgtype.Timestamptz
+	FromTime    int64
+	UntilTime   int64
 }
 
-// reportWindowMicro converts the pgtype window into the microsecond bounds the
-// schema stores. A NULL bound would compare as NULL in PG and yield no rows, so
-// it is reported as ErrNoRows rather than silently scanning everything.
-func reportWindowMicro(from, until pgtype.Timestamptz) (int64, int64, error) {
-	if !from.Valid || !until.Valid {
+// reportWindowMicro validates the microsecond report window. A missing bound
+// must not silently widen the scan to everything.
+func reportWindowMicro(from, until int64) (int64, int64, error) {
+	if from == 0 || until == 0 {
 		return 0, 0, pgx.ErrNoRows
 	}
-	return from.Time.UnixMicro(), until.Time.UnixMicro(), nil
+	return from, until, nil
 }
 
 // microValue normalizes a timestamp-ish scanned value. The same handwritten

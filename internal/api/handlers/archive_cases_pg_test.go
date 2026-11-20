@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -72,7 +73,7 @@ func newCaseFixture(t *testing.T, bodyBytes int) *caseFixture {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = store.New(tx).CreateComplianceGrant(t.Context(), store.CreateComplianceGrantParams{TenantID: f.tenant, UserID: u, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}, Reason: "Independent bounded investigation", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
+			_, err = store.New(tx).CreateComplianceGrant(t.Context(), store.CreateComplianceGrantParams{TenantID: f.tenant, UserID: u, Scope: scope, ExpiresAt: timeutil.Micro(time.Now().Add(24 * time.Hour)), Reason: "Independent bounded investigation", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
 			if err == nil {
 				err = tx.Commit(t.Context())
 			}

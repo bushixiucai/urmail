@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -142,8 +143,8 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 				states = append(states, MailAccess{Address: row.Address, Allowed: row.Allowed, TenantID: row.TenantID, MailboxID: row.MailboxID, PasswordVersion: row.PasswordVersion, PasswordRevokePending: row.PasswordRevokePending})
 			}
 			var next time.Time
-			if boundary.Valid {
-				next = boundary.Time
+			if boundary != 0 {
+				next = timeutil.FromMicro(boundary)
 			}
 			return states, next, nil
 		}, m.run, logger, func(ackCtx context.Context, row MailAccess) error {

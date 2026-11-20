@@ -172,20 +172,20 @@ type PlatformClaimMarketingFlowPositionsParams struct {
 }
 
 type PlatformClaimMarketingFlowPositionsRow struct {
-	TenantID          int64              `json:"tenant_id"`
-	FlowID            int64              `json:"flow_id"`
-	Email             string             `json:"email"`
-	StepKey           string             `json:"step_key"`
-	LeaseFence        int64              `json:"lease_fence"`
-	LeaseUntil        pgtype.Timestamptz `json:"lease_until"`
-	EventFacts        []byte             `json:"event_facts"`
-	StepKind          string             `json:"step_kind"`
-	StepNext          string             `json:"step_next"`
-	StepWaitSeconds   int32              `json:"step_wait_seconds"`
-	StepOtherwise     string             `json:"step_otherwise"`
-	ConditionField    string             `json:"condition_field"`
-	ConditionOperator string             `json:"condition_operator"`
-	ConditionValue    string             `json:"condition_value"`
+	TenantID          int64  `json:"tenant_id"`
+	FlowID            int64  `json:"flow_id"`
+	Email             string `json:"email"`
+	StepKey           string `json:"step_key"`
+	LeaseFence        int64  `json:"lease_fence"`
+	LeaseUntil        int64  `json:"lease_until"`
+	EventFacts        []byte `json:"event_facts"`
+	StepKind          string `json:"step_kind"`
+	StepNext          string `json:"step_next"`
+	StepWaitSeconds   int32  `json:"step_wait_seconds"`
+	StepOtherwise     string `json:"step_otherwise"`
+	ConditionField    string `json:"condition_field"`
+	ConditionOperator string `json:"condition_operator"`
+	ConditionValue    string `json:"condition_value"`
 }
 
 // Claim a bounded batch of due positions with SKIP LOCKED. A position is due

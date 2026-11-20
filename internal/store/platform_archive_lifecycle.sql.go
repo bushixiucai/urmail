@@ -67,10 +67,10 @@ type PlatformArchiveCopyLifecycleParams struct {
 }
 
 type PlatformArchiveCopyLifecycleRow struct {
-	LegalHold      bool               `json:"legal_hold"`
-	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
-	PurgeStartedAt pgtype.Timestamptz `json:"purge_started_at"`
-	PurgedAt       pgtype.Timestamptz `json:"purged_at"`
+	LegalHold      bool  `json:"legal_hold"`
+	DeletedAt      int64 `json:"deleted_at"`
+	PurgeStartedAt int64 `json:"purge_started_at"`
+	PurgedAt       int64 `json:"purged_at"`
 }
 
 func (q *Queries) PlatformArchiveCopyLifecycle(ctx context.Context, arg PlatformArchiveCopyLifecycleParams) (PlatformArchiveCopyLifecycleRow, error) {
@@ -183,16 +183,16 @@ RETURNING id,path
 `
 
 type PlatformIndexArchiveCopyParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Path       string             `json:"path"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	RawSha256  string             `json:"raw_sha256"`
+	TenantID   int64       `json:"tenant_id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Path       string      `json:"path"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt int64       `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	RawSha256  string      `json:"raw_sha256"`
 }
 
 type PlatformIndexArchiveCopyRow struct {
@@ -227,12 +227,12 @@ ORDER BY a.id LIMIT 100
 `
 
 type PlatformListArchivePurgeCandidatesRow struct {
-	ID             int64              `json:"id"`
-	TenantID       int64              `json:"tenant_id"`
-	Path           string             `json:"path"`
-	RawSha256      string             `json:"raw_sha256"`
-	PurgeStartedAt pgtype.Timestamptz `json:"purge_started_at"`
-	PurgedAt       pgtype.Timestamptz `json:"purged_at"`
+	ID             int64  `json:"id"`
+	TenantID       int64  `json:"tenant_id"`
+	Path           string `json:"path"`
+	RawSha256      string `json:"raw_sha256"`
+	PurgeStartedAt int64  `json:"purge_started_at"`
+	PurgedAt       int64  `json:"purged_at"`
 }
 
 func (q *Queries) PlatformListArchivePurgeCandidates(ctx context.Context) ([]PlatformListArchivePurgeCandidatesRow, error) {
@@ -317,11 +317,11 @@ type PlatformLockArchivePurgeCandidateParams struct {
 }
 
 type PlatformLockArchivePurgeCandidateRow struct {
-	ID               int64              `json:"id"`
-	Path             string             `json:"path"`
-	RawSha256        string             `json:"raw_sha256"`
-	PurgeStartedAt   pgtype.Timestamptz `json:"purge_started_at"`
-	RetentionPreview pgtype.UUID        `json:"retention_preview"`
+	ID               int64       `json:"id"`
+	Path             string      `json:"path"`
+	RawSha256        string      `json:"raw_sha256"`
+	PurgeStartedAt   int64       `json:"purge_started_at"`
+	RetentionPreview pgtype.UUID `json:"retention_preview"`
 }
 
 func (q *Queries) PlatformLockArchivePurgeCandidate(ctx context.Context, arg PlatformLockArchivePurgeCandidateParams) (PlatformLockArchivePurgeCandidateRow, error) {

@@ -447,13 +447,13 @@ SELECT id,name,draft_revision,status,published_version,created_at,updated_at FRO
 `
 
 type ListMarketingFlowDefinitionsRow struct {
-	ID               int64              `json:"id"`
-	Name             string             `json:"name"`
-	DraftRevision    int64              `json:"draft_revision"`
-	Status           string             `json:"status"`
-	PublishedVersion int32              `json:"published_version"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	DraftRevision    int64  `json:"draft_revision"`
+	Status           string `json:"status"`
+	PublishedVersion int32  `json:"published_version"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
 }
 
 // scope: tenant
@@ -540,21 +540,21 @@ type ListMarketingFlowInstancesParams struct {
 }
 
 type ListMarketingFlowInstancesRow struct {
-	ID                int64              `json:"id"`
-	Email             string             `json:"email"`
-	StepKey           string             `json:"step_key"`
-	Unsubscribed      bool               `json:"unsubscribed"`
-	WaitUntil         pgtype.Timestamptz `json:"wait_until"`
-	DeliveryUncertain bool               `json:"delivery_uncertain"`
-	LeaseUntil        pgtype.Timestamptz `json:"lease_until"`
-	LastError         string             `json:"last_error"`
-	NextAttemptAt     pgtype.Timestamptz `json:"next_attempt_at"`
-	AttemptCount      int32              `json:"attempt_count"`
-	StoppedAt         pgtype.Timestamptz `json:"stopped_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	Version           int32              `json:"version"`
-	FlowStatus        string             `json:"flow_status"`
-	Kind              string             `json:"kind"`
+	ID                int64  `json:"id"`
+	Email             string `json:"email"`
+	StepKey           string `json:"step_key"`
+	Unsubscribed      bool   `json:"unsubscribed"`
+	WaitUntil         int64  `json:"wait_until"`
+	DeliveryUncertain bool   `json:"delivery_uncertain"`
+	LeaseUntil        int64  `json:"lease_until"`
+	LastError         string `json:"last_error"`
+	NextAttemptAt     int64  `json:"next_attempt_at"`
+	AttemptCount      int32  `json:"attempt_count"`
+	StoppedAt         int64  `json:"stopped_at"`
+	UpdatedAt         int64  `json:"updated_at"`
+	Version           int32  `json:"version"`
+	FlowStatus        string `json:"flow_status"`
+	Kind              string `json:"kind"`
 }
 
 // scope: tenant
@@ -614,11 +614,11 @@ type ListMarketingFlowNodeExecutionsParams struct {
 }
 
 type ListMarketingFlowNodeExecutionsRow struct {
-	NodeKey    string             `json:"node_key"`
-	LeaseFence int64              `json:"lease_fence"`
-	Status     string             `json:"status"`
-	ErrorCode  string             `json:"error_code"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	NodeKey    string `json:"node_key"`
+	LeaseFence int64  `json:"lease_fence"`
+	Status     string `json:"status"`
+	ErrorCode  string `json:"error_code"`
+	CreatedAt  int64  `json:"created_at"`
 }
 
 // scope: tenant
@@ -698,12 +698,12 @@ type ListMarketingFlowVersionsParams struct {
 }
 
 type ListMarketingFlowVersionsRow struct {
-	ID            int64              `json:"id"`
-	Version       int32              `json:"version"`
-	DraftRevision int64              `json:"draft_revision"`
-	RuntimeFlowID int64              `json:"runtime_flow_id"`
-	PublishedBy   int64              `json:"published_by"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID            int64 `json:"id"`
+	Version       int32 `json:"version"`
+	DraftRevision int64 `json:"draft_revision"`
+	RuntimeFlowID int64 `json:"runtime_flow_id"`
+	PublishedBy   int64 `json:"published_by"`
+	CreatedAt     int64 `json:"created_at"`
 }
 
 // scope: tenant

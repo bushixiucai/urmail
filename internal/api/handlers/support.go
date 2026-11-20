@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"mime"
 	"net/http"
@@ -462,14 +463,14 @@ func (h *SupportHandler) SaveAnnouncement(c *gin.Context) {
 			return
 		}
 	}
-	published, ends := pgtype.Timestamptz{}, pgtype.Timestamptz{}
+	var published, ends int64
 	if in.PublishedAt != nil {
-		published = pgtype.Timestamptz{Time: *in.PublishedAt, Valid: true}
+		published = timeutil.Micro(*in.PublishedAt)
 	}
 	if in.EndsAt != nil {
-		ends = pgtype.Timestamptz{Time: *in.EndsAt, Valid: true}
+		ends = timeutil.Micro(*in.EndsAt)
 	}
-	if in.State == "published" && !published.Valid || ends.Valid && (!published.Valid || !ends.Time.After(published.Time)) {
+	if in.State == "published" && published == 0 || ends != 0 && (published == 0 || !timeutil.FromMicro(ends).After(timeutil.FromMicro(published))) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}

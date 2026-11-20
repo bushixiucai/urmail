@@ -33,21 +33,21 @@ SELECT id,mailbox_id,request_key,period_start,period_end,mode,provider,model,cos
 `
 
 type PlatformAIUsageRow struct {
-	ID                 int64              `json:"id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	RequestKey         string             `json:"request_key"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	Mode               string             `json:"mode"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	Status             string             `json:"status"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	ActualTokens       pgtype.Int8        `json:"actual_tokens"`
-	ActualCostMicros   pgtype.Int8        `json:"actual_cost_micros"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	ID                 int64       `json:"id"`
+	MailboxID          int64       `json:"mailbox_id"`
+	RequestKey         string      `json:"request_key"`
+	PeriodStart        int64       `json:"period_start"`
+	PeriodEnd          int64       `json:"period_end"`
+	Mode               string      `json:"mode"`
+	Provider           string      `json:"provider"`
+	Model              string      `json:"model"`
+	CostCurrency       string      `json:"cost_currency"`
+	Status             string      `json:"status"`
+	ReservedTokens     int64       `json:"reserved_tokens"`
+	ReservedCostMicros int64       `json:"reserved_cost_micros"`
+	ActualTokens       pgtype.Int8 `json:"actual_tokens"`
+	ActualCostMicros   pgtype.Int8 `json:"actual_cost_micros"`
+	CreatedAt          int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformAIUsage(ctx context.Context, tenantID int64) ([]PlatformAIUsageRow, error) {
@@ -336,20 +336,20 @@ FROM ai_usage_requests WHERE tenant_id=$1 AND status IN('reserved','uncertain') 
 `
 
 type PlatformPendingAIUsageRow struct {
-	ID                 int64              `json:"id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	Mode               string             `json:"mode"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	Status             string             `json:"status"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	ActualTokens       pgtype.Int8        `json:"actual_tokens"`
-	ActualCostMicros   pgtype.Int8        `json:"actual_cost_micros"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                 int64       `json:"id"`
+	MailboxID          int64       `json:"mailbox_id"`
+	Mode               string      `json:"mode"`
+	Provider           string      `json:"provider"`
+	Model              string      `json:"model"`
+	CostCurrency       string      `json:"cost_currency"`
+	Status             string      `json:"status"`
+	ReservedTokens     int64       `json:"reserved_tokens"`
+	ReservedCostMicros int64       `json:"reserved_cost_micros"`
+	ActualTokens       pgtype.Int8 `json:"actual_tokens"`
+	ActualCostMicros   pgtype.Int8 `json:"actual_cost_micros"`
+	PeriodStart        int64       `json:"period_start"`
+	PeriodEnd          int64       `json:"period_end"`
+	UpdatedAt          int64       `json:"updated_at"`
 }
 
 func (q *Queries) PlatformPendingAIUsage(ctx context.Context, tenantID int64) ([]PlatformPendingAIUsageRow, error) {
@@ -401,27 +401,27 @@ RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, pe
 `
 
 type PlatformReserveAIRequestParams struct {
-	TenantID           int64              `json:"tenant_id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	RequestKey         string             `json:"request_key"`
-	InputDigest        string             `json:"input_digest"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	Mode               string             `json:"mode"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	InputRate          int64              `json:"input_rate"`
-	OutputRate         int64              `json:"output_rate"`
-	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
-	IndependentWindow  bool               `json:"independent_window"`
-	CallLimit          int64              `json:"call_limit"`
-	MailboxCallLimit   int64              `json:"mailbox_call_limit"`
-	ConcurrencyLimit   int64              `json:"concurrency_limit"`
-	TokenLimit         int64              `json:"token_limit"`
-	CostLimit          int64              `json:"cost_limit"`
+	TenantID           int64  `json:"tenant_id"`
+	MailboxID          int64  `json:"mailbox_id"`
+	RequestKey         string `json:"request_key"`
+	InputDigest        string `json:"input_digest"`
+	PeriodStart        int64  `json:"period_start"`
+	PeriodEnd          int64  `json:"period_end"`
+	Mode               string `json:"mode"`
+	ReservedTokens     int64  `json:"reserved_tokens"`
+	ReservedCostMicros int64  `json:"reserved_cost_micros"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	CostCurrency       string `json:"cost_currency"`
+	InputRate          int64  `json:"input_rate"`
+	OutputRate         int64  `json:"output_rate"`
+	AccountedAt        int64  `json:"accounted_at"`
+	IndependentWindow  bool   `json:"independent_window"`
+	CallLimit          int64  `json:"call_limit"`
+	MailboxCallLimit   int64  `json:"mailbox_call_limit"`
+	ConcurrencyLimit   int64  `json:"concurrency_limit"`
+	TokenLimit         int64  `json:"token_limit"`
+	CostLimit          int64  `json:"cost_limit"`
 }
 
 func (q *Queries) PlatformReserveAIRequest(ctx context.Context, arg PlatformReserveAIRequestParams) (AiUsageRequests, error) {
@@ -485,21 +485,21 @@ RETURNING id, tenant_id, mailbox_id, request_key, input_digest, period_start, pe
 `
 
 type PlatformReserveMailboxAIRequestParams struct {
-	TenantID           int64              `json:"tenant_id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	RequestKey         string             `json:"request_key"`
-	InputDigest        string             `json:"input_digest"`
-	PeriodStart        pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd          pgtype.Timestamptz `json:"period_end"`
-	Mode               string             `json:"mode"`
-	Provider           string             `json:"provider"`
-	Model              string             `json:"model"`
-	CostCurrency       string             `json:"cost_currency"`
-	InputRate          int64              `json:"input_rate"`
-	OutputRate         int64              `json:"output_rate"`
-	ReservedTokens     int64              `json:"reserved_tokens"`
-	ReservedCostMicros int64              `json:"reserved_cost_micros"`
-	AccountedAt        pgtype.Timestamptz `json:"accounted_at"`
+	TenantID           int64  `json:"tenant_id"`
+	MailboxID          int64  `json:"mailbox_id"`
+	RequestKey         string `json:"request_key"`
+	InputDigest        string `json:"input_digest"`
+	PeriodStart        int64  `json:"period_start"`
+	PeriodEnd          int64  `json:"period_end"`
+	Mode               string `json:"mode"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	CostCurrency       string `json:"cost_currency"`
+	InputRate          int64  `json:"input_rate"`
+	OutputRate         int64  `json:"output_rate"`
+	ReservedTokens     int64  `json:"reserved_tokens"`
+	ReservedCostMicros int64  `json:"reserved_cost_micros"`
+	AccountedAt        int64  `json:"accounted_at"`
 }
 
 func (q *Queries) PlatformReserveMailboxAIRequest(ctx context.Context, arg PlatformReserveMailboxAIRequestParams) (AiUsageRequests, error) {
@@ -670,9 +670,9 @@ FROM ai_usage_requests WHERE tenant_id=$1 AND status<>'released' AND created_at>
 `
 
 type PlatformSumAIUsageBetweenParams struct {
-	TenantID    int64              `json:"tenant_id"`
-	WindowStart pgtype.Timestamptz `json:"window_start"`
-	WindowEnd   pgtype.Timestamptz `json:"window_end"`
+	TenantID    int64 `json:"tenant_id"`
+	WindowStart int64 `json:"window_start"`
+	WindowEnd   int64 `json:"window_end"`
 }
 
 type PlatformSumAIUsageBetweenRow struct {

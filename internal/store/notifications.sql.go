@@ -49,14 +49,14 @@ type ListTenantNotificationsParams struct {
 }
 
 type ListTenantNotificationsRow struct {
-	ID         int64              `json:"id"`
-	Kind       string             `json:"kind"`
-	MessageKey string             `json:"message_key"`
-	Params     []byte             `json:"params"`
-	Channel    string             `json:"channel"`
-	State      string             `json:"state"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	ReadAt     pgtype.Timestamptz `json:"read_at"`
+	ID         int64  `json:"id"`
+	Kind       string `json:"kind"`
+	MessageKey string `json:"message_key"`
+	Params     []byte `json:"params"`
+	Channel    string `json:"channel"`
+	State      string `json:"state"`
+	CreatedAt  int64  `json:"created_at"`
+	ReadAt     int64  `json:"read_at"`
 }
 
 // scope: tenant

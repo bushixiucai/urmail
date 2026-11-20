@@ -113,16 +113,16 @@ INSERT INTO archive_entries (
 `
 
 type InsertArchiveEntryParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Path       string             `json:"path"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	LegalHold  bool               `json:"legal_hold"`
+	TenantID   int64       `json:"tenant_id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Path       string      `json:"path"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt int64       `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	LegalHold  bool        `json:"legal_hold"`
 }
 
 // Archive / legal hold (tenant-scoped). M3 review P2-3: the tables existed

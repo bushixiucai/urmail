@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"mime"
 	"net"
@@ -22,7 +23,7 @@ import (
 
 // Publication converts persisted public values without carrying tenant secrets.
 func Publication(row store.DomainTransportSecurity) maildnsreport.Publication {
-	return maildnsreport.Publication{Policy: maildnsreport.MTASTSPolicy{ID: row.MtastsPolicyID, Mode: maildnsreport.MTASTSMode(row.MtastsMode), MX: row.PolicyMx, MaxAgeSeconds: int(row.MaxAge)}, RUA: row.TlsRptRua, Enabled: row.Enabled, CacheSafeAfter: row.CacheSafeAfter.Time}
+	return maildnsreport.Publication{Policy: maildnsreport.MTASTSPolicy{ID: row.MtastsPolicyID, Mode: maildnsreport.MTASTSMode(row.MtastsMode), MX: row.PolicyMx, MaxAgeSeconds: int(row.MaxAge)}, RUA: row.TlsRptRua, Enabled: row.Enabled, CacheSafeAfter: timeutil.FromMicro(row.CacheSafeAfter)}
 }
 
 // Observer returns fixed status codes only, never arbitrary upstream bodies.

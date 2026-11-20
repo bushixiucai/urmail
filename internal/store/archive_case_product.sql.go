@@ -88,19 +88,19 @@ type ArchiveCasesApprovalParams struct {
 }
 
 type ArchiveCasesApprovalRow struct {
-	ID              int64              `json:"id"`
-	TenantID        int64              `json:"tenant_id"`
-	InvestigationID int64              `json:"investigation_id"`
-	RequesterUserID int64              `json:"requester_user_id"`
-	Action          string             `json:"action"`
-	SourceDigest    string             `json:"source_digest"`
-	State           string             `json:"state"`
-	ApproverUserID  pgtype.Int8        `json:"approver_user_id"`
-	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	CaseVersion     int64              `json:"case_version"`
-	SourceSnapshot  []byte             `json:"source_snapshot"`
-	DecisionReason  string             `json:"decision_reason"`
+	ID              int64       `json:"id"`
+	TenantID        int64       `json:"tenant_id"`
+	InvestigationID int64       `json:"investigation_id"`
+	RequesterUserID int64       `json:"requester_user_id"`
+	Action          string      `json:"action"`
+	SourceDigest    string      `json:"source_digest"`
+	State           string      `json:"state"`
+	ApproverUserID  pgtype.Int8 `json:"approver_user_id"`
+	DecidedAt       int64       `json:"decided_at"`
+	ExpiresAt       int64       `json:"expires_at"`
+	CaseVersion     int64       `json:"case_version"`
+	SourceSnapshot  []byte      `json:"source_snapshot"`
+	DecisionReason  string      `json:"decision_reason"`
 }
 
 // scope: tenant
@@ -137,19 +137,19 @@ type ArchiveCasesApprovalsParams struct {
 }
 
 type ArchiveCasesApprovalsRow struct {
-	ID              int64              `json:"id"`
-	TenantID        int64              `json:"tenant_id"`
-	InvestigationID int64              `json:"investigation_id"`
-	RequesterUserID int64              `json:"requester_user_id"`
-	Action          string             `json:"action"`
-	SourceDigest    string             `json:"source_digest"`
-	State           string             `json:"state"`
-	ApproverUserID  pgtype.Int8        `json:"approver_user_id"`
-	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	CaseVersion     int64              `json:"case_version"`
-	SourceSnapshot  []byte             `json:"source_snapshot"`
-	DecisionReason  string             `json:"decision_reason"`
+	ID              int64       `json:"id"`
+	TenantID        int64       `json:"tenant_id"`
+	InvestigationID int64       `json:"investigation_id"`
+	RequesterUserID int64       `json:"requester_user_id"`
+	Action          string      `json:"action"`
+	SourceDigest    string      `json:"source_digest"`
+	State           string      `json:"state"`
+	ApproverUserID  pgtype.Int8 `json:"approver_user_id"`
+	DecidedAt       int64       `json:"decided_at"`
+	ExpiresAt       int64       `json:"expires_at"`
+	CaseVersion     int64       `json:"case_version"`
+	SourceSnapshot  []byte      `json:"source_snapshot"`
+	DecisionReason  string      `json:"decision_reason"`
 }
 
 // scope: tenant
@@ -506,9 +506,9 @@ type ArchiveCasesMembersParams struct {
 }
 
 type ArchiveCasesMembersRow struct {
-	UserID    int64              `json:"user_id"`
-	Email     string             `json:"email"`
-	RemovedAt pgtype.Timestamptz `json:"removed_at"`
+	UserID    int64  `json:"user_id"`
+	Email     string `json:"email"`
+	RemovedAt int64  `json:"removed_at"`
 }
 
 // scope: tenant
@@ -637,14 +637,14 @@ type ArchiveCasesSourcesParams struct {
 }
 
 type ArchiveCasesSourcesRow struct {
-	ID        int64              `json:"id"`
-	MailboxID pgtype.Int8        `json:"mailbox_id"`
-	Path      string             `json:"path"`
-	Subject   pgtype.Text        `json:"subject"`
-	SizeBytes int64              `json:"size_bytes"`
-	RawSha256 string             `json:"raw_sha256"`
-	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
-	LegalHold bool               `json:"legal_hold"`
+	ID        int64       `json:"id"`
+	MailboxID pgtype.Int8 `json:"mailbox_id"`
+	Path      string      `json:"path"`
+	Subject   pgtype.Text `json:"subject"`
+	SizeBytes int64       `json:"size_bytes"`
+	RawSha256 string      `json:"raw_sha256"`
+	DeletedAt int64       `json:"deleted_at"`
+	LegalHold bool        `json:"legal_hold"`
 }
 
 // scope: tenant

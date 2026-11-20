@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformConfirmDomainRecovery = `-- name: PlatformConfirmDomainRecovery :execrows
@@ -48,12 +46,12 @@ type PlatformGetDomainForRecoveryParams struct {
 }
 
 type PlatformGetDomainForRecoveryRow struct {
-	ID                int64              `json:"id"`
-	TenantID          int64              `json:"tenant_id"`
-	Fqdn              string             `json:"fqdn"`
-	Status            string             `json:"status"`
-	VerificationToken string             `json:"verification_token"`
-	VerifiedAt        pgtype.Timestamptz `json:"verified_at"`
+	ID                int64  `json:"id"`
+	TenantID          int64  `json:"tenant_id"`
+	Fqdn              string `json:"fqdn"`
+	Status            string `json:"status"`
+	VerificationToken string `json:"verification_token"`
+	VerifiedAt        int64  `json:"verified_at"`
 }
 
 // These queries intentionally use only columns already present in schema 25.

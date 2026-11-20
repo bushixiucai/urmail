@@ -2,10 +2,9 @@ package reconcile_test
 
 import (
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/mail"
@@ -129,7 +128,7 @@ func TestAssembleSkipsDelegatedZones(t *testing.T) {
 
 	q := &mockQuerier{
 		domains: []store.PlatformListDomainsRow{
-			{Fqdn: "managed.example.com", Status: "active", Mode: "managed", UpdatedAt: pgtype.Timestamptz{Time: time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC), Valid: true}},
+			{Fqdn: "managed.example.com", Status: "active", Mode: "managed", UpdatedAt: timeutil.Micro(time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC))},
 			{Fqdn: "delegated.example.com", Status: "active", Mode: "delegated"},
 		},
 	}

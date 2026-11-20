@@ -9,6 +9,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,7 +25,7 @@ import (
 // AuditStore reads append-only audit records in the tenant transaction.
 type AuditStore interface {
 	ListAuditLogsByTenant(ctx context.Context, arg store.ListAuditLogsByTenantParams) ([]store.AuditLogs, error)
-	GetAuditCursorAnchor(context.Context, store.GetAuditCursorAnchorParams) (pgtype.Timestamptz, error)
+	GetAuditCursorAnchor(context.Context, store.GetAuditCursorAnchorParams) (int64, error)
 	ExportAuditLogsByTenant(context.Context, store.ExportAuditLogsByTenantParams) ([]store.AuditLogs, error)
 	RecordTenantAudit(context.Context, store.RecordTenantAuditParams) error
 }
@@ -123,7 +124,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 			return
 		}
 		anchor, anchorErr := q.GetAuditCursorAnchor(c, store.GetAuditCursorAnchorParams{TenantID: params.TenantID, ID: cursor.ID})
-		if anchorErr != nil || !anchor.Valid || !anchor.Time.Equal(cursor.Time) {
+		if anchorErr != nil || anchor == 0 || anchor != cursor.Time.UnixMicro() {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
@@ -138,8 +139,8 @@ func (h *AuditHandler) List(c *gin.Context) {
 	next := ""
 	if len(logs) == int(params.Limit) {
 		last := logs[len(logs)-1]
-		if last.CreatedAt.Valid {
-			payload, _ := json.Marshal(auditCursor{ID: last.ID, Time: last.CreatedAt.Time.UTC(), Scope: scope})
+		if last.CreatedAt != 0 {
+			payload, _ := json.Marshal(auditCursor{ID: last.ID, Time: timeutil.FromMicro(last.CreatedAt).UTC(), Scope: scope})
 			next = base64.RawURLEncoding.EncodeToString(payload)
 		}
 	}
@@ -193,7 +194,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 			Outcome string `json:"outcome"`
 		}
 		_ = json.Unmarshal(row.Detail, &detail)
-		_ = csvWriter.Write([]string{strconv.FormatInt(row.ID, 10), row.CreatedAt.Time.UTC().Format(time.RFC3339Nano), strconv.FormatInt(row.ActorUserID.Int64, 10), auditCSVCell(row.Action), auditCSVCell(row.TargetType.String), auditCSVCell(row.TargetID.String), strconv.Itoa(detail.Status), auditCSVCell(detail.Outcome)})
+		_ = csvWriter.Write([]string{strconv.FormatInt(row.ID, 10), timeutil.FromMicro(row.CreatedAt).UTC().Format(time.RFC3339Nano), strconv.FormatInt(row.ActorUserID.Int64, 10), auditCSVCell(row.Action), auditCSVCell(row.TargetType.String), auditCSVCell(row.TargetID.String), strconv.Itoa(detail.Status), auditCSVCell(detail.Outcome)})
 	}
 	csvWriter.Flush()
 	if csvWriter.Error() != nil || body.Len() > 7<<20 {

@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strconv"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func TestArchiveGrantSelfAuthorizationRejectedByDatabase(t *testing.T) {
 	if _, err := platform.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'owner'),($3,$4,'owner'),($5,$6,'admin')", owner, tenant, grantor, tenant, admin, tenant); err != nil {
 		t.Fatal(err)
 	}
-	expires := pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+	expires := timeutil.Micro(time.Now().Add(time.Hour))
 
 	// The tenant owner cannot grant themself content retrieval or export
 	// authority through the application path.
@@ -74,7 +75,7 @@ func TestArchiveGrantSelfAuthorizationRejectedByDatabase(t *testing.T) {
 	}
 	_, err = ptx.Exec(ctx,
 		"INSERT INTO compliance_grants(tenant_id,user_id,scope,expires_at,reason,granted_by,owner_confirmed_at)"+
-			" VALUES($1,$1,'full_content',$2,'platform self grant',$1,now())", tenant, expires.Time)
+			" VALUES($1,$1,'full_content',$2,'platform self grant',$1,now())", tenant, timeutil.FromMicro(expires))
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Message != "COMPLIANCE_GRANT_SELF_AUTHORIZATION" {
 		t.Fatalf("platform self-grant insert: err=%v, want COMPLIANCE_GRANT_SELF_AUTHORIZATION", err)

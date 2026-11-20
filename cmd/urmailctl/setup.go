@@ -93,13 +93,13 @@ func runSetup(ctx context.Context, args []string) error {
 		return errors.New("tenant name cannot be empty")
 	}
 
-	freeEnd := pgtype.Timestamptz{}
+	var freeEnd time.Time
 	if *freeUntil != "" {
 		end, parseErr := time.Parse(time.RFC3339, *freeUntil)
 		if parseErr != nil || !end.After(time.Now()) || len(strings.TrimSpace(*freeReason)) < 10 || len(*freeReason) > 2000 {
 			return errors.New("--free-until requires a future RFC3339 date and an evidence reason of 10 to 2000 characters")
 		}
-		freeEnd = pgtype.Timestamptz{Time: end.UTC(), Valid: true}
+		freeEnd = end.UTC()
 	} else if strings.TrimSpace(*freeReason) != "" {
 		return errors.New("--free-reason requires --free-until")
 	}
@@ -133,7 +133,7 @@ func runSetup(ctx context.Context, args []string) error {
 	if err = q.PlatformLockBillingTenant(ctx, tenantID); err != nil {
 		return err
 	}
-	if freeEnd.Valid {
+	if !freeEnd.IsZero() {
 		if _, err = tx.Exec(ctx, "UPDATE tenants SET status='active' WHERE id=$1", tenantID); err != nil {
 			return err
 		}
@@ -184,7 +184,7 @@ func runSetup(ctx context.Context, args []string) error {
 	if err = q.PlatformDemotePreviousOwners(ctx, store.PlatformDemotePreviousOwnersParams{TenantID: tenantID, UserID: userID}); err != nil {
 		return err
 	}
-	detail, _ := json.Marshal(map[string]any{"actor_type": "local_operator", "effective_uid": os.Geteuid(), "source": "bootstrap", "status": 200, "outcome": "succeeded", "created_tenant": tenant.Created, "finite_free_grant": freeEnd.Valid, "free_until": freeEnd, "grant_reason": strings.TrimSpace(*freeReason)})
+	detail, _ := json.Marshal(map[string]any{"actor_type": "local_operator", "effective_uid": os.Geteuid(), "source": "bootstrap", "status": 200, "outcome": "succeeded", "created_tenant": tenant.Created, "finite_free_grant": !freeEnd.IsZero(), "free_until": freeEnd, "grant_reason": strings.TrimSpace(*freeReason)})
 	if _, err = q.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, Action: "SETUP platform.bootstrap", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tenantID, 10), Valid: true}, Detail: detail}); err != nil {
 		return err
 	}

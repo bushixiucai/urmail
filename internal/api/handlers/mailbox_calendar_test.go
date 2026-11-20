@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
@@ -201,8 +201,8 @@ func TestExportCalendarICSMergesAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessions := &fakeMailboxSessions{}
-	starts := pgtype.Timestamptz{Time: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Valid: true}
-	ends := pgtype.Timestamptz{Time: time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC), Valid: true}
+	starts := timeutil.Micro(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
+	ends := timeutil.Micro(time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC))
 	seed := &fakeCalendarStore{listed: []store.MailboxEvents{
 		{ID: 1, TenantID: 7, MailboxID: 9, Uid: "uid-1", Version: 1, Summary: "One", StartsAt: starts, EndsAt: ends, Timezone: "UTC", Status: "confirmed"},
 		{ID: 2, TenantID: 7, MailboxID: 9, Uid: "uid-2", Version: 1, Summary: "Two", StartsAt: starts, EndsAt: ends, Timezone: "UTC", Status: "confirmed"},

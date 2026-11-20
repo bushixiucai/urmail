@@ -75,20 +75,20 @@ type PlatformClaimOnboardingTaskParams struct {
 }
 
 type PlatformClaimOnboardingTaskRow struct {
-	ID          int64              `json:"id"`
-	TenantID    int64              `json:"tenant_id"`
-	DomainID    pgtype.Int8        `json:"domain_id"`
-	OrderID     pgtype.Int8        `json:"order_id"`
-	Status      string             `json:"status"`
-	Step        string             `json:"step"`
-	Attempts    int32              `json:"attempts"`
-	MaxAttempts int32              `json:"max_attempts"`
-	LastError   pgtype.Text        `json:"last_error"`
-	LeasedUntil pgtype.Timestamptz `json:"leased_until"`
-	LeasedBy    pgtype.Text        `json:"leased_by"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	CompletedAt pgtype.Timestamptz `json:"completed_at"`
+	ID          int64       `json:"id"`
+	TenantID    int64       `json:"tenant_id"`
+	DomainID    pgtype.Int8 `json:"domain_id"`
+	OrderID     pgtype.Int8 `json:"order_id"`
+	Status      string      `json:"status"`
+	Step        string      `json:"step"`
+	Attempts    int32       `json:"attempts"`
+	MaxAttempts int32       `json:"max_attempts"`
+	LastError   pgtype.Text `json:"last_error"`
+	LeasedUntil int64       `json:"leased_until"`
+	LeasedBy    pgtype.Text `json:"leased_by"`
+	CreatedAt   int64       `json:"created_at"`
+	UpdatedAt   int64       `json:"updated_at"`
+	CompletedAt int64       `json:"completed_at"`
 }
 
 func (q *Queries) PlatformClaimOnboardingTask(ctx context.Context, arg PlatformClaimOnboardingTaskParams) ([]PlatformClaimOnboardingTaskRow, error) {
@@ -222,14 +222,14 @@ ORDER BY id ASC
 `
 
 type PlatformListBrandsRow struct {
-	ID           int64              `json:"id"`
-	Slug         string             `json:"slug"`
-	Name         string             `json:"name"`
-	LogoUrl      pgtype.Text        `json:"logo_url"`
-	FaviconUrl   pgtype.Text        `json:"favicon_url"`
-	PrimaryColor pgtype.Text        `json:"primary_color"`
-	Theme        []byte             `json:"theme"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64       `json:"id"`
+	Slug         string      `json:"slug"`
+	Name         string      `json:"name"`
+	LogoUrl      pgtype.Text `json:"logo_url"`
+	FaviconUrl   pgtype.Text `json:"favicon_url"`
+	PrimaryColor pgtype.Text `json:"primary_color"`
+	Theme        []byte      `json:"theme"`
+	CreatedAt    int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformListBrands(ctx context.Context) ([]PlatformListBrandsRow, error) {
@@ -313,15 +313,15 @@ ORDER BY t.id ASC
 `
 
 type PlatformListTenantsRow struct {
-	ID           int64              `json:"id"`
-	BrandID      int64              `json:"brand_id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Status       string             `json:"status"`
-	OwnerUserID  pgtype.Int8        `json:"owner_user_id"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	DomainCount  int64              `json:"domain_count"`
-	MailboxCount int64              `json:"mailbox_count"`
+	ID           int64       `json:"id"`
+	BrandID      int64       `json:"brand_id"`
+	Name         string      `json:"name"`
+	Slug         string      `json:"slug"`
+	Status       string      `json:"status"`
+	OwnerUserID  pgtype.Int8 `json:"owner_user_id"`
+	CreatedAt    int64       `json:"created_at"`
+	DomainCount  int64       `json:"domain_count"`
+	MailboxCount int64       `json:"mailbox_count"`
 }
 
 func (q *Queries) PlatformListTenants(ctx context.Context) ([]PlatformListTenantsRow, error) {
@@ -399,13 +399,13 @@ type PlatformUpdateTenantStatusParams struct {
 }
 
 type PlatformUpdateTenantStatusRow struct {
-	ID          int64              `json:"id"`
-	BrandID     int64              `json:"brand_id"`
-	Name        string             `json:"name"`
-	Slug        string             `json:"slug"`
-	Status      string             `json:"status"`
-	OwnerUserID pgtype.Int8        `json:"owner_user_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64       `json:"id"`
+	BrandID     int64       `json:"brand_id"`
+	Name        string      `json:"name"`
+	Slug        string      `json:"slug"`
+	Status      string      `json:"status"`
+	OwnerUserID pgtype.Int8 `json:"owner_user_id"`
+	CreatedAt   int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformUpdateTenantStatus(ctx context.Context, arg PlatformUpdateTenantStatusParams) (PlatformUpdateTenantStatusRow, error) {
@@ -446,14 +446,14 @@ type PlatformUpsertBrandParams struct {
 }
 
 type PlatformUpsertBrandRow struct {
-	ID           int64              `json:"id"`
-	Slug         string             `json:"slug"`
-	Name         string             `json:"name"`
-	LogoUrl      pgtype.Text        `json:"logo_url"`
-	FaviconUrl   pgtype.Text        `json:"favicon_url"`
-	PrimaryColor pgtype.Text        `json:"primary_color"`
-	Theme        []byte             `json:"theme"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64       `json:"id"`
+	Slug         string      `json:"slug"`
+	Name         string      `json:"name"`
+	LogoUrl      pgtype.Text `json:"logo_url"`
+	FaviconUrl   pgtype.Text `json:"favicon_url"`
+	PrimaryColor pgtype.Text `json:"primary_color"`
+	Theme        []byte      `json:"theme"`
+	CreatedAt    int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformUpsertBrand(ctx context.Context, arg PlatformUpsertBrandParams) (PlatformUpsertBrandRow, error) {

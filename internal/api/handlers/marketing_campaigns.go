@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/mail"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/marketing"
@@ -377,7 +377,7 @@ func (h *MarketingHandler) ConfirmCampaign(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	result, err := requestStore(c, h.Store).ScheduleMarketingCampaign(c, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: id, ScheduledAt: pgtype.Timestamptz{Time: input.ScheduledAt.UTC(), Valid: true}})
+	result, err := requestStore(c, h.Store).ScheduleMarketingCampaign(c, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: id, ScheduledAt: timeutil.Micro(input.ScheduledAt.UTC())})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return

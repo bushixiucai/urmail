@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ func TestRemediationBrowserWithRealRoles(t *testing.T) {
 	if verifyErr != nil {
 		t.Fatal(verifyErr)
 	}
-	if _, err = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedStaff.PasswordHash, ExpectedVersion: verifiedStaff.CredentialVersion, ID: middleware.HashSessionToken("http-token-a"), UserID: staff, TenantID: pgtype.Int8{Int64: staffTenant, Valid: true}, CsrfToken: "test-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+	if _, err = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedStaff.PasswordHash, ExpectedVersion: verifiedStaff.CredentialVersion, ID: middleware.HashSessionToken("http-token-a"), UserID: staff, TenantID: pgtype.Int8{Int64: staffTenant, Valid: true}, CsrfToken: "test-csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}); err != nil {
 		t.Fatal(err)
 	}
 	messages, err := i18n.NewStore()

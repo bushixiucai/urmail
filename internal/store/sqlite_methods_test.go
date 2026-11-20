@@ -152,13 +152,13 @@ func TestUUIDText(t *testing.T) {
 
 // TestTimestamptzMicros pins the timestamp conversion used by the schedule path.
 func TestTimestamptzMicros(t *testing.T) {
-	ts := pgtype.Timestamptz{Time: time.Date(2026, 11, 20, 12, 0, 0, 123456000, time.UTC), Valid: true}
+	ts := time.Date(2026, 11, 20, 12, 0, 0, 123456000, time.UTC).UnixMicro()
 	got, ok := timestamptzMicros(ts)
-	if !ok || got != ts.Time.UnixMicro() {
-		t.Errorf("timestamptzMicros = (%d,%v), want %d", got, ok, ts.Time.UnixMicro())
+	if !ok || got != ts {
+		t.Errorf("timestamptzMicros = (%d,%v), want %d", got, ok, ts)
 	}
-	if _, ok := timestamptzMicros(pgtype.Timestamptz{}); ok {
-		t.Error("NULL timestamptz must report invalid")
+	if _, ok := timestamptzMicros(0); ok {
+		t.Error("zero timestamp must report invalid")
 	}
 }
 

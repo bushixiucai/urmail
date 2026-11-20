@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,8 +83,8 @@ func formatCorporateContact(c store.TenantDirectoryContacts) corporateContactJSO
 		Phones:       json.RawMessage(phones),
 		Addresses:    json.RawMessage(addresses),
 		Note:         c.Note,
-		CreatedAt:    c.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:    c.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		CreatedAt:    timeutil.FromMicro(c.CreatedAt).UTC().Format(time.RFC3339Nano),
+		UpdatedAt:    timeutil.FromMicro(c.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -245,7 +246,7 @@ func (h *MailboxCorporateDirectoryHandler) GetSettings(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":    settings.Enabled,
-		"updated_at": settings.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"updated_at": timeutil.FromMicro(settings.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	})
 }
 
@@ -277,7 +278,7 @@ func (h *MailboxCorporateDirectoryHandler) UpdateSettings(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":    res.Enabled,
-		"updated_at": res.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"updated_at": timeutil.FromMicro(res.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	})
 }
 

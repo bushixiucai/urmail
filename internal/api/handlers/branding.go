@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainSettings "github.com/bushixiucai/urmail/internal/domain/settings"
@@ -207,14 +208,14 @@ func sanitizeBrandTheme(raw []byte) (map[string]string, bool) {
 // ManagedBrand adds administrative status to the public visual fields.
 type ManagedBrand struct {
 	PublicBrand
-	ID        int64              `json:"id"`
-	Status    string             `json:"status"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64     `json:"id"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func managedBrand(row store.PlatformManagedBrandsRow) ManagedBrand {
 	theme, _ := sanitizeBrandTheme(row.Theme)
-	return ManagedBrand{PublicBrand: PublicBrand{Slug: row.Slug, Name: row.Name, Theme: theme, LogoURL: textPtr(row.LogoUrl), FaviconURL: textPtr(row.FaviconUrl), PrimaryColor: textPtr(row.PrimaryColor)}, ID: row.ID, Status: row.Status, CreatedAt: row.CreatedAt}
+	return ManagedBrand{PublicBrand: PublicBrand{Slug: row.Slug, Name: row.Name, Theme: theme, LogoURL: textPtr(row.LogoUrl), FaviconURL: textPtr(row.FaviconUrl), PrimaryColor: textPtr(row.PrimaryColor)}, ID: row.ID, Status: row.Status, CreatedAt: timeutil.FromMicro(row.CreatedAt)}
 }
 
 // List returns platform-managed brands without raw settings.

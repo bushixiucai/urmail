@@ -66,21 +66,21 @@ RETURNING id, user_id, name, scopes, expires_at, created_at
 `
 
 type CreateApplicationCredentialParams struct {
-	Name            string             `json:"name"`
-	TokenHash       string             `json:"token_hash"`
-	Scopes          []string           `json:"scopes"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	UserID          int64              `json:"user_id"`
-	ExpectedVersion int64              `json:"expected_version"`
+	Name            string   `json:"name"`
+	TokenHash       string   `json:"token_hash"`
+	Scopes          []string `json:"scopes"`
+	ExpiresAt       int64    `json:"expires_at"`
+	UserID          int64    `json:"user_id"`
+	ExpectedVersion int64    `json:"expected_version"`
 }
 
 type CreateApplicationCredentialRow struct {
-	ID        int64              `json:"id"`
-	UserID    int64              `json:"user_id"`
-	Name      string             `json:"name"`
-	Scopes    []string           `json:"scopes"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64    `json:"id"`
+	UserID    int64    `json:"user_id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt int64    `json:"expires_at"`
+	CreatedAt int64    `json:"created_at"`
 }
 
 // scope: tenant
@@ -118,11 +118,11 @@ WHERE s.id = ?1 AND s.kind='legacy' AND s.expires_at > (CAST(strftime('%s','now'
 `
 
 type GetLegacySessionRow struct {
-	ID            string             `json:"id"`
-	UserID        int64              `json:"user_id"`
-	CsrfToken     string             `json:"csrf_token"`
-	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
-	MfaVerifiedAt pgtype.Timestamptz `json:"mfa_verified_at"`
+	ID            string `json:"id"`
+	UserID        int64  `json:"user_id"`
+	CsrfToken     string `json:"csrf_token"`
+	ExpiresAt     int64  `json:"expires_at"`
+	MfaVerifiedAt int64  `json:"mfa_verified_at"`
 }
 
 // scope: tenant
@@ -146,12 +146,12 @@ FROM application_credentials WHERE user_id=?1 ORDER BY id DESC
 `
 
 type ListApplicationCredentialsRow struct {
-	ID        int64              `json:"id"`
-	Name      string             `json:"name"`
-	Scopes    []string           `json:"scopes"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64    `json:"id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt int64    `json:"expires_at"`
+	RevokedAt int64    `json:"revoked_at"`
+	CreatedAt int64    `json:"created_at"`
 }
 
 // scope: platform

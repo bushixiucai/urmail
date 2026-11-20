@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,8 +43,8 @@ func formatSnippet(s store.MailboxSnippets) snippetJSON {
 		Title:     s.Title,
 		Content:   s.Content,
 		Shortcut:  s.Shortcut,
-		CreatedAt: s.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-		UpdatedAt: s.UpdatedAt.Time.UTC().Format(time.RFC3339Nano),
+		CreatedAt: timeutil.FromMicro(s.CreatedAt).UTC().Format(time.RFC3339Nano),
+		UpdatedAt: timeutil.FromMicro(s.UpdatedAt).UTC().Format(time.RFC3339Nano),
 	}
 }
 

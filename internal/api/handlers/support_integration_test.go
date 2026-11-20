@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -136,13 +137,13 @@ func TestAnnouncementsBrandDraftAndTimeFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := store.New(p.Pool)
-	past := pgtype.Timestamptz{Time: time.Now().Add(-time.Hour), Valid: true}
-	future := pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+	past := timeutil.Micro(time.Now().Add(-time.Hour))
+	future := timeutil.Micro(time.Now().Add(time.Hour))
 	for _, tc := range []struct {
 		brand        pgtype.Int8
 		state        string
-		starts, ends pgtype.Timestamptz
-	}{{pgtype.Int8{}, "published", past, pgtype.Timestamptz{}}, {pgtype.Int8{Int64: brand, Valid: true}, "published", past, pgtype.Timestamptz{}}, {pgtype.Int8{Int64: otherBrand, Valid: true}, "published", past, pgtype.Timestamptz{}}, {pgtype.Int8{}, "draft", past, pgtype.Timestamptz{}}, {pgtype.Int8{}, "withdrawn", past, pgtype.Timestamptz{}}, {pgtype.Int8{}, "published", future, pgtype.Timestamptz{}}, {pgtype.Int8{}, "published", pgtype.Timestamptz{Time: time.Now().Add(-2 * time.Hour), Valid: true}, past}} {
+		starts, ends int64
+	}{{pgtype.Int8{}, "published", past, 0}, {pgtype.Int8{Int64: brand, Valid: true}, "published", past, 0}, {pgtype.Int8{Int64: otherBrand, Valid: true}, "published", past, 0}, {pgtype.Int8{}, "draft", past, 0}, {pgtype.Int8{}, "withdrawn", past, 0}, {pgtype.Int8{}, "published", future, 0}, {pgtype.Int8{}, "published", timeutil.Micro(time.Now().Add(-2 * time.Hour)), past}} {
 		_, err := q.PlatformCreateAnnouncement(ctx, store.PlatformCreateAnnouncementParams{BrandID: tc.brand, Title: []byte(`{"en":"Title","zh-CN":"标题"}`), Body: []byte(`{"en":"Body","zh-CN":"正文"}`), State: tc.state, PublishedAt: tc.starts, EndsAt: tc.ends})
 		if err != nil {
 			t.Fatal(err)

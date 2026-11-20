@@ -133,17 +133,17 @@ type ListDNSCredentialsParams struct {
 }
 
 type ListDNSCredentialsRow struct {
-	ID         int64              `json:"id"`
-	TenantID   int64              `json:"tenant_id"`
-	DomainID   int64              `json:"domain_id"`
-	Provider   string             `json:"provider"`
-	ZoneName   string             `json:"zone_name"`
-	ZoneID     string             `json:"zone_id"`
-	Version    int64              `json:"version"`
-	Enabled    bool               `json:"enabled"`
-	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID         int64  `json:"id"`
+	TenantID   int64  `json:"tenant_id"`
+	DomainID   int64  `json:"domain_id"`
+	Provider   string `json:"provider"`
+	ZoneName   string `json:"zone_name"`
+	ZoneID     string `json:"zone_id"`
+	Version    int64  `json:"version"`
+	Enabled    bool   `json:"enabled"`
+	VerifiedAt int64  `json:"verified_at"`
+	RevokedAt  int64  `json:"revoked_at"`
+	UpdatedAt  int64  `json:"updated_at"`
 }
 
 // scope: tenant

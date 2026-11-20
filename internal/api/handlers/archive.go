@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"time"
@@ -35,15 +36,15 @@ func NewArchiveHandler(s ArchiveStore) *ArchiveHandler {
 
 // ArchiveResponse defines the tenant mail management contract.
 type ArchiveResponse struct {
-	ID         int64              `json:"id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	LegalHold  bool               `json:"legal_hold"`
+	ID         int64       `json:"id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt time.Time   `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	LegalHold  bool        `json:"legal_hold"`
 }
 
 func newArchiveResponse(a store.ArchiveEntries) ArchiveResponse {
@@ -54,7 +55,7 @@ func newArchiveResponse(a store.ArchiveEntries) ArchiveResponse {
 		Subject:    a.Subject,
 		FromAddr:   a.FromAddr,
 		ToAddr:     a.ToAddr,
-		ReceivedAt: a.ReceivedAt,
+		ReceivedAt: timeutil.FromMicro(a.ReceivedAt),
 		SizeBytes:  a.SizeBytes,
 		LegalHold:  a.LegalHold,
 	}

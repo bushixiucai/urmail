@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"net/mail"
 	"strings"
@@ -311,7 +312,7 @@ func (w *Worker) retry(ctx context.Context, row store.MailboxScheduledSends, exp
 	defer cancel()
 	_, err := w.opts.Store.PlatformRequeueMailboxScheduledSend(finalCtx, store.PlatformRequeueMailboxScheduledSendParams{
 		ID: row.ID, ClaimToken: row.ClaimToken, ExpectedStatus: expected,
-		NextAttemptAt: pgtype.Timestamptz{Time: NextAttempt(int(row.Attempts), w.opts.Now()), Valid: true}, LastError: pgtype.Text{String: code, Valid: true},
+		NextAttemptAt: timeutil.Micro(NextAttempt(int(row.Attempts), w.opts.Now())), LastError: pgtype.Text{String: code, Valid: true},
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil

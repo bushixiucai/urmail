@@ -17,8 +17,8 @@ SELECT status, count(*) AS count FROM delivery_events WHERE tenant_id=?1 AND occ
 `
 
 type CountDeliveryEventsByStatusParams struct {
-	TenantID   pgtype.Int8        `json:"tenant_id"`
-	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+	TenantID   pgtype.Int8 `json:"tenant_id"`
+	OccurredAt int64       `json:"occurred_at"`
 }
 
 type CountDeliveryEventsByStatusRow struct {
@@ -275,20 +275,20 @@ RETURNING id
 `
 
 type RecordDeliveryEventParams struct {
-	TenantID        pgtype.Int8        `json:"tenant_id"`
-	Instance        string             `json:"instance"`
-	QueueID         string             `json:"queue_id"`
-	MessageID       pgtype.Text        `json:"message_id"`
-	Sender          string             `json:"sender"`
-	SenderDomain    string             `json:"sender_domain"`
-	Recipient       pgtype.Text        `json:"recipient"`
-	RecipientDomain pgtype.Text        `json:"recipient_domain"`
-	Relay           pgtype.Text        `json:"relay"`
-	Status          string             `json:"status"`
-	Dsn             pgtype.Text        `json:"dsn"`
-	DelaySeconds    float64            `json:"delay_seconds"`
-	ResponseDetail  pgtype.Text        `json:"response_detail"`
-	OccurredAt      pgtype.Timestamptz `json:"occurred_at"`
+	TenantID        pgtype.Int8 `json:"tenant_id"`
+	Instance        string      `json:"instance"`
+	QueueID         string      `json:"queue_id"`
+	MessageID       pgtype.Text `json:"message_id"`
+	Sender          string      `json:"sender"`
+	SenderDomain    string      `json:"sender_domain"`
+	Recipient       pgtype.Text `json:"recipient"`
+	RecipientDomain pgtype.Text `json:"recipient_domain"`
+	Relay           pgtype.Text `json:"relay"`
+	Status          string      `json:"status"`
+	Dsn             pgtype.Text `json:"dsn"`
+	DelaySeconds    float64     `json:"delay_seconds"`
+	ResponseDetail  pgtype.Text `json:"response_detail"`
+	OccurredAt      int64       `json:"occurred_at"`
 }
 
 // scope: tenant

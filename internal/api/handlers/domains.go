@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net"
 	"net/http"
 	"strconv"
@@ -83,14 +84,14 @@ func NewDomainHandler(s DomainStore, r ReconcileTrigger) *DomainHandler {
 // certificates and the mail maps. DisplayFQDN is the U-label form for user
 // display only; no server-side input may be built from it (MAIL-004).
 type DomainResponse struct {
-	ID                int64              `json:"id"`
-	FQDN              string             `json:"fqdn"`
-	DisplayFQDN       string             `json:"display_fqdn"`
-	Mode              string             `json:"mode"`
-	Status            string             `json:"status"`
-	Selector          string             `json:"selector"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	ProvisioningState string             `json:"provisioning_state"`
+	ID                int64     `json:"id"`
+	FQDN              string    `json:"fqdn"`
+	DisplayFQDN       string    `json:"display_fqdn"`
+	Mode              string    `json:"mode"`
+	Status            string    `json:"status"`
+	Selector          string    `json:"selector"`
+	CreatedAt         time.Time `json:"created_at"`
+	ProvisioningState string    `json:"provisioning_state"`
 }
 
 // DNSGuidanceResponse is the copy-paste DNS record set returned when a domain
@@ -105,7 +106,7 @@ type DNSGuidanceResponse struct {
 	VerificationValue string `json:"verification_value"`
 }
 
-func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt pgtype.Timestamptz, provisioning ...string) DomainResponse {
+func newDomainResponse(id int64, fqdn, mode, status, selector string, createdAt time.Time, provisioning ...string) DomainResponse {
 	state := "pending"
 	if len(provisioning) > 0 && provisioning[0] != "" {
 		state = provisioning[0]
@@ -153,7 +154,7 @@ func (h *DomainHandler) List(c *gin.Context) {
 
 	items := make([]DomainResponse, 0, len(domains))
 	for _, d := range domains {
-		items = append(items, newDomainResponse(d.ID, d.Fqdn, d.Mode, d.Status, d.DkimSelector, d.CreatedAt, d.ProvisioningState))
+		items = append(items, newDomainResponse(d.ID, d.Fqdn, d.Mode, d.Status, d.DkimSelector, timeutil.FromMicro(d.CreatedAt), d.ProvisioningState))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"domains": items})
@@ -258,7 +259,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"domain": newDomainResponse(
-			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt, domain.ProvisioningState,
+			domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, timeutil.FromMicro(domain.CreatedAt), domain.ProvisioningState,
 		),
 		"dns_auto": dnsAuto,
 		"dns_guidance": DNSGuidanceResponse{
@@ -326,13 +327,13 @@ func (h *DomainVerificationHandler) Verify(c *gin.Context) {
 		return
 	}
 	if domain.Status == "active" {
-		c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, domain.CreatedAt, domain.ProvisioningState)})
+		c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(domain.ID, domain.Fqdn, domain.Mode, domain.Status, domain.DkimSelector, timeutil.FromMicro(domain.CreatedAt), domain.ProvisioningState)})
 		return
 	}
 	// Challenge expiry is independent of domain creation. A renewed challenge
 	// can recover an old domain without deleting retained mailbox data.
 	now := time.Now().UTC()
-	if !domain.VerificationIssuedAt.Valid || !domain.VerificationExpiresAt.Valid || !now.Before(domain.VerificationExpiresAt.Time) || domain.VerificationIssuedAt.Time.After(now.Add(time.Minute)) {
+	if domain.VerificationIssuedAt == 0 || domain.VerificationExpiresAt == 0 || !now.Before(timeutil.FromMicro(domain.VerificationExpiresAt)) || timeutil.FromMicro(domain.VerificationIssuedAt).After(now.Add(time.Minute)) {
 		c.JSON(http.StatusGone, gin.H{"error": gin.H{"code": "DOMAIN_CHALLENGE_EXPIRED", "message": "domain.challenge_expired"}})
 		return
 	}
@@ -386,7 +387,7 @@ func (h *DomainVerificationHandler) Verify(c *gin.Context) {
 	if h.Reconcile != nil {
 		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
-	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt, updated.ProvisioningState)})
+	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, timeutil.FromMicro(updated.CreatedAt), updated.ProvisioningState)})
 }
 
 // ReissueChallenge rotates only a pending domain's ownership proof. The
@@ -507,7 +508,7 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	if status == "active" && !current.VerifiedAt.Valid {
+	if status == "active" && current.VerifiedAt == 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "DOMAIN_NOT_VERIFIED"}})
 		return
 	}
@@ -525,6 +526,6 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
 	c.JSON(http.StatusOK, gin.H{"domain": newDomainResponse(
-		updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, updated.CreatedAt, updated.ProvisioningState,
+		updated.ID, updated.Fqdn, updated.Mode, updated.Status, updated.DkimSelector, timeutil.FromMicro(updated.CreatedAt), updated.ProvisioningState,
 	)})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -329,7 +330,7 @@ func TestSevenDayBoundaryDoesNotResetOnDefer(t *testing.T) {
 	if err != nil || current.CopyPendingSince != since || current.SentCopyState == "held" {
 		t.Fatal("defer reset deadline or held too early")
 	}
-	if !current.NextAttemptAt.Time.After(time.Now()) {
+	if !timeutil.FromMicro(current.NextAttemptAt).After(time.Now()) {
 		t.Fatal("copy did not back off")
 	}
 }

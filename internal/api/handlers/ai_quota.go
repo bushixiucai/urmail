@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"net/http"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
@@ -22,7 +22,7 @@ import (
 type aiQuotaResolution struct {
 	Source      string
 	Limits      aiPlanLimits
-	Start, End  pgtype.Timestamptz
+	Start, End  int64
 	Timezone    string
 	Independent bool
 }
@@ -47,8 +47,8 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		}
 		result.Source = "configured_nonplatform"
 		result.Independent = true
-		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
-		result.End = pgtype.Timestamptz{Time: end, Valid: true}
+		result.Start = timeutil.Micro(start)
+		result.End = timeutil.Micro(end)
 		result.Limits.AI.Calls = cfg.NonplatformCallLimit
 		result.Limits.AI.MailboxCalls = cfg.NonplatformMailboxCallLimit
 		result.Limits.AI.Concurrency = cfg.NonplatformConcurrencyLimit
@@ -81,8 +81,8 @@ func resolveAIQuota(ctx context.Context, q *store.Queries, cfg store.AiProviderC
 		// window; BYO/local calls keep their independent per-mode calendar.
 		result.Independent = cfg.Mode != "platform"
 		result.Timezone = loc.String()
-		result.Start = pgtype.Timestamptz{Time: start, Valid: true}
-		result.End = pgtype.Timestamptz{Time: end, Valid: true}
+		result.Start = timeutil.Micro(start)
+		result.End = timeutil.Micro(end)
 		result.Limits.AI.Calls = defaultLimit
 		result.Limits.AI.MailboxCalls = defaultLimit
 		result.Limits.AI.Concurrency = 2
@@ -175,8 +175,8 @@ func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderCo
 		entitlement["call_limit"] = quota.Limits.AI.Calls
 		entitlement["mailbox_call_limit"] = quota.Limits.AI.MailboxCalls
 		entitlement["concurrency_limit"] = quota.Limits.AI.Concurrency
-		entitlement["period_start"] = quota.Start
-		entitlement["period_end"] = quota.End
+		entitlement["period_start"] = timeutil.FromMicro(quota.Start)
+		entitlement["period_end"] = timeutil.FromMicro(quota.End)
 		entitlement["calls_used"] = usage.CallsUsed
 		entitlement["calls_remaining"] = max(int64(0), quota.Limits.AI.Calls-usage.CallsUsed)
 		entitlement["concurrent_reserved"] = usage.ConcurrentReserved
@@ -278,7 +278,7 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 		return
 	}
 	live, sessionErr := q.PlatformGetMailboxSession(c, session.TokenHash)
-	if sessionErr != nil || live.TenantID != session.TenantID || live.MailboxID != session.MailboxID || !live.ExpiresAt.Time.After(time.Now()) {
+	if sessionErr != nil || live.TenantID != session.TenantID || live.MailboxID != session.MailboxID || !timeutil.FromMicro(live.ExpiresAt).After(time.Now()) {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}

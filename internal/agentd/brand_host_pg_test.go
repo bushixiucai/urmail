@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -108,8 +109,8 @@ func TestBrandHostTrustedCertificateLifecyclePG(t *testing.T) {
 				}
 				return testCommand(m, path, args...)
 			}
-			raw, _ := json.Marshal(BrandHostParams{ActorID: actor, Hostname: host, BrandID: brand, VerifiedAt: before.VerifiedAt.Time})
-			missing, _ := json.Marshal(BrandHostParams{Hostname: host, BrandID: brand, VerifiedAt: before.VerifiedAt.Time})
+			raw, _ := json.Marshal(BrandHostParams{ActorID: actor, Hostname: host, BrandID: brand, VerifiedAt: timeutil.FromMicro(before.VerifiedAt)})
+			missing, _ := json.Marshal(BrandHostParams{Hostname: host, BrandID: brand, VerifiedAt: timeutil.FromMicro(before.VerifiedAt)})
 			if _, _, e := m.ActivateBrandHost(missing); !errors.Is(e, ErrRejected) {
 				t.Fatal("missing actor accepted", e)
 			}
@@ -117,7 +118,7 @@ func TestBrandHostTrustedCertificateLifecyclePG(t *testing.T) {
 				t.Fatalf("%v; apply status: %+v", err, m.status)
 			}
 			live, err := q.PlatformGetBrandHostLifecycle(ctx, host)
-			if err != nil || live.Status != "active" || !live.CertIssuedAt.Valid || !live.ActivatedAt.Valid {
+			if err != nil || live.Status != "active" || live.CertIssuedAt == 0 || live.ActivatedAt == 0 {
 				t.Fatal("not active after applied config", live, err)
 			}
 			certPath, keyPath := certificateCertPath(m.certificatePaths(host)), certificateKeyPath(m.certificatePaths(host))

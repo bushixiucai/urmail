@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"mime"
 	"net/http"
@@ -707,7 +708,7 @@ func lookupPhishingFinding(ctx context.Context, pool *db.Pool, session webmail.S
 	if err != nil {
 		return nil
 	}
-	return phishingFindingFromPayload(row.Result, row.UpdatedAt.Time)
+	return phishingFindingFromPayload(row.Result, timeutil.FromMicro(row.UpdatedAt))
 }
 
 // phishingFindingFromPayload decodes a persisted phishing_v2 payload.

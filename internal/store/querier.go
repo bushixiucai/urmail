@@ -159,7 +159,7 @@ type Querier interface {
 	GetArchiveEntryByID(ctx context.Context, arg GetArchiveEntryByIDParams) (ArchiveEntries, error)
 	GetArchiveEntryLegalHold(ctx context.Context, arg GetArchiveEntryLegalHoldParams) (bool, error)
 	GetArchiveOriginalForRecovery(ctx context.Context, arg GetArchiveOriginalForRecoveryParams) (GetArchiveOriginalForRecoveryRow, error)
-	GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (pgtype.Timestamptz, error)
+	GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (int64, error)
 	GetBillingBusinessTimezone(ctx context.Context, dollar_1 int64) (string, error)
 	GetChannelAttributionByTenant(ctx context.Context, tenantID int64) (ChannelAttribution, error)
 	GetChannelByCode(ctx context.Context, code string) (Channels, error)
@@ -407,7 +407,7 @@ type Querier interface {
 	// PlatformBumpMarketingFlowAttempt bumps the attempt counter and schedules the
 	// retry backoff (failure path of the flow worker).
 	PlatformBumpMarketingFlowAttempt(ctx context.Context, arg PlatformBumpMarketingFlowAttemptParams) (int64, error)
-	PlatformCalendarRestoreCutoff(ctx context.Context) (pgtype.Timestamptz, error)
+	PlatformCalendarRestoreCutoff(ctx context.Context) (int64, error)
 	PlatformCancelArchivePurgeIntent(ctx context.Context, arg PlatformCancelArchivePurgeIntentParams) error
 	PlatformCancelMailboxScheduledSend(ctx context.Context, arg PlatformCancelMailboxScheduledSendParams) (MailboxScheduledSends, error)
 	PlatformChangeMailboxPasswordCAS(ctx context.Context, arg PlatformChangeMailboxPasswordCASParams) (int64, error)
@@ -770,7 +770,7 @@ type Querier interface {
 	PlatformMarketingFlowStillAllowed(ctx context.Context, arg PlatformMarketingFlowStillAllowedParams) (bool, error)
 	PlatformMaxNotificationID(ctx context.Context) (int64, error)
 	// Sending no longer expires with a subscription. There is no planned boundary.
-	PlatformNextMailAccessBoundary(ctx context.Context) (pgtype.Timestamptz, error)
+	PlatformNextMailAccessBoundary(ctx context.Context) (int64, error)
 	PlatformNotificationOutboxCounts(ctx context.Context) ([]PlatformNotificationOutboxCountsRow, error)
 	PlatformOperationalStateCounts(ctx context.Context) ([]PlatformOperationalStateCountsRow, error)
 	// Platform administration queries (no tenant scope; platform role only).

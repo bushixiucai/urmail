@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -173,7 +174,7 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 	}
 	row, err := lockedQ.PlatformCreateMailboxScheduledSend(c.Request.Context(), store.PlatformCreateMailboxScheduledSendParams{
 		TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID),
-		DraftUidvalidity: int64(validity), SendAt: pgtype.Timestamptz{Time: sendAt, Valid: true}, SmtpSecret: sealed, IdempotencyKey: key, RequestHash: digest,
+		DraftUidvalidity: int64(validity), SendAt: timeutil.Micro(sendAt), SmtpSecret: sealed, IdempotencyKey: key, RequestHash: digest,
 	})
 	if err != nil {
 		_ = tx.Rollback(context.Background())
@@ -307,8 +308,8 @@ func scheduledSendJSON(v store.MailboxScheduledSends) gin.H {
 	if v.Status == "pending" || v.Status == "preparing" {
 		out["next_attempt_at"] = timestamptzTime(v.NextAttemptAt).UTC().Format(time.RFC3339Nano)
 	}
-	if v.SentAt.Valid {
-		out["sent_at"] = v.SentAt.Time.UTC().Format(time.RFC3339Nano)
+	if v.SentAt != 0 {
+		out["sent_at"] = timeutil.FromMicro(v.SentAt).UTC().Format(time.RFC3339Nano)
 	}
 	if v.LastError.Valid && v.LastError.String != "" {
 		out["last_error"] = v.LastError.String

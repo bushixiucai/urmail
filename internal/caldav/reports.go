@@ -8,6 +8,7 @@ package caldav
 import (
 	"context"
 	"encoding/xml"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,8 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	restorestate "github.com/bushixiucai/urmail/internal/domain/restore"
@@ -25,8 +24,8 @@ import (
 )
 
 // pgTime converts a time to a PostgreSQL timestamptz value.
-func pgTime(t time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
+func pgTime(t time.Time) int64 {
+	return timeutil.Micro(t.UTC())
 }
 
 // fullRange covers every storable event time.

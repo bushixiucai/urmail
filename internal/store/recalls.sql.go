@@ -154,13 +154,13 @@ type GetRecallTargetParams struct {
 }
 
 type GetRecallTargetRow struct {
-	MessageID     string             `json:"message_id"`
-	LegalHold     bool               `json:"legal_hold"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Address       sql.NullString     `json:"address"`
-	MailboxID     sql.NullInt64      `json:"mailbox_id"`
-	MailboxStatus sql.NullString     `json:"mailbox_status"`
-	TenantID      int64              `json:"tenant_id"`
+	MessageID     string         `json:"message_id"`
+	LegalHold     bool           `json:"legal_hold"`
+	DeletedAt     int64          `json:"deleted_at"`
+	Address       sql.NullString `json:"address"`
+	MailboxID     sql.NullInt64  `json:"mailbox_id"`
+	MailboxStatus sql.NullString `json:"mailbox_status"`
+	TenantID      int64          `json:"tenant_id"`
 }
 
 // scope: tenant

@@ -52,8 +52,8 @@ FROM archive_entries WHERE archive_entries.tenant_id= ?1 AND NOT archive_entries
 `
 
 type ArchiveRetentionCandidateDigestParams struct {
-	TenantID int64              `json:"tenant_id"`
-	Cutoff   pgtype.Timestamptz `json:"cutoff"`
+	TenantID int64 `json:"tenant_id"`
+	Cutoff   int64 `json:"cutoff"`
 }
 
 type ArchiveRetentionCandidateDigestRow struct {
@@ -296,16 +296,16 @@ type SearchArchiveContentParams struct {
 }
 
 type SearchArchiveContentRow struct {
-	ID         int64              `json:"id"`
-	MailboxID  pgtype.Int8        `json:"mailbox_id"`
-	MessageID  string             `json:"message_id"`
-	Subject    pgtype.Text        `json:"subject"`
-	FromAddr   pgtype.Text        `json:"from_addr"`
-	ToAddr     pgtype.Text        `json:"to_addr"`
-	ReceivedAt pgtype.Timestamptz `json:"received_at"`
-	SizeBytes  int64              `json:"size_bytes"`
-	LegalHold  bool               `json:"legal_hold"`
-	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+	ID         int64       `json:"id"`
+	MailboxID  pgtype.Int8 `json:"mailbox_id"`
+	MessageID  string      `json:"message_id"`
+	Subject    pgtype.Text `json:"subject"`
+	FromAddr   pgtype.Text `json:"from_addr"`
+	ToAddr     pgtype.Text `json:"to_addr"`
+	ReceivedAt int64       `json:"received_at"`
+	SizeBytes  int64       `json:"size_bytes"`
+	LegalHold  bool        `json:"legal_hold"`
+	DeletedAt  int64       `json:"deleted_at"`
 }
 
 // scope: tenant

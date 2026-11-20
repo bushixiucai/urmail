@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
@@ -243,7 +243,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 		}
 	}
 	if body.Action != "copy_personal" && body.Action != "apply_reply" {
-		if _, err = q.PlatformBindSchedulingEvent(c.Request.Context(), store.PlatformBindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: eventID, Organizer: message.Message.Organizer, InvitationSequence: int32(min(max(message.Message.Sequence, 0), 2147483647)), InvitationStamp: pgtype.Timestamptz{Time: message.Message.Stamp, Valid: true}, InvitationDigest: message.Digest, InvitationResponse: response}); err != nil {
+		if _, err = q.PlatformBindSchedulingEvent(c.Request.Context(), store.PlatformBindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: eventID, Organizer: message.Message.Organizer, InvitationSequence: int32(min(max(message.Message.Sequence, 0), 2147483647)), InvitationStamp: timeutil.Micro(message.Message.Stamp), InvitationDigest: message.Digest, InvitationResponse: response}); err != nil {
 			authError(c, 409, "EVENT_CONFLICT")
 			return
 		}

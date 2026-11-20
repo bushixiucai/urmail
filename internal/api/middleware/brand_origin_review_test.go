@@ -2,13 +2,13 @@ package middleware
 
 import (
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -51,7 +51,7 @@ func TestLegacyAndBoundSessionsUseActualCanonicalHost(t *testing.T) {
 				})
 				var auth gin.HandlerFunc
 				if kind == "panel" {
-					auth = RequireAuth(originPanelLookup{store.Sessions{UserID: 7, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, OriginHost: tc.origin}})
+					auth = RequireAuth(originPanelLookup{store.Sessions{UserID: 7, ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), OriginHost: tc.origin}})
 				} else {
 					auth = RequireMailboxAuth(originMailboxLookup{webmail.Session{TokenHash: "synthetic-review-hash", Address: "owned@example.test", ExpiresAt: time.Now().Add(time.Hour), OriginHost: tc.origin}})
 				}

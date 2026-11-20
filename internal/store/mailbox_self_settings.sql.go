@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformGetMailboxQuota = `-- name: PlatformGetMailboxQuota :one
@@ -45,13 +43,13 @@ type PlatformGetMailboxSettingsParams struct {
 }
 
 type PlatformGetMailboxSettingsRow struct {
-	DisplayName      string             `json:"display_name"`
-	SignatureText    string             `json:"signature_text"`
-	SignatureHtml    string             `json:"signature_html"`
-	Preferences      []byte             `json:"preferences"`
-	IdentityProfiles []byte             `json:"identity_profiles"`
-	Version          int32              `json:"version"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	DisplayName      string `json:"display_name"`
+	SignatureText    string `json:"signature_text"`
+	SignatureHtml    string `json:"signature_html"`
+	Preferences      []byte `json:"preferences"`
+	IdentityProfiles []byte `json:"identity_profiles"`
+	Version          int32  `json:"version"`
+	UpdatedAt        int64  `json:"updated_at"`
 }
 
 // Mailbox-user self-service settings, identities and quota (WEBMAIL-005/006).

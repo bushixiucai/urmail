@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/url"
 	"strings"
 	"testing"
@@ -154,7 +155,7 @@ func TestDomainChallengeRotationIsAtomicAndTenantScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !challenge.VerificationExpiresAt.Time.After(time.Now()) {
+	if !timeutil.FromMicro(challenge.VerificationExpiresAt).After(time.Now()) {
 		t.Fatal("renewal reused old domain expiry")
 	}
 	if _, err = queries.VerifyDomainChallenge(ctx, store.VerifyDomainChallengeParams{TenantID: tenant, ID: domain, VerificationToken: "old"}); !errors.Is(err, pgx.ErrNoRows) {
@@ -164,7 +165,7 @@ func TestDomainChallengeRotationIsAtomicAndTenantScoped(t *testing.T) {
 		t.Fatalf("other tenant activated domain: %v", err)
 	}
 	verified, err := queries.VerifyDomainChallenge(ctx, store.VerifyDomainChallengeParams{TenantID: tenant, ID: domain, VerificationToken: "new-token"})
-	if err != nil || verified.Status != "active" || !verified.VerifiedAt.Valid {
+	if err != nil || verified.Status != "active" || verified.VerifiedAt == 0 {
 		t.Fatalf("fresh proof failed: %+v %v", verified, err)
 	}
 	if _, err = queries.RotateDomainChallenge(ctx, store.RotateDomainChallengeParams{TenantID: tenant, ID: domain, VerificationToken: "third"}); !errors.Is(err, pgx.ErrNoRows) {

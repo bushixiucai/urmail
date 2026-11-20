@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/brandhost"
@@ -74,11 +74,11 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 		defer func() { _ = tx.Rollback(context.Background()) }()
 		tq := db.Queries(tx)
 		locked, e := tq.PlatformLockBrandHost(ctx, host)
-		if e != nil || locked.BrandID != row.BrandID || !locked.UpdatedAt.Time.Equal(row.UpdatedAt.Time) {
+		if e != nil || locked.BrandID != row.BrandID || !timeutil.FromMicro(locked.UpdatedAt).Equal(timeutil.FromMicro(row.UpdatedAt)) {
 			authError(c, 409, "BRAND_HOST_STATE_CONFLICT")
 			return
 		}
-		if e = tq.PlatformInsertBrandHostChallenge(ctx, store.PlatformInsertBrandHostChallengeParams{Hostname: host, TokenDigest: challenge.Digest, Method: challenge.Method, ExpiresAt: pgtype.Timestamptz{Time: challenge.Expires, Valid: true}}); e != nil {
+		if e = tq.PlatformInsertBrandHostChallenge(ctx, store.PlatformInsertBrandHostChallengeParams{Hostname: host, TokenDigest: challenge.Digest, Method: challenge.Method, ExpiresAt: timeutil.Micro(challenge.Expires)}); e != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
@@ -108,12 +108,13 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			return
 		}
 		var consumed *time.Time
-		if proof.ConsumedAt.Valid {
-			consumed = &proof.ConsumedAt.Time
+		if proof.ConsumedAt != 0 {
+			at := timeutil.FromMicro(proof.ConsumedAt)
+			consumed = &at
 		}
 		matched := false
 		for _, v := range values {
-			if len(v) <= 512 && strings.HasPrefix(v, "urmail-brand-verify=") && brandhost.CheckChallenge(brandhost.ChallengeRecord{TokenDigest: proof.TokenDigest, ExpiresAt: proof.ExpiresAt.Time, ConsumedAt: consumed}, strings.TrimPrefix(v, "urmail-brand-verify="), time.Now()) == nil {
+			if len(v) <= 512 && strings.HasPrefix(v, "urmail-brand-verify=") && brandhost.CheckChallenge(brandhost.ChallengeRecord{TokenDigest: proof.TokenDigest, ExpiresAt: timeutil.FromMicro(proof.ExpiresAt), ConsumedAt: consumed}, strings.TrimPrefix(v, "urmail-brand-verify="), time.Now()) == nil {
 				matched = true
 				break
 			}
@@ -130,7 +131,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 		defer func() { _ = tx.Rollback(context.Background()) }()
 		tq := db.Queries(tx)
 		locked, e := tq.PlatformLockBrandHost(ctx, host)
-		if e != nil || locked.BrandID != row.BrandID || !locked.UpdatedAt.Time.Equal(row.UpdatedAt.Time) {
+		if e != nil || locked.BrandID != row.BrandID || !timeutil.FromMicro(locked.UpdatedAt).Equal(timeutil.FromMicro(row.UpdatedAt)) {
 			authError(c, 409, "BRAND_HOST_STATE_CONFLICT")
 			return
 		}
@@ -156,7 +157,7 @@ func (h *BrandHostLifecycleHandler) Action(c *gin.Context) {
 			authError(c, 503, "BRAND_HOST_CERTIFICATE_UNAVAILABLE")
 			return
 		}
-		response, e := h.Agent.Do(ctx, agentd.OpBrandHostActivate, agentd.BrandHostParams{Hostname: host, BrandID: row.BrandID, VerifiedAt: row.VerifiedAt.Time, ActorID: func() int64 { id, _ := middleware.GetUserID(c); return id }()})
+		response, e := h.Agent.Do(ctx, agentd.OpBrandHostActivate, agentd.BrandHostParams{Hostname: host, BrandID: row.BrandID, VerifiedAt: timeutil.FromMicro(row.VerifiedAt), ActorID: func() int64 { id, _ := middleware.GetUserID(c); return id }()})
 		if e != nil || response == nil {
 			authError(c, 503, "BRAND_HOST_CERTIFICATE_UNAVAILABLE")
 			return

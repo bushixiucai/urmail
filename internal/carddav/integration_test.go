@@ -2,6 +2,7 @@ package carddav
 
 import (
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +32,7 @@ func (l pgSessionLookup) GetMailboxSession(ctx context.Context, tokenHash string
 		MailboxID:       row.MailboxID,
 		Address:         row.Address,
 		PasswordVersion: row.PasswordVersion,
-		ExpiresAt:       row.ExpiresAt.Time,
+		ExpiresAt:       timeutil.FromMicro(row.ExpiresAt),
 	}, nil
 }
 

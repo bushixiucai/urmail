@@ -3,12 +3,13 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -41,18 +42,18 @@ func NewAliasHandler(s AliasStore, r ReconcileTrigger) *AliasHandler {
 // AliasResponse is the explicit public shape of an alias. tenant_id is
 // implied by the request context, so it is not repeated in the body.
 type AliasResponse struct {
-	SenderLogins []string           `json:"sender_logins"`
-	ID           int64              `json:"id"`
-	DomainID     int64              `json:"domain_id"`
-	DomainFQDN   string             `json:"domain_fqdn"`
-	LocalPart    string             `json:"local_part"`
-	Target       string             `json:"target"`
-	Kind         string             `json:"kind"`
-	Active       bool               `json:"active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SenderLogins []string  `json:"sender_logins"`
+	ID           int64     `json:"id"`
+	DomainID     int64     `json:"domain_id"`
+	DomainFQDN   string    `json:"domain_fqdn"`
+	LocalPart    string    `json:"local_part"`
+	Target       string    `json:"target"`
+	Kind         string    `json:"kind"`
+	Active       bool      `json:"active"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
-func newAliasResponse(id, domainID int64, domainFQDN, localPart, target, kind string, active bool, createdAt pgtype.Timestamptz, senderLogins []string) AliasResponse {
+func newAliasResponse(id, domainID int64, domainFQDN, localPart, target, kind string, active bool, createdAt time.Time, senderLogins []string) AliasResponse {
 	if senderLogins == nil {
 		senderLogins = []string{}
 	}
@@ -87,7 +88,7 @@ func (h *AliasHandler) List(c *gin.Context) {
 	items := make([]AliasResponse, 0, len(aliases))
 	for _, a := range aliases {
 		items = append(items, newAliasResponse(
-			a.ID, a.DomainID, a.DomainFqdn, a.LocalPart, a.Target, a.Kind, a.Active, a.CreatedAt, a.SenderLogins,
+			a.ID, a.DomainID, a.DomainFqdn, a.LocalPart, a.Target, a.Kind, a.Active, timeutil.FromMicro(a.CreatedAt), a.SenderLogins,
 		))
 	}
 
@@ -249,7 +250,7 @@ func (h *AliasHandler) Create(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"alias": newAliasResponse(
-			alias.ID, alias.DomainID, domain.Fqdn, alias.LocalPart, alias.Target, alias.Kind, alias.Active, alias.CreatedAt, alias.SenderLogins,
+			alias.ID, alias.DomainID, domain.Fqdn, alias.LocalPart, alias.Target, alias.Kind, alias.Active, timeutil.FromMicro(alias.CreatedAt), alias.SenderLogins,
 		),
 	})
 }
@@ -397,5 +398,5 @@ func (h *AliasHandler) Update(c *gin.Context) {
 	if h.Reconcile != nil {
 		middleware.AfterCommit(c, h.Reconcile.Trigger)
 	}
-	c.JSON(200, gin.H{"alias": newAliasResponse(row.ID, row.DomainID, existing.DomainFqdn, row.LocalPart, row.Target, row.Kind, row.Active, row.CreatedAt, row.SenderLogins)})
+	c.JSON(200, gin.H{"alias": newAliasResponse(row.ID, row.DomainID, existing.DomainFqdn, row.LocalPart, row.Target, row.Kind, row.Active, timeutil.FromMicro(row.CreatedAt), row.SenderLogins)})
 }

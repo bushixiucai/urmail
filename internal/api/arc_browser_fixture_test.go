@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -69,7 +70,7 @@ func TestArchiveInvestigationBrowserFixture(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: u, Scope: scope, Reason: "Explicit independent browser investigation", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}, GrantedBy: pgtype.Int8{Int64: users[0], Valid: true}})
+			_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: u, Scope: scope, Reason: "Explicit independent browser investigation", ExpiresAt: timeutil.Micro(time.Now().Add(24 * time.Hour)), GrantedBy: pgtype.Int8{Int64: users[0], Valid: true}})
 			if err == nil {
 				err = tx.Commit(ctx)
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"net/http"
 	"net/mail"
@@ -97,7 +98,7 @@ func (s StoreMailboxSelfSettings) Settings(ctx context.Context, tenantID, mailbo
 		Preferences:      row.Preferences,
 		IdentityProfiles: row.IdentityProfiles,
 		Version:          int64(row.Version),
-		UpdatedAt:        row.UpdatedAt.Time,
+		UpdatedAt:        timeutil.FromMicro(row.UpdatedAt),
 	}, nil
 }
 

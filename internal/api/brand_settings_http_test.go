@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -53,7 +54,7 @@ func TestBrandSettingsHTTPInheritanceAndIsolation(t *testing.T) {
 		if verifyErr != nil {
 			t.Fatal(verifyErr)
 		}
-		if _, err := q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(v.token), UserID: v.uid, TenantID: pgtype.Int8{Int64: v.tid, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); err != nil {
+		if _, err := q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: verifiedUser.PasswordHash, ExpectedVersion: verifiedUser.CredentialVersion, ID: middleware.HashSessionToken(v.token), UserID: v.uid, TenantID: pgtype.Int8{Int64: v.tid, Valid: true}, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}); err != nil {
 			t.Fatal(err)
 		}
 	}

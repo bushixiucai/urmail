@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -88,7 +89,7 @@ func TestArchiveContentAuthorizationAuditExportAndRetentionPreview(t *testing.T)
 			t.Fatal(err)
 		}
 		defer tx.Rollback(ctx)
-		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "explicit content review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
+		row, err := store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), Reason: "explicit content review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +263,7 @@ func TestLargeArchiveExportAndAttachmentWaitForAuditCommit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, Reason: "large original review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
+		_, err = store.New(tx).CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: scope, ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), Reason: "large original review", GrantedBy: pgtype.Int8{Int64: grantor, Valid: true}})
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			t.Fatal(err)

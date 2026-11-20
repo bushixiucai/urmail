@@ -50,7 +50,7 @@ func (h *DNSAuthorityHandler) domain(c *gin.Context) (store.GetDomainByIDRow, bo
 	if supportError(c, err) {
 		return empty, false
 	}
-	if domain.Mode != "managed" || domain.Status != "active" || !domain.VerifiedAt.Valid {
+	if domain.Mode != "managed" || domain.Status != "active" || domain.VerifiedAt == 0 {
 		authError(c, 409, "DNS_AUTHORITY_MANAGED_REQUIRED")
 		return empty, false
 	}

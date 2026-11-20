@@ -379,17 +379,17 @@ type UpdateMailboxSettingsParams struct {
 }
 
 type UpdateMailboxSettingsRow struct {
-	ID           int64              `json:"id"`
-	TenantID     int64              `json:"tenant_id"`
-	DomainID     int64              `json:"domain_id"`
-	LocalPart    string             `json:"local_part"`
-	Address      string             `json:"address"`
-	DisplayName  pgtype.Text        `json:"display_name"`
-	PasswordHash string             `json:"password_hash"`
-	QuotaBytes   int64              `json:"quota_bytes"`
-	Status       string             `json:"status"`
-	SendEnabled  bool               `json:"send_enabled"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64       `json:"id"`
+	TenantID     int64       `json:"tenant_id"`
+	DomainID     int64       `json:"domain_id"`
+	LocalPart    string      `json:"local_part"`
+	Address      string      `json:"address"`
+	DisplayName  pgtype.Text `json:"display_name"`
+	PasswordHash string      `json:"password_hash"`
+	QuotaBytes   int64       `json:"quota_bytes"`
+	Status       string      `json:"status"`
+	SendEnabled  bool        `json:"send_enabled"`
+	CreatedAt    int64       `json:"created_at"`
 }
 
 // scope: tenant

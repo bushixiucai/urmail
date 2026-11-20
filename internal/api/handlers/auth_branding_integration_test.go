@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -191,7 +191,7 @@ func TestAuthCredentialsAndBrandingWithRealRoles(t *testing.T) {
 	}
 	readCredential, readID := create([]string{"legacy:read"})
 	otherUser := scalar("INSERT INTO users(email,password_hash) VALUES('other@example.test',$1) RETURNING id", hash)
-	_, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("other-panel"), UserID: otherUser, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "other-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	_, err = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("other-panel"), UserID: otherUser, ExpectedHash: hash, ExpectedVersion: 0, CsrfToken: "other-csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))})
 	if err != nil {
 		t.Fatal(err)
 	}

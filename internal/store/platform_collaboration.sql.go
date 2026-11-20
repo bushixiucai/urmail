@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformClaimMailboxJob = `-- name: PlatformClaimMailboxJob :one
@@ -72,26 +70,26 @@ type PlatformDeleteContactParams struct {
 }
 
 type PlatformDeleteContactRow struct {
-	ID            int64              `json:"id"`
-	TenantID      int64              `json:"tenant_id"`
-	MailboxID     int64              `json:"mailbox_id"`
-	AddressbookID int64              `json:"addressbook_id"`
-	Version       int64              `json:"version"`
-	DisplayName   string             `json:"display_name"`
-	GivenName     string             `json:"given_name"`
-	FamilyName    string             `json:"family_name"`
-	Emails        []byte             `json:"emails"`
-	Phones        []byte             `json:"phones"`
-	Note          string             `json:"note"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Organization  string             `json:"organization"`
-	JobTitle      string             `json:"job_title"`
-	Addresses     []byte             `json:"addresses"`
-	Birthday      string             `json:"birthday"`
-	Photo         string             `json:"photo"`
-	VcardExtra    []byte             `json:"vcard_extra"`
+	ID            int64  `json:"id"`
+	TenantID      int64  `json:"tenant_id"`
+	MailboxID     int64  `json:"mailbox_id"`
+	AddressbookID int64  `json:"addressbook_id"`
+	Version       int64  `json:"version"`
+	DisplayName   string `json:"display_name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Emails        []byte `json:"emails"`
+	Phones        []byte `json:"phones"`
+	Note          string `json:"note"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	DeletedAt     int64  `json:"deleted_at"`
+	Organization  string `json:"organization"`
+	JobTitle      string `json:"job_title"`
+	Addresses     []byte `json:"addresses"`
+	Birthday      string `json:"birthday"`
+	Photo         string `json:"photo"`
+	VcardExtra    []byte `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformDeleteContact(ctx context.Context, arg PlatformDeleteContactParams) (PlatformDeleteContactRow, error) {
@@ -148,34 +146,34 @@ type PlatformDeleteEventParams struct {
 }
 
 type PlatformDeleteEventRow struct {
-	ID                  int64              `json:"id"`
-	TenantID            int64              `json:"tenant_id"`
-	MailboxID           int64              `json:"mailbox_id"`
-	CalendarID          int64              `json:"calendar_id"`
-	Uid                 string             `json:"uid"`
-	Version             int64              `json:"version"`
-	Sequence            int32              `json:"sequence"`
-	Summary             string             `json:"summary"`
-	Description         string             `json:"description"`
-	Location            string             `json:"location"`
-	StartsAt            pgtype.Timestamptz `json:"starts_at"`
-	EndsAt              pgtype.Timestamptz `json:"ends_at"`
-	AllDay              bool               `json:"all_day"`
-	Timezone            string             `json:"timezone"`
-	Rrule               string             `json:"rrule"`
-	Status              string             `json:"status"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
-	Attendees           []byte             `json:"attendees"`
-	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
-	Organizer           string             `json:"organizer"`
-	InvitationSequence  int32              `json:"invitation_sequence"`
-	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
-	InvitationDigest    string             `json:"invitation_digest"`
-	InvitationResponse  string             `json:"invitation_response"`
-	Reminders           []byte             `json:"reminders"`
-	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
+	ID                  int64  `json:"id"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	CalendarID          int64  `json:"calendar_id"`
+	Uid                 string `json:"uid"`
+	Version             int64  `json:"version"`
+	Sequence            int32  `json:"sequence"`
+	Summary             string `json:"summary"`
+	Description         string `json:"description"`
+	Location            string `json:"location"`
+	StartsAt            int64  `json:"starts_at"`
+	EndsAt              int64  `json:"ends_at"`
+	AllDay              bool   `json:"all_day"`
+	Timezone            string `json:"timezone"`
+	Rrule               string `json:"rrule"`
+	Status              string `json:"status"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+	DeletedAt           int64  `json:"deleted_at"`
+	Attendees           []byte `json:"attendees"`
+	RecurrenceOverrides []byte `json:"recurrence_overrides"`
+	Organizer           string `json:"organizer"`
+	InvitationSequence  int32  `json:"invitation_sequence"`
+	InvitationStamp     int64  `json:"invitation_stamp"`
+	InvitationDigest    string `json:"invitation_digest"`
+	InvitationResponse  string `json:"invitation_response"`
+	Reminders           []byte `json:"reminders"`
+	ReminderScannedAt   int64  `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformDeleteEvent(ctx context.Context, arg PlatformDeleteEventParams) (PlatformDeleteEventRow, error) {
@@ -552,26 +550,26 @@ type PlatformInsertContactParams struct {
 }
 
 type PlatformInsertContactRow struct {
-	ID            int64              `json:"id"`
-	TenantID      int64              `json:"tenant_id"`
-	MailboxID     int64              `json:"mailbox_id"`
-	AddressbookID int64              `json:"addressbook_id"`
-	Version       int64              `json:"version"`
-	DisplayName   string             `json:"display_name"`
-	GivenName     string             `json:"given_name"`
-	FamilyName    string             `json:"family_name"`
-	Emails        []byte             `json:"emails"`
-	Phones        []byte             `json:"phones"`
-	Note          string             `json:"note"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Organization  string             `json:"organization"`
-	JobTitle      string             `json:"job_title"`
-	Addresses     []byte             `json:"addresses"`
-	Birthday      string             `json:"birthday"`
-	Photo         string             `json:"photo"`
-	VcardExtra    []byte             `json:"vcard_extra"`
+	ID            int64  `json:"id"`
+	TenantID      int64  `json:"tenant_id"`
+	MailboxID     int64  `json:"mailbox_id"`
+	AddressbookID int64  `json:"addressbook_id"`
+	Version       int64  `json:"version"`
+	DisplayName   string `json:"display_name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Emails        []byte `json:"emails"`
+	Phones        []byte `json:"phones"`
+	Note          string `json:"note"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	DeletedAt     int64  `json:"deleted_at"`
+	Organization  string `json:"organization"`
+	JobTitle      string `json:"job_title"`
+	Addresses     []byte `json:"addresses"`
+	Birthday      string `json:"birthday"`
+	Photo         string `json:"photo"`
+	VcardExtra    []byte `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformInsertContact(ctx context.Context, arg PlatformInsertContactParams) (PlatformInsertContactRow, error) {
@@ -697,53 +695,53 @@ SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, 
 `
 
 type PlatformInsertEventParams struct {
-	TenantID            int64              `json:"tenant_id"`
-	MailboxID           int64              `json:"mailbox_id"`
-	CalendarID          int64              `json:"calendar_id"`
-	Uid                 string             `json:"uid"`
-	Summary             string             `json:"summary"`
-	Description         string             `json:"description"`
-	Location            string             `json:"location"`
-	StartsAt            pgtype.Timestamptz `json:"starts_at"`
-	EndsAt              pgtype.Timestamptz `json:"ends_at"`
-	AllDay              bool               `json:"all_day"`
-	Timezone            string             `json:"timezone"`
-	Rrule               string             `json:"rrule"`
-	Status              string             `json:"status"`
-	Attendees           []byte             `json:"attendees"`
-	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
-	Reminders           []byte             `json:"reminders"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	CalendarID          int64  `json:"calendar_id"`
+	Uid                 string `json:"uid"`
+	Summary             string `json:"summary"`
+	Description         string `json:"description"`
+	Location            string `json:"location"`
+	StartsAt            int64  `json:"starts_at"`
+	EndsAt              int64  `json:"ends_at"`
+	AllDay              bool   `json:"all_day"`
+	Timezone            string `json:"timezone"`
+	Rrule               string `json:"rrule"`
+	Status              string `json:"status"`
+	Attendees           []byte `json:"attendees"`
+	RecurrenceOverrides []byte `json:"recurrence_overrides"`
+	Reminders           []byte `json:"reminders"`
 }
 
 type PlatformInsertEventRow struct {
-	ID                  int64              `json:"id"`
-	TenantID            int64              `json:"tenant_id"`
-	MailboxID           int64              `json:"mailbox_id"`
-	CalendarID          int64              `json:"calendar_id"`
-	Uid                 string             `json:"uid"`
-	Version             int64              `json:"version"`
-	Sequence            int32              `json:"sequence"`
-	Summary             string             `json:"summary"`
-	Description         string             `json:"description"`
-	Location            string             `json:"location"`
-	StartsAt            pgtype.Timestamptz `json:"starts_at"`
-	EndsAt              pgtype.Timestamptz `json:"ends_at"`
-	AllDay              bool               `json:"all_day"`
-	Timezone            string             `json:"timezone"`
-	Rrule               string             `json:"rrule"`
-	Status              string             `json:"status"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
-	Attendees           []byte             `json:"attendees"`
-	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
-	Organizer           string             `json:"organizer"`
-	InvitationSequence  int32              `json:"invitation_sequence"`
-	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
-	InvitationDigest    string             `json:"invitation_digest"`
-	InvitationResponse  string             `json:"invitation_response"`
-	Reminders           []byte             `json:"reminders"`
-	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
+	ID                  int64  `json:"id"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	CalendarID          int64  `json:"calendar_id"`
+	Uid                 string `json:"uid"`
+	Version             int64  `json:"version"`
+	Sequence            int32  `json:"sequence"`
+	Summary             string `json:"summary"`
+	Description         string `json:"description"`
+	Location            string `json:"location"`
+	StartsAt            int64  `json:"starts_at"`
+	EndsAt              int64  `json:"ends_at"`
+	AllDay              bool   `json:"all_day"`
+	Timezone            string `json:"timezone"`
+	Rrule               string `json:"rrule"`
+	Status              string `json:"status"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+	DeletedAt           int64  `json:"deleted_at"`
+	Attendees           []byte `json:"attendees"`
+	RecurrenceOverrides []byte `json:"recurrence_overrides"`
+	Organizer           string `json:"organizer"`
+	InvitationSequence  int32  `json:"invitation_sequence"`
+	InvitationStamp     int64  `json:"invitation_stamp"`
+	InvitationDigest    string `json:"invitation_digest"`
+	InvitationResponse  string `json:"invitation_response"`
+	Reminders           []byte `json:"reminders"`
+	ReminderScannedAt   int64  `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformInsertEvent(ctx context.Context, arg PlatformInsertEventParams) (PlatformInsertEventRow, error) {
@@ -1016,11 +1014,11 @@ LIMIT $5
 `
 
 type PlatformListEventsParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	MailboxID  int64              `json:"mailbox_id"`
-	RangeEnd   pgtype.Timestamptz `json:"range_end"`
-	RangeStart pgtype.Timestamptz `json:"range_start"`
-	PageLimit  int32              `json:"page_limit"`
+	TenantID   int64 `json:"tenant_id"`
+	MailboxID  int64 `json:"mailbox_id"`
+	RangeEnd   int64 `json:"range_end"`
+	RangeStart int64 `json:"range_start"`
+	PageLimit  int32 `json:"page_limit"`
 }
 
 func (q *Queries) PlatformListEvents(ctx context.Context, arg PlatformListEventsParams) ([]MailboxEvents, error) {
@@ -1167,26 +1165,26 @@ type PlatformUpdateContactParams struct {
 }
 
 type PlatformUpdateContactRow struct {
-	ID            int64              `json:"id"`
-	TenantID      int64              `json:"tenant_id"`
-	MailboxID     int64              `json:"mailbox_id"`
-	AddressbookID int64              `json:"addressbook_id"`
-	Version       int64              `json:"version"`
-	DisplayName   string             `json:"display_name"`
-	GivenName     string             `json:"given_name"`
-	FamilyName    string             `json:"family_name"`
-	Emails        []byte             `json:"emails"`
-	Phones        []byte             `json:"phones"`
-	Note          string             `json:"note"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Organization  string             `json:"organization"`
-	JobTitle      string             `json:"job_title"`
-	Addresses     []byte             `json:"addresses"`
-	Birthday      string             `json:"birthday"`
-	Photo         string             `json:"photo"`
-	VcardExtra    []byte             `json:"vcard_extra"`
+	ID            int64  `json:"id"`
+	TenantID      int64  `json:"tenant_id"`
+	MailboxID     int64  `json:"mailbox_id"`
+	AddressbookID int64  `json:"addressbook_id"`
+	Version       int64  `json:"version"`
+	DisplayName   string `json:"display_name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Emails        []byte `json:"emails"`
+	Phones        []byte `json:"phones"`
+	Note          string `json:"note"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	DeletedAt     int64  `json:"deleted_at"`
+	Organization  string `json:"organization"`
+	JobTitle      string `json:"job_title"`
+	Addresses     []byte `json:"addresses"`
+	Birthday      string `json:"birthday"`
+	Photo         string `json:"photo"`
+	VcardExtra    []byte `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformUpdateContact(ctx context.Context, arg PlatformUpdateContactParams) (PlatformUpdateContactRow, error) {
@@ -1248,53 +1246,53 @@ SELECT id, tenant_id, mailbox_id, calendar_id, uid, version, sequence, summary, 
 `
 
 type PlatformUpdateEventParams struct {
-	Summary             string             `json:"summary"`
-	Description         string             `json:"description"`
-	Location            string             `json:"location"`
-	StartsAt            pgtype.Timestamptz `json:"starts_at"`
-	EndsAt              pgtype.Timestamptz `json:"ends_at"`
-	AllDay              bool               `json:"all_day"`
-	Timezone            string             `json:"timezone"`
-	Rrule               string             `json:"rrule"`
-	Status              string             `json:"status"`
-	Attendees           []byte             `json:"attendees"`
-	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
-	Reminders           []byte             `json:"reminders"`
-	TenantID            int64              `json:"tenant_id"`
-	MailboxID           int64              `json:"mailbox_id"`
-	ID                  int64              `json:"id"`
-	ExpectedVersion     int64              `json:"expected_version"`
+	Summary             string `json:"summary"`
+	Description         string `json:"description"`
+	Location            string `json:"location"`
+	StartsAt            int64  `json:"starts_at"`
+	EndsAt              int64  `json:"ends_at"`
+	AllDay              bool   `json:"all_day"`
+	Timezone            string `json:"timezone"`
+	Rrule               string `json:"rrule"`
+	Status              string `json:"status"`
+	Attendees           []byte `json:"attendees"`
+	RecurrenceOverrides []byte `json:"recurrence_overrides"`
+	Reminders           []byte `json:"reminders"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	ID                  int64  `json:"id"`
+	ExpectedVersion     int64  `json:"expected_version"`
 }
 
 type PlatformUpdateEventRow struct {
-	ID                  int64              `json:"id"`
-	TenantID            int64              `json:"tenant_id"`
-	MailboxID           int64              `json:"mailbox_id"`
-	CalendarID          int64              `json:"calendar_id"`
-	Uid                 string             `json:"uid"`
-	Version             int64              `json:"version"`
-	Sequence            int32              `json:"sequence"`
-	Summary             string             `json:"summary"`
-	Description         string             `json:"description"`
-	Location            string             `json:"location"`
-	StartsAt            pgtype.Timestamptz `json:"starts_at"`
-	EndsAt              pgtype.Timestamptz `json:"ends_at"`
-	AllDay              bool               `json:"all_day"`
-	Timezone            string             `json:"timezone"`
-	Rrule               string             `json:"rrule"`
-	Status              string             `json:"status"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
-	Attendees           []byte             `json:"attendees"`
-	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
-	Organizer           string             `json:"organizer"`
-	InvitationSequence  int32              `json:"invitation_sequence"`
-	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
-	InvitationDigest    string             `json:"invitation_digest"`
-	InvitationResponse  string             `json:"invitation_response"`
-	Reminders           []byte             `json:"reminders"`
-	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
+	ID                  int64  `json:"id"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	CalendarID          int64  `json:"calendar_id"`
+	Uid                 string `json:"uid"`
+	Version             int64  `json:"version"`
+	Sequence            int32  `json:"sequence"`
+	Summary             string `json:"summary"`
+	Description         string `json:"description"`
+	Location            string `json:"location"`
+	StartsAt            int64  `json:"starts_at"`
+	EndsAt              int64  `json:"ends_at"`
+	AllDay              bool   `json:"all_day"`
+	Timezone            string `json:"timezone"`
+	Rrule               string `json:"rrule"`
+	Status              string `json:"status"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+	DeletedAt           int64  `json:"deleted_at"`
+	Attendees           []byte `json:"attendees"`
+	RecurrenceOverrides []byte `json:"recurrence_overrides"`
+	Organizer           string `json:"organizer"`
+	InvitationSequence  int32  `json:"invitation_sequence"`
+	InvitationStamp     int64  `json:"invitation_stamp"`
+	InvitationDigest    string `json:"invitation_digest"`
+	InvitationResponse  string `json:"invitation_response"`
+	Reminders           []byte `json:"reminders"`
+	ReminderScannedAt   int64  `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformUpdateEvent(ctx context.Context, arg PlatformUpdateEventParams) (PlatformUpdateEventRow, error) {

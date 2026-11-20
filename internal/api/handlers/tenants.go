@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -43,11 +45,11 @@ func NewTenantHandler(s TenantStore, p TenantPlatformStore) *TenantHandler {
 // fields the UI needs are exposed; brand/owner columns and raw settings JSON
 // from the store row stay server-side.
 type TenantResponse struct {
-	ID        int64              `json:"id"`
-	Name      string             `json:"name"`
-	Slug      string             `json:"slug"`
-	Status    string             `json:"status"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // TenantUsageResponse reports plan consumption for the current tenant.
@@ -196,7 +198,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 			Name:      tenant.Name,
 			Slug:      tenant.Slug,
 			Status:    tenant.Status,
-			CreatedAt: tenant.CreatedAt,
+			CreatedAt: timeutil.FromMicro(tenant.CreatedAt),
 		},
 		Settings: mergedSettings,
 		Theme:    theme,

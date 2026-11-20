@@ -89,12 +89,12 @@ type PlatformCreateMarketingChannelParams struct {
 }
 
 type PlatformCreateMarketingChannelRow struct {
-	ID        int64              `json:"id"`
-	TenantID  int64              `json:"tenant_id"`
-	Name      string             `json:"name"`
-	Kind      string             `json:"kind"`
-	Enabled   bool               `json:"enabled"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64  `json:"id"`
+	TenantID  int64  `json:"tenant_id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 func (q *Queries) PlatformCreateMarketingChannel(ctx context.Context, arg PlatformCreateMarketingChannelParams) (PlatformCreateMarketingChannelRow, error) {
@@ -336,12 +336,12 @@ type PlatformUpdateMarketingChannelParams struct {
 }
 
 type PlatformUpdateMarketingChannelRow struct {
-	ID        int64              `json:"id"`
-	TenantID  int64              `json:"tenant_id"`
-	Name      string             `json:"name"`
-	Kind      string             `json:"kind"`
-	Enabled   bool               `json:"enabled"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64  `json:"id"`
+	TenantID  int64  `json:"tenant_id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 func (q *Queries) PlatformUpdateMarketingChannel(ctx context.Context, arg PlatformUpdateMarketingChannelParams) (PlatformUpdateMarketingChannelRow, error) {

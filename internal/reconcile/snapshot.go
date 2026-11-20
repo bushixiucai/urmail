@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -153,8 +154,8 @@ func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQueri
 			continue
 		}
 		updated := time.Now().UTC()
-		if d.UpdatedAt.Valid {
-			updated = d.UpdatedAt.Time.UTC()
+		if d.UpdatedAt != 0 {
+			updated = timeutil.FromMicro(d.UpdatedAt).UTC()
 		}
 		var records []nsd.Record
 		if d.DnsExplicit {

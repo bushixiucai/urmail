@@ -15,12 +15,12 @@ import "github.com/jackc/pgx/v5/pgtype"
 // ---------------------------------------------------------------------------
 
 type ArchiveCasesCreateParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	ActorID    int64              `json:"actor_id"`
-	Title      string             `json:"title"`
-	Purpose    string             `json:"purpose"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-	RequestKey string             `json:"request_key"`
+	TenantID   int64  `json:"tenant_id"`
+	ActorID    int64  `json:"actor_id"`
+	Title      string `json:"title"`
+	Purpose    string `json:"purpose"`
+	ExpiresAt  int64  `json:"expires_at"`
+	RequestKey string `json:"request_key"`
 }
 
 type RecordMarketingFlowAuditParams struct {
@@ -43,78 +43,78 @@ type SoftDeleteArchiveEntryParams struct {
 }
 
 type ConfirmRecallReviewRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
+	ID               int64       `json:"id"`
+	TenantID         int64       `json:"tenant_id"`
+	MessageID        string      `json:"message_id"`
+	RequestedBy      int64       `json:"requested_by"`
+	Status           string      `json:"status"`
+	Reason           pgtype.Text `json:"reason"`
+	CreatedAt        int64       `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8 `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8 `json:"mailbox_id"`
+	CompletedAt      int64       `json:"completed_at"`
+	PreviewActorID   pgtype.Int8 `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text `json:"preview_token"`
+	PreviewDigest    pgtype.Text `json:"preview_digest"`
+	PreviewSnapshot  []byte      `json:"preview_snapshot"`
+	PreviewExpiresAt int64       `json:"preview_expires_at"`
+	ConfirmedAt      int64       `json:"confirmed_at"`
+	SelectedCopyKeys []byte      `json:"selected_copy_keys"`
+	AttemptEpoch     int64       `json:"attempt_epoch"`
+	LocalResult      []byte      `json:"local_result"`
+	ResultHistory    []byte      `json:"result_history"`
 }
 
 type StoreRecallReviewPreviewRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
+	ID               int64       `json:"id"`
+	TenantID         int64       `json:"tenant_id"`
+	MessageID        string      `json:"message_id"`
+	RequestedBy      int64       `json:"requested_by"`
+	Status           string      `json:"status"`
+	Reason           pgtype.Text `json:"reason"`
+	CreatedAt        int64       `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8 `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8 `json:"mailbox_id"`
+	CompletedAt      int64       `json:"completed_at"`
+	PreviewActorID   pgtype.Int8 `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text `json:"preview_token"`
+	PreviewDigest    pgtype.Text `json:"preview_digest"`
+	PreviewSnapshot  []byte      `json:"preview_snapshot"`
+	PreviewExpiresAt int64       `json:"preview_expires_at"`
+	ConfirmedAt      int64       `json:"confirmed_at"`
+	SelectedCopyKeys []byte      `json:"selected_copy_keys"`
+	AttemptEpoch     int64       `json:"attempt_epoch"`
+	LocalResult      []byte      `json:"local_result"`
+	ResultHistory    []byte      `json:"result_history"`
 }
 
 type ScheduleMarketingCampaignParams struct {
-	TenantID    int64              `json:"tenant_id"`
-	CampaignID  int64              `json:"campaign_id"`
-	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
+	TenantID    int64 `json:"tenant_id"`
+	CampaignID  int64 `json:"campaign_id"`
+	ScheduledAt int64 `json:"scheduled_at"`
 }
 
 type CreateRecallRow struct {
-	ID               int64              `json:"id"`
-	TenantID         int64              `json:"tenant_id"`
-	MessageID        string             `json:"message_id"`
-	RequestedBy      int64              `json:"requested_by"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewSnapshot  []byte             `json:"preview_snapshot"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	ConfirmedAt      pgtype.Timestamptz `json:"confirmed_at"`
-	SelectedCopyKeys []byte             `json:"selected_copy_keys"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	LocalResult      []byte             `json:"local_result"`
-	ResultHistory    []byte             `json:"result_history"`
+	ID               int64       `json:"id"`
+	TenantID         int64       `json:"tenant_id"`
+	MessageID        string      `json:"message_id"`
+	RequestedBy      int64       `json:"requested_by"`
+	Status           string      `json:"status"`
+	Reason           pgtype.Text `json:"reason"`
+	CreatedAt        int64       `json:"created_at"`
+	ArchiveEntryID   pgtype.Int8 `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8 `json:"mailbox_id"`
+	CompletedAt      int64       `json:"completed_at"`
+	PreviewActorID   pgtype.Int8 `json:"preview_actor_id"`
+	PreviewToken     pgtype.Text `json:"preview_token"`
+	PreviewDigest    pgtype.Text `json:"preview_digest"`
+	PreviewSnapshot  []byte      `json:"preview_snapshot"`
+	PreviewExpiresAt int64       `json:"preview_expires_at"`
+	ConfirmedAt      int64       `json:"confirmed_at"`
+	SelectedCopyKeys []byte      `json:"selected_copy_keys"`
+	AttemptEpoch     int64       `json:"attempt_epoch"`
+	LocalResult      []byte      `json:"local_result"`
+	ResultHistory    []byte      `json:"result_history"`
 }
 
 type AbandonDNSPlanParams struct {

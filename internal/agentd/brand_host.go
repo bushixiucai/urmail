@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"os"
 	"time"
 
@@ -106,7 +107,7 @@ func (m *ApplyManager) ActivateBrandHost(raw json.RawMessage) (string, string, e
 		}
 	}
 	original, err := q.PlatformGetBrandHostLifecycle(ctx, p.Hostname)
-	if err != nil || original.BrandID != p.BrandID || !original.VerifiedAt.Time.Equal(p.VerifiedAt) || !m.brandHostCertEligible(p.Hostname) {
+	if err != nil || original.BrandID != p.BrandID || !timeutil.FromMicro(original.VerifiedAt).Equal(p.VerifiedAt) || !m.brandHostCertEligible(p.Hostname) {
 		return "", "", fmt.Errorf("%w: brand authorization changed", ErrRejected)
 	}
 	if m.cfg.PreserveExternalWeb {

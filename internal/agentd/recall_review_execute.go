@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ func (m *ApplyManager) executeReviewedRecall(ctx context.Context, q *store.Queri
 		raw, err := json.Marshal(result)
 		return state, reason, raw, err
 	}
-	if !target.ConfirmedAt.Valid || !target.PreviewExpiresAt.Valid || !target.PreviewExpiresAt.Time.After(time.Now()) {
+	if target.ConfirmedAt == 0 || target.PreviewExpiresAt == 0 || !timeutil.FromMicro(target.PreviewExpiresAt).After(time.Now()) {
 		return finish("expired", "reviewed_preview_expired")
 	}
 	var reviewed recall.Snapshot

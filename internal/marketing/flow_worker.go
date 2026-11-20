@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"time"
 
@@ -125,8 +126,8 @@ func (w *FlowWorker) Tick(ctx context.Context) (int, error) {
 func (w *FlowWorker) handle(ctx context.Context, q *store.Queries, p store.PlatformClaimMarketingFlowPositionsRow) {
 	lease := &flowLease{owner: w.id, fence: p.LeaseFence}
 	ctx = context.WithValue(ctx, flowLeaseKey{}, lease)
-	if p.LeaseUntil.Valid {
-		bounded, cancel := context.WithDeadline(ctx, p.LeaseUntil.Time.Add(-5*time.Second))
+	if p.LeaseUntil != 0 {
+		bounded, cancel := context.WithDeadline(ctx, timeutil.FromMicro(p.LeaseUntil).Add(-5*time.Second))
 		defer cancel()
 		ctx = bounded
 	}

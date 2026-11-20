@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -46,14 +47,14 @@ func NewPlatformHandler(s PlatformStore) *PlatformHandler {
 
 // PlatformTenant exposes the tenant fields used by the platform console.
 type PlatformTenant struct {
-	ID           int64              `json:"id"`
-	BrandID      int64              `json:"brand_id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Status       string             `json:"status"`
-	DomainCount  int64              `json:"domain_count"`
-	MailboxCount int64              `json:"mailbox_count"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64     `json:"id"`
+	BrandID      int64     `json:"brand_id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	Status       string    `json:"status"`
+	DomainCount  int64     `json:"domain_count"`
+	MailboxCount int64     `json:"mailbox_count"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Overview returns aggregate platform resource counts.
@@ -89,7 +90,7 @@ func (h *PlatformHandler) ListTenants(c *gin.Context) {
 			Status:       row.Status,
 			DomainCount:  row.DomainCount,
 			MailboxCount: row.MailboxCount,
-			CreatedAt:    row.CreatedAt,
+			CreatedAt:    timeutil.FromMicro(row.CreatedAt),
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"tenants": out})
@@ -147,7 +148,7 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 		Name:      row.Name,
 		Slug:      row.Slug,
 		Status:    row.Status,
-		CreatedAt: row.CreatedAt,
+		CreatedAt: timeutil.FromMicro(row.CreatedAt),
 	}})
 }
 
@@ -205,7 +206,7 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 	status := "pending"
-	freeEnd := pgtype.Timestamptz{}
+	var freeEnd time.Time
 	if req.FreeUntil != "" {
 		until, e := time.Parse(time.RFC3339, req.FreeUntil)
 		if e != nil || !until.After(time.Now()) || strings.TrimSpace(req.FreeReason) == "" || len(req.FreeReason) > 2000 {
@@ -213,7 +214,7 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 			return
 		}
 		status = "active"
-		freeEnd = pgtype.Timestamptz{Time: until.UTC(), Valid: true}
+		freeEnd = until.UTC()
 	} else if strings.TrimSpace(req.FreeReason) != "" {
 		authError(c, 400, "INVALID_PARAMS")
 		return
@@ -259,8 +260,8 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: tenantID, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
 		return
 	}
-	if freeEnd.Valid {
-		middleware.SetPlatformAuditDetail(c, map[string]any{"free_until": freeEnd.Time.Format(time.RFC3339), "grant_reason": strings.TrimSpace(req.FreeReason)})
+	if !freeEnd.IsZero() {
+		middleware.SetPlatformAuditDetail(c, map[string]any{"free_until": freeEnd.Format(time.RFC3339), "grant_reason": strings.TrimSpace(req.FreeReason)})
 	}
 	middleware.SetPlatformAuditTenant(c, tenantID)
 	if supportError(c, finish()) {

@@ -2,10 +2,9 @@ package db_test
 
 import (
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
@@ -33,7 +32,7 @@ func TestRemovedInvestigationMemberSeesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := store.New(tx)
-	id, err := q.PlatformCreateInvestigation(ctx, store.PlatformCreateInvestigationParams{TenantID: tenant, Title: "Case", Purpose: "customer request", CreatedBy: user, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}})
+	id, err := q.PlatformCreateInvestigation(ctx, store.PlatformCreateInvestigationParams{TenantID: tenant, Title: "Case", Purpose: "customer request", CreatedBy: user, ExpiresAt: timeutil.Micro(time.Now().Add(24 * time.Hour))})
 	if err != nil {
 		t.Fatal(err)
 	}

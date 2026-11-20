@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net"
 	"net/http"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
@@ -57,7 +57,7 @@ func TestBrandHostProductionHTTPOwnershipAndRevocationPG(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("brand-proof-token"), UserID: uid, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, CsrfToken: "proof-csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); e != nil {
+	if _, e = q.CreateSession(ctx, store.CreateSessionParams{ID: middleware.HashSessionToken("brand-proof-token"), UserID: uid, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, CsrfToken: "proof-csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}); e != nil {
 		t.Fatal(e)
 	}
 	conn, e := (&net.ListenConfig{}).ListenPacket(ctx, "udp", "127.0.0.1:0")
@@ -178,11 +178,11 @@ func TestBrandHostProductionHTTPOwnershipAndRevocationPG(t *testing.T) {
 	invoke("verify", 200)
 	invoke("verify", 409)
 	state, err := q.PlatformGetBrandHostLifecycle(ctx, "brand.example.test")
-	if err != nil || state.Status != "verified" || !state.VerifiedAt.Valid {
+	if err != nil || state.Status != "verified" || state.VerifiedAt == 0 {
 		t.Fatal(state, err)
 	}
 	consumed, err := q.PlatformGetBrandHostChallenge(ctx, "brand.example.test")
-	if err != nil || !consumed.ConsumedAt.Valid {
+	if err != nil || consumed.ConsumedAt == 0 {
 		t.Fatal("proof not consumed", err)
 	}
 	// The absent privileged capability must not create a false active state.
@@ -190,7 +190,7 @@ func TestBrandHostProductionHTTPOwnershipAndRevocationPG(t *testing.T) {
 	call("GET", "/public/branding", "brand.example.test", "", "", nil, 421)
 	call("DELETE", "/platform/brand-hosts/brand.example.test", "box.example.test", "brand-proof-token", "proof-csrf", nil, 200)
 	state, err = q.PlatformGetBrandHostLifecycle(ctx, "brand.example.test")
-	if err != nil || state.FailureReason.String != "revoked" || state.VerifiedAt.Valid {
+	if err != nil || state.FailureReason.String != "revoked" || state.VerifiedAt != 0 {
 		t.Fatal("revocation did not erase live proof", state, err)
 	}
 	call("GET", "/public/branding", "brand.example.test", "", "", nil, 421)

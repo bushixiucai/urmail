@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -32,27 +34,27 @@ type RecallHandler struct {
 
 // RecallResponse describes the outcome for one local mailbox copy only.
 type RecallResponse struct {
-	ID               int64              `json:"id"`
-	ArchiveEntryID   pgtype.Int8        `json:"archive_entry_id"`
-	MailboxID        pgtype.Int8        `json:"mailbox_id"`
-	Status           string             `json:"status"`
-	Reason           pgtype.Text        `json:"reason"`
-	Scope            string             `json:"scope"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	PreviewToken     pgtype.Text        `json:"preview_token"`
-	PreviewDigest    pgtype.Text        `json:"preview_digest"`
-	PreviewExpiresAt pgtype.Timestamptz `json:"preview_expires_at"`
-	PreviewActorID   pgtype.Int8        `json:"preview_actor_id"`
-	AttemptEpoch     int64              `json:"attempt_epoch"`
-	SelectedCopyKeys json.RawMessage    `json:"selected_copy_keys"`
-	LocalResult      json.RawMessage    `json:"local_result"`
-	ResultHistory    json.RawMessage    `json:"result_history"`
+	ID               int64           `json:"id"`
+	ArchiveEntryID   pgtype.Int8     `json:"archive_entry_id"`
+	MailboxID        pgtype.Int8     `json:"mailbox_id"`
+	Status           string          `json:"status"`
+	Reason           pgtype.Text     `json:"reason"`
+	Scope            string          `json:"scope"`
+	CreatedAt        time.Time       `json:"created_at"`
+	CompletedAt      time.Time       `json:"completed_at"`
+	PreviewToken     pgtype.Text     `json:"preview_token"`
+	PreviewDigest    pgtype.Text     `json:"preview_digest"`
+	PreviewExpiresAt time.Time       `json:"preview_expires_at"`
+	PreviewActorID   pgtype.Int8     `json:"preview_actor_id"`
+	AttemptEpoch     int64           `json:"attempt_epoch"`
+	SelectedCopyKeys json.RawMessage `json:"selected_copy_keys"`
+	LocalResult      json.RawMessage `json:"local_result"`
+	ResultHistory    json.RawMessage `json:"result_history"`
 }
 
 func recallResponse(r store.RecallRequests) RecallResponse {
 	return RecallResponse{ID: r.ID, ArchiveEntryID: r.ArchiveEntryID, MailboxID: r.MailboxID,
-		Status: r.Status, Reason: r.Reason, Scope: "local_mailbox", CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt, PreviewToken: r.PreviewToken, PreviewDigest: r.PreviewDigest, PreviewExpiresAt: r.PreviewExpiresAt, PreviewActorID: r.PreviewActorID, AttemptEpoch: r.AttemptEpoch, SelectedCopyKeys: json.RawMessage(r.SelectedCopyKeys), LocalResult: json.RawMessage(r.LocalResult), ResultHistory: json.RawMessage(r.ResultHistory)}
+		Status: r.Status, Reason: r.Reason, Scope: "local_mailbox", CreatedAt: timeutil.FromMicro(r.CreatedAt), CompletedAt: timeutil.FromMicro(r.CompletedAt), PreviewToken: r.PreviewToken, PreviewDigest: r.PreviewDigest, PreviewExpiresAt: timeutil.FromMicro(r.PreviewExpiresAt), PreviewActorID: r.PreviewActorID, AttemptEpoch: r.AttemptEpoch, SelectedCopyKeys: json.RawMessage(r.SelectedCopyKeys), LocalResult: json.RawMessage(r.LocalResult), ResultHistory: json.RawMessage(r.ResultHistory)}
 }
 
 // Create persists a request before the agent can act; duplicates reuse the row.

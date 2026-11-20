@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/mail"
@@ -508,13 +509,13 @@ func (h *marketingFlowHandler) instances(c *gin.Context) {
 	for _, p := range rows {
 		state := "pending"
 		switch {
-		case p.StoppedAt.Valid:
+		case p.StoppedAt != 0:
 			state = "stopped"
 		case p.Unsubscribed:
 			state = "unsubscribed"
 		case p.DeliveryUncertain:
 			state = "uncertain"
-			if p.LeaseUntil.Valid && p.LeaseUntil.Time.After(time.Now()) {
+			if p.LeaseUntil != 0 && timeutil.FromMicro(p.LeaseUntil).After(time.Now()) {
 				state = "sending"
 			}
 		case p.Kind == "stop":
@@ -523,7 +524,7 @@ func (h *marketingFlowHandler) instances(c *gin.Context) {
 			state = "paused"
 		case p.LastError != "":
 			state = "failed"
-		case p.WaitUntil.Valid && p.WaitUntil.Time.After(time.Now()):
+		case p.WaitUntil != 0 && timeutil.FromMicro(p.WaitUntil).After(time.Now()):
 			state = "waiting"
 		}
 		instances = append(instances, gin.H{"id": p.ID, "email": p.Email, "node": p.StepKey, "version": p.Version, "state": state, "error_code": p.LastError, "wait_until": p.WaitUntil, "next_attempt_at": p.NextAttemptAt, "attempt_count": p.AttemptCount, "delivery_uncertain": p.DeliveryUncertain, "updated_at": p.UpdatedAt})

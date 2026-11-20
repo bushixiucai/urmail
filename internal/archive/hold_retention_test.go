@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -42,7 +43,7 @@ func TestLegalHoldBlocksRetentionExpiryTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 	queries := store.New(tx)
-	grant, err := queries.CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "retention_manage", Reason: "Explicit destructive retention approval", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, GrantedBy: pgtype.Int8{Int64: user, Valid: true}})
+	grant, err := queries.CreateComplianceGrant(ctx, store.CreateComplianceGrantParams{TenantID: tenant, UserID: user, Scope: "retention_manage", Reason: "Explicit destructive retention approval", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour)), GrantedBy: pgtype.Int8{Int64: user, Valid: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

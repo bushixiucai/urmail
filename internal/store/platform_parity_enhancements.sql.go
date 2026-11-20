@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformDeleteMailboxSnippet = `-- name: PlatformDeleteMailboxSnippet :execrows
@@ -123,26 +121,26 @@ type PlatformInsertContactEnhancedParams struct {
 }
 
 type PlatformInsertContactEnhancedRow struct {
-	ID            int64              `json:"id"`
-	TenantID      int64              `json:"tenant_id"`
-	MailboxID     int64              `json:"mailbox_id"`
-	AddressbookID int64              `json:"addressbook_id"`
-	Version       int64              `json:"version"`
-	DisplayName   string             `json:"display_name"`
-	GivenName     string             `json:"given_name"`
-	FamilyName    string             `json:"family_name"`
-	Emails        []byte             `json:"emails"`
-	Phones        []byte             `json:"phones"`
-	Note          string             `json:"note"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Organization  string             `json:"organization"`
-	JobTitle      string             `json:"job_title"`
-	Addresses     []byte             `json:"addresses"`
-	Birthday      string             `json:"birthday"`
-	Photo         string             `json:"photo"`
-	VcardExtra    []byte             `json:"vcard_extra"`
+	ID            int64  `json:"id"`
+	TenantID      int64  `json:"tenant_id"`
+	MailboxID     int64  `json:"mailbox_id"`
+	AddressbookID int64  `json:"addressbook_id"`
+	Version       int64  `json:"version"`
+	DisplayName   string `json:"display_name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Emails        []byte `json:"emails"`
+	Phones        []byte `json:"phones"`
+	Note          string `json:"note"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	DeletedAt     int64  `json:"deleted_at"`
+	Organization  string `json:"organization"`
+	JobTitle      string `json:"job_title"`
+	Addresses     []byte `json:"addresses"`
+	Birthday      string `json:"birthday"`
+	Photo         string `json:"photo"`
+	VcardExtra    []byte `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformInsertContactEnhanced(ctx context.Context, arg PlatformInsertContactEnhancedParams) (PlatformInsertContactEnhancedRow, error) {
@@ -518,26 +516,26 @@ type PlatformUpdateContactEnhancedParams struct {
 }
 
 type PlatformUpdateContactEnhancedRow struct {
-	ID            int64              `json:"id"`
-	TenantID      int64              `json:"tenant_id"`
-	MailboxID     int64              `json:"mailbox_id"`
-	AddressbookID int64              `json:"addressbook_id"`
-	Version       int64              `json:"version"`
-	DisplayName   string             `json:"display_name"`
-	GivenName     string             `json:"given_name"`
-	FamilyName    string             `json:"family_name"`
-	Emails        []byte             `json:"emails"`
-	Phones        []byte             `json:"phones"`
-	Note          string             `json:"note"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Organization  string             `json:"organization"`
-	JobTitle      string             `json:"job_title"`
-	Addresses     []byte             `json:"addresses"`
-	Birthday      string             `json:"birthday"`
-	Photo         string             `json:"photo"`
-	VcardExtra    []byte             `json:"vcard_extra"`
+	ID            int64  `json:"id"`
+	TenantID      int64  `json:"tenant_id"`
+	MailboxID     int64  `json:"mailbox_id"`
+	AddressbookID int64  `json:"addressbook_id"`
+	Version       int64  `json:"version"`
+	DisplayName   string `json:"display_name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Emails        []byte `json:"emails"`
+	Phones        []byte `json:"phones"`
+	Note          string `json:"note"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	DeletedAt     int64  `json:"deleted_at"`
+	Organization  string `json:"organization"`
+	JobTitle      string `json:"job_title"`
+	Addresses     []byte `json:"addresses"`
+	Birthday      string `json:"birthday"`
+	Photo         string `json:"photo"`
+	VcardExtra    []byte `json:"vcard_extra"`
 }
 
 func (q *Queries) PlatformUpdateContactEnhanced(ctx context.Context, arg PlatformUpdateContactEnhancedParams) (PlatformUpdateContactEnhancedRow, error) {

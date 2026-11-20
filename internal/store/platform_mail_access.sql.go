@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformMailboxAccessStates = `-- name: PlatformMailboxAccessStates :many
@@ -58,9 +56,9 @@ SELECT NULL::timestamptz AS next_boundary
 `
 
 // Sending no longer expires with a subscription. There is no planned boundary.
-func (q *Queries) PlatformNextMailAccessBoundary(ctx context.Context) (pgtype.Timestamptz, error) {
+func (q *Queries) PlatformNextMailAccessBoundary(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, platformNextMailAccessBoundary)
-	var next_boundary pgtype.Timestamptz
+	var next_boundary int64
 	err := row.Scan(&next_boundary)
 	return next_boundary, err
 }

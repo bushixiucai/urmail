@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -139,7 +140,7 @@ func schedulingActions(message appcollab.SchedulingMail, linked *store.MailboxEv
 		if message.Message.Method != collab.MethodReply && linked.Organizer != message.Message.Organizer {
 			return actions
 		}
-		if message.Message.Method != collab.MethodReply && (message.Message.Sequence < int(linked.InvitationSequence) || (message.Message.Sequence == int(linked.InvitationSequence) && linked.InvitationStamp.Valid && message.Message.Stamp.Before(linked.InvitationStamp.Time))) {
+		if message.Message.Method != collab.MethodReply && (message.Message.Sequence < int(linked.InvitationSequence) || (message.Message.Sequence == int(linked.InvitationSequence) && linked.InvitationStamp != 0 && message.Message.Stamp.Before(timeutil.FromMicro(linked.InvitationStamp)))) {
 			return actions
 		}
 	}

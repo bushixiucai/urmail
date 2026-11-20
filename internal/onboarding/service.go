@@ -63,7 +63,7 @@ func (s *Service) credentialManager(ctx context.Context, tenant, domain int64) (
 // DomainDigest binds a plan to the exact verified identity, mode and public
 // signing key. The private DKIM key is never included in a plan or its digest.
 func DomainDigest(d store.PlatformDNSDomainRow, hostname string) (string, []dnsprovider.Record, error) {
-	if d.Status != "active" || !d.VerifiedAt.Valid {
+	if d.Status != "active" || d.VerifiedAt == 0 {
 		return "", nil, errors.New("DNS_OWNERSHIP_REQUIRED")
 	}
 	if !d.DkimPrivateKey.Valid {

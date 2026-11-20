@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"slices"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -139,7 +139,7 @@ func importAggregate(job store.MailboxImportJobs, items []store.MailboxImportIte
 	if job.Status == "preview" || job.Status == "canceled" || job.Status == "held" {
 		return job.Status
 	}
-	if job.LeaseUntil.Valid && job.LeaseUntil.Time.After(time.Now()) && job.LeaseToken != "" {
+	if job.LeaseUntil != 0 && timeutil.FromMicro(job.LeaseUntil).After(time.Now()) && job.LeaseToken != "" {
 		return "running"
 	}
 	pending, unknown, failed := false, false, false
@@ -171,7 +171,7 @@ func importJobDTO(job store.MailboxImportJobs, items []store.MailboxImportItems)
 		views = append(views, importItemDTO(item))
 		counts[item.Status]++
 	}
-	return gin.H{"id": job.ID, "version": job.Version, "status": importAggregate(job, items), "format": job.Format, "filename": job.Filename, "folder_enc": webmail.EncodeFolderName(job.Folder), "uid_validity": job.UidValidity, "source_digest": job.SourceDigest, "preview_digest": job.PreviewDigest, "duplicate_policy": job.DuplicatePolicy, "bytes": job.SourceBytes, "total": len(items), "expires_at": job.PreviewExpiresAt.Time, "payload_expires_at": job.PayloadExpiresAt.Time, "confirmed_at": job.ConfirmedAt, "cancel_requested": job.CancelRequested, "counts": counts, "items": views}
+	return gin.H{"id": job.ID, "version": job.Version, "status": importAggregate(job, items), "format": job.Format, "filename": job.Filename, "folder_enc": webmail.EncodeFolderName(job.Folder), "uid_validity": job.UidValidity, "source_digest": job.SourceDigest, "preview_digest": job.PreviewDigest, "duplicate_policy": job.DuplicatePolicy, "bytes": job.SourceBytes, "total": len(items), "expires_at": timeutil.FromMicro(job.PreviewExpiresAt), "payload_expires_at": timeutil.FromMicro(job.PayloadExpiresAt), "confirmed_at": job.ConfirmedAt, "cancel_requested": job.CancelRequested, "counts": counts, "items": views}
 }
 func importLoad(ctx context.Context, q *store.Queries, sess webmail.Session, id int64, lock bool, payload ...bool) (store.MailboxImportJobs, []store.MailboxImportItems, error) {
 	var job store.MailboxImportJobs
@@ -439,6 +439,6 @@ func importUpdateItem(ctx context.Context, q *store.Queries, item store.MailboxI
 	n, e := q.SetMailboxImportItem(ctx, store.SetMailboxImportItemParams{TenantID: item.TenantID, MailboxID: item.MailboxID, JobID: item.JobID, ItemIndex: item.ItemIndex, Selected: item.Selected, Status: item.Status, ErrorCode: item.ErrorCode, BaselineUids: item.BaselineUids, DestinationUid: item.DestinationUid, StartAttempt: start, Reconciled: reconciled, ReconcileAbsent: item.ReconcileAbsent, ReviewReason: item.ReviewReason, ClearPayload: clearPayload, LeaseFence: fence})
 	return n == 1, e
 }
-func importUpdateJob(ctx context.Context, q *store.Queries, job store.MailboxImportJobs, status, token string, until pgtype.Timestamptz, confirm, cancel bool) (store.MailboxImportJobs, error) {
+func importUpdateJob(ctx context.Context, q *store.Queries, job store.MailboxImportJobs, status, token string, until int64, confirm, cancel bool) (store.MailboxImportJobs, error) {
 	return q.SetMailboxImportJob(ctx, store.SetMailboxImportJobParams{TenantID: job.TenantID, MailboxID: job.MailboxID, JobID: job.ID, ExpectedVersion: job.Version, Status: status, LeaseToken: token, LeaseUntil: until, Confirm: confirm, CancelRequested: cancel})
 }

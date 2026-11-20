@@ -136,9 +136,9 @@ type GetAuditCursorAnchorParams struct {
 }
 
 // scope: tenant
-func (q *Queries) GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (pgtype.Timestamptz, error) {
+func (q *Queries) GetAuditCursorAnchor(ctx context.Context, arg GetAuditCursorAnchorParams) (int64, error) {
 	row := q.db.QueryRow(ctx, getAuditCursorAnchor, arg.TenantID, arg.ID)
-	var created_at pgtype.Timestamptz
+	var created_at int64
 	err := row.Scan(&created_at)
 	return created_at, err
 }

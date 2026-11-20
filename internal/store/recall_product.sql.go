@@ -130,17 +130,17 @@ type RecallMessageCopiesParams struct {
 }
 
 type RecallMessageCopiesRow struct {
-	ID            int64              `json:"id"`
-	MailboxID     pgtype.Int8        `json:"mailbox_id"`
-	Subject       pgtype.Text        `json:"subject"`
-	MessageID     string             `json:"message_id"`
-	LegalHold     bool               `json:"legal_hold"`
-	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
-	Address       sql.NullString     `json:"address"`
-	MailboxStatus sql.NullString     `json:"mailbox_status"`
-	RecallID      sql.NullInt64      `json:"recall_id"`
-	RecallStatus  sql.NullString     `json:"recall_status"`
-	RequestedBy   sql.NullInt64      `json:"requested_by"`
+	ID            int64          `json:"id"`
+	MailboxID     pgtype.Int8    `json:"mailbox_id"`
+	Subject       pgtype.Text    `json:"subject"`
+	MessageID     string         `json:"message_id"`
+	LegalHold     bool           `json:"legal_hold"`
+	DeletedAt     int64          `json:"deleted_at"`
+	Address       sql.NullString `json:"address"`
+	MailboxStatus sql.NullString `json:"mailbox_status"`
+	RecallID      sql.NullInt64  `json:"recall_id"`
+	RecallStatus  sql.NullString `json:"recall_status"`
+	RequestedBy   sql.NullInt64  `json:"requested_by"`
 }
 
 // scope: tenant

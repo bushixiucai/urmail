@@ -82,7 +82,7 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 		reason = "remote_delivery_not_recallable"
 	case target.LegalHold:
 		reason = "legal_hold"
-	case target.MailboxID.Valid && target.ArchiveMailboxID.Valid && target.MailboxID.Int64 == target.ArchiveMailboxID.Int64 && target.Address.Valid && safeKickAddress(target.Address.String) && !target.ArchiveDeletedAt.Valid && target.ArchiveMessageID == target.MessageID && target.TenantStatus == "active" && target.MailboxStatus.String == "active" && target.DomainStatus.String == "active":
+	case target.MailboxID.Valid && target.ArchiveMailboxID.Valid && target.MailboxID.Int64 == target.ArchiveMailboxID.Int64 && target.Address.Valid && safeKickAddress(target.Address.String) && target.ArchiveDeletedAt == 0 && target.ArchiveMessageID == target.MessageID && target.TenantStatus == "active" && target.MailboxStatus.String == "active" && target.DomainStatus.String == "active":
 		// ARC-01: expunge matches on Message-ID, so a second archived copy of
 		// the same message under legal hold would lose its Maildir original
 		// together with the recalled copy. Refuse instead of guessing.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -159,7 +160,7 @@ func TestContentGrantOwnerOnlyAndLegacyConfirmation(t *testing.T) {
 	if _, err := p.Exec(ctx, "INSERT INTO user_tenant_roles(user_id,tenant_id,role) VALUES($1,$2,'admin')", admin, tid); err != nil {
 		t.Fatal(err)
 	}
-	attempt := func(actor int64, reason string, expires pgtype.Timestamptz) error {
+	attempt := func(actor int64, reason string, expires int64) error {
 		tx, err := app.UserTx(ctx, tid, actor)
 		if err != nil {
 			return err
@@ -171,14 +172,14 @@ func TestContentGrantOwnerOnlyAndLegacyConfirmation(t *testing.T) {
 		}
 		return tx.Commit(ctx)
 	}
-	future := pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+	future := timeutil.Micro(time.Now().Add(time.Hour))
 	if err := attempt(admin, "self authorization", future); err == nil {
 		t.Fatal("admin self-authorized content")
 	}
 	if err := attempt(owner, "", future); err == nil {
 		t.Fatal("empty reason accepted")
 	}
-	if err := attempt(owner, "investigation", pgtype.Timestamptz{}); err == nil {
+	if err := attempt(owner, "investigation", 0); err == nil {
 		t.Fatal("unlimited expiry accepted")
 	}
 	if err := attempt(owner, "investigation", future); err != nil {
@@ -192,7 +193,7 @@ func TestContentGrantOwnerOnlyAndLegacyConfirmation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !grant.OwnerConfirmedAt.Valid {
+	if grant.OwnerConfirmedAt == 0 {
 		t.Fatal("owner confirmation not recorded")
 	}
 	if _, err = store.New(tx).GetComplianceGrant(ctx, store.GetComplianceGrantParams{TenantID: tid, UserID: admin, RequiredScope: "export"}); !errors.Is(err, pgx.ErrNoRows) {
@@ -275,7 +276,7 @@ func TestComplianceGrantManagementAPIAndMetadataExport(t *testing.T) {
 	var grant struct {
 		Grant store.ComplianceGrants `json:"grant"`
 	}
-	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &grant) != nil || !grant.Grant.OwnerConfirmedAt.Valid {
+	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &grant) != nil || grant.Grant.OwnerConfirmedAt == 0 {
 		t.Fatalf("owner grant=%d %s", response.Code, response.Body)
 	}
 	for range 2 {

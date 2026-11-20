@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"slices"
 	"strings"
@@ -126,7 +127,7 @@ func (h *MailboxImports) Confirm(c *gin.Context) {
 		h.run(c, sess, job, false)
 		return
 	}
-	if job.Version != in.Version || !job.PreviewExpiresAt.Time.After(time.Now()) || !job.PayloadExpiresAt.Time.After(time.Now()) {
+	if job.Version != in.Version || !timeutil.FromMicro(job.PreviewExpiresAt).After(time.Now()) || !timeutil.FromMicro(job.PayloadExpiresAt).After(time.Now()) {
 		authError(c, 409, "MAIL_IMPORT_PREVIEW_EXPIRED")
 		return
 	}
@@ -166,7 +167,7 @@ func (h *MailboxImports) Confirm(c *gin.Context) {
 			return
 		}
 	}
-	job, e = importUpdateJob(c, q, job, "confirmed", "", pgtype.Timestamptz{}, true, false)
+	job, e = importUpdateJob(c, q, job, "confirmed", "", 0, true, false)
 	if importDBError(c, e) {
 		return
 	}
@@ -246,7 +247,7 @@ func (h *MailboxImports) Retry(c *gin.Context) {
 	if importDBError(c, e) {
 		return
 	}
-	if job.Version != in.Version || !job.ConfirmedAt.Valid || job.Status == "preview" || job.Status == "canceled" || job.LeaseUntil.Valid && job.LeaseUntil.Time.After(time.Now()) {
+	if job.Version != in.Version || job.ConfirmedAt == 0 || job.Status == "preview" || job.Status == "canceled" || job.LeaseUntil != 0 && timeutil.FromMicro(job.LeaseUntil).After(time.Now()) {
 		authError(c, 409, "MAIL_IMPORT_VERSION_CONFLICT")
 		return
 	}
@@ -256,7 +257,7 @@ func (h *MailboxImports) Retry(c *gin.Context) {
 			continue
 		}
 		matches++
-		if !item.Selected || !slices.Contains([]string{"unknown", "failed"}, item.Status) || item.RawSecret == "" || item.Attempts >= 20 || !item.ReconcileAbsent || !item.ReconciledAt.Valid || time.Since(item.ReconciledAt.Time) < 0 || time.Since(item.ReconciledAt.Time) > 5*time.Minute {
+		if !item.Selected || !slices.Contains([]string{"unknown", "failed"}, item.Status) || item.RawSecret == "" || item.Attempts >= 20 || !item.ReconcileAbsent || item.ReconciledAt == 0 || time.Since(timeutil.FromMicro(item.ReconciledAt)) < 0 || time.Since(timeutil.FromMicro(item.ReconciledAt)) > 5*time.Minute {
 			authError(c, 409, "MAIL_IMPORT_REVIEW_REQUIRED")
 			return
 		}
@@ -276,7 +277,7 @@ func (h *MailboxImports) Retry(c *gin.Context) {
 			}
 		}
 	}
-	job, e = importUpdateJob(c, q, job, "confirmed", "", pgtype.Timestamptz{}, false, false)
+	job, e = importUpdateJob(c, q, job, "confirmed", "", 0, false, false)
 	if importDBError(c, e) {
 		return
 	}
@@ -326,7 +327,7 @@ func (h *MailboxImports) Cancel(c *gin.Context) {
 			return
 		}
 	}
-	job, e = importUpdateJob(c, q, job, "canceled", "", pgtype.Timestamptz{}, false, true)
+	job, e = importUpdateJob(c, q, job, "canceled", "", 0, false, true)
 	if importDBError(c, e) {
 		return
 	}
@@ -360,11 +361,11 @@ func (h *MailboxImports) run(c *gin.Context, sess webmail.Session, expected stor
 		authError(c, 409, "MAIL_IMPORT_VERSION_CONFLICT")
 		return
 	}
-	if !job.ConfirmedAt.Valid || job.Status == "preview" || job.Status == "held" && !reconcile || job.CancelRequested && !reconcile {
+	if job.ConfirmedAt == 0 || job.Status == "preview" || job.Status == "held" && !reconcile || job.CancelRequested && !reconcile {
 		authError(c, 409, "MAIL_IMPORT_REVIEW_REQUIRED")
 		return
 	}
-	if job.LeaseUntil.Valid && job.LeaseUntil.Time.After(time.Now()) {
+	if job.LeaseUntil != 0 && timeutil.FromMicro(job.LeaseUntil).After(time.Now()) {
 		authError(c, 409, "MAIL_IMPORT_BUSY")
 		return
 	}
@@ -384,7 +385,7 @@ func (h *MailboxImports) run(c *gin.Context, sess webmail.Session, expected stor
 	}
 	token := uuid.NewString()
 	originalStatus := job.Status
-	job, e = importUpdateJob(ctx, q, job, job.Status, token, pgtype.Timestamptz{Time: time.Now().Add(90 * time.Second), Valid: true}, false, job.CancelRequested)
+	job, e = importUpdateJob(ctx, q, job, job.Status, token, timeutil.Micro(time.Now().Add(90*time.Second)), false, job.CancelRequested)
 	if importDBError(c, e) {
 		return
 	}
@@ -534,7 +535,7 @@ func (h *MailboxImports) saveItem(ctx context.Context, sess webmail.Session, ite
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
 	current, e := q.LockMailboxImportJob(ctx, store.LockMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: item.JobID})
-	if e != nil || current.LeaseToken != token || !current.LeaseUntil.Valid || !current.LeaseUntil.Time.After(time.Now()) {
+	if e != nil || current.LeaseToken != token || current.LeaseUntil == 0 || !timeutil.FromMicro(current.LeaseUntil).After(time.Now()) {
 		return false
 	}
 	valid, e := importUpdateItem(ctx, q, item, token, start, reconciled, clearPayload)
@@ -565,7 +566,7 @@ func (h *MailboxImports) claimItem(ctx context.Context, c *gin.Context, sess web
 	if importDBError(c, e) {
 		return false
 	}
-	if job.LeaseToken != token || job.CancelRequested || !job.LeaseUntil.Valid || !job.LeaseUntil.Time.After(time.Now()) {
+	if job.LeaseToken != token || job.CancelRequested || job.LeaseUntil == 0 || !timeutil.FromMicro(job.LeaseUntil).After(time.Now()) {
 		return false
 	}
 	ready := false
@@ -604,13 +605,13 @@ func (h *MailboxImports) release(c *gin.Context, sess webmail.Session, expected 
 		return
 	}
 	if job.LeaseToken == token {
-		job.LeaseUntil = pgtype.Timestamptz{}
+		job.LeaseUntil = 0
 		job.LeaseToken = ""
 		state := importAggregate(job, items)
 		if originalStatus == "held" || originalStatus == "canceled" {
 			state = originalStatus
 		}
-		job, e = importUpdateJob(ctx, q, job, state, "", pgtype.Timestamptz{}, false, job.CancelRequested)
+		job, e = importUpdateJob(ctx, q, job, state, "", 0, false, job.CancelRequested)
 		if e != nil {
 			return
 		}

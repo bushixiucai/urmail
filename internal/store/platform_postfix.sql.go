@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const aliasWouldCycle = `-- name: AliasWouldCycle :one
@@ -89,12 +87,12 @@ ORDER BY d.fqdn ASC
 `
 
 type PlatformListDomainsRow struct {
-	Fqdn              string             `json:"fqdn"`
-	Status            string             `json:"status"`
-	Mode              string             `json:"mode"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ProvisioningState string             `json:"provisioning_state"`
-	DnsExplicit       bool               `json:"dns_explicit"`
+	Fqdn              string `json:"fqdn"`
+	Status            string `json:"status"`
+	Mode              string `json:"mode"`
+	UpdatedAt         int64  `json:"updated_at"`
+	ProvisioningState string `json:"provisioning_state"`
+	DnsExplicit       bool   `json:"dns_explicit"`
 }
 
 // Platform query for Postfix configuration generator.

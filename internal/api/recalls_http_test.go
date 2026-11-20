@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,7 +52,7 @@ func (a *reviewedHTTPAgent) PreviewRecall(ctx context.Context, tenant, entry, ac
 	if err != nil {
 		return recall.Snapshot{}, err
 	}
-	snapshot := recall.Snapshot{Version: 1, TenantID: tenant, ActorID: actor, EntryID: entry, MailboxID: source.MailboxID.Int64, Address: source.Address.String, MessageID: source.MessageID, OriginalSHA256: source.OriginalSha256, Held: source.LegalHold, HoldConflict: source.HoldConflict, Deleted: source.DeletedAt.Valid, TenantStatus: source.TenantStatus, MailboxStatus: source.MailboxStatus.String, DomainStatus: source.DomainStatus.String}
+	snapshot := recall.Snapshot{Version: 1, TenantID: tenant, ActorID: actor, EntryID: entry, MailboxID: source.MailboxID.Int64, Address: source.Address.String, MessageID: source.MessageID, OriginalSHA256: source.OriginalSha256, Held: source.LegalHold, HoldConflict: source.HoldConflict, Deleted: source.DeletedAt != 0, TenantStatus: source.TenantStatus, MailboxStatus: source.MailboxStatus.String, DomainStatus: source.DomainStatus.String}
 	if err = json.Unmarshal(source.Sources, &snapshot.Sources); err != nil {
 		return recall.Snapshot{}, err
 	}
@@ -151,7 +152,7 @@ func TestRecallHTTPWithRealRoles(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, e = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, ID: middleware.HashSessionToken(session.token), UserID: session.uid, TenantID: pgtype.Int8{Int64: session.tid, Valid: true}, CsrfToken: "csrf", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}); e != nil {
+		if _, e = q.CreateSession(ctx, store.CreateSessionParams{ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, ID: middleware.HashSessionToken(session.token), UserID: session.uid, TenantID: pgtype.Int8{Int64: session.tid, Valid: true}, CsrfToken: "csrf", ExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}); e != nil {
 			t.Fatal(e)
 		}
 	}

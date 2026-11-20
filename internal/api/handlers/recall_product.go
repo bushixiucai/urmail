@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"sort"
@@ -172,7 +173,7 @@ func (h *RecallHandler) Preview(c *gin.Context) {
 			switch {
 			case !source.MailboxID.Valid:
 				projection["reason"] = "remote_delivery_not_recallable"
-			case source.DeletedAt.Valid:
+			case source.DeletedAt != 0:
 				projection["reason"] = "archive_source_deleted"
 			default:
 				snapshot, readErr := reviewer.PreviewRecall(ctx, tenant, source.ID, actor)
@@ -362,7 +363,7 @@ func (h *RecallHandler) confirmReviewed(c *gin.Context) {
 			encoded, _ := json.Marshal(keys)
 			selections = append(selections, encoded)
 			if persisted.Status == "preview" {
-				if !persisted.PreviewExpiresAt.Valid || !persisted.PreviewExpiresAt.Time.After(time.Now()) {
+				if persisted.PreviewExpiresAt == 0 || !timeutil.FromMicro(persisted.PreviewExpiresAt).After(time.Now()) {
 					authError(c, 409, "RECALL_REVIEW_STALE")
 					return
 				}

@@ -47,24 +47,24 @@ type CreateDomainParams struct {
 }
 
 type CreateDomainRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -135,24 +135,24 @@ type GetDomainByFQDNParams struct {
 }
 
 type GetDomainByFQDNRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -195,24 +195,24 @@ type GetDomainByIDParams struct {
 }
 
 type GetDomainByIDRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -251,24 +251,24 @@ ORDER BY fqdn ASC
 `
 
 type ListDomainsByTenantRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -328,13 +328,13 @@ type RotateDomainChallengeParams struct {
 }
 
 type RotateDomainChallengeRow struct {
-	ID                    int64              `json:"id"`
-	Fqdn                  string             `json:"fqdn"`
-	VerificationToken     string             `json:"verification_token"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64  `json:"id"`
+	Fqdn                  string `json:"fqdn"`
+	VerificationToken     string `json:"verification_token"`
+	VerificationIssuedAt  int64  `json:"verification_issued_at"`
+	VerificationExpiresAt int64  `json:"verification_expires_at"`
+	ProvisioningState     string `json:"provisioning_state"`
+	DnsExplicit           bool   `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -371,24 +371,24 @@ type UpdateDomainModeStatusParams struct {
 }
 
 type UpdateDomainModeStatusRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -432,31 +432,31 @@ RETURNING id, tenant_id, fqdn, mode, status, dns_provider, provider_ref, verific
 `
 
 type UpdateDomainStatusParams struct {
-	TenantID   int64              `json:"tenant_id"`
-	ID         int64              `json:"id"`
-	Status     string             `json:"status"`
-	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
+	TenantID   int64  `json:"tenant_id"`
+	ID         int64  `json:"id"`
+	Status     string `json:"status"`
+	VerifiedAt int64  `json:"verified_at"`
 }
 
 type UpdateDomainStatusRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant
@@ -511,24 +511,24 @@ type VerifyDomainChallengeParams struct {
 }
 
 type VerifyDomainChallengeRow struct {
-	ID                    int64              `json:"id"`
-	TenantID              int64              `json:"tenant_id"`
-	Fqdn                  string             `json:"fqdn"`
-	Mode                  string             `json:"mode"`
-	Status                string             `json:"status"`
-	DnsProvider           pgtype.Text        `json:"dns_provider"`
-	ProviderRef           pgtype.Text        `json:"provider_ref"`
-	VerificationToken     string             `json:"verification_token"`
-	VerifiedAt            pgtype.Timestamptz `json:"verified_at"`
-	MxHost                pgtype.Text        `json:"mx_host"`
-	TlsMode               string             `json:"tls_mode"`
-	DkimSelector          string             `json:"dkim_selector"`
-	DkimPrivateKey        pgtype.Text        `json:"dkim_private_key"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	VerificationIssuedAt  pgtype.Timestamptz `json:"verification_issued_at"`
-	VerificationExpiresAt pgtype.Timestamptz `json:"verification_expires_at"`
-	ProvisioningState     string             `json:"provisioning_state"`
-	DnsExplicit           bool               `json:"dns_explicit"`
+	ID                    int64       `json:"id"`
+	TenantID              int64       `json:"tenant_id"`
+	Fqdn                  string      `json:"fqdn"`
+	Mode                  string      `json:"mode"`
+	Status                string      `json:"status"`
+	DnsProvider           pgtype.Text `json:"dns_provider"`
+	ProviderRef           pgtype.Text `json:"provider_ref"`
+	VerificationToken     string      `json:"verification_token"`
+	VerifiedAt            int64       `json:"verified_at"`
+	MxHost                pgtype.Text `json:"mx_host"`
+	TlsMode               string      `json:"tls_mode"`
+	DkimSelector          string      `json:"dkim_selector"`
+	DkimPrivateKey        pgtype.Text `json:"dkim_private_key"`
+	CreatedAt             int64       `json:"created_at"`
+	VerificationIssuedAt  int64       `json:"verification_issued_at"`
+	VerificationExpiresAt int64       `json:"verification_expires_at"`
+	ProvisioningState     string      `json:"provisioning_state"`
+	DnsExplicit           bool        `json:"dns_explicit"`
 }
 
 // scope: tenant

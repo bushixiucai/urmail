@@ -2,10 +2,9 @@ package handlers
 
 import (
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -34,17 +33,17 @@ func TestAIProviderBudgetAdmissionClockSurvivesOldTransactionDayAndMonthPG(t *te
 				if boundary == "month" {
 					admitted = time.Date(oldClock.Year(), oldClock.Month()+1, 1, 0, 0, 1, 0, oldClock.Location())
 				}
-				instant := pgtype.Timestamptz{Time: admitted, Valid: true}
+				instant := timeutil.Micro(admitted)
 				var row store.AiUsageRequests
 				if query == "metered" {
-					row, err = q.PlatformReserveAIRequest(t.Context(), store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: "clock-fixture-metered-key", InputDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", PeriodStart: pgtype.Timestamptz{Time: oldClock.Add(-time.Hour), Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: admitted.Add(24 * time.Hour), Valid: true}, Mode: "platform", Provider: "openai", Model: "clock-fixture", CostCurrency: "CNY", ReservedTokens: 100, ReservedCostMicros: 0, CallLimit: 10, MailboxCallLimit: 10, ConcurrencyLimit: 10, TokenLimit: 1000, CostLimit: 1000, AccountedAt: instant})
+					row, err = q.PlatformReserveAIRequest(t.Context(), store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: "clock-fixture-metered-key", InputDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", PeriodStart: timeutil.Micro(oldClock.Add(-time.Hour)), PeriodEnd: timeutil.Micro(admitted.Add(24 * time.Hour)), Mode: "platform", Provider: "openai", Model: "clock-fixture", CostCurrency: "CNY", ReservedTokens: 100, ReservedCostMicros: 0, CallLimit: 10, MailboxCallLimit: 10, ConcurrencyLimit: 10, TokenLimit: 1000, CostLimit: 1000, AccountedAt: instant})
 				} else {
-					row, err = q.PlatformReserveMailboxAIRequest(t.Context(), store.PlatformReserveMailboxAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: "clock-fixture-legacy-key", InputDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", PeriodStart: pgtype.Timestamptz{Time: oldClock.Add(-time.Hour), Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: admitted.Add(24 * time.Hour), Valid: true}, Mode: "platform", Provider: "openai", Model: "clock-fixture", CostCurrency: "CNY", ReservedTokens: 100, ReservedCostMicros: 0, AccountedAt: instant})
+					row, err = q.PlatformReserveMailboxAIRequest(t.Context(), store.PlatformReserveMailboxAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: "clock-fixture-legacy-key", InputDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", PeriodStart: timeutil.Micro(oldClock.Add(-time.Hour)), PeriodEnd: timeutil.Micro(admitted.Add(24 * time.Hour)), Mode: "platform", Provider: "openai", Model: "clock-fixture", CostCurrency: "CNY", ReservedTokens: 100, ReservedCostMicros: 0, AccountedAt: instant})
 				}
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !row.CreatedAt.Time.Equal(admitted) || !row.UpdatedAt.Time.Equal(admitted) || !row.CreatedAt.Time.After(oldClock) {
+				if !timeutil.FromMicro(row.CreatedAt).Equal(admitted) || !timeutil.FromMicro(row.UpdatedAt).Equal(admitted) || !timeutil.FromMicro(row.CreatedAt).After(oldClock) {
 					t.Fatal("reservation silently used the old transaction clock", row.CreatedAt, row.UpdatedAt, oldClock)
 				}
 				config := store.AiProviderConfigs{DailyTokenLimit: 100}

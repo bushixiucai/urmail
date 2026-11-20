@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
@@ -112,7 +111,7 @@ func marketingFixture(t *testing.T, limit int, recipients int) campaignFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := store.New(tx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: f.tenant, CampaignID: f.campaign, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}})
+	result, err := store.New(tx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: f.tenant, CampaignID: f.campaign, ScheduledAt: timeutil.Micro(time.Now().Add(-time.Minute))})
 	if err != nil || result != "scheduled" {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("schedule: %s %v", result, err)
@@ -428,7 +427,7 @@ func TestCampaignConfirmAuthorizationSnapshotAndSuppression(t *testing.T) {
 		return err
 	}, "created a campaign")
 	memberProbe(func(sq *store.Queries) error {
-		_, err := sq.ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}})
+		_, err := sq.ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: timeutil.Micro(time.Now().Add(-time.Minute))})
 		return err
 	}, "confirmed a campaign")
 	// The owner confirms; the suppressed contact stays out of the recipients.
@@ -437,7 +436,7 @@ func TestCampaignConfirmAuthorizationSnapshotAndSuppression(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = ownerTx.Rollback(ctx) }()
-	result, err := store.New(ownerTx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}})
+	result, err := store.New(ownerTx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: timeutil.Micro(time.Now().Add(-time.Minute))})
 	if err != nil || result != "scheduled" {
 		_ = ownerTx.Rollback(ctx)
 		t.Fatalf("owner schedule: %s %v", result, err)
@@ -462,7 +461,7 @@ func TestCampaignConfirmAuthorizationSnapshotAndSuppression(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = ownerTx.Rollback(ctx) }()
-	if result, err = store.New(ownerTx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}}); err != nil || result != "scheduled" {
+	if result, err = store.New(ownerTx).ScheduleMarketingCampaign(ctx, store.ScheduleMarketingCampaignParams{TenantID: tenant, CampaignID: campaign.ID, ScheduledAt: timeutil.Micro(time.Now().Add(-time.Minute))}); err != nil || result != "scheduled" {
 		_ = ownerTx.Rollback(ctx)
 		t.Fatalf("duplicate schedule: %s %v", result, err)
 	}

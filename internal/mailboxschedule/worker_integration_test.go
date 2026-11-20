@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/secrets"
@@ -43,7 +43,7 @@ func createDueSchedule(t *testing.T, q *store.Queries, tenant, mailbox, uid int6
 	t.Helper()
 	row, err := q.PlatformCreateMailboxScheduledSend(context.Background(), store.PlatformCreateMailboxScheduledSendParams{
 		TenantID: tenant, MailboxID: mailbox, DraftFolder: "Drafts", DraftUid: uid, DraftUidvalidity: 9,
-		SendAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}, SmtpSecret: "enc:fixture", IdempotencyKey: fmt.Sprintf("fixture-request-%d", uid), RequestHash: "fixture",
+		SendAt: timeutil.Micro(time.Now().Add(-time.Minute)), SmtpSecret: "enc:fixture", IdempotencyKey: fmt.Sprintf("fixture-request-%d", uid), RequestHash: "fixture",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestScheduleAcceptedCopyDurabilityAndOwnerFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.Status != "sent" || accepted.SentCopyState != "pending" || accepted.SentRawSecret != "enc:v1:"+string(raw) || !accepted.SentAt.Valid || accepted.SmtpSecret == "" {
+	if accepted.Status != "sent" || accepted.SentCopyState != "pending" || accepted.SentRawSecret != "enc:v1:"+string(raw) || accepted.SentAt == 0 || accepted.SmtpSecret == "" {
 		t.Fatal("acceptance and repair payload not atomic")
 	}
 	if _, err = q.PlatformClaimOwnedScheduledSentCopy(ctx, store.PlatformClaimOwnedScheduledSentCopyParams{TenantID: tenant + 100, MailboxID: mailbox, ID: original.ID}); !errors.Is(err, pgx.ErrNoRows) {

@@ -36,12 +36,12 @@ UPDATE collector_checkpoints SET source_identity=$2,generation=$3,byte_offset=$4
 `
 
 type PlatformAdvanceCollectorCheckpointParams struct {
-	Stream         string             `json:"stream"`
-	SourceIdentity string             `json:"source_identity"`
-	Generation     int64              `json:"generation"`
-	ByteOffset     int64              `json:"byte_offset"`
-	GapReason      pgtype.Text        `json:"gap_reason"`
-	ObservedAt     pgtype.Timestamptz `json:"observed_at"`
+	Stream         string      `json:"stream"`
+	SourceIdentity string      `json:"source_identity"`
+	Generation     int64       `json:"generation"`
+	ByteOffset     int64       `json:"byte_offset"`
+	GapReason      pgtype.Text `json:"gap_reason"`
+	ObservedAt     int64       `json:"observed_at"`
 }
 
 func (q *Queries) PlatformAdvanceCollectorCheckpoint(ctx context.Context, arg PlatformAdvanceCollectorCheckpointParams) error {
@@ -189,15 +189,15 @@ ON CONFLICT(stream,instance,queue_id) DO UPDATE SET lifecycle_id=EXCLUDED.lifecy
 `
 
 type PlatformPutDeliveryQueueContextParams struct {
-	Stream               string             `json:"stream"`
-	Instance             string             `json:"instance"`
-	QueueID              string             `json:"queue_id"`
-	LifecycleID          string             `json:"lifecycle_id"`
-	MessageID            string             `json:"message_id"`
-	AuthenticatedMailbox string             `json:"authenticated_mailbox"`
-	Sender               string             `json:"sender"`
-	StartedAt            pgtype.Timestamptz `json:"started_at"`
-	Closed               bool               `json:"closed"`
+	Stream               string `json:"stream"`
+	Instance             string `json:"instance"`
+	QueueID              string `json:"queue_id"`
+	LifecycleID          string `json:"lifecycle_id"`
+	MessageID            string `json:"message_id"`
+	AuthenticatedMailbox string `json:"authenticated_mailbox"`
+	Sender               string `json:"sender"`
+	StartedAt            int64  `json:"started_at"`
+	Closed               bool   `json:"closed"`
 }
 
 func (q *Queries) PlatformPutDeliveryQueueContext(ctx context.Context, arg PlatformPutDeliveryQueueContextParams) error {
@@ -224,10 +224,10 @@ WHERE c.stream=$1 AND c.instance=$2 AND c.queue_id=$3 AND c.closed=false
 `
 
 type PlatformQueueAuthenticatedTenantParams struct {
-	Stream   string             `json:"stream"`
-	Instance string             `json:"instance"`
-	QueueID  string             `json:"queue_id"`
-	Column4  pgtype.Timestamptz `json:"column_4"`
+	Stream   string `json:"stream"`
+	Instance string `json:"instance"`
+	QueueID  string `json:"queue_id"`
+	Column4  int64  `json:"column_4"`
 }
 
 func (q *Queries) PlatformQueueAuthenticatedTenant(ctx context.Context, arg PlatformQueueAuthenticatedTenantParams) (int64, error) {
@@ -250,22 +250,22 @@ ON CONFLICT DO NOTHING
 `
 
 type PlatformRecordCollectedDeliveryEventParams struct {
-	TenantID        pgtype.Int8        `json:"tenant_id"`
-	Instance        string             `json:"instance"`
-	QueueID         string             `json:"queue_id"`
-	MessageID       pgtype.Text        `json:"message_id"`
-	Sender          string             `json:"sender"`
-	SenderDomain    string             `json:"sender_domain"`
-	Recipient       pgtype.Text        `json:"recipient"`
-	RecipientDomain pgtype.Text        `json:"recipient_domain"`
-	Relay           pgtype.Text        `json:"relay"`
-	Status          string             `json:"status"`
-	Dsn             pgtype.Text        `json:"dsn"`
-	DelaySeconds    float64            `json:"delay_seconds"`
-	ResponseDetail  pgtype.Text        `json:"response_detail"`
-	OccurredAt      pgtype.Timestamptz `json:"occurred_at"`
-	SourceEventID   string             `json:"source_event_id"`
-	LifecycleID     string             `json:"lifecycle_id"`
+	TenantID        pgtype.Int8 `json:"tenant_id"`
+	Instance        string      `json:"instance"`
+	QueueID         string      `json:"queue_id"`
+	MessageID       pgtype.Text `json:"message_id"`
+	Sender          string      `json:"sender"`
+	SenderDomain    string      `json:"sender_domain"`
+	Recipient       pgtype.Text `json:"recipient"`
+	RecipientDomain pgtype.Text `json:"recipient_domain"`
+	Relay           pgtype.Text `json:"relay"`
+	Status          string      `json:"status"`
+	Dsn             pgtype.Text `json:"dsn"`
+	DelaySeconds    float64     `json:"delay_seconds"`
+	ResponseDetail  pgtype.Text `json:"response_detail"`
+	OccurredAt      int64       `json:"occurred_at"`
+	SourceEventID   string      `json:"source_event_id"`
+	LifecycleID     string      `json:"lifecycle_id"`
 }
 
 func (q *Queries) PlatformRecordCollectedDeliveryEvent(ctx context.Context, arg PlatformRecordCollectedDeliveryEventParams) (int64, error) {

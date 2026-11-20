@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const cancelQueuedMarketingRecipients = `-- name: CancelQueuedMarketingRecipients :execrows
@@ -285,12 +283,12 @@ SELECT id,tenant_id,name,kind,enabled,created_at FROM marketing_channels WHERE t
 `
 
 type ListMarketingChannelsRow struct {
-	ID        int64              `json:"id"`
-	TenantID  int64              `json:"tenant_id"`
-	Name      string             `json:"name"`
-	Kind      string             `json:"kind"`
-	Enabled   bool               `json:"enabled"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64  `json:"id"`
+	TenantID  int64  `json:"tenant_id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 // scope: tenant

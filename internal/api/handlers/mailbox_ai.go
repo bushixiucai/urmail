@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"math/big"
 	"net/http"
@@ -110,7 +111,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if err = q.PlatformLockBillingTenant(ctx, principal.TenantID); err != nil {
 		return nil, ai.ResultMeta{}, err
 	}
-	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !session.ExpiresAt.Time.After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
+	if session, sessionErr := q.PlatformGetMailboxSession(ctx, principal.SessionHash); sessionErr != nil || session.TenantID != principal.TenantID || session.MailboxID != principal.MailboxID || !timeutil.FromMicro(session.ExpiresAt).After(time.Now()) || !mailboxprincipal.ValidReference(principal.Scope, principal.Folder, principal.MessageUid, principal.UidValidity) {
 		return nil, ai.ResultMeta{}, ai.ErrUnauthorized
 	}
 	// Result cache (TECH §4): a validated answer for the identical
@@ -191,8 +192,8 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 			quota = aiQuotaResolution{
 				Source:      "personal_byok",
 				Independent: true,
-				Start:       pgtype.Timestamptz{Time: budgetNow.Add(-time.Minute), Valid: true},
-				End:         pgtype.Timestamptz{Time: budgetNow.Add(time.Minute), Valid: true},
+				Start:       timeutil.Micro(budgetNow.Add(-time.Minute)),
+				End:         timeutil.Micro(budgetNow.Add(time.Minute)),
 			}
 			quota.Limits.AI.Calls = 60
 			quota.Limits.AI.MailboxCalls = 60
@@ -268,7 +269,7 @@ func (s *MailboxAIService) run(ctx context.Context, principal store.PlatformCons
 	if err != nil {
 		return nil, ai.ResultMeta{}, err
 	}
-	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: pgtype.Timestamptz{Time: budgetNow, Valid: true}, IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
+	reservation, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{TenantID: principal.TenantID, MailboxID: principal.MailboxID, RequestKey: key, InputDigest: hash, AccountedAt: timeutil.Micro(budgetNow), IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ai.ResultMeta{}, errAIBudget
 	}

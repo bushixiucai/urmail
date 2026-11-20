@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"log"
 	"math"
 	"strconv"
@@ -190,8 +191,8 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 			quota = aiQuotaResolution{
 				Source:      "personal_byok",
 				Independent: true,
-				Start:       pgtype.Timestamptz{Time: now.Add(-time.Minute), Valid: true},
-				End:         pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true},
+				Start:       timeutil.Micro(now.Add(-time.Minute)),
+				End:         timeutil.Micro(now.Add(time.Minute)),
 			}
 			quota.Limits.AI.Calls = 60
 			quota.Limits.AI.MailboxCalls = 60
@@ -228,7 +229,7 @@ func (h AISearchAskAccounting) reserve(ctx context.Context, tenantID, mailboxID 
 		tokenLimit, costLimit = math.MaxInt64, math.MaxInt64
 	}
 	row, err := q.PlatformReserveAIRequest(ctx, store.PlatformReserveAIRequestParams{
-		TenantID: tenantID, MailboxID: mailboxID, RequestKey: "ask-" + hex.EncodeToString(key), InputDigest: hex.EncodeToString(digest[:]), AccountedAt: pgtype.Timestamptz{Time: now, Valid: true}, IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit,
+		TenantID: tenantID, MailboxID: mailboxID, RequestKey: "ask-" + hex.EncodeToString(key), InputDigest: hex.EncodeToString(digest[:]), AccountedAt: timeutil.Micro(now), IndependentWindow: quota.Independent, PeriodStart: start, PeriodEnd: end, Mode: cfg.Mode, Provider: cfg.Provider, Model: cfg.Model, CostCurrency: cfg.CostCurrency, InputRate: cfg.InputMicrosPerMillion, OutputRate: cfg.OutputMicrosPerMillion, ReservedTokens: reservedTokens, ReservedCostMicros: reservedCost, CallLimit: limits.AI.Calls, MailboxCallLimit: limits.AI.MailboxCalls, ConcurrencyLimit: limits.AI.Concurrency, TokenLimit: tokenLimit, CostLimit: costLimit,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAIBudgetExceeded
@@ -283,7 +284,7 @@ func (r *AIUsageReservation) Settle(providerErr error, usageKnown bool, promptTo
 
 // budgetUsage sums one usage window through the accounting queries.
 func budgetUsage(ctx context.Context, q *store.Queries, tenantID int64, start, end time.Time) (AIBudget, error) {
-	row, err := q.PlatformSumAIUsageBetween(ctx, store.PlatformSumAIUsageBetweenParams{TenantID: tenantID, WindowStart: pgtype.Timestamptz{Time: start, Valid: true}, WindowEnd: pgtype.Timestamptz{Time: end, Valid: true}})
+	row, err := q.PlatformSumAIUsageBetween(ctx, store.PlatformSumAIUsageBetweenParams{TenantID: tenantID, WindowStart: timeutil.Micro(start), WindowEnd: timeutil.Micro(end)})
 	if err != nil {
 		return AIBudget{}, err
 	}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"time"
 
@@ -153,7 +154,7 @@ func (c *Collector) Apply(ctx context.Context, expected store.CollectorCheckpoin
 			return stateErr
 		}
 		if errors.Is(stateErr, pgx.ErrNoRows) || event.SMTPClientRecord || event.QueueID == "NOQUEUE" || state.Closed || (event.MessageID != "" && state.MessageID != "" && event.MessageID != state.MessageID) {
-			state = store.DeliveryQueueContexts{Stream: c.Stream, Instance: instance, QueueID: event.QueueID, LifecycleID: identity, StartedAt: pgtype.Timestamptz{Time: event.Timestamp, Valid: true}}
+			state = store.DeliveryQueueContexts{Stream: c.Stream, Instance: instance, QueueID: event.QueueID, LifecycleID: identity, StartedAt: timeutil.Micro(event.Timestamp)}
 		}
 		if event.MessageID != "" {
 			state.MessageID = event.MessageID
@@ -194,7 +195,7 @@ func (c *Collector) Apply(ctx context.Context, expected store.CollectorCheckpoin
 		if at := strings.LastIndexByte(sender, '@'); at >= 0 {
 			senderDomain = sender[at+1:]
 		}
-		inserted, insertErr := q.PlatformRecordCollectedDeliveryEvent(ctx, store.PlatformRecordCollectedDeliveryEventParams{TenantID: tenant, Instance: instance, QueueID: event.QueueID, MessageID: text(state.MessageID), Sender: sender, SenderDomain: senderDomain, Recipient: text(event.Recipient), RecipientDomain: text(event.RecipientDomain), Relay: text(event.Relay), Status: event.Status, Dsn: text(event.DSN), DelaySeconds: event.DelaySeconds, ResponseDetail: text(bounded(event.ResponseDetail, 2048)), OccurredAt: pgtype.Timestamptz{Time: event.Timestamp, Valid: true}, SourceEventID: identity, LifecycleID: state.LifecycleID})
+		inserted, insertErr := q.PlatformRecordCollectedDeliveryEvent(ctx, store.PlatformRecordCollectedDeliveryEventParams{TenantID: tenant, Instance: instance, QueueID: event.QueueID, MessageID: text(state.MessageID), Sender: sender, SenderDomain: senderDomain, Recipient: text(event.Recipient), RecipientDomain: text(event.RecipientDomain), Relay: text(event.Relay), Status: event.Status, Dsn: text(event.DSN), DelaySeconds: event.DelaySeconds, ResponseDetail: text(bounded(event.ResponseDetail, 2048)), OccurredAt: timeutil.Micro(event.Timestamp), SourceEventID: identity, LifecycleID: state.LifecycleID})
 		if insertErr != nil {
 			return insertErr
 		}
@@ -202,7 +203,12 @@ func (c *Collector) Apply(ctx context.Context, expected store.CollectorCheckpoin
 			statuses[event.Status]++
 		}
 	}
-	observation := pgtype.Timestamptz{Time: batch.ObservedAt, Valid: !batch.MoreAvailable}
+	// A partially drained batch records no observation time; the checkpoint
+	// keeps the previous one until the batch is complete.
+	observation := int64(0)
+	if !batch.MoreAvailable {
+		observation = timeutil.Micro(batch.ObservedAt)
+	}
 	if err = q.PlatformAdvanceCollectorCheckpoint(ctx, store.PlatformAdvanceCollectorCheckpointParams{Stream: c.Stream, SourceIdentity: batch.Identity, Generation: generation, ByteOffset: batch.EndOffset, GapReason: text(batch.GapReason), ObservedAt: observation}); err != nil {
 		return err
 	}

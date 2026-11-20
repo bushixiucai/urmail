@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -47,15 +49,15 @@ func NewMailboxHandler(s MailboxStore, r ReconcileTrigger) *MailboxHandler {
 // hash and the Sieve script stay server-side; display_name is flattened from
 // the nullable column into a plain string or null.
 type MailboxResponse struct {
-	ID          int64              `json:"id"`
-	DomainID    int64              `json:"domain_id"`
-	LocalPart   string             `json:"local_part"`
-	Address     string             `json:"address"`
-	DisplayName *string            `json:"display_name"`
-	QuotaBytes  int64              `json:"quota_bytes"`
-	Status      string             `json:"status"`
-	SendEnabled bool               `json:"send_enabled"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          int64     `json:"id"`
+	DomainID    int64     `json:"domain_id"`
+	LocalPart   string    `json:"local_part"`
+	Address     string    `json:"address"`
+	DisplayName *string   `json:"display_name"`
+	QuotaBytes  int64     `json:"quota_bytes"`
+	Status      string    `json:"status"`
+	SendEnabled bool      `json:"send_enabled"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func newMailboxResponse(m store.Mailboxes) MailboxResponse {
@@ -68,7 +70,7 @@ func newMailboxResponse(m store.Mailboxes) MailboxResponse {
 		QuotaBytes:  m.QuotaBytes,
 		Status:      m.Status,
 		SendEnabled: m.SendEnabled,
-		CreatedAt:   m.CreatedAt,
+		CreatedAt:   timeutil.FromMicro(m.CreatedAt),
 	}
 }
 
@@ -425,6 +427,6 @@ func (h *MailboxHandler) UpdateSettings(c *gin.Context) {
 		ID: updated.ID, DomainID: updated.DomainID, LocalPart: updated.LocalPart,
 		Address: updated.Address, DisplayName: textPtr(updated.DisplayName),
 		QuotaBytes: updated.QuotaBytes, Status: updated.Status,
-		SendEnabled: updated.SendEnabled, CreatedAt: updated.CreatedAt,
+		SendEnabled: updated.SendEnabled, CreatedAt: timeutil.FromMicro(updated.CreatedAt),
 	}})
 }

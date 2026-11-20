@@ -21,12 +21,12 @@ INSERT INTO compliance_grants (
 `
 
 type CreateComplianceGrantParams struct {
-	TenantID  int64              `json:"tenant_id"`
-	UserID    int64              `json:"user_id"`
-	Scope     string             `json:"scope"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	Reason    string             `json:"reason"`
-	GrantedBy pgtype.Int8        `json:"granted_by"`
+	TenantID  int64       `json:"tenant_id"`
+	UserID    int64       `json:"user_id"`
+	Scope     string      `json:"scope"`
+	ExpiresAt int64       `json:"expires_at"`
+	Reason    string      `json:"reason"`
+	GrantedBy pgtype.Int8 `json:"granted_by"`
 }
 
 // scope: tenant

@@ -1,11 +1,10 @@
 package loadbench
 
 import (
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func pgtypeT(t time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: t, Valid: true}
+func pgtypeT(t time.Time) int64 {
+	return timeutil.Micro(t)
 }

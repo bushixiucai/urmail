@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformAcknowledgeCalendarReminder = `-- name: PlatformAcknowledgeCalendarReminder :execrows
@@ -54,14 +52,14 @@ WHERE tenant_id=$1 AND mailbox_id=$2 AND id=$3 AND (organizer='' OR organizer=$4
 `
 
 type PlatformBindSchedulingEventParams struct {
-	TenantID           int64              `json:"tenant_id"`
-	MailboxID          int64              `json:"mailbox_id"`
-	ID                 int64              `json:"id"`
-	Organizer          string             `json:"organizer"`
-	InvitationSequence int32              `json:"invitation_sequence"`
-	InvitationStamp    pgtype.Timestamptz `json:"invitation_stamp"`
-	InvitationDigest   string             `json:"invitation_digest"`
-	InvitationResponse string             `json:"invitation_response"`
+	TenantID           int64  `json:"tenant_id"`
+	MailboxID          int64  `json:"mailbox_id"`
+	ID                 int64  `json:"id"`
+	Organizer          string `json:"organizer"`
+	InvitationSequence int32  `json:"invitation_sequence"`
+	InvitationStamp    int64  `json:"invitation_stamp"`
+	InvitationDigest   string `json:"invitation_digest"`
+	InvitationResponse string `json:"invitation_response"`
 }
 
 func (q *Queries) PlatformBindSchedulingEvent(ctx context.Context, arg PlatformBindSchedulingEventParams) (int64, error) {
@@ -85,9 +83,9 @@ const platformCalendarRestoreCutoff = `-- name: PlatformCalendarRestoreCutoff :o
 SELECT COALESCE((value->>'restored_at')::timestamptz,updated_at)::timestamptz AS restored_at FROM settings WHERE scope='platform' AND scope_id=0 AND key='restore_replay_review'
 `
 
-func (q *Queries) PlatformCalendarRestoreCutoff(ctx context.Context) (pgtype.Timestamptz, error) {
+func (q *Queries) PlatformCalendarRestoreCutoff(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, platformCalendarRestoreCutoff)
-	var restored_at pgtype.Timestamptz
+	var restored_at int64
 	err := row.Scan(&restored_at)
 	return restored_at, err
 }
@@ -202,9 +200,9 @@ type PlatformListCalendarRemindersParams struct {
 }
 
 type PlatformListCalendarRemindersRow struct {
-	ID        int64              `json:"id"`
-	Payload   []byte             `json:"payload"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID        int64  `json:"id"`
+	Payload   []byte `json:"payload"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 func (q *Queries) PlatformListCalendarReminders(ctx context.Context, arg PlatformListCalendarRemindersParams) ([]PlatformListCalendarRemindersRow, error) {
@@ -265,34 +263,34 @@ type PlatformRecordSchedulingReplyParams struct {
 }
 
 type PlatformRecordSchedulingReplyRow struct {
-	ID                  int64              `json:"id"`
-	TenantID            int64              `json:"tenant_id"`
-	MailboxID           int64              `json:"mailbox_id"`
-	CalendarID          int64              `json:"calendar_id"`
-	Uid                 string             `json:"uid"`
-	Version             int64              `json:"version"`
-	Sequence            int32              `json:"sequence"`
-	Summary             string             `json:"summary"`
-	Description         string             `json:"description"`
-	Location            string             `json:"location"`
-	StartsAt            pgtype.Timestamptz `json:"starts_at"`
-	EndsAt              pgtype.Timestamptz `json:"ends_at"`
-	AllDay              bool               `json:"all_day"`
-	Timezone            string             `json:"timezone"`
-	Rrule               string             `json:"rrule"`
-	Status              string             `json:"status"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
-	DeletedAt           pgtype.Timestamptz `json:"deleted_at"`
-	Attendees           []byte             `json:"attendees"`
-	RecurrenceOverrides []byte             `json:"recurrence_overrides"`
-	Organizer           string             `json:"organizer"`
-	InvitationSequence  int32              `json:"invitation_sequence"`
-	InvitationStamp     pgtype.Timestamptz `json:"invitation_stamp"`
-	InvitationDigest    string             `json:"invitation_digest"`
-	InvitationResponse  string             `json:"invitation_response"`
-	Reminders           []byte             `json:"reminders"`
-	ReminderScannedAt   pgtype.Timestamptz `json:"reminder_scanned_at"`
+	ID                  int64  `json:"id"`
+	TenantID            int64  `json:"tenant_id"`
+	MailboxID           int64  `json:"mailbox_id"`
+	CalendarID          int64  `json:"calendar_id"`
+	Uid                 string `json:"uid"`
+	Version             int64  `json:"version"`
+	Sequence            int32  `json:"sequence"`
+	Summary             string `json:"summary"`
+	Description         string `json:"description"`
+	Location            string `json:"location"`
+	StartsAt            int64  `json:"starts_at"`
+	EndsAt              int64  `json:"ends_at"`
+	AllDay              bool   `json:"all_day"`
+	Timezone            string `json:"timezone"`
+	Rrule               string `json:"rrule"`
+	Status              string `json:"status"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+	DeletedAt           int64  `json:"deleted_at"`
+	Attendees           []byte `json:"attendees"`
+	RecurrenceOverrides []byte `json:"recurrence_overrides"`
+	Organizer           string `json:"organizer"`
+	InvitationSequence  int32  `json:"invitation_sequence"`
+	InvitationStamp     int64  `json:"invitation_stamp"`
+	InvitationDigest    string `json:"invitation_digest"`
+	InvitationResponse  string `json:"invitation_response"`
+	Reminders           []byte `json:"reminders"`
+	ReminderScannedAt   int64  `json:"reminder_scanned_at"`
 }
 
 func (q *Queries) PlatformRecordSchedulingReply(ctx context.Context, arg PlatformRecordSchedulingReplyParams) (PlatformRecordSchedulingReplyRow, error) {
@@ -344,11 +342,11 @@ ON CONFLICT(tenant_id,mailbox_id,kind,idempotency_key) DO UPDATE SET payload=EXC
 `
 
 type PlatformScheduleCalendarReminderParams struct {
-	TenantID       int64              `json:"tenant_id"`
-	MailboxID      int64              `json:"mailbox_id"`
-	IdempotencyKey string             `json:"idempotency_key"`
-	Payload        []byte             `json:"payload"`
-	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	TenantID       int64  `json:"tenant_id"`
+	MailboxID      int64  `json:"mailbox_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Payload        []byte `json:"payload"`
+	LeaseUntil     int64  `json:"lease_until"`
 }
 
 func (q *Queries) PlatformScheduleCalendarReminder(ctx context.Context, arg PlatformScheduleCalendarReminderParams) error {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,7 +77,7 @@ func (h *ComplianceGrantHandler) Create(c *gin.Context) {
 	}
 	tid, _ := middleware.GetTenantID(c)
 	actor, _ := middleware.GetUserID(c)
-	row, err := requestStore(c, h.Store).CreateComplianceGrant(c, store.CreateComplianceGrantParams{TenantID: tid, UserID: input.UserID, Scope: input.Scope, Reason: strings.TrimSpace(input.Reason), ExpiresAt: pgtype.Timestamptz{Time: input.ExpiresAt.UTC(), Valid: true}, GrantedBy: pgtype.Int8{Int64: actor, Valid: true}})
+	row, err := requestStore(c, h.Store).CreateComplianceGrant(c, store.CreateComplianceGrantParams{TenantID: tid, UserID: input.UserID, Scope: input.Scope, Reason: strings.TrimSpace(input.Reason), ExpiresAt: timeutil.Micro(input.ExpiresAt.UTC()), GrantedBy: pgtype.Int8{Int64: actor, Valid: true}})
 	if err != nil {
 		if !respondConstraintError(c, err) {
 			authError(c, 409, "INVALID_PARAMS")

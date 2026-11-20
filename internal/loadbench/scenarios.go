@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"sync/atomic"
 	"time"
 
@@ -74,7 +75,7 @@ func (h *Harness) Scenario(_ context.Context, name string, f *Fixture) (Op, erro
 			}
 			for _, ev := range events {
 				if _, err = domaincollab.ExpandInstances(domaincollab.Event{
-					Summary: ev.Summary, StartsAt: ev.StartsAt.Time, EndsAt: ev.EndsAt.Time,
+					Summary: ev.Summary, StartsAt: timeutil.FromMicro(ev.StartsAt), EndsAt: timeutil.FromMicro(ev.EndsAt),
 					Timezone: ev.Timezone, RRule: ev.Rrule, Status: ev.Status,
 				}, now, now.Add(7*24*time.Hour)); err != nil {
 					return err

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strconv"
 	"strings"
 	"time"
@@ -124,7 +125,7 @@ func (h *archiveCases) caseRow(c *gin.Context, q *store.Queries, tenant int64, l
 	return row, true
 }
 func caseWritable(c *gin.Context, row store.ArchiveInvestigations, version int64) bool {
-	if row.Status != "open" || !row.ExpiresAt.Time.After(time.Now()) || version != row.Version {
+	if row.Status != "open" || !timeutil.FromMicro(row.ExpiresAt).After(time.Now()) || version != row.Version {
 		authError(c, 409, "ARCHIVE_CASE_STALE")
 		return false
 	}
@@ -166,7 +167,7 @@ func (h *archiveCases) create(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	id, err := q.ArchiveCasesCreate(c, store.ArchiveCasesCreateParams{TenantID: t, ActorID: u, Title: strings.TrimSpace(input.Title), Purpose: strings.TrimSpace(input.Purpose), ExpiresAt: pgtype.Timestamptz{Time: input.ExpiresAt.UTC(), Valid: true}, RequestKey: parsed.String()})
+	id, err := q.ArchiveCasesCreate(c, store.ArchiveCasesCreateParams{TenantID: t, ActorID: u, Title: strings.TrimSpace(input.Title), Purpose: strings.TrimSpace(input.Purpose), ExpiresAt: timeutil.Micro(input.ExpiresAt.UTC()), RequestKey: parsed.String()})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -228,11 +229,11 @@ func (h *archiveCases) detail(c *gin.Context) {
 			archiveCaseError(c, readErr)
 			return
 		}
-		approvals = append(approvals, gin.H{"id": r.ID, "requester_user_id": r.RequesterUserID, "approver_user_id": r.ApproverUserID, "state": r.State, "expires_at": r.ExpiresAt, "case_version": r.CaseVersion, "source_digest": r.SourceDigest, "decision_reason": r.DecisionReason, "stale": r.CaseVersion != row.Version || r.SourceDigest != digest || !r.ExpiresAt.Time.After(time.Now()), "manifest_sha256": evidence.ManifestSha256})
+		approvals = append(approvals, gin.H{"id": r.ID, "requester_user_id": r.RequesterUserID, "approver_user_id": r.ApproverUserID, "state": r.State, "expires_at": timeutil.FromMicro(r.ExpiresAt), "case_version": r.CaseVersion, "source_digest": r.SourceDigest, "decision_reason": r.DecisionReason, "stale": r.CaseVersion != row.Version || r.SourceDigest != digest || !timeutil.FromMicro(r.ExpiresAt).After(time.Now()), "manifest_sha256": evidence.ManifestSha256})
 	}
 	safeSources := make([]gin.H, 0, len(sources))
 	for _, s := range sources {
-		safeSources = append(safeSources, gin.H{"id": s.ID, "mailbox_id": s.MailboxID, "subject": s.Subject, "size_bytes": s.SizeBytes, "raw_sha256": s.RawSha256, "legal_hold": s.LegalHold, "deleted": s.DeletedAt.Valid})
+		safeSources = append(safeSources, gin.H{"id": s.ID, "mailbox_id": s.MailboxID, "subject": s.Subject, "size_bytes": s.SizeBytes, "raw_sha256": s.RawSha256, "legal_hold": s.LegalHold, "deleted": s.DeletedAt != 0})
 	}
 	if members == nil {
 		members = []store.ArchiveCasesMembersRow{}

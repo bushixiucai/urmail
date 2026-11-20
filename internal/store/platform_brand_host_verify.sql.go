@@ -36,13 +36,13 @@ AND EXISTS(SELECT 1 FROM platform_admins a JOIN users u ON u.id=a.user_id AND u.
 `
 
 type PlatformBrandHostCertificateTransitionParams struct {
-	NextStatus     string             `json:"next_status"`
-	FailureReason  pgtype.Text        `json:"failure_reason"`
-	Hostname       string             `json:"hostname"`
-	BrandID        int64              `json:"brand_id"`
-	VerifiedAt     pgtype.Timestamptz `json:"verified_at"`
-	ExpectedStatus string             `json:"expected_status"`
-	ActorID        int64              `json:"actor_id"`
+	NextStatus     string      `json:"next_status"`
+	FailureReason  pgtype.Text `json:"failure_reason"`
+	Hostname       string      `json:"hostname"`
+	BrandID        int64       `json:"brand_id"`
+	VerifiedAt     int64       `json:"verified_at"`
+	ExpectedStatus string      `json:"expected_status"`
+	ActorID        int64       `json:"actor_id"`
 }
 
 func (q *Queries) PlatformBrandHostCertificateTransition(ctx context.Context, arg PlatformBrandHostCertificateTransitionParams) (int64, error) {
@@ -119,15 +119,15 @@ FROM brand_hosts WHERE hostname = $1
 `
 
 type PlatformGetBrandHostLifecycleRow struct {
-	Hostname      string             `json:"hostname"`
-	BrandID       int64              `json:"brand_id"`
-	Status        string             `json:"status"`
-	FailureReason pgtype.Text        `json:"failure_reason"`
-	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
-	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
-	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Hostname      string      `json:"hostname"`
+	BrandID       int64       `json:"brand_id"`
+	Status        string      `json:"status"`
+	FailureReason pgtype.Text `json:"failure_reason"`
+	VerifiedAt    int64       `json:"verified_at"`
+	CertIssuedAt  int64       `json:"cert_issued_at"`
+	ActivatedAt   int64       `json:"activated_at"`
+	CreatedAt     int64       `json:"created_at"`
+	UpdatedAt     int64       `json:"updated_at"`
 }
 
 func (q *Queries) PlatformGetBrandHostLifecycle(ctx context.Context, hostname string) (PlatformGetBrandHostLifecycleRow, error) {
@@ -157,10 +157,10 @@ SET token_digest = EXCLUDED.token_digest, method = EXCLUDED.method,
 `
 
 type PlatformInsertBrandHostChallengeParams struct {
-	Hostname    string             `json:"hostname"`
-	TokenDigest string             `json:"token_digest"`
-	Method      string             `json:"method"`
-	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	Hostname    string `json:"hostname"`
+	TokenDigest string `json:"token_digest"`
+	Method      string `json:"method"`
+	ExpiresAt   int64  `json:"expires_at"`
 }
 
 // Platform queries for brand-host ownership verification (OPS-101).
@@ -205,12 +205,12 @@ WHERE hostname = $1
 `
 
 type PlatformSetBrandHostLifecycleParams struct {
-	Hostname      string             `json:"hostname"`
-	Status        string             `json:"status"`
-	FailureReason pgtype.Text        `json:"failure_reason"`
-	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
-	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
-	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
+	Hostname      string      `json:"hostname"`
+	Status        string      `json:"status"`
+	FailureReason pgtype.Text `json:"failure_reason"`
+	VerifiedAt    int64       `json:"verified_at"`
+	CertIssuedAt  int64       `json:"cert_issued_at"`
+	ActivatedAt   int64       `json:"activated_at"`
 }
 
 func (q *Queries) PlatformSetBrandHostLifecycle(ctx context.Context, arg PlatformSetBrandHostLifecycleParams) (int64, error) {
@@ -258,10 +258,10 @@ AND h.updated_at=$2
 `
 
 type PlatformVerifyBrandHostProofParams struct {
-	BrandID           int64              `json:"brand_id"`
-	ExpectedUpdatedAt pgtype.Timestamptz `json:"expected_updated_at"`
-	Hostname          string             `json:"hostname"`
-	TokenDigest       string             `json:"token_digest"`
+	BrandID           int64  `json:"brand_id"`
+	ExpectedUpdatedAt int64  `json:"expected_updated_at"`
+	Hostname          string `json:"hostname"`
+	TokenDigest       string `json:"token_digest"`
 }
 
 func (q *Queries) PlatformVerifyBrandHostProof(ctx context.Context, arg PlatformVerifyBrandHostProofParams) (int64, error) {

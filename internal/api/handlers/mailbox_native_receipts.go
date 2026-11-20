@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,9 +23,9 @@ func (h *MailboxNativeHandler) sendReceiptService() mailboxsend.Service {
 	return mailboxsend.Service{Pool: h.Pool, Secrets: h.Secrets, Dialer: h.Dialer, Submitter: h.Submitter}
 }
 func receiptJSON(row store.MailboxSendReceipts) gin.H {
-	out := gin.H{"id": row.ID, "request_key": row.RequestKey, "status": row.Status, "sent_copy_state": row.SentCopyState, "message_id": row.MessageID, "created_at": row.CreatedAt.Time, "last_error": row.LastError, "draft_released": row.DraftReleased}
-	if row.AcceptedAt.Valid {
-		out["accepted_at"] = row.AcceptedAt.Time
+	out := gin.H{"id": row.ID, "request_key": row.RequestKey, "status": row.Status, "sent_copy_state": row.SentCopyState, "message_id": row.MessageID, "created_at": timeutil.FromMicro(row.CreatedAt), "last_error": row.LastError, "draft_released": row.DraftReleased}
+	if row.AcceptedAt != 0 {
+		out["accepted_at"] = timeutil.FromMicro(row.AcceptedAt)
 	}
 	if row.DraftUid > 0 && !row.DraftReleased {
 		out["draft_source"] = gin.H{"folder_enc": webmail.EncodeFolderName(row.DraftFolder), "uid": row.DraftUid, "uid_validity": row.DraftUidvalidity}

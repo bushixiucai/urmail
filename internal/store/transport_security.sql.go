@@ -82,15 +82,15 @@ type ListDomainTLSReportsParams struct {
 }
 
 type ListDomainTLSReportsRow struct {
-	ID             int64              `json:"id"`
-	ReportDigest   string             `json:"report_digest"`
-	PeriodStart    pgtype.Timestamptz `json:"period_start"`
-	PeriodEnd      pgtype.Timestamptz `json:"period_end"`
-	Successful     int64              `json:"successful"`
-	Failed         int64              `json:"failed"`
-	Failures       []byte             `json:"failures"`
-	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
-	SourceVerified bool               `json:"source_verified"`
+	ID             int64  `json:"id"`
+	ReportDigest   string `json:"report_digest"`
+	PeriodStart    int64  `json:"period_start"`
+	PeriodEnd      int64  `json:"period_end"`
+	Successful     int64  `json:"successful"`
+	Failed         int64  `json:"failed"`
+	Failures       []byte `json:"failures"`
+	ReceivedAt     int64  `json:"received_at"`
+	SourceVerified bool   `json:"source_verified"`
 }
 
 // scope: tenant

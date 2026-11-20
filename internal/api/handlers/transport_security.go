@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"mime"
 	"net"
@@ -56,7 +57,7 @@ func (h *TransportSecurityHandler) owned(c *gin.Context) (store.GetDomainByIDRow
 	if supportError(c, err) {
 		return empty, false
 	}
-	if row.Status != "active" || !row.VerifiedAt.Valid {
+	if row.Status != "active" || row.VerifiedAt == 0 {
 		authError(c, 409, "DNS_OWNERSHIP_REQUIRED")
 		return empty, false
 	}
@@ -119,7 +120,7 @@ func (h *TransportSecurityHandler) Publish(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	publication := mailtransport.Publication(current)
-	if in.Mode == "enforce" && (!exists || current.MtastsMode != "testing" || !current.TestingSince.Valid || now.Before(current.TestingSince.Time.Add(time.Duration(current.MaxAge)*time.Second)) || current.ObservationStatus != "verified" || !current.ObservedAt.Valid || (now.Before(current.ObservedAt.Time) || now.Sub(current.ObservedAt.Time) > time.Hour) || current.ObservationDigest.String != publication.Digest() || !slices.Equal(current.PolicyMx, []string{h.MailHost})) {
+	if in.Mode == "enforce" && (!exists || current.MtastsMode != "testing" || current.TestingSince == 0 || now.Before(timeutil.FromMicro(current.TestingSince).Add(time.Duration(current.MaxAge)*time.Second)) || current.ObservationStatus != "verified" || current.ObservedAt == 0 || (now.Before(timeutil.FromMicro(current.ObservedAt)) || now.Sub(timeutil.FromMicro(current.ObservedAt)) > time.Hour) || current.ObservationDigest.String != publication.Digest() || !slices.Equal(current.PolicyMx, []string{h.MailHost})) {
 		authError(c, 409, "TRANSPORT_OBSERVATION_REQUIRED")
 		return
 	}
@@ -328,7 +329,7 @@ func (h *TransportSecurityHandler) Intake(c *gin.Context) {
 		return
 	}
 	q := db.Queries(tx)
-	prior, findErr := q.PlatformFindTLSReportFingerprint(c.Request.Context(), store.PlatformFindTLSReportFingerprintParams{TenantID: row.TenantID, DomainID: row.DomainID, ReporterDigest: report.ReporterDigest, ReportIDDigest: report.IDDigest, PeriodStart: pgtype.Timestamptz{Time: report.Start, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: report.End, Valid: true}})
+	prior, findErr := q.PlatformFindTLSReportFingerprint(c.Request.Context(), store.PlatformFindTLSReportFingerprintParams{TenantID: row.TenantID, DomainID: row.DomainID, ReporterDigest: report.ReporterDigest, ReportIDDigest: report.IDDigest, PeriodStart: timeutil.Micro(report.Start), PeriodEnd: timeutil.Micro(report.End)})
 	if findErr == nil {
 		if prior != report.Digest {
 			c.Status(http.StatusConflict)
@@ -351,7 +352,7 @@ func (h *TransportSecurityHandler) Intake(c *gin.Context) {
 		return
 	}
 	failures, _ := json.Marshal(report.Failures)
-	_, err = q.PlatformRecordTLSReport(c.Request.Context(), store.PlatformRecordTLSReportParams{TenantID: row.TenantID, DomainID: row.DomainID, ReportDigest: report.Digest, ReporterDigest: report.ReporterDigest, ReportIDDigest: report.IDDigest, PeriodStart: pgtype.Timestamptz{Time: report.Start, Valid: true}, PeriodEnd: pgtype.Timestamptz{Time: report.End, Valid: true}, Successful: report.Successful, Failed: report.Failed, Failures: failures})
+	_, err = q.PlatformRecordTLSReport(c.Request.Context(), store.PlatformRecordTLSReportParams{TenantID: row.TenantID, DomainID: row.DomainID, ReportDigest: report.Digest, ReporterDigest: report.ReporterDigest, ReportIDDigest: report.IDDigest, PeriodStart: timeutil.Micro(report.Start), PeriodEnd: timeutil.Micro(report.End), Successful: report.Successful, Failed: report.Failed, Failures: failures})
 	if err != nil || tx.Commit(c.Request.Context()) != nil {
 		c.Status(503)
 		return

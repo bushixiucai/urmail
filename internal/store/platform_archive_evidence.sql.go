@@ -31,4 +31,3 @@ func (q *Queries) PlatformEvidenceVisible(ctx context.Context, arg PlatformEvide
 	err := row.Scan(&visible)
 	return visible, err
 }
-

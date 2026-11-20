@@ -3,13 +3,13 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -26,7 +26,7 @@ func (f *challengeLifecycleStore) RotateDomainChallenge(_ context.Context, p sto
 	if f.byID.Status == "active" {
 		return store.RotateDomainChallengeRow{}, pgx.ErrNoRows
 	}
-	return store.RotateDomainChallengeRow{ID: p.ID, Fqdn: f.byID.Fqdn, VerificationToken: p.VerificationToken, VerificationIssuedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}, VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true}}, nil
+	return store.RotateDomainChallengeRow{ID: p.ID, Fqdn: f.byID.Fqdn, VerificationToken: p.VerificationToken, VerificationIssuedAt: timeutil.Micro(time.Now()), VerificationExpiresAt: timeutil.Micro(time.Now().Add(7 * 24 * time.Hour))}, nil
 }
 func (f *challengeLifecycleStore) VerifyDomainChallenge(_ context.Context, p store.VerifyDomainChallengeParams) (store.VerifyDomainChallengeRow, error) {
 	f.verified = p
@@ -34,7 +34,7 @@ func (f *challengeLifecycleStore) VerifyDomainChallenge(_ context.Context, p sto
 }
 
 func TestOldDomainCanVerifyFreshChallenge(t *testing.T) {
-	f := &challengeLifecycleStore{shapeFakeDomainStore: &shapeFakeDomainStore{byID: store.GetDomainByIDRow{ID: 4, TenantID: shapeTenantID, Fqdn: "old.example.test", Status: "pending_dns", VerificationToken: "fresh-token", CreatedAt: pgtype.Timestamptz{Time: time.Now().AddDate(-1, 0, 0), Valid: true}, VerificationIssuedAt: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}, VerificationExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}}}}
+	f := &challengeLifecycleStore{shapeFakeDomainStore: &shapeFakeDomainStore{byID: store.GetDomainByIDRow{ID: 4, TenantID: shapeTenantID, Fqdn: "old.example.test", Status: "pending_dns", VerificationToken: "fresh-token", CreatedAt: timeutil.Micro(time.Now().AddDate(-1, 0, 0)), VerificationIssuedAt: timeutil.Micro(time.Now().Add(-time.Minute)), VerificationExpiresAt: timeutil.Micro(time.Now().Add(time.Hour))}}}
 	h := NewDomainHandler(f, nil)
 	h.Verification = domainStoreProbeFake{f}
 	h.LookupTXT = func(context.Context, string) ([]string, error) { return []string{"fresh-token"}, nil }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"strconv"
@@ -241,7 +242,7 @@ func (h *ArchiveContentHandler) Search(c *gin.Context) {
 	if len(rows) > 100 {
 		rows = rows[:100]
 		last := rows[len(rows)-1]
-		encoded, _ := json.Marshal(archiveCursor{Time: last.ReceivedAt.Time, ID: last.ID, Filter: digest})
+		encoded, _ := json.Marshal(archiveCursor{Time: timeutil.FromMicro(last.ReceivedAt), ID: last.ID, Filter: digest})
 		next = base64.RawURLEncoding.EncodeToString(encoded)
 	}
 	if !archiveAccessAudit(c, q, tenant, user, "archive.content_search", "") {
@@ -291,8 +292,8 @@ func (h *ArchiveContentHandler) RetentionConfirm(c *gin.Context) {
 		authError(c, 409, "RETENTION_PREVIEW_STALE")
 		return
 	}
-	cutoff := preview.CreatedAt.Time.Add(-time.Duration(preview.RetentionDays) * 24 * time.Hour)
-	digest, err := q.ArchiveRetentionCandidateDigest(c, store.ArchiveRetentionCandidateDigestParams{TenantID: tenant, Cutoff: pgtype.Timestamptz{Time: cutoff, Valid: true}})
+	cutoff := timeutil.FromMicro(preview.CreatedAt).Add(-time.Duration(preview.RetentionDays) * 24 * time.Hour)
+	digest, err := q.ArchiveRetentionCandidateDigest(c, store.ArchiveRetentionCandidateDigestParams{TenantID: tenant, Cutoff: timeutil.Micro(cutoff)})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return

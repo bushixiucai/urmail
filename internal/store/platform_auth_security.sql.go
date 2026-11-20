@@ -46,4 +46,3 @@ type PlatformRotatePanelPasswordParams struct {
 	PasswordHash    string `json:"password_hash"`
 	KeepSession     string `json:"keep_session"`
 }
-

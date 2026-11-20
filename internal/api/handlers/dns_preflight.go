@@ -90,7 +90,7 @@ func (h *DNSPlanHandler) prepareDNS(c *gin.Context) bool {
 		}
 		input.Zone = zoneName
 		d, err := db.Queries(h.Service.Pool.Pool).PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
-		if err != nil || d.Status != "active" || !d.VerifiedAt.Valid || (d.Fqdn != input.Zone && !strings.HasSuffix(d.Fqdn, "."+input.Zone)) {
+		if err != nil || d.Status != "active" || d.VerifiedAt == 0 || (d.Fqdn != input.Zone && !strings.HasSuffix(d.Fqdn, "."+input.Zone)) {
 			authError(c, http.StatusForbidden, "DNS_ZONE_UNAUTHORIZED")
 			return false
 		}

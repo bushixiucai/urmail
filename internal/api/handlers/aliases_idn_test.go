@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -151,7 +150,7 @@ func idnAliasUpdateFixture() *idnAliasUpdateStore {
 		existing: store.GetAliasByIDRow{
 			ID: 5, TenantID: shapeTenantID, DomainID: 3, DomainFqdn: "example.com",
 			LocalPart: "sales", Target: "old@example.com", Kind: "forward", Active: true,
-			CreatedAt: pgtype.Timestamptz{},
+			CreatedAt: 0,
 		},
 	}
 }

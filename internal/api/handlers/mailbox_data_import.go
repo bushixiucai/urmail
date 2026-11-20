@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"strconv"
@@ -389,7 +390,7 @@ func (h MailboxDataImport) History(c *gin.Context) {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
-		out = append(out, history{ID: row.ID, CreatedAt: row.CreatedAt.Time, Kind: row.Kind, Key: row.IdempotencyKey, Result: result})
+		out = append(out, history{ID: row.ID, CreatedAt: timeutil.FromMicro(row.CreatedAt), Kind: row.Kind, Key: row.IdempotencyKey, Result: result})
 	}
 	c.JSON(200, gin.H{"imports": out})
 }

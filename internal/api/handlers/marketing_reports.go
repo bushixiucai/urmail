@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	report "github.com/bushixiucai/urmail/internal/domain/marketingreport"
@@ -84,7 +84,7 @@ func (h *marketingReportHandler) load(c *gin.Context, kind string, input marketi
 		authError(c, 401, "NO_USER_CONTEXT")
 		return nil, report.Snapshot{}, false
 	}
-	ts := func(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
+	ts := timeutil.Micro
 	var raw []byte
 	var err error
 	if kind == "campaigns" {

@@ -7,8 +7,6 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const platformAddInvestigationSource = `-- name: PlatformAddInvestigationSource :exec
@@ -41,11 +39,11 @@ VALUES($1,$2,$3,$4,$5) RETURNING id
 `
 
 type PlatformCreateInvestigationParams struct {
-	TenantID  int64              `json:"tenant_id"`
-	Title     string             `json:"title"`
-	Purpose   string             `json:"purpose"`
-	CreatedBy int64              `json:"created_by"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	TenantID  int64  `json:"tenant_id"`
+	Title     string `json:"title"`
+	Purpose   string `json:"purpose"`
+	CreatedBy int64  `json:"created_by"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 func (q *Queries) PlatformCreateInvestigation(ctx context.Context, arg PlatformCreateInvestigationParams) (int64, error) {

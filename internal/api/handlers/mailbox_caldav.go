@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 	"time"
 
@@ -26,7 +27,7 @@ func (h MailboxCalendarHandler) CalDAVReport(c *gin.Context) {
 	}
 	events := make([]collab.Event, 0, len(rows))
 	for _, row := range rows {
-		events = append(events, collab.Event{Summary: row.Summary, Description: row.Description, Location: row.Location, StartsAt: row.StartsAt.Time, EndsAt: row.EndsAt.Time, Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status})
+		events = append(events, collab.Event{Summary: row.Summary, Description: row.Description, Location: row.Location, StartsAt: timeutil.FromMicro(row.StartsAt), EndsAt: timeutil.FromMicro(row.EndsAt), Timezone: row.Timezone, RRule: row.Rrule, Status: row.Status})
 	}
 	body, err := collab.Calendar(events)
 	if err != nil {

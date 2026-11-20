@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"net/http"
 	"os"
@@ -77,9 +78,9 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		archiveCaseError(c, err)
 		return
 	}
-	document := archiveevidence.Document{Version: 1, TenantID: t, CaseID: row.ID, CaseVersion: row.Version, Title: row.Title, Purpose: row.Purpose, ApprovalID: id, SourceDigest: approved.SourceDigest, RequesterID: approved.RequesterUserID, ApproverID: approved.ApproverUserID.Int64, ExporterID: u, ApprovedAt: approved.DecidedAt.Time.UTC().Format(time.RFC3339Nano), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	document := archiveevidence.Document{Version: 1, TenantID: t, CaseID: row.ID, CaseVersion: row.Version, Title: row.Title, Purpose: row.Purpose, ApprovalID: id, SourceDigest: approved.SourceDigest, RequesterID: approved.RequesterUserID, ApproverID: approved.ApproverUserID.Int64, ExporterID: u, ApprovedAt: timeutil.FromMicro(approved.DecidedAt).UTC().Format(time.RFC3339Nano), GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	for _, s := range sources {
-		if s.DeletedAt.Valid {
+		if s.DeletedAt != 0 {
 			authError(c, 409, "ARCHIVE_CASE_STALE")
 			return
 		}
@@ -273,7 +274,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 	}
 	for i, s := range sources {
 		expected := doc.Files[i]
-		if expected.EntryID != s.ID || expected.SHA256 != s.RawSha256 || expected.Size != s.SizeBytes || s.DeletedAt.Valid || !s.MailboxID.Valid {
+		if expected.EntryID != s.ID || expected.SHA256 != s.RawSha256 || expected.Size != s.SizeBytes || s.DeletedAt != 0 || !s.MailboxID.Valid {
 			_ = writer.Close()
 			authError(c, 409, "ARCHIVE_CASE_STALE")
 			return

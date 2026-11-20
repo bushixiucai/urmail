@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"strings"
 	"sync"
@@ -257,8 +258,8 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	}
 	for _, source := range health {
 		if source.Stream == e.Stream {
-			if source.ObservedAt.Valid {
-				timeValue := source.ObservedAt.Time
+			if source.ObservedAt != 0 {
+				timeValue := timeutil.FromMicro(source.ObservedAt)
 				observation.CollectorObserved = &timeValue
 			}
 			observation.CollectionGap = source.GapReason.Valid
@@ -275,8 +276,8 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	}
 	if backupErr == nil {
 		observation.Backup = &BackupObservation{LatestState: backup.LatestState, AvailableState: true, MaxAgeSeconds: float64(thresholds.BackupMaxAgeSeconds)}
-		if backup.LastSuccessAt.Valid {
-			success := backup.LastSuccessAt.Time
+		if backup.LastSuccessAt != 0 {
+			success := timeutil.FromMicro(backup.LastSuccessAt)
 			observation.Backup.LastSuccessAt = &success
 		}
 	}

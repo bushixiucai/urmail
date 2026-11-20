@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -227,7 +228,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 	if err != nil {
 		return err
 	}
-	entry, err := q.PlatformIndexArchiveCopy(ctx, store.PlatformIndexArchiveCopyParams{TenantID: manifest.Recipient.TenantID, MailboxID: pgtype.Int8{Int64: manifest.Recipient.MailboxID, Valid: true}, MessageID: content.MessageID, Path: path, Subject: pgtype.Text{String: content.Subject, Valid: content.Subject != ""}, FromAddr: pgtype.Text{String: content.From, Valid: content.From != ""}, ToAddr: pgtype.Text{String: content.To, Valid: content.To != ""}, ReceivedAt: pgtype.Timestamptz{Time: manifest.ReceivedAt, Valid: true}, SizeBytes: manifest.Size, RawSha256: manifest.SHA256})
+	entry, err := q.PlatformIndexArchiveCopy(ctx, store.PlatformIndexArchiveCopyParams{TenantID: manifest.Recipient.TenantID, MailboxID: pgtype.Int8{Int64: manifest.Recipient.MailboxID, Valid: true}, MessageID: content.MessageID, Path: path, Subject: pgtype.Text{String: content.Subject, Valid: content.Subject != ""}, FromAddr: pgtype.Text{String: content.From, Valid: content.From != ""}, ToAddr: pgtype.Text{String: content.To, Valid: content.To != ""}, ReceivedAt: timeutil.Micro(manifest.ReceivedAt), SizeBytes: manifest.Size, RawSha256: manifest.SHA256})
 	if err != nil {
 		return err
 	}
@@ -236,7 +237,7 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 		if e != nil {
 			return e
 		}
-		if lifecycle.PurgeStartedAt.Valid || lifecycle.PurgedAt.Valid {
+		if lifecycle.PurgeStartedAt != 0 || lifecycle.PurgedAt != 0 {
 			return errors.New("duplicate original is already purging or purged; durable input retained for explicit reconciliation")
 		}
 		if e = ValidateOwnershipPath(w.Archive, entry.Path, manifest.Recipient.TenantID, manifest.Recipient.MailboxID); e != nil {
@@ -327,7 +328,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			switch {
 			case readErr == nil:
 				err = q.PlatformCancelArchivePurgeIntent(ctx, store.PlatformCancelArchivePurgeIntentParams{TenantID: tenantID, EntryID: id})
-			case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt.Valid:
+			case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt != 0:
 				err = q.PlatformFinishArchivePurge(ctx, store.PlatformFinishArchivePurgeParams{TenantID: tenantID, EntryID: id})
 			default:
 				err = readErr
@@ -341,7 +342,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 		}
 		if phase == 0 {
 			err = q.PlatformBeginArchivePurge(ctx, store.PlatformBeginArchivePurgeParams{TenantID: tenantID, EntryID: id})
-			if err == nil && !entry.PurgeStartedAt.Valid {
+			if err == nil && entry.PurgeStartedAt == 0 {
 				_, err = q.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenantID, Valid: true}, Action: "archive.physical_purge_started", TargetType: pgtype.Text{String: "archive", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(id, 10), Valid: true}, Detail: []byte(`{"source":"archive_worker"}`)})
 			}
 			if err == nil {
@@ -371,7 +372,7 @@ func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
 			}
 			err = root.Remove(relative)
 			_ = root.Close()
-		case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt.Valid:
+		case errors.Is(readErr, os.ErrNotExist) && entry.PurgeStartedAt != 0:
 			err = nil
 		default:
 			err = readErr

@@ -60,7 +60,7 @@ func (m *ApplyManager) recallSnapshot(ctx context.Context, q *store.Queries, par
 	if !source.MailboxID.Valid || !source.Address.Valid || !safeKickAddress(source.Address.String) || len(source.MessageID) < 3 || len(source.MessageID) > 998 || strings.ContainsAny(source.MessageID, "\r\n\x00") || !strings.HasPrefix(source.MessageID, "<") || !strings.HasSuffix(source.MessageID, ">") {
 		return recall.Snapshot{}, ErrRejected
 	}
-	snapshot := recall.Snapshot{Version: 1, TenantID: source.TenantID, ActorID: params.ActorID, EntryID: source.ID, MailboxID: source.MailboxID.Int64, Address: source.Address.String, MessageID: source.MessageID, OriginalSHA256: source.OriginalSha256, Held: source.LegalHold, HoldConflict: source.HoldConflict, Deleted: source.DeletedAt.Valid, TenantStatus: source.TenantStatus, MailboxStatus: source.MailboxStatus.String, DomainStatus: source.DomainStatus.String}
+	snapshot := recall.Snapshot{Version: 1, TenantID: source.TenantID, ActorID: params.ActorID, EntryID: source.ID, MailboxID: source.MailboxID.Int64, Address: source.Address.String, MessageID: source.MessageID, OriginalSHA256: source.OriginalSha256, Held: source.LegalHold, HoldConflict: source.HoldConflict, Deleted: source.DeletedAt != 0, TenantStatus: source.TenantStatus, MailboxStatus: source.MailboxStatus.String, DomainStatus: source.DomainStatus.String}
 	if err = json.Unmarshal(source.Sources, &snapshot.Sources); err != nil || len(snapshot.Sources) > recall.MaxCopies {
 		return recall.Snapshot{}, ErrRejected
 	}

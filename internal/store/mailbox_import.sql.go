@@ -567,15 +567,15 @@ AND version=?9 RETURNING id, tenant_id, mailbox_id, request_key, format, filenam
 `
 
 type SetMailboxImportJobParams struct {
-	Status          string             `json:"status"`
-	Confirm         bool               `json:"confirm"`
-	CancelRequested bool               `json:"cancel_requested"`
-	LeaseToken      string             `json:"lease_token"`
-	LeaseUntil      pgtype.Timestamptz `json:"lease_until"`
-	TenantID        int64              `json:"tenant_id"`
-	MailboxID       int64              `json:"mailbox_id"`
-	JobID           int64              `json:"job_id"`
-	ExpectedVersion int64              `json:"expected_version"`
+	Status          string `json:"status"`
+	Confirm         bool   `json:"confirm"`
+	CancelRequested bool   `json:"cancel_requested"`
+	LeaseToken      string `json:"lease_token"`
+	LeaseUntil      int64  `json:"lease_until"`
+	TenantID        int64  `json:"tenant_id"`
+	MailboxID       int64  `json:"mailbox_id"`
+	JobID           int64  `json:"job_id"`
+	ExpectedVersion int64  `json:"expected_version"`
 }
 
 // scope: tenant

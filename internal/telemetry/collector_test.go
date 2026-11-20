@@ -3,12 +3,11 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/db"
@@ -92,7 +91,7 @@ func TestCollectorCorrelatesAuthenticatedLifecycleAndNeverGuessesFrom(t *testing
 		t.Fatalf("source replay duplicated events: %d %v", count, err)
 	}
 	q := store.New(pool.Pool)
-	params := store.PlatformRecordCollectedDeliveryEventParams{Instance: "unknown/postfix", QueueID: "UNKNOWN", Sender: "spoof@example.test", SenderDomain: "example.test", Status: "unknown", OccurredAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}, SourceEventID: "same-unknown-source", LifecycleID: "unknown-life"}
+	params := store.PlatformRecordCollectedDeliveryEventParams{Instance: "unknown/postfix", QueueID: "UNKNOWN", Sender: "spoof@example.test", SenderDomain: "example.test", Status: "unknown", OccurredAt: timeutil.Micro(time.Now()), SourceEventID: "same-unknown-source", LifecycleID: "unknown-life"}
 	for i := 0; i < 2; i++ {
 		inserted, err := q.PlatformRecordCollectedDeliveryEvent(ctx, params)
 		if err != nil || inserted != int64(1-i) {
@@ -239,7 +238,7 @@ func TestCollectorBacklogDoesNotPretendObservationIsCurrent(t *testing.T) {
 	}
 	q := store.New(pool.Pool)
 	checkpoint, err := q.PlatformGetCollectorCheckpoint(ctx, "backlog")
-	if err != nil || checkpoint.ObservedAt.Valid {
+	if err != nil || checkpoint.ObservedAt != 0 {
 		t.Fatalf("partial source claimed freshness: %+v %v", checkpoint, err)
 	}
 	caughtUp := agentd.MailLogBatch{Identity: batch.Identity, StartOffset: batch.EndOffset, EndOffset: batch.EndOffset, ObservedAt: time.Now().UTC()}
@@ -247,7 +246,7 @@ func TestCollectorBacklogDoesNotPretendObservationIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint, err = q.PlatformGetCollectorCheckpoint(ctx, "backlog")
-	if err != nil || !checkpoint.ObservedAt.Valid {
+	if err != nil || checkpoint.ObservedAt == 0 {
 		t.Fatalf("caught-up source stayed unknown: %+v %v", checkpoint, err)
 	}
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/bushixiucai/urmail/internal/timeutil"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -49,7 +50,7 @@ func (h *OnboardingHandler) List(c *gin.Context) {
 	}
 	response := make([]OnboardingTaskResponse, 0, len(tasks))
 	for _, task := range tasks {
-		item := OnboardingTaskResponse{ID: task.ID, Status: task.Status, Step: task.Step, Attempts: task.Attempts, MaxAttempts: task.MaxAttempts, NextAttemptAt: task.NextAttemptAt.Time, ErrorCode: task.LastErrorCode.String, DesiredGeneration: task.DesiredGeneration.String}
+		item := OnboardingTaskResponse{ID: task.ID, Status: task.Status, Step: task.Step, Attempts: task.Attempts, MaxAttempts: task.MaxAttempts, NextAttemptAt: timeutil.FromMicro(task.NextAttemptAt), ErrorCode: task.LastErrorCode.String, DesiredGeneration: task.DesiredGeneration.String}
 		if task.DomainID.Valid {
 			value := task.DomainID.Int64
 			item.DomainID = &value
@@ -58,14 +59,14 @@ func (h *OnboardingHandler) List(c *gin.Context) {
 			value := task.OrderID.Int64
 			item.OrderID = &value
 		}
-		if task.CreatedAt.Valid {
-			item.CreatedAt = task.CreatedAt.Time
+		if task.CreatedAt != 0 {
+			item.CreatedAt = timeutil.FromMicro(task.CreatedAt)
 		}
-		if task.UpdatedAt.Valid {
-			item.UpdatedAt = task.UpdatedAt.Time
+		if task.UpdatedAt != 0 {
+			item.UpdatedAt = timeutil.FromMicro(task.UpdatedAt)
 		}
-		if task.CompletedAt.Valid {
-			item.CompletedAt = task.CompletedAt.Time
+		if task.CompletedAt != 0 {
+			item.CompletedAt = timeutil.FromMicro(task.CompletedAt)
 		}
 		response = append(response, item)
 	}

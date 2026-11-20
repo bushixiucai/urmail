@@ -27,15 +27,15 @@ type PlatformBindBrandHostParams struct {
 }
 
 type PlatformBindBrandHostRow struct {
-	Hostname      string             `json:"hostname"`
-	BrandID       int64              `json:"brand_id"`
-	Status        string             `json:"status"`
-	FailureReason pgtype.Text        `json:"failure_reason"`
-	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
-	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
-	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Hostname      string      `json:"hostname"`
+	BrandID       int64       `json:"brand_id"`
+	Status        string      `json:"status"`
+	FailureReason pgtype.Text `json:"failure_reason"`
+	VerifiedAt    int64       `json:"verified_at"`
+	CertIssuedAt  int64       `json:"cert_issued_at"`
+	ActivatedAt   int64       `json:"activated_at"`
+	CreatedAt     int64       `json:"created_at"`
+	UpdatedAt     int64       `json:"updated_at"`
 }
 
 func (q *Queries) PlatformBindBrandHost(ctx context.Context, arg PlatformBindBrandHostParams) (PlatformBindBrandHostRow, error) {
@@ -72,15 +72,15 @@ SELECT hostname,brand_id,status,failure_reason,verified_at,cert_issued_at,activa
 `
 
 type PlatformListBrandHostsRow struct {
-	Hostname      string             `json:"hostname"`
-	BrandID       int64              `json:"brand_id"`
-	Status        string             `json:"status"`
-	FailureReason pgtype.Text        `json:"failure_reason"`
-	VerifiedAt    pgtype.Timestamptz `json:"verified_at"`
-	CertIssuedAt  pgtype.Timestamptz `json:"cert_issued_at"`
-	ActivatedAt   pgtype.Timestamptz `json:"activated_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Hostname      string      `json:"hostname"`
+	BrandID       int64       `json:"brand_id"`
+	Status        string      `json:"status"`
+	FailureReason pgtype.Text `json:"failure_reason"`
+	VerifiedAt    int64       `json:"verified_at"`
+	CertIssuedAt  int64       `json:"cert_issued_at"`
+	ActivatedAt   int64       `json:"activated_at"`
+	CreatedAt     int64       `json:"created_at"`
+	UpdatedAt     int64       `json:"updated_at"`
 }
 
 func (q *Queries) PlatformListBrandHosts(ctx context.Context) ([]PlatformListBrandHostsRow, error) {
@@ -119,15 +119,15 @@ FROM brands ORDER BY id
 `
 
 type PlatformManagedBrandsRow struct {
-	ID           int64              `json:"id"`
-	Slug         string             `json:"slug"`
-	Name         string             `json:"name"`
-	Theme        []byte             `json:"theme"`
-	LogoUrl      pgtype.Text        `json:"logo_url"`
-	FaviconUrl   pgtype.Text        `json:"favicon_url"`
-	PrimaryColor pgtype.Text        `json:"primary_color"`
-	Status       string             `json:"status"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64       `json:"id"`
+	Slug         string      `json:"slug"`
+	Name         string      `json:"name"`
+	Theme        []byte      `json:"theme"`
+	LogoUrl      pgtype.Text `json:"logo_url"`
+	FaviconUrl   pgtype.Text `json:"favicon_url"`
+	PrimaryColor pgtype.Text `json:"primary_color"`
+	Status       string      `json:"status"`
+	CreatedAt    int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformManagedBrands(ctx context.Context) ([]PlatformManagedBrandsRow, error) {
@@ -232,15 +232,15 @@ type PlatformSaveBrandParams struct {
 }
 
 type PlatformSaveBrandRow struct {
-	ID           int64              `json:"id"`
-	Slug         string             `json:"slug"`
-	Name         string             `json:"name"`
-	Theme        []byte             `json:"theme"`
-	LogoUrl      pgtype.Text        `json:"logo_url"`
-	FaviconUrl   pgtype.Text        `json:"favicon_url"`
-	PrimaryColor pgtype.Text        `json:"primary_color"`
-	Status       string             `json:"status"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           int64       `json:"id"`
+	Slug         string      `json:"slug"`
+	Name         string      `json:"name"`
+	Theme        []byte      `json:"theme"`
+	LogoUrl      pgtype.Text `json:"logo_url"`
+	FaviconUrl   pgtype.Text `json:"favicon_url"`
+	PrimaryColor pgtype.Text `json:"primary_color"`
+	Status       string      `json:"status"`
+	CreatedAt    int64       `json:"created_at"`
 }
 
 func (q *Queries) PlatformSaveBrand(ctx context.Context, arg PlatformSaveBrandParams) (PlatformSaveBrandRow, error) {
