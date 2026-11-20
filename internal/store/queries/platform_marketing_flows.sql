@@ -26,10 +26,8 @@ SET step_key=CASE WHEN marketing_flow_positions.unsubscribed THEN marketing_flow
  updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 RETURNING step_key,unsubscribed;
 
--- name: PlatformMarkMarketingFlowUncertain :one
--- scope: platform
-
-SELECT urmail_mark_marketing_flow_uncertain(?1,?2,?3);
+-- PlatformMarkMarketingFlowUncertain 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_mark_marketing_flow_uncertain = UPDATE 后按 rows-affected 返回 missing/uncertain。
 
 -- Flow tick worker: recover expired leases and stale uncertain deliveries.
 -- An uncertain delivery stays frozen for a quiet period, then the position
@@ -127,7 +125,15 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3;
 -- name: PlatformMarketingFlowStillAllowed :one
 -- scope: platform
 
-SELECT (urmail_marketing_flow_sendable(?1,?2,?3) NOT IN ('missing','blocked','uncertain')) AS allowed;
+SELECT (CASE
+ WHEN NOT EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3) THEN 'missing'
+ WHEN EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND p.delivery_uncertain) THEN 'uncertain'
+ WHEN EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND (p.unsubscribed OR p.wait_until>(CAST(strftime('%s','now') AS INTEGER)*1000000))) THEN 'blocked'
+ WHEN NOT EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=?1 AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) THEN 'blocked'
+ WHEN NOT EXISTS(SELECT 1 FROM marketing_flow_positions p WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3 AND NOT p.unsubscribed) THEN 'blocked'
+ WHEN EXISTS(SELECT 1 FROM marketing_suppressions s WHERE s.tenant_id=?1 AND s.email=?3) THEN 'blocked'
+ ELSE (SELECT p.step_key FROM marketing_flow_positions p WHERE p.tenant_id=?1 AND p.flow_id=?2 AND p.email=?3)
+ END) NOT IN ('missing','blocked','uncertain') AS allowed;
 
 -- Flow step content resolves from the tenant template named by the step key.
 -- name: PlatformGetMarketingFlowTemplate :one

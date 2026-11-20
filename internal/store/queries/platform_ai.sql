@@ -155,7 +155,15 @@ SELECT urmail_consent_tenant_ai(@configuration_digest,@scope_hash,@allow_cloud);
 -- name: AICloudAuthorized :one
 -- scope: platform
 
-SELECT urmail_ai_cloud_authorized(@tenant_id,@configuration_digest,@scope_hash) AS allowed;
+-- app-pending: role/current_setting tenant-context gate → S2 decorator.
+SELECT EXISTS(
+ SELECT 1 FROM ai_provider_configs c
+ JOIN user_tenant_roles r ON r.tenant_id=c.tenant_id AND r.user_id=c.cloud_consent_by
+ WHERE c.tenant_id=@tenant_id AND c.enabled AND NOT c.tenant_local_only AND NOT c.local_only
+  AND c.provider IN('openai','azure') AND c.configuration_digest=@configuration_digest
+  AND c.cloud_scope_hash=@scope_hash AND c.cloud_consent_digest=c.configuration_digest
+  AND c.cloud_consent_scope_hash=c.cloud_scope_hash AND c.cloud_consent_at IS NOT NULL
+  AND c.cloud_consent_revoked_at IS NULL AND r.role IN('owner','admin')) AS allowed;
 
 -- name: PlatformPendingAIUsage :many
 -- scope: platform

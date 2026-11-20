@@ -395,23 +395,6 @@ func (q *Queries) PlatformListMarketingFlowSteps(ctx context.Context, arg Platfo
 	return items, nil
 }
 
-const platformMarkMarketingFlowUncertain = `-- name: PlatformMarkMarketingFlowUncertain :one
-SELECT urmail_mark_marketing_flow_uncertain($1,$2,$3)
-`
-
-type PlatformMarkMarketingFlowUncertainParams struct {
-	PTenant int64  `json:"p_tenant"`
-	PFlow   int64  `json:"p_flow"`
-	PEmail  string `json:"p_email"`
-}
-
-func (q *Queries) PlatformMarkMarketingFlowUncertain(ctx context.Context, arg PlatformMarkMarketingFlowUncertainParams) (string, error) {
-	row := q.db.QueryRow(ctx, platformMarkMarketingFlowUncertain, arg.PTenant, arg.PFlow, arg.PEmail)
-	var urmail_mark_marketing_flow_uncertain string
-	err := row.Scan(&urmail_mark_marketing_flow_uncertain)
-	return urmail_mark_marketing_flow_uncertain, err
-}
-
 const platformMarkMarketingFlowUnsubscribed = `-- name: PlatformMarkMarketingFlowUnsubscribed :execrows
 UPDATE marketing_flow_positions SET unsubscribed=true,updated_at=now()
 WHERE tenant_id=$1 AND flow_id=$2 AND email=$3 AND NOT unsubscribed

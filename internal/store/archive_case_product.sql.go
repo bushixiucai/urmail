@@ -302,23 +302,6 @@ func (q *Queries) ArchiveCasesEligibleMembers(ctx context.Context, tenantID int6
 	return items, nil
 }
 
-const archiveCasesExportVisible = `-- name: ArchiveCasesExportVisible :one
-SELECT urmail_archive_export_visible($1,$2,$3)::boolean AS visible
-`
-
-type ArchiveCasesExportVisibleParams struct {
-	T int64 `json:"t"`
-	A int64 `json:"a"`
-	U int64 `json:"u"`
-}
-
-func (q *Queries) ArchiveCasesExportVisible(ctx context.Context, arg ArchiveCasesExportVisibleParams) (bool, error) {
-	row := q.db.QueryRow(ctx, archiveCasesExportVisible, arg.T, arg.A, arg.U)
-	var visible bool
-	err := row.Scan(&visible)
-	return visible, err
-}
-
 const archiveCasesGet = `-- name: ArchiveCasesGet :one
 SELECT id, tenant_id, title, purpose, status, created_by, expires_at, created_at, request_key, version, updated_at FROM archive_investigations WHERE tenant_id=$1 AND id=$2
 `
@@ -606,40 +589,6 @@ func (q *Queries) ArchiveCasesSaveEvidence(ctx context.Context, arg ArchiveCases
 		&i.CreatedAt,
 	)
 	return i, err
-}
-
-const archiveCasesSnapshot = `-- name: ArchiveCasesSnapshot :one
-SELECT urmail_archive_case_snapshot($1,$2,$3)::jsonb AS snapshot
-`
-
-type ArchiveCasesSnapshotParams struct {
-	T int64 `json:"t"`
-	C int64 `json:"c"`
-	U int64 `json:"u"`
-}
-
-func (q *Queries) ArchiveCasesSnapshot(ctx context.Context, arg ArchiveCasesSnapshotParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, archiveCasesSnapshot, arg.T, arg.C, arg.U)
-	var snapshot []byte
-	err := row.Scan(&snapshot)
-	return snapshot, err
-}
-
-const archiveCasesSnapshotDigest = `-- name: ArchiveCasesSnapshotDigest :one
-SELECT encode(sha256(convert_to(urmail_archive_case_snapshot($1,$2,$3)::text,'UTF8')),'hex')::text AS digest
-`
-
-type ArchiveCasesSnapshotDigestParams struct {
-	T int64 `json:"t"`
-	C int64 `json:"c"`
-	U int64 `json:"u"`
-}
-
-func (q *Queries) ArchiveCasesSnapshotDigest(ctx context.Context, arg ArchiveCasesSnapshotDigestParams) (string, error) {
-	row := q.db.QueryRow(ctx, archiveCasesSnapshotDigest, arg.T, arg.C, arg.U)
-	var digest string
-	err := row.Scan(&digest)
-	return digest, err
 }
 
 const archiveCasesSources = `-- name: ArchiveCasesSources :many

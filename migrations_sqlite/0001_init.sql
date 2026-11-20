@@ -2201,14 +2201,14 @@ AFTER UPDATE ON ai_provider_configs
 WHEN NEW.configuration_version IS NOT (CASE WHEN NEW.mode IS NOT OLD.mode OR NEW.provider IS NOT OLD.provider OR NEW.endpoint IS NOT OLD.endpoint OR NEW.model IS NOT OLD.model OR NEW.cloud_scope_hash IS NOT OLD.cloud_scope_hash THEN OLD.configuration_version + 1 ELSE OLD.configuration_version END)
 BEGIN
   SELECT CASE WHEN OLD.configuration_version >= 9007199254740991 AND (NEW.mode IS NOT OLD.mode OR NEW.provider IS NOT OLD.provider OR NEW.endpoint IS NOT OLD.endpoint OR NEW.model IS NOT OLD.model OR NEW.cloud_scope_hash IS NOT OLD.cloud_scope_hash) THEN RAISE(ABORT,'AI_CONFIGURATION_VERSION_EXHAUSTED') END;
-  UPDATE ai_provider_configs SET configuration_version = CASE WHEN NEW.mode IS NOT OLD.mode OR NEW.provider IS NOT OLD.provider OR NEW.endpoint IS NOT OLD.endpoint OR NEW.model IS NOT OLD.model OR NEW.cloud_scope_hash IS NOT OLD.cloud_scope_hash THEN OLD.configuration_version + 1 ELSE OLD.configuration_version END WHERE id = NEW.id;
+  UPDATE ai_provider_configs SET configuration_version = CASE WHEN NEW.mode IS NOT OLD.mode OR NEW.provider IS NOT OLD.provider OR NEW.endpoint IS NOT OLD.endpoint OR NEW.model IS NOT OLD.model OR NEW.cloud_scope_hash IS NOT OLD.cloud_scope_hash THEN OLD.configuration_version + 1 ELSE OLD.configuration_version END WHERE tenant_id = NEW.tenant_id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS ai_config_insert_defaults
 AFTER INSERT ON ai_provider_configs
 WHEN NEW.configuration_version IS NOT 1 OR NEW.tenant_local_only IS NOT 1 OR NEW.cloud_consent_digest IS NOT '' OR NEW.cloud_consent_scope_hash IS NOT '' OR NEW.cloud_consent_by IS NOT NULL OR NEW.cloud_consent_at IS NOT NULL OR NEW.cloud_consent_revoked_at IS NOT NULL
 BEGIN
-  UPDATE ai_provider_configs SET configuration_version = 1, tenant_local_only = 1, cloud_consent_digest = '', cloud_consent_scope_hash = '', cloud_consent_by = NULL, cloud_consent_at = NULL, cloud_consent_revoked_at = NULL WHERE id = NEW.id;
+  UPDATE ai_provider_configs SET configuration_version = 1, tenant_local_only = 1, cloud_consent_digest = '', cloud_consent_scope_hash = '', cloud_consent_by = NULL, cloud_consent_at = NULL, cloud_consent_revoked_at = NULL WHERE tenant_id = NEW.tenant_id;
 END;
 
 -- APP-PENDING (urmail_ai_configuration_consent_guard): AI_TENANT_CONSENT_REQUIRED / AI_CLOUD_CONSENT_STALE（role+actor 判定）与 configuration_digest（sha256）→ S2 装饰器与 S4 迁移承接

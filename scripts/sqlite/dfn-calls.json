@@ -1,10 +1,11 @@
 {
  "note": "QA 硬前置①：queries 内 urmail_* 函数调用——sqlc 不校验函数存在，B5 后会运行时成片炸；逐条给替代物（S1 119 函数三分类对齐），rewrite_verify 做计数闭合。 B1a 已内联 44 次调用（首批 44 口径含 export_visible 除外）；剩余 52 次在 queries 内由 residue registry 跟踪。",
- "total_calls": 96,
+ "total_calls": 95,
  "by_strategy": {
-  "inline": 33,
-  "inline-compose": 12,
-  "app-assume": 51
+  "app-assume": 29,
+  "s4-closed": 22,
+  "inline": 32,
+  "inline-compose": 12
  },
  "first_batch_inline_calls": 44,
  "unknown_functions": [],
@@ -24,8 +25,9 @@
    "method": "ArchiveCasesSnapshot",
    "line": 24,
    "snippet": "SELECT urmail_archive_case_snapshot(?1,?2,?3) AS snapshot;",
-   "strategy": "app-assume",
-   "replacement": "jsonb 快照合成 → repo Go 层组装（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：archiveSnapshot JSON 组装（成员/来源/授权嵌套）",
+   "status": "closed"
   },
   {
    "fn": "urmail_archive_case_snapshot",
@@ -33,8 +35,9 @@
    "method": "ArchiveCasesSnapshotDigest",
    "line": 29,
    "snippet": "SELECT encode(sha256(convert_to(urmail_archive_case_snapshot(?1,?2,?3),'UTF8')),'hex') AS digest;",
-   "strategy": "app-assume",
-   "replacement": "jsonb 快照合成 → repo Go 层组装（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：snapshot text 的 sha256 hex",
+   "status": "closed"
   },
   {
    "fn": "urmail_archive_case_grant",
@@ -64,22 +67,14 @@
    "replacement": "EXISTS(compliance_grants JOIN user_tenant_roles 授权链；btrim→trim、时间微秒)；原文中的 t=current_setting('urmail.tenant_id') 自检删除，改为调用点显式绑定 ctx tenant_id（防止平台/租户判定差异丢失）"
   },
   {
-   "fn": "urmail_archive_case_snapshot",
-   "file": "archive_case_product.sql",
-   "method": "ArchiveCasesRequestApproval",
-   "line": 113,
-   "snippet": "SELECT @tenant_id,i.id,@actor_id,'export',@digest,min(i.expires_at,(CAST(strftime('%s','now') AS INT",
-   "strategy": "app-assume",
-   "replacement": "jsonb 快照合成 → repo Go 层组装（S4）"
-  },
-  {
    "fn": "urmail_archive_export_visible",
    "file": "archive_case_product.sql",
    "method": "ArchiveCasesExportVisible",
    "line": 134,
    "snippet": "SELECT urmail_archive_export_visible(?1,?2,?3) AS visible;",
-   "strategy": "inline",
-   "replacement": "case_evidence_visible 谓词内联（0134:113）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：复用成员/授权/快照（jsonEqual 比较 source_snapshot）",
+   "status": "closed"
   },
   {
    "fn": "urmail_record_audit",
@@ -87,8 +82,9 @@
    "method": "RecordTenantAudit",
    "line": 40,
    "snippet": "SELECT urmail_record_audit(@tenant_id, @user_id,",
-   "strategy": "app-assume",
-   "replacement": "审计写入 → repo 层（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：action/target/status 校验 + user_tenant_roles 断言 + recordTenantAuditInsertSQL",
+   "status": "closed"
   },
   {
    "fn": "urmail_soft_delete_archive",
@@ -105,8 +101,9 @@
    "method": "GetRetentionPolicyAuthority",
    "line": 83,
    "snippet": "SELECT urmail_retention_authorized(@tenant_id,@created_by,@grant_id) AS allowed;",
-   "strategy": "app-assume",
-   "replacement": "role/current_setting 会话判定 → S2/S3 装饰器 + repo 断言"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：compliance_grants+user_tenant_roles 存在性谓词",
+   "status": "closed"
   },
   {
    "fn": "urmail_save_dns_credential",
@@ -222,8 +219,9 @@
    "method": "ListTenantNotifications",
    "line": 6,
    "snippet": "AND urmail_archive_notification_visible(tenant_id,nullif(current_setting('urmail.user_id',true),''),",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：CASE kind 谓词（成员 + full_content/export 授权）",
+   "status": "closed"
   },
   {
    "fn": "urmail_configure_tenant_ai",
@@ -267,8 +265,9 @@
    "method": "AICloudAuthorized",
    "line": 158,
    "snippet": "SELECT urmail_ai_cloud_authorized(@tenant_id,@configuration_digest,@scope_hash) AS allowed;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：配置/同意摘要 + owner|admin 谓词；current_setting 会话语义 app_pending→S2 装饰器",
+   "status": "closed"
   },
   {
    "fn": "urmail_configure_tenant_ai_governance",
@@ -285,8 +284,9 @@
    "method": "PlatformEvidenceVisible",
    "line": 4,
    "snippet": "SELECT urmail_evidence_manifest_visible(?1,?2,?3,?4) AS visible;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：approved+未过期+成员+摘要谓词",
+   "status": "closed"
   },
   {
    "fn": "urmail_read_evidence_body",
@@ -294,8 +294,9 @@
    "method": "PlatformReadEvidenceBody",
    "line": 9,
    "snippet": "SELECT urmail_read_evidence_body(?1,?2,?3,?4);",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：可见性谓词 + sha256(evidence_body) 摘要校验",
+   "status": "closed"
   },
   {
    "fn": "urmail_retention_authorized",
@@ -303,8 +304,9 @@
    "method": "PlatformApplyArchiveRetention",
    "line": 30,
    "snippet": "WHERE p.active AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id) AN",
-   "strategy": "app-assume",
-   "replacement": "role/current_setting 会话判定 → S2/S3 装饰器 + repo 断言"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：同上（候选谓词）",
+   "status": "closed"
   },
   {
    "fn": "urmail_retention_authorized",
@@ -312,8 +314,9 @@
    "method": "PlatformListArchivePurgeCandidates",
    "line": 49,
    "snippet": "AND (c.purge_started_at IS NOT NULL OR c.retention_preview IS NULL OR EXISTS(SELECT 1 FROM retention",
-   "strategy": "app-assume",
-   "replacement": "role/current_setting 会话判定 → S2/S3 装饰器 + repo 断言"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：同上（purge 候选谓词）",
+   "status": "closed"
   },
   {
    "fn": "urmail_retention_authorized",
@@ -321,8 +324,9 @@
    "method": "PlatformLockRetentionPurgePolicy",
    "line": 95,
    "snippet": "SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tena",
-   "strategy": "app-assume",
-   "replacement": "role/current_setting 会话判定 → S2/S3 装饰器 + repo 断言"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：同上（策略锁读谓词）",
+   "status": "closed"
   },
   {
    "fn": "urmail_rotate_panel_password",
@@ -348,8 +352,9 @@
    "method": "PlatformDeleteContactGroup",
    "line": 226,
    "snippet": "SELECT urmail_delete_contact_group(?1,?2,?3);",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：软删组 + 清成员两步 DML",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -366,8 +371,9 @@
    "method": "GetBillingBusinessTimezone",
    "line": 4,
    "snippet": "SELECT urmail_business_timezone(?1) AS timezone;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：tenant>brand>platform>Asia/Shanghai 回退；时区合法性由 Go 调用方（aiQuotaLocation）保留",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -708,8 +714,9 @@
    "method": "PlatformMarkMarketingFlowUncertain",
    "line": 32,
    "snippet": "SELECT urmail_mark_marketing_flow_uncertain(?1,?2,?3);",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：UPDATE + rows-affected → missing/uncertain",
+   "status": "closed"
   },
   {
    "fn": "urmail_commit_marketing_flow_step",
@@ -735,8 +742,9 @@
    "method": "PlatformMarketingFlowStillAllowed",
    "line": 147,
    "snippet": "SELECT (urmail_marketing_flow_sendable(?1,?2,?3) NOT IN ('missing','blocked','uncertain')) AS allowe",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：missing|blocked|uncertain|step 判定",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -753,8 +761,9 @@
    "method": "AliasWouldCycle",
    "line": 46,
    "snippet": "SELECT urmail_alias_would_cycle(sqlc.arg('domain'), sqlc.arg('local_part'), sqlc.arg('target')) AS w",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：WITH RECURSIVE 别名图闭包",
+   "status": "closed"
   },
   {
    "fn": "urmail_restore_sync_epoch",
@@ -762,8 +771,9 @@
    "method": "PlatformRestoreSyncEpoch",
    "line": 4,
    "snippet": "SELECT urmail_restore_sync_epoch() AS epoch;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 内联：settings.restore_replay_review -> sync_epoch",
+   "status": "closed"
   },
   {
    "fn": "urmail_domain_mail_ready",
@@ -789,8 +799,9 @@
    "method": "GetMailboxDailySent",
    "line": 23,
    "snippet": "LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)",
-   "strategy": "app-assume",
-   "replacement": "业务时区日桶计算 → Go timeutil（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：quotaDay 计算业务时区日 + mailboxDailySentSQL（sqlite_methods.go）",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -816,8 +827,9 @@
    "method": "GetMailboxDailySentForUpdate",
    "line": 42,
    "snippet": "LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)",
-   "strategy": "app-assume",
-   "replacement": "业务时区日桶计算 → Go timeutil（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：同上；SQLite 单写者替代 FOR UPDATE",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_allowed",
@@ -843,8 +855,9 @@
    "method": "IncrementMailboxDailySent",
    "line": 52,
    "snippet": "VALUES (?1, ?2, urmail_quota_day(?2), 1)",
-   "strategy": "app-assume",
-   "replacement": "业务时区日桶计算 → Go timeutil（S4）"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：quotaDay + incrementMailboxDailySentSQL",
+   "status": "closed"
   },
   {
    "fn": "urmail_mail_readable",
@@ -870,8 +883,9 @@
    "method": "PlatformTakeMailboxDailyQuota",
    "line": 92,
    "snippet": "SELECT urmail_take_mailbox_quota(sqlc.arg(tenant_id),sqlc.arg(mailbox_id)) AS allowed;",
-   "strategy": "app-assume",
-   "replacement": "过程/会话函数 → repo Go 层（S4）；替代物随 S1 三分类逐条补注"
+   "strategy": "s4-closed",
+   "replacement": "S4 Go：settingLimitSQL + takeMailboxQuotaSQL（含 lim<=0 短路）",
+   "status": "closed"
   }
  ],
  "first_batch_breakdown": {

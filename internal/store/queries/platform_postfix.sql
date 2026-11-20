@@ -43,4 +43,19 @@ ORDER BY d.fqdn ASC, a.local_part ASC;
 -- boolean only; no cross-tenant rows or graph structure are exposed. Exempt
 -- from tenant_id predicate per AGENTS.md (platform_*.sql): the cycle lives in
 -- the platform-wide graph by definition.
-SELECT urmail_alias_would_cycle(sqlc.arg('domain'), sqlc.arg('local_part'), sqlc.arg('target')) AS would_cycle;
+WITH RECURSIVE edges(src,dst) AS (
+  SELECT lower(a.local_part) || '@' || lower(d.fqdn), lower(a.target)
+  FROM mailbox_aliases a
+  JOIN domains d ON d.id=a.domain_id
+  JOIN tenants t ON t.id=a.tenant_id
+  WHERE a.kind<>'catchall' AND a.active AND d.status='active' AND d.provisioning_state='ready' AND t.status='active'
+),
+start_key(s) AS (
+  SELECT lower(sqlc.arg('local_part')) || '@' || (SELECT lower(fqdn) FROM domains WHERE fqdn=sqlc.arg('domain'))
+),
+walk(cur) AS (
+  SELECT lower(sqlc.arg('target'))
+  UNION
+  SELECT e.dst FROM walk w JOIN edges e ON e.src=w.cur
+)
+SELECT EXISTS(SELECT 1 FROM walk w JOIN start_key s ON w.cur=s.s) AS would_cycle;

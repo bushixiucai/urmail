@@ -703,7 +703,8 @@
   "PublishDomainTransportSecurity": "tenant",
   "ObserveDomainTransportSecurity": "tenant",
   "DisableDomainTransportSecurity": "tenant",
-  "ListDomainTLSReports": "tenant"
+  "ListDomainTLSReports": "tenant",
+  "ConsumeUserRecoveryCode": "platform"
  },
  "counts": {
   "tenant": 224,

@@ -214,28 +214,3 @@ func (q *Queries) ListAuditLogsByTenant(ctx context.Context, arg ListAuditLogsBy
 	return items, nil
 }
 
-const recordTenantAudit = `-- name: RecordTenantAudit :exec
-SELECT urmail_record_audit($1::bigint, $2::bigint,
-    $3::inet, $4::text, $5::text, $6::integer)
-`
-
-type RecordTenantAuditParams struct {
-	TenantID int64       `json:"tenant_id"`
-	UserID   int64       `json:"user_id"`
-	ActorIp  *netip.Addr `json:"actor_ip"`
-	Action   string      `json:"action"`
-	Target   string      `json:"target"`
-	Status   int32       `json:"status"`
-}
-
-func (q *Queries) RecordTenantAudit(ctx context.Context, arg RecordTenantAuditParams) error {
-	_, err := q.db.Exec(ctx, recordTenantAudit,
-		arg.TenantID,
-		arg.UserID,
-		arg.ActorIp,
-		arg.Action,
-		arg.Target,
-		arg.Status,
-	)
-	return err
-}

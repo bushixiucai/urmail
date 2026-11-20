@@ -1,7 +1,12 @@
 -- name: GetBillingBusinessTimezone :one
 -- scope: platform
 
-SELECT urmail_business_timezone(?1) AS timezone;
+-- app-pending: INVALID_TIMEZONE / Local validation → Go callers (aiQuotaLocation).
+SELECT COALESCE(
+  (SELECT json_extract(value,'$') FROM settings WHERE scope='tenant' AND scope_id=?1 AND key='business_timezone'),
+  (SELECT json_extract(s.value,'$') FROM settings s JOIN tenants t ON t.brand_id=s.scope_id WHERE t.id=?1 AND s.scope='brand' AND s.key='business_timezone'),
+  (SELECT json_extract(value,'$') FROM settings WHERE scope='platform' AND scope_id=0 AND key='business_timezone'),
+  'Asia/Shanghai') AS timezone;
 
 -- name: PlatformLockBillingTenant :exec
 -- scope: platform

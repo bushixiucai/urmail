@@ -70,7 +70,10 @@ WHERE (entry_id, tenant_id) IN (SELECT a.id, a.tenant_id, p.confirmed_preview FR
 SELECT a.id,a.tenant_id,a.path,coalesce(nullif(a.raw_sha256,''),c.original_sha256) AS raw_sha256,c.purge_started_at,c.purged_at
 FROM archive_entries a JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
 WHERE NOT a.legal_hold AND a.deleted_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000)-2592000000000 AND c.purged_at IS NULL
- AND (c.purge_started_at IS NOT NULL OR c.retention_preview IS NULL OR EXISTS(SELECT 1 FROM retention_policies p WHERE p.tenant_id=a.tenant_id AND p.active AND p.confirmed_preview=c.retention_preview AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id)))
+ AND (c.purge_started_at IS NOT NULL OR c.retention_preview IS NULL OR EXISTS(SELECT 1 FROM retention_policies p WHERE p.tenant_id=a.tenant_id AND p.active AND p.confirmed_preview=c.retention_preview AND EXISTS(SELECT 1 FROM compliance_grants g JOIN user_tenant_roles r ON r.tenant_id=g.tenant_id AND r.user_id=g.user_id
+  WHERE g.tenant_id=p.tenant_id AND g.id=p.authorization_grant_id AND g.user_id=p.created_by AND g.scope='retention_manage'
+   AND NOT g.revoked AND g.owner_confirmed_at IS NOT NULL AND g.owner_confirmed_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND g.granted_by IS NOT NULL
+   AND length(trim(g.reason))>0 AND g.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND r.role IN('owner','admin'))))
 ORDER BY a.id LIMIT 100;
 
 -- name: PlatformLockArchivePurgeCandidate :one
@@ -115,7 +118,10 @@ WHERE tenant_id= @tenant_id AND id= @id AND raw_sha256=''
 -- name: PlatformLockRetentionPurgePolicy :one
 -- scope: platform
 
-SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND urmail_retention_authorized(p.tenant_id,p.created_by,p.authorization_grant_id),false) AS allowed
+SELECT coalesce(p.active AND p.confirmed_preview= @preview_id AND EXISTS(SELECT 1 FROM compliance_grants g JOIN user_tenant_roles r ON r.tenant_id=g.tenant_id AND r.user_id=g.user_id
+  WHERE g.tenant_id=p.tenant_id AND g.id=p.authorization_grant_id AND g.user_id=p.created_by AND g.scope='retention_manage'
+   AND NOT g.revoked AND g.owner_confirmed_at IS NOT NULL AND g.owner_confirmed_at<=(CAST(strftime('%s','now') AS INTEGER)*1000000) AND g.granted_by IS NOT NULL
+   AND length(trim(g.reason))>0 AND g.expires_at>(CAST(strftime('%s','now') AS INTEGER)*1000000) AND r.role IN('owner','admin')),false) AS allowed
 FROM retention_policies p WHERE p.tenant_id= @tenant_id;
 
 -- name: PlatformCancelArchivePurgeIntent :exec

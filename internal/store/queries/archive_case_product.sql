@@ -18,15 +18,11 @@ SELECT * FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
 
 SELECT * FROM archive_investigations WHERE tenant_id=?1 AND id=?2;
 
--- name: ArchiveCasesSnapshot :one
--- scope: platform
+-- ArchiveCasesSnapshot 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_archive_case_snapshot = jsonb 聚合 + 成员/授权嵌套，Go 侧构造稳定 JSON。
 
-SELECT urmail_archive_case_snapshot(?1,?2,?3) AS snapshot;
-
--- name: ArchiveCasesSnapshotDigest :one
--- scope: platform
-
-SELECT encode(sha256(convert_to(urmail_archive_case_snapshot(?1,?2,?3),'UTF8')),'hex') AS digest;
+-- ArchiveCasesSnapshotDigest 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- encode(sha256(convert_to(snapshot))) 需 Go 侧哈希。
 
 -- name: ArchiveCasesMembers :many
 -- scope: tenant
@@ -130,10 +126,8 @@ AND requester_user_id<> @actor_id AND source_digest= @digest RETURNING id;
 UPDATE archive_approval_requests SET state='withdrawn',decision_reason=?5,decided_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE tenant_id=?1 AND investigation_id=?2 AND id=?3 AND requester_user_id=?4 AND state='pending' RETURNING id;
 
--- name: ArchiveCasesExportVisible :one
--- scope: platform
-
-SELECT urmail_archive_export_visible(?1,?2,?3) AS visible;
+-- ArchiveCasesExportVisible 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_archive_export_visible 复用 snapshot/成员/授权函数，随 Snapshot 一起 Go 化。
 
 -- name: ArchiveCasesSaveEvidence :one
 -- scope: tenant

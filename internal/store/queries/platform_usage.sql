@@ -5,55 +5,14 @@
 -- a platform_*.sql file (M3 review P1-2).
 -- (moved verbatim from usage.sql)
 
--- name: GetMailboxDailySent :one
--- scope: tenant
+-- GetMailboxDailySent 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 业务时区的 day key 需 Go 侧时区库；PG 复用 urmail_quota_day。
 
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
-       m.id AS mailbox_id,
-       m.tenant_id,
-       COALESCE((
-           SELECT (json_extract(s.value, '$.'))
-           FROM settings s
-           WHERE s.key = 'mailbox_daily_send_limit'
-             AND ((s.scope = 'tenant' AND s.scope_id = m.tenant_id) OR (s.scope = 'platform' AND s.scope_id = 0))
-           ORDER BY CASE WHEN s.scope = 'tenant' THEN 0 ELSE 1 END
-           LIMIT 1
-       ), -1) AS daily_send_limit
-FROM mailboxes m
-LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
-WHERE m.address = ?1 AND m.status = 'active' AND EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=m.tenant_id AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=m.tenant_id AND rd.id=m.domain_id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready');
+-- GetMailboxDailySentForUpdate 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 同上（day key 由 Go 计算；SQLite 无行锁，事务串行）。
 
--- name: GetMailboxDailySentForUpdate :one
--- scope: tenant
-
--- Locks the mailbox row to serialize concurrent daily sent quota evaluation
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
-       m.id AS mailbox_id,
-       m.tenant_id,
-       COALESCE((
-           SELECT (json_extract(s.value, '$.'))
-           FROM settings s
-           WHERE s.key = 'mailbox_daily_send_limit'
-             AND ((s.scope = 'tenant' AND s.scope_id = m.tenant_id) OR (s.scope = 'platform' AND s.scope_id = 0))
-           ORDER BY CASE WHEN s.scope = 'tenant' THEN 0 ELSE 1 END
-           LIMIT 1
-       ), -1) AS daily_send_limit
-FROM mailboxes m
-LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
-WHERE m.address = ?1 AND m.status = 'active' AND EXISTS(SELECT 1 FROM tenants mt WHERE mt.id=m.tenant_id AND mt.status='active' AND (NOT EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id) OR EXISTS(SELECT 1 FROM domains gd WHERE gd.tenant_id=mt.id AND gd.status='active' AND gd.provisioning_state='ready'))) AND EXISTS(SELECT 1 FROM domains rd WHERE rd.tenant_id=m.tenant_id AND rd.id=m.domain_id AND rd.status='active' AND rd.verified_at IS NOT NULL AND rd.provisioning_state='ready');
-
--- name: IncrementMailboxDailySent :one
--- scope: tenant
-
--- Atomic check-and-increment: the counter is only advanced while it stays
--- below the daily limit (?3); returns pgx.ErrNoRows when the limit is
--- already reached.
-INSERT INTO mailbox_usage (mailbox_id, tenant_id, day, messages_sent)
-VALUES (?1, ?2, urmail_quota_day(?2), 1)
-ON CONFLICT (mailbox_id, day)
-DO UPDATE SET messages_sent = mailbox_usage.messages_sent + 1
-WHERE mailbox_usage.messages_sent < ?3
-RETURNING messages_sent;
+-- IncrementMailboxDailySent 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- 同上（day key 由 Go 计算）。
 
 -- name: GetTenantIDBySenderDomain :one
 -- scope: tenant
@@ -86,7 +45,6 @@ SELECT COALESCE((SELECT EXISTS(SELECT 1 FROM tenants rt WHERE rt.id=d.tenant_id 
 
 SELECT commission_bps FROM channels WHERE id=?1;
 
--- name: PlatformTakeMailboxDailyQuota :one
--- scope: platform
+-- PlatformTakeMailboxDailyQuota 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_take_mailbox_quota = 多步配额校验 + 时区日 + 原子自增。
 
-SELECT urmail_take_mailbox_quota(sqlc.arg(tenant_id),sqlc.arg(mailbox_id)) AS allowed;

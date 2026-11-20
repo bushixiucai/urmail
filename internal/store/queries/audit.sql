@@ -34,11 +34,9 @@ WHERE audit.tenant_id = @tenant_id
 ORDER BY audit.created_at DESC, audit.id DESC
 LIMIT sqlc.arg('limit');
 
--- name: RecordTenantAudit :exec
--- scope: platform
-
-SELECT urmail_record_audit(@tenant_id, @user_id,
-    sqlc.narg('actor_ip'), @action, @target, @status);
+-- RecordTenantAudit 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_record_audit = 元数据正则校验 + user_tenant_roles 断言 + 审计插入；
+-- current_setting 会话绑定条款由 S2 装饰器承接（app_pending，见 S3 审计附录）。
 
 -- name: GetAuditCursorAnchor :one
 -- scope: tenant

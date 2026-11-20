@@ -127,23 +127,6 @@ func (q *Queries) PlatformDeleteContact(ctx context.Context, arg PlatformDeleteC
 	return i, err
 }
 
-const platformDeleteContactGroup = `-- name: PlatformDeleteContactGroup :one
-SELECT urmail_delete_contact_group($1,$2,$3)
-`
-
-type PlatformDeleteContactGroupParams struct {
-	PTenant  int64 `json:"p_tenant"`
-	PMailbox int64 `json:"p_mailbox"`
-	PGroup   int64 `json:"p_group"`
-}
-
-func (q *Queries) PlatformDeleteContactGroup(ctx context.Context, arg PlatformDeleteContactGroupParams) (bool, error) {
-	row := q.db.QueryRow(ctx, platformDeleteContactGroup, arg.PTenant, arg.PMailbox, arg.PGroup)
-	var urmail_delete_contact_group bool
-	err := row.Scan(&urmail_delete_contact_group)
-	return urmail_delete_contact_group, err
-}
-
 const platformDeleteEvent = `-- name: PlatformDeleteEvent :one
 WITH next AS (
  UPDATE mailbox_events AS e

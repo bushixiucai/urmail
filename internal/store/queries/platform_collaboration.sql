@@ -163,10 +163,8 @@ FROM mailbox_addressbooks b
 WHERE b.tenant_id=?1 AND b.mailbox_id=?2 AND b.id=?3 AND b.deleted_at IS NULL
 RETURNING *;
 
--- name: PlatformDeleteContactGroup :one
--- scope: platform
-
-SELECT urmail_delete_contact_group(?1,?2,?3);
+-- PlatformDeleteContactGroup 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
+-- urmail_delete_contact_group = 软删组 + 清成员两步 DML。
 
 -- name: PlatformListContactGroups :many
 -- scope: platform

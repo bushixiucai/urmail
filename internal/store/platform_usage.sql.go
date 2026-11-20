@@ -49,87 +49,6 @@ func (q *Queries) GetDeliveryEventTenantByQueueID(ctx context.Context, arg GetDe
 	return i, err
 }
 
-const getMailboxDailySent = `-- name: GetMailboxDailySent :one
-
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
-       m.id AS mailbox_id,
-       m.tenant_id,
-       COALESCE((
-           SELECT (s.value #>> '{}')::int
-           FROM settings s
-           WHERE s.key = 'mailbox_daily_send_limit'
-             AND ((s.scope = 'tenant' AND s.scope_id = m.tenant_id) OR (s.scope = 'platform' AND s.scope_id = 0))
-           ORDER BY CASE WHEN s.scope = 'tenant' THEN 0 ELSE 1 END
-           LIMIT 1
-       ), -1)::int AS daily_send_limit
-FROM mailboxes m
-LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
-WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)
-`
-
-type GetMailboxDailySentRow struct {
-	MessagesSent   int32 `json:"messages_sent"`
-	MailboxID      int64 `json:"mailbox_id"`
-	TenantID       int64 `json:"tenant_id"`
-	DailySendLimit int32 `json:"daily_send_limit"`
-}
-
-// Platform-side daily-sent usage queries used by the SMTP policy service
-// (internal/mail/policy). The policy service resolves the tenant from the
-// mailbox address itself and runs outside a tenant context, so these queries
-// are exempt from the tenant_id predicate per AGENTS.md and therefore live in
-// a platform_*.sql file (M3 review P1-2).
-// (moved verbatim from usage.sql)
-func (q *Queries) GetMailboxDailySent(ctx context.Context, address string) (GetMailboxDailySentRow, error) {
-	row := q.db.QueryRow(ctx, getMailboxDailySent, address)
-	var i GetMailboxDailySentRow
-	err := row.Scan(
-		&i.MessagesSent,
-		&i.MailboxID,
-		&i.TenantID,
-		&i.DailySendLimit,
-	)
-	return i, err
-}
-
-const getMailboxDailySentForUpdate = `-- name: GetMailboxDailySentForUpdate :one
-SELECT COALESCE(u.messages_sent, 0) AS messages_sent,
-       m.id AS mailbox_id,
-       m.tenant_id,
-       COALESCE((
-           SELECT (s.value #>> '{}')::int
-           FROM settings s
-           WHERE s.key = 'mailbox_daily_send_limit'
-             AND ((s.scope = 'tenant' AND s.scope_id = m.tenant_id) OR (s.scope = 'platform' AND s.scope_id = 0))
-           ORDER BY CASE WHEN s.scope = 'tenant' THEN 0 ELSE 1 END
-           LIMIT 1
-       ), -1)::int AS daily_send_limit
-FROM mailboxes m
-LEFT JOIN mailbox_usage u ON m.id = u.mailbox_id AND u.day = urmail_quota_day(m.tenant_id)
-WHERE m.address = $1 AND m.status = 'active' AND urmail_mail_allowed(m.tenant_id) AND urmail_domain_mail_ready(m.tenant_id,m.domain_id)
-FOR UPDATE OF m
-`
-
-type GetMailboxDailySentForUpdateRow struct {
-	MessagesSent   int32 `json:"messages_sent"`
-	MailboxID      int64 `json:"mailbox_id"`
-	TenantID       int64 `json:"tenant_id"`
-	DailySendLimit int32 `json:"daily_send_limit"`
-}
-
-// Locks the mailbox row to serialize concurrent daily sent quota evaluation
-func (q *Queries) GetMailboxDailySentForUpdate(ctx context.Context, address string) (GetMailboxDailySentForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, getMailboxDailySentForUpdate, address)
-	var i GetMailboxDailySentForUpdateRow
-	err := row.Scan(
-		&i.MessagesSent,
-		&i.MailboxID,
-		&i.TenantID,
-		&i.DailySendLimit,
-	)
-	return i, err
-}
-
 const getTenantIDBySenderDomain = `-- name: GetTenantIDBySenderDomain :one
 SELECT tenant_id FROM domains WHERE fqdn = $1 AND status = 'active'
 `
@@ -140,31 +59,6 @@ func (q *Queries) GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (i
 	var tenant_id int64
 	err := row.Scan(&tenant_id)
 	return tenant_id, err
-}
-
-const incrementMailboxDailySent = `-- name: IncrementMailboxDailySent :one
-INSERT INTO mailbox_usage (mailbox_id, tenant_id, day, messages_sent)
-VALUES ($1, $2, urmail_quota_day($2), 1)
-ON CONFLICT (mailbox_id, day)
-DO UPDATE SET messages_sent = mailbox_usage.messages_sent + 1
-WHERE mailbox_usage.messages_sent < $3
-RETURNING messages_sent
-`
-
-type IncrementMailboxDailySentParams struct {
-	MailboxID    int64 `json:"mailbox_id"`
-	TenantID     int64 `json:"tenant_id"`
-	MessagesSent int32 `json:"messages_sent"`
-}
-
-// Atomic check-and-increment: the counter is only advanced while it stays
-// below the daily limit ($3); returns pgx.ErrNoRows when the limit is
-// already reached.
-func (q *Queries) IncrementMailboxDailySent(ctx context.Context, arg IncrementMailboxDailySentParams) (int32, error) {
-	row := q.db.QueryRow(ctx, incrementMailboxDailySent, arg.MailboxID, arg.TenantID, arg.MessagesSent)
-	var messages_sent int32
-	err := row.Scan(&messages_sent)
-	return messages_sent, err
 }
 
 const platformCommissionRate = `-- name: PlatformCommissionRate :one
@@ -189,18 +83,3 @@ func (q *Queries) PlatformInboundAllowed(ctx context.Context, splitPart string) 
 	return allowed, err
 }
 
-const platformTakeMailboxDailyQuota = `-- name: PlatformTakeMailboxDailyQuota :one
-SELECT urmail_take_mailbox_quota($1::bigint,$2::bigint)::boolean AS allowed
-`
-
-type PlatformTakeMailboxDailyQuotaParams struct {
-	TenantID  int64 `json:"tenant_id"`
-	MailboxID int64 `json:"mailbox_id"`
-}
-
-func (q *Queries) PlatformTakeMailboxDailyQuota(ctx context.Context, arg PlatformTakeMailboxDailyQuotaParams) (bool, error) {
-	row := q.db.QueryRow(ctx, platformTakeMailboxDailyQuota, arg.TenantID, arg.MailboxID)
-	var allowed bool
-	err := row.Scan(&allowed)
-	return allowed, err
-}

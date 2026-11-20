@@ -1,7 +1,8 @@
 -- name: PlatformRestoreSyncEpoch :one
 -- scope: platform
 
-SELECT urmail_restore_sync_epoch() AS epoch;
+SELECT COALESCE((SELECT CAST(json_extract(value,'$.sync_epoch') AS INTEGER) FROM settings
+ WHERE scope='platform' AND scope_id=0 AND key='restore_replay_review'),1) AS epoch;
 
 -- name: PlatformMailboxRestoreIdentity :one
 -- scope: platform
