@@ -143,7 +143,7 @@ func (h *DomainHandler) List(c *gin.Context) {
 		return
 	}
 
-	domains, err := q.ListDomainsByTenant(c, tenantID)
+	domains, err := q.ListDomainsByTenant(c.Request.Context(), tenantID)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -227,7 +227,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		return
 	}
 
-	domain, err := q.CreateDomain(c, store.CreateDomainParams{
+	domain, err := q.CreateDomain(c.Request.Context(), store.CreateDomainParams{
 		TenantID:          tenantID,
 		Fqdn:              fqdn,
 		Mode:              mode,
@@ -408,7 +408,7 @@ func (h *DomainHandler) ReissueChallenge(c *gin.Context) {
 		authError(c, http.StatusInternalServerError, "INTERNAL_ERROR")
 		return
 	}
-	challenge, err := requestStore(c, h.Store).RotateDomainChallenge(c, store.RotateDomainChallengeParams{TenantID: tenantID, ID: id, VerificationToken: hex.EncodeToString(random[:])})
+	challenge, err := requestStore(c, h.Store).RotateDomainChallenge(c.Request.Context(), store.RotateDomainChallengeParams{TenantID: tenantID, ID: id, VerificationToken: hex.EncodeToString(random[:])})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, http.StatusConflict, "DOMAIN_CHALLENGE_UNAVAILABLE")
 		return
@@ -439,7 +439,7 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := q.DeleteDomain(c, store.DeleteDomainParams{
+	if err := q.DeleteDomain(c.Request.Context(), store.DeleteDomainParams{
 		TenantID: tenantID,
 		ID:       id,
 	}); err != nil {
@@ -479,7 +479,7 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	current, err := q.GetDomainByID(c, store.GetDomainByIDParams{TenantID: tenantID, ID: id})
+	current, err := q.GetDomainByID(c.Request.Context(), store.GetDomainByIDParams{TenantID: tenantID, ID: id})
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -512,7 +512,7 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "DOMAIN_NOT_VERIFIED"}})
 		return
 	}
-	updated, err := q.UpdateDomainModeStatus(c, store.UpdateDomainModeStatusParams{
+	updated, err := q.UpdateDomainModeStatus(c.Request.Context(), store.UpdateDomainModeStatusParams{
 		TenantID: tenantID, ID: id, Mode: mode, Status: status,
 	})
 	if err != nil {

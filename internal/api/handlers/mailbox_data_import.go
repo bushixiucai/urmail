@@ -371,7 +371,7 @@ func (h MailboxDataImport) History(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c) }()
-	rows, err := db.Queries(tx).PlatformListDataImportReceipts(c, store.PlatformListDataImportReceiptsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	rows, err := db.Queries(tx).PlatformListDataImportReceipts(c.Request.Context(), store.PlatformListDataImportReceiptsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

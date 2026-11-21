@@ -64,7 +64,7 @@ func (h MailboxContactsHandler) ListContacts(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		rows, err := q.PlatformListContactsPage(c, store.PlatformListContactsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, Limit: int32(limit + 1)})
+		rows, err := q.PlatformListContactsPage(c.Request.Context(), store.PlatformListContactsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, Limit: int32(limit + 1)})
 		if err != nil {
 			authError(c, 503, "CONTACTS_UNAVAILABLE")
 			return

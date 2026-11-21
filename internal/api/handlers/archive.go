@@ -81,7 +81,7 @@ func (h *ArchiveHandler) List(c *gin.Context) {
 			offset = v
 		}
 	}
-	entries, err := q.ListArchiveEntriesByTenant(c, store.ListArchiveEntriesByTenantParams{
+	entries, err := q.ListArchiveEntriesByTenant(c.Request.Context(), store.ListArchiveEntriesByTenantParams{
 		TenantID: tenantID,
 		Limit:    limit,
 		Offset:   offset,
@@ -127,9 +127,9 @@ func (h *ArchiveHandler) mutateHold(c *gin.Context, held bool) {
 	}
 	var entry store.ArchiveEntries
 	if held {
-		entry, err = q.SetArchiveEntryLegalHold(c, store.SetArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
+		entry, err = q.SetArchiveEntryLegalHold(c.Request.Context(), store.SetArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
 	} else {
-		entry, err = q.ClearArchiveEntryLegalHold(c, store.ClearArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
+		entry, err = q.ClearArchiveEntryLegalHold(c.Request.Context(), store.ClearArchiveEntryLegalHoldParams{TenantID: tenantID, ID: id})
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND"}})
@@ -161,7 +161,7 @@ func (h *ArchiveHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_ID"}})
 		return
 	}
-	deletedID, err := q.SoftDeleteArchiveEntry(c, store.SoftDeleteArchiveEntryParams{TenantID: tenantID, ID: id})
+	deletedID, err := q.SoftDeleteArchiveEntry(c.Request.Context(), store.SoftDeleteArchiveEntryParams{TenantID: tenantID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "LEGAL_HOLD"}})
 		return

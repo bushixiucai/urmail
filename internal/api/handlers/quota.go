@@ -23,7 +23,7 @@ type QuotaStore interface {
 func mailboxUnderLegalHold(c *gin.Context, q interface {
 	ListMailboxesWithLegalHold(ctx context.Context, tenantID int64) ([]pgtype.Int8, error)
 }, tenantID, mailboxID int64) (bool, error) {
-	holds, err := q.ListMailboxesWithLegalHold(c, tenantID)
+	holds, err := q.ListMailboxesWithLegalHold(c.Request.Context(), tenantID)
 	if err != nil {
 		return false, err
 	}
@@ -82,11 +82,11 @@ func quotaCheck(c *gin.Context, q QuotaStore, tenantID int64, kind string) bool 
 
 	switch kind {
 	case "domain":
-		used, err = q.CountDomainsByTenant(c, tenantID)
+		used, err = q.CountDomainsByTenant(c.Request.Context(), tenantID)
 		limit = resolveMailboxResourceLimit(c, q, tenantID, "mailbox_domain_limit")
 		exceededCode = "DOMAIN_QUOTA_EXCEEDED"
 	case "mailbox":
-		used, err = q.CountMailboxesByTenant(c, tenantID)
+		used, err = q.CountMailboxesByTenant(c.Request.Context(), tenantID)
 		limit = resolveMailboxResourceLimit(c, q, tenantID, "mailbox_limit")
 		exceededCode = "MAILBOX_LIMIT_EXCEEDED"
 	default:

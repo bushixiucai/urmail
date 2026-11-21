@@ -41,12 +41,12 @@ func (h *ComplianceGrantHandler) List(c *gin.Context) {
 	}
 	tid, _ := middleware.GetTenantID(c)
 	q := requestStore(c, h.Store)
-	grants, err := q.ListComplianceGrantsByTenant(c, tid)
+	grants, err := q.ListComplianceGrantsByTenant(c.Request.Context(), tid)
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
-	recipients, err := q.ListComplianceGrantRecipients(c, tid)
+	recipients, err := q.ListComplianceGrantRecipients(c.Request.Context(), tid)
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -77,7 +77,7 @@ func (h *ComplianceGrantHandler) Create(c *gin.Context) {
 	}
 	tid, _ := middleware.GetTenantID(c)
 	actor, _ := middleware.GetUserID(c)
-	row, err := requestStore(c, h.Store).CreateComplianceGrant(c, store.CreateComplianceGrantParams{TenantID: tid, UserID: input.UserID, Scope: input.Scope, Reason: strings.TrimSpace(input.Reason), ExpiresAt: timeutil.Micro(input.ExpiresAt.UTC()), GrantedBy: pgtype.Int8{Int64: actor, Valid: true}})
+	row, err := requestStore(c, h.Store).CreateComplianceGrant(c.Request.Context(), store.CreateComplianceGrantParams{TenantID: tid, UserID: input.UserID, Scope: input.Scope, Reason: strings.TrimSpace(input.Reason), ExpiresAt: timeutil.Micro(input.ExpiresAt.UTC()), GrantedBy: pgtype.Int8{Int64: actor, Valid: true}})
 	if err != nil {
 		if !respondConstraintError(c, err) {
 			authError(c, 409, "INVALID_PARAMS")
@@ -99,7 +99,7 @@ func (h *ComplianceGrantHandler) Revoke(c *gin.Context) {
 	}
 	tid, _ := middleware.GetTenantID(c)
 	actor, _ := middleware.GetUserID(c)
-	row, err := requestStore(c, h.Store).RevokeComplianceGrant(c, store.RevokeComplianceGrantParams{TenantID: tid, ID: id, RevokedBy: pgtype.Int8{Int64: actor, Valid: true}})
+	row, err := requestStore(c, h.Store).RevokeComplianceGrant(c.Request.Context(), store.RevokeComplianceGrantParams{TenantID: tid, ID: id, RevokedBy: pgtype.Int8{Int64: actor, Valid: true}})
 	if err != nil {
 		authError(c, 404, "NOT_FOUND")
 		return

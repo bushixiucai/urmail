@@ -363,7 +363,7 @@ func (h *AIConfigurationHandler) Get(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	cfg, err := db.Queries(h.Pool).PlatformGetAIProvider(c, tid)
+	cfg, err := db.Queries(h.Pool).PlatformGetAIProvider(c.Request.Context(), tid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"configuration": gin.H{"enabled": false, "mode": "local", "provider": "ollama", "local_only": true}, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints), "local_endpoints": safelyListedEndpoints(h.LocalEndpoints)})
 		return
@@ -435,13 +435,13 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			if eps == nil {
 				eps = []string{}
 			}
-			if err := tenantQueries.PlatformConfigureTenantAIGovernance(c, store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
+			if err := tenantQueries.PlatformConfigureTenantAIGovernance(c.Request.Context(), store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
 		}
 		if input.ActiveService != "" {
-			if err := tenantQueries.PlatformSetActiveAIService(c, store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
+			if err := tenantQueries.PlatformSetActiveAIService(c.Request.Context(), store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
@@ -478,7 +478,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			authError(c, 503, "AI_DISABLED")
 			return
 		}
-	} else if previous, err := q.PlatformGetAIProvider(c, tid); err == nil {
+	} else if previous, err := q.PlatformGetAIProvider(c.Request.Context(), tid); err == nil {
 		if (previous.EnterpriseProvider == input.Provider || previous.Provider == input.Provider) && (strings.TrimRight(previous.EnterpriseEndpoint, "/") == strings.TrimRight(input.Endpoint, "/") || strings.TrimRight(previous.Endpoint, "/") == strings.TrimRight(input.Endpoint, "/")) {
 			if previous.EnterpriseEncryptedKey != "" {
 				encrypted = previous.EnterpriseEncryptedKey
@@ -497,7 +497,7 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 			return
 		}
 	}
-	err := tenantQueries.PlatformConfigureTenantAI(c, store.PlatformConfigureTenantAIParams{Mode: input.Mode, Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, LocalOnly: input.LocalOnly})
+	err := tenantQueries.PlatformConfigureTenantAI(c.Request.Context(), store.PlatformConfigureTenantAIParams{Mode: input.Mode, Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, LocalOnly: input.LocalOnly})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -511,13 +511,13 @@ func (h *AIConfigurationHandler) Put(c *gin.Context) {
 		if eps == nil {
 			eps = []string{}
 		}
-		if err := tenantQueries.PlatformConfigureTenantAIGovernance(c, store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
+		if err := tenantQueries.PlatformConfigureTenantAIGovernance(c.Request.Context(), store.PlatformConfigureTenantAIGovernanceParams{PersonalMode: pm, ApprovedEndpoints: eps}); err != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 	}
 	if input.ActiveService != "" {
-		if err := tenantQueries.PlatformSetActiveAIService(c, store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
+		if err := tenantQueries.PlatformSetActiveAIService(c.Request.Context(), store.PlatformSetActiveAIServiceParams{TenantID: tid, ActiveService: input.ActiveService}); err != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
@@ -536,7 +536,7 @@ func (h *AIConfigurationHandler) Usage(c *gin.Context) {
 		authError(c, 401, "UNAUTHORIZED")
 		return
 	}
-	rows, err := db.Queries(h.Pool).PlatformAIUsage(c, tid)
+	rows, err := db.Queries(h.Pool).PlatformAIUsage(c.Request.Context(), tid)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -602,7 +602,7 @@ func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
 	credential := input.Key
 	if credential != "" {
 		encrypted, err = h.Secrets.EncryptString(credential)
-	} else if previous, lookup := q.PlatformGetAIProvider(c, tid); lookup == nil && previous.Mode == "platform" && previous.Provider == input.Provider && previous.Endpoint == strings.TrimRight(input.Endpoint, "/") {
+	} else if previous, lookup := q.PlatformGetAIProvider(c.Request.Context(), tid); lookup == nil && previous.Mode == "platform" && previous.Provider == input.Provider && previous.Endpoint == strings.TrimRight(input.Endpoint, "/") {
 		encrypted = previous.EncryptedKey
 		credential, err = h.Secrets.DecryptString(encrypted)
 	}
@@ -616,13 +616,13 @@ func (h *AIConfigurationHandler) PlatformPut(c *gin.Context) {
 			return
 		}
 	}
-	if _, err = q.PlatformSetAIProvider(c, store.PlatformSetAIProviderParams{TenantID: tid, Mode: "platform", Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, InputMicrosPerMillion: input.InputRate, OutputMicrosPerMillion: input.OutputRate, CostCurrency: input.Currency}); err != nil {
+	if _, err = q.PlatformSetAIProvider(c.Request.Context(), store.PlatformSetAIProviderParams{TenantID: tid, Mode: "platform", Provider: input.Provider, Endpoint: strings.TrimRight(input.Endpoint, "/"), Model: input.Model, EncryptedKey: encrypted, Enabled: input.Enabled, InputMicrosPerMillion: input.InputRate, OutputMicrosPerMillion: input.OutputRate, CostCurrency: input.Currency}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	uid, ok := middleware.GetUserID(c)
 	detail, _ := json.Marshal(gin.H{"status": 200, "outcome": "succeeded", "provider": input.Provider, "enabled": input.Enabled})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: ok}, Action: "ai.platform.configure", TargetType: pgtype.Text{String: "tenant", Valid: true}, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: ok}, Action: "ai.platform.configure", TargetType: pgtype.Text{String: "tenant", Valid: true}, Detail: detail}); err != nil {
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
 	}
@@ -831,15 +831,15 @@ func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockBillingTenant(c, tid); err != nil {
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), tid); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if err = q.PlatformExpireAIReservations(c, tid); err != nil {
+	if err = q.PlatformExpireAIReservations(c.Request.Context(), tid); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	row, err := q.PlatformResolveAIUsage(c, store.PlatformResolveAIUsageParams{TenantID: tid, ID: id, Status: input.Status, ActualTokens: pgtype.Int8{Int64: *input.Tokens, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: *input.Cost, Valid: true}, ReviewReason: pgtype.Text{String: strings.TrimSpace(input.Reason), Valid: true}, ReviewedBy: pgtype.Int8{Int64: uid, Valid: true}, CostCurrency: input.Currency})
+	row, err := q.PlatformResolveAIUsage(c.Request.Context(), store.PlatformResolveAIUsageParams{TenantID: tid, ID: id, Status: input.Status, ActualTokens: pgtype.Int8{Int64: *input.Tokens, Valid: true}, ActualCostMicros: pgtype.Int8{Int64: *input.Cost, Valid: true}, ReviewReason: pgtype.Text{String: strings.TrimSpace(input.Reason), Valid: true}, ReviewedBy: pgtype.Int8{Int64: uid, Valid: true}, CostCurrency: input.Currency})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, 409, "AI_REVIEW_CONFLICT")
@@ -853,7 +853,7 @@ func (h *AIConfigurationHandler) ResolveUsage(c *gin.Context) {
 		return
 	}
 	detail, _ := json.Marshal(gin.H{"status": 200, "outcome": "succeeded", "request_id": id, "resolution": input.Status, "tokens": *input.Tokens, "cost_micros": *input.Cost, "cost_currency": input.Currency, "reason": strings.TrimSpace(input.Reason)})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: true}, Action: "ai.usage.reviewed", TargetType: pgtype.Text{String: "ai_request", Valid: true}, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, ActorUserID: pgtype.Int8{Int64: uid, Valid: true}, Action: "ai.usage.reviewed", TargetType: pgtype.Text{String: "ai_request", Valid: true}, Detail: detail}); err != nil {
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
 	}

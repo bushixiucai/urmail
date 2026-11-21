@@ -202,7 +202,7 @@ func (h *MailboxImports) respond(c *gin.Context, sess webmail.Session, id int64,
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if e = q.MailboxImportRecoverExpiredLeases(c, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
+	if e = q.MailboxImportRecoverExpiredLeases(c.Request.Context(), store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
 	job, items, e := importLoad(c, q, sess, id, false, false)
@@ -240,10 +240,10 @@ func (h *MailboxImports) List(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if e = q.MailboxImportRecoverExpiredLeases(c, store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
+	if e = q.MailboxImportRecoverExpiredLeases(c.Request.Context(), store.MailboxImportRecoverExpiredLeasesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
-	jobs, e := q.ListMailboxImportJobs(c, store.ListMailboxImportJobsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	jobs, e := q.ListMailboxImportJobs(c.Request.Context(), store.ListMailboxImportJobsParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return
 	}
@@ -304,7 +304,7 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 	}
 	// The request key freezes all source and target parameters before new I/O.
 	q := db.Queries(h.Native.Pool)
-	prior, e := q.GetMailboxImportByKey(c, store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key})
+	prior, e := q.GetMailboxImportByKey(c.Request.Context(), store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key})
 	if e == nil {
 		if !importSourceMatches(prior, parsed, folder, in) {
 			authError(c, 409, "MAIL_IMPORT_SOURCE_CONFLICT")
@@ -385,17 +385,17 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q = db.Queries(tx)
-	if e = q.LockMailboxImportTenantBudget(c, sess.TenantID); importDBError(c, e) {
+	if e = q.LockMailboxImportTenantBudget(c.Request.Context(), sess.TenantID); importDBError(c, e) {
 		return
 	}
-	if _, e = q.LockMailboxImportOwner(c, store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
+	if _, e = q.LockMailboxImportOwner(c.Request.Context(), store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID}); importDBError(c, e) {
 		return
 	}
-	if e = q.ClearExpiredMailboxImportPayloads(c, sess.TenantID); importDBError(c, e) {
+	if e = q.ClearExpiredMailboxImportPayloads(c.Request.Context(), sess.TenantID); importDBError(c, e) {
 		return
 	}
 	// Serialize key replay under the mailbox row lock before creating payloads.
-	if existing, e := q.GetMailboxImportByKey(c, store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key}); e == nil {
+	if existing, e := q.GetMailboxImportByKey(c.Request.Context(), store.GetMailboxImportByKeyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key}); e == nil {
 		if !importSourceMatches(existing, parsed, folder, in) {
 			authError(c, 409, "MAIL_IMPORT_SOURCE_CONFLICT")
 			return
@@ -411,7 +411,7 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		importDBError(c, e)
 		return
 	}
-	budget, e := q.MailboxImportStorageBudget(c, store.MailboxImportStorageBudgetParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	budget, e := q.MailboxImportStorageBudget(c.Request.Context(), store.MailboxImportStorageBudgetParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return
 	}
@@ -419,13 +419,13 @@ func (h *MailboxImports) Preview(c *gin.Context) {
 		authError(c, 429, "MAIL_IMPORT_BUDGET_EXCEEDED")
 		return
 	}
-	job, e := q.CreateMailboxImportJob(c, store.CreateMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key, Format: parsed.Format, Filename: parsed.Filename, Folder: folder, UidValidity: int64(in.UIDValidity), SourceDigest: parsed.SourceDigest, PreviewDigest: proof, DuplicatePolicy: in.DuplicatePolicy, SourceBytes: int64(len(source))})
+	job, e := q.CreateMailboxImportJob(c.Request.Context(), store.CreateMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, RequestKey: key, Format: parsed.Format, Filename: parsed.Filename, Folder: folder, UidValidity: int64(in.UIDValidity), SourceDigest: parsed.SourceDigest, PreviewDigest: proof, DuplicatePolicy: in.DuplicatePolicy, SourceBytes: int64(len(source))})
 	if importDBError(c, e) {
 		return
 	}
 	for _, row := range prepared {
 		row.JobID = job.ID
-		if e = q.CreateMailboxImportItem(c, row); importDBError(c, e) {
+		if e = q.CreateMailboxImportItem(c.Request.Context(), row); importDBError(c, e) {
 			return
 		}
 	}

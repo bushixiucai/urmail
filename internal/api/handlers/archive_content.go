@@ -42,7 +42,7 @@ func (h *ArchiveContentHandler) authorized(c *gin.Context, scope string) (*store
 		return nil, 0, 0, false
 	}
 	q := requestStore(c, h.Store)
-	grant, err := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
+	grant, err := q.GetComplianceGrant(c.Request.Context(), store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
 	if err != nil {
 		code := "COMPLIANCE_GRANT_REQUIRED"
 		if scope == "retention_manage" {
@@ -67,7 +67,7 @@ func archiveAccessAudit(c *gin.Context, q *store.Queries, tenant, user int64, ac
 	if action == "archive.export" {
 		scope = "export"
 	}
-	grant, err := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
+	grant, err := q.GetComplianceGrant(c.Request.Context(), store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: scope})
 	if err != nil {
 		authError(c, 403, "COMPLIANCE_GRANT_REQUIRED")
 		return false
@@ -78,7 +78,7 @@ func archiveAccessAudit(c *gin.Context, q *store.Queries, tenant, user int64, ac
 		authError(c, 403, "FORBIDDEN")
 		return false
 	}
-	err = q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: tenant, UserID: user, Action: "READ " + action, Target: target, Status: 200})
+	err = q.RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{TenantID: tenant, UserID: user, Action: "READ " + action, Target: target, Status: 200})
 	if err != nil {
 		middleware.RecordAuditFailure(true)
 		authError(c, 500, "DB_ERROR")
@@ -106,7 +106,7 @@ func (h *ArchiveContentHandler) read(c *gin.Context, export bool) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	entry, err := q.GetArchiveContent(c, store.GetArchiveContentParams{TenantID: tenant, ID: id})
+	entry, err := q.GetArchiveContent(c.Request.Context(), store.GetArchiveContentParams{TenantID: tenant, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -233,7 +233,7 @@ func (h *ArchiveContentHandler) Search(c *gin.Context) {
 		args.CursorTime = sql.NullInt64{Int64: cursor.Time.UnixMicro(), Valid: true}
 		args.CursorID = sql.NullInt64{Int64: cursor.ID, Valid: true}
 	}
-	rows, err := q.SearchArchiveContent(c, args)
+	rows, err := q.SearchArchiveContent(c.Request.Context(), args)
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -264,7 +264,7 @@ func (h *ArchiveContentHandler) RetentionPreview(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	preview, err := q.PreviewArchiveRetention(c, store.PreviewArchiveRetentionParams{TenantID: tenant, RetentionDays: input.RetentionDays, CreatedBy: user})
+	preview, err := q.PreviewArchiveRetention(c.Request.Context(), store.PreviewArchiveRetentionParams{TenantID: tenant, RetentionDays: input.RetentionDays, CreatedBy: user})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -287,13 +287,13 @@ func (h *ArchiveContentHandler) RetentionConfirm(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	preview, err := q.LockArchiveRetentionPreview(c, store.LockArchiveRetentionPreviewParams{TenantID: tenant, ID: id, CreatedBy: user})
+	preview, err := q.LockArchiveRetentionPreview(c.Request.Context(), store.LockArchiveRetentionPreviewParams{TenantID: tenant, ID: id, CreatedBy: user})
 	if err != nil {
 		authError(c, 409, "RETENTION_PREVIEW_STALE")
 		return
 	}
 	cutoff := timeutil.FromMicro(preview.CreatedAt).Add(-time.Duration(preview.RetentionDays) * 24 * time.Hour)
-	digest, err := q.ArchiveRetentionCandidateDigest(c, store.ArchiveRetentionCandidateDigestParams{TenantID: tenant, Cutoff: timeutil.Micro(cutoff)})
+	digest, err := q.ArchiveRetentionCandidateDigest(c.Request.Context(), store.ArchiveRetentionCandidateDigestParams{TenantID: tenant, Cutoff: timeutil.Micro(cutoff)})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -302,16 +302,16 @@ func (h *ArchiveContentHandler) RetentionConfirm(c *gin.Context) {
 		authError(c, 409, "RETENTION_PREVIEW_STALE")
 		return
 	}
-	if err = q.ConfirmArchiveRetentionPreview(c, store.ConfirmArchiveRetentionPreviewParams{TenantID: tenant, ID: id}); err != nil {
+	if err = q.ConfirmArchiveRetentionPreview(c.Request.Context(), store.ConfirmArchiveRetentionPreviewParams{TenantID: tenant, ID: id}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
-	valid, grantErr := q.GetRetentionPolicyAuthority(c, store.GetRetentionPolicyAuthorityParams{TenantID: tenant, CreatedBy: user, GrantID: preview.AuthorizationGrantID.Int64})
+	valid, grantErr := q.GetRetentionPolicyAuthority(c.Request.Context(), store.GetRetentionPolicyAuthorityParams{TenantID: tenant, CreatedBy: user, GrantID: preview.AuthorizationGrantID.Int64})
 	if grantErr != nil || !valid {
 		authError(c, 403, "RETENTION_MANAGE_REQUIRED")
 		return
 	}
-	if err = q.ActivateArchiveRetention(c, store.ActivateArchiveRetentionParams{TenantID: tenant, RetentionDays: preview.RetentionDays, CreatedBy: pgtype.Int8{Int64: user, Valid: true}, ConfirmedPreview: id, AuthorizationGrantID: preview.AuthorizationGrantID}); err != nil {
+	if err = q.ActivateArchiveRetention(c.Request.Context(), store.ActivateArchiveRetentionParams{TenantID: tenant, RetentionDays: preview.RetentionDays, CreatedBy: pgtype.Int8{Int64: user, Valid: true}, ConfirmedPreview: id, AuthorizationGrantID: preview.AuthorizationGrantID}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
@@ -334,7 +334,7 @@ func (h *ArchiveContentHandler) Attachment(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	entry, err := q.GetArchiveContent(c, store.GetArchiveContentParams{TenantID: tenant, ID: id})
+	entry, err := q.GetArchiveContent(c.Request.Context(), store.GetArchiveContentParams{TenantID: tenant, ID: id})
 	if err != nil {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -400,13 +400,13 @@ func (h *ArchiveContentHandler) RetentionStatus(c *gin.Context) {
 	}
 	user, _ := middleware.GetUserID(c)
 	q := requestStore(c, h.Store)
-	_, grantErr := q.GetComplianceGrant(c, store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: "retention_manage"})
+	_, grantErr := q.GetComplianceGrant(c.Request.Context(), store.GetComplianceGrantParams{TenantID: tenant, UserID: user, RequiredScope: "retention_manage"})
 	if grantErr != nil && !errors.Is(grantErr, pgx.ErrNoRows) {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
 	canManage := grantErr == nil
-	policy, err := q.GetRetentionPolicy(c, tenant)
+	policy, err := q.GetRetentionPolicy(c.Request.Context(), tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"active": false, "configured_active": false, "can_manage": canManage, "default": "permanent", "physical_delete_after_days": 30})
 		return
@@ -415,7 +415,7 @@ func (h *ArchiveContentHandler) RetentionStatus(c *gin.Context) {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
-	valid, err := q.GetRetentionPolicyAuthority(c, store.GetRetentionPolicyAuthorityParams{TenantID: tenant, CreatedBy: policy.CreatedBy.Int64, GrantID: policy.AuthorizationGrantID.Int64})
+	valid, err := q.GetRetentionPolicyAuthority(c.Request.Context(), store.GetRetentionPolicyAuthorityParams{TenantID: tenant, CreatedBy: policy.CreatedBy.Int64, GrantID: policy.AuthorizationGrantID.Int64})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -431,7 +431,7 @@ func (h *ArchiveContentHandler) RetentionDisable(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	_, err := q.GetRetentionPolicy(c, tenant)
+	_, err := q.GetRetentionPolicy(c.Request.Context(), tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"active": false})
 		return
@@ -440,7 +440,7 @@ func (h *ArchiveContentHandler) RetentionDisable(c *gin.Context) {
 		authError(c, 500, "DB_ERROR")
 		return
 	}
-	err = q.DisableTenantRetentionPolicy(c, tenant)
+	err = q.DisableTenantRetentionPolicy(c.Request.Context(), tenant)
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -459,7 +459,7 @@ func (h *ArchiveContentHandler) Restore(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	entry, err := q.GetArchiveOriginalForRecovery(c, store.GetArchiveOriginalForRecoveryParams{TenantID: tenant, ID: id})
+	entry, err := q.GetArchiveOriginalForRecovery(c.Request.Context(), store.GetArchiveOriginalForRecoveryParams{TenantID: tenant, ID: id})
 	if err != nil {
 		authError(c, 409, "ARCHIVE_RESTORE_UNAVAILABLE")
 		return
@@ -476,7 +476,7 @@ func (h *ArchiveContentHandler) Restore(c *gin.Context) {
 		authError(c, 503, "ARCHIVE_INTEGRITY_UNAVAILABLE")
 		return
 	}
-	count, err := q.RestoreArchiveCopy(c, store.RestoreArchiveCopyParams{TenantID: tenant, ID: id})
+	count, err := q.RestoreArchiveCopy(c.Request.Context(), store.RestoreArchiveCopyParams{TenantID: tenant, ID: id})
 	if err != nil || count != 1 {
 		authError(c, 409, "ARCHIVE_RESTORE_UNAVAILABLE")
 		return

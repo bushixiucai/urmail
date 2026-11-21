@@ -58,7 +58,7 @@ func (h *archiveCases) principal(c *gin.Context, scope string) (*store.Queries, 
 		return nil, 0, 0, false
 	}
 	q := requestStore(c, db.Queries(h.App.Pool))
-	allowed, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{TenantID: tenant, UserID: actor, Scope: scope})
+	allowed, err := q.ArchiveCasesGrantEligible(c.Request.Context(), store.ArchiveCasesGrantEligibleParams{TenantID: tenant, UserID: actor, Scope: scope})
 	if err != nil {
 		authError(c, 503, "ARCHIVE_UNAVAILABLE")
 		return nil, 0, 0, false
@@ -100,7 +100,7 @@ func archiveCaseError(c *gin.Context, err error) {
 }
 
 func caseAudit(c *gin.Context, q *store.Queries, tenant, actor int64, action string, id int64) bool {
-	if err := q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: tenant, UserID: actor, Action: action, Target: strconv.FormatInt(id, 10), Status: 200}); err != nil {
+	if err := q.RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{TenantID: tenant, UserID: actor, Action: action, Target: strconv.FormatInt(id, 10), Status: 200}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return false
 	}
@@ -114,9 +114,9 @@ func (h *archiveCases) caseRow(c *gin.Context, q *store.Queries, tenant int64, l
 	var row store.ArchiveInvestigations
 	var err error
 	if lock {
-		row, err = q.ArchiveCasesLock(c, store.ArchiveCasesLockParams{TenantID: tenant, ID: id})
+		row, err = q.ArchiveCasesLock(c.Request.Context(), store.ArchiveCasesLockParams{TenantID: tenant, ID: id})
 	} else {
-		row, err = q.ArchiveCasesGet(c, store.ArchiveCasesGetParams{TenantID: tenant, ID: id})
+		row, err = q.ArchiveCasesGet(c.Request.Context(), store.ArchiveCasesGetParams{TenantID: tenant, ID: id})
 	}
 	if err != nil {
 		archiveCaseError(c, err)
@@ -136,7 +136,7 @@ func (h *archiveCases) list(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := q.ArchiveCasesList(c, t)
+	rows, err := q.ArchiveCasesList(c.Request.Context(), t)
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -167,7 +167,7 @@ func (h *archiveCases) create(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	id, err := q.ArchiveCasesCreate(c, store.ArchiveCasesCreateParams{TenantID: t, ActorID: u, Title: strings.TrimSpace(input.Title), Purpose: strings.TrimSpace(input.Purpose), ExpiresAt: timeutil.Micro(input.ExpiresAt.UTC()), RequestKey: parsed.String()})
+	id, err := q.ArchiveCasesCreate(c.Request.Context(), store.ArchiveCasesCreateParams{TenantID: t, ActorID: u, Title: strings.TrimSpace(input.Title), Purpose: strings.TrimSpace(input.Purpose), ExpiresAt: timeutil.Micro(input.ExpiresAt.UTC()), RequestKey: parsed.String()})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -182,7 +182,7 @@ func (h *archiveCases) eligible(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := q.ArchiveCasesEligibleMembers(c, t)
+	rows, err := q.ArchiveCasesEligibleMembers(c.Request.Context(), t)
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -202,29 +202,29 @@ func (h *archiveCases) detail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	members, err := q.ArchiveCasesMembers(c, store.ArchiveCasesMembersParams{TenantID: t, InvestigationID: row.ID})
+	members, err := q.ArchiveCasesMembers(c.Request.Context(), store.ArchiveCasesMembersParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
 	}
-	sources, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	sources, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
 	}
-	digest, err := q.ArchiveCasesSnapshotDigest(c, store.ArchiveCasesSnapshotDigestParams{T: t, C: row.ID, U: u})
+	digest, err := q.ArchiveCasesSnapshotDigest(c.Request.Context(), store.ArchiveCasesSnapshotDigestParams{T: t, C: row.ID, U: u})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
 	}
-	requests, err := q.ArchiveCasesApprovals(c, store.ArchiveCasesApprovalsParams{TenantID: t, InvestigationID: row.ID})
+	requests, err := q.ArchiveCasesApprovals(c.Request.Context(), store.ArchiveCasesApprovalsParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
 	}
 	approvals := make([]gin.H, 0, len(requests))
 	for _, r := range requests {
-		evidence, readErr := q.ArchiveCasesGetEvidence(c, store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: r.ID})
+		evidence, readErr := q.ArchiveCasesGetEvidence(c.Request.Context(), store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: r.ID})
 		if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
 			archiveCaseError(c, readErr)
 			return
@@ -238,7 +238,7 @@ func (h *archiveCases) detail(c *gin.Context) {
 	if members == nil {
 		members = []store.ArchiveCasesMembersRow{}
 	}
-	canExport, err := q.ArchiveCasesGrantEligible(c, store.ArchiveCasesGrantEligibleParams{TenantID: t, UserID: u, Scope: "export"})
+	canExport, err := q.ArchiveCasesGrantEligible(c.Request.Context(), store.ArchiveCasesGrantEligibleParams{TenantID: t, UserID: u, Scope: "export"})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -282,9 +282,9 @@ func (h *archiveCases) member(c *gin.Context, remove bool) {
 	var count int64
 	var err error
 	if remove {
-		count, err = q.ArchiveCasesRemoveMember(c, store.ArchiveCasesRemoveMemberParams{TenantID: t, InvestigationID: row.ID, UserID: input.UserID, CreatedBy: u, Version: input.Version})
+		count, err = q.ArchiveCasesRemoveMember(c.Request.Context(), store.ArchiveCasesRemoveMemberParams{TenantID: t, InvestigationID: row.ID, UserID: input.UserID, CreatedBy: u, Version: input.Version})
 	} else {
-		count, err = q.ArchiveCasesAddMember(c, store.ArchiveCasesAddMemberParams{TenantID: t, CaseID: row.ID, UserID: input.UserID, ActorID: u, Version: input.Version})
+		count, err = q.ArchiveCasesAddMember(c.Request.Context(), store.ArchiveCasesAddMemberParams{TenantID: t, CaseID: row.ID, UserID: input.UserID, ActorID: u, Version: input.Version})
 	}
 	if err != nil {
 		archiveCaseError(c, err)
@@ -329,7 +329,7 @@ func (h *archiveCases) source(c *gin.Context, remove bool) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	entries, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	entries, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -340,9 +340,9 @@ func (h *archiveCases) source(c *gin.Context, remove bool) {
 	}
 	var count int64
 	if remove {
-		count, err = q.ArchiveCasesRemoveSource(c, store.ArchiveCasesRemoveSourceParams{TenantID: t, InvestigationID: row.ID, ArchiveEntryID: input.EntryID, Version: input.Version})
+		count, err = q.ArchiveCasesRemoveSource(c.Request.Context(), store.ArchiveCasesRemoveSourceParams{TenantID: t, InvestigationID: row.ID, ArchiveEntryID: input.EntryID, Version: input.Version})
 	} else {
-		count, err = q.ArchiveCasesAddSource(c, store.ArchiveCasesAddSourceParams{TenantID: t, CaseID: row.ID, ActorID: u, EntryID: input.EntryID, Version: input.Version})
+		count, err = q.ArchiveCasesAddSource(c.Request.Context(), store.ArchiveCasesAddSourceParams{TenantID: t, CaseID: row.ID, ActorID: u, EntryID: input.EntryID, Version: input.Version})
 	}
 	if err != nil {
 		archiveCaseError(c, err)
@@ -377,7 +377,7 @@ func (h *archiveCases) close(c *gin.Context) {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}
-	_, err := q.ArchiveCasesClose(c, store.ArchiveCasesCloseParams{TenantID: t, ID: row.ID, CreatedBy: u, Version: input.Version})
+	_, err := q.ArchiveCasesClose(c.Request.Context(), store.ArchiveCasesCloseParams{TenantID: t, ID: row.ID, CreatedBy: u, Version: input.Version})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -404,7 +404,7 @@ func (h *archiveCases) requestApproval(c *gin.Context) {
 	if !ok || !caseWritable(c, row, input.Version) {
 		return
 	}
-	sources, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	sources, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -413,7 +413,7 @@ func (h *archiveCases) requestApproval(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	digest, err := q.ArchiveCasesSnapshotDigest(c, store.ArchiveCasesSnapshotDigestParams{T: t, C: row.ID, U: u})
+	digest, err := q.ArchiveCasesSnapshotDigest(c.Request.Context(), store.ArchiveCasesSnapshotDigestParams{T: t, C: row.ID, U: u})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -422,7 +422,7 @@ func (h *archiveCases) requestApproval(c *gin.Context) {
 		authError(c, 409, "ARCHIVE_CASE_STALE")
 		return
 	}
-	id, err := q.ArchiveCasesRequestApproval(c, store.ArchiveCasesRequestApprovalParams{TenantID: t, ActorID: u, Digest: digest, CaseID: row.ID, Version: row.Version})
+	id, err := q.ArchiveCasesRequestApproval(c.Request.Context(), store.ArchiveCasesRequestApprovalParams{TenantID: t, ActorID: u, Digest: digest, CaseID: row.ID, Version: row.Version})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -454,7 +454,7 @@ func (h *archiveCases) decide(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	request, err := q.ArchiveCasesApproval(c, store.ArchiveCasesApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id})
+	request, err := q.ArchiveCasesApproval(c.Request.Context(), store.ArchiveCasesApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -463,7 +463,7 @@ func (h *archiveCases) decide(c *gin.Context) {
 		authError(c, 403, "ARCHIVE_INDEPENDENT_APPROVAL_REQUIRED")
 		return
 	}
-	_, err = q.ArchiveCasesDecideApproval(c, store.ArchiveCasesDecideApprovalParams{TenantID: t, CaseID: row.ID, ApprovalID: id, ActorID: pgtype.Int8{Int64: u, Valid: true}, Decision: input.Decision, Reason: strings.TrimSpace(input.Reason), Digest: input.Digest})
+	_, err = q.ArchiveCasesDecideApproval(c.Request.Context(), store.ArchiveCasesDecideApprovalParams{TenantID: t, CaseID: row.ID, ApprovalID: id, ActorID: pgtype.Int8{Int64: u, Valid: true}, Decision: input.Decision, Reason: strings.TrimSpace(input.Reason), Digest: input.Digest})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -493,7 +493,7 @@ func (h *archiveCases) withdraw(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	_, err := q.ArchiveCasesWithdrawApproval(c, store.ArchiveCasesWithdrawApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id, RequesterUserID: u, DecisionReason: strings.TrimSpace(input.Reason)})
+	_, err := q.ArchiveCasesWithdrawApproval(c.Request.Context(), store.ArchiveCasesWithdrawApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id, RequesterUserID: u, DecisionReason: strings.TrimSpace(input.Reason)})
 	if err != nil {
 		archiveCaseError(c, err)
 		return

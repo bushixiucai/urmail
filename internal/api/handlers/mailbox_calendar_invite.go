@@ -121,7 +121,7 @@ func (h MailboxCalendarHandler) cancelWithNotice(c *gin.Context, session webmail
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
-	row, err := h.Service.Q.PlatformGetEvent(c, store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+	row, err := h.Service.Q.PlatformGetEvent(c.Request.Context(), store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "EVENT_NOT_FOUND")
 		return

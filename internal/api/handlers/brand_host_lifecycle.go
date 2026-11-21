@@ -175,7 +175,7 @@ func (h *BrandHostLifecycleHandler) Status(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, err := db.Queries(h.Pool).PlatformGetBrandHostLifecycle(c, host)
+	row, err := db.Queries(h.Pool).PlatformGetBrandHostLifecycle(c.Request.Context(), host)
 	if err != nil {
 		authError(c, 404, "NOT_FOUND")
 		return

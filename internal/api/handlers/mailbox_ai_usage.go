@@ -347,15 +347,15 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockBillingTenant(c, tenant); err != nil {
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), tenant); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if _, err = q.PlatformLockPlatformAdmin(c, actor); err != nil {
+	if _, err = q.PlatformLockPlatformAdmin(c.Request.Context(), actor); err != nil {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}
-	cfg, err := q.PlatformGetAIProvider(c, tenant)
+	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -374,22 +374,22 @@ func (h *AIConfigurationHandler) PlatformBudgetPut(c *gin.Context) {
 	calls, mailboxCalls, concurrency := assign(input.Calls, cfg.NonplatformCallLimit), assign(input.MailboxCalls, cfg.NonplatformMailboxCallLimit), assign(input.Concurrency, cfg.NonplatformConcurrencyLimit)
 	timezone := cfg.QuotaTimezone
 	if timezone == "" && (calls > 0 || dailyTokens > 0 || dailyCost > 0 || monthlyTokens > 0 || monthlyCost > 0) {
-		timezone, err = q.GetBillingBusinessTimezone(c, tenant)
+		timezone, err = q.GetBillingBusinessTimezone(c.Request.Context(), tenant)
 		if err != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 	}
-	if err = q.PlatformSetAIBudget(c, store.PlatformSetAIBudgetParams{TenantID: tenant, DailyTokenLimit: dailyTokens, DailyCostMicros: dailyCost, MonthlyTokenLimit: monthlyTokens, MonthlyCostMicros: monthlyCost}); err != nil {
+	if err = q.PlatformSetAIBudget(c.Request.Context(), store.PlatformSetAIBudgetParams{TenantID: tenant, DailyTokenLimit: dailyTokens, DailyCostMicros: dailyCost, MonthlyTokenLimit: monthlyTokens, MonthlyCostMicros: monthlyCost}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if err = q.PlatformSetNonplatformAIQuota(c, store.PlatformSetNonplatformAIQuotaParams{TenantID: tenant, NonplatformCallLimit: calls, NonplatformMailboxCallLimit: mailboxCalls, NonplatformConcurrencyLimit: concurrency, QuotaTimezone: timezone}); err != nil {
+	if err = q.PlatformSetNonplatformAIQuota(c.Request.Context(), store.PlatformSetNonplatformAIQuotaParams{TenantID: tenant, NonplatformCallLimit: calls, NonplatformMailboxCallLimit: mailboxCalls, NonplatformConcurrencyLimit: concurrency, QuotaTimezone: timezone}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	detail, _ := json.Marshal(gin.H{"daily_token_limit": dailyTokens, "daily_cost_micros": dailyCost, "monthly_token_limit": monthlyTokens, "monthly_cost_micros": monthlyCost, "nonplatform_call_limit": calls, "nonplatform_mailbox_call_limit": mailboxCalls, "nonplatform_concurrency_limit": concurrency, "quota_timezone": timezone})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenant, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor, Valid: true}, Action: "UPDATE ai.budget", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tenant, 10), Valid: true}, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tenant, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor, Valid: true}, Action: "UPDATE ai.budget", TargetType: pgtype.Text{String: "tenant", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(tenant, 10), Valid: true}, Detail: detail}); err != nil {
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
 	}

@@ -59,7 +59,7 @@ type PlatformTenant struct {
 
 // Overview returns aggregate platform resource counts.
 func (h *PlatformHandler) Overview(c *gin.Context) {
-	row, err := requestStore(c, h.Store).PlatformOverview(c)
+	row, err := requestStore(c, h.Store).PlatformOverview(c.Request.Context())
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -72,7 +72,7 @@ func (h *PlatformHandler) Overview(c *gin.Context) {
 
 // ListTenants lists tenants with resource counts.
 func (h *PlatformHandler) ListTenants(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListTenants(c)
+	rows, err := requestStore(c, h.Store).PlatformListTenants(c.Request.Context())
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -123,12 +123,12 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 	if lock, ok := requestStore(c, h.Store).(interface {
 		PlatformLockBillingTenant(context.Context, int64) error
 	}); ok {
-		if err := lock.PlatformLockBillingTenant(c, id); err != nil {
+		if err := lock.PlatformLockBillingTenant(c.Request.Context(), id); err != nil {
 			authError(c, 500, "DB_ERROR")
 			return
 		}
 	}
-	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(c, store.PlatformUpdateTenantStatusParams{
+	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(c.Request.Context(), store.PlatformUpdateTenantStatusParams{
 		ID:     id,
 		Status: status,
 	})
@@ -154,7 +154,7 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 
 // Brands lists the compatibility brand administration view.
 func (h *PlatformHandler) Brands(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListBrands(c)
+	rows, err := requestStore(c, h.Store).PlatformListBrands(c.Request.Context())
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -234,30 +234,30 @@ func (h *PlatformHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 	defer rollback()
-	brandID, err := q.PlatformEnsureManagedBrand(c, store.PlatformEnsureManagedBrandParams{Slug: brandSlug, Name: req.Name})
+	brandID, err := q.PlatformEnsureManagedBrand(c.Request.Context(), store.PlatformEnsureManagedBrandParams{Slug: brandSlug, Name: req.Name})
 	if supportError(c, err) {
 		return
 	}
-	tenantID, err := q.PlatformCreateManagedTenant(c, store.PlatformCreateManagedTenantParams{BrandID: brandID, Name: name, Slug: slug, Status: status})
+	tenantID, err := q.PlatformCreateManagedTenant(c.Request.Context(), store.PlatformCreateManagedTenantParams{BrandID: brandID, Name: name, Slug: slug, Status: status})
 	if err != nil {
 		if !respondConstraintError(c, err) {
 			authError(c, 409, "TENANT_EXISTS")
 		}
 		return
 	}
-	userID, err := q.PlatformFindManagedUser(c, owner)
+	userID, err := q.PlatformFindManagedUser(c.Request.Context(), owner)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		userID, err = q.PlatformCreateManagedUser(c, store.PlatformCreateManagedUserParams{Email: owner, PasswordHash: hash, DisplayName: pgtype.Text{String: name, Valid: true}})
+		userID, err = q.PlatformCreateManagedUser(c.Request.Context(), store.PlatformCreateManagedUserParams{Email: owner, PasswordHash: hash, DisplayName: pgtype.Text{String: name, Valid: true}})
 	case err != nil:
 	}
 	if supportError(c, err) {
 		return
 	}
-	if supportError(c, q.PlatformGrantTenantOwner(c, store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: tenantID})) {
+	if supportError(c, q.PlatformGrantTenantOwner(c.Request.Context(), store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: tenantID})) {
 		return
 	}
-	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: tenantID, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
+	if _, err = q.PlatformSetTenantOwner(c.Request.Context(), store.PlatformSetTenantOwnerParams{ID: tenantID, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
 		return
 	}
 	if !freeEnd.IsZero() {
@@ -297,7 +297,7 @@ func (h *PlatformHandler) UpsertBrand(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(c, store.PlatformUpsertBrandParams{
+	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(c.Request.Context(), store.PlatformUpsertBrandParams{
 		Slug: in.Slug, Name: in.Name, Theme: theme,
 		LogoUrl: textOrNull(in.LogoURL), FaviconUrl: textOrNull(in.FaviconURL),
 		PrimaryColor: textOrNull(in.PrimaryColor),
@@ -334,7 +334,7 @@ type ChannelInput struct {
 
 // Channels lists platform-managed distribution channels.
 func (h *PlatformHandler) Channels(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListChannels(c)
+	rows, err := requestStore(c, h.Store).PlatformListChannels(c.Request.Context())
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -383,7 +383,7 @@ func (h *PlatformHandler) UpsertChannel(c *gin.Context) {
 	if in.Active != nil {
 		active = *in.Active
 	}
-	row, err := requestStore(c, h.Store).PlatformUpsertChannel(c, store.PlatformUpsertChannelParams{
+	row, err := requestStore(c, h.Store).PlatformUpsertChannel(c.Request.Context(), store.PlatformUpsertChannelParams{
 		BrandID: brandID, Code: in.Code, Name: in.Name, Kind: kind,
 		CommissionBps: in.CommissionBps, ParentID: parentID,
 		Contact: contact, Active: active,
@@ -422,7 +422,7 @@ func (h *PlatformHandler) UpdateTenant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	if _, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformRenameTenant(c, store.PlatformRenameTenantParams{ID: id, Name: strings.TrimSpace(req.Name)}); err != nil {
+	if _, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformRenameTenant(c.Request.Context(), store.PlatformRenameTenantParams{ID: id, Name: strings.TrimSpace(req.Name)}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
@@ -459,21 +459,21 @@ func (h *PlatformHandler) TransferOwner(c *gin.Context) {
 		return
 	}
 	defer rollback()
-	if supportError(c, q.PlatformLockBillingTenant(c, id)) {
+	if supportError(c, q.PlatformLockBillingTenant(c.Request.Context(), id)) {
 		return
 	}
-	userID, err := q.PlatformFindManagedUser(c, email)
+	userID, err := q.PlatformFindManagedUser(c.Request.Context(), email)
 	if err != nil {
 		authError(c, 404, "USER_NOT_FOUND")
 		return
 	}
-	if supportError(c, q.PlatformDemotePreviousOwners(c, store.PlatformDemotePreviousOwnersParams{TenantID: id, UserID: userID})) {
+	if supportError(c, q.PlatformDemotePreviousOwners(c.Request.Context(), store.PlatformDemotePreviousOwnersParams{TenantID: id, UserID: userID})) {
 		return
 	}
-	if supportError(c, q.PlatformGrantTenantOwner(c, store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: id})) {
+	if supportError(c, q.PlatformGrantTenantOwner(c.Request.Context(), store.PlatformGrantTenantOwnerParams{UserID: userID, TenantID: id})) {
 		return
 	}
-	if _, err = q.PlatformSetTenantOwner(c, store.PlatformSetTenantOwnerParams{ID: id, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
+	if _, err = q.PlatformSetTenantOwner(c.Request.Context(), store.PlatformSetTenantOwnerParams{ID: id, OwnerUserID: pgtype.Int8{Int64: userID, Valid: true}}); supportError(c, err) {
 		return
 	}
 	if supportError(c, finish()) {
@@ -490,7 +490,7 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 			limit = int32(v)
 		}
 	}
-	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(c, limit)
+	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(c.Request.Context(), limit)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return

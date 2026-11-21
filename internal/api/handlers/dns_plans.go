@@ -48,7 +48,7 @@ func (h *DNSPlanHandler) Credentials(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListDNSCredentials(c, store.ListDNSCredentialsParams{TenantID: tenant, DomainID: domain})
+	rows, err := requestStore(c, h.Store).ListDNSCredentials(c.Request.Context(), store.ListDNSCredentialsParams{TenantID: tenant, DomainID: domain})
 	if err != nil {
 		dnsError(c, err)
 		return
@@ -68,7 +68,7 @@ func (h *DNSPlanHandler) SaveCredential(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DNS_PREPARATION_REQUIRED")
 		return
 	}
-	_, err := requestStore(c, h.Store).SaveDNSCredential(c, store.SaveDNSCredentialParams{TenantID: tenant, DomainID: domain, Provider: proof.Provider, ZoneName: proof.Zone, ZoneID: proof.ZoneID, EncryptedSecret: proof.Cipher})
+	_, err := requestStore(c, h.Store).SaveDNSCredential(c.Request.Context(), store.SaveDNSCredentialParams{TenantID: tenant, DomainID: domain, Provider: proof.Provider, ZoneName: proof.Zone, ZoneID: proof.ZoneID, EncryptedSecret: proof.Cipher})
 	if err != nil {
 		dnsError(c, err)
 		return
@@ -82,7 +82,7 @@ func (h *DNSPlanHandler) RevokeCredential(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := requestStore(c, h.Store).RevokeDNSCredential(c, store.RevokeDNSCredentialParams{TenantID: tenant, DomainID: domain}); err != nil {
+	if err := requestStore(c, h.Store).RevokeDNSCredential(c.Request.Context(), store.RevokeDNSCredentialParams{TenantID: tenant, DomainID: domain}); err != nil {
 		dnsError(c, err)
 		return
 	}
@@ -114,7 +114,7 @@ func (h *DNSPlanHandler) Preview(c *gin.Context) {
 	before, _ := json.Marshal(draft.Before)
 	desired, _ := json.Marshal(draft.Desired)
 	changes, _ := json.Marshal(draft.Changes)
-	_, err = requestStore(c, h.Store).CreateDNSPlan(c, store.CreateDNSPlanParams{ID: id, TenantID: tenant, DomainID: domain, CredentialID: draft.CredentialID, CredentialVersion: draft.CredentialVersion, Kind: draft.Kind, DomainDigest: draft.DomainDigest, SourceDigest: draft.SourceDigest, BeforeRecords: before, DesiredRecords: desired, Changes: changes})
+	_, err = requestStore(c, h.Store).CreateDNSPlan(c.Request.Context(), store.CreateDNSPlanParams{ID: id, TenantID: tenant, DomainID: domain, CredentialID: draft.CredentialID, CredentialVersion: draft.CredentialVersion, Kind: draft.Kind, DomainDigest: draft.DomainDigest, SourceDigest: draft.SourceDigest, BeforeRecords: before, DesiredRecords: desired, Changes: changes})
 	if err != nil {
 		dnsError(c, err)
 		return
@@ -128,7 +128,7 @@ func (h *DNSPlanHandler) Plans(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Store).ListDNSPlans(c, store.ListDNSPlansParams{TenantID: tenant, DomainID: domain})
+	rows, err := requestStore(c, h.Store).ListDNSPlans(c.Request.Context(), store.ListDNSPlansParams{TenantID: tenant, DomainID: domain})
 	if err != nil {
 		dnsError(c, err)
 		return
@@ -167,12 +167,12 @@ func (h *DNSPlanHandler) Confirm(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	p, err := q.GetDNSPlan(c, store.GetDNSPlanParams{TenantID: tenant, ID: id})
+	p, err := q.GetDNSPlan(c.Request.Context(), store.GetDNSPlanParams{TenantID: tenant, ID: id})
 	if err != nil || p.DomainID != domain {
 		authError(c, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
-	if err = q.ConfirmDNSPlan(c, store.ConfirmDNSPlanParams{TenantID: tenant, ID: id, SourceDigest: input.Digest}); err != nil {
+	if err = q.ConfirmDNSPlan(c.Request.Context(), store.ConfirmDNSPlanParams{TenantID: tenant, ID: id, SourceDigest: input.Digest}); err != nil {
 		dnsError(c, err)
 		return
 	}
@@ -197,12 +197,12 @@ func (h *DNSPlanHandler) Cancel(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	p, err := q.GetDNSPlan(c, store.GetDNSPlanParams{TenantID: tenant, ID: id})
+	p, err := q.GetDNSPlan(c.Request.Context(), store.GetDNSPlanParams{TenantID: tenant, ID: id})
 	if err != nil || p.DomainID != domain {
 		authError(c, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
-	if err = q.CancelDNSPlan(c, store.CancelDNSPlanParams{TenantID: tenant, ID: id, Reason: input.Reason}); err != nil {
+	if err = q.CancelDNSPlan(c.Request.Context(), store.CancelDNSPlanParams{TenantID: tenant, ID: id, Reason: input.Reason}); err != nil {
 		dnsError(c, err)
 		return
 	}
@@ -222,7 +222,7 @@ func (h *DNSPlanHandler) Retry(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	if err := requestStore(c, h.Store).RequestOnboardingRetry(c, store.RequestOnboardingRetryParams{TenantID: tenant, DomainID: domain, Reason: input.Reason}); err != nil {
+	if err := requestStore(c, h.Store).RequestOnboardingRetry(c.Request.Context(), store.RequestOnboardingRetryParams{TenantID: tenant, DomainID: domain, Reason: input.Reason}); err != nil {
 		dnsError(c, err)
 		return
 	}
@@ -242,12 +242,12 @@ func (h *DNSPlanHandler) Reconcile(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	p, err := q.GetDNSPlan(c, store.GetDNSPlanParams{TenantID: tenant, ID: proof.ID})
+	p, err := q.GetDNSPlan(c.Request.Context(), store.GetDNSPlanParams{TenantID: tenant, ID: proof.ID})
 	if err != nil || p.DomainID != domain || p.Status != "uncertain" || p.Fence != proof.Fence {
 		authError(c, http.StatusConflict, "DNS_REVIEW_REQUIRED")
 		return
 	}
-	if err = q.ReviewDNSPlan(c, store.ReviewDNSPlanParams{TenantID: tenant, ID: proof.ID, Reason: proof.Reason}); err != nil {
+	if err = q.ReviewDNSPlan(c.Request.Context(), store.ReviewDNSPlanParams{TenantID: tenant, ID: proof.ID, Reason: proof.Reason}); err != nil {
 		dnsError(c, err)
 		return
 	}
@@ -273,12 +273,12 @@ func (h *DNSPlanHandler) Rollback(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	p, err := q.GetDNSPlan(c, store.GetDNSPlanParams{TenantID: tenant, ID: id})
+	p, err := q.GetDNSPlan(c.Request.Context(), store.GetDNSPlanParams{TenantID: tenant, ID: id})
 	if err != nil || p.DomainID != domain {
 		authError(c, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
-	if err = q.RequestDNSRollback(c, store.RequestDNSRollbackParams{TenantID: tenant, ID: id, Reason: input.Reason}); err != nil {
+	if err = q.RequestDNSRollback(c.Request.Context(), store.RequestDNSRollbackParams{TenantID: tenant, ID: id, Reason: input.Reason}); err != nil {
 		dnsError(c, err)
 		return
 	}
@@ -305,12 +305,12 @@ func (h *DNSPlanHandler) Abandon(c *gin.Context) {
 		return
 	}
 	q := requestStore(c, h.Store)
-	p, err := q.GetDNSPlan(c, store.GetDNSPlanParams{TenantID: tenant, ID: id})
+	p, err := q.GetDNSPlan(c.Request.Context(), store.GetDNSPlanParams{TenantID: tenant, ID: id})
 	if err != nil || p.DomainID != domain {
 		authError(c, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
-	if err = q.AbandonDNSPlan(c, store.AbandonDNSPlanParams{TenantID: tenant, ID: id, Reason: input.Reason}); err != nil {
+	if err = q.AbandonDNSPlan(c.Request.Context(), store.AbandonDNSPlanParams{TenantID: tenant, ID: id, Reason: input.Reason}); err != nil {
 		dnsError(c, err)
 		return
 	}

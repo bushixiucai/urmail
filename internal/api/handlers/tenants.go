@@ -95,7 +95,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 		return
 	}
 
-	tenant, err := q.GetTenantByID(c, tenantID)
+	tenant, err := q.GetTenantByID(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": gin.H{"code": "TENANT_NOT_FOUND", "message": "tenant.not_found"},
@@ -104,7 +104,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	}
 
 	// 1. Fetch 3-layer settings: Platform (0), Brand (tenant.BrandID), Tenant (tenant.ID)
-	rawSettings, _ := q.ListSettingsByScopes(c, store.ListSettingsByScopesParams{
+	rawSettings, _ := q.ListSettingsByScopes(c.Request.Context(), store.ListSettingsByScopesParams{
 		ScopeID:   tenant.BrandID,
 		ScopeID_2: tenant.ID,
 	})
@@ -129,7 +129,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	// with the platform/brand/tenant settings entries keyed "theme".
 	var theme *domainSettings.EffectiveTheme
 	if h.Platform != nil {
-		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(c, tenantID); err == nil {
+		if brandRow, err := h.Platform.PlatformGetBrandThemeByTenant(c.Request.Context(), tenantID); err == nil {
 			src := domainSettings.BrandThemeSource{
 				BrandID:      brandRow.BrandID,
 				BrandSlug:    brandRow.BrandSlug,
@@ -143,8 +143,8 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	}
 
 	// 2. Fetch resource usage. Limits come only from settings, never plans.
-	domainCount, _ := q.CountDomainsByTenant(c, tenantID)
-	mailboxCount, _ := q.CountMailboxesByTenant(c, tenantID)
+	domainCount, _ := q.CountDomainsByTenant(c.Request.Context(), tenantID)
+	mailboxCount, _ := q.CountMailboxesByTenant(c.Request.Context(), tenantID)
 
 	domainLimit := int32(-1)
 	mailboxLimit := int32(-1)
@@ -172,7 +172,7 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	if usageStore := requestStore[interface {
 		GetTenantStorageUsage(context.Context, int64) (store.GetTenantStorageUsageRow, error)
 	}](c, nil); usageStore != nil {
-		row, err := usageStore.GetTenantStorageUsage(c, tenantID)
+		row, err := usageStore.GetTenantStorageUsage(c.Request.Context(), tenantID)
 		if err == nil {
 			usage.StorageBytesAllocated = row.BytesAllocated
 			usage.StorageMeasuredAt = row.MeasuredAt

@@ -31,11 +31,11 @@ func (h MailboxContactsHandler) ListGroupMembers(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	if _, err = q.PlatformGetContactGroup(c, store.PlatformGetContactGroupParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id}); err != nil {
+	if _, err = q.PlatformGetContactGroup(c.Request.Context(), store.PlatformGetContactGroupParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id}); err != nil {
 		authError(c, 404, "CONTACT_GROUP_NOT_FOUND")
 		return
 	}
-	rows, err := q.PlatformListContactGroupMembers(c, store.PlatformListContactGroupMembersParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+	rows, err := q.PlatformListContactGroupMembers(c.Request.Context(), store.PlatformListContactGroupMembersParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
 	if err != nil {
 		authError(c, 503, "CONTACTS_UNAVAILABLE")
 		return
@@ -60,11 +60,11 @@ func (h MailboxContactsHandler) RemoveGroupMember(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	if _, err = q.PlatformGetContactGroup(c, store.PlatformGetContactGroupParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: group}); err != nil {
+	if _, err = q.PlatformGetContactGroup(c.Request.Context(), store.PlatformGetContactGroupParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: group}); err != nil {
 		authError(c, 404, "CONTACT_GROUP_NOT_FOUND")
 		return
 	}
-	if _, err = q.PlatformRemoveContactGroupMember(c, store.PlatformRemoveContactGroupMemberParams{TenantID: p.TenantID, MailboxID: p.MailboxID, GroupID: group, ContactID: contact}); err != nil {
+	if _, err = q.PlatformRemoveContactGroupMember(c.Request.Context(), store.PlatformRemoveContactGroupMemberParams{TenantID: p.TenantID, MailboxID: p.MailboxID, GroupID: group, ContactID: contact}); err != nil {
 		authError(c, 503, "CONTACTS_UNAVAILABLE")
 		return
 	}
@@ -74,7 +74,7 @@ func (h MailboxContactsHandler) RemoveGroupMember(c *gin.Context) {
 // occurrenceEdit applies an exception under the original series version. The
 // single SQL update changes the series, its override snapshot and change log.
 func (h MailboxCalendarHandler) occurrenceEdit(c *gin.Context, p appcollab.Principal, id, version int64, recurrenceID string, child collab.Event) (collab.Event, bool) {
-	row, err := h.Service.Q.PlatformGetEvent(c, store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+	row, err := h.Service.Q.PlatformGetEvent(c.Request.Context(), store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
 	if err != nil || row.Version != version {
 		authError(c, http.StatusConflict, "EVENT_CONFLICT")
 		return collab.Event{}, false

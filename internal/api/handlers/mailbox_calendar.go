@@ -114,13 +114,13 @@ func (h MailboxCalendarHandler) ListEvents(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		rows, err = q.PlatformListCalendarEventsPage(c, store.PlatformListCalendarEventsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 201})
+		rows, err = q.PlatformListCalendarEventsPage(c.Request.Context(), store.PlatformListCalendarEventsPageParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: cursor, RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 201})
 		if len(rows) > 200 {
 			rows = rows[:200]
 			next = rows[len(rows)-1].ID
 		}
 	} else {
-		rows, err = h.Service.Q.PlatformListEvents(c, store.PlatformListEventsParams{TenantID: p.TenantID, MailboxID: p.MailboxID, RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 200})
+		rows, err = h.Service.Q.PlatformListEvents(c.Request.Context(), store.PlatformListEventsParams{TenantID: p.TenantID, MailboxID: p.MailboxID, RangeStart: timestamptz(start), RangeEnd: timestamptz(end), PageLimit: 200})
 	}
 	if err != nil {
 		authError(c, http.StatusBadGateway, "CALENDAR_UNAVAILABLE")
@@ -549,7 +549,7 @@ func (h MailboxCalendarHandler) SendInvitations(c *gin.Context) {
 		authError(c, 503, "WEBMAIL_DISABLED")
 		return
 	}
-	row, err := h.Service.Q.PlatformGetEvent(c, store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
+	row, err := h.Service.Q.PlatformGetEvent(c.Request.Context(), store.PlatformGetEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "EVENT_NOT_FOUND")
 		return

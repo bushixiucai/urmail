@@ -123,7 +123,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 			authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 			return
 		}
-		anchor, anchorErr := q.GetAuditCursorAnchor(c, store.GetAuditCursorAnchorParams{TenantID: params.TenantID, ID: cursor.ID})
+		anchor, anchorErr := q.GetAuditCursorAnchor(c.Request.Context(), store.GetAuditCursorAnchorParams{TenantID: params.TenantID, ID: cursor.ID})
 		if anchorErr != nil || anchor == 0 || anchor != cursor.Time.UnixMicro() {
 			authError(c, 400, "INVALID_PARAMS")
 			return
@@ -131,7 +131,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 		params.BeforeID = sql.NullInt64{Int64: cursor.ID, Valid: true}
 		params.BeforeTime = sql.NullInt64{Int64: cursor.Time.UnixMicro(), Valid: true}
 	}
-	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(c, params)
+	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(c.Request.Context(), params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -176,7 +176,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	rows, err := q.ExportAuditLogsByTenant(c, store.ExportAuditLogsByTenantParams{TenantID: p.TenantID, ActorUserID: p.ActorUserID, Action: p.Action, TargetType: p.TargetType, TargetID: p.TargetID, FromTime: p.FromTime, ToTime: p.ToTime})
+	rows, err := q.ExportAuditLogsByTenant(c.Request.Context(), store.ExportAuditLogsByTenantParams{TenantID: p.TenantID, ActorUserID: p.ActorUserID, Action: p.Action, TargetType: p.TargetType, TargetID: p.TargetID, FromTime: p.FromTime, ToTime: p.ToTime})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -203,7 +203,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 	}
 	tid, _ := middleware.GetTenantID(c)
 	uid, _ := middleware.GetUserID(c)
-	if err = q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: tid, UserID: uid, Action: "GET " + c.FullPath(), Target: c.Request.URL.Path, Status: 200}); err != nil {
+	if err = q.RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{TenantID: tid, UserID: uid, Action: "GET " + c.FullPath(), Target: c.Request.URL.Path, Status: 200}); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}

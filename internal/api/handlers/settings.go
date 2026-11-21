@@ -117,9 +117,9 @@ func (h *TenantHandler) UpdateSettings(c *gin.Context) {
 		value := input.Settings[key]
 		var err error
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			err = q.DeleteTenantSetting(c, store.DeleteTenantSettingParams{ScopeID: tid, Key: key})
+			err = q.DeleteTenantSetting(c.Request.Context(), store.DeleteTenantSettingParams{ScopeID: tid, Key: key})
 		} else {
-			_, err = q.UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value})
+			_, err = q.UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value})
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -135,7 +135,7 @@ func (h *PlatformHandler) Settings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	rows, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformListSettings(c)
+	rows, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformListSettings(c.Request.Context())
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -169,9 +169,9 @@ func (h *PlatformHandler) UpdateSettings(c *gin.Context) {
 	for _, key := range settingKeys(input.Settings) {
 		value := input.Settings[key]
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			err = q.PlatformDeleteSetting(c, key)
+			err = q.PlatformDeleteSetting(c.Request.Context(), key)
 		} else {
-			err = q.PlatformUpsertSetting(c, store.PlatformUpsertSettingParams{Key: key, Value: value})
+			err = q.PlatformUpsertSetting(c.Request.Context(), store.PlatformUpsertSettingParams{Key: key, Value: value})
 		}
 		if err != nil {
 			c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -211,7 +211,7 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 		return
 	}
 	defer rollback()
-	if _, err = q.PlatformLockBrandSettingsBrand(c, id); err != nil {
+	if _, err = q.PlatformLockBrandSettingsBrand(c.Request.Context(), id); err != nil {
 		status, code := 500, "DB_ERROR"
 		if errors.Is(err, pgx.ErrNoRows) {
 			status, code = 404, "NOT_FOUND"
@@ -223,9 +223,9 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 		for _, key := range settingKeys(input.Settings) {
 			value := input.Settings[key]
 			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				err = q.PlatformDeleteBrandSetting(c, store.PlatformDeleteBrandSettingParams{ScopeID: id, Key: key})
+				err = q.PlatformDeleteBrandSetting(c.Request.Context(), store.PlatformDeleteBrandSettingParams{ScopeID: id, Key: key})
 			} else {
-				err = q.PlatformUpsertBrandSetting(c, store.PlatformUpsertBrandSettingParams{ScopeID: id, Key: key, Value: value})
+				err = q.PlatformUpsertBrandSetting(c.Request.Context(), store.PlatformUpsertBrandSettingParams{ScopeID: id, Key: key, Value: value})
 			}
 			if err != nil {
 				c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
@@ -233,7 +233,7 @@ func (h *PlatformHandler) brandSettings(c *gin.Context, patch bool) {
 			}
 		}
 	}
-	rows, err := q.PlatformListBrandSettings(c, id)
+	rows, err := q.PlatformListBrandSettings(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return

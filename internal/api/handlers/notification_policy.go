@@ -14,7 +14,7 @@ import (
 // ReminderPolicy returns only the public operational reminder schedule, without relay credentials.
 func (h *NotificationConfigHandler) ReminderPolicy(c *gin.Context) {
 	days := []int{7, 3, 1, 0}
-	raw, err := requestStore(c, h.Store).PlatformGetSubscriptionNoticeDays(c)
+	raw, err := requestStore(c, h.Store).PlatformGetSubscriptionNoticeDays(c.Request.Context())
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 500, "DB_ERROR")
 		return
@@ -52,7 +52,7 @@ func (h *NotificationConfigHandler) SaveReminderPolicy(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	if err = requestStore(c, h.Store).PlatformUpsertSetting(c, store.PlatformUpsertSettingParams{Key: "subscription_notice_days", Value: raw}); err != nil {
+	if err = requestStore(c, h.Store).PlatformUpsertSetting(c.Request.Context(), store.PlatformUpsertSettingParams{Key: "subscription_notice_days", Value: raw}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}

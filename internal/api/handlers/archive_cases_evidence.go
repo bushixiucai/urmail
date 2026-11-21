@@ -50,7 +50,7 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	approved, err := q.ArchiveCasesApproval(c, store.ArchiveCasesApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id})
+	approved, err := q.ArchiveCasesApproval(c.Request.Context(), store.ArchiveCasesApprovalParams{TenantID: t, InvestigationID: row.ID, ID: id})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -59,12 +59,12 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		authError(c, 403, "FORBIDDEN")
 		return
 	}
-	visible, err := q.ArchiveCasesExportVisible(c, store.ArchiveCasesExportVisibleParams{T: t, A: id, U: u})
+	visible, err := q.ArchiveCasesExportVisible(c.Request.Context(), store.ArchiveCasesExportVisibleParams{T: t, A: id, U: u})
 	if err != nil || !visible || input.Digest != approved.SourceDigest {
 		authError(c, 409, "ARCHIVE_CASE_STALE")
 		return
 	}
-	existing, err := q.ArchiveCasesGetEvidence(c, store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
+	existing, err := q.ArchiveCasesGetEvidence(c.Request.Context(), store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
 	if err == nil {
 		c.JSON(200, gin.H{"manifest_sha256": existing.ManifestSha256, "approval_id": id})
 		return
@@ -73,7 +73,7 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 		archiveCaseError(c, err)
 		return
 	}
-	sources, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	sources, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -93,7 +93,7 @@ func (h *archiveCases) prepareEvidence(c *gin.Context) {
 	}
 	hash := sha256.Sum256(body)
 	digest := hex.EncodeToString(hash[:])
-	_, err = q.ArchiveCasesSaveEvidence(c, store.ArchiveCasesSaveEvidenceParams{TenantID: t, ApprovalID: id, CreatedBy: u, Manifest: body, ManifestSha256: digest})
+	_, err = q.ArchiveCasesSaveEvidence(c.Request.Context(), store.ArchiveCasesSaveEvidenceParams{TenantID: t, ApprovalID: id, CreatedBy: u, Manifest: body, ManifestSha256: digest})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -179,7 +179,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	evidence, err := q.ArchiveCasesGetEvidence(c, store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
+	evidence, err := q.ArchiveCasesGetEvidence(c.Request.Context(), store.ArchiveCasesGetEvidenceParams{TenantID: t, ApprovalID: id})
 	if err != nil {
 		archiveCaseError(c, err)
 		return
@@ -222,7 +222,7 @@ func (h *archiveCases) downloadPackage(c *gin.Context) {
 			release()
 		}
 	}()
-	sources, err := q.ArchiveCasesSources(c, store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
+	sources, err := q.ArchiveCasesSources(c.Request.Context(), store.ArchiveCasesSourcesParams{TenantID: t, InvestigationID: row.ID})
 	if err != nil {
 		archiveCaseError(c, err)
 		return

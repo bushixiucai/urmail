@@ -150,7 +150,7 @@ func (h *MailboxNativeHandler) CreateScheduledSend(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	locked, err := lockedQ.PlatformDraftSendLocked(c, store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID), DraftUidvalidity: int64(validity)})
+	locked, err := lockedQ.PlatformDraftSendLocked(c.Request.Context(), store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(req.DraftUID), DraftUidvalidity: int64(validity)})
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
@@ -339,7 +339,7 @@ func (h *MailboxNativeHandler) AcknowledgeUncertainScheduledSend(c *gin.Context)
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, e := db.Queries(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(c, store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e := db.Queries(h.Pool.Pool).PlatformAcknowledgeUncertainScheduledSend(c.Request.Context(), store.PlatformAcknowledgeUncertainScheduledSendParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 409, "SCHEDULE_CONFLICT")
 		return

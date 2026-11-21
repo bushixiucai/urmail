@@ -29,7 +29,7 @@ func (h *MarketingHandler) PreviewCampaign(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := requestStore(c, h.Store).PreviewMarketingCampaign(c, store.PreviewMarketingCampaignParams{TenantID: tenant, ID: id})
+	row, err := requestStore(c, h.Store).PreviewMarketingCampaign(c.Request.Context(), store.PreviewMarketingCampaignParams{TenantID: tenant, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, http.StatusNotFound, "NOT_FOUND")
 		return
@@ -59,7 +59,7 @@ func (h *MarketingHandler) ResolveAttempt(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_PARAMS")
 		return
 	}
-	resolved, err := requestStore(c, h.Platform).PlatformResolveMarketingAttempt(c, store.PlatformResolveMarketingAttemptParams{TenantID: tenant, RecipientID: id, Outcome: input.Outcome, Reason: input.Reason})
+	resolved, err := requestStore(c, h.Platform).PlatformResolveMarketingAttempt(c.Request.Context(), store.PlatformResolveMarketingAttemptParams{TenantID: tenant, RecipientID: id, Outcome: input.Outcome, Reason: input.Reason})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -82,7 +82,7 @@ func (h *MarketingHandler) Feedback(c *gin.Context) {
 	if !ok {
 		return
 	}
-	channel, err := requestStore(c, h.Platform).PlatformGetMarketingChannel(c, channelID)
+	channel, err := requestStore(c, h.Platform).PlatformGetMarketingChannel(c.Request.Context(), channelID)
 	if err != nil {
 		authError(c, http.StatusBadRequest, "MARKETING_FEEDBACK_INVALID")
 		return
@@ -131,7 +131,7 @@ func (h *MarketingHandler) Feedback(c *gin.Context) {
 	}
 	canonical, _ := json.Marshal(input)
 	digest := sha256.Sum256(canonical)
-	result, err := requestStore(c, h.Platform).PlatformRecordMarketingFeedback(c, store.PlatformRecordMarketingFeedbackParams{ChannelID: channelID, EventID: input.EventID, RecipientID: input.RecipientID, Status: input.Status, PayloadHash: hex.EncodeToString(digest[:])})
+	result, err := requestStore(c, h.Platform).PlatformRecordMarketingFeedback(c.Request.Context(), store.PlatformRecordMarketingFeedbackParams{ChannelID: channelID, EventID: input.EventID, RecipientID: input.RecipientID, Status: input.Status, PayloadHash: hex.EncodeToString(digest[:])})
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return

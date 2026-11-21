@@ -21,7 +21,7 @@ func (h *AIConfigurationHandler) platformTenant(c *gin.Context) (int64, bool) {
 		authError(c, 401, "UNAUTHORIZED")
 		return 0, false
 	}
-	allowed, err := db.Queries(h.Pool).CheckPlatformAdmin(c, uid)
+	allowed, err := db.Queries(h.Pool).CheckPlatformAdmin(c.Request.Context(), uid)
 	if err != nil || !allowed {
 		authError(c, 403, "FORBIDDEN")
 		return 0, false
@@ -41,7 +41,7 @@ func (h *AIConfigurationHandler) PlatformGet(c *gin.Context) {
 		return
 	}
 	q := db.Queries(h.Pool)
-	cfg, err := q.PlatformGetAIProvider(c, tenant)
+	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(200, gin.H{"configuration": nil, "configured": false, "cloud_endpoints": safelyListedEndpoints(h.CloudEndpoints), "tenant_consent": gin.H{"allowed": false, "tenant_local_only": true, "requires_confirmation": true, "scope_hash": AICloudScopeHash}})
 		return
@@ -68,7 +68,7 @@ func (h *AIConfigurationHandler) PlatformUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := db.Queries(h.Pool).PlatformPendingAIUsage(c, tenant)
+	rows, err := db.Queries(h.Pool).PlatformPendingAIUsage(c.Request.Context(), tenant)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return

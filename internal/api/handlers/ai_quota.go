@@ -168,7 +168,7 @@ func writeAIQuotaStatus(c *gin.Context, q *store.Queries, cfg store.AiProviderCo
 	}
 	entitlement := gin.H{"source": quota.Source, "available": quotaErr == nil && cfg.Enabled, "call_limit": int64(0), "mailbox_call_limit": int64(0), "concurrency_limit": int64(0), "timezone": location.String(), "period_start": nil, "period_end": nil, "calls_used": int64(0), "calls_remaining": int64(0), "mailbox_calls_used": nil, "mailbox_calls_remaining": nil, "concurrent_reserved": int64(0)}
 	if quotaErr == nil {
-		usage, e := q.PlatformAIQuotaUsage(c, store.PlatformAIQuotaUsageParams{TenantID: tenant, MailboxID: mailbox, IndependentWindow: quota.Independent, PeriodStart: quota.Start, PeriodEnd: quota.End})
+		usage, e := q.PlatformAIQuotaUsage(c.Request.Context(), store.PlatformAIQuotaUsageParams{TenantID: tenant, MailboxID: mailbox, IndependentWindow: quota.Independent, PeriodStart: quota.Start, PeriodEnd: quota.End})
 		if e != nil {
 			return e
 		}
@@ -230,20 +230,20 @@ func (h *AIConfigurationHandler) servePanelAIQuota(c *gin.Context, platform bool
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockBillingTenant(c, tenant); err != nil {
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), tenant); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
 	if platform {
-		_, err = q.PlatformLockPlatformAdmin(c, actor)
+		_, err = q.PlatformLockPlatformAdmin(c.Request.Context(), actor)
 	} else {
-		_, err = q.PlatformLockAIQuotaTenantReader(c, store.PlatformLockAIQuotaTenantReaderParams{TenantID: tenant, ID: actor})
+		_, err = q.PlatformLockAIQuotaTenantReader(c.Request.Context(), store.PlatformLockAIQuotaTenantReaderParams{TenantID: tenant, ID: actor})
 	}
 	if err != nil {
 		authError(c, http.StatusForbidden, "FORBIDDEN")
 		return
 	}
-	cfg, err := q.PlatformGetAIProvider(c, tenant)
+	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 409, "AI_DISABLED")
 		return
@@ -273,16 +273,16 @@ func serveMailboxAIQuota(c *gin.Context, pool *db.Pool) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	if err = q.PlatformLockBillingTenant(c, session.TenantID); err != nil {
+	if err = q.PlatformLockBillingTenant(c.Request.Context(), session.TenantID); err != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	live, sessionErr := q.PlatformGetMailboxSession(c, session.TokenHash)
+	live, sessionErr := q.PlatformGetMailboxSession(c.Request.Context(), session.TokenHash)
 	if sessionErr != nil || live.TenantID != session.TenantID || live.MailboxID != session.MailboxID || !timeutil.FromMicro(live.ExpiresAt).After(time.Now()) {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
 		return
 	}
-	cfg, err := q.PlatformGetAIProvider(c, session.TenantID)
+	cfg, err := q.PlatformGetAIProvider(c.Request.Context(), session.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 409, "AI_DISABLED")
 		return

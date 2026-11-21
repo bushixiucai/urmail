@@ -75,7 +75,7 @@ func (h *marketingReportHandler) load(c *gin.Context, kind string, input marketi
 		authError(c, 503, "MARKETING_UNAVAILABLE")
 		return nil, report.Snapshot{}, false
 	}
-	if err := q.SetMarketingReportBudget(c); err != nil {
+	if err := q.SetMarketingReportBudget(c.Request.Context()); err != nil {
 		authError(c, 503, "MARKETING_UNAVAILABLE")
 		return nil, report.Snapshot{}, false
 	}
@@ -88,9 +88,9 @@ func (h *marketingReportHandler) load(c *gin.Context, kind string, input marketi
 	var raw []byte
 	var err error
 	if kind == "campaigns" {
-		raw, err = q.MarketingCampaignReportSnapshot(c, store.MarketingCampaignReportSnapshotParams{TenantID: tenant, ResourceID: id, ActorUserID: actor, FromTime: ts(from), UntilTime: ts(until)})
+		raw, err = q.MarketingCampaignReportSnapshot(c.Request.Context(), store.MarketingCampaignReportSnapshotParams{TenantID: tenant, ResourceID: id, ActorUserID: actor, FromTime: ts(from), UntilTime: ts(until)})
 	} else {
-		raw, err = q.MarketingFlowReportSnapshot(c, store.MarketingFlowReportSnapshotParams{TenantID: tenant, ResourceID: id, ActorUserID: actor, FromTime: ts(from), UntilTime: ts(until)})
+		raw, err = q.MarketingFlowReportSnapshot(c.Request.Context(), store.MarketingFlowReportSnapshotParams{TenantID: tenant, ResourceID: id, ActorUserID: actor, FromTime: ts(from), UntilTime: ts(until)})
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
@@ -185,7 +185,7 @@ func (h *marketingReportHandler) export(kind string) gin.HandlerFunc {
 			return
 		}
 		target := fmt.Sprintf("/marketing/reports/%s/%d?digest=%s&from=%s&until=%s&facts=%d&bytes=%d", kind, snapshot.Scope.ResourceID, snapshot.Digest, snapshot.Scope.From.Format(time.RFC3339Nano), snapshot.Scope.Until.Format(time.RFC3339Nano), len(snapshot.Rows), len(data))
-		if err = q.RecordTenantAudit(c, store.RecordTenantAuditParams{TenantID: snapshot.Scope.TenantID, UserID: actor, Action: "EXPORT marketing.report", Target: target, Status: 200}); err != nil {
+		if err = q.RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{TenantID: snapshot.Scope.TenantID, UserID: actor, Action: "EXPORT marketing.report", Target: target, Status: 200}); err != nil {
 			authError(c, 503, "AUDIT_UNAVAILABLE")
 			return
 		}

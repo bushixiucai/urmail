@@ -92,7 +92,7 @@ func (h *MailboxImports) Confirm(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	quota, e := q.LockMailboxImportOwner(c, store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
+	quota, e := q.LockMailboxImportOwner(c.Request.Context(), store.LockMailboxImportOwnerParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID})
 	if importDBError(c, e) {
 		return
 	}
@@ -147,7 +147,7 @@ func (h *MailboxImports) Confirm(c *gin.Context) {
 		authError(c, 400, "MAIL_IMPORT_SELECTION_INVALID")
 		return
 	}
-	reserved, e := q.MailboxImportReservedBytes(c, store.MailboxImportReservedBytesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: job.ID})
+	reserved, e := q.MailboxImportReservedBytes(c.Request.Context(), store.MailboxImportReservedBytesParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: job.ID})
 	if importDBError(c, e) {
 		return
 	}
@@ -190,7 +190,7 @@ func (h *MailboxImports) Resume(c *gin.Context) {
 	if !h.fresh(c, sess, in.CurrentPassword) {
 		return
 	}
-	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c.Request.Context(), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if importDBError(c, e) {
 		return
 	}
@@ -211,7 +211,7 @@ func (h *MailboxImports) Reconcile(c *gin.Context) {
 	if !h.fresh(c, sess, in.CurrentPassword) {
 		return
 	}
-	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c, store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
+	job, e := db.Queries(h.Native.Pool).GetMailboxImportJob(c.Request.Context(), store.GetMailboxImportJobParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if importDBError(c, e) {
 		return
 	}

@@ -173,7 +173,7 @@ func (h *AuthHandler) CreateApplicationCredential(c *gin.Context) {
 		return
 	}
 	token := applicationTokenPrefix + random
-	credential, err := h.Credentials.CreateApplicationCredential(c, store.CreateApplicationCredentialParams{UserID: user.ID, ExpectedVersion: user.CredentialVersion, Name: req.Name, TokenHash: middleware.HashSessionToken(token), Scopes: req.Scopes, ExpiresAt: timeutil.Micro(req.ExpiresAt)})
+	credential, err := h.Credentials.CreateApplicationCredential(c.Request.Context(), store.CreateApplicationCredentialParams{UserID: user.ID, ExpectedVersion: user.CredentialVersion, Name: req.Name, TokenHash: middleware.HashSessionToken(token), Scopes: req.Scopes, ExpiresAt: timeutil.Micro(req.ExpiresAt)})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return
@@ -217,7 +217,7 @@ func (h *AuthHandler) RevokeApplicationCredential(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	if _, err = h.Credentials.RevokeApplicationCredential(c, store.RevokeApplicationCredentialParams{ID: id, UserID: userID}); err != nil {
+	if _, err = h.Credentials.RevokeApplicationCredential(c.Request.Context(), store.RevokeApplicationCredentialParams{ID: id, UserID: userID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			authError(c, http.StatusNotFound, "NOT_FOUND")
 		} else {

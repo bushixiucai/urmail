@@ -98,11 +98,11 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(c) }()
 	q := db.Queries(tx)
-	if q.PlatformPruneRoundcubeRequests(c) != nil || q.PlatformPruneMailboxTickets(c) != nil || q.PlatformPruneMailboxSessions(c) != nil {
+	if q.PlatformPruneRoundcubeRequests(c.Request.Context()) != nil || q.PlatformPruneMailboxTickets(c.Request.Context()) != nil || q.PlatformPruneMailboxSessions(c.Request.Context()) != nil {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	if nonceErr := q.PlatformRecordRoundcubeNonce(c, c.GetHeader("X-Urmail-Nonce")); nonceErr != nil {
+	if nonceErr := q.PlatformRecordRoundcubeNonce(c.Request.Context(), c.GetHeader("X-Urmail-Nonce")); nonceErr != nil {
 		var pgErr *pgconn.PgError
 		if !errors.As(nonceErr, &pgErr) || pgErr.Code != "23505" {
 			authError(c, 503, "DB_ERROR")
@@ -124,7 +124,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			authError(c, 500, "INTERNAL_ERROR")
 			return
 		}
-		session, sessionErr := q.PlatformCreateMailboxSession(c, store.PlatformCreateMailboxSessionParams{TokenHash: hash, Address: input.Address})
+		session, sessionErr := q.PlatformCreateMailboxSession(c.Request.Context(), store.PlatformCreateMailboxSessionParams{TokenHash: hash, Address: input.Address})
 		if sessionErr != nil {
 			mailboxAuthorizationError(c, sessionErr)
 			return
@@ -150,7 +150,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			}
 			if tid > 0 && mid > 0 && status < 500 {
 				detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "status": status, "outcome": "rejected"})
-				if _, auditErr := q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, Action: "mailbox.password.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: true}, Detail: detail}); auditErr != nil {
+				if _, auditErr := q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: true}, Action: "mailbox.password.rejected", TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: true}, Detail: detail}); auditErr != nil {
 					middleware.RecordAuditFailure(true)
 					authError(c, 503, "AUDIT_UNAVAILABLE")
 					return
@@ -167,7 +167,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 
 		response = gin.H{"changed": true, "reauthentication_required": true, "imap_revocation": "pending"}
 	case "logout":
-		session, sessionErr := q.PlatformGetMailboxSessionForRevocation(c, mailboxprincipal.HashToken(input.Session))
+		session, sessionErr := q.PlatformGetMailboxSessionForRevocation(c.Request.Context(), mailboxprincipal.HashToken(input.Session))
 		if errors.Is(sessionErr, pgx.ErrNoRows) {
 			response = gin.H{"revoked": true}
 			break
@@ -177,19 +177,19 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			return
 		}
 		tid, mid = session.TenantID, session.MailboxID
-		if q.PlatformRevokeMailboxSession(c, session.TokenHash) != nil {
+		if q.PlatformRevokeMailboxSession(c.Request.Context(), session.TokenHash) != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 		response = gin.H{"revoked": true}
 	case "ai_policy":
-		session, sessionErr := q.PlatformGetMailboxSession(c, mailboxprincipal.HashToken(input.Session))
+		session, sessionErr := q.PlatformGetMailboxSession(c.Request.Context(), mailboxprincipal.HashToken(input.Session))
 		if sessionErr != nil {
 			mailboxAuthorizationError(c, sessionErr)
 			return
 		}
 		tid, mid = session.TenantID, session.MailboxID
-		cfg, cfgErr := q.PlatformGetAIProvider(c, tid)
+		cfg, cfgErr := q.PlatformGetAIProvider(c.Request.Context(), tid)
 		switch {
 		case errors.Is(cfgErr, pgx.ErrNoRows):
 			response = gin.H{"allowed": false, "scope_hash": AICloudScopeHash, "scope_key": "page.ai.cloud_scope"}
@@ -213,7 +213,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			authError(c, 500, "INTERNAL_ERROR")
 			return
 		}
-		ticket, ticketErr := q.PlatformCreateMailboxTicket(c, store.PlatformCreateMailboxTicketParams{TokenHash: hash, Scope: input.Scope, Folder: input.Folder, MessageUid: input.UID, UidValidity: input.UIDValidity, SessionHash: mailboxprincipal.HashToken(input.Session)})
+		ticket, ticketErr := q.PlatformCreateMailboxTicket(c.Request.Context(), store.PlatformCreateMailboxTicketParams{TokenHash: hash, Scope: input.Scope, Folder: input.Folder, MessageUid: input.UID, UidValidity: input.UIDValidity, SessionHash: mailboxprincipal.HashToken(input.Session)})
 		if ticketErr != nil {
 			mailboxAuthorizationError(c, ticketErr)
 			return
@@ -229,7 +229,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		principal, consumeErr := q.PlatformConsumeMailboxTicket(c, store.PlatformConsumeMailboxTicketParams{TokenHash: mailboxprincipal.HashToken(input.Ticket), Scope: input.Scope, Folder: input.Folder, MessageUid: input.UID, UidValidity: input.UIDValidity})
+		principal, consumeErr := q.PlatformConsumeMailboxTicket(c.Request.Context(), store.PlatformConsumeMailboxTicketParams{TokenHash: mailboxprincipal.HashToken(input.Ticket), Scope: input.Scope, Folder: input.Folder, MessageUid: input.UID, UidValidity: input.UIDValidity})
 		if consumeErr != nil {
 			mailboxAuthorizationError(c, consumeErr)
 			return
@@ -247,7 +247,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 				return assistEnvelope(result, meta), runErr
 			}
 		case "get_sieve":
-			mailbox, getErr := q.PlatformGetMailboxSieve(c, store.PlatformGetMailboxSieveParams{TenantID: tid, ID: mid})
+			mailbox, getErr := q.PlatformGetMailboxSieve(c.Request.Context(), store.PlatformGetMailboxSieveParams{TenantID: tid, ID: mid})
 			if getErr != nil {
 				mailboxAuthorizationError(c, getErr)
 				return
@@ -278,7 +278,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 				authError(c, 503, "SIEVE_DISABLED")
 				return
 			}
-			mailbox, versionErr := q.PlatformGetMailboxSieve(c, store.PlatformGetMailboxSieveParams{TenantID: tid, ID: mid})
+			mailbox, versionErr := q.PlatformGetMailboxSieve(c.Request.Context(), store.PlatformGetMailboxSieveParams{TenantID: tid, ID: mid})
 			if versionErr == nil && mailbox.SieveMode == "legacy_v80" {
 				authError(c, 409, "SIEVE_LEGACY_MANAGESIEVE_REQUIRED")
 				return
@@ -292,7 +292,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 				authError(c, 400, "SIEVE_RULES_INVALID")
 				return
 			}
-			changed, saveErr := q.PlatformSetMailboxSieve(c, store.PlatformSetMailboxSieveParams{TenantID: tid, ID: mid, SieveScript: pgtype.Text{String: script, Valid: true}, ExpectedScript: mailbox.SieveScript.String})
+			changed, saveErr := q.PlatformSetMailboxSieve(c.Request.Context(), store.PlatformSetMailboxSieveParams{TenantID: tid, ID: mid, SieveScript: pgtype.Text{String: script, Valid: true}, ExpectedScript: mailbox.SieveScript.String})
 			if saveErr == nil && changed != 1 {
 				authError(c, 409, "SIEVE_VERSION_CONFLICT")
 				return
@@ -319,7 +319,7 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 		targetID = pgtype.Text{String: strconv.FormatInt(mid, 10), Valid: mid > 0}
 	}
 	detail, _ := json.Marshal(gin.H{"actor_type": "mailbox", "mailbox_id": mid, "scope": scope, "status": 200, "outcome": "succeeded", "phase": phase})
-	if _, err = q.CreateAuditLog(c, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "mailbox." + input.Action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: targetID, Detail: detail}); err != nil {
+	if _, err = q.CreateAuditLog(c.Request.Context(), store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: tid, Valid: tid > 0}, Action: "mailbox." + input.Action, TargetType: pgtype.Text{String: "mailbox", Valid: true}, TargetID: targetID, Detail: detail}); err != nil {
 		middleware.RecordAuditFailure(true)
 		authError(c, 503, "AUDIT_UNAVAILABLE")
 		return
