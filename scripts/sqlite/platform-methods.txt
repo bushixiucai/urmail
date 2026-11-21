@@ -516,3 +516,10 @@ PlatformInsertContactEnhanced
 PlatformUpdateContactEnhanced
 PlatformInsertContactGroupMember
 PlatformDeleteContactMembers
+# S2 tenant_id_unbound audit closure (v3.2 §2.2): platform-auth session lifecycle
+# methods operating on sessions where panel tenant_id is nullable (platform store only).
+DeleteSession
+DeleteOtherUserSessions
+DeleteUserSession
+MarkSessionMFAVerified
+MarkSessionLegacyOnly

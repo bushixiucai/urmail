@@ -14,9 +14,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/bushixiucai/urmail/internal/timeutil"
 	"github.com/bushixiucai/urmail/internal/webmail"
+)
+
+var (
+	// ErrMailboxNotFound reports that the session's (tenant_id, mailbox_id) is
+	// missing or no longer active in SQLite.
+	ErrMailboxNotFound = errors.New("mailbox not found")
+	// ErrFolderNotFound reports that the requested mailbox folder does not exist.
+	ErrFolderNotFound = errors.New("mailbox folder not found")
 )
 
 const (
@@ -407,4 +417,368 @@ func nullIfEmpty(raw []byte) any {
 		return nil
 	}
 	return raw
+}
+
+// --- read-only webmail folders & messages (SQLite slice-1/2 inbox unlock) ---
+
+const verifyActiveMailboxSQL = `SELECT m.id
+FROM mailboxes m
+JOIN tenants t ON t.id = m.tenant_id
+JOIN domains d ON d.tenant_id = m.tenant_id AND d.id = m.domain_id
+WHERE m.tenant_id = ?1 AND m.id = ?2
+  AND m.status = 'active' AND t.status = 'active' AND d.status = 'active'`
+
+func (s SQLiteMailboxStore) verifyActiveMailbox(ctx context.Context, tenantID, mailboxID int64) error {
+	if s.DB == nil {
+		return sql.ErrNoRows
+	}
+	if tenantID <= 0 || mailboxID <= 0 {
+		return ErrMailboxNotFound
+	}
+	var id int64
+	err := s.DB.QueryRowContext(ctx, verifyActiveMailboxSQL, tenantID, mailboxID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrMailboxNotFound
+	}
+	return err
+}
+
+func (s SQLiteMailboxStore) sqliteTableExists(ctx context.Context, name string) (bool, error) {
+	var found int
+	err := s.DB.QueryRowContext(ctx,
+		`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1`, name,
+	).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return found == 1, nil
+}
+
+func defaultSQLiteFolders() []webmail.Folder {
+	specs := []struct {
+		name  string
+		flags []string
+	}{
+		{name: "INBOX", flags: []string{`\HasNoChildren`}},
+		{name: "Sent", flags: []string{`\HasNoChildren`, `\Sent`}},
+		{name: "Drafts", flags: []string{`\HasNoChildren`, `\Drafts`}},
+		{name: "Trash", flags: []string{`\HasNoChildren`, `\Trash`}},
+		{name: "Junk", flags: []string{`\HasNoChildren`, `\Junk`}},
+	}
+	out := make([]webmail.Folder, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, webmail.Folder{
+			Name:      spec.name,
+			NameEnc:   webmail.EncodeFolderName(spec.name),
+			Delimiter: "/",
+			Flags:     spec.flags,
+		})
+	}
+	return out
+}
+
+// ListFolders returns folders scoped strictly to (tenantID, mailboxID). When no
+// optional mailbox_folders rows exist for an active empty mailbox, it returns
+// the standard default IMAP folder set so the webmail inbox renders cleanly.
+func (s SQLiteMailboxStore) ListFolders(ctx context.Context, tenantID, mailboxID int64) ([]webmail.Folder, error) {
+	if err := s.verifyActiveMailbox(ctx, tenantID, mailboxID); err != nil {
+		return nil, err
+	}
+	hasTable, err := s.sqliteTableExists(ctx, "mailbox_folders")
+	if err != nil {
+		return nil, err
+	}
+	if hasTable {
+		rows, err := s.DB.QueryContext(ctx,
+			`SELECT name, delimiter, flags_json FROM mailbox_folders WHERE tenant_id = ?1 AND mailbox_id = ?2 ORDER BY id ASC`,
+			tenantID, mailboxID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := make([]webmail.Folder, 0)
+		for rows.Next() {
+			var name, delim, flagsJSON string
+			if err := rows.Scan(&name, &delim, &flagsJSON); err != nil {
+				return nil, err
+			}
+			if delim == "" {
+				delim = "/"
+			}
+			var flags []string
+			if flagsJSON != "" {
+				_ = json.Unmarshal([]byte(flagsJSON), &flags)
+			}
+			if flags == nil {
+				flags = []string{}
+			}
+			out = append(out, webmail.Folder{
+				Name:      name,
+				NameEnc:   webmail.EncodeFolderName(name),
+				Delimiter: delim,
+				Flags:     flags,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+	}
+	return defaultSQLiteFolders(), nil
+}
+
+// ListMessages returns read-only message summaries for one folder scoped
+// strictly to (tenantID, mailboxID). When no mailbox_messages table exists,
+// it returns an empty page (200 OK) for any valid folder of the active mailbox.
+func (s SQLiteMailboxStore) ListMessages(ctx context.Context, tenantID, mailboxID int64, folder string, opts webmail.ListOpts) (webmail.ListResult, error) {
+	folders, err := s.ListFolders(ctx, tenantID, mailboxID)
+	if err != nil {
+		return webmail.ListResult{}, err
+	}
+	canonicalFolder := ""
+	for _, f := range folders {
+		if f.Name == folder || (strings.EqualFold(f.Name, "INBOX") && strings.EqualFold(folder, "INBOX")) {
+			canonicalFolder = f.Name
+			break
+		}
+	}
+	if canonicalFolder == "" {
+		return webmail.ListResult{}, ErrFolderNotFound
+	}
+
+	opts = webmail.ClampListOpts(opts)
+	empty := webmail.ListResult{
+		UIDValidity:  1,
+		Messages:     []webmail.MessageSummary{},
+		Total:        0,
+		Sort:         opts.SortBy,
+		ServerSorted: true,
+	}
+
+	hasTable, err := s.sqliteTableExists(ctx, "mailbox_messages")
+	if err != nil {
+		return webmail.ListResult{}, err
+	}
+	if !hasTable {
+		return empty, nil
+	}
+
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT uid_validity, uid, subject, from_name, from_email, date_micros, flags_json, size_bytes, has_attachments, preview, message_id, in_reply_to
+		 FROM mailbox_messages
+		 WHERE tenant_id = ?1 AND mailbox_id = ?2 AND folder = ?3
+		 ORDER BY uid DESC`,
+		tenantID, mailboxID, canonicalFolder,
+	)
+	if err != nil {
+		return webmail.ListResult{}, err
+	}
+	defer rows.Close()
+
+	var (
+		uidValidity uint32 = 1
+		all         []webmail.MessageSummary
+	)
+	for rows.Next() {
+		var (
+			rowValidity    uint32
+			uid            uint32
+			subject        string
+			fromName       string
+			fromEmail      string
+			dateMicros     int64
+			flagsJSON      string
+			sizeBytes      int64
+			hasAttachments bool
+			preview        string
+			messageID      string
+			inReplyTo      string
+		)
+		if err := rows.Scan(
+			&rowValidity, &uid, &subject, &fromName, &fromEmail,
+			&dateMicros, &flagsJSON, &sizeBytes, &hasAttachments,
+			&preview, &messageID, &inReplyTo,
+		); err != nil {
+			return webmail.ListResult{}, err
+		}
+		if rowValidity > 0 {
+			uidValidity = rowValidity
+		}
+		var flags []string
+		if flagsJSON != "" {
+			_ = json.Unmarshal([]byte(flagsJSON), &flags)
+		}
+		if flags == nil {
+			flags = []string{}
+		}
+		var from []webmail.Address
+		if fromEmail != "" || fromName != "" {
+			from = []webmail.Address{{Name: fromName, Email: fromEmail}}
+		} else {
+			from = []webmail.Address{}
+		}
+		summary := webmail.MessageSummary{
+			UIDValidity:    uidValidity,
+			HasAttachments: hasAttachments,
+			UID:            uid,
+			Subject:        subject,
+			From:           from,
+			Flags:          flags,
+			Size:           sizeBytes,
+			MessageID:      messageID,
+			InReplyTo:      inReplyTo,
+		}
+		if dateMicros > 0 {
+			t := timeutil.FromMicro(dateMicros)
+			summary.Date = &t
+		}
+		if opts.Preview {
+			summary.Preview = preview
+		}
+		if sqliteMessageMatchesQuery(summary, preview, opts.Query) {
+			all = append(all, summary)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return webmail.ListResult{}, err
+	}
+
+	sortSQLiteMessages(all, opts.SortBy, opts.SortDesc)
+	total := len(all)
+	start := opts.Offset
+	if opts.CursorUID > 0 {
+		for idx, msg := range all {
+			if msg.UID == opts.CursorUID {
+				start = idx + 1
+				break
+			}
+		}
+	}
+	if start > total {
+		start = total
+	}
+	end := start + opts.Limit
+	if end > total {
+		end = total
+	}
+	page := make([]webmail.MessageSummary, end-start)
+	copy(page, all[start:end])
+
+	var nextCursor uint32
+	if end < total && len(page) > 0 {
+		nextCursor = page[len(page)-1].UID
+	}
+	return webmail.ListResult{
+		UIDValidity:  uidValidity,
+		Messages:     page,
+		Total:        total,
+		NextCursor:   nextCursor,
+		Sort:         opts.SortBy,
+		ServerSorted: true,
+	}, nil
+}
+
+func sqliteMessageMatchesQuery(m webmail.MessageSummary, preview, rawQuery string) bool {
+	q := strings.TrimSpace(strings.ToLower(rawQuery))
+	if q == "" {
+		return true
+	}
+	if q == "is:unseen" {
+		for _, f := range m.Flags {
+			if strings.EqualFold(f, `\Seen`) {
+				return false
+			}
+		}
+		return true
+	}
+	if strings.HasPrefix(q, "subject:") {
+		needle := strings.TrimSpace(strings.TrimPrefix(q, "subject:"))
+		return strings.Contains(strings.ToLower(m.Subject), needle)
+	}
+	if strings.HasPrefix(q, "from:") {
+		needle := strings.TrimSpace(strings.TrimPrefix(q, "from:"))
+		for _, addr := range m.From {
+			if strings.Contains(strings.ToLower(addr.Email), needle) || strings.Contains(strings.ToLower(addr.Name), needle) {
+				return true
+			}
+		}
+		return false
+	}
+	if strings.HasPrefix(q, "text:") {
+		q = strings.TrimSpace(strings.TrimPrefix(q, "text:"))
+	}
+	if strings.Contains(strings.ToLower(m.Subject), q) || strings.Contains(strings.ToLower(preview), q) {
+		return true
+	}
+	for _, addr := range m.From {
+		if strings.Contains(strings.ToLower(addr.Email), q) || strings.Contains(strings.ToLower(addr.Name), q) {
+			return true
+		}
+	}
+	return false
+}
+
+func sortSQLiteMessages(msgs []webmail.MessageSummary, sortBy string, desc bool) {
+	if len(msgs) <= 1 {
+		return
+	}
+	sort.SliceStable(msgs, func(i, j int) bool {
+		a, b := msgs[i], msgs[j]
+		var cmp int
+		switch sortBy {
+		case "subject":
+			cmp = strings.Compare(strings.ToLower(a.Subject), strings.ToLower(b.Subject))
+		case "from":
+			af, bf := "", ""
+			if len(a.From) > 0 {
+				af = strings.ToLower(a.From[0].Email)
+			}
+			if len(b.From) > 0 {
+				bf = strings.ToLower(b.From[0].Email)
+			}
+			cmp = strings.Compare(af, bf)
+		case "size":
+			switch {
+			case a.Size < b.Size:
+				cmp = -1
+			case a.Size > b.Size:
+				cmp = 1
+			}
+		case "date":
+			var at, bt int64
+			if a.Date != nil {
+				at = a.Date.UnixNano()
+			}
+			if b.Date != nil {
+				bt = b.Date.UnixNano()
+			}
+			switch {
+			case at < bt:
+				cmp = -1
+			case at > bt:
+				cmp = 1
+			}
+		default:
+			switch {
+			case a.UID < b.UID:
+				cmp = -1
+			case a.UID > b.UID:
+				cmp = 1
+			}
+			return cmp > 0
+		}
+		if cmp == 0 {
+			return a.UID > b.UID
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
 }

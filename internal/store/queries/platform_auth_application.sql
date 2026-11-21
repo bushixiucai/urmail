@@ -1,11 +1,11 @@
 -- Platform-only authentication queries; never used as tenant-scoped stores.
 -- name: MarkSessionMFAVerified :exec
--- scope: tenant
+-- scope: platform
 
 UPDATE sessions SET mfa_verified_at = (CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id = ?1;
 
 -- name: MarkSessionLegacyOnly :exec
--- scope: tenant
+-- scope: platform
 
 UPDATE sessions SET kind='legacy',mfa_verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id=?1;
 
@@ -56,8 +56,8 @@ INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,detail)
 VALUES(?1,?2,'legacy_auth',?3,'{}');
 
 -- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
--- MarkSessionMFAVerified: scope-reason: 会话按 (id/user_id) 更新；user-scoped
--- MarkSessionLegacyOnly: scope-reason: 会话按 (id/user_id) 更新；user-scoped
+-- MarkSessionMFAVerified: scope-reason: 平台认证域按 session id 标记 MFA 已验证（sessions.tenant_id 可空，仅经平台 authQueries 调用）
+-- MarkSessionLegacyOnly: scope-reason: 平台认证域按 session id 标记 legacy 会话（sessions.tenant_id 可空，仅经平台 authQueries 调用）
 -- CreateApplicationCredential: scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 -- RevokeApplicationCredential: scope-reason: 平台审计行（audit_logs）写入；平台管理操作
 -- AuditLegacyCredentialUse: scope-reason: 平台审计行（audit_logs.tenant_id 可空）：平台/系统入口写审计，标 platform 语义

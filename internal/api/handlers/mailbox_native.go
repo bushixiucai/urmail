@@ -34,9 +34,14 @@ type MailboxNativeHandler struct {
 	AILocalEndpoints []string
 	MailHost         string
 	Enabled          bool
-	Auth             MailboxNativeAuth
-	Sessions         MailboxNativeSessions
-	Vault            webmail.CredentialVault
+	// Auth / Sessions / SelfSettings / ReadOnlyStore back the native webmail
+	// handler. In SQLite single-engine mode ReadOnlyStore serves folder and
+	// message-summary reads scoped strictly to (session.TenantID, session.MailboxID)
+	// without dialing an external IMAP server.
+	Auth          MailboxNativeAuth
+	Sessions      MailboxNativeSessions
+	ReadOnlyStore MailboxReadOnlyStore
+	Vault         webmail.CredentialVault
 	Dialer           webmail.Dialer
 	Submitter        webmail.Submitter
 	// MaySend reports whether this mailbox may submit mail. Nil preserves older routes.
@@ -85,6 +90,14 @@ type ImageProxyFetcher interface {
 // MailboxNativeAuth looks up active mailbox credentials for login.
 type MailboxNativeAuth interface {
 	Lookup(ctx context.Context, address string) (tenantID, mailboxID int64, canonicalAddress, passwordHash string, err error)
+}
+
+// MailboxReadOnlyStore serves read-only folder and message-summary listings in
+// SQLite single-engine mode. Every implementation must enforce tenantID and
+// mailboxID ownership derived from the verified session principal.
+type MailboxReadOnlyStore interface {
+	ListFolders(ctx context.Context, tenantID, mailboxID int64) ([]webmail.Folder, error)
+	ListMessages(ctx context.Context, tenantID, mailboxID int64, folder string, opts webmail.ListOpts) (webmail.ListResult, error)
 }
 
 // MailboxNativeSessions persists short-lived mailbox bearer tokens.
@@ -311,6 +324,30 @@ func (h *MailboxNativeHandler) CreateSession(c *gin.Context) {
 
 // ListFolders returns IMAP folders for the authenticated mailbox principal.
 func (h *MailboxNativeHandler) ListFolders(c *gin.Context) {
+	if h.ReadOnlyStore != nil {
+		if !h.requireEnabled(c) {
+			return
+		}
+		session, ok := middleware.GetMailboxSession(c)
+		if !ok || session.TenantID <= 0 || session.MailboxID <= 0 {
+			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+			return
+		}
+		folders, err := h.ReadOnlyStore.ListFolders(c.Request.Context(), session.TenantID, session.MailboxID)
+		if err != nil {
+			if errors.Is(err, ErrMailboxNotFound) {
+				authError(c, http.StatusNotFound, "MAILBOX_NOT_FOUND")
+				return
+			}
+			authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+			return
+		}
+		if folders == nil {
+			folders = []webmail.Folder{}
+		}
+		c.JSON(http.StatusOK, gin.H{"folders": folders})
+		return
+	}
 	client, _, ok := h.dialIMAP(c)
 	if !ok {
 		return

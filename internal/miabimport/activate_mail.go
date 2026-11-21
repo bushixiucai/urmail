@@ -49,7 +49,7 @@ func ActivateLegacyDelegatedMail(ctx context.Context, pool *db.Pool, options Opt
 		ExpectedDomains:      expectedDomains,
 		CoreProofSHA256:      strings.ToLower(strings.TrimSpace(coreProofSHA256)),
 	}
-	if pool == nil || pool.Role() != db.RolePlatform || options.TenantID <= 0 || options.ActorID <= 0 || expectedDomains <= 0 {
+	if pool == nil || !pool.IsPlatform() || options.TenantID <= 0 || options.ActorID <= 0 || expectedDomains <= 0 {
 		return result, ErrAuthority
 	}
 	reason := strings.TrimSpace(options.Reason)

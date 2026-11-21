@@ -16,15 +16,27 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 )
 
-// Role names used by the RLS policies.
+// Internal PostgreSQL role names used only by the legacy PG connection adapter.
+// Application and SQLite code bind to isolation.Scope instead of DB roles.
 const (
-	// RoleApp is the tenant-scoped role.
-	RoleApp = "urmail_app"
-	// RolePlatform is the platform-scoped role.
-	RolePlatform = "urmail_platform"
+	pgRoleApp      = "urmail_app"
+	pgRolePlatform = "urmail_platform"
 )
+
+func pgRoleForScope(scope isolation.Scope) (string, error) {
+	switch scope {
+	case isolation.ScopeTenant:
+		return pgRoleApp, nil
+	case isolation.ScopePlatform:
+		return pgRolePlatform, nil
+	default:
+		return "", fmt.Errorf("db: unsupported scope %q (want tenant or platform)", scope)
+	}
+}
 
 // tenantSetting is the PostgreSQL setting that carries the current tenant id.
 const tenantSetting = "urmail.tenant_id"
@@ -45,16 +57,20 @@ var ErrNoTenant = errors.New("no tenant in context")
 // without a mailbox context.
 var ErrNoMailbox = errors.New("no mailbox in context")
 
-// Pool is a connection pool bound to one database role.
+// Pool is a connection pool bound to one execution scope.
 type Pool struct {
 	*pgxpool.Pool
-	role      string
+	scope     isolation.Scope
 	admission *admission
 }
 
 // Open creates a pool for the given connection string and pins every
-// connection to the given role.
-func Open(ctx context.Context, connString, role string) (*Pool, error) {
+// connection to the PostgreSQL role matching scope.
+func Open(ctx context.Context, connString string, scope isolation.Scope) (*Pool, error) {
+	role, err := pgRoleForScope(scope)
+	if err != nil {
+		return nil, err
+	}
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
@@ -68,7 +84,7 @@ func Open(ctx context.Context, connString, role string) (*Pool, error) {
 		return nil, fmt.Errorf("open database pool: %w", err)
 	}
 
-	pooled := &Pool{Pool: pool, role: role}
+	pooled := &Pool{Pool: pool, scope: scope}
 	if err := pooled.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
@@ -78,16 +94,26 @@ func Open(ctx context.Context, connString, role string) (*Pool, error) {
 
 // OpenApp opens the tenant-scoped pool.
 func OpenApp(ctx context.Context, connString string) (*Pool, error) {
-	return Open(ctx, connString, RoleApp)
+	return Open(ctx, connString, isolation.ScopeTenant)
 }
 
 // OpenPlatform opens the platform-scoped pool.
 func OpenPlatform(ctx context.Context, connString string) (*Pool, error) {
-	return Open(ctx, connString, RolePlatform)
+	return Open(ctx, connString, isolation.ScopePlatform)
 }
 
-// Role returns the PostgreSQL role this pool is pinned to.
-func (p *Pool) Role() string { return p.role }
+// Scope returns the isolation scope this pool is bound to.
+func (p *Pool) Scope() isolation.Scope {
+	if p == nil {
+		return ""
+	}
+	return p.scope
+}
+
+// IsPlatform reports whether this pool is bound to platform scope.
+func (p *Pool) IsPlatform() bool {
+	return p != nil && p.scope == isolation.ScopePlatform
+}
 
 // TenantTx starts a transaction scoped to a tenant. The tenant id is set
 // with SET LOCAL so it is discarded when the transaction ends, which keeps a

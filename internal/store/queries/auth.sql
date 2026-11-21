@@ -55,13 +55,13 @@ WHERE s.id = ?1 AND s.kind = 'panel'
   AND (s.tenant_id IS NULL OR t.status IN ('active', 'pending'));
 
 -- name: DeleteSession :exec
--- scope: tenant
+-- scope: platform
 
 DELETE FROM sessions
 WHERE id = ?1;
 
 -- name: DeleteExpiredSessions :exec
--- scope: tenant
+-- scope: system
 
 DELETE FROM sessions
 WHERE expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000);
@@ -109,7 +109,7 @@ WHERE id = ?1;
 UPDATE users SET password_hash = ?2, password_changed_at = (CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id = ?1;
 
 -- name: DeleteOtherUserSessions :exec
--- scope: tenant
+-- scope: platform
 
 DELETE FROM sessions WHERE user_id = ?1 AND id <> ?2;
 
@@ -123,14 +123,14 @@ WHERE user_id = ?1 AND expires_at > (CAST(strftime('%s','now') AS INTEGER)*10000
 ORDER BY created_at DESC;
 
 -- name: DeleteUserSession :execrows
--- scope: tenant
+-- scope: platform
 
 DELETE FROM sessions WHERE user_id = ?1 AND id = ?2;
 
 -- 中文注记（sqlc 的 sqlite 引擎按字节偏移切分语句，任何非 ASCII 注记都必须放在文件末尾）：
--- DeleteSession: scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
--- DeleteExpiredSessions: scope-reason: 过期会话清扫，按时间谓词（系统入口）user-scoped
+-- DeleteSession: scope-reason: 平台认证域会话按 session id 吊销（panel session 的 tenant_id 可空，仅经平台 authQueries 调用）
+-- DeleteExpiredSessions: scope-reason: daemon 定时系统级过期会话清扫（system scope，无请求租户）
 -- DisableUserMFA: ConsumeRecoveryCode 在 S2 B1b 迁移至 internal/store/sqlite_methods.go
 -- DisableUserMFA: ConsumeUserRecoveryCode（JSON 过滤在 Go 层完成，sqlc sqlite 不支持 json_each）。
--- DeleteOtherUserSessions: scope-reason: 会话按 (id/user_id) 用户域操作；user-scoped
--- DeleteUserSession: scope-reason: 会话按 (id/user_id) 用户域操作，租户由会话行携带（user-scoped）；装饰器按 user 作用域放行
+-- DeleteOtherUserSessions: scope-reason: 平台认证域按 user_id + 当前 session id 吊销其余会话（sessions.tenant_id 可空）
+-- DeleteUserSession: scope-reason: 平台认证域按 user_id + session id 吊销单条会话（sessions.tenant_id 可空）

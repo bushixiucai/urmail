@@ -187,7 +187,7 @@ const markSessionLegacyOnly = `-- name: MarkSessionLegacyOnly :exec
 UPDATE sessions SET kind='legacy',mfa_verified_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE id=?1
 `
 
-// scope: tenant
+// scope: platform
 func (q *Queries) MarkSessionLegacyOnly(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markSessionLegacyOnly, id)
 	return err
@@ -199,7 +199,7 @@ UPDATE sessions SET mfa_verified_at = (CAST(strftime('%s','now') AS INTEGER)*100
 `
 
 // Platform-only authentication queries; never used as tenant-scoped stores.
-// scope: tenant
+// scope: platform
 func (q *Queries) MarkSessionMFAVerified(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, markSessionMFAVerified, id)
 	return err

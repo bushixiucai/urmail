@@ -251,13 +251,13 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 		return nil, nil, err
 	}
 
-	appPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "core-app", cfg.DatabaseBudgets.Core)
+	appPool, err := db.OpenTenantBudgeted(ctx, cfg.DatabaseURL, "core-app", cfg.DatabaseBudgets.Core)
 	if err != nil {
 		return fail(fmt.Errorf("open tenant database pool: %w", err))
 	}
 	closers = append(closers, appPool.Close)
 
-	platformPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "core-platform", cfg.DatabaseBudgets.Core)
+	platformPool, err := db.OpenPlatformBudgeted(ctx, cfg.DatabaseURLPlatform, "core-platform", cfg.DatabaseBudgets.Core)
 	if err != nil {
 		return fail(fmt.Errorf("open platform database pool: %w", err))
 	}
@@ -271,27 +271,27 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 		}
 	}
 
-	marketingPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "marketing-platform", cfg.DatabaseBudgets.Marketing)
+	marketingPool, err := db.OpenPlatformBudgeted(ctx, cfg.DatabaseURLPlatform, "marketing-platform", cfg.DatabaseBudgets.Marketing)
 	if err != nil {
 		return fail(fmt.Errorf("open marketing database pool: %w", err))
 	}
 	closers = append(closers, marketingPool.Close)
-	backgroundPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "background", cfg.DatabaseBudgets.Background)
+	backgroundPool, err := db.OpenPlatformBudgeted(ctx, cfg.DatabaseURLPlatform, "background", cfg.DatabaseBudgets.Background)
 	if err != nil {
 		return fail(fmt.Errorf("open background database pool: %w", err))
 	}
 	closers = append(closers, backgroundPool.Close)
-	aiAppPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "ai-app", cfg.DatabaseBudgets.AI)
+	aiAppPool, err := db.OpenTenantBudgeted(ctx, cfg.DatabaseURL, "ai-app", cfg.DatabaseBudgets.AI)
 	if err != nil {
 		return fail(fmt.Errorf("open AI tenant pool: %w", err))
 	}
 	closers = append(closers, aiAppPool.Close)
-	aiPlatformPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "ai-platform", cfg.DatabaseBudgets.AI)
+	aiPlatformPool, err := db.OpenPlatformBudgeted(ctx, cfg.DatabaseURLPlatform, "ai-platform", cfg.DatabaseBudgets.AI)
 	if err != nil {
 		return fail(fmt.Errorf("open AI platform pool: %w", err))
 	}
 	closers = append(closers, aiPlatformPool.Close)
-	marketingAppPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "marketing-app", cfg.DatabaseBudgets.Marketing)
+	marketingAppPool, err := db.OpenTenantBudgeted(ctx, cfg.DatabaseURL, "marketing-app", cfg.DatabaseBudgets.Marketing)
 	if err != nil {
 		return fail(fmt.Errorf("open marketing tenant pool: %w", err))
 	}

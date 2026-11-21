@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 )
 
 // Budget bounds active operations separately from queued callers. Queue excludes
@@ -84,8 +86,12 @@ func (a *admission) enter(ctx context.Context) (context.Context, func(), error) 
 }
 
 // OpenBudgeted opens another physical pool against the supplied authoritative
-// database URL. It never accepts a separate optional-service database URL.
-func OpenBudgeted(ctx context.Context, url, role, name string, b Budget) (*Pool, error) {
+// database URL bound to scope. It never accepts a separate optional-service URL.
+func OpenBudgeted(ctx context.Context, url string, scope isolation.Scope, name string, b Budget) (*Pool, error) {
+	role, err := pgRoleForScope(scope)
+	if err != nil {
+		return nil, err
+	}
 	if b.MaxConns < 1 || b.MaxQueue < 0 || b.MaxQueue > 1024 || b.AcquireTimeout <= 0 || b.OperationTimeout < time.Millisecond {
 		return nil, fmt.Errorf("invalid database budget")
 	}
@@ -105,7 +111,7 @@ func OpenBudgeted(ctx context.Context, url, role, name string, b Budget) (*Pool,
 	if err != nil {
 		return nil, err
 	}
-	p := &Pool{Pool: raw, role: role, admission: newAdmission(b)}
+	p := &Pool{Pool: raw, scope: scope, admission: newAdmission(b)}
 	pingCtx, cancel := context.WithTimeout(ctx, b.AcquireTimeout)
 	defer cancel()
 	if err := raw.Ping(pingCtx); err != nil {
@@ -113,6 +119,16 @@ func OpenBudgeted(ctx context.Context, url, role, name string, b Budget) (*Pool,
 		return nil, err
 	}
 	return p, nil
+}
+
+// OpenTenantBudgeted opens a budgeted pool bound to tenant scope.
+func OpenTenantBudgeted(ctx context.Context, url, name string, b Budget) (*Pool, error) {
+	return OpenBudgeted(ctx, url, isolation.ScopeTenant, name, b)
+}
+
+// OpenPlatformBudgeted opens a budgeted pool bound to platform scope.
+func OpenPlatformBudgeted(ctx context.Context, url, name string, b Budget) (*Pool, error) {
+	return OpenBudgeted(ctx, url, isolation.ScopePlatform, name, b)
 }
 
 // Close cancels budgeted work and closes all physical connections.

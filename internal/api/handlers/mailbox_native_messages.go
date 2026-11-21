@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -46,9 +47,27 @@ import (
 //     By default each message carries a plain-text snippet (preview) fetched
 //     with one batched, byte-bounded IMAP command per page.
 func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
-	folder, ok := h.folderParam(c)
-	if !ok {
-		return
+	var (
+		folder string
+		ok     bool
+	)
+	if c.FullPath() == "/api/v1/mailbox/messages" {
+		rawFolder := strings.TrimSpace(c.Query("folder"))
+		if rawFolder == "" {
+			folder = "INBOX"
+		} else {
+			var decErr error
+			folder, decErr = webmail.DecodeFolderName(rawFolder)
+			if decErr != nil {
+				authError(c, http.StatusBadRequest, "INVALID_PARAMS")
+				return
+			}
+		}
+	} else {
+		folder, ok = h.folderParam(c)
+		if !ok {
+			return
+		}
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
@@ -67,12 +86,6 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
 		return
 	}
-	client, _, ok := h.dialIMAP(c)
-	if !ok {
-		return
-	}
-	defer func() { _ = client.Close() }()
-
 	opts := webmail.ClampListOpts(webmail.ListOpts{
 		Limit:     limit,
 		Offset:    offset,
@@ -83,14 +96,44 @@ func (h *MailboxNativeHandler) ListMessages(c *gin.Context) {
 		Thread:    thread,
 		Preview:   !isDisabledParam(c.Query("preview")),
 	})
-	result, err := client.ListMessages(c.Request.Context(), folder, opts)
-	if err != nil {
-		if errors.Is(err, webmail.ErrInvalidSearchQuery) {
-			authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+	var result webmail.ListResult
+	if h.ReadOnlyStore != nil {
+		if !h.requireEnabled(c) {
 			return
 		}
-		authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
-		return
+		session, sessOK := middleware.GetMailboxSession(c)
+		if !sessOK || session.TenantID <= 0 || session.MailboxID <= 0 {
+			authError(c, http.StatusUnauthorized, "MAILBOX_AUTHORIZATION_DENIED")
+			return
+		}
+		result, err = h.ReadOnlyStore.ListMessages(c.Request.Context(), session.TenantID, session.MailboxID, folder, opts)
+		if err != nil {
+			switch {
+			case errors.Is(err, webmail.ErrInvalidSearchQuery):
+				authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+			case errors.Is(err, ErrFolderNotFound), errors.Is(err, sql.ErrNoRows), errors.Is(err, ErrMailboxNotFound):
+				authError(c, http.StatusNotFound, "MESSAGE_NOT_FOUND")
+			default:
+				authError(c, http.StatusServiceUnavailable, "DB_ERROR")
+			}
+			return
+		}
+	} else {
+		client, _, dialOK := h.dialIMAP(c)
+		if !dialOK {
+			return
+		}
+		defer func() { _ = client.Close() }()
+
+		result, err = client.ListMessages(c.Request.Context(), folder, opts)
+		if err != nil {
+			if errors.Is(err, webmail.ErrInvalidSearchQuery) {
+				authError(c, http.StatusBadRequest, "INVALID_SEARCH_QUERY")
+				return
+			}
+			authError(c, http.StatusBadGateway, "IMAP_UNAVAILABLE")
+			return
+		}
 	}
 	if result.Messages == nil {
 		result.Messages = []webmail.MessageSummary{}

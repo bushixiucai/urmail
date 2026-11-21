@@ -15,12 +15,12 @@ func TestBudgetPhysicalIsolationAndLifecycle(t *testing.T) {
 	url := testDatabaseURL(t)
 	ctx := context.Background()
 	budget := db.Budget{MaxConns: 1, MaxQueue: 0, AcquireTimeout: 100 * time.Millisecond, OperationTimeout: time.Second}
-	core, err := db.OpenBudgeted(ctx, url, db.RolePlatform, "test-core", budget)
+	core, err := db.OpenPlatformBudgeted(ctx, url, "test-core", budget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer core.Close()
-	optional, err := db.OpenBudgeted(ctx, url, db.RolePlatform, "test-ai", budget)
+	optional, err := db.OpenPlatformBudgeted(ctx, url, "test-ai", budget)
 	if err != nil {
 		t.Fatal(err)
 	}

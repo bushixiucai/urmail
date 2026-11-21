@@ -253,7 +253,7 @@ func TestSlice1SQLiteMailboxRuntime(t *testing.T) {
 	denyProbes := []struct {
 		method, path, body string
 	}{
-		{http.MethodGet, "/api/v1/mailbox/folders", ""},
+		{http.MethodPost, "/api/v1/mailbox/folders", `{"name":"Custom"}`},
 		{http.MethodPost, "/api/v1/mailbox/send", `{"to":["bob@b.example.test"],"text":"hi"}`},
 		{http.MethodGet, "/api/v1/mailbox/rules", ""},
 		{http.MethodPost, "/api/v1/mailbox/scheduled-sends", `{"draft_uid":1,"draft_uidvalidity":1,"send_at":"2030-01-01T00:00:00Z"}`},

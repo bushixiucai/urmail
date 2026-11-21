@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -173,7 +173,7 @@ func TestMarketingSuppressionsPersistAndRespectTenantRLS(t *testing.T) {
 		t.Fatalf("durable checker unexpected suppression=%v err=%v", suppressed, checkErr)
 	}
 	_ = tx.Rollback(ctx)
-	if app.Role() != db.RoleApp {
-		t.Fatalf("expected tenant app role, got %s", app.Role())
+	if app.Scope() != isolation.ScopeTenant {
+		t.Fatalf("expected tenant scope, got %s", app.Scope())
 	}
 }

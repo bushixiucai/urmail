@@ -67,7 +67,7 @@ type Result struct {
 // Maildir, Sieve, groupware, DNS/TLS and protocol gates before any activation.
 func ApplyCore(ctx context.Context, pool *db.Pool, source *miadbinventory.ReviewedSource, options Options) (Result, error) {
 	result := Result{Phase: "source_preflight", CoreOnly: true, SievePending: true, CommitOutcome: "not_committed"}
-	if pool == nil || pool.Role() != db.RolePlatform || options.TenantID <= 0 || options.ActorID <= 0 {
+	if pool == nil || !pool.IsPlatform() || options.TenantID <= 0 || options.ActorID <= 0 {
 		return result, ErrAuthority
 	}
 	reason := strings.TrimSpace(options.Reason)

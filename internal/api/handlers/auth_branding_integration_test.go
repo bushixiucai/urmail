@@ -56,10 +56,10 @@ func authIntegrationDatabase(t *testing.T) (*db.Pool, *db.Pool) {
 	}
 	t.Cleanup(app.Close)
 	var role string
-	if err = platform.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != db.RolePlatform {
+	if err = platform.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != "urmail_platform" || !platform.IsPlatform() {
 		t.Fatal("integration platform role is not active")
 	}
-	if err = app.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != db.RoleApp {
+	if err = app.QueryRow(context.Background(), "SELECT current_user").Scan(&role); err != nil || role != "urmail_app" || app.IsPlatform() {
 		t.Fatal("integration app role is not active")
 	}
 	return platform, app

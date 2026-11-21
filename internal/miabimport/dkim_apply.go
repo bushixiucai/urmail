@@ -39,7 +39,7 @@ type DKIMResult struct {
 // Domains must already come from a committed core import bound to the same proof.
 func ApplyReviewedDKIM(ctx context.Context, pool *db.Pool, dkim *ReviewedDKIM, options Options) (DKIMResult, error) {
 	result := DKIMResult{Phase: "source_preflight", CoreOnly: true, CommitOutcome: "not_committed"}
-	if pool == nil || pool.Role() != db.RolePlatform || options.TenantID <= 0 || options.ActorID <= 0 {
+	if pool == nil || !pool.IsPlatform() || options.TenantID <= 0 || options.ActorID <= 0 {
 		return result, ErrAuthority
 	}
 	reason := strings.TrimSpace(options.Reason)

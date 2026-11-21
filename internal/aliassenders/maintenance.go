@@ -93,7 +93,7 @@ func normalize(intent Intent) (Intent, error) {
 }
 
 func begin(ctx context.Context, pool *db.Pool, intent Intent) (pgx.Tx, Review, error) {
-	if pool == nil || pool.Role() != db.RolePlatform {
+	if pool == nil || !pool.IsPlatform() {
 		return nil, Review{}, ErrAuthority
 	}
 	intent, err := normalize(intent)

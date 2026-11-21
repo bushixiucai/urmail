@@ -192,8 +192,32 @@ func TestDaemonSQLiteStartupHealthzAndSlice1Loop(t *testing.T) {
 		t.Fatalf("GET /api/v1/mailbox/folders: %v", err)
 	}
 	_ = folderResp.Body.Close()
-	if folderResp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("unapproved /api/v1/mailbox/folders = %d, want 503 FEATURE_UNAVAILABLE", folderResp.StatusCode)
+	if folderResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/mailbox/folders = %d, want 200", folderResp.StatusCode)
+	}
+
+	msgReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/mailbox/messages", nil)
+	msgReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
+	msgResp, err := ts.Client().Do(msgReq)
+	if err != nil {
+		t.Fatalf("GET /api/v1/mailbox/messages: %v", err)
+	}
+	_ = msgResp.Body.Close()
+	if msgResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/mailbox/messages = %d, want 200", msgResp.StatusCode)
+	}
+
+	sendReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/mailbox/send",
+		strings.NewReader(`{"to":["bob@b.example.test"],"text":"hi"}`))
+	sendReq.Header.Set("Content-Type", "application/json")
+	sendReq.Header.Set("Authorization", "Bearer "+loginPayload.Token)
+	sendResp, err := ts.Client().Do(sendReq)
+	if err != nil {
+		t.Fatalf("POST /api/v1/mailbox/send: %v", err)
+	}
+	_ = sendResp.Body.Close()
+	if sendResp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("unapproved /api/v1/mailbox/send = %d, want 503 FEATURE_UNAVAILABLE", sendResp.StatusCode)
 	}
 
 	readyResp, err := ts.Client().Get(ts.URL + "/api/v1/internal/status/ready")

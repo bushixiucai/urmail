@@ -342,11 +342,13 @@ func New(opts Options) *gin.Engine {
 	// slice-1 allow set. In SQLite mode the concrete PG implementation must
 	// not be reachable at all, so the interface stays nil (rulesReady 503s).
 	var mailboxRules handlers.MailboxRulesStore = handlers.StoreMailboxRules{Pool: opts.PlatformPool}
+	var mailboxReadOnly handlers.MailboxReadOnlyStore
 	if sqliteMode {
 		mailboxSessionLookup = sqliteStore
 		mailboxAuthStore = sqliteStore
 		mailboxSessionsStore = sqliteStore
 		mailboxSelfSettings = sqliteStore
+		mailboxReadOnly = sqliteStore
 		mailboxRules = nil
 	}
 	smtpAddr := opts.SMTPAddr
@@ -362,6 +364,7 @@ func New(opts Options) *gin.Engine {
 		Enabled:          opts.WebmailNative && (platformQueries != nil || sqliteMode),
 		Auth:             mailboxAuthStore,
 		Sessions:         mailboxSessionsStore,
+		ReadOnlyStore:    mailboxReadOnly,
 		Vault:            webmailVault,
 		Dialer:           webmail.NetDialer{Addr: opts.IMAPAddr, AuthenticationSecrets: opts.Secrets},
 		Submitter:        webmail.NetSubmitter{Addr: smtpAddr},
@@ -511,11 +514,25 @@ func New(opts Options) *gin.Engine {
 			// the SQLite candidate; every other mailbox route answers 503
 			// FEATURE_UNAVAILABLE with no Retry-After and no fallback.
 			mailboxAuthed.Use(func(c *gin.Context) {
+				method := c.Request.Method
 				switch c.FullPath() {
-				case "/api/v1/mailbox/settings", "/api/v1/mailbox/quota",
-					"/api/v1/mailbox/identities", "/api/v1/mailbox/session":
-					c.Next()
-					return
+				case "/api/v1/mailbox/settings":
+					if method == http.MethodGet || method == http.MethodPut {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/quota", "/api/v1/mailbox/identities",
+					"/api/v1/mailbox/folders", "/api/v1/mailbox/folders/:name/messages",
+					"/api/v1/mailbox/messages":
+					if method == http.MethodGet {
+						c.Next()
+						return
+					}
+				case "/api/v1/mailbox/session":
+					if method == http.MethodDelete {
+						c.Next()
+						return
+					}
 				}
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 					"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
@@ -532,6 +549,7 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/folders/:name/messages/restore", mailboxNative.RestoreMessages)
 			// WEBMAIL-004 cross-folder search (bounded fan-out + date merge).
 			mailboxAuthed.GET("/search", mailboxNative.CrossFolderSearch)
+			mailboxAuthed.GET("/messages", mailboxNative.ListMessages)
 			mailboxAuthed.GET("/folders/:name/messages", mailboxNative.ListMessages)
 			mailboxAuthed.POST("/folders/:name/messages/flags", mailboxNative.FlagMessages)
 			mailboxAuthed.POST("/folders/:name/messages/move", mailboxNative.MoveMessages)

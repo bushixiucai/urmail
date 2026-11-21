@@ -87,7 +87,7 @@ DELETE FROM sessions
 WHERE expires_at <= (CAST(strftime('%s','now') AS INTEGER)*1000000)
 `
 
-// scope: tenant
+// scope: system
 func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteExpiredSessions)
 	return err
@@ -103,7 +103,7 @@ type DeleteOtherUserSessionsParams struct {
 	ID     string `json:"id"`
 }
 
-// scope: tenant
+// scope: platform
 func (q *Queries) DeleteOtherUserSessions(ctx context.Context, arg DeleteOtherUserSessionsParams) error {
 	_, err := q.db.Exec(ctx, deleteOtherUserSessions, arg.UserID, arg.ID)
 	return err
@@ -115,7 +115,7 @@ DELETE FROM sessions
 WHERE id = ?1
 `
 
-// scope: tenant
+// scope: platform
 func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteSession, id)
 	return err
@@ -131,7 +131,7 @@ type DeleteUserSessionParams struct {
 	ID     string `json:"id"`
 }
 
-// scope: tenant
+// scope: platform
 func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserSession, arg.UserID, arg.ID)
 	if err != nil {
