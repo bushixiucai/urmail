@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	graph "github.com/bushixiucai/urmail/internal/domain/marketingflow"
 	"github.com/bushixiucai/urmail/internal/marketingflow"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -87,6 +88,9 @@ func (w *FlowWorker) Tick(ctx context.Context) (int, error) {
 	if !w.opts.Enabled || w.opts.DevMode || w.opts.Quarantined {
 		return 0, ErrDisabled
 	}
+	// Flow dispatch pass: recover/claim/record/bump/release are platform-domain
+	// statements; elevate once at entry (purgeExpiredSessions precedent).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	q := db.Queries(w.opts.Pool)
 	leases, err := q.PlatformRecoverMarketingFlowLeases(ctx)
 	if err != nil {

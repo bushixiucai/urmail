@@ -19,6 +19,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/telemetry"
 )
@@ -135,6 +136,10 @@ func (w *Worker) Once(ctx context.Context) error {
 	if processed < 100 {
 		w.scanAfter = ""
 	}
+	// Reconciliation/retention pass: platform-domain statements throughout
+	// (expire/retention/purge/alerts). Elevate once at entry like the
+	// onboarding/notify worker precedents; daemon carries no request scope.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	q := db.Queries(w.Pool)
 	if _, expiryErr := q.PlatformExpireArchiveApprovals(ctx); expiryErr != nil {
 		failures = append(failures, expiryErr)

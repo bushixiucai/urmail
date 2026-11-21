@@ -9,14 +9,15 @@
 # 待办（S3）：ConsumeUserRecoveryCode 位于认证前恢复码校验路径，暂按 platform
 # 保守登记；进入 pre-auth 轴需先在 scripts/sqlite/preauth-allowlist.md 逐条签核。
 
-# -- system: 后台 worker / 无会话进程
-PlatformRevokeMailboxSessions            system
-PlatformConsumeMailboxOperationTickets   system
-PlatformApplyArchiveRetentionCandidates  system
-PlatformApplyArchiveRetentionMarkContent system
-PlatformApplyArchiveRetentionMarkDeleted system
-PlatformRecordMarketingFlowNodeExecution system
-PlatformBumpMarketingFlowAttempt         system
+# -- platform: 后台 worker / 无会话进程（QA 终审对齐：worker 以平台授权运行，
+#    与 onboarding/notify/archive/marketing worker 入口显式 platform scope 一致）
+PlatformRevokeMailboxSessions            platform
+PlatformConsumeMailboxOperationTickets   platform
+PlatformApplyArchiveRetentionCandidates  platform
+PlatformApplyArchiveRetentionMarkContent platform
+PlatformApplyArchiveRetentionMarkDeleted platform
+PlatformRecordMarketingFlowNodeExecution platform
+PlatformBumpMarketingFlowAttempt         platform
 
 # -- tenant: 租户请求（配额日计数）
 GetMailboxDailySent          tenant
@@ -49,7 +50,7 @@ RequestDNSRollback     tenant
 ReviewDNSPlan          tenant
 AbandonDNSPlan         tenant
 
-# -- system: marketing worker（dispatch / flow 发送与提交；role='urmail_platform'）
+# -- platform: marketing worker（dispatch / flow 发送与提交；role='urmail_platform'）
 PlatformAuthorizeMarketingSend           system
 PlatformFinishMarketingSend              system
 PlatformResolveMarketingAttempt          system

@@ -54,9 +54,17 @@ type PlatformRevokeMailboxSessionsParams struct {
 	MailboxID int64
 }
 
+const revokeMailboxSessionsPGSQL = `UPDATE mailbox_sessions
+SET revoked_at=COALESCE(revoked_at, now())
+WHERE tenant_id=$1 AND mailbox_id=$2`
+
 // PlatformRevokeMailboxSessions revokes every session of one mailbox.
 func (q *Queries) PlatformRevokeMailboxSessions(ctx context.Context, arg PlatformRevokeMailboxSessionsParams) (int64, error) {
-	tag, err := q.db.Exec(ctx, revokeMailboxSessionsSQL, arg.TenantID, arg.MailboxID)
+	statement := revokeMailboxSessionsSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = revokeMailboxSessionsPGSQL
+	}
+	tag, err := q.db.Exec(ctx, statement, arg.TenantID, arg.MailboxID)
 	if err != nil {
 		return 0, err
 	}
@@ -70,10 +78,18 @@ type PlatformConsumeMailboxOperationTicketsParams struct {
 	MailboxID int64
 }
 
+const consumeMailboxOperationTicketsPGSQL = `UPDATE mailbox_operation_tickets
+SET consumed_at=COALESCE(consumed_at, now())
+WHERE tenant_id=$1 AND mailbox_id=$2`
+
 // PlatformConsumeMailboxOperationTickets consumes pending operation tickets of
 // one mailbox.
 func (q *Queries) PlatformConsumeMailboxOperationTickets(ctx context.Context, arg PlatformConsumeMailboxOperationTicketsParams) (int64, error) {
-	tag, err := q.db.Exec(ctx, consumeMailboxOperationTicketsSQL, arg.TenantID, arg.MailboxID)
+	statement := consumeMailboxOperationTicketsSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = consumeMailboxOperationTicketsPGSQL
+	}
+	tag, err := q.db.Exec(ctx, statement, arg.TenantID, arg.MailboxID)
 	if err != nil {
 		return 0, err
 	}
@@ -91,13 +107,28 @@ const archiveRetentionCandidatesWhere = ` FROM archive_entries a
   AND a.received_at < (CAST(strftime('%s','now') AS INTEGER)*1000000) - p.retention_days*86400000000
  ORDER BY a.id LIMIT 100`
 
+const archiveRetentionCandidatesWherePG = ` FROM archive_entries a
+ JOIN archive_content c ON c.entry_id=a.id AND c.tenant_id=a.tenant_id
+ JOIN retention_policies p ON p.tenant_id=a.tenant_id
+ WHERE p.active AND p.action='soft_delete' AND p.confirmed_preview IS NOT NULL
+  AND (SELECT COALESCE((SELECT 1 FROM compliance_grants cg JOIN user_tenant_roles ur ON ur.tenant_id=cg.tenant_id AND ur.user_id=cg.user_id
+       WHERE cg.tenant_id=p.tenant_id AND cg.user_id=p.created_by AND cg.scope='retention_manage' AND NOT cg.revoked
+        AND cg.owner_confirmed_at IS NOT NULL AND ur.role IN('owner','admin')), 0))=1
+  AND NOT a.legal_hold AND a.deleted_at IS NULL
+  AND a.received_at < now() - make_interval(days=>p.retention_days)
+ ORDER BY a.id LIMIT 100`
+
 const archiveRetentionCandidatesSQL = `SELECT a.id, a.tenant_id, p.confirmed_preview` + archiveRetentionCandidatesWhere
+
+const archiveRetentionCandidatesPGSQL = `SELECT a.id, a.tenant_id, p.confirmed_preview` + archiveRetentionCandidatesWherePG
 
 // The Mark* statements compare a two-column row value against the candidate
 // set, so the key SELECT must project exactly two columns. The preview is
 // supplied separately by the SET scalar subquery; projecting it here too (the
 // pre-S7 shape) made the IN a 2-vs-3 arity error.
 const archiveRetentionCandidateKeysSQL = `SELECT a.id, a.tenant_id` + archiveRetentionCandidatesWhere
+
+const archiveRetentionCandidateKeysPGSQL = `SELECT a.id, a.tenant_id` + archiveRetentionCandidatesWherePG
 
 // PlatformApplyArchiveRetentionCandidatesRow is one retention
 // soft-delete candidate entry.
@@ -111,7 +142,11 @@ type PlatformApplyArchiveRetentionCandidatesRow struct {
 // soft-delete under an authorized retention policy (B1b split of the former
 // DML-CTE chain).
 func (q *Queries) PlatformApplyArchiveRetentionCandidates(ctx context.Context) ([]PlatformApplyArchiveRetentionCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, archiveRetentionCandidatesSQL)
+	statement := archiveRetentionCandidatesSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = archiveRetentionCandidatesPGSQL
+	}
+	rows, err := q.db.Query(ctx, statement)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +166,19 @@ const archiveRetentionMarkContentSQL = `UPDATE archive_content SET retention_pre
  SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
 WHERE (entry_id, tenant_id) IN (` + archiveRetentionCandidateKeysSQL + `)`
 
+const archiveRetentionMarkContentPGSQL = `UPDATE archive_content SET retention_preview=(
+ SELECT confirmed_preview FROM retention_policies p WHERE p.tenant_id=archive_content.tenant_id AND p.active AND p.action='soft_delete')
+WHERE (entry_id, tenant_id) IN (` + archiveRetentionCandidateKeysPGSQL + `)`
+
 // PlatformApplyArchiveRetentionMarkContent stamps the retention preview onto
 // the candidate archive content rows. MUST run BEFORE MarkDeleted (the
 // candidate predicate requires deleted_at IS NULL).
 func (q *Queries) PlatformApplyArchiveRetentionMarkContent(ctx context.Context) (int64, error) {
-	tag, err := q.db.Exec(ctx, archiveRetentionMarkContentSQL)
+	statement := archiveRetentionMarkContentSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = archiveRetentionMarkContentPGSQL
+	}
+	tag, err := q.db.Exec(ctx, statement)
 	if err != nil {
 		return 0, err
 	}
@@ -145,10 +188,17 @@ func (q *Queries) PlatformApplyArchiveRetentionMarkContent(ctx context.Context) 
 const archiveRetentionMarkDeletedSQL = `UPDATE archive_entries SET deleted_at=(CAST(strftime('%s','now') AS INTEGER)*1000000)
 WHERE (id, tenant_id) IN (` + archiveRetentionCandidateKeysSQL + `)`
 
+const archiveRetentionMarkDeletedPGSQL = `UPDATE archive_entries SET deleted_at=now()
+WHERE (id, tenant_id) IN (` + archiveRetentionCandidateKeysPGSQL + `)`
+
 // PlatformApplyArchiveRetentionMarkDeleted soft-deletes the candidate entries.
 // MUST run AFTER MarkContent (ordering: content preview first, then delete).
 func (q *Queries) PlatformApplyArchiveRetentionMarkDeleted(ctx context.Context) (int64, error) {
-	tag, err := q.db.Exec(ctx, archiveRetentionMarkDeletedSQL)
+	statement := archiveRetentionMarkDeletedSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = archiveRetentionMarkDeletedPGSQL
+	}
+	tag, err := q.db.Exec(ctx, statement)
 	if err != nil {
 		return 0, err
 	}
@@ -160,6 +210,14 @@ SELECT p.tenant_id, p.id, p.lease_fence, $4, $5, $6
 FROM marketing_flow_positions p
 WHERE p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3
  AND p.lease_owner=$7 AND p.lease_fence=$8 AND p.lease_until>(CAST(strftime('%s','now') AS INTEGER)*1000000)
+ AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
+ON CONFLICT(tenant_id, position_id, lease_fence) DO NOTHING`
+
+const recordMarketingFlowNodeExecutionPGSQL = `INSERT INTO marketing_flow_node_executions(tenant_id, position_id, lease_fence, node_key, status, error_code)
+SELECT p.tenant_id, p.id, p.lease_fence, $4, $5, $6
+FROM marketing_flow_positions p
+WHERE p.tenant_id=$1 AND p.flow_id=$2 AND p.email=$3
+ AND p.lease_owner=$7 AND p.lease_fence=$8 AND p.lease_until>now()
  AND EXISTS(SELECT 1 FROM marketing_flow_versions v WHERE v.tenant_id=p.tenant_id AND v.runtime_flow_id=p.flow_id)
 ON CONFLICT(tenant_id, position_id, lease_fence) DO NOTHING`
 
@@ -179,7 +237,11 @@ type PlatformRecordMarketingFlowNodeExecutionParams struct {
 // PlatformRecordMarketingFlowNodeExecution records one node execution outcome
 // under a live lease (no-op when the fence/lease no longer matches).
 func (q *Queries) PlatformRecordMarketingFlowNodeExecution(ctx context.Context, arg PlatformRecordMarketingFlowNodeExecutionParams) (int64, error) {
-	tag, err := q.db.Exec(ctx, recordMarketingFlowNodeExecutionSQL,
+	statement := recordMarketingFlowNodeExecutionSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = recordMarketingFlowNodeExecutionPGSQL
+	}
+	tag, err := q.db.Exec(ctx, statement,
 		arg.TenantID, arg.FlowID, arg.Email, arg.NodeKey, arg.Status, arg.ErrorCode,
 		arg.LeaseOwner, arg.LeaseFence)
 	if err != nil {
@@ -192,6 +254,13 @@ const bumpMarketingFlowAttemptSQL = `UPDATE marketing_flow_positions
 SET attempt_count=attempt_count+1,
  last_error=$6,
  next_attempt_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) + $7*1000000
+WHERE tenant_id=$1 AND flow_id=$2 AND email=$3
+ AND lease_owner=$4 AND lease_fence=$5`
+
+const bumpMarketingFlowAttemptPGSQL = `UPDATE marketing_flow_positions
+SET attempt_count=attempt_count+1,
+ last_error=$6,
+ next_attempt_at=now()+make_interval(secs=>$7)
 WHERE tenant_id=$1 AND flow_id=$2 AND email=$3
  AND lease_owner=$4 AND lease_fence=$5`
 
@@ -210,7 +279,11 @@ type PlatformBumpMarketingFlowAttemptParams struct {
 // PlatformBumpMarketingFlowAttempt bumps the attempt counter and schedules the
 // retry backoff (failure path of the flow worker).
 func (q *Queries) PlatformBumpMarketingFlowAttempt(ctx context.Context, arg PlatformBumpMarketingFlowAttemptParams) (int64, error) {
-	tag, err := q.db.Exec(ctx, bumpMarketingFlowAttemptSQL,
+	statement := bumpMarketingFlowAttemptSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = bumpMarketingFlowAttemptPGSQL
+	}
+	tag, err := q.db.Exec(ctx, statement,
 		arg.TenantID, arg.FlowID, arg.Email, arg.LeaseOwner, arg.LeaseFence,
 		arg.ErrorCode, arg.BackoffSeconds)
 	if err != nil {

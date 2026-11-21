@@ -19,6 +19,35 @@ var ErrPostgreSQLQueryUnavailable = errors.New("store: PostgreSQL query variant 
 
 var sqliteOnlySQL = regexp.MustCompile(`(?i)(\?[0-9]+|\bstrftime\s*\(|\bjson_each\s*\(|\bjson_object\s*\()`)
 
+// pgExtraStatements carries native PostgreSQL SQL for methods whose shared
+// generated statement is SQLite-only (S4/B4 handwritten splits with no PG
+// sqlc twin). Values were derived from the origin/main PostgreSQL query set;
+// lookup happens only when the generated PG manifest misses the method name.
+var pgExtraStatements = map[string]string{
+	"ArchiveCasesGetPendingApproval": `-- name: ArchiveCasesGetPendingApproval :one
+SELECT r.id FROM archive_approval_requests r
+WHERE r.tenant_id=$1 AND r.investigation_id=$2
+ AND r.requester_user_id=$3 AND r.source_digest=$4 AND r.state='pending'
+ AND r.expires_at>now()
+ORDER BY r.id LIMIT 1
+`,
+	"ArchiveCasesInsertApproval": `-- name: ArchiveCasesInsertApproval :one
+INSERT INTO archive_approval_requests(tenant_id, investigation_id, requester_user_id, action, source_digest, expires_at, case_version, source_snapshot)
+SELECT $1, i.id, $2, 'export', $3,
+ LEAST(i.expires_at, now()), i.version, $4
+FROM archive_investigations i
+WHERE i.tenant_id=$1 AND i.id=$5 AND i.status='open' AND i.version=$6
+RETURNING id
+`,
+	"GetRecallByEntry": `-- name: GetRecallByEntry :one
+SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests r WHERE r.tenant_id=$1 AND r.archive_entry_id=$2
+`,
+	"GetRecallReviewPreview": `-- name: GetRecallReviewPreview :one
+SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, archive_entry_id, mailbox_id, completed_at, preview_actor_id, preview_token, preview_digest, preview_snapshot, preview_expires_at, confirmed_at, selected_copy_keys, attempt_epoch, local_result, result_history FROM recall_requests r WHERE r.tenant_id=$1 AND r.id=$2
+ AND r.preview_actor_id=$3 AND r.preview_token=$4 AND r.preview_digest=$5
+`,
+}
+
 // Parameter positions whose PostgreSQL generated signature takes a native
 // timestamptz while the SQLite generated signature stores unix microseconds.
 // This explicit bridge is B2 adapter metadata, not a SQL text rewrite.
@@ -81,6 +110,9 @@ func (p *pgDialectDBTX) statement(query string) (string, error) {
 	}
 	statement, ok := pgstore.QuerySQL(method)
 	if !ok {
+		if extra, ok := pgExtraStatements[method]; ok {
+			return extra, nil
+		}
 		return "", fmt.Errorf("%w: %s", ErrPostgreSQLQueryUnavailable, method)
 	}
 	return statement, nil

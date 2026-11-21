@@ -2747,7 +2747,7 @@ func (s *ScopedQuerier) PlatformApplyArchiveRetention(ctx context.Context) ([]st
 }
 
 func (s *ScopedQuerier) PlatformApplyArchiveRetentionCandidates(ctx context.Context) ([]store.PlatformApplyArchiveRetentionCandidatesRow, error) {
-	if _, err := CheckMethod(ctx, "PlatformApplyArchiveRetentionCandidates", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformApplyArchiveRetentionCandidates", ScopePlatform); err != nil {
 		var zero []store.PlatformApplyArchiveRetentionCandidatesRow
 		return zero, err
 	}
@@ -2755,7 +2755,7 @@ func (s *ScopedQuerier) PlatformApplyArchiveRetentionCandidates(ctx context.Cont
 }
 
 func (s *ScopedQuerier) PlatformApplyArchiveRetentionMarkContent(ctx context.Context) (int64, error) {
-	if _, err := CheckMethod(ctx, "PlatformApplyArchiveRetentionMarkContent", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformApplyArchiveRetentionMarkContent", ScopePlatform); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -2763,7 +2763,7 @@ func (s *ScopedQuerier) PlatformApplyArchiveRetentionMarkContent(ctx context.Con
 }
 
 func (s *ScopedQuerier) PlatformApplyArchiveRetentionMarkDeleted(ctx context.Context) (int64, error) {
-	if _, err := CheckMethod(ctx, "PlatformApplyArchiveRetentionMarkDeleted", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformApplyArchiveRetentionMarkDeleted", ScopePlatform); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -2936,7 +2936,7 @@ func (s *ScopedQuerier) PlatformBrandHostReserved(ctx context.Context, fqdn stri
 }
 
 func (s *ScopedQuerier) PlatformBumpMarketingFlowAttempt(ctx context.Context, arg store.PlatformBumpMarketingFlowAttemptParams) (int64, error) {
-	if _, err := CheckMethod(ctx, "PlatformBumpMarketingFlowAttempt", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformBumpMarketingFlowAttempt", ScopePlatform); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -3257,7 +3257,7 @@ func (s *ScopedQuerier) PlatformConsumeBrandHostChallenge(ctx context.Context, h
 }
 
 func (s *ScopedQuerier) PlatformConsumeMailboxOperationTickets(ctx context.Context, arg store.PlatformConsumeMailboxOperationTicketsParams) (int64, error) {
-	if _, err := CheckMethod(ctx, "PlatformConsumeMailboxOperationTickets", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformConsumeMailboxOperationTickets", ScopePlatform); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -5231,7 +5231,7 @@ func (s *ScopedQuerier) PlatformRecordMarketingFlowExecution(ctx context.Context
 }
 
 func (s *ScopedQuerier) PlatformRecordMarketingFlowNodeExecution(ctx context.Context, arg store.PlatformRecordMarketingFlowNodeExecutionParams) (int64, error) {
-	if _, err := CheckMethod(ctx, "PlatformRecordMarketingFlowNodeExecution", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformRecordMarketingFlowNodeExecution", ScopePlatform); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -5520,7 +5520,7 @@ func (s *ScopedQuerier) PlatformRevokeMailboxSession(ctx context.Context, tokenH
 }
 
 func (s *ScopedQuerier) PlatformRevokeMailboxSessions(ctx context.Context, arg store.PlatformRevokeMailboxSessionsParams) (int64, error) {
-	if _, err := CheckMethod(ctx, "PlatformRevokeMailboxSessions", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformRevokeMailboxSessions", ScopePlatform); err != nil {
 		var zero int64
 		return zero, err
 	}
