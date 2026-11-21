@@ -16,7 +16,8 @@ FROM settings
 WHERE scope = 'tenant' AND scope_id = ?1 AND key = ?2;
 
 -- name: UpsertTenantSetting :one
--- scope: platform
+-- scope: tenant
+-- scope-reason: tenant-scoped settings row (scope=tenant, scope_id = ctx tenant via RequireTenantTx)
 
 INSERT INTO settings (scope, scope_id, key, value, updated_at)
 VALUES ('tenant', ?1, ?2, ?3, (CAST(strftime('%s','now') AS INTEGER)*1000000))

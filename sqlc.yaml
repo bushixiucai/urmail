@@ -31,6 +31,7 @@ sql:
       - "internal/store/queries/platform_usage.sql"
       - "internal/store/queries/recall_product.sql"
       - "internal/store/queries/recalls.sql"
+      - "internal/store/queries/settings.sql"
       - "internal/store/queries/support.sql"
       - "internal/store/queries/support_diagnostics.sql"
       - "internal/store/queries/tenant_usage.sql"

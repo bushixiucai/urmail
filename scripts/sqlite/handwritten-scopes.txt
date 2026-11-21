@@ -26,7 +26,7 @@ IncrementMailboxDailySent    tenant
 # -- platform: 平台管理员 / 平台写入
 ConsumeUserRecoveryCode            platform
 PlatformTakeMailboxDailyQuota      platform
-RecordTenantAudit                  platform
+RecordTenantAudit                  tenant
 PlatformReadEvidenceBody           platform
 PlatformMarkMarketingFlowUncertain platform
 PlatformDeleteContactGroup         platform
@@ -38,16 +38,16 @@ SoftDeleteArchiveEntry             platform
 PlatformRotatePanelPassword        platform
 PlatformChangePanelMFA             platform
 
-# -- platform: DNS/onboarding 写路径
-SaveDNSCredential      platform
-RevokeDNSCredential    platform
-CreateDNSPlan          platform
-ConfirmDNSPlan         platform
-CancelDNSPlan          platform
-RequestOnboardingRetry platform
-RequestDNSRollback     platform
-ReviewDNSPlan          platform
-AbandonDNSPlan         platform
+# -- tenant: DNS/onboarding 租户写路径（生产调用方均为 RequireTenantTx 租户路由；PG 函数 GRANT EXECUTE TO urmail_app）
+SaveDNSCredential      tenant
+RevokeDNSCredential    tenant
+CreateDNSPlan          tenant
+ConfirmDNSPlan         tenant
+CancelDNSPlan          tenant
+RequestOnboardingRetry tenant
+RequestDNSRollback     tenant
+ReviewDNSPlan          tenant
+AbandonDNSPlan         tenant
 
 # -- system: marketing worker（dispatch / flow 发送与提交；role='urmail_platform'）
 PlatformAuthorizeMarketingSend           system

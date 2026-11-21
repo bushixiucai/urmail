@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/mailtransport"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -19,7 +20,10 @@ func (s *Service) domainDigest(ctx context.Context, domain store.PlatformDNSDoma
 	if err != nil {
 		return "", nil, err
 	}
-	policy, err := db.Queries(s.Pool).GetDomainTransportSecurity(ctx, store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
+	// Platform worker pass: this read is tenant-domain by annotation; bind it
+	// to the tenant of the platform-fetched domain row so the scope stays exact.
+	tenantCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: domain.TenantID})
+	policy, err := db.Queries(s.Pool).GetDomainTransportSecurity(tenantCtx, store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return digest, records, nil
 	}

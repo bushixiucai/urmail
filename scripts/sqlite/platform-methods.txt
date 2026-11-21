@@ -18,15 +18,6 @@ UpdateUserPassword
 SoftDeleteArchiveEntry
 GetRetentionPolicyAuthority
 GetChannelByCode
-SaveDNSCredential
-RevokeDNSCredential
-CreateDNSPlan
-ConfirmDNSPlan
-CancelDNSPlan
-RequestOnboardingRetry
-RequestDNSRollback
-ReviewDNSPlan
-AbandonDNSPlan
 PlatformUpsertMailboxPhishingFinding
 PlatformGetMailboxPhishingFinding
 LockMailboxEASSync
@@ -463,7 +454,6 @@ PlatformRecordMailboxUsage
 PlatformRecordMailboxUsageError
 ListSettingsByScopes
 GetTenantSetting
-UpsertTenantSetting
 DeleteTenantSetting
 ListVisibleAnnouncements
 GetTenantByID

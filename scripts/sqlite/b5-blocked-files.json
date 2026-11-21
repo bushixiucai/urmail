@@ -1,1171 +1,1154 @@
 {
- "note": "B5a blocked platform-only query files. Excluded from sqlc.yaml's query set; their routes must answer 501, never a silent 500.",
- "wiring": "sqlitedb 尚未接入运行时（Phase 2 接线）。接线时这 58 个文件的路由必须先返回 501，直到 S4 手写层承接；不允许静默 500。",
- "count": 58,
- "files": [
-  {
-   "file": "internal/store/queries/mailbox_ai_phishing.sql",
-   "statements": [
-    "PlatformUpsertMailboxPhishingFinding",
-    "PlatformGetMailboxPhishingFinding"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/mailbox_self_settings.sql",
-   "statements": [
-    "PlatformGetMailboxSettings",
-    "PlatformUpdateMailboxSettings",
-    "PlatformInsertMailboxSettings",
-    "PlatformGetMailboxQuota",
-    "PlatformListMailboxSenderIdentities",
-    "PlatformMailboxSenderIdentityAllowed"
-   ],
-   "first_error": "internal/store/queries/mailbox_self_settings.sql:45:64: table alias \"je\" does not exist",
-   "first_error_line": 45,
-   "first_error_method": "PlatformListMailboxSenderIdentities",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_ai.sql",
-   "statements": [
-    "PlatformGetAIProvider",
-    "PlatformGetAIRequest",
-    "PlatformReserveAIRequest",
-    "PlatformSetAIBudget",
-    "PlatformSumAIUsageBetween",
-    "PlatformReserveMailboxAIRequest",
-    "PlatformFinishAIRequest",
-    "PlatformAIUsage",
-    "PlatformGetMailboxSieve",
-    "PlatformSetMailboxSieve",
-    "PlatformExpireAIReservations",
-    "PlatformGetSieveActivationTarget",
-    "PlatformListSieveScripts",
-    "PlatformResolveAIUsage",
-    "AICloudAuthorized",
-    "PlatformPendingAIUsage"
-   ],
-   "first_error": "line 1:1 mismatched input 'status' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
-   "first_error_line": 1,
-   "first_error_method": "PlatformGetAIProvider",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_ai_drafts.sql",
-   "statements": [
-    "PlatformInsertAIDraft",
-    "PlatformUpdateAIDraft",
-    "PlatformGetAIDraft"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_ai_quota.sql",
-   "statements": [
-    "PlatformSetNonplatformAIQuota",
-    "PlatformAIQuotaUsage",
-    "PlatformLockAIQuotaTenantReader",
-    "PlatformLockPlatformAdmin"
-   ],
-   "first_error": "line 11:21 no viable alternative at input 'WITH window_usage AS MATERIALIZED'",
-   "first_error_line": 11,
-   "first_error_method": "PlatformAIQuotaUsage",
-   "category": "dml-cte",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_alias_senders.sql",
-   "statements": [
-    "PlatformLockAliasSenderTarget",
-    "PlatformLockAliasSenderMailboxes",
-    "PlatformSetAliasSenderLogins"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_archive.sql",
-   "statements": [
-    "PlatformGetMailboxByAddress",
-    "PlatformInsertArchiveEntry"
-   ],
-   "first_error": "line 10:68 no viable alternative at input ';'",
-   "first_error_line": 10,
-   "first_error_method": "PlatformGetMailboxByAddress",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_archive_activity.sql",
-   "statements": [
-    "PlatformExpireArchiveApprovals"
-   ],
-   "first_error": "internal/store/queries/platform_archive_activity.sql:1:1: relation \"due\" does not exist",
-   "first_error_line": 1,
-   "first_error_method": "PlatformExpireArchiveApprovals",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_archive_evidence.sql",
-   "statements": [
-    "PlatformEvidenceVisible"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_archive_investigations.sql",
-   "statements": [
-    "PlatformCreateInvestigation",
-    "PlatformGrantInvestigation",
-    "PlatformRevokeInvestigation",
-    "PlatformAddInvestigationSource",
-    "PlatformListInvestigationSources"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_archive_lifecycle.sql",
-   "statements": [
-    "PlatformResolvePinnedArchiveMailbox",
-    "PlatformIndexArchiveCopy",
-    "PlatformIndexArchiveContent",
-    "PlatformListArchivePurgeCandidates",
-    "PlatformLockArchivePurgeCandidate",
-    "PlatformBeginArchivePurge",
-    "PlatformFinishArchivePurge",
-    "PlatformFailArchivePurge",
-    "PlatformListArchiveUnindexedOriginals",
-    "PlatformSetArchiveOriginalHash",
-    "PlatformLockRetentionPurgePolicy",
-    "PlatformCancelArchivePurgeIntent",
-    "PlatformArchiveCopyLifecycle"
-   ],
-   "first_error": "line 5:76 extraneous input 'FOR' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
-   "first_error_line": 5,
-   "first_error_method": "PlatformResolvePinnedArchiveMailbox",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_audit.sql",
-   "statements": [
-    "PlatformResolveAuditTargetTenant"
-   ],
-   "first_error": "internal/store/queries/platform_audit.sql:8:7: column \"kind\" does not exist",
-   "first_error_line": 8,
-   "first_error_method": "PlatformResolveAuditTargetTenant",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_auth_security.sql",
-   "statements": [
-    "PlatformRehashPanelPassword"
-   ],
-   "first_error": "line 11:55 extraneous input 'FROM' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
-   "first_error_line": 11,
-   "first_error_method": "PlatformRehashPanelPassword",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_brand.sql",
-   "statements": [
-    "PlatformGetBrandThemeByTenant",
-    "PlatformListBrandThemes"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_brand_host_verify.sql",
-   "statements": [
-    "PlatformInsertBrandHostChallenge",
-    "PlatformGetBrandHostChallenge",
-    "PlatformConsumeBrandHostChallenge",
-    "PlatformDeleteBrandHostChallenge",
-    "PlatformGetBrandHostLifecycle",
-    "PlatformSetBrandHostLifecycle",
-    "PlatformBrandHostCertEligible",
-    "PlatformLockBrandHost",
-    "PlatformVerifyBrandHostConsumeChallenge",
-    "PlatformVerifyBrandHostMark",
-    "PlatformBrandHostCertificateTransition",
-    "PlatformTenantBrandMatches",
-    "PlatformBrandHostReserved"
-   ],
-   "first_error": "internal/store/queries/platform_brand_host_verify.sql:71:7: column reference \"hostname\" is ambiguous",
-   "first_error_line": 71,
-   "first_error_method": "PlatformVerifyBrandHostMark",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_brand_public.sql",
-   "statements": [
-    "PublicBrandByHost",
-    "PublicBrandBySlug",
-    "PlatformListBrandHosts",
-    "PlatformBindBrandHost",
-    "PlatformUnbindBrandHostDeleteProof",
-    "PlatformUnbindBrandHostMark",
-    "PlatformSetBrandStatus",
-    "PlatformDeleteBrand",
-    "PlatformManagedBrands",
-    "PlatformSaveBrand",
-    "PlatformResetBrandThemeClearSettings",
-    "PlatformResetBrandThemeMark",
-    "PlatformPublicThemeSettings"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_brand_settings.sql",
-   "statements": [
-    "PlatformLockBrandSettingsBrand",
-    "PlatformListBrandSettings",
-    "PlatformUpsertBrandSetting",
-    "PlatformDeleteBrandSetting"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_calendar_scheduling.sql",
-   "statements": [
-    "PlatformFindSchedulingEvent",
-    "PlatformBindSchedulingEvent",
-    "PlatformClaimCalendarResponse",
-    "PlatformFinishCalendarResponse",
-    "PlatformTakeReminderScan",
-    "PlatformScheduleCalendarReminder",
-    "PlatformDiscardStaleCalendarReminders",
-    "PlatformPublishDueCalendarReminders",
-    "PlatformListCalendarReminders",
-    "PlatformAcknowledgeCalendarReminder",
-    "PlatformBindOwnedCalendarOrganizer",
-    "PlatformRecordSchedulingReply",
-    "PlatformCalendarRestoreCutoff"
-   ],
-   "first_error": "internal/store/queries/platform_calendar_scheduling.sql:26:1: relation \"candidate\" does not exist",
-   "first_error_line": 26,
-   "first_error_method": "PlatformTakeReminderScan",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_collaboration.sql",
-   "statements": [
-    "PlatformEnsureAddressbook",
-    "PlatformGetAddressbookByName",
-    "PlatformListContacts",
-    "PlatformGetContact",
-    "PlatformInsertContact",
-    "PlatformUpdateContact",
-    "PlatformDeleteContact",
-    "PlatformSearchContacts",
-    "PlatformEnsureCalendar",
-    "PlatformGetCalendarByName",
-    "PlatformListEvents",
-    "PlatformGetEvent",
-    "PlatformInsertEvent",
-    "PlatformUpdateEvent",
-    "PlatformDeleteEvent",
-    "PlatformListChanges",
-    "PlatformClaimMailboxJob",
-    "PlatformInsertContactGroupMember",
-    "PlatformInsertContactGroup",
-    "PlatformListContactGroups",
-    "PlatformGetEventByUID",
-    "PlatformGetEventAny",
-    "PlatformListCalendarSyncEvents",
-    "PlatformDeleteContactMembers"
-   ],
-   "first_error": "line 62:100 no viable alternative at input '||'",
-   "first_error_line": 62,
-   "first_error_method": "PlatformSearchContacts",
-   "category": "update-alias",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_data_check.sql",
-   "statements": [
-    "PlatformDataIssues"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_delivery_collector.sql",
-   "statements": [
-    "PlatformEnsureCollectorCheckpoint",
-    "PlatformGetCollectorCheckpoint",
-    "PlatformLockCollectorCheckpoint",
-    "PlatformAdvanceCollectorCheckpoint",
-    "PlatformGetDeliveryQueueContext",
-    "PlatformPutDeliveryQueueContext",
-    "PlatformResetDeliveryQueueContexts",
-    "PlatformResolveDeliveryMailboxTenant",
-    "PlatformRecordCollectedDeliveryEvent",
-    "PlatformCollectorHealth",
-    "PlatformQueueAuthenticatedTenant",
-    "PlatformAttributeAuthenticatedDeliveryLifecycle",
-    "PlatformAcknowledgeCollectorGap"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_dkim.sql",
-   "statements": [
-    "PlatformListDKIMDomains"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_dns.sql",
-   "statements": [
-    "ReserveDNSZoneVersion"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_dns_onboarding.sql",
-   "statements": [
-    "PlatformGetDNSCredential",
-    "PlatformDNSDomain",
-    "PlatformClaimDNSPlan",
-    "PlatformExpireDNSClaims",
-    "PlatformFenceDNSPlan",
-    "PlatformAdvanceDNSPlan",
-    "PlatformListDNSActions",
-    "PlatformCreateDNSAction",
-    "PlatformSubmitDNSAction",
-    "PlatformCompleteDNSAction",
-    "PlatformApplyManagedDNS",
-    "PlatformSetExplicitDNS",
-    "PlatformListManagedDNS",
-    "PlatformClaimOnboarding",
-    "PlatformFenceOnboarding",
-    "PlatformAdvanceOnboarding",
-    "PlatformPrepareOnboardingTenant",
-    "PlatformMarkDomainReady",
-    "PlatformProvisioningCertificateAllowed",
-    "PlatformCustomWebEnabled",
-    "PlatformRenewDNSLease",
-    "PlatformRenewOnboardingLease",
-    "PlatformSubmitDNSRollback",
-    "PlatformReviewDNSPlan",
-    "PlatformCurrentManagedDNS",
-    "PlatformExpireOnboarding",
-    "PlatformUpsertDNSOnboardingAlerts",
-    "PlatformResolveDNSOnboardingAlerts",
-    "PlatformEnqueueDNSOnboardingAlerts"
-   ],
-   "first_error": "line 119:22 no viable alternative at input 'WITH sources AS (\\n SELECT 'dns:'||id AS key'",
-   "first_error_line": 119,
-   "first_error_method": "PlatformUpsertDNSOnboardingAlerts",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_dns_security.sql",
-   "statements": [
-    "PlatformListDNSSecurity",
-    "PlatformGetDNSSecurity",
-    "PlatformSetDNSSecurity"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_domain_recovery.sql",
-   "statements": [
-    "PlatformGetDomainForRecovery",
-    "PlatformRotateDomainRecoveryToken",
-    "PlatformConfirmDomainRecovery"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_legacy_import.sql",
-   "statements": [
-    "PlatformLockLegacyImportTarget",
-    "PlatformLegacyImportTargetFacts",
-    "PlatformCreateLegacyAlias",
-    "PlatformCreateLegacyDomain",
-    "PlatformCreateLegacyMailbox",
-    "PlatformLockLegacyDKIMDomains",
-    "PlatformSetLegacyDKIM",
-    "PlatformActivateLegacyDelegatedMail"
-   ],
-   "first_error": "internal/store/queries/platform_legacy_import.sql:71:7: column reference \"tenant_id\" is ambiguous",
-   "first_error_line": 71,
-   "first_error_method": "PlatformActivateLegacyDelegatedMail",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mail_access.sql",
-   "statements": [
-    "PlatformMailboxAccessStates",
-    "PlatformNextMailAccessBoundary"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mail_and_ai_gate.sql",
-   "statements": [
-    "GetBillingBusinessTimezone",
-    "MailServiceAllowed"
-   ],
-   "first_error": "internal/store/queries/platform_mail_and_ai_gate.sql:6:74: column reference \"scope_id\" is ambiguous",
-   "first_error_line": 6,
-   "first_error_method": "GetBillingBusinessTimezone",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailbox_draft_journal.sql",
-   "statements": [
-    "PlatformClaimDraftSave",
-    "PlatformCompleteDraftSave",
-    "PlatformDraftReplacementPending",
-    "PlatformSetDraftSaveScope"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailbox_password.sql",
-   "statements": [
-    "PlatformMailboxAuthLookup",
-    "PlatformMailboxPasswordForSession",
-    "PlatformMailboxPasswordFailures",
-    "PlatformChangeMailboxPasswordCAS",
-    "PlatformAckMailboxPasswordRevocation"
-   ],
-   "first_error": "line 10:0 mismatched input 'WHERE' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
-   "first_error_line": 10,
-   "first_error_method": "PlatformMailboxAuthLookup",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailbox_principal.sql",
-   "statements": [
-    "PlatformRecordRoundcubeNonce",
-    "PlatformCreateMailboxSession",
-    "PlatformGetMailboxSession",
-    "PlatformRevokeMailboxSession",
-    "PlatformCreateMailboxTicket",
-    "PlatformConsumeMailboxTicket",
-    "PlatformPruneRoundcubeRequests",
-    "PlatformPruneMailboxTickets",
-    "PlatformPruneMailboxSessions",
-    "PlatformCreateSieveBridge",
-    "PlatformGetSieveBridge",
-    "PlatformRevokeSieveBridge",
-    "PlatformGetMailboxSessionForRevocation",
-    "PlatformCreateVerifiedMailboxSession"
-   ],
-   "first_error": "line 39:131 no viable alternative at input ';'",
-   "first_error_line": 39,
-   "first_error_method": "PlatformCreateMailboxTicket",
-   "category": "update-alias",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailbox_scheduled_sends.sql",
-   "statements": [
-    "PlatformCreateMailboxScheduledSend",
-    "PlatformGetMailboxScheduledSendByKey",
-    "PlatformGetMailboxScheduledSend",
-    "PlatformListMailboxScheduledSends",
-    "PlatformCancelMailboxScheduledSend",
-    "PlatformClaimMailboxScheduledSend",
-    "PlatformGetMailboxScheduledSendAddress",
-    "PlatformBeginMailboxScheduledSendSubmission",
-    "PlatformFinishMailboxScheduledSend",
-    "PlatformRequeueMailboxScheduledSend",
-    "PlatformRecoverStaleMailboxScheduledSends",
-    "PlatformAcknowledgeUncertainScheduledSend"
-   ],
-   "first_error": "internal/store/queries/platform_mailbox_scheduled_sends.sql:47:1: relation \"candidate\" does not exist",
-   "first_error_line": 47,
-   "first_error_method": "PlatformClaimMailboxScheduledSend",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailbox_send_receipts.sql",
-   "statements": [
-    "PlatformCreateSendReceipt",
-    "PlatformGetSendReceipt",
-    "PlatformGetSendReceiptByKey",
-    "PlatformListSendReceipts",
-    "PlatformBeginSendReceipt",
-    "PlatformFinishSendReceipt",
-    "PlatformRecoverSendReceipts",
-    "PlatformHoldExpiredSendCopies",
-    "PlatformClaimSendCopy",
-    "PlatformClaimOwnedSendCopy",
-    "PlatformMarkSendCopyUnknown",
-    "PlatformCompleteSendCopy",
-    "PlatformDeferSendCopy",
-    "PlatformDraftSendLocked",
-    "PlatformAcknowledgeUncertainSend",
-    "PlatformHoldUnauthorizedSendCopies",
-    "PlatformDraftDeleteLocked",
-    "PlatformGetSendReceiptsForDraft",
-    "PlatformAuthorizeSendCopy"
-   ],
-   "first_error": "line 1:0 mismatched input 'g' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
-   "first_error_line": 1,
-   "first_error_method": "PlatformCreateSendReceipt",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailbox_sent_copy.sql",
-   "statements": [
-    "PlatformAcceptMailboxScheduledSend",
-    "PlatformClaimScheduledSentCopy",
-    "PlatformClaimOwnedScheduledSentCopy",
-    "PlatformMarkScheduledSentCopyUnknown",
-    "PlatformCompleteScheduledSentCopy",
-    "PlatformDeferScheduledSentCopy",
-    "PlatformHoldExpiredScheduledCopies",
-    "PlatformFreezeScheduledSend",
-    "PlatformHoldUnauthorizedScheduledCopies",
-    "PlatformGetLegacyScheduledCopy",
-    "PlatformSealLegacyScheduledCopy",
-    "PlatformAuthorizeScheduledCopy"
-   ],
-   "first_error": "internal/store/queries/platform_mailbox_sent_copy.sql:14:1: relation \"candidate\" does not exist",
-   "first_error_line": 14,
-   "first_error_method": "PlatformClaimScheduledSentCopy",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mailspam.sql",
-   "statements": [
-    "PlatformListSpamDeliveryPolicies"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_marketing.sql",
-   "statements": [
-    "PlatformCreateMarketingChannel",
-    "PlatformGetMarketingChannel",
-    "PlatformGetActiveMarketingChannel",
-    "PlatformRecoverMarketingSubmissions",
-    "PlatformRecoverMarketingClaims",
-    "PlatformAdvanceMarketingTurn",
-    "PlatformClaimMarketingRecipient",
-    "PlatformReleaseMarketingClaim",
-    "PlatformGetMarketingDelivery",
-    "PlatformCompleteMarketingCampaigns",
-    "PlatformUpdateMarketingChannel",
-    "PlatformMarketingAttemptStillAllowed"
-   ],
-   "first_error": "line 1:0 mismatched input 'nel' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
-   "first_error_line": 1,
-   "first_error_method": "PlatformCreateMarketingChannel",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_marketing_flow_authoring.sql",
-   "statements": [
-    "PlatformMarketingFlowIsVersioned",
-    "PlatformGetMarketingFlowSnapshotContent",
-    "PlatformCheckMarketingFlowLease",
-    "PlatformVersionedMarketingFlowMayAdvance",
-    "PlatformMarkMarketingFlowUncertainFenced"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_marketing_flows.sql",
-   "statements": [
-    "PlatformInsertMarketingFlow",
-    "PlatformInsertMarketingFlowStep",
-    "PlatformListMarketingFlowSteps",
-    "PlatformAdvanceMarketingFlow",
-    "PlatformRecoverMarketingFlowLeases",
-    "PlatformRecoverMarketingFlowUncertain",
-    "PlatformAdvanceMarketingFlowDueTenant",
-    "PlatformClaimMarketingFlowPositions",
-    "PlatformReleaseMarketingFlowLease",
-    "PlatformArmMarketingFlowWait",
-    "PlatformGetMarketingFlowPosition",
-    "PlatformMarketingFlowMayAdvance",
-    "PlatformSaveMarketingFlowPosition",
-    "PlatformMarketingFlowStillAllowed",
-    "PlatformGetMarketingFlowTemplate",
-    "PlatformAuthorizeMarketingFlowSend",
-    "PlatformCheckMarketingEmailSuppressed",
-    "PlatformMarkMarketingFlowUnsubscribed"
-   ],
-   "first_error": "line 68:19 no viable alternative at input ';'",
-   "first_error_line": 68,
-   "first_error_method": "PlatformAdvanceMarketingFlowDueTenant",
-   "category": "update-alias",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_mutations.sql",
-   "statements": [
-    "PlatformEnsureManagedBrand",
-    "PlatformCreateManagedTenant",
-    "PlatformFindManagedUser",
-    "PlatformCreateManagedUser",
-    "PlatformGrantTenantOwner",
-    "PlatformDemotePreviousOwners",
-    "PlatformSetTenantOwner",
-    "PlatformRenameTenant"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_notifications.sql",
-   "statements": [
-    "PlatformEnqueueNotification",
-    "PlatformListOperationalAlerts",
-    "PlatformGetNotificationChannel",
-    "PlatformClaimEmailNotification",
-    "PlatformFinishEmailNotification",
-    "PlatformQuarantinePoisonEmailNotifications",
-    "PlatformMaxNotificationID",
-    "PlatformCountNewNotifications",
-    "PlatformNotificationOutboxCounts",
-    "PlatformOperationalStateCounts",
-    "PlatformUpsertAIAlerts",
-    "PlatformResolveStaleAIAlerts",
-    "PlatformEnqueueAIAlerts",
-    "PlatformGetSubscriptionNoticeDays"
-   ],
-   "first_error": "line 83:31 no viable alternative at input 'WITH sources AS (\\n SELECT 'ai-uncertain:'||id AS key'",
-   "first_error_line": 83,
-   "first_error_method": "PlatformUpsertAIAlerts",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_observability.sql",
-   "statements": [
-    "PlatformSetOperationalCondition",
-    "PlatformEnqueueObservabilityAlerts",
-    "PlatformBackupFreshness",
-    "PlatformGetObservabilityThresholds",
-    "PlatformArchivePathIndexed"
-   ],
-   "first_error": "internal/store/queries/platform_observability.sql:1:1: *ast.ResTarget has nil name",
-   "first_error_line": 1,
-   "first_error_method": "PlatformSetOperationalCondition",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_parity_enhancements.sql",
-   "statements": [
-    "PlatformListMailboxSnippets",
-    "PlatformGetMailboxSnippet",
-    "PlatformInsertMailboxSnippet",
-    "PlatformUpdateMailboxSnippet",
-    "PlatformDeleteMailboxSnippet",
-    "PlatformGetTenantDirectorySettings",
-    "PlatformSetTenantDirectorySettings",
-    "PlatformListTenantDirectoryContacts",
-    "PlatformListPublishedCorporateContacts",
-    "PlatformSearchPublishedCorporateContacts",
-    "PlatformInsertTenantDirectoryContact",
-    "PlatformUpdateTenantDirectoryContact",
-    "PlatformDeleteTenantDirectoryContact",
-    "PlatformInsertContactEnhanced",
-    "PlatformUpdateContactEnhanced"
-   ],
-   "first_error": "line 74:100 no viable alternative at input '||'",
-   "first_error_line": 74,
-   "first_error_method": "PlatformSearchPublishedCorporateContacts",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_people_product.sql",
-   "statements": [
-    "PlatformListContactsPage",
-    "PlatformGetContactGroup",
-    "PlatformListContactGroupMembers",
-    "PlatformRemoveContactGroupMember",
-    "PlatformContactImportDuplicate",
-    "PlatformGetDataImportReceipt",
-    "PlatformInsertDataImportReceipt",
-    "PlatformListDataImportReceipts",
-    "PlatformListCalendarEventsPage",
-    "PlatformLockCalendarInvitationEvent",
-    "PlatformClaimCalendarInvitation",
-    "PlatformFinishCalendarInvitation",
-    "PlatformClaimMailTransfer",
-    "PlatformCompleteMailTransfer"
-   ],
-   "first_error": "line 16:116 no viable alternative at input ';'",
-   "first_error_line": 16,
-   "first_error_method": "PlatformListContactGroupMembers",
-   "category": "update-alias",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_postfix.sql",
-   "statements": [
-    "PlatformListDomains",
-    "PlatformListMailboxes",
-    "PlatformListAliases",
-    "AliasWouldCycle"
-   ],
-   "first_error": "line 22:22 no viable alternative at input ';'",
-   "first_error_line": 22,
-   "first_error_method": "PlatformListMailboxes",
-   "category": "update-alias",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_recall_product.sql",
-   "statements": [
-    "PlatformRecallPreviewSource",
-    "PlatformRecallActorAuthorized",
-    "PlatformLockRecallAuthority",
-    "PlatformLockRecallMailbox",
-    "PlatformFinishReviewedRecall"
-   ],
-   "first_error": "line 9:16 mismatched input '(' expecting ')'",
-   "first_error_line": 9,
-   "first_error_method": "PlatformRecallPreviewSource",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_recalls.sql",
-   "statements": [
-    "PlatformCompleteRecall",
-    "PlatformLockRecallForExpunge",
-    "PlatformRecallHoldConflict"
-   ],
-   "first_error": "line 18:32 no viable alternative at input ';'",
-   "first_error_line": 18,
-   "first_error_method": "PlatformLockRecallForExpunge",
-   "category": "syntax-residue",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_restore_sync.sql",
-   "statements": [
-    "PlatformRestoreSyncEpoch",
-    "PlatformMailboxRestoreIdentity"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_secret_maintenance.sql",
-   "statements": [
-    "PlatformCountLegacyMFASecrets",
-    "PlatformLockLegacyMFASecrets",
-    "PlatformEncryptLegacyMFASecret"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_settings.sql",
-   "statements": [
-    "PlatformListSettings",
-    "PlatformGetSetting",
-    "PlatformUpsertSetting",
-    "PlatformDeleteSetting"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_setup.sql",
-   "statements": [
-    "PlatformSetupTenant"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_sieve_gate.sql",
-   "statements": [
-    "PlatformSieveOutboundAllowed"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_support.sql",
-   "statements": [
-    "PlatformListSupportTickets",
-    "PlatformGetSupportTicket",
-    "PlatformListSupportMessages",
-    "PlatformReplySupportTicket",
-    "PlatformChangeSupportTicket",
-    "PlatformListAnnouncements",
-    "PlatformCreateAnnouncement",
-    "PlatformUpdateAnnouncement"
-   ],
-   "first_error": "internal/store/queries/platform_support.sql:24:127: column reference \"id\" is ambiguous",
-   "first_error_line": 24,
-   "first_error_method": "PlatformChangeSupportTicket",
-   "category": "cte-scope",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_tenants.sql",
-   "statements": [
-    "PlatformOverview",
-    "PlatformListTenants",
-    "PlatformUpdateTenantStatus",
-    "PlatformListBrands",
-    "PlatformExpireOnboardingTasks",
-    "PlatformClaimOnboardingTask",
-    "PlatformBindOnboardingDomain",
-    "PlatformCompleteOnboardingTask",
-    "PlatformAdvanceOnboardingTask",
-    "PlatformFailOnboardingTask",
-    "PlatformUpsertBrand",
-    "PlatformListChannels",
-    "PlatformUpsertChannel",
-    "PlatformListAuditLogs"
-   ],
-   "first_error": "line 62:227 no viable alternative at input ';'",
-   "first_error_line": 62,
-   "first_error_method": "PlatformClaimOnboardingTask",
-   "category": "update-alias",
-   "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_transport_security.sql",
-   "statements": [
-    "PlatformListTransportSecurity",
-    "PlatformPublicTransportSecurity",
-    "PlatformTransportCertificateAllowed",
-    "PlatformCountRecentTLSReports",
-    "PlatformRecordTLSReport",
-    "PlatformFindTLSReportFingerprint"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/platform_usage_sync.sql",
-   "statements": [
-    "PlatformUsageMailboxes",
-    "PlatformRecordMailboxUsage",
-    "PlatformRecordMailboxUsageError"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/settings.sql",
-   "statements": [
-    "ListSettingsByScopes",
-    "GetTenantSetting",
-    "UpsertTenantSetting",
-    "DeleteTenantSetting"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  },
-  {
-   "file": "internal/store/queries/tenants.sql",
-   "statements": [
-    "GetTenantByID",
-    "GetTenantBySlug",
-    "UpdateTenantStatus",
-    "UpdateTenantSettings"
-   ],
-   "first_error": null,
-   "first_error_line": 0,
-   "first_error_method": null,
-   "category": "parsed-ok",
-   "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
-   "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
-   "route_status": 501,
-   "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
-  }
- ]
+  "note": "B5a blocked platform-only query files. Excluded from sqlc.yaml's query set; their routes must answer 501, never a silent 500.",
+  "wiring": "sqlitedb 尚未接入运行时（Phase 2 接线）。接线时这 58 个文件的路由必须先返回 501，直到 S4 手写层承接；不允许静默 500。",
+  "count": 57,
+  "files": [
+    {
+      "file": "internal/store/queries/mailbox_ai_phishing.sql",
+      "statements": [
+        "PlatformUpsertMailboxPhishingFinding",
+        "PlatformGetMailboxPhishingFinding"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/mailbox_self_settings.sql",
+      "statements": [
+        "PlatformGetMailboxSettings",
+        "PlatformUpdateMailboxSettings",
+        "PlatformInsertMailboxSettings",
+        "PlatformGetMailboxQuota",
+        "PlatformListMailboxSenderIdentities",
+        "PlatformMailboxSenderIdentityAllowed"
+      ],
+      "first_error": "internal/store/queries/mailbox_self_settings.sql:45:64: table alias \"je\" does not exist",
+      "first_error_line": 45,
+      "first_error_method": "PlatformListMailboxSenderIdentities",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_ai.sql",
+      "statements": [
+        "PlatformGetAIProvider",
+        "PlatformGetAIRequest",
+        "PlatformReserveAIRequest",
+        "PlatformSetAIBudget",
+        "PlatformSumAIUsageBetween",
+        "PlatformReserveMailboxAIRequest",
+        "PlatformFinishAIRequest",
+        "PlatformAIUsage",
+        "PlatformGetMailboxSieve",
+        "PlatformSetMailboxSieve",
+        "PlatformExpireAIReservations",
+        "PlatformGetSieveActivationTarget",
+        "PlatformListSieveScripts",
+        "PlatformResolveAIUsage",
+        "AICloudAuthorized",
+        "PlatformPendingAIUsage"
+      ],
+      "first_error": "line 1:1 mismatched input 'status' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
+      "first_error_line": 1,
+      "first_error_method": "PlatformGetAIProvider",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_ai_drafts.sql",
+      "statements": [
+        "PlatformInsertAIDraft",
+        "PlatformUpdateAIDraft",
+        "PlatformGetAIDraft"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_ai_quota.sql",
+      "statements": [
+        "PlatformSetNonplatformAIQuota",
+        "PlatformAIQuotaUsage",
+        "PlatformLockAIQuotaTenantReader",
+        "PlatformLockPlatformAdmin"
+      ],
+      "first_error": "line 11:21 no viable alternative at input 'WITH window_usage AS MATERIALIZED'",
+      "first_error_line": 11,
+      "first_error_method": "PlatformAIQuotaUsage",
+      "category": "dml-cte",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_alias_senders.sql",
+      "statements": [
+        "PlatformLockAliasSenderTarget",
+        "PlatformLockAliasSenderMailboxes",
+        "PlatformSetAliasSenderLogins"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_archive.sql",
+      "statements": [
+        "PlatformGetMailboxByAddress",
+        "PlatformInsertArchiveEntry"
+      ],
+      "first_error": "line 10:68 no viable alternative at input ';'",
+      "first_error_line": 10,
+      "first_error_method": "PlatformGetMailboxByAddress",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_archive_activity.sql",
+      "statements": [
+        "PlatformExpireArchiveApprovals"
+      ],
+      "first_error": "internal/store/queries/platform_archive_activity.sql:1:1: relation \"due\" does not exist",
+      "first_error_line": 1,
+      "first_error_method": "PlatformExpireArchiveApprovals",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_archive_evidence.sql",
+      "statements": [
+        "PlatformEvidenceVisible"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_archive_investigations.sql",
+      "statements": [
+        "PlatformCreateInvestigation",
+        "PlatformGrantInvestigation",
+        "PlatformRevokeInvestigation",
+        "PlatformAddInvestigationSource",
+        "PlatformListInvestigationSources"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_archive_lifecycle.sql",
+      "statements": [
+        "PlatformResolvePinnedArchiveMailbox",
+        "PlatformIndexArchiveCopy",
+        "PlatformIndexArchiveContent",
+        "PlatformListArchivePurgeCandidates",
+        "PlatformLockArchivePurgeCandidate",
+        "PlatformBeginArchivePurge",
+        "PlatformFinishArchivePurge",
+        "PlatformFailArchivePurge",
+        "PlatformListArchiveUnindexedOriginals",
+        "PlatformSetArchiveOriginalHash",
+        "PlatformLockRetentionPurgePolicy",
+        "PlatformCancelArchivePurgeIntent",
+        "PlatformArchiveCopyLifecycle"
+      ],
+      "first_error": "line 5:76 extraneous input 'FOR' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
+      "first_error_line": 5,
+      "first_error_method": "PlatformResolvePinnedArchiveMailbox",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_audit.sql",
+      "statements": [
+        "PlatformResolveAuditTargetTenant"
+      ],
+      "first_error": "internal/store/queries/platform_audit.sql:8:7: column \"kind\" does not exist",
+      "first_error_line": 8,
+      "first_error_method": "PlatformResolveAuditTargetTenant",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_auth_security.sql",
+      "statements": [
+        "PlatformRehashPanelPassword"
+      ],
+      "first_error": "line 11:55 extraneous input 'FROM' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
+      "first_error_line": 11,
+      "first_error_method": "PlatformRehashPanelPassword",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_brand.sql",
+      "statements": [
+        "PlatformGetBrandThemeByTenant",
+        "PlatformListBrandThemes"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_brand_host_verify.sql",
+      "statements": [
+        "PlatformInsertBrandHostChallenge",
+        "PlatformGetBrandHostChallenge",
+        "PlatformConsumeBrandHostChallenge",
+        "PlatformDeleteBrandHostChallenge",
+        "PlatformGetBrandHostLifecycle",
+        "PlatformSetBrandHostLifecycle",
+        "PlatformBrandHostCertEligible",
+        "PlatformLockBrandHost",
+        "PlatformVerifyBrandHostConsumeChallenge",
+        "PlatformVerifyBrandHostMark",
+        "PlatformBrandHostCertificateTransition",
+        "PlatformTenantBrandMatches",
+        "PlatformBrandHostReserved"
+      ],
+      "first_error": "internal/store/queries/platform_brand_host_verify.sql:71:7: column reference \"hostname\" is ambiguous",
+      "first_error_line": 71,
+      "first_error_method": "PlatformVerifyBrandHostMark",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_brand_public.sql",
+      "statements": [
+        "PublicBrandByHost",
+        "PublicBrandBySlug",
+        "PlatformListBrandHosts",
+        "PlatformBindBrandHost",
+        "PlatformUnbindBrandHostDeleteProof",
+        "PlatformUnbindBrandHostMark",
+        "PlatformSetBrandStatus",
+        "PlatformDeleteBrand",
+        "PlatformManagedBrands",
+        "PlatformSaveBrand",
+        "PlatformResetBrandThemeClearSettings",
+        "PlatformResetBrandThemeMark",
+        "PlatformPublicThemeSettings"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_brand_settings.sql",
+      "statements": [
+        "PlatformLockBrandSettingsBrand",
+        "PlatformListBrandSettings",
+        "PlatformUpsertBrandSetting",
+        "PlatformDeleteBrandSetting"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_calendar_scheduling.sql",
+      "statements": [
+        "PlatformFindSchedulingEvent",
+        "PlatformBindSchedulingEvent",
+        "PlatformClaimCalendarResponse",
+        "PlatformFinishCalendarResponse",
+        "PlatformTakeReminderScan",
+        "PlatformScheduleCalendarReminder",
+        "PlatformDiscardStaleCalendarReminders",
+        "PlatformPublishDueCalendarReminders",
+        "PlatformListCalendarReminders",
+        "PlatformAcknowledgeCalendarReminder",
+        "PlatformBindOwnedCalendarOrganizer",
+        "PlatformRecordSchedulingReply",
+        "PlatformCalendarRestoreCutoff"
+      ],
+      "first_error": "internal/store/queries/platform_calendar_scheduling.sql:26:1: relation \"candidate\" does not exist",
+      "first_error_line": 26,
+      "first_error_method": "PlatformTakeReminderScan",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_collaboration.sql",
+      "statements": [
+        "PlatformEnsureAddressbook",
+        "PlatformGetAddressbookByName",
+        "PlatformListContacts",
+        "PlatformGetContact",
+        "PlatformInsertContact",
+        "PlatformUpdateContact",
+        "PlatformDeleteContact",
+        "PlatformSearchContacts",
+        "PlatformEnsureCalendar",
+        "PlatformGetCalendarByName",
+        "PlatformListEvents",
+        "PlatformGetEvent",
+        "PlatformInsertEvent",
+        "PlatformUpdateEvent",
+        "PlatformDeleteEvent",
+        "PlatformListChanges",
+        "PlatformClaimMailboxJob",
+        "PlatformInsertContactGroupMember",
+        "PlatformInsertContactGroup",
+        "PlatformListContactGroups",
+        "PlatformGetEventByUID",
+        "PlatformGetEventAny",
+        "PlatformListCalendarSyncEvents",
+        "PlatformDeleteContactMembers"
+      ],
+      "first_error": "line 62:100 no viable alternative at input '||'",
+      "first_error_line": 62,
+      "first_error_method": "PlatformSearchContacts",
+      "category": "update-alias",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_data_check.sql",
+      "statements": [
+        "PlatformDataIssues"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_delivery_collector.sql",
+      "statements": [
+        "PlatformEnsureCollectorCheckpoint",
+        "PlatformGetCollectorCheckpoint",
+        "PlatformLockCollectorCheckpoint",
+        "PlatformAdvanceCollectorCheckpoint",
+        "PlatformGetDeliveryQueueContext",
+        "PlatformPutDeliveryQueueContext",
+        "PlatformResetDeliveryQueueContexts",
+        "PlatformResolveDeliveryMailboxTenant",
+        "PlatformRecordCollectedDeliveryEvent",
+        "PlatformCollectorHealth",
+        "PlatformQueueAuthenticatedTenant",
+        "PlatformAttributeAuthenticatedDeliveryLifecycle",
+        "PlatformAcknowledgeCollectorGap"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_dkim.sql",
+      "statements": [
+        "PlatformListDKIMDomains"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_dns.sql",
+      "statements": [
+        "ReserveDNSZoneVersion"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_dns_onboarding.sql",
+      "statements": [
+        "PlatformGetDNSCredential",
+        "PlatformDNSDomain",
+        "PlatformClaimDNSPlan",
+        "PlatformExpireDNSClaims",
+        "PlatformFenceDNSPlan",
+        "PlatformAdvanceDNSPlan",
+        "PlatformListDNSActions",
+        "PlatformCreateDNSAction",
+        "PlatformSubmitDNSAction",
+        "PlatformCompleteDNSAction",
+        "PlatformApplyManagedDNS",
+        "PlatformSetExplicitDNS",
+        "PlatformListManagedDNS",
+        "PlatformClaimOnboarding",
+        "PlatformFenceOnboarding",
+        "PlatformAdvanceOnboarding",
+        "PlatformPrepareOnboardingTenant",
+        "PlatformMarkDomainReady",
+        "PlatformProvisioningCertificateAllowed",
+        "PlatformCustomWebEnabled",
+        "PlatformRenewDNSLease",
+        "PlatformRenewOnboardingLease",
+        "PlatformSubmitDNSRollback",
+        "PlatformReviewDNSPlan",
+        "PlatformCurrentManagedDNS",
+        "PlatformExpireOnboarding",
+        "PlatformUpsertDNSOnboardingAlerts",
+        "PlatformResolveDNSOnboardingAlerts",
+        "PlatformEnqueueDNSOnboardingAlerts"
+      ],
+      "first_error": "line 119:22 no viable alternative at input 'WITH sources AS (\\n SELECT 'dns:'||id AS key'",
+      "first_error_line": 119,
+      "first_error_method": "PlatformUpsertDNSOnboardingAlerts",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_dns_security.sql",
+      "statements": [
+        "PlatformListDNSSecurity",
+        "PlatformGetDNSSecurity",
+        "PlatformSetDNSSecurity"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_domain_recovery.sql",
+      "statements": [
+        "PlatformGetDomainForRecovery",
+        "PlatformRotateDomainRecoveryToken",
+        "PlatformConfirmDomainRecovery"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_legacy_import.sql",
+      "statements": [
+        "PlatformLockLegacyImportTarget",
+        "PlatformLegacyImportTargetFacts",
+        "PlatformCreateLegacyAlias",
+        "PlatformCreateLegacyDomain",
+        "PlatformCreateLegacyMailbox",
+        "PlatformLockLegacyDKIMDomains",
+        "PlatformSetLegacyDKIM",
+        "PlatformActivateLegacyDelegatedMail"
+      ],
+      "first_error": "internal/store/queries/platform_legacy_import.sql:71:7: column reference \"tenant_id\" is ambiguous",
+      "first_error_line": 71,
+      "first_error_method": "PlatformActivateLegacyDelegatedMail",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mail_access.sql",
+      "statements": [
+        "PlatformMailboxAccessStates",
+        "PlatformNextMailAccessBoundary"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mail_and_ai_gate.sql",
+      "statements": [
+        "GetBillingBusinessTimezone",
+        "MailServiceAllowed"
+      ],
+      "first_error": "internal/store/queries/platform_mail_and_ai_gate.sql:6:74: column reference \"scope_id\" is ambiguous",
+      "first_error_line": 6,
+      "first_error_method": "GetBillingBusinessTimezone",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailbox_draft_journal.sql",
+      "statements": [
+        "PlatformClaimDraftSave",
+        "PlatformCompleteDraftSave",
+        "PlatformDraftReplacementPending",
+        "PlatformSetDraftSaveScope"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailbox_password.sql",
+      "statements": [
+        "PlatformMailboxAuthLookup",
+        "PlatformMailboxPasswordForSession",
+        "PlatformMailboxPasswordFailures",
+        "PlatformChangeMailboxPasswordCAS",
+        "PlatformAckMailboxPasswordRevocation"
+      ],
+      "first_error": "line 10:0 mismatched input 'WHERE' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
+      "first_error_line": 10,
+      "first_error_method": "PlatformMailboxAuthLookup",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailbox_principal.sql",
+      "statements": [
+        "PlatformRecordRoundcubeNonce",
+        "PlatformCreateMailboxSession",
+        "PlatformGetMailboxSession",
+        "PlatformRevokeMailboxSession",
+        "PlatformCreateMailboxTicket",
+        "PlatformConsumeMailboxTicket",
+        "PlatformPruneRoundcubeRequests",
+        "PlatformPruneMailboxTickets",
+        "PlatformPruneMailboxSessions",
+        "PlatformCreateSieveBridge",
+        "PlatformGetSieveBridge",
+        "PlatformRevokeSieveBridge",
+        "PlatformGetMailboxSessionForRevocation",
+        "PlatformCreateVerifiedMailboxSession"
+      ],
+      "first_error": "line 39:131 no viable alternative at input ';'",
+      "first_error_line": 39,
+      "first_error_method": "PlatformCreateMailboxTicket",
+      "category": "update-alias",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailbox_scheduled_sends.sql",
+      "statements": [
+        "PlatformCreateMailboxScheduledSend",
+        "PlatformGetMailboxScheduledSendByKey",
+        "PlatformGetMailboxScheduledSend",
+        "PlatformListMailboxScheduledSends",
+        "PlatformCancelMailboxScheduledSend",
+        "PlatformClaimMailboxScheduledSend",
+        "PlatformGetMailboxScheduledSendAddress",
+        "PlatformBeginMailboxScheduledSendSubmission",
+        "PlatformFinishMailboxScheduledSend",
+        "PlatformRequeueMailboxScheduledSend",
+        "PlatformRecoverStaleMailboxScheduledSends",
+        "PlatformAcknowledgeUncertainScheduledSend"
+      ],
+      "first_error": "internal/store/queries/platform_mailbox_scheduled_sends.sql:47:1: relation \"candidate\" does not exist",
+      "first_error_line": 47,
+      "first_error_method": "PlatformClaimMailboxScheduledSend",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailbox_send_receipts.sql",
+      "statements": [
+        "PlatformCreateSendReceipt",
+        "PlatformGetSendReceipt",
+        "PlatformGetSendReceiptByKey",
+        "PlatformListSendReceipts",
+        "PlatformBeginSendReceipt",
+        "PlatformFinishSendReceipt",
+        "PlatformRecoverSendReceipts",
+        "PlatformHoldExpiredSendCopies",
+        "PlatformClaimSendCopy",
+        "PlatformClaimOwnedSendCopy",
+        "PlatformMarkSendCopyUnknown",
+        "PlatformCompleteSendCopy",
+        "PlatformDeferSendCopy",
+        "PlatformDraftSendLocked",
+        "PlatformAcknowledgeUncertainSend",
+        "PlatformHoldUnauthorizedSendCopies",
+        "PlatformDraftDeleteLocked",
+        "PlatformGetSendReceiptsForDraft",
+        "PlatformAuthorizeSendCopy"
+      ],
+      "first_error": "line 1:0 mismatched input 'g' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
+      "first_error_line": 1,
+      "first_error_method": "PlatformCreateSendReceipt",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailbox_sent_copy.sql",
+      "statements": [
+        "PlatformAcceptMailboxScheduledSend",
+        "PlatformClaimScheduledSentCopy",
+        "PlatformClaimOwnedScheduledSentCopy",
+        "PlatformMarkScheduledSentCopyUnknown",
+        "PlatformCompleteScheduledSentCopy",
+        "PlatformDeferScheduledSentCopy",
+        "PlatformHoldExpiredScheduledCopies",
+        "PlatformFreezeScheduledSend",
+        "PlatformHoldUnauthorizedScheduledCopies",
+        "PlatformGetLegacyScheduledCopy",
+        "PlatformSealLegacyScheduledCopy",
+        "PlatformAuthorizeScheduledCopy"
+      ],
+      "first_error": "internal/store/queries/platform_mailbox_sent_copy.sql:14:1: relation \"candidate\" does not exist",
+      "first_error_line": 14,
+      "first_error_method": "PlatformClaimScheduledSentCopy",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mailspam.sql",
+      "statements": [
+        "PlatformListSpamDeliveryPolicies"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_marketing.sql",
+      "statements": [
+        "PlatformCreateMarketingChannel",
+        "PlatformGetMarketingChannel",
+        "PlatformGetActiveMarketingChannel",
+        "PlatformRecoverMarketingSubmissions",
+        "PlatformRecoverMarketingClaims",
+        "PlatformAdvanceMarketingTurn",
+        "PlatformClaimMarketingRecipient",
+        "PlatformReleaseMarketingClaim",
+        "PlatformGetMarketingDelivery",
+        "PlatformCompleteMarketingCampaigns",
+        "PlatformUpdateMarketingChannel",
+        "PlatformMarketingAttemptStillAllowed"
+      ],
+      "first_error": "line 1:0 mismatched input 'nel' expecting {<EOF>, ';', ALTER_, ANALYZE_, ATTACH_, BEGIN_, COMMIT_, CREATE_, DELETE_, DETACH_, DROP_, END_, EXPLAIN_, INSERT_, PRAGMA_, REINDEX_, RELEASE_, REPLACE_, ROLLBACK_, SAVEPOINT_, SELECT_, UPDATE_, VACUUM_, VALUES_, WITH_}",
+      "first_error_line": 1,
+      "first_error_method": "PlatformCreateMarketingChannel",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_marketing_flow_authoring.sql",
+      "statements": [
+        "PlatformMarketingFlowIsVersioned",
+        "PlatformGetMarketingFlowSnapshotContent",
+        "PlatformCheckMarketingFlowLease",
+        "PlatformVersionedMarketingFlowMayAdvance",
+        "PlatformMarkMarketingFlowUncertainFenced"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_marketing_flows.sql",
+      "statements": [
+        "PlatformInsertMarketingFlow",
+        "PlatformInsertMarketingFlowStep",
+        "PlatformListMarketingFlowSteps",
+        "PlatformAdvanceMarketingFlow",
+        "PlatformRecoverMarketingFlowLeases",
+        "PlatformRecoverMarketingFlowUncertain",
+        "PlatformAdvanceMarketingFlowDueTenant",
+        "PlatformClaimMarketingFlowPositions",
+        "PlatformReleaseMarketingFlowLease",
+        "PlatformArmMarketingFlowWait",
+        "PlatformGetMarketingFlowPosition",
+        "PlatformMarketingFlowMayAdvance",
+        "PlatformSaveMarketingFlowPosition",
+        "PlatformMarketingFlowStillAllowed",
+        "PlatformGetMarketingFlowTemplate",
+        "PlatformAuthorizeMarketingFlowSend",
+        "PlatformCheckMarketingEmailSuppressed",
+        "PlatformMarkMarketingFlowUnsubscribed"
+      ],
+      "first_error": "line 68:19 no viable alternative at input ';'",
+      "first_error_line": 68,
+      "first_error_method": "PlatformAdvanceMarketingFlowDueTenant",
+      "category": "update-alias",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_mutations.sql",
+      "statements": [
+        "PlatformEnsureManagedBrand",
+        "PlatformCreateManagedTenant",
+        "PlatformFindManagedUser",
+        "PlatformCreateManagedUser",
+        "PlatformGrantTenantOwner",
+        "PlatformDemotePreviousOwners",
+        "PlatformSetTenantOwner",
+        "PlatformRenameTenant"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_notifications.sql",
+      "statements": [
+        "PlatformEnqueueNotification",
+        "PlatformListOperationalAlerts",
+        "PlatformGetNotificationChannel",
+        "PlatformClaimEmailNotification",
+        "PlatformFinishEmailNotification",
+        "PlatformQuarantinePoisonEmailNotifications",
+        "PlatformMaxNotificationID",
+        "PlatformCountNewNotifications",
+        "PlatformNotificationOutboxCounts",
+        "PlatformOperationalStateCounts",
+        "PlatformUpsertAIAlerts",
+        "PlatformResolveStaleAIAlerts",
+        "PlatformEnqueueAIAlerts",
+        "PlatformGetSubscriptionNoticeDays"
+      ],
+      "first_error": "line 83:31 no viable alternative at input 'WITH sources AS (\\n SELECT 'ai-uncertain:'||id AS key'",
+      "first_error_line": 83,
+      "first_error_method": "PlatformUpsertAIAlerts",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_observability.sql",
+      "statements": [
+        "PlatformSetOperationalCondition",
+        "PlatformEnqueueObservabilityAlerts",
+        "PlatformBackupFreshness",
+        "PlatformGetObservabilityThresholds",
+        "PlatformArchivePathIndexed"
+      ],
+      "first_error": "internal/store/queries/platform_observability.sql:1:1: *ast.ResTarget has nil name",
+      "first_error_line": 1,
+      "first_error_method": "PlatformSetOperationalCondition",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_parity_enhancements.sql",
+      "statements": [
+        "PlatformListMailboxSnippets",
+        "PlatformGetMailboxSnippet",
+        "PlatformInsertMailboxSnippet",
+        "PlatformUpdateMailboxSnippet",
+        "PlatformDeleteMailboxSnippet",
+        "PlatformGetTenantDirectorySettings",
+        "PlatformSetTenantDirectorySettings",
+        "PlatformListTenantDirectoryContacts",
+        "PlatformListPublishedCorporateContacts",
+        "PlatformSearchPublishedCorporateContacts",
+        "PlatformInsertTenantDirectoryContact",
+        "PlatformUpdateTenantDirectoryContact",
+        "PlatformDeleteTenantDirectoryContact",
+        "PlatformInsertContactEnhanced",
+        "PlatformUpdateContactEnhanced"
+      ],
+      "first_error": "line 74:100 no viable alternative at input '||'",
+      "first_error_line": 74,
+      "first_error_method": "PlatformSearchPublishedCorporateContacts",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_people_product.sql",
+      "statements": [
+        "PlatformListContactsPage",
+        "PlatformGetContactGroup",
+        "PlatformListContactGroupMembers",
+        "PlatformRemoveContactGroupMember",
+        "PlatformContactImportDuplicate",
+        "PlatformGetDataImportReceipt",
+        "PlatformInsertDataImportReceipt",
+        "PlatformListDataImportReceipts",
+        "PlatformListCalendarEventsPage",
+        "PlatformLockCalendarInvitationEvent",
+        "PlatformClaimCalendarInvitation",
+        "PlatformFinishCalendarInvitation",
+        "PlatformClaimMailTransfer",
+        "PlatformCompleteMailTransfer"
+      ],
+      "first_error": "line 16:116 no viable alternative at input ';'",
+      "first_error_line": 16,
+      "first_error_method": "PlatformListContactGroupMembers",
+      "category": "update-alias",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_postfix.sql",
+      "statements": [
+        "PlatformListDomains",
+        "PlatformListMailboxes",
+        "PlatformListAliases",
+        "AliasWouldCycle"
+      ],
+      "first_error": "line 22:22 no viable alternative at input ';'",
+      "first_error_line": 22,
+      "first_error_method": "PlatformListMailboxes",
+      "category": "update-alias",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_recall_product.sql",
+      "statements": [
+        "PlatformRecallPreviewSource",
+        "PlatformRecallActorAuthorized",
+        "PlatformLockRecallAuthority",
+        "PlatformLockRecallMailbox",
+        "PlatformFinishReviewedRecall"
+      ],
+      "first_error": "line 9:16 mismatched input '(' expecting ')'",
+      "first_error_line": 9,
+      "first_error_method": "PlatformRecallPreviewSource",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_recalls.sql",
+      "statements": [
+        "PlatformCompleteRecall",
+        "PlatformLockRecallForExpunge",
+        "PlatformRecallHoldConflict"
+      ],
+      "first_error": "line 18:32 no viable alternative at input ';'",
+      "first_error_line": 18,
+      "first_error_method": "PlatformLockRecallForExpunge",
+      "category": "syntax-residue",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_restore_sync.sql",
+      "statements": [
+        "PlatformRestoreSyncEpoch",
+        "PlatformMailboxRestoreIdentity"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_secret_maintenance.sql",
+      "statements": [
+        "PlatformCountLegacyMFASecrets",
+        "PlatformLockLegacyMFASecrets",
+        "PlatformEncryptLegacyMFASecret"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_settings.sql",
+      "statements": [
+        "PlatformListSettings",
+        "PlatformGetSetting",
+        "PlatformUpsertSetting",
+        "PlatformDeleteSetting"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_setup.sql",
+      "statements": [
+        "PlatformSetupTenant"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_sieve_gate.sql",
+      "statements": [
+        "PlatformSieveOutboundAllowed"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_support.sql",
+      "statements": [
+        "PlatformListSupportTickets",
+        "PlatformGetSupportTicket",
+        "PlatformListSupportMessages",
+        "PlatformReplySupportTicket",
+        "PlatformChangeSupportTicket",
+        "PlatformListAnnouncements",
+        "PlatformCreateAnnouncement",
+        "PlatformUpdateAnnouncement"
+      ],
+      "first_error": "internal/store/queries/platform_support.sql:24:127: column reference \"id\" is ambiguous",
+      "first_error_line": 24,
+      "first_error_method": "PlatformChangeSupportTicket",
+      "category": "cte-scope",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_tenants.sql",
+      "statements": [
+        "PlatformOverview",
+        "PlatformListTenants",
+        "PlatformUpdateTenantStatus",
+        "PlatformListBrands",
+        "PlatformExpireOnboardingTasks",
+        "PlatformClaimOnboardingTask",
+        "PlatformBindOnboardingDomain",
+        "PlatformCompleteOnboardingTask",
+        "PlatformAdvanceOnboardingTask",
+        "PlatformFailOnboardingTask",
+        "PlatformUpsertBrand",
+        "PlatformListChannels",
+        "PlatformUpsertChannel",
+        "PlatformListAuditLogs"
+      ],
+      "first_error": "line 62:227 no viable alternative at input ';'",
+      "first_error_line": 62,
+      "first_error_method": "PlatformClaimOnboardingTask",
+      "category": "update-alias",
+      "reason": "PG 语法（DML-CTE/FILTER/UPDATE…FROM/RETURNING 星号等）无法被 sqlc 的 SQLite 解析器承接，需按 S4 手写层重写",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_transport_security.sql",
+      "statements": [
+        "PlatformListTransportSecurity",
+        "PlatformPublicTransportSecurity",
+        "PlatformTransportCertificateAllowed",
+        "PlatformCountRecentTLSReports",
+        "PlatformRecordTLSReport",
+        "PlatformFindTLSReportFingerprint"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/platform_usage_sync.sql",
+      "statements": [
+        "PlatformUsageMailboxes",
+        "PlatformRecordMailboxUsage",
+        "PlatformRecordMailboxUsageError"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    },
+    {
+      "file": "internal/store/queries/tenants.sql",
+      "statements": [
+        "GetTenantByID",
+        "GetTenantBySlug",
+        "UpdateTenantStatus",
+        "UpdateTenantSettings"
+      ],
+      "first_error": null,
+      "first_error_line": 0,
+      "first_error_method": null,
+      "category": "parsed-ok",
+      "reason": "语句可解析，但整文件为 platform 管理面；B5a 不生成、路由暂不可用",
+      "s4_owner": "S4/B5 手写层（platform 管理面承接；本轮只登记，不改写）",
+      "route_status": 501,
+      "route_message": "路由暂不可用（HTTP 501）：该文件属 platform 管理面，SQLite 端口尚未承接"
+    }
+  ]
 }

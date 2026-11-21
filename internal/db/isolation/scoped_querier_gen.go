@@ -19,7 +19,11 @@ func (s *ScopedQuerier) AICloudAuthorized(ctx context.Context, arg store.AICloud
 }
 
 func (s *ScopedQuerier) AbandonDNSPlan(ctx context.Context, arg store.AbandonDNSPlanParams) error {
-	if _, err := CheckMethod(ctx, "AbandonDNSPlan", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "AbandonDNSPlan", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "AbandonDNSPlan", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.AbandonDNSPlan(ctx, arg)
@@ -412,7 +416,11 @@ func (s *ScopedQuerier) AuthenticateApplicationCredential(ctx context.Context, a
 }
 
 func (s *ScopedQuerier) CancelDNSPlan(ctx context.Context, arg store.CancelDNSPlanParams) error {
-	if _, err := CheckMethod(ctx, "CancelDNSPlan", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "CancelDNSPlan", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "CancelDNSPlan", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.CancelDNSPlan(ctx, arg)
@@ -527,7 +535,11 @@ func (s *ScopedQuerier) ConfirmArchiveRetentionPreview(ctx context.Context, arg 
 }
 
 func (s *ScopedQuerier) ConfirmDNSPlan(ctx context.Context, arg store.ConfirmDNSPlanParams) error {
-	if _, err := CheckMethod(ctx, "ConfirmDNSPlan", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ConfirmDNSPlan", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "ConfirmDNSPlan", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.ConfirmDNSPlan(ctx, arg)
@@ -696,7 +708,12 @@ func (s *ScopedQuerier) CreateComplianceGrant(ctx context.Context, arg store.Cre
 }
 
 func (s *ScopedQuerier) CreateDNSPlan(ctx context.Context, arg store.CreateDNSPlanParams) (pgtype.UUID, error) {
-	if _, err := CheckMethod(ctx, "CreateDNSPlan", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "CreateDNSPlan", ScopeTenant)
+	if err != nil {
+		var zero pgtype.UUID
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "CreateDNSPlan", arg.TenantID); err != nil {
 		var zero pgtype.UUID
 		return zero, err
 	}
@@ -6047,7 +6064,11 @@ func (s *ScopedQuerier) RecordMarketingFlowAudit(ctx context.Context, arg store.
 }
 
 func (s *ScopedQuerier) RecordTenantAudit(ctx context.Context, arg store.RecordTenantAuditParams) error {
-	if _, err := CheckMethod(ctx, "RecordTenantAudit", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "RecordTenantAudit", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "RecordTenantAudit", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.RecordTenantAudit(ctx, arg)
@@ -6067,14 +6088,22 @@ func (s *ScopedQuerier) RemoveMarketingSuppression(ctx context.Context, arg stor
 }
 
 func (s *ScopedQuerier) RequestDNSRollback(ctx context.Context, arg store.RequestDNSRollbackParams) error {
-	if _, err := CheckMethod(ctx, "RequestDNSRollback", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "RequestDNSRollback", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "RequestDNSRollback", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.RequestDNSRollback(ctx, arg)
 }
 
 func (s *ScopedQuerier) RequestOnboardingRetry(ctx context.Context, arg store.RequestOnboardingRetryParams) error {
-	if _, err := CheckMethod(ctx, "RequestOnboardingRetry", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "RequestOnboardingRetry", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "RequestOnboardingRetry", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.RequestOnboardingRetry(ctx, arg)
@@ -6110,7 +6139,11 @@ func (s *ScopedQuerier) RetryMarketingFlowInstance(ctx context.Context, arg stor
 }
 
 func (s *ScopedQuerier) ReviewDNSPlan(ctx context.Context, arg store.ReviewDNSPlanParams) error {
-	if _, err := CheckMethod(ctx, "ReviewDNSPlan", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "ReviewDNSPlan", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "ReviewDNSPlan", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.ReviewDNSPlan(ctx, arg)
@@ -6138,7 +6171,11 @@ func (s *ScopedQuerier) RevokeComplianceGrant(ctx context.Context, arg store.Rev
 }
 
 func (s *ScopedQuerier) RevokeDNSCredential(ctx context.Context, arg store.RevokeDNSCredentialParams) error {
-	if _, err := CheckMethod(ctx, "RevokeDNSCredential", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "RevokeDNSCredential", ScopeTenant)
+	if err != nil {
+		return err
+	}
+	if err := CheckTenantMatch(sc, "RevokeDNSCredential", arg.TenantID); err != nil {
 		return err
 	}
 	return s.inner.RevokeDNSCredential(ctx, arg)
@@ -6158,7 +6195,12 @@ func (s *ScopedQuerier) RotateDomainChallenge(ctx context.Context, arg store.Rot
 }
 
 func (s *ScopedQuerier) SaveDNSCredential(ctx context.Context, arg store.SaveDNSCredentialParams) (int64, error) {
-	if _, err := CheckMethod(ctx, "SaveDNSCredential", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "SaveDNSCredential", ScopeTenant)
+	if err != nil {
+		var zero int64
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "SaveDNSCredential", arg.TenantID); err != nil {
 		var zero int64
 		return zero, err
 	}
@@ -6506,7 +6548,7 @@ func (s *ScopedQuerier) UpsertRetentionPolicy(ctx context.Context, arg store.Ups
 }
 
 func (s *ScopedQuerier) UpsertTenantSetting(ctx context.Context, arg store.UpsertTenantSettingParams) (store.Settings, error) {
-	if _, err := CheckMethod(ctx, "UpsertTenantSetting", ScopePlatform); err != nil {
+	if _, err := CheckMethod(ctx, "UpsertTenantSetting", ScopeTenant); err != nil {
 		var zero store.Settings
 		return zero, err
 	}

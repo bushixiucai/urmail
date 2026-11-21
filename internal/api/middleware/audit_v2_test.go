@@ -35,7 +35,7 @@ CREATE CONSTRAINT TRIGGER audit_fixture_commit_failure AFTER INSERT ON settings 
 	engine.Use(middleware.Audit(store.New(p.Pool), zap.NewNop()), middleware.RequireTenantTx(app, zap.NewNop()))
 	engine.POST("/sql-error", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
-		_, sqlErr := raw.(*store.Queries).UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte("not-json")})
+		_, sqlErr := raw.(*store.Queries).UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte("not-json")})
 		if sqlErr == nil {
 			t.Error("expected SQL failure")
 		}
@@ -43,7 +43,7 @@ CREATE CONSTRAINT TRIGGER audit_fixture_commit_failure AFTER INSERT ON settings 
 	})
 	engine.POST("/commit-error", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
-		if _, insertErr := raw.(*store.Queries).UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: "theme", Value: []byte(`{"primary":"#123456"}`)}); insertErr != nil {
+		if _, insertErr := raw.(*store.Queries).UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: "theme", Value: []byte(`{"primary":"#123456"}`)}); insertErr != nil {
 			t.Error(insertErr)
 		}
 		c.JSON(201, gin.H{"ok": true})

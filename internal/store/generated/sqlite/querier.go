@@ -167,6 +167,8 @@ type Querier interface {
 	// scope: platform
 	DeleteSession(ctx context.Context, id string) error
 	// scope: platform
+	DeleteTenantSetting(ctx context.Context, arg DeleteTenantSettingParams) error
+	// scope: platform
 	DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error)
 	// scope: tenant
 	DisableDomainTransportSecurity(ctx context.Context, arg DisableDomainTransportSecurityParams) (int64, error)
@@ -295,6 +297,8 @@ type Querier interface {
 	// scope: tenant
 	// Platform-only collector resolution; sender domain is matched to active owned domain.
 	GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (int64, error)
+	// scope: platform
+	GetTenantSetting(ctx context.Context, arg GetTenantSettingParams) (Settings, error)
 	// scope: tenant
 	GetTenantStorageUsage(ctx context.Context, tenantID int64) (GetTenantStorageUsageRow, error)
 	// scope: platform
@@ -381,6 +385,8 @@ type Querier interface {
 	ListRecalls(ctx context.Context, tenantID int64) ([]RecallRequests, error)
 	// scope: platform
 	ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error)
+	// scope: platform
+	ListSettingsByScopes(ctx context.Context, arg ListSettingsByScopesParams) ([]Settings, error)
 	// scope: tenant
 	ListSupportAttachments(ctx context.Context, arg ListSupportAttachmentsParams) ([]ListSupportAttachmentsRow, error)
 	// scope: tenant
@@ -538,6 +544,9 @@ type Querier interface {
 	UpsertMarketingContact(ctx context.Context, arg UpsertMarketingContactParams) (MarketingContacts, error)
 	// scope: tenant
 	UpsertRetentionPolicy(ctx context.Context, arg UpsertRetentionPolicyParams) (RetentionPolicies, error)
+	// scope: tenant
+	// scope-reason: tenant-scoped settings row (scope=tenant, scope_id = ctx tenant via RequireTenantTx)
+	UpsertTenantSetting(ctx context.Context, arg UpsertTenantSettingParams) (Settings, error)
 	// scope: tenant
 	VerifyDomainChallenge(ctx context.Context, arg VerifyDomainChallengeParams) (VerifyDomainChallengeRow, error)
 }

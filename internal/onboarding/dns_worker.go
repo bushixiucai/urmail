@@ -13,6 +13,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -30,6 +31,10 @@ func dnsAudit(ctx context.Context, q *store.Queries, tenant int64, action, targe
 // DNSOnce claims one fenced, explicitly confirmed plan. Unknown upstream
 // results become uncertain and are never replayed automatically.
 func (s *Service) DNSOnce(ctx context.Context, owner string) (bool, error) {
+	// Daemon janitor pass: every statement in this loop is platform-domain
+	// (lease/claim/advance). Elevate once at entry instead of leaking raw
+	// daemon context into scoped queries (purgeExpiredSessions precedent).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if config.RestoreQuarantined() {
 		return false, errors.New("RESTORE_QUARANTINED")
 	}

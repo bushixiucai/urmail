@@ -14,6 +14,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -58,6 +59,10 @@ func NewWorker(opts WorkerOptions) *Worker {
 
 // Once claims one paid/trial/explicit-free domain and advances one durable step.
 func (w *Worker) Once(ctx context.Context) (bool, error) {
+	// Daemon janitor pass: every statement in this loop is platform-domain
+	// (lease/claim/advance). Elevate once at entry instead of leaking raw
+	// daemon context into scoped queries (purgeExpiredSessions precedent).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	s := w.opts.Service
 	q := db.Queries(s.Pool.Pool)
 	if _, err := q.PlatformExpireOnboarding(ctx); err != nil {
