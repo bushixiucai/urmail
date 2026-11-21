@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -46,7 +47,11 @@ func AuditPlatform(writer AuditWriter, logger *zap.Logger) gin.HandlerFunc {
 }
 
 func recordPlatformAudit(c *gin.Context, writer AuditWriter, logger *zap.Logger, panicked bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	actorID, _ := GetUserID(c)
+	ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{
+		Scope:   isolation.ScopePlatform,
+		ActorID: actorID,
+	}), 2*time.Second)
 	defer cancel()
 	record := platformAuditRecord(ctx, c, writer, logger)
 	if panicked {

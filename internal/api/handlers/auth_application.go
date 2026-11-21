@@ -48,12 +48,13 @@ func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUse
 		return store.GetUserByIDRow{}, false
 	}
 	defer reservation.Discard()
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		authError(c, http.StatusUnauthorized, "UNAUTHORIZED")
 		return user, false
 	}
-	admin, err := h.Store.CheckPlatformAdmin(c, userID)
+	admin, err := h.Store.CheckPlatformAdmin(authCtx, userID)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return user, false
@@ -73,7 +74,7 @@ func (h *AuthHandler) approveFreshMFA(c *gin.Context, code string) (store.GetUse
 	}
 	verified := user.MfaSecret.Valid && validateTOTP(code, secret)
 	if !verified {
-		n, consumeErr := h.Store.ConsumeRecoveryCode(c, store.ConsumeRecoveryCodeParams{ID: userID, Column2: hashRecoveryCode(code)})
+		n, consumeErr := h.Store.ConsumeRecoveryCode(authCtx, store.ConsumeRecoveryCodeParams{ID: userID, Column2: hashRecoveryCode(code)})
 		verified = consumeErr == nil && n > 0
 	}
 	if !verified {
@@ -118,14 +119,15 @@ func (h *AuthHandler) CreateLegacySession(c *gin.Context) {
 			tenantID = current.TenantID
 		}
 	}
+	authCtx := authScopeContext(c)
 	expires := time.Now().Add(legacyMFALifetime)
-	session, err := h.Store.CreateSession(c, store.CreateSessionParams{ID: middleware.HashSessionToken(token), OriginHost: middleware.OriginHost(c.Request.Host), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: timeutil.Micro(expires)})
+	session, err := h.Store.CreateSession(authCtx, store.CreateSessionParams{ID: middleware.HashSessionToken(token), OriginHost: middleware.OriginHost(c.Request.Host), UserID: user.ID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, TenantID: tenantID, CsrfToken: csrf, UserAgent: pgtype.Text{String: c.Request.UserAgent(), Valid: true}, ExpiresAt: timeutil.Micro(expires)})
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "SESSION_CREATE_FAILED")
 		return
 	}
-	if err = h.Store.MarkSessionLegacyOnly(c, session.ID); err != nil {
-		_ = h.Store.DeleteSession(c, session.ID)
+	if err = h.Store.MarkSessionLegacyOnly(authCtx, session.ID); err != nil {
+		_ = h.Store.DeleteSession(authCtx, session.ID)
 		authError(c, http.StatusInternalServerError, "SESSION_CREATE_FAILED")
 		return
 	}
@@ -191,7 +193,7 @@ func (h *AuthHandler) ListApplicationCredentials(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	credentials, err := h.Credentials.ListApplicationCredentials(c, userID)
+	credentials, err := h.Credentials.ListApplicationCredentials(authScopeContext(c), userID)
 	if err != nil {
 		authError(c, http.StatusInternalServerError, "DB_ERROR")
 		return

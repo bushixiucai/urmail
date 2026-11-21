@@ -463,7 +463,8 @@ func (q *Queries) PlatformTakeMailboxDailyQuota(ctx context.Context, arg Platfor
 
 const recordTenantAuditInsertSQL = `INSERT INTO audit_logs(tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail)
 SELECT ?1, ?2, ?3, ?4, 'http', ?5, ?6
-WHERE EXISTS(SELECT 1 FROM user_tenant_roles WHERE tenant_id=?1 AND user_id=?2)`
+WHERE EXISTS(SELECT 1 FROM user_tenant_roles WHERE tenant_id=?1 AND user_id=?2)
+RETURNING id`
 
 var auditActionPattern = regexp.MustCompile(`^[A-Za-z]{3,10} [A-Za-z0-9/{}:._~-]{0,120}$`)
 

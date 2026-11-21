@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/domain/panelpassword"
 	"github.com/bushixiucai/urmail/internal/domain/passwordwork"
@@ -91,6 +92,18 @@ func NewAuthHandler(s AuthStore) *AuthHandler {
 	return h
 }
 
+func authScopeContext(c *gin.Context) context.Context {
+	ctx := c.Request.Context()
+	if sc, ok := isolation.ScopeFromContext(ctx); ok && sc.Scope == isolation.ScopePlatform {
+		return ctx
+	}
+	actorID, _ := middleware.GetUserID(c)
+	return isolation.WithScope(ctx, isolation.ScopeContext{
+		Scope:   isolation.ScopePlatform,
+		ActorID: actorID,
+	})
+}
+
 func (h *AuthHandler) decryptMFA(value string) (string, error) {
 	if h.Secrets == nil {
 		return value, nil
@@ -148,7 +161,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	defer reservation.Discard()
 
-	user, err := h.Store.GetUserByEmail(c, req.Email)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByEmail(authCtx, req.Email)
 	if err != nil {
 		// Unknown user: burn the same hash cost as the verify path so the
 		// response time does not reveal whether the account exists.
@@ -183,13 +197,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			authError(c, 429, "AUTH_RATE_LIMITED")
 			return
 		}
-		n, upgradeErr := h.Store.PlatformRehashPanelPassword(c, store.PlatformRehashPanelPasswordParams{UserID: user.ID, ExpectedHash: user.PasswordHash, PasswordHash: upgraded})
+		n, upgradeErr := h.Store.PlatformRehashPanelPassword(authCtx, store.PlatformRehashPanelPasswordParams{UserID: user.ID, ExpectedHash: user.PasswordHash, PasswordHash: upgraded})
 		if upgradeErr != nil {
 			authError(c, 503, "DB_ERROR")
 			return
 		}
 		if n != 1 {
-			fresh, readErr := h.Store.GetUserByEmail(c, req.Email)
+			fresh, readErr := h.Store.GetUserByEmail(authCtx, req.Email)
 			if readErr != nil || fresh.CredentialVersion != user.CredentialVersion {
 				reservation.RecordFailure()
 				authError(c, 401, "INVALID_CREDENTIALS")
@@ -246,8 +260,9 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		return
 	}
 
-	tenants, _ := h.Store.GetUserTenants(c, userID)
-	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
+	authCtx := authScopeContext(c)
+	tenants, _ := h.Store.GetUserTenants(authCtx, userID)
+	isAdmin, _ := h.Store.CheckPlatformAdmin(authCtx, userID)
 	if brand, ok := c.Get(middleware.ContextBrandID); ok {
 		filtered := make([]store.GetUserTenantsRow, 0, len(tenants))
 		for _, tenant := range tenants {
@@ -268,7 +283,7 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 		defaultTenantID = pgtype.Int8{Int64: tenants[0].ID, Valid: true}
 	}
 
-	session, err := h.Store.CreateSession(c, store.CreateSessionParams{
+	session, err := h.Store.CreateSession(authCtx, store.CreateSessionParams{
 		ID:           middleware.HashSessionToken(token),
 		OriginHost:   middleware.OriginHost(c.Request.Host),
 		UserID:       userID,
@@ -286,8 +301,8 @@ func (h *AuthHandler) establishSession(c *gin.Context, userID int64, email strin
 	}
 
 	if mfaVerified {
-		if err := h.Store.MarkSessionMFAVerified(c, session.ID); err != nil {
-			if err := h.Store.DeleteSession(c, session.ID); err != nil {
+		if err := h.Store.MarkSessionMFAVerified(authCtx, session.ID); err != nil {
+			if err := h.Store.DeleteSession(authCtx, session.ID); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
@@ -321,7 +336,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	val, exists := c.Get(middleware.ContextSession)
 	if exists {
 		if session, ok := val.(store.Sessions); ok {
-			if err := h.Store.DeleteSession(c, session.ID); err != nil {
+			if err := h.Store.DeleteSession(authScopeContext(c), session.ID); err != nil {
 				authError(c, 503, "DB_ERROR")
 				return
 			}
@@ -338,14 +353,15 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
 	}
 
-	tenants, _ := h.Store.GetUserTenants(c, userID)
-	isAdmin, _ := h.Store.CheckPlatformAdmin(c, userID)
+	tenants, _ := h.Store.GetUserTenants(authCtx, userID)
+	isAdmin, _ := h.Store.CheckPlatformAdmin(authCtx, userID)
 	if brand, branded := c.Get(middleware.ContextBrandID); branded {
 		visible := make([]store.GetUserTenantsRow, 0, len(tenants))
 		for _, tenant := range tenants {
@@ -406,7 +422,8 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 		return
 	}
 
-	tenants, err := h.Store.GetUserTenants(c, s.UserID)
+	authCtx := authScopeContext(c)
+	tenants, err := h.Store.GetUserTenants(authCtx, s.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -428,7 +445,7 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 		return
 	}
 
-	if err := h.Store.UpdateSessionTenant(c, store.UpdateSessionTenantParams{
+	if err := h.Store.UpdateSessionTenant(authCtx, store.UpdateSessionTenantParams{
 		ID:       s.ID,
 		TenantID: pgtype.Int8{Int64: req.TenantID, Valid: true},
 	}); err != nil {

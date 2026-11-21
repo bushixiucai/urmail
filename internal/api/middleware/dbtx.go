@@ -86,7 +86,9 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 
 		// A writer can wait behind another tenant operation. Resolve current
 		// membership only after that wait, so revocation is never cached across it.
-		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		// SQLite uses single-writer BEGIN IMMEDIATE transactions (_txlock=immediate)
+		// and does not implement PostgreSQL pg_advisory_xact_lock.
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && !isSQLiteHandle(pool, tx) {
 			if _, err := tx.Exec(c.Request.Context(), "SELECT pg_advisory_xact_lock($1)", tenantID); err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 				return
@@ -175,6 +177,16 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 func QueriesFromCtx(c *gin.Context) (any, bool) {
 	v, ok := c.Get(ContextQueries)
 	return v, ok
+}
+
+func isSQLiteHandle(pool *db.Pool, tx any) bool {
+	if pool != nil && pool.IsSQLite() {
+		return true
+	}
+	if marker, ok := tx.(interface{ IsSQLite() bool }); ok && marker.IsSQLite() {
+		return true
+	}
+	return false
 }
 
 // GetRole returns the authenticated user's role within the tenant.

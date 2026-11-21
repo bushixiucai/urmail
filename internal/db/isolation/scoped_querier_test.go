@@ -297,6 +297,41 @@ func TestScopedQuerierCriticalPlatformAndCrossTenantMethods(t *testing.T) {
 		}
 	}
 
+	// Reclassified auth.sql & audit.sql platform methods must reject tenant contexts.
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"GetUserTenants", func(ctx context.Context) error { _, err := q.GetUserTenants(ctx, 1); return err }},
+		{"CreateSession", func(ctx context.Context) error {
+			_, err := q.CreateSession(ctx, store.CreateSessionParams{ID: "sid-1", UserID: 1})
+			return err
+		}},
+		{"GetSessionByID", func(ctx context.Context) error { _, err := q.GetSessionByID(ctx, "sid-1"); return err }},
+		{"UpdateSessionTenant", func(ctx context.Context) error {
+			return q.UpdateSessionTenant(ctx, store.UpdateSessionTenantParams{ID: "sid-1", TenantID: pgtype.Int8{Int64: 10, Valid: true}})
+		}},
+		{"ListSessionsForUser", func(ctx context.Context) error { _, err := q.ListSessionsForUser(ctx, 1); return err }},
+		{"CreateAuditLog", func(ctx context.Context) error {
+			_, err := q.CreateAuditLog(ctx, store.CreateAuditLogParams{Action: "platform.op"})
+			return err
+		}},
+	} {
+		spy.calls = 0
+		if err := tc.call(tenant10); !errors.Is(err, ErrPlatformScopeRequired) {
+			t.Fatalf("%s allowed tenant ctx: err=%v", tc.name, err)
+		}
+		if spy.calls != 0 {
+			t.Fatalf("%s called inner store on rejected tenant ctx", tc.name)
+		}
+		if err := tc.call(platformCtx); err != nil {
+			t.Fatalf("%s failed under platform ctx: %v", tc.name, err)
+		}
+		if spy.calls != 1 {
+			t.Fatalf("%s did not delegate under platform ctx", tc.name)
+		}
+	}
+
 	// System-scoped cleanup rejects tenant & platform scopes.
 	spy.calls = 0
 	if err := q.DeleteExpiredSessions(tenant10); !errors.Is(err, ErrSystemScopeRequired) {
@@ -320,11 +355,11 @@ func TestScopedQuerierCriticalPlatformAndCrossTenantMethods(t *testing.T) {
 	if _, err := q.ListDeliveryEventsByTenant(tenant10, pgtype.Int8{Int64: 20, Valid: true}); !errors.Is(err, ErrCrossTenantAccess) {
 		t.Fatalf("ListDeliveryEventsByTenant cross-tenant err=%v", err)
 	}
-	if _, err := q.CreateAuditLog(tenant10, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: 20, Valid: true}, Action: "a"}); !errors.Is(err, ErrCrossTenantAccess) {
-		t.Fatalf("CreateAuditLog cross-tenant err=%v", err)
+	if _, err := q.ListAuditLogsByTenant(tenant10, store.ListAuditLogsByTenantParams{TenantID: pgtype.Int8{Int64: 20, Valid: true}, Limit: 10}); !errors.Is(err, ErrCrossTenantAccess) {
+		t.Fatalf("ListAuditLogsByTenant cross-tenant err=%v", err)
 	}
-	if _, err := q.CreateAuditLog(tenant10, store.CreateAuditLogParams{TenantID: pgtype.Int8{Valid: false}, Action: "a"}); !errors.Is(err, ErrCrossTenantAccess) {
-		t.Fatalf("CreateAuditLog null tenant err=%v", err)
+	if _, err := q.ListAuditLogsByTenant(tenant10, store.ListAuditLogsByTenantParams{TenantID: pgtype.Int8{Valid: false}, Limit: 10}); !errors.Is(err, ErrCrossTenantAccess) {
+		t.Fatalf("ListAuditLogsByTenant null tenant err=%v", err)
 	}
 	if spy.calls != 0 {
 		t.Fatalf("cross-tenant calls leaked to inner store: calls=%d", spy.calls)

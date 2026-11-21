@@ -649,12 +649,7 @@ func (s *ScopedQuerier) CreateApplicationCredential(ctx context.Context, arg sto
 }
 
 func (s *ScopedQuerier) CreateAuditLog(ctx context.Context, arg store.CreateAuditLogParams) (store.AuditLogs, error) {
-	sc, err := CheckMethod(ctx, "CreateAuditLog", ScopeTenant)
-	if err != nil {
-		var zero store.AuditLogs
-		return zero, err
-	}
-	if err := CheckTenantMatchInt8(sc, "CreateAuditLog", arg.TenantID); err != nil {
+	if _, err := CheckMethod(ctx, "CreateAuditLog", ScopePlatform); err != nil {
 		var zero store.AuditLogs
 		return zero, err
 	}
@@ -924,12 +919,7 @@ func (s *ScopedQuerier) CreateRecall(ctx context.Context, arg store.CreateRecall
 }
 
 func (s *ScopedQuerier) CreateSession(ctx context.Context, arg store.CreateSessionParams) (store.Sessions, error) {
-	sc, err := CheckMethod(ctx, "CreateSession", ScopeTenant)
-	if err != nil {
-		var zero store.Sessions
-		return zero, err
-	}
-	if err := CheckTenantMatchInt8(sc, "CreateSession", arg.TenantID); err != nil {
+	if _, err := CheckMethod(ctx, "CreateSession", ScopePlatform); err != nil {
 		var zero store.Sessions
 		return zero, err
 	}
@@ -1644,7 +1634,7 @@ func (s *ScopedQuerier) GetRetentionPolicyAuthority(ctx context.Context, arg sto
 }
 
 func (s *ScopedQuerier) GetSessionByID(ctx context.Context, id string) (store.Sessions, error) {
-	if _, err := CheckMethod(ctx, "GetSessionByID", ScopeTenant); err != nil {
+	if _, err := CheckMethod(ctx, "GetSessionByID", ScopePlatform); err != nil {
 		var zero store.Sessions
 		return zero, err
 	}
@@ -1752,7 +1742,7 @@ func (s *ScopedQuerier) GetUserRoleForTenant(ctx context.Context, arg store.GetU
 }
 
 func (s *ScopedQuerier) GetUserTenants(ctx context.Context, userID int64) ([]store.GetUserTenantsRow, error) {
-	if _, err := CheckMethod(ctx, "GetUserTenants", ScopeTenant); err != nil {
+	if _, err := CheckMethod(ctx, "GetUserTenants", ScopePlatform); err != nil {
 		var zero []store.GetUserTenantsRow
 		return zero, err
 	}
@@ -2210,7 +2200,7 @@ func (s *ScopedQuerier) ListRecalls(ctx context.Context, tenantID int64) ([]stor
 }
 
 func (s *ScopedQuerier) ListSessionsForUser(ctx context.Context, userID int64) ([]store.ListSessionsForUserRow, error) {
-	if _, err := CheckMethod(ctx, "ListSessionsForUser", ScopeTenant); err != nil {
+	if _, err := CheckMethod(ctx, "ListSessionsForUser", ScopePlatform); err != nil {
 		var zero []store.ListSessionsForUserRow
 		return zero, err
 	}
@@ -6460,11 +6450,7 @@ func (s *ScopedQuerier) UpdateMarketingFlowDefinition(ctx context.Context, arg s
 }
 
 func (s *ScopedQuerier) UpdateSessionTenant(ctx context.Context, arg store.UpdateSessionTenantParams) error {
-	sc, err := CheckMethod(ctx, "UpdateSessionTenant", ScopeTenant)
-	if err != nil {
-		return err
-	}
-	if err := CheckTenantMatchInt8(sc, "UpdateSessionTenant", arg.TenantID); err != nil {
+	if _, err := CheckMethod(ctx, "UpdateSessionTenant", ScopePlatform); err != nil {
 		return err
 	}
 	return s.inner.UpdateSessionTenant(ctx, arg)

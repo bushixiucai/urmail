@@ -15,7 +15,7 @@ FROM users
 WHERE id = ?1 AND status = 'active';
 
 -- name: GetUserTenants :many
--- scope: tenant
+-- scope: platform
 
 SELECT t.id, t.brand_id, t.name, t.slug, t.status, r.role
 FROM user_tenant_roles r
@@ -31,7 +31,7 @@ SELECT CAST(EXISTS (
 ) AS BOOLEAN) AS is_admin;
 
 -- name: CreateSession :one
--- scope: tenant
+-- scope: platform
 
 INSERT INTO sessions (
     id, user_id, tenant_id, csrf_token, user_agent, ip, expires_at, credential_version, origin_host
@@ -40,7 +40,7 @@ FROM users u WHERE u.id=sqlc.arg(user_id) AND u.status='active' AND u.password_h
 RETURNING id, user_id, tenant_id, csrf_token, user_agent, ip, coalesce(expires_at, 0) AS expires_at, created_at, coalesce(mfa_verified_at, 0) AS mfa_verified_at, kind, credential_version, origin_host;
 
 -- name: GetSessionByID :one
--- scope: tenant
+-- scope: platform
 
 -- Authentication is valid only while the user is active and, when the
 -- session is bound to a tenant, while that tenant is active or pending.
@@ -75,7 +75,7 @@ JOIN users u ON u.id=r.user_id AND u.status='active'
 WHERE r.user_id = ?1 AND r.tenant_id = ?2;
 
 -- name: UpdateSessionTenant :exec
--- scope: tenant
+-- scope: platform
 
 UPDATE sessions
 SET tenant_id = ?2
@@ -115,7 +115,7 @@ DELETE FROM sessions WHERE user_id = ?1 AND id <> ?2;
 
 
 -- name: ListSessionsForUser :many
--- scope: tenant
+-- scope: platform
 
 SELECT id, user_id, tenant_id, user_agent, created_at, coalesce(expires_at, 0) AS expires_at
 FROM sessions
@@ -134,3 +134,8 @@ DELETE FROM sessions WHERE user_id = ?1 AND id = ?2;
 -- DisableUserMFA: ConsumeUserRecoveryCode（JSON 过滤在 Go 层完成，sqlc sqlite 不支持 json_each）。
 -- DeleteOtherUserSessions: scope-reason: 平台认证域按 user_id + 当前 session id 吊销其余会话（sessions.tenant_id 可空）
 -- DeleteUserSession: scope-reason: 平台认证域按 user_id + session id 吊销单条会话（sessions.tenant_id 可空）
+-- GetUserTenants: scope-reason: 平台认证域按 user_id 查询所属租户列表（登录选租户/切换租户前调用，无租户上下文）
+-- CreateSession: scope-reason: 平台认证域创建会话（无租户用户/多租户未选定或平台管理员会话的 tenant_id 可为 NULL）
+-- GetSessionByID: scope-reason: RequireAuth 鉴权中间件按 token 哈希查询 panel 会话（发生于解析并绑定 ScopeTenant 之前）
+-- UpdateSessionTenant: scope-reason: 平台认证域切换当前会话绑定的 tenant_id（由 userLevel 平台认证路由调用）
+-- ListSessionsForUser: scope-reason: 平台认证域按 user_id 列出会话（含 tenant_id IS NULL 的无租户/管理员会话）

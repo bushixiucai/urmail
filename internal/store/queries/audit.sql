@@ -1,7 +1,7 @@
 -- Append-only audit trail for tenant-visible history.
 
 -- name: CreateAuditLog :one
--- scope: tenant
+-- scope: platform
 
 INSERT INTO audit_logs (
     tenant_id, actor_user_id, actor_ip, action, target_type, target_id, detail
@@ -60,3 +60,4 @@ ORDER BY created_at DESC, id DESC LIMIT 10001;
 -- ListAuditLogsByTenant: RecordTenantAudit 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
 -- ListAuditLogsByTenant: urmail_record_audit = 元数据正则校验 + user_tenant_roles 断言 + 审计插入；
 -- ListAuditLogsByTenant: current_setting 会话绑定条款由 S2 装饰器承接（app_pending，见 S3 审计附录）。
+-- CreateAuditLog: scope-reason: 平台审计写入（RequirePlatformTx/AuditPlatform/独立故障审计调用，tenant_id 可为空）

@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
-
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -147,7 +147,11 @@ func finishIndependentAudit(c *gin.Context) {
 		return
 	}
 	state.recorded = true
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	actorID, _ := GetUserID(c)
+	ctx, cancel := context.WithTimeout(isolation.WithScope(context.Background(), isolation.ScopeContext{
+		Scope:   isolation.ScopePlatform,
+		ActorID: actorID,
+	}), 2*time.Second)
 	defer cancel()
 	if _, err := state.writer.CreateAuditLog(ctx, auditRecord(c)); err != nil {
 		RecordAuditFailure(false)

@@ -32,7 +32,8 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"code": "UNAUTHORIZED"}})
 		return
 	}
-	user, err := h.Store.GetUserByID(c, userID)
+	authCtx := authScopeContext(c)
+	user, err := h.Store.GetUserByID(authCtx, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "USER_NOT_FOUND"}})
 		return
@@ -52,7 +53,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "HASH_FAILED"}})
 		return
 	}
-	if _, err = h.Store.PlatformRotatePanelPassword(c, store.PlatformRotatePanelPasswordParams{UserID: userID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, PasswordHash: hash, KeepSession: keepSessionID(c)}); err != nil {
+	if _, err = h.Store.PlatformRotatePanelPassword(authCtx, store.PlatformRotatePanelPasswordParams{UserID: userID, ExpectedHash: user.PasswordHash, ExpectedVersion: user.CredentialVersion, PasswordHash: hash, KeepSession: keepSessionID(c)}); err != nil {
 		authError(c, 500, "DB_ERROR")
 		return
 	}

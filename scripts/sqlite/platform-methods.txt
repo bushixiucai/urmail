@@ -523,3 +523,10 @@ DeleteOtherUserSessions
 DeleteUserSession
 MarkSessionMFAVerified
 MarkSessionLegacyOnly
+# S3 platform-auth & platform-audit closure (v3.2 §2 & §7 S3):
+GetUserTenants
+CreateSession
+GetSessionByID
+UpdateSessionTenant
+ListSessionsForUser
+CreateAuditLog

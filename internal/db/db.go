@@ -11,6 +11,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -60,6 +61,7 @@ var ErrNoMailbox = errors.New("no mailbox in context")
 // Pool is a connection pool bound to one execution scope.
 type Pool struct {
 	*pgxpool.Pool
+	sqlite    *sql.DB
 	scope     isolation.Scope
 	admission *admission
 }
@@ -147,6 +149,9 @@ func (p *Pool) scopedTx(ctx context.Context, tenantID, userID, mailboxID int64) 
 	tx, err := p.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tenant transaction: %w", err)
+	}
+	if p.IsSQLite() {
+		return tx, nil
 	}
 	if _, err := tx.Exec(ctx, "SELECT set_config($1, $2, true)", tenantSetting, fmt.Sprintf("%d", tenantID)); err != nil {
 		_ = tx.Rollback(ctx)
