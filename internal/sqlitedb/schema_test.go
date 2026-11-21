@@ -52,8 +52,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 		t.Fatal(err)
 	}
-	if tables != 106 {
-		t.Fatalf("table count = %d, want 106 (102 business + 3 new + schema_migrations)", tables)
+	if tables != 108 {
+		t.Fatalf("table count = %d, want 108 (102 business + 3 webmail + 2 mailbox_readonly + schema_migrations)", tables)
 	}
 
 	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
@@ -84,8 +84,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("user_version = %d, want 2 (0001_init + 0002_write_side_effects)", version)
+	if version != 3 {
+		t.Fatalf("user_version = %d, want 3 (0001_init + 0002_write_side_effects + 0003_mailbox_readonly)", version)
 	}
 
 	// Idempotency: re-running the chain on the same database is a no-op.
@@ -98,8 +98,94 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("user_version after reruns = %d, want 2", version)
+	if version != 3 {
+		t.Fatalf("user_version after reruns = %d, want 3", version)
+	}
+}
+
+func TestMailboxReadOnlySchemaAlignment(t *testing.T) {
+	db := openMigrated(t)
+	ctx := context.Background()
+
+	expectedCols := map[string][]string{
+		"mailbox_folders": {
+			"id", "tenant_id", "mailbox_id", "name", "delimiter", "flags_json", "uid_validity", "created_at",
+		},
+		"mailbox_messages": {
+			"id", "tenant_id", "mailbox_id", "folder", "uid_validity", "uid",
+			"subject", "from_name", "from_email", "date_micros", "flags_json",
+			"size_bytes", "has_attachments", "preview", "message_id", "in_reply_to", "created_at",
+		},
+	}
+
+	for table, cols := range expectedCols {
+		rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+		if err != nil {
+			t.Fatalf("table_info(%s): %v", table, err)
+		}
+		got := map[string]bool{}
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notnull, pk int
+			var dflt sql.NullString
+			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			got[name] = true
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			t.Fatal(err)
+		}
+		_ = rows.Close()
+		for _, want := range cols {
+			if !got[want] {
+				t.Fatalf("table %s missing required column %q", table, want)
+			}
+		}
+	}
+
+	// Foreign key constraints reject orphan folder/message rows.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO mailbox_folders(tenant_id,mailbox_id,name) VALUES(999,999,'INBOX')`,
+	); err == nil {
+		t.Fatal("mailbox_folders accepted orphan foreign key")
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO mailbox_messages(tenant_id,mailbox_id,folder,uid_validity,uid,subject) VALUES(999,999,'INBOX',1,1,'x')`,
+	); err == nil {
+		t.Fatal("mailbox_messages accepted orphan foreign key")
+	}
+
+	// Valid parent rows allow folder/message persistence and enforce composite uniqueness.
+	for _, stmt := range []string{
+		`INSERT INTO brands(id,slug,name) VALUES(1,'b','B')`,
+		`INSERT INTO tenants(id,brand_id,name,slug,status) VALUES(7,1,'T','t','active')`,
+		`INSERT INTO domains(id,tenant_id,fqdn,status,verification_token,verified_at,provisioning_state) VALUES(31,7,'a.test','pending_dns','tok',1,'pending')`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE domains SET status='active', provisioning_state='ready' WHERE id=31`); err != nil {
+		t.Fatalf("activate seeded domain: %v", err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO mailboxes(id,tenant_id,domain_id,local_part,address,password_hash,quota_bytes,status,send_enabled) VALUES(11,7,31,'a','a@a.test','x',-1,'active',1)`,
+		`INSERT INTO mailbox_folders(tenant_id,mailbox_id,name) VALUES(7,11,'INBOX')`,
+		`INSERT INTO mailbox_messages(tenant_id,mailbox_id,folder,uid_validity,uid,subject) VALUES(7,11,'INBOX',42,101,'Hi')`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO mailbox_folders(tenant_id,mailbox_id,name) VALUES(7,11,'INBOX')`); err == nil {
+		t.Fatal("mailbox_folders allowed duplicate (tenant_id, mailbox_id, name)")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO mailbox_messages(tenant_id,mailbox_id,folder,uid_validity,uid,subject) VALUES(7,11,'INBOX',42,101,'Dup')`); err == nil {
+		t.Fatal("mailbox_messages allowed duplicate (tenant_id, mailbox_id, folder, uid_validity, uid)")
 	}
 }
 
@@ -300,8 +386,8 @@ func TestPrimaryKeyFidelity(t *testing.T) {
 	// Two hand-authored new tables (snoozes/labels) carry AUTOINCREMENT ids
 	// deliberately; every other AUTOINCREMENT must come from the PG serial
 	// registry.
-	if autoInSchema != len(autoAny)+2 {
-		t.Fatalf("AUTOINCREMENT in schema = %d, want registry %d + 2 new tables", autoInSchema, len(autoAny))
+	if autoInSchema != len(autoAny)+4 {
+		t.Fatalf("AUTOINCREMENT in schema = %d, want registry %d + 4 new tables", autoInSchema, len(autoAny))
 	}
 
 	// Natural-key tables must keep their PG PK type (QA P0-1): TEXT/UUID/
@@ -366,8 +452,8 @@ func TestDefaultFidelity(t *testing.T) {
 		nowDefaults += strings.Count(create, "CAST(strftime('%s','now') AS INTEGER)*1000000")
 	}
 	_ = rows.Close()
-	if nowDefaults != 127 {
-		t.Fatalf("now()-style defaults = %d, want 127 (QA P0-2)", nowDefaults)
+	if nowDefaults != 129 {
+		t.Fatalf("now()-style defaults = %d, want 129 (QA P0-2 plus mailbox read-only schema)", nowDefaults)
 	}
 	art := loadArtifacts(t)
 	if reg, ok := art["stripped_defaults"].([]any); ok && len(reg) > 0 {

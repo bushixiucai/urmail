@@ -21,6 +21,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/carddav"
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/i18n"
@@ -134,7 +135,7 @@ func workloadPoolDefaults(opts Options) Options {
 	return opts
 }
 
-func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth *store.Queries, pool *db.Pool) *gin.RouterGroup {
+func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth middleware.SessionStore, pool *db.Pool) *gin.RouterGroup {
 	group := v1.Group("")
 	if opts.Audit != nil {
 		group.Use(middleware.Audit(opts.Audit, opts.Logger))
@@ -145,6 +146,8 @@ func workloadTenantGroup(v1 *gin.RouterGroup, opts Options, auth *store.Queries,
 
 // New builds the gin engine with all middleware and routes attached.
 func New(opts Options) *gin.Engine {
+	db.SetIsolationHook(isolation.DBTXScopeHook())
+	db.SetQuerierHook(isolation.WrapQuerier)
 	// Single-engine guard (V2 §1.9): the SQLite runtime candidate must never
 	// share a process with PostgreSQL pools — any non-nil pool would let a
 	// feature route bypass the authoritative single store. Fail before any
@@ -236,9 +239,9 @@ func New(opts Options) *gin.Engine {
 	// tenants are covered by RLS, and the platform role bypasses it. All
 	// tenant-scoped handlers run inside the RequireTenantTx transaction
 	// instead, where the RLS context is published with SET LOCAL.
-	var authQueries *store.Queries
+	var authStore store.Querier
 	if opts.PlatformPool != nil {
-		authQueries = db.Queries(opts.PlatformPool)
+		authStore = db.Querier(opts.PlatformPool)
 	}
 	var appQueries *store.Queries
 	if opts.AppPool != nil {
@@ -256,7 +259,7 @@ func New(opts Options) *gin.Engine {
 		marketingPlatformQueries = db.Queries(opts.MarketingPlatformPool)
 	}
 
-	authHandler := handlers.NewAuthHandler(authQueries)
+	authHandler := handlers.NewAuthHandler(authStore)
 	authHandler.Secrets = opts.Secrets
 	var platformQueries *store.Queries
 	if opts.PlatformPool != nil {
@@ -306,11 +309,12 @@ func New(opts Options) *gin.Engine {
 	platformHandler.Reconcile = opts.Reconcile
 	legacyTenantID := int64(1)
 	if platformQueries != nil {
-		if tenants, err := platformQueries.PlatformListTenants(context.Background()); err == nil && len(tenants) > 0 {
+		platCtx := isolation.WithScope(context.Background(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+		if tenants, err := platformQueries.PlatformListTenants(platCtx); err == nil && len(tenants) > 0 {
 			legacyTenantID = tenants[0].ID
 		}
 	}
-	legacyHandler := handlers.NewLegacyHandler(authQueries, platformQueries, legacyTenantID, opts.Version)
+	legacyHandler := handlers.NewLegacyHandler(authStore, platformQueries, legacyTenantID, opts.Version)
 	notificationHandler := &handlers.NotificationHandler{Store: appQueries}
 	platformNotifications := &handlers.NotificationHandler{Store: platformQueries}
 	bridgeKey := []byte(opts.RoundcubeBridgeKey)
@@ -664,7 +668,7 @@ func New(opts Options) *gin.Engine {
 		}
 
 		// Legacy Mail-in-a-Box API. Basic auth; platform administrators only.
-		if authQueries != nil && platformQueries != nil {
+		if authStore != nil && platformQueries != nil {
 			legacy := v1.Group("/admin")
 			{
 				legacy.GET("/system/status", legacyHandler.Status)
@@ -685,17 +689,17 @@ func New(opts Options) *gin.Engine {
 
 		// Platform administration. These routes deliberately run outside
 		// RequireTenantTx: the platform role is cross-tenant by design.
-		if authQueries != nil && platformQueries != nil {
+		if authStore != nil && platformQueries != nil {
 			// Operator telemetry sits behind the platform admin session.
 			metrics := engine.Group("")
-			metrics.Use(middleware.RequireAuth(authQueries))
-			metrics.Use(middleware.RequirePlatformAdmin(authQueries))
+			metrics.Use(middleware.RequireAuth(authStore))
+			metrics.Use(middleware.RequirePlatformAdmin(authStore))
 			metrics.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 			platform := v1.Group("/platform")
 			platform.Use(middleware.AuditPlatform(opts.Audit, opts.Logger))
-			platform.Use(middleware.RequireAuth(authQueries))
-			platform.Use(middleware.RequirePlatformAdmin(authQueries))
+			platform.Use(middleware.RequireAuth(authStore))
+			platform.Use(middleware.RequirePlatformAdmin(authStore))
 			platform.Use(middleware.RequireCSRF())
 			{
 				platform.GET("/overview", platformHandler.Overview)
@@ -762,7 +766,7 @@ func New(opts Options) *gin.Engine {
 		// current tenant can still switch or sign out instead of getting a
 		// permanent 403 from RequireTenantTx.
 		userLevel := v1.Group("")
-		userLevel.Use(middleware.RequireAuth(authQueries))
+		userLevel.Use(middleware.RequireAuth(authStore))
 		userLevel.Use(middleware.RequireCSRF())
 		{
 			userLevel.POST("/auth/logout", authHandler.Logout)
@@ -790,24 +794,24 @@ func New(opts Options) *gin.Engine {
 		if opts.Audit != nil {
 			dnsPrepared.Use(middleware.Audit(opts.Audit, opts.Logger))
 		}
-		dnsPrepared.Use(middleware.RequireAuth(authQueries), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), dnsPlanHandler.Preflight, middleware.RequireTenantTx(opts.AppPool, opts.Logger), middleware.RequireRole("owner", "admin"))
+		dnsPrepared.Use(middleware.RequireAuth(authStore), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey), dnsPlanHandler.Preflight, middleware.RequireTenantTx(opts.AppPool, opts.Logger), middleware.RequireRole("owner", "admin"))
 		dnsPrepared.PUT("/domains/:id/dns/credentials", dnsPlanHandler.SaveCredential)
 		dnsPrepared.POST("/domains/:id/dns/plans", dnsPlanHandler.Preview)
 		dnsPrepared.POST("/domains/:id/dns/plans/:plan/reconcile", dnsPlanHandler.Reconcile)
 
 		// Network probes own short repository transactions, not a request-long tx.
 		probes := v1.Group("")
-		probes.Use(middleware.RequireAuth(authQueries), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey))
+		probes.Use(middleware.RequireAuth(authStore), middleware.RequireCSRF(), middleware.RateLimitWindow(5, time.Minute, middleware.TenantRateKey))
 		probes.POST("/domains/:id/verify", domainHandler.Verify)
 		probes.POST("/ai/health", aiConfiguration.Health)
 
-		aiProtected := workloadTenantGroup(v1, opts, authQueries, opts.AIAppPool)
-		marketingProtected := workloadTenantGroup(v1, opts, authQueries, opts.MarketingAppPool)
+		aiProtected := workloadTenantGroup(v1, opts, authStore, opts.AIAppPool)
+		marketingProtected := workloadTenantGroup(v1, opts, authStore, opts.MarketingAppPool)
 		protected := v1.Group("")
 		if opts.Audit != nil {
 			protected.Use(middleware.Audit(opts.Audit, opts.Logger))
 		}
-		protected.Use(middleware.RequireAuth(authQueries))
+		protected.Use(middleware.RequireAuth(authStore))
 		protected.Use(middleware.RequireTenantTx(opts.AppPool, opts.Logger))
 		protected.Use(middleware.RequireCSRF())
 		handlers.RegisterArchiveCaseRoutes(protected, opts.AppPool, opts.PlatformPool, opts.ArchiveRoot)
@@ -920,7 +924,7 @@ func New(opts Options) *gin.Engine {
 	}
 
 	// The legacy Mail-in-a-Box UI calls /admin/* directly, outside /api/v1.
-	if authQueries != nil && platformQueries != nil {
+	if authStore != nil && platformQueries != nil {
 		legacyRoot := engine.Group("/admin")
 		{
 			legacyRoot.GET("/system/status", legacyHandler.Status)

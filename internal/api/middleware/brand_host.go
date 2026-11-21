@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -101,7 +102,8 @@ func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
 type pgBrandHostLookup struct{ pool *db.Pool }
 
 func (p pgBrandHostLookup) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
-	row, err := db.Queries(p.pool).PlatformGetBrandHostLifecycle(ctx, host)
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	row, err := db.Queries(p.pool).PlatformGetBrandHostLifecycle(platCtx, host)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, "", false, nil
 	}
@@ -112,7 +114,8 @@ func (p pgBrandHostLookup) BrandHostLifecycle(ctx context.Context, host string) 
 }
 
 func (p pgBrandHostLookup) BrandHostCertEligible(ctx context.Context, host string) (bool, error) {
-	return db.Queries(p.pool).PlatformBrandHostCertEligible(ctx, host)
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	return db.Queries(p.pool).PlatformBrandHostCertEligible(platCtx, host)
 }
 
 // BrandTenantAllowed is checked after current session authentication.
@@ -120,7 +123,8 @@ func BrandTenantAllowed(ctx context.Context, pool *db.Pool, tenant, brand int64)
 	if pool == nil {
 		return false
 	}
-	allowed, err := db.Queries(pool).PlatformTenantBrandMatches(ctx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+	allowed, err := db.Queries(pool).PlatformTenantBrandMatches(platCtx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
 	return err == nil && allowed
 }
 

@@ -46,24 +46,12 @@ func newSlice1Server(t *testing.T) (*sql.DB, *httptest.Server) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	// One-off migration path (test scaffolding role = controlled urmailctl).
-	for _, name := range []string{"0001_init.sql", "0002_write_side_effects.sql"} {
-		body, readErr := os.ReadFile(filepath.Join("..", "..", "migrations_sqlite", name))
-		if readErr != nil {
-			t.Fatalf("read %s: %v", name, readErr)
-		}
-		if _, execErr := db.ExecContext(ctx, string(body)); execErr != nil {
-			t.Fatalf("apply %s: %v", name, execErr)
-		}
-	}
-	// The controlled migrator sets user_version outside the file transaction
-	// (an in-file PRAGMA is a no-op there); mirror that one-off behavior.
-	if _, execErr := db.ExecContext(ctx, "PRAGMA user_version = 2"); execErr != nil {
-		t.Fatalf("stamp user_version: %v", execErr)
+	if err := sqlitedb.Migrate(ctx, db, os.DirFS(filepath.Join("..", "..")), "migrations_sqlite"); err != nil {
+		t.Fatalf("migrate sqlite: %v", err)
 	}
 	var version int
-	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 2 {
-		t.Fatalf("schema version=%d err=%v, want 2", version, err)
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
+		t.Fatalf("schema version=%d err=%v, want %d", version, err, sqlitedb.ExpectedSchemaVersion)
 	}
 
 	password := "slice1-mailbox-password"

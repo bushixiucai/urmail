@@ -26,6 +26,7 @@ import (
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/i18n"
@@ -135,6 +136,11 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+
+	// Ensure S3 application-layer isolation hooks are active in daemon startup
+	// across both SQLite single-engine and PG runtimes.
+	db.SetIsolationHook(isolation.DBTXScopeHook())
+	db.SetQuerierHook(isolation.WrapQuerier)
 
 	// Validate the encryption authority before opening databases or starting any
 	// listener or worker. A missing key must never enable plaintext secret writes.
@@ -508,7 +514,7 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 		Version:               version,
 		MyHostname:            cfg.MyHostname,
 		Reconcile:             reconcilePipeline,
-		Audit:                 db.Queries(platformPool),
+		Audit:                 db.Querier(platformPool),
 		Secrets:               secretBox,
 		DNSProvider:           dnsProvider,
 		DNSManagedZones:       cfg.DNSManagedZones,
@@ -546,7 +552,8 @@ func loadRuntimeSecrets(cfg *config.Config) (handlers.SecretsBox, error) {
 // purgeExpiredSessions deletes expired sessions once an hour until ctx is
 // canceled.
 func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger) {
-	queries := db.Queries(pool)
+	queries := db.Querier(pool)
+	systemCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeSystem})
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -554,7 +561,7 @@ func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := queries.DeleteExpiredSessions(ctx); err != nil {
+			if err := queries.DeleteExpiredSessions(systemCtx); err != nil {
 				logger.Warn("purge expired sessions", zap.Error(err))
 			}
 		}

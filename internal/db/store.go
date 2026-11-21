@@ -13,6 +13,12 @@ var (
 	querierHook   isolation.QuerierHook = isolation.WrapQuerier
 )
 
+func init() {
+	// S3 production fail-closed default: enforce DBTX context scope across
+	// db.Queries and (*store.Queries).WithTx from process start.
+	SetIsolationHook(isolation.DBTXScopeHook())
+}
+
 // SetIsolationHook installs the S3 scope-assertion decorator on db.Queries and
 // syncs the store.WithTx boundary so transaction-derived Queries preserve the
 // same decorator. Passing nil restores direct pass-through (used only by tests).

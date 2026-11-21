@@ -25,9 +25,9 @@ import (
 
 const (
 	// ExpectedSchemaVersion is the current migrations_sqlite chain tip
-	// (0001_init.sql + 0002_write_side_effects.sql). Startup verification fails
-	// closed unless PRAGMA user_version matches this exact version.
-	ExpectedSchemaVersion = 2
+	// (0001_init.sql + 0002_write_side_effects.sql + 0003_mailbox_readonly.sql).
+	// Startup verification fails closed unless PRAGMA user_version matches this exact version.
+	ExpectedSchemaVersion = 3
 
 	busyTimeoutMs    = 5000
 	pragmaTimeout    = 10 * time.Second

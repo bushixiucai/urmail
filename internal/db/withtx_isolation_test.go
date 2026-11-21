@@ -82,7 +82,7 @@ func (r spyErrRow) Scan(...any) error { return r.err }
 
 func TestQueriesWithTxPreservesIsolationBoundary(t *testing.T) {
 	SetIsolationHook(isolation.DBTXScopeHook())
-	t.Cleanup(func() { SetIsolationHook(nil) })
+	t.Cleanup(func() { SetIsolationHook(isolation.DBTXScopeHook()) })
 
 	spy := &spyDBTX{}
 	tx := &spyTx{parent: spy}
@@ -364,7 +364,7 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 	}
 
 	SetIsolationHook(isolation.DBTXScopeHook())
-	t.Cleanup(func() { SetIsolationHook(nil) })
+	t.Cleanup(func() { SetIsolationHook(isolation.DBTXScopeHook()) })
 
 	q := Queries(shim)
 	if _, err := q.ArchiveCasesCreate(platformCtx, store.ArchiveCasesCreateParams{

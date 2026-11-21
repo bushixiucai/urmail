@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/sievegate"
 )
 
@@ -72,9 +73,12 @@ func startSieveGate(ctx context.Context, pool *db.Pool, logger *zap.Logger) (fun
 	}
 	ready := &atomic.Bool{}
 	ready.Store(true)
-	q := db.Queries(pool)
+	q := db.Querier(pool)
 	go func() {
-		err := sievegate.Serve(ctx, listener, mailUID, q.PlatformSieveOutboundAllowed, func(_ string, err error) { logger.Warn("personal Sieve outbound denied; inbound kept", zap.Error(err)) })
+		err := sievegate.Serve(ctx, listener, mailUID, func(callCtx context.Context, mailbox string) (bool, error) {
+			platCtx := isolation.WithScope(callCtx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
+			return q.PlatformSieveOutboundAllowed(platCtx, mailbox)
+		}, func(_ string, err error) { logger.Warn("personal Sieve outbound denied; inbound kept", zap.Error(err)) })
 		ready.Store(false)
 		if err != nil && ctx.Err() == nil {
 			logger.Error("personal Sieve entitlement listener stopped; outbound fails closed", zap.Error(err))

@@ -60,7 +60,7 @@ func openSQLiteMiddlewarePools(t *testing.T) (*sql.DB, *db.Pool, *db.Pool, int64
 
 func TestSQLiteRequireTenantTxGetPostPutDeleteAndAudit(t *testing.T) {
 	db.SetIsolationHook(isolation.DBTXScopeHook())
-	t.Cleanup(func() { db.SetIsolationHook(nil) })
+	t.Cleanup(func() { db.SetIsolationHook(isolation.DBTXScopeHook()) })
 
 	sqliteDB, appPool, platformPool, tid, ownerID, outsiderID := openSQLiteMiddlewarePools(t)
 	gin.SetMode(gin.TestMode)
@@ -181,7 +181,7 @@ func TestSQLiteRequireTenantTxGetPostPutDeleteAndAudit(t *testing.T) {
 
 func TestSQLiteRequirePlatformTxWithIsolationHook(t *testing.T) {
 	db.SetIsolationHook(isolation.DBTXScopeHook())
-	t.Cleanup(func() { db.SetIsolationHook(nil) })
+	t.Cleanup(func() { db.SetIsolationHook(isolation.DBTXScopeHook()) })
 
 	sqliteDB, _, platformPool, tid, ownerID, _ := openSQLiteMiddlewarePools(t)
 	gin.SetMode(gin.TestMode)

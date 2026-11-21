@@ -7,6 +7,7 @@ package sqlitedb_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,7 +105,8 @@ func TestOpenExistingStartupVerification(t *testing.T) {
 	}
 
 	// 4. Version mismatch / gap (want version+1) must fail closed.
-	if _, err := sqlitedb.OpenExisting(ctx, target, sqlitedb.ExpectedSchemaVersion+1); err == nil || !strings.Contains(err.Error(), "user_version = 2") {
+	wantVersionMsg := fmt.Sprintf("user_version = %d", sqlitedb.ExpectedSchemaVersion)
+	if _, err := sqlitedb.OpenExisting(ctx, target, sqlitedb.ExpectedSchemaVersion+1); err == nil || !strings.Contains(err.Error(), wantVersionMsg) {
 		t.Fatalf("expected version gap rejection, got %v", err)
 	}
 

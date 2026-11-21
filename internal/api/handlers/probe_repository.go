@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -73,10 +74,12 @@ func (r probeRepository) transaction(ctx context.Context, actor ProbeActor, fn f
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: actor.TenantID, ActorID: actor.UserID})
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actor.UserID})
 	q := db.Queries(tx)
 	// Match tenant mutations' existing lock protocol, but only for these short
 	// database phases. In particular no lock is held during DNS/HTTP I/O.
-	if err = q.PlatformLockBillingTenant(ctx, actor.TenantID); err != nil {
+	if err = q.PlatformLockBillingTenant(platCtx, actor.TenantID); err != nil {
 		return err
 	}
 	role, err := q.GetUserRoleForTenant(ctx, store.GetUserRoleForTenantParams{UserID: actor.UserID, TenantID: actor.TenantID})
@@ -127,7 +130,8 @@ func (r *domainVerificationRepository) CompleteVerification(ctx context.Context,
 	return
 }
 func healthSnapshot(ctx context.Context, q *store.Queries, actor ProbeActor) (AIHealthSnapshot, error) {
-	cfg, err := q.PlatformGetAIProvider(ctx, actor.TenantID)
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actor.UserID})
+	cfg, err := q.PlatformGetAIProvider(platCtx, actor.TenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AIHealthSnapshot{}, nil
 	}
@@ -136,7 +140,7 @@ func healthSnapshot(ctx context.Context, q *store.Queries, actor ProbeActor) (AI
 	}
 	s := AIHealthSnapshot{Configuration: cfg, Present: true}
 	if cfg.Provider != "ollama" {
-		s.CloudAuthorized, err = q.AICloudAuthorized(ctx, store.AICloudAuthorizedParams{TenantID: actor.TenantID, ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash})
+		s.CloudAuthorized, err = q.AICloudAuthorized(platCtx, store.AICloudAuthorizedParams{TenantID: actor.TenantID, ConfigurationDigest: cfg.ConfigurationDigest, ScopeHash: AICloudScopeHash})
 	}
 	return s, err
 }
@@ -167,6 +171,7 @@ func (r *aiHealthRepository) CompleteHealth(ctx context.Context, actor ProbeActo
 }
 func probeAudit(ctx context.Context, q *store.Queries, actor ProbeActor, action, target, outcome string) error {
 	detail, _ := json.Marshal(map[string]string{"outcome": outcome})
-	_, err := q.CreateAuditLog(ctx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: actor.TenantID, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor.UserID, Valid: true}, Action: action, TargetType: pgtype.Text{String: target, Valid: true}, Detail: detail})
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actor.UserID})
+	_, err := q.CreateAuditLog(platCtx, store.CreateAuditLogParams{TenantID: pgtype.Int8{Int64: actor.TenantID, Valid: true}, ActorUserID: pgtype.Int8{Int64: actor.UserID, Valid: true}, Action: action, TargetType: pgtype.Text{String: target, Valid: true}, Detail: detail})
 	return err
 }

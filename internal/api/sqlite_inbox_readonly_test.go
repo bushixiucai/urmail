@@ -111,33 +111,9 @@ func TestSQLiteReadOnlyFoldersAndMessagesSeededAndIsolated(t *testing.T) {
 	ctx := context.Background()
 	const password = "slice1-mailbox-password"
 
+	// Seed persisted rows directly into the migrated mailbox_folders / mailbox_messages tables
+	// (no ad-hoc DDL; both tables come from migrations_sqlite/0003_mailbox_readonly.sql).
 	for _, stmt := range []string{
-		`CREATE TABLE mailbox_folders (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			tenant_id INTEGER NOT NULL,
-			mailbox_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			delimiter TEXT NOT NULL DEFAULT '/',
-			flags_json TEXT NOT NULL DEFAULT '[]'
-		)`,
-		`CREATE TABLE mailbox_messages (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			tenant_id INTEGER NOT NULL,
-			mailbox_id INTEGER NOT NULL,
-			folder TEXT NOT NULL,
-			uid_validity INTEGER NOT NULL DEFAULT 1,
-			uid INTEGER NOT NULL,
-			subject TEXT NOT NULL,
-			from_name TEXT NOT NULL DEFAULT '',
-			from_email TEXT NOT NULL DEFAULT '',
-			date_micros INTEGER NOT NULL DEFAULT 0,
-			flags_json TEXT NOT NULL DEFAULT '[]',
-			size_bytes INTEGER NOT NULL DEFAULT 0,
-			has_attachments INTEGER NOT NULL DEFAULT 0,
-			preview TEXT NOT NULL DEFAULT '',
-			message_id TEXT NOT NULL DEFAULT '',
-			in_reply_to TEXT NOT NULL DEFAULT ''
-		)`,
 		`INSERT INTO mailbox_folders(tenant_id,mailbox_id,name,delimiter,flags_json) VALUES
 			(7,11,'INBOX','/','["\\HasNoChildren"]'),
 			(7,11,'Archive','/','["\\HasNoChildren","\\Archive"]')`,

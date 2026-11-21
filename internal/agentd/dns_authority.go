@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -182,7 +183,8 @@ func (m *ApplyManager) authorizedDNS(ctx context.Context, domain string, tenantI
 	if m.cfg == nil || m.cfg.DNSSecondaryOnly || m.cfg.PreserveExternalNSD || m.pool == nil {
 		return store.PlatformGetDNSSecurityRow{}, fmt.Errorf("%w: authoritative DNS management is unavailable", ErrRejected)
 	}
-	row, err := db.Queries(m.pool.Pool).PlatformGetDNSSecurity(ctx, domain)
+	platCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actorID})
+	row, err := db.Queries(m.pool.Pool).PlatformGetDNSSecurity(platCtx, domain)
 	if err != nil {
 		return row, err
 	}
@@ -190,7 +192,8 @@ func (m *ApplyManager) authorizedDNS(ctx context.Context, domain string, tenantI
 		return row, fmt.Errorf("%w: DNS zone ownership changed", ErrRejected)
 	}
 	if actorID != 0 {
-		role, roleErr := db.Queries(m.pool).GetUserRoleForTenant(ctx, store.GetUserRoleForTenantParams{UserID: actorID, TenantID: row.OwnerTenantID})
+		roleCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: row.OwnerTenantID, ActorID: actorID})
+		role, roleErr := db.Queries(m.pool).GetUserRoleForTenant(roleCtx, store.GetUserRoleForTenantParams{UserID: actorID, TenantID: row.OwnerTenantID})
 		if roleErr != nil || (role != "owner" && role != "admin") {
 			return row, fmt.Errorf("%w: DNS authority role revoked", ErrRejected)
 		}

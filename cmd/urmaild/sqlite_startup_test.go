@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,8 +16,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
+	"github.com/bushixiucai/urmail/internal/store"
 )
 
 func seedMigratedSQLiteFixture(t *testing.T, dbPath string) {
@@ -317,4 +321,91 @@ func TestDaemonSQLiteStartupFailsClosedOnBadSchemaOrMixedConfig(t *testing.T) {
 			t.Fatalf("expected missing SQLitePath rejection, got %v", err)
 		}
 	})
+}
+
+func TestDaemonSQLiteDefaultIsolationHookActive(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "urmail-hook.sqlite")
+	seedMigratedSQLiteFixture(t, dbPath)
+
+	masterKey := filepath.Join(dir, "master.key")
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(masterKey, keyBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		ListenAddr:    "127.0.0.1:0",
+		DBEngine:      "sqlite",
+		SQLitePath:    dbPath,
+		MasterKeyPath: masterKey,
+		MyHostname:    "mail.a.example.test",
+		WebmailNative: true,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, cleanup, err := prepareDaemon(ctx, cfg, zap.NewNop())
+	if err != nil {
+		t.Fatalf("prepareDaemon: %v", err)
+	}
+	defer cleanup()
+
+	sqliteDB, err := sqlitedb.OpenExisting(ctx, dbPath, sqlitedb.ExpectedSchemaVersion)
+	if err != nil {
+		t.Fatalf("OpenExisting: %v", err)
+	}
+	defer func() { _ = sqliteDB.Close() }()
+
+	pool, err := db.NewSQLitePool(sqliteDB, isolation.ScopeTenant)
+	if err != nil {
+		t.Fatalf("NewSQLitePool: %v", err)
+	}
+
+	queries := db.Queries(pool)
+	querier := db.Querier(pool)
+
+	// Negative: unscoped & wrong-scope & cross-tenant calls fail closed by default
+	// after prepareDaemon without any test-only hook registration.
+	if _, err := queries.GetMailboxByID(ctx, store.GetMailboxByIDParams{TenantID: 7, ID: 11}); !errors.Is(err, isolation.ErrMissingTenantScope) {
+		t.Fatalf("unscoped db.Queries.GetMailboxByID err=%v, want ErrMissingTenantScope", err)
+	}
+	if _, err := querier.GetMailboxByID(ctx, store.GetMailboxByIDParams{TenantID: 7, ID: 11}); !errors.Is(err, isolation.ErrMissingTenantScope) {
+		t.Fatalf("unscoped db.Querier.GetMailboxByID err=%v, want ErrMissingTenantScope", err)
+	}
+	tenant7Ctx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: 7, ActorID: 1})
+	platformCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: 1})
+	if _, err := querier.GetMailboxByID(tenant7Ctx, store.GetMailboxByIDParams{TenantID: 8, ID: 11}); !errors.Is(err, isolation.ErrCrossTenantAccess) {
+		t.Fatalf("cross-tenant db.Querier.GetMailboxByID err=%v, want ErrCrossTenantAccess", err)
+	}
+	if _, err := querier.GetSessionByID(tenant7Ctx, "s"); !errors.Is(err, isolation.ErrPlatformScopeRequired) {
+		t.Fatalf("tenant ctx calling GetSessionByID err=%v, want ErrPlatformScopeRequired", err)
+	}
+	if _, err := queries.GetSessionByID(tenant7Ctx, "s"); !errors.Is(err, isolation.ErrPlatformScopeRequired) {
+		t.Fatalf("tenant ctx calling queries.GetSessionByID err=%v, want ErrPlatformScopeRequired", err)
+	}
+
+	// WithTx transaction boundary inherits DBTXScopeHook installed by prepareDaemon.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("pool.Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := queries.WithTx(tx)
+	if _, err := qtx.GetMailboxByID(platformCtx, store.GetMailboxByIDParams{TenantID: 7, ID: 11}); !errors.Is(err, isolation.ErrMissingTenantScope) {
+		t.Fatalf("platform ctx calling WithTx tenant query err=%v, want ErrMissingTenantScope", err)
+	}
+
+	// Positive: matching scope passes cleanly on daemon-verified SQLite DB.
+	mb, err := qtx.GetMailboxByID(tenant7Ctx, store.GetMailboxByIDParams{TenantID: 7, ID: 11})
+	if err != nil || mb.Address != "alice@a.example.test" {
+		t.Fatalf("valid WithTx tenant query failed: mb=%+v err=%v", mb, err)
+	}
+	mb2, err := querier.GetMailboxByID(tenant7Ctx, store.GetMailboxByIDParams{TenantID: 7, ID: 11})
+	if err != nil || mb2.ID != 11 {
+		t.Fatalf("valid ScopedQuerier query failed: mb=%+v err=%v", mb2, err)
+	}
 }

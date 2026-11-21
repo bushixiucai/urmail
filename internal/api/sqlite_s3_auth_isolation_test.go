@@ -73,7 +73,7 @@ func setupS3AuthSQLiteEnv(t *testing.T) (*sql.DB, *db.Pool, *db.Pool, string) {
 
 func TestSQLiteS3AuthRequireAuthTenantTxAndPlatformTxEndToEnd(t *testing.T) {
 	db.SetIsolationHook(isolation.DBTXScopeHook())
-	t.Cleanup(func() { db.SetIsolationHook(nil) })
+	t.Cleanup(func() { db.SetIsolationHook(isolation.DBTXScopeHook()) })
 
 	sqliteDB, appPool, platformPool, password := setupS3AuthSQLiteEnv(t)
 	gin.SetMode(gin.TestMode)

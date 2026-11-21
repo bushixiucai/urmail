@@ -443,20 +443,6 @@ func (s SQLiteMailboxStore) verifyActiveMailbox(ctx context.Context, tenantID, m
 	return err
 }
 
-func (s SQLiteMailboxStore) sqliteTableExists(ctx context.Context, name string) (bool, error) {
-	var found int
-	err := s.DB.QueryRowContext(ctx,
-		`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1`, name,
-	).Scan(&found)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return found == 1, nil
-}
-
 func defaultSQLiteFolders() []webmail.Folder {
 	specs := []struct {
 		name  string
@@ -487,55 +473,48 @@ func (s SQLiteMailboxStore) ListFolders(ctx context.Context, tenantID, mailboxID
 	if err := s.verifyActiveMailbox(ctx, tenantID, mailboxID); err != nil {
 		return nil, err
 	}
-	hasTable, err := s.sqliteTableExists(ctx, "mailbox_folders")
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT name, delimiter, flags_json FROM mailbox_folders WHERE tenant_id = ?1 AND mailbox_id = ?2 ORDER BY id ASC`,
+		tenantID, mailboxID,
+	)
 	if err != nil {
 		return nil, err
 	}
-	if hasTable {
-		rows, err := s.DB.QueryContext(ctx,
-			`SELECT name, delimiter, flags_json FROM mailbox_folders WHERE tenant_id = ?1 AND mailbox_id = ?2 ORDER BY id ASC`,
-			tenantID, mailboxID,
-		)
-		if err != nil {
+	defer rows.Close()
+	out := make([]webmail.Folder, 0)
+	for rows.Next() {
+		var name, delim, flagsJSON string
+		if err := rows.Scan(&name, &delim, &flagsJSON); err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-		out := make([]webmail.Folder, 0)
-		for rows.Next() {
-			var name, delim, flagsJSON string
-			if err := rows.Scan(&name, &delim, &flagsJSON); err != nil {
-				return nil, err
-			}
-			if delim == "" {
-				delim = "/"
-			}
-			var flags []string
-			if flagsJSON != "" {
-				_ = json.Unmarshal([]byte(flagsJSON), &flags)
-			}
-			if flags == nil {
-				flags = []string{}
-			}
-			out = append(out, webmail.Folder{
-				Name:      name,
-				NameEnc:   webmail.EncodeFolderName(name),
-				Delimiter: delim,
-				Flags:     flags,
-			})
+		if delim == "" {
+			delim = "/"
 		}
-		if err := rows.Err(); err != nil {
-			return nil, err
+		var flags []string
+		if flagsJSON != "" {
+			_ = json.Unmarshal([]byte(flagsJSON), &flags)
 		}
-		if len(out) > 0 {
-			return out, nil
+		if flags == nil {
+			flags = []string{}
 		}
+		out = append(out, webmail.Folder{
+			Name:      name,
+			NameEnc:   webmail.EncodeFolderName(name),
+			Delimiter: delim,
+			Flags:     flags,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) > 0 {
+		return out, nil
 	}
 	return defaultSQLiteFolders(), nil
 }
 
 // ListMessages returns read-only message summaries for one folder scoped
-// strictly to (tenantID, mailboxID). When no mailbox_messages table exists,
-// it returns an empty page (200 OK) for any valid folder of the active mailbox.
+// strictly to (tenantID, mailboxID) from the migrated mailbox_messages table.
 func (s SQLiteMailboxStore) ListMessages(ctx context.Context, tenantID, mailboxID int64, folder string, opts webmail.ListOpts) (webmail.ListResult, error) {
 	folders, err := s.ListFolders(ctx, tenantID, mailboxID)
 	if err != nil {
@@ -553,21 +532,6 @@ func (s SQLiteMailboxStore) ListMessages(ctx context.Context, tenantID, mailboxI
 	}
 
 	opts = webmail.ClampListOpts(opts)
-	empty := webmail.ListResult{
-		UIDValidity:  1,
-		Messages:     []webmail.MessageSummary{},
-		Total:        0,
-		Sort:         opts.SortBy,
-		ServerSorted: true,
-	}
-
-	hasTable, err := s.sqliteTableExists(ctx, "mailbox_messages")
-	if err != nil {
-		return webmail.ListResult{}, err
-	}
-	if !hasTable {
-		return empty, nil
-	}
 
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT uid_validity, uid, subject, from_name, from_email, date_micros, flags_json, size_bytes, has_attachments, preview, message_id, in_reply_to
