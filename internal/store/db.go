@@ -20,7 +20,7 @@ type DBTX interface {
 // New constructs Queries. Production callers must use db.Queries
 // (internal/db/store.go), the single assembly point (v3.2 §2.1).
 func New(db DBTX) *Queries {
-	return &Queries{db: db}
+	return &Queries{db: PostgresCompatibleDBTX(db)}
 }
 
 type Queries struct {
@@ -29,6 +29,6 @@ type Queries struct {
 
 func (q *Queries) WithTx(tx pgx.Tx) *Queries {
 	return &Queries{
-		db: tx,
+		db: PostgresCompatibleDBTX(tx),
 	}
 }

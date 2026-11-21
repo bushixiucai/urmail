@@ -104,6 +104,14 @@ def main() -> int:
                 sys.stderr.write(proc.stdout)
                 sys.stderr.write(proc.stderr)
                 return proc.returncode
+        proc = subprocess.run([sys.executable, str(ROOT / "scripts/sqlite/gen_pg_query_manifest.py"),
+                               "--source-dir", str(TEMP_DIR / "postgres"),
+                               "--output", str(TEMP_DIR / "postgres/query_manifest.go")],
+                              cwd=ROOT, text=True, capture_output=True)
+        if proc.returncode != 0:
+            sys.stderr.write(proc.stdout)
+            sys.stderr.write(proc.stderr)
+            return proc.returncode
         ok = all(compare(label, expected, scratch) for _, _, scratch, expected, label in configs)
         if not ok:
             return 1

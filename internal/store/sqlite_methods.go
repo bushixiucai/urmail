@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	report "github.com/bushixiucai/urmail/internal/domain/marketingreport"
+	pgstore "github.com/bushixiucai/urmail/internal/store/generated/postgres"
 	"github.com/bushixiucai/urmail/internal/timeutil"
 )
 
@@ -227,6 +228,9 @@ const setUserMFARecoveryCodesSQL = `UPDATE users SET mfa_recovery_codes = ?2 WHE
 // in Go because sqlc's sqlite engine cannot resolve json_each columns.
 // Returns the number of codes removed (0 or 1).
 func (q *Queries) ConsumeUserRecoveryCode(ctx context.Context, userID int64, hash string) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ConsumeRecoveryCode(ctx, pgstore.ConsumeRecoveryCodeParams{ID: userID, Column2: hash})
+	}
 	var raw string
 	if err := q.db.QueryRow(ctx, getUserMFARecoveryCodesSQL, userID).Scan(&raw); err != nil {
 		return 0, err
@@ -487,6 +491,12 @@ func (q *Queries) RecordTenantAudit(ctx context.Context, arg RecordTenantAuditPa
 	}
 	if arg.Status < 100 || arg.Status > 599 {
 		return fmt.Errorf("invalid audit metadata: status %d", arg.Status)
+	}
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).RecordTenantAudit(ctx, pgstore.RecordTenantAuditParams{
+			TenantID: arg.TenantID, UserID: arg.UserID, ActorIp: arg.ActorIp,
+			Action: arg.Action, Target: arg.Target, Status: arg.Status,
+		})
 	}
 	outcome := "succeeded"
 	if arg.Status >= 400 {
@@ -1326,6 +1336,12 @@ WHERE tenant_id=?1 AND domain_id=?2 AND status IN('draft','confirmed','applying'
 // invalidates every live plan for the domain. Mirrors
 // urmail_save_dns_credential.
 func (q *Queries) SaveDNSCredential(ctx context.Context, arg SaveDNSCredentialParams) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).SaveDNSCredential(ctx, pgstore.SaveDNSCredentialParams{
+			TenantID: arg.TenantID, DomainID: arg.DomainID, Provider: arg.Provider,
+			ZoneName: arg.ZoneName, ZoneID: arg.ZoneID, EncryptedSecret: arg.EncryptedSecret,
+		})
+	}
 	if _, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID); err != nil {
 		return 0, err
 	}
@@ -1390,6 +1406,14 @@ WHERE tenant_id=?1 AND domain_id=?2 AND id=?3 AND version=?4 AND enabled AND rev
 
 // CreateDNSPlan records a 15-minute preview plan. Mirrors urmail_create_dns_plan.
 func (q *Queries) CreateDNSPlan(ctx context.Context, arg CreateDNSPlanParams) (pgtype.UUID, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).CreateDNSPlan(ctx, pgstore.CreateDNSPlanParams{
+			ID: arg.ID, TenantID: arg.TenantID, DomainID: arg.DomainID,
+			CredentialID: arg.CredentialID, CredentialVersion: arg.CredentialVersion,
+			Kind: arg.Kind, DomainDigest: arg.DomainDigest, SourceDigest: arg.SourceDigest,
+			BeforeRecords: arg.BeforeRecords, DesiredRecords: arg.DesiredRecords, Changes: arg.Changes,
+		})
+	}
 	uid, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID)
 	if err != nil {
 		return pgtype.UUID{}, err
@@ -1494,6 +1518,11 @@ WHERE tenant_id=?1 AND id=?2`
 // ConfirmDNSPlan validates the preview digest, expiry and credential version,
 // then confirms the plan. Mirrors urmail_confirm_dns_plan.
 func (q *Queries) ConfirmDNSPlan(ctx context.Context, arg ConfirmDNSPlanParams) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).ConfirmDNSPlan(ctx, pgstore.ConfirmDNSPlanParams{
+			TenantID: arg.TenantID, ID: arg.ID, SourceDigest: arg.SourceDigest,
+		})
+	}
 	id, ok := uuidText(arg.ID)
 	if !ok {
 		return pgError("23514", "DNS_PLAN_NOT_FOUND")

@@ -36,6 +36,8 @@ import (
 // drives (pgx.Row is just Scan(dest ...any)).
 type pgxShim struct{ db *sql.DB }
 
+func (pgxShim) IsSQLite() bool { return true }
+
 func (s pgxShim) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
 		return pgconn.CommandTag{}, err
