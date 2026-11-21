@@ -1643,7 +1643,12 @@ func (s *ScopedQuerier) GetRetentionPolicy(ctx context.Context, tenantID int64) 
 }
 
 func (s *ScopedQuerier) GetRetentionPolicyAuthority(ctx context.Context, arg store.GetRetentionPolicyAuthorityParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "GetRetentionPolicyAuthority", ScopePlatform); err != nil {
+	sc, err := CheckMethod(ctx, "GetRetentionPolicyAuthority", ScopeTenant)
+	if err != nil {
+		var zero bool
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "GetRetentionPolicyAuthority", arg.TenantID); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -1709,7 +1714,7 @@ func (s *ScopedQuerier) GetTenantIDBySenderDomain(ctx context.Context, fqdn stri
 }
 
 func (s *ScopedQuerier) GetTenantSetting(ctx context.Context, arg store.GetTenantSettingParams) (store.Settings, error) {
-	if _, err := CheckMethod(ctx, "GetTenantSetting", ScopePlatform); err != nil {
+	if _, err := CheckMethod(ctx, "GetTenantSetting", ScopeTenant); err != nil {
 		var zero store.Settings
 		return zero, err
 	}

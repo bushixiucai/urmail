@@ -38,7 +38,8 @@ type GetTenantSettingParams struct {
 	Key     string `json:"key"`
 }
 
-// scope: platform
+// scope: tenant
+// scope-reason: tenant-scoped settings row (scope_id = ctx tenant via RequireTenantTx)
 func (q *Queries) GetTenantSetting(ctx context.Context, arg GetTenantSettingParams) (Settings, error) {
 	row := q.db.QueryRow(ctx, getTenantSetting, arg.ScopeID, arg.Key)
 	var i Settings

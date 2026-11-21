@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/timeutil"
 	"math"
 	"net/http"
@@ -104,7 +105,12 @@ func (h *TenantHandler) Current(c *gin.Context) {
 	}
 
 	// 1. Fetch 3-layer settings: Platform (0), Brand (tenant.BrandID), Tenant (tenant.ID)
-	rawSettings, _ := q.ListSettingsByScopes(c.Request.Context(), store.ListSettingsByScopesParams{
+	// ListSettingsByScopes merges brand+tenant rows (platform-domain by
+	// annotation); this route only feeds it the caller's own brand/tenant ids,
+	// so the elevation mirrors the dns_preflight platCtx precedent.
+	actorID, _ := middleware.GetUserID(c)
+	platCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actorID})
+	rawSettings, _ := q.ListSettingsByScopes(platCtx, store.ListSettingsByScopesParams{
 		ScopeID:   tenant.BrandID,
 		ScopeID_2: tenant.ID,
 	})

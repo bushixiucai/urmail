@@ -16,7 +16,6 @@ DisableUserMFA
 ConsumeRecoveryCode
 UpdateUserPassword
 SoftDeleteArchiveEntry
-GetRetentionPolicyAuthority
 GetChannelByCode
 PlatformUpsertMailboxPhishingFinding
 PlatformGetMailboxPhishingFinding
@@ -453,7 +452,6 @@ PlatformUsageMailboxes
 PlatformRecordMailboxUsage
 PlatformRecordMailboxUsageError
 ListSettingsByScopes
-GetTenantSetting
 DeleteTenantSetting
 ListVisibleAnnouncements
 GetTenantByID

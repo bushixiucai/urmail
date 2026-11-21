@@ -78,7 +78,7 @@ ORDER BY u.email LIMIT 500;
 UPDATE retention_policies SET active=false,updated_at=(CAST(strftime('%s','now') AS INTEGER)*1000000) WHERE tenant_id = @tenant_id;
 
 -- name: GetRetentionPolicyAuthority :one
--- scope: platform
+-- scope: tenant
 
 SELECT CAST(EXISTS(SELECT 1 FROM compliance_grants g JOIN user_tenant_roles r ON r.tenant_id=g.tenant_id AND r.user_id=g.user_id
  WHERE g.tenant_id=@tenant_id AND g.id=@grant_id AND g.user_id=@created_by AND g.scope='retention_manage'

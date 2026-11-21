@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -149,6 +150,10 @@ func sanitizeDeliveryError(err error) string {
 // notificationCatalog uses existing user and inherited tenant preferences. Both
 // templates come from one catalog, including when a missing translation falls back.
 func (w *Worker) notificationCatalog(ctx context.Context, q *store.Queries, item store.NotificationOutbox) (*i18n.Catalog, error) {
+	// Daemon-side catalog resolution: user/tenant/settings reads are
+	// platform-domain queries; elevate once for this read-only block
+	// (purgeExpiredSessions precedent). No request scope is involved.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	locale := ""
 	usable := func(value string) bool {
 		return value != "" && w.Messages.Get(value).Locale == value

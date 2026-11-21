@@ -9,7 +9,8 @@ WHERE key<>'billing_document_profile' AND ((scope = 'platform' AND scope_id = 0)
 ORDER BY key ASC;
 
 -- name: GetTenantSetting :one
--- scope: platform
+-- scope: tenant
+-- scope-reason: tenant-scoped settings row (scope_id = ctx tenant via RequireTenantTx)
 
 SELECT scope, scope_id, key, value, updated_at
 FROM settings

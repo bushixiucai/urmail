@@ -157,7 +157,7 @@ type GetRetentionPolicyAuthorityParams struct {
 	CreatedBy int64 `json:"created_by"`
 }
 
-// scope: platform
+// scope: tenant
 func (q *Queries) GetRetentionPolicyAuthority(ctx context.Context, arg GetRetentionPolicyAuthorityParams) (bool, error) {
 	row := q.db.QueryRow(ctx, getRetentionPolicyAuthority, arg.TenantID, arg.GrantID, arg.CreatedBy)
 	var allowed bool

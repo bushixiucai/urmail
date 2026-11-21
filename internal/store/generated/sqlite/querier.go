@@ -276,7 +276,7 @@ type Querier interface {
 	GetRecallTarget(ctx context.Context, arg GetRecallTargetParams) (GetRecallTargetRow, error)
 	// scope: tenant
 	GetRetentionPolicy(ctx context.Context, tenantID int64) (RetentionPolicies, error)
-	// scope: platform
+	// scope: tenant
 	GetRetentionPolicyAuthority(ctx context.Context, arg GetRetentionPolicyAuthorityParams) (bool, error)
 	// scope: platform
 	// Authentication is valid only while the user is active and, when the
@@ -297,7 +297,8 @@ type Querier interface {
 	// scope: tenant
 	// Platform-only collector resolution; sender domain is matched to active owned domain.
 	GetTenantIDBySenderDomain(ctx context.Context, fqdn string) (int64, error)
-	// scope: platform
+	// scope: tenant
+	// scope-reason: tenant-scoped settings row (scope_id = ctx tenant via RequireTenantTx)
 	GetTenantSetting(ctx context.Context, arg GetTenantSettingParams) (Settings, error)
 	// scope: tenant
 	GetTenantStorageUsage(ctx context.Context, tenantID int64) (GetTenantStorageUsageRow, error)

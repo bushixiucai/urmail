@@ -71,7 +71,7 @@
   "UpsertRetentionPolicy": "tenant",
   "ListComplianceGrantRecipients": "tenant",
   "DisableTenantRetentionPolicy": "tenant",
-  "GetRetentionPolicyAuthority": "platform",
+  "GetRetentionPolicyAuthority": "tenant",
   "TenantDeliveryOutcomeCounts": "tenant",
   "GetChannelByCode": "platform",
   "CreateChannelAttribution": "tenant",
@@ -620,7 +620,7 @@
   "ListRecalls": "tenant",
   "GetRecallTarget": "tenant",
   "ListSettingsByScopes": "platform",
-  "GetTenantSetting": "platform",
+  "GetTenantSetting": "tenant",
   "UpsertTenantSetting": "tenant",
   "DeleteTenantSetting": "platform",
   "CreateSupportTicket": "tenant",
@@ -717,8 +717,8 @@
   "PlatformVerifyBrandHostProof": "platform"
  },
  "counts": {
-  "tenant": 224,
-  "platform": 470,
+  "tenant": 226,
+  "platform": 468,
   "system": 21,
   "pre-auth": 0
  },
