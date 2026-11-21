@@ -1860,7 +1860,7 @@ export function WebmailNextWorkbench({
         {/* Pane 2: Message List (380px on desktop; full width on mobile/tablet when browsing) */}
         <div
           data-testid="webmail-message-list-pane"
-          className={`h-full border-r border-[var(--vellum-border)] bg-[var(--vellum-surface)] flex flex-col shrink-0 transition-all ${
+          className={`h-full min-w-0 border-r border-[var(--vellum-border)] bg-[var(--vellum-surface)] flex flex-col transition-all md:shrink-0 ${
             selectedUid
               ? "hidden md:flex md:w-[340px] lg:w-[380px]"
               : "flex-1 md:w-[340px] lg:w-[380px]"
