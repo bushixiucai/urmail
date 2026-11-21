@@ -39,7 +39,9 @@ func currentTxBoundaryHook() func(DBTX, *Queries) *Queries {
 }
 
 // New constructs Queries. Production callers must use db.Queries
-// (internal/db/store.go), the single assembly point (v3.2 §2.1).
+// (internal/db/store.go), the single assembly point (v3.2 §2.1). PostgreSQL
+// handles select SQL from the isolated PG sqlc output; SQLite handles retain
+// the SQLite-generated statements.
 func New(db DBTX) *Queries {
 	return &Queries{db: PostgresCompatibleDBTX(db)}
 }
@@ -49,17 +51,11 @@ type Queries struct {
 	boundaryHook func(DBTX, *Queries) *Queries
 }
 
-<<<<<<< HEAD
-func (q *Queries) WithTx(tx pgx.Tx) *Queries {
-	return &Queries{
-		db: PostgresCompatibleDBTX(tx),
-=======
 // AttachBoundary binds the assembly boundary hook onto q so subsequent WithTx
 // calls preserve identical isolation checks.
 func (q *Queries) AttachBoundary(hook func(DBTX, *Queries) *Queries) *Queries {
 	if q == nil {
 		return nil
->>>>>>> b3dab7cb (phase1(s2/s3): close Queries.WithTx bypass and add 702-method ScopedQuerier)
 	}
 	q.boundaryHook = hook
 	return q
@@ -83,11 +79,12 @@ func (q *Queries) WrapDB(wrap func(DBTX) DBTX) *Queries {
 }
 
 // WithTx derives a transaction-bound *Queries through the active db.Queries /
-// isolation boundary (v3.2 §2.1).
+// isolation boundary and preserves the native PostgreSQL dialect adapter.
 func (q *Queries) WithTx(tx pgx.Tx) *Queries {
 	if tx == nil {
 		panic("store.Queries.WithTx: nil pgx.Tx")
 	}
+	wrappedTx := PostgresCompatibleDBTX(tx)
 	var hook func(DBTX, *Queries) *Queries
 	if q != nil {
 		hook = q.boundaryHook
@@ -96,11 +93,11 @@ func (q *Queries) WithTx(tx pgx.Tx) *Queries {
 		hook = currentTxBoundaryHook()
 	}
 	derived := &Queries{
-		db:           tx,
+		db:           wrappedTx,
 		boundaryHook: hook,
 	}
 	if hook != nil {
-		if wrapped := hook(tx, derived); wrapped != nil {
+		if wrapped := hook(wrappedTx, derived); wrapped != nil {
 			wrapped.boundaryHook = hook
 			return wrapped
 		}

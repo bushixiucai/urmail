@@ -49,7 +49,7 @@ type CreateSessionParams struct {
 	ExpectedVersion int64       `json:"expected_version"`
 }
 
-// scope: tenant
+// scope: platform
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessions, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.ID,
@@ -182,7 +182,7 @@ WHERE s.id = ?1 AND s.kind = 'panel'
   AND (s.tenant_id IS NULL OR t.status IN ('active', 'pending'))
 `
 
-// scope: tenant
+// scope: platform
 // Authentication is valid only while the user is active and, when the
 // session is bound to a tenant, while that tenant is active or pending.
 // This makes disabling a user / suspending a tenant take effect on the next
@@ -334,7 +334,7 @@ type GetUserTenantsRow struct {
 	Role    string `json:"role"`
 }
 
-// scope: tenant
+// scope: platform
 func (q *Queries) GetUserTenants(ctx context.Context, userID int64) ([]GetUserTenantsRow, error) {
 	rows, err := q.db.Query(ctx, getUserTenants, userID)
 	if err != nil {
@@ -379,7 +379,7 @@ type ListSessionsForUserRow struct {
 	ExpiresAt int64       `json:"expires_at"`
 }
 
-// scope: tenant
+// scope: platform
 func (q *Queries) ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error) {
 	rows, err := q.db.Query(ctx, listSessionsForUser, userID)
 	if err != nil {
@@ -437,7 +437,7 @@ type UpdateSessionTenantParams struct {
 	TenantID pgtype.Int8 `json:"tenant_id"`
 }
 
-// scope: tenant
+// scope: platform
 func (q *Queries) UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error {
 	_, err := q.db.Exec(ctx, updateSessionTenant, arg.ID, arg.TenantID)
 	return err

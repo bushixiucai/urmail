@@ -104,7 +104,7 @@ type Querier interface {
 	// scope: tenant
 	CreateApplicationCredential(ctx context.Context, arg CreateApplicationCredentialParams) (CreateApplicationCredentialRow, error)
 	// Append-only audit trail for tenant-visible history.
-	// scope: tenant
+	// scope: platform
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLogs, error)
 	// scope: tenant
 	CreateChannelAttribution(ctx context.Context, arg CreateChannelAttributionParams) (ChannelAttribution, error)
@@ -146,7 +146,7 @@ type Querier interface {
 	CreateOrderOnboardingTask(ctx context.Context, arg CreateOrderOnboardingTaskParams) (OnboardingTasks, error)
 	// scope: tenant
 	CreateRecall(ctx context.Context, arg CreateRecallParams) (RecallRequests, error)
-	// scope: tenant
+	// scope: platform
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Sessions, error)
 	// scope: tenant
 	CreateSupportTicket(ctx context.Context, arg CreateSupportTicketParams) (Tickets, error)
@@ -276,7 +276,7 @@ type Querier interface {
 	GetRetentionPolicy(ctx context.Context, tenantID int64) (RetentionPolicies, error)
 	// scope: platform
 	GetRetentionPolicyAuthority(ctx context.Context, arg GetRetentionPolicyAuthorityParams) (bool, error)
-	// scope: tenant
+	// scope: platform
 	// Authentication is valid only while the user is active and, when the
 	// session is bound to a tenant, while that tenant is active or pending.
 	// This makes disabling a user / suspending a tenant take effect on the next
@@ -303,7 +303,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error)
 	// scope: tenant
 	GetUserRoleForTenant(ctx context.Context, arg GetUserRoleForTenantParams) (string, error)
-	// scope: tenant
+	// scope: platform
 	GetUserTenants(ctx context.Context, userID int64) ([]GetUserTenantsRow, error)
 	// Archive / legal hold (tenant-scoped). M3 review P2-3: the tables existed
 	// without any queries; writes are wired by the platform side later.
@@ -379,7 +379,7 @@ type Querier interface {
 	ListOnboardingTasksByTenant(ctx context.Context, tenantID int64) ([]OnboardingTasks, error)
 	// scope: tenant
 	ListRecalls(ctx context.Context, tenantID int64) ([]RecallRequests, error)
-	// scope: tenant
+	// scope: platform
 	ListSessionsForUser(ctx context.Context, userID int64) ([]ListSessionsForUserRow, error)
 	// scope: tenant
 	ListSupportAttachments(ctx context.Context, arg ListSupportAttachmentsParams) ([]ListSupportAttachmentsRow, error)
@@ -530,7 +530,7 @@ type Querier interface {
 	UpdateMailboxStatus(ctx context.Context, arg UpdateMailboxStatusParams) (Mailboxes, error)
 	// scope: tenant
 	UpdateMarketingFlowDefinition(ctx context.Context, arg UpdateMarketingFlowDefinitionParams) (MarketingFlowDefinitions, error)
-	// scope: tenant
+	// scope: platform
 	UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) error
 	// scope: platform
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error

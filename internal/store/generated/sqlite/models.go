@@ -716,6 +716,17 @@ type MailboxEvents struct {
 	ReminderScannedAt   int64  `json:"reminder_scanned_at"`
 }
 
+type MailboxFolders struct {
+	ID          int64  `json:"id"`
+	TenantID    int64  `json:"tenant_id"`
+	MailboxID   int64  `json:"mailbox_id"`
+	Name        string `json:"name"`
+	Delimiter   string `json:"delimiter"`
+	FlagsJson   string `json:"flags_json"`
+	UidValidity int64  `json:"uid_validity"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
 type MailboxImportItems struct {
 	TenantID         int64       `json:"tenant_id"`
 	MailboxID        int64       `json:"mailbox_id"`
@@ -779,6 +790,26 @@ type MailboxJobs struct {
 	LastError      pgtype.Text `json:"last_error"`
 	CreatedAt      int64       `json:"created_at"`
 	UpdatedAt      int64       `json:"updated_at"`
+}
+
+type MailboxMessages struct {
+	ID             int64  `json:"id"`
+	TenantID       int64  `json:"tenant_id"`
+	MailboxID      int64  `json:"mailbox_id"`
+	Folder         string `json:"folder"`
+	UidValidity    int64  `json:"uid_validity"`
+	Uid            int64  `json:"uid"`
+	Subject        string `json:"subject"`
+	FromName       string `json:"from_name"`
+	FromEmail      string `json:"from_email"`
+	DateMicros     int64  `json:"date_micros"`
+	FlagsJson      string `json:"flags_json"`
+	SizeBytes      int64  `json:"size_bytes"`
+	HasAttachments int64  `json:"has_attachments"`
+	Preview        string `json:"preview"`
+	MessageID      string `json:"message_id"`
+	InReplyTo      string `json:"in_reply_to"`
+	CreatedAt      int64  `json:"created_at"`
 }
 
 type MailboxOperationTickets struct {

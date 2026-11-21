@@ -117,6 +117,7 @@ sqlc: ## B1：独立生成 PostgreSQL 与 SQLite 查询表面（不切换运行�
 	python3 scripts/sqlite/b5_query_set.py --check
 	python3 scripts/sqlite/gen_sqlc_overrides.py
 	python3 scripts/sqlite/wrap_nullable_ts_projections.py
+	$(SQLC) generate -f sqlc.yaml
 	python3 scripts/sqlite/gen_sqlc.py
 	python3 scripts/sqlite/gen_querier.py
 	python3 scripts/sqlite/check_store_boundary.py

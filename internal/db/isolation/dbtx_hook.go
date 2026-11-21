@@ -85,6 +85,13 @@ func (s *scopedDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
 	return b.Begin(ctx)
 }
 
+// IsSQLite preserves dialect selection through the isolation wrapper so
+// handwritten SQLite methods keep their native SQL implementation.
+func (s *scopedDBTX) IsSQLite() bool {
+	marker, ok := s.inner.(interface{ IsSQLite() bool })
+	return ok && marker.IsSQLite()
+}
+
 // WrapDBTX wraps tx in a scope-enforcing DBTX without instantiating a raw
 // store.Queries outside db.Queries.
 func WrapDBTX(tx store.DBTX) store.DBTX {

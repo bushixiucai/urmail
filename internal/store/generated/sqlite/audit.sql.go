@@ -34,7 +34,7 @@ type CreateAuditLogParams struct {
 }
 
 // Append-only audit trail for tenant-visible history.
-// scope: tenant
+// scope: platform
 func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLogs, error) {
 	row := q.db.QueryRow(ctx, createAuditLog,
 		arg.TenantID,
