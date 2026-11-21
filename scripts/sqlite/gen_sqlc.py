@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
-"""gen_sqlc.py — the B5a sqlc entry point.
+"""Generate SQLite query code into its isolated output package.
 
-Why not plain `sqlc generate`?
-  * sqlc's SQLite engine slices statements by byte offset; the repo keeps its
-    Chinese notes at end-of-file (the only safe position), so the query set
-    itself is fine, but the generated models would also pick up the webmail-v1
-    parity tables (snoozes/labels/message_labels + three ALTERed columns) that
-    B5a deliberately does not adopt yet.
-  * while platform-only files are blocked, only the tenant `*.sql.go` files are
-    regenerated; models.go / db.go / querier.go are held at their pre-switch
-    shape until the remaining platform files are unblocked.
+The SQLite sqlc engine emits driver-specific SQL and types. Its output lives in
+internal/store/generated/sqlite; the independently generated PostgreSQL package
+lives in internal/store/generated/postgres. This script only updates SQLite
+query files and never writes into the shared legacy runtime package.
 
-So: generate into a scratch directory with the same sqlc.yaml, copy back only
-the `*.sql.go` files, and — with --check — fail if they differ from the repo.
+B1 keeps the current runtime assembly unchanged. check_dual_sqlc.py verifies
+both generated outputs and compiles them independently.
 """
 import argparse
 import os
@@ -24,8 +19,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CFG = ROOT / "sqlc.yaml"
-GEN = ROOT / ".tmp" / "sqlc_gen"
-STORE = ROOT / "internal" / "store"
+GEN = ROOT / ".tmp" / "sqlc_gen_sqlite"
+STORE = ROOT / "internal" / "store" / "generated" / "sqlite"
 
 
 def scratch_config():

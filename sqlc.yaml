@@ -37,8 +37,8 @@ sql:
       - "internal/store/queries/transport_security.sql"
     gen:
       go:
-        package: "store"
-        out: "internal/store"
+        package: "storesqlite"
+        out: "internal/store/generated/sqlite"
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_prepared_queries: false

@@ -137,22 +137,17 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # B5a: sqlc runs on the SQLite engine and only over the tenant query set
-      # (platform-only files are blocked in scripts/sqlite/b5-blocked-files.json);
-      # querier.go is the union of the whole *Queries surface. All five checks
-      # must be green before the tree is considered consistent (the fifth is the
-      # B5b nullable-timestamp gate: every projection of a NULLable timestamp
-      # column must read coalesce(col, 0), or the int64 scan fails on SQLite).
+      # B1 keeps PostgreSQL and SQLite sqlc outputs in separate configs and
+      # generated package directories. The check regenerates both into private
+      # scratch paths, compares them to their own checked-in outputs, and compiles
+      # both packages; SQLite generation must never write over PostgreSQL output.
       - name: sqlc drift check
         run: |
           bash scripts/ci-go-install.sh github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
           export PATH="$(go env GOPATH)/bin:$PATH"
-          python3 scripts/sqlite/b5_query_set.py --check
-          python3 scripts/sqlite/gen_sqlc_overrides.py --check
-          python3 scripts/sqlite/gen_sqlc.py --check
-          python3 scripts/sqlite/gen_querier.py --check
-          python3 scripts/sqlite/nullable_timestamp_scan.py --check
-          git diff --exit-code -- internal/store
+          make sqlc-check
+          git diff --exit-code -- internal/store/generated
+
 
       # Phase 1 S0: deprecated DB functions must stay unreferenced in code.
       # Gate modes need no catalog dump (no database in this job); the decoy
