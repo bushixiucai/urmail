@@ -86,3 +86,13 @@ ArchiveCasesRequestApproval tenant
 SetMarketingReportBudget platform
 MarketingCampaignReportSnapshot tenant
 MarketingFlowReportSnapshot tenant
+
+# -- B5a blocked legacy .sql.go methods still present on store.Querier (split in queries/*.sql)
+PlatformApplyArchiveRetention system
+PlatformRecordMarketingFlowExecution system
+PlatformRevokeMailboxCredentials system
+PlatformRefreshAIAlerts platform
+PlatformRefreshDNSOnboardingAlerts platform
+PlatformResetBrandTheme platform
+PlatformUnbindBrandHost platform
+PlatformVerifyBrandHostProof platform

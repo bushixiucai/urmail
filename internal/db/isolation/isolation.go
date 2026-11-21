@@ -1,10 +1,12 @@
 // Package isolation defines the S2/S3 method-scope registry and decorator
-// seam attached to db.Queries (v3.2 §2.1).
+// seam attached to db.Queries and db.Querier (v3.2 §2.1 & §7 S3).
 //
-// In S2, scripts/sqlite/method_scopes.json is mirrored here as an embedded
-// registry so runtime and compile-time checks share one authoritative map of
-// every sqlc method to its required scope (tenant, platform, system, pre-auth).
-// S3 wraps *store.Queries at db.Queries with full method-level enforcement.
+// scripts/sqlite/method_scopes.json is mirrored here as an embedded registry so
+// runtime and compile-time checks share one authoritative map of every
+// store.Querier method to its required scope (tenant, platform, system,
+// pre-auth). ScopedQuerier wraps store.Querier across all 702 methods at
+// db.Querier, and DBTXScopeHook enforces context scope across *store.Queries
+// and (*store.Queries).WithTx at db.Queries.
 package isolation
 
 import (
@@ -13,7 +15,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -28,9 +33,31 @@ const (
 	ScopePreAuth  Scope = "pre-auth"
 )
 
-// ErrMissingScope is returned when a method executes without a matching scope
-// in the caller context.
-var ErrMissingScope = errors.New("db isolation: missing or mismatched scope context")
+var (
+	// ErrMissingScope is the base error returned when a method executes without a
+	// matching scope in the caller context.
+	ErrMissingScope = errors.New("db isolation: missing or mismatched scope context")
+
+	// ErrMissingTenantScope is returned when a tenant-scoped method executes
+	// without a valid positive TenantID in ScopeTenant context.
+	ErrMissingTenantScope = errors.New("db isolation: missing or invalid tenant scope")
+
+	// ErrCrossTenantAccess is returned when a tenant-scoped method receives a
+	// TenantID parameter that differs from the authenticated context TenantID.
+	ErrCrossTenantAccess = errors.New("db isolation: cross-tenant access denied")
+
+	// ErrPlatformScopeRequired is returned when a platform-scoped method is
+	// invoked outside ScopePlatform (including from a tenant context).
+	ErrPlatformScopeRequired = errors.New("db isolation: platform scope required")
+
+	// ErrSystemScopeRequired is returned when a system-scoped method is invoked
+	// outside ScopeSystem.
+	ErrSystemScopeRequired = errors.New("db isolation: system scope required")
+
+	// ErrPreAuthScopeRequired is returned when a pre-auth-scoped method is
+	// invoked outside ScopePreAuth.
+	ErrPreAuthScopeRequired = errors.New("db isolation: pre-auth scope required")
+)
 
 type scopeContextKey struct{}
 
@@ -110,6 +137,62 @@ func RegisteredMethods() (int, error) {
 	return len(reg), nil
 }
 
+// AllMethodScopes returns a copy of the registered method -> scope map.
+func AllMethodScopes() (map[string]Scope, error) {
+	reg, err := loadRegistry()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Scope, len(reg))
+	maps.Copy(out, reg)
+	return out, nil
+}
+
+func scopeMismatchError(method string, expected Scope, got *Scope) error {
+	var specific error
+	switch expected {
+	case ScopeTenant:
+		specific = ErrMissingTenantScope
+	case ScopePlatform:
+		specific = ErrPlatformScopeRequired
+	case ScopeSystem:
+		specific = ErrSystemScopeRequired
+	case ScopePreAuth:
+		specific = ErrPreAuthScopeRequired
+	default:
+		return fmt.Errorf("%w: method %s has unsupported scope %q", ErrMissingScope, method, expected)
+	}
+	if got == nil {
+		if expected == ScopeTenant {
+			return fmt.Errorf("%w: %w: method %s requires positive tenant_id in tenant scope", specific, ErrMissingScope, method)
+		}
+		return fmt.Errorf("%w: %w: method %s requires %s scope", specific, ErrMissingScope, method, expected)
+	}
+	if expected == ScopeTenant {
+		return fmt.Errorf("%w: %w: method %s requires positive tenant_id in tenant scope (got scope=%s)", specific, ErrMissingScope, method, *got)
+	}
+	return fmt.Errorf("%w: %w: method %s requires %s scope, got %s", specific, ErrMissingScope, method, expected, *got)
+}
+
+func validateScopeContext(ctx context.Context, method string, expected Scope) (ScopeContext, error) {
+	sc, has := ScopeFromContext(ctx)
+	if !has {
+		return ScopeContext{}, scopeMismatchError(method, expected, nil)
+	}
+	if expected == ScopeTenant {
+		if sc.Scope != ScopeTenant || sc.TenantID <= 0 {
+			got := sc.Scope
+			return ScopeContext{}, scopeMismatchError(method, expected, &got)
+		}
+		return sc, nil
+	}
+	if sc.Scope != expected {
+		got := sc.Scope
+		return ScopeContext{}, scopeMismatchError(method, expected, &got)
+	}
+	return sc, nil
+}
+
 // CheckContext verifies that ctx holds a ScopeContext compatible with method's
 // declared scope in method_scopes.json. Unknown methods fail closed.
 func CheckContext(ctx context.Context, method string) error {
@@ -120,25 +203,75 @@ func CheckContext(ctx context.Context, method string) error {
 	if !ok {
 		return fmt.Errorf("%w: unregistered method %q", ErrMissingScope, method)
 	}
-	sc, has := ScopeFromContext(ctx)
-	if !has {
-		return fmt.Errorf("%w: method %s requires %s scope", ErrMissingScope, method, expected)
+	_, err = validateScopeContext(ctx, method, expected)
+	return err
+}
+
+// CheckMethod verifies that method is registered in method_scopes.json with
+// the compile-time expected scope and that ctx holds a matching ScopeContext.
+func CheckMethod(ctx context.Context, method string, compiled Scope) (ScopeContext, error) {
+	expected, ok, err := MethodScope(method)
+	if err != nil {
+		return ScopeContext{}, err
 	}
-	if expected == ScopeTenant {
-		if sc.Scope != ScopeTenant || sc.TenantID <= 0 {
-			return fmt.Errorf("%w: method %s requires positive tenant_id in tenant scope", ErrMissingScope, method)
-		}
-		return nil
+	if !ok {
+		return ScopeContext{}, fmt.Errorf("%w: unregistered method %q", ErrMissingScope, method)
 	}
-	if sc.Scope != expected {
-		return fmt.Errorf("%w: method %s requires %s scope, got %s", ErrMissingScope, method, expected, sc.Scope)
+	if expected != compiled {
+		return ScopeContext{}, fmt.Errorf("%w: method %s scope drift (compiled=%s registry=%s)", ErrMissingScope, method, compiled, expected)
+	}
+	return validateScopeContext(ctx, method, expected)
+}
+
+// CheckTenantMatch verifies that a tenant-scoped method's explicit TenantID
+// argument matches the authenticated ScopeContext TenantID.
+func CheckTenantMatch(sc ScopeContext, method string, paramTenantID int64) error {
+	if sc.Scope != ScopeTenant || sc.TenantID <= 0 {
+		return fmt.Errorf("%w: %w: method %s requires positive tenant_id in tenant scope", ErrMissingTenantScope, ErrMissingScope, method)
+	}
+	if paramTenantID != sc.TenantID {
+		return fmt.Errorf("%w: method %s param tenant_id=%d != context tenant_id=%d", ErrCrossTenantAccess, method, paramTenantID, sc.TenantID)
+	}
+	return nil
+}
+
+// CheckTenantMatchInt8 verifies that a tenant-scoped method's nullable
+// pgtype.Int8 TenantID argument is valid and equals the authenticated TenantID.
+func CheckTenantMatchInt8(sc ScopeContext, method string, paramTenantID pgtype.Int8) error {
+	if sc.Scope != ScopeTenant || sc.TenantID <= 0 {
+		return fmt.Errorf("%w: %w: method %s requires positive tenant_id in tenant scope", ErrMissingTenantScope, ErrMissingScope, method)
+	}
+	if !paramTenantID.Valid || paramTenantID.Int64 != sc.TenantID {
+		return fmt.Errorf("%w: method %s param tenant_id=(valid=%v,%d) != context tenant_id=%d", ErrCrossTenantAccess, method, paramTenantID.Valid, paramTenantID.Int64, sc.TenantID)
 	}
 	return nil
 }
 
 // Hook is the S2/S3 assembly seam invoked by db.Queries(tx). S3 populates a
-// generated WithTenant decorator here without modifying callers.
+// scope-enforcing DBTX decorator here without modifying callers.
 type Hook func(tx store.DBTX, q *store.Queries) *store.Queries
 
 // QuerierHook is the interface-level seam for S3 decorators wrapping store.Querier.
 type QuerierHook func(tx store.DBTX, q store.Querier) store.Querier
+
+// ScopedQuerier is the S3 scope-enforcing store.Querier decorator covering all
+// 702 methods in internal/store/querier.go.
+type ScopedQuerier struct {
+	inner store.Querier
+}
+
+var _ store.Querier = (*ScopedQuerier)(nil)
+
+// NewScopedQuerier wraps inner with S3 method-level scope and tenant-id
+// enforcement. Nil inputs panic immediately to fail closed.
+func NewScopedQuerier(inner store.Querier) *ScopedQuerier {
+	if inner == nil {
+		panic("isolation.NewScopedQuerier: nil inner store.Querier")
+	}
+	return &ScopedQuerier{inner: inner}
+}
+
+// WrapQuerier implements QuerierHook by wrapping q in ScopedQuerier.
+func WrapQuerier(_ store.DBTX, q store.Querier) store.Querier {
+	return NewScopedQuerier(q)
+}

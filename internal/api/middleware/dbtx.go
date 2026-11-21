@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -44,6 +45,11 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 			return
 		}
 		userID, _ := GetUserID(c)
+		c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{
+			Scope:    isolation.ScopeTenant,
+			TenantID: tenantID,
+			ActorID:  userID,
+		}))
 
 		tx, err := pool.UserTx(c.Request.Context(), tenantID, userID)
 		if err != nil {

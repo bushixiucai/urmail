@@ -120,6 +120,7 @@ sqlc: ## B1：独立生成 PostgreSQL 与 SQLite 查询表面（不切换运行�
 	python3 scripts/sqlite/gen_sqlc.py
 	python3 scripts/sqlite/gen_querier.py
 	python3 scripts/sqlite/check_store_boundary.py
+	python3 scripts/sqlite/gen_isolation_decorator.py
 	python3 scripts/sqlite/nullable_timestamp_scan.py --check
 
 .PHONY: sqlc-check
@@ -130,6 +131,7 @@ sqlc-check: ## 校验旧运行时门与隔离 PG/SQLite 生成物
 	python3 scripts/sqlite/gen_sqlc.py --check
 	python3 scripts/sqlite/gen_querier.py --check
 	python3 scripts/sqlite/check_store_boundary.py --check
+	python3 scripts/sqlite/gen_isolation_decorator.py --check
 	python3 scripts/sqlite/nullable_timestamp_scan.py --check
 	python3 scripts/sqlite/check_dual_sqlc.py
 

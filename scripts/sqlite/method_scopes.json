@@ -706,12 +706,20 @@
   "ArchiveCasesRequestApproval": "tenant",
   "SetMarketingReportBudget": "platform",
   "MarketingCampaignReportSnapshot": "tenant",
-  "MarketingFlowReportSnapshot": "tenant"
+  "MarketingFlowReportSnapshot": "tenant",
+  "PlatformApplyArchiveRetention": "system",
+  "PlatformRecordMarketingFlowExecution": "system",
+  "PlatformRevokeMailboxCredentials": "system",
+  "PlatformRefreshAIAlerts": "platform",
+  "PlatformRefreshDNSOnboardingAlerts": "platform",
+  "PlatformResetBrandTheme": "platform",
+  "PlatformUnbindBrandHost": "platform",
+  "PlatformVerifyBrandHostProof": "platform"
  },
  "counts": {
   "tenant": 219,
-  "platform": 470,
-  "system": 18,
+  "platform": 475,
+  "system": 21,
   "pre-auth": 0
  },
  "tenant_id_unbound": [],
