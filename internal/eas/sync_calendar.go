@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -38,7 +39,7 @@ func loadEvent(ctx context.Context, b *SyncBackend, req *SyncRequest, id int64) 
 		return storedEvent{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	row, err := store.New(tx).PlatformGetEvent(ctx, store.PlatformGetEventParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, ID: id})
+	row, err := db.Queries(tx).PlatformGetEvent(ctx, store.PlatformGetEventParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, ID: id})
 	if err != nil {
 		return storedEvent{}, err
 	}
@@ -56,7 +57,7 @@ func listCalendarEvents(ctx context.Context, b *SyncBackend, req *SyncRequest, c
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	rows, err := store.New(tx).PlatformListCalendarSyncEvents(ctx, store.PlatformListCalendarSyncEventsParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, CalendarID: calendarID, PageLimit: MaxItemsPerRequest + 1})
+	rows, err := db.Queries(tx).PlatformListCalendarSyncEvents(ctx, store.PlatformListCalendarSyncEventsParams{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID, CalendarID: calendarID, PageLimit: MaxItemsPerRequest + 1})
 	if err != nil {
 		return nil, err
 	}

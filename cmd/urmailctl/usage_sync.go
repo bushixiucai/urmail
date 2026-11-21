@@ -67,7 +67,7 @@ func runUsageSync(ctx context.Context, args []string) error {
 		return err
 	}
 	defer pool.Close()
-	q := store.New(pool.Pool)
+	q := db.Queries(pool.Pool)
 	rows, err := q.PlatformUsageMailboxes(ctx)
 	if err != nil {
 		return err

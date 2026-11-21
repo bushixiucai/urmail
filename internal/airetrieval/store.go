@@ -45,7 +45,7 @@ func (s PGChunkStore) inTx(ctx context.Context, p Principal, op txOp) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if err := op(ctx, store.New(tx)); err != nil {
+	if err := op(ctx, db.Queries(tx)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

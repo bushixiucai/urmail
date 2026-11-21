@@ -26,6 +26,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/onboarding"
 	"github.com/bushixiucai/urmail/internal/rendercache"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/web"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -237,29 +238,29 @@ func New(opts Options) *gin.Engine {
 	// instead, where the RLS context is published with SET LOCAL.
 	var authQueries *store.Queries
 	if opts.PlatformPool != nil {
-		authQueries = store.New(opts.PlatformPool)
+		authQueries = db.Queries(opts.PlatformPool)
 	}
 	var appQueries *store.Queries
 	if opts.AppPool != nil {
-		appQueries = store.New(opts.AppPool)
+		appQueries = db.Queries(opts.AppPool)
 	}
 
 	var aiPlatformQueries, marketingAppQueries, marketingPlatformQueries *store.Queries
 	if opts.AIPlatformPool != nil {
-		aiPlatformQueries = store.New(opts.AIPlatformPool)
+		aiPlatformQueries = db.Queries(opts.AIPlatformPool)
 	}
 	if opts.MarketingAppPool != nil {
-		marketingAppQueries = store.New(opts.MarketingAppPool)
+		marketingAppQueries = db.Queries(opts.MarketingAppPool)
 	}
 	if opts.MarketingPlatformPool != nil {
-		marketingPlatformQueries = store.New(opts.MarketingPlatformPool)
+		marketingPlatformQueries = db.Queries(opts.MarketingPlatformPool)
 	}
 
 	authHandler := handlers.NewAuthHandler(authQueries)
 	authHandler.Secrets = opts.Secrets
 	var platformQueries *store.Queries
 	if opts.PlatformPool != nil {
-		platformQueries = store.New(opts.PlatformPool)
+		platformQueries = db.Queries(opts.PlatformPool)
 	}
 	tenantHandler := handlers.NewTenantHandler(appQueries, platformQueries)
 	onboardingHandler := &handlers.OnboardingHandler{Store: appQueries}
@@ -275,8 +276,24 @@ func New(opts Options) *gin.Engine {
 	archiveEvidence := handlers.ArchiveEvidence{Q: platformQueries}
 	archiveContent := &handlers.ArchiveContentHandler{Store: appQueries, Root: opts.ArchiveRoot}
 	transportHandler := handlers.NewTransportSecurityHandler(opts.PlatformPool, opts.AppPool, opts.MyHostname, opts.Reconcile)
-	engine.GET("/.well-known/mta-sts.txt", transportHandler.Policy)
-	engine.POST("/api/v1/tls-reports/:fqdn", middleware.RateLimitWindow(30, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP() + "/" + c.Param("fqdn"), true }), transportHandler.Intake)
+	engine.GET("/.well-known/mta-sts.txt", func(c *gin.Context) {
+		if sqliteMode {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+			})
+			return
+		}
+		transportHandler.Policy(c)
+	})
+	engine.POST("/api/v1/tls-reports/:fqdn", middleware.RateLimitWindow(30, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP() + "/" + c.Param("fqdn"), true }), func(c *gin.Context) {
+		if sqliteMode {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"code": "FEATURE_UNAVAILABLE", "message": "error.FEATURE_UNAVAILABLE"},
+			})
+			return
+		}
+		transportHandler.Intake(c)
+	})
 	supportHandler := &handlers.SupportHandler{Store: appQueries, Platform: platformQueries, PlatformPool: opts.PlatformPool, DiagnosticKey: []byte(opts.QuoteHMACKey)}
 	recallHandler := &handlers.RecallHandler{AppPool: opts.AppPool, Store: appQueries, Platform: platformQueries, Expunger: opts.Recall}
 	auditHandler := handlers.NewAuditHandler(appQueries)
@@ -474,7 +491,11 @@ func New(opts Options) *gin.Engine {
 			return c.ClientIP(), true
 		}), mailboxNative.LinkConfirm)
 		v1.GET("/internal/status/ready", func(c *gin.Context) {
-			c.Set("statusReadyQuerier", opts.PlatformPool)
+			if opts.PlatformPool != nil {
+				c.Set("statusReadyQuerier", opts.PlatformPool)
+			} else {
+				c.Set("statusReadyQuerier", nil)
+			}
 			handlers.StatusReady(c)
 		})
 		v1.POST("/mailbox/session", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) {
@@ -603,19 +624,20 @@ func New(opts Options) *gin.Engine {
 			mailboxAuthed.POST("/calendars/import", calendarHandler.ImportEvent)
 			mailboxAuthed.DELETE("/session", mailboxNative.DeleteSession)
 		}
-		v1.POST("/mailbox/sieve/exchange", sieveBridge.Exchange)
-		v1.GET("/mailbox/sieve/session", sieveBridge.Session)
-		v1.PUT("/mailbox/sieve/rules", sieveBridge.Save)
-		v1.POST("/mailbox/sieve/logout", sieveBridge.Logout)
+		v1.POST("/mailbox/sieve/exchange", sqliteNativeGate, sieveBridge.Exchange)
+		v1.GET("/mailbox/sieve/session", sqliteNativeGate, sieveBridge.Session)
+		v1.PUT("/mailbox/sieve/rules", sqliteNativeGate, sieveBridge.Save)
+		v1.POST("/mailbox/sieve/logout", sqliteNativeGate, sieveBridge.Logout)
 		v1.GET("/branding", brandingHandler.Public)
 		v1.GET("/i18n/:locale", i18nCatalog(opts))
 
-		v1.POST("/marketing/unsubscribe", marketingSuppressionHandler.OneClick)
-		v1.GET("/marketing/unsubscribe", marketingSuppressionHandler.Confirmation)
-		v1.POST("/marketing/channels/:channel_id/feedback", marketingHandler.Feedback)
+		v1.POST("/marketing/unsubscribe", sqliteNativeGate, marketingSuppressionHandler.OneClick)
+		v1.GET("/marketing/unsubscribe", sqliteNativeGate, marketingSuppressionHandler.Confirmation)
+		v1.POST("/marketing/channels/:channel_id/feedback", sqliteNativeGate, marketingHandler.Feedback)
 
 		// Public Auth
 		authGroup := v1.Group("/auth")
+		authGroup.Use(sqliteNativeGate)
 		{
 			authGroup.POST("/login", middleware.RateLimitWindow(20, time.Minute, func(c *gin.Context) (string, bool) { return c.ClientIP(), true }), authHandler.Login)
 			// Second MFA login leg: authenticated by the short-lived
@@ -941,7 +963,13 @@ func healthz(opts Options) gin.HandlerFunc {
 		if opts.DevMode {
 			status["mode"] = "development"
 		}
-		if err := ping(ctx, opts.AppPool); err != nil {
+		var dbErr error
+		if opts.SQLiteStore != nil {
+			dbErr = pingSQLite(ctx, opts.SQLiteStore)
+		} else {
+			dbErr = ping(ctx, opts.AppPool)
+		}
+		if dbErr != nil {
 			status["status"] = "degraded"
 			status["db"] = "unavailable"
 			c.JSON(http.StatusServiceUnavailable, status)
@@ -958,6 +986,16 @@ func healthz(opts Options) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, status)
 	}
+}
+
+func pingSQLite(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return errors.New("sqlite database is not configured")
+	}
+	if err := db.PingContext(ctx); err != nil {
+		return err
+	}
+	return sqlitedb.AssertPragmas(ctx, db)
 }
 
 func ping(ctx context.Context, pool *db.Pool) error {

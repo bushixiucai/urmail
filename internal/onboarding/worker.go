@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/agentd"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -58,7 +59,7 @@ func NewWorker(opts WorkerOptions) *Worker {
 // Once claims one paid/trial/explicit-free domain and advances one durable step.
 func (w *Worker) Once(ctx context.Context) (bool, error) {
 	s := w.opts.Service
-	q := store.New(s.Pool.Pool)
+	q := db.Queries(s.Pool.Pool)
 	if _, err := q.PlatformExpireOnboarding(ctx); err != nil {
 		return false, err
 	}
@@ -123,7 +124,7 @@ func (w *Worker) Once(ctx context.Context) (bool, error) {
 		return true, txErr
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	tq := store.New(tx)
+	tq := db.Queries(tx)
 	n, txErr := tq.PlatformAdvanceOnboarding(ctx, store.PlatformAdvanceOnboardingParams{ID: task.ID, Fence: task.Fence, LeasedBy: task.LeasedBy, Step: step, Status: status, LastErrorCode: text(code), DesiredGeneration: text(generation), BackoffSeconds: backoff})
 	if txErr != nil || n != 1 {
 		return true, errFence
@@ -138,7 +139,7 @@ func (w *Worker) Once(ctx context.Context) (bool, error) {
 }
 func (w *Worker) step(ctx context.Context, task store.OnboardingTasks) (string, string, bool, error) {
 	s := w.opts.Service
-	q := store.New(s.Pool.Pool)
+	q := db.Queries(s.Pool.Pool)
 	d, err := q.PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: task.TenantID, ID: task.DomainID.Int64})
 	if err != nil {
 		return task.Step, "", false, errors.New("ONBOARDING_DOMAIN_UNAVAILABLE")
@@ -216,7 +217,7 @@ func (w *Worker) step(ctx context.Context, task store.OnboardingTasks) (string, 
 			return step, generation, false, e
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		tq := store.New(tx)
+		tq := db.Queries(tx)
 		if _, e = tq.PlatformFenceOnboarding(ctx, store.PlatformFenceOnboardingParams{ID: task.ID, Fence: task.Fence, LeasedBy: task.LeasedBy}); e != nil {
 			return step, generation, false, errFence
 		}

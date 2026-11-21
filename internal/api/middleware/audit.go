@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -130,7 +132,7 @@ func prepareTransactionAudit(c *gin.Context, tx pgx.Tx) error {
 		return errors.New("invalid HTTP audit status")
 	}
 	auditState(c).preparedStatus = status
-	return store.New(tx).RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{
+	return db.Queries(tx).RecordTenantAudit(c.Request.Context(), store.RecordTenantAuditParams{
 		TenantID: record.TenantID.Int64, UserID: record.ActorUserID.Int64,
 		ActorIp: record.ActorIp, Action: record.Action, Target: record.TargetID.String,
 		Status: int32(status),

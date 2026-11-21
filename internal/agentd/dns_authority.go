@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -181,7 +182,7 @@ func (m *ApplyManager) authorizedDNS(ctx context.Context, domain string, tenantI
 	if m.cfg == nil || m.cfg.DNSSecondaryOnly || m.cfg.PreserveExternalNSD || m.pool == nil {
 		return store.PlatformGetDNSSecurityRow{}, fmt.Errorf("%w: authoritative DNS management is unavailable", ErrRejected)
 	}
-	row, err := store.New(m.pool.Pool).PlatformGetDNSSecurity(ctx, domain)
+	row, err := db.Queries(m.pool.Pool).PlatformGetDNSSecurity(ctx, domain)
 	if err != nil {
 		return row, err
 	}
@@ -189,7 +190,7 @@ func (m *ApplyManager) authorizedDNS(ctx context.Context, domain string, tenantI
 		return row, fmt.Errorf("%w: DNS zone ownership changed", ErrRejected)
 	}
 	if actorID != 0 {
-		role, roleErr := store.New(m.pool).GetUserRoleForTenant(ctx, store.GetUserRoleForTenantParams{UserID: actorID, TenantID: row.OwnerTenantID})
+		role, roleErr := db.Queries(m.pool).GetUserRoleForTenant(ctx, store.GetUserRoleForTenantParams{UserID: actorID, TenantID: row.OwnerTenantID})
 		if roleErr != nil || (role != "owner" && role != "admin") {
 			return row, fmt.Errorf("%w: DNS authority role revoked", ErrRejected)
 		}
@@ -614,7 +615,7 @@ func (m *ApplyManager) ManageDNSAuthority(raw json.RawMessage) (string, string, 
 			row.PrimaryAddress = secondary.PrimaryAddress
 			row.TsigKeyName = secondary.TSIGKeyName
 		}
-		_, writeErr := store.New(m.pool.Pool).PlatformSetDNSSecurity(ctx, row)
+		_, writeErr := db.Queries(m.pool.Pool).PlatformSetDNSSecurity(ctx, row)
 		return writeErr
 	}
 	switch params.Action {

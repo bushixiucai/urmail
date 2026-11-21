@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -64,5 +66,5 @@ func (e *Evaluator) recordReadiness(ctx context.Context, conditions map[string]b
 	if err != nil {
 		return err
 	}
-	return store.New(e.Pool.Pool).PlatformUpsertSetting(ctx, store.PlatformUpsertSettingParams{Key: readinessSettingKey, Value: raw})
+	return db.Queries(e.Pool.Pool).PlatformUpsertSetting(ctx, store.PlatformUpsertSettingParams{Key: readinessSettingKey, Value: raw})
 }

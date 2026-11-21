@@ -59,6 +59,14 @@ type Config struct {
 	// tenants; it has BYPASSRLS but only SELECT on mailboxes/domains.
 	DatabaseURLDovecot string
 
+	// DBEngine selects the single database engine ("postgres" or "sqlite").
+	// Empty defaults to postgres unless SQLitePath is set.
+	DBEngine string
+
+	// SQLitePath is the authoritative SQLite database file path in single-engine
+	// SQLite mode (e.g. /srv/urmail/data/db/urmail.sqlite).
+	SQLitePath string
+
 	// MyHostname is the FQDN Postfix announces itself as (myhostname).
 	MyHostname string
 
@@ -281,6 +289,8 @@ func Load() (*Config, error) {
 		DatabaseURLPlatform:         values["URMAIL_DATABASE_URL_PLATFORM"],
 		DatabaseURLMigrate:          values["URMAIL_DATABASE_URL_MIGRATE"],
 		DatabaseURLDovecot:          values["URMAIL_DATABASE_URL_DOVECOT"],
+		DBEngine:                    strings.ToLower(strings.TrimSpace(values["URMAIL_DB_ENGINE"])),
+		SQLitePath:                  strings.TrimSpace(values["URMAIL_SQLITE_PATH"]),
 		MyHostname:                  values["URMAIL_MYHOSTNAME"],
 		PrimaryDomain:               values["URMAIL_PRIMARY_DOMAIN"],
 		PolicyEnabled:               parseBool(values["URMAIL_POLICY_ENABLED"]),
@@ -422,15 +432,35 @@ func (c *Config) validate() error {
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || portErr != nil || listenerPort < 1 || listenerPort > 65535 {
 		return errors.New("HTTP requires an explicit loopback IP and a port between 1 and 65535")
 	}
-	var missing []string
-	if c.DatabaseURL == "" {
-		missing = append(missing, "URMAIL_DATABASE_URL")
+	switch strings.ToLower(strings.TrimSpace(c.DBEngine)) {
+	case "", "postgres", "sqlite":
+	default:
+		return fmt.Errorf("unsupported URMAIL_DB_ENGINE %q (want postgres or sqlite)", c.DBEngine)
 	}
-	if c.DatabaseURLPlatform == "" {
-		missing = append(missing, "URMAIL_DATABASE_URL_PLATFORM")
+	if strings.EqualFold(strings.TrimSpace(c.DBEngine), "postgres") && strings.TrimSpace(c.SQLitePath) != "" {
+		return errors.New("single-engine configuration rejects URMAIL_SQLITE_PATH when URMAIL_DB_ENGINE=postgres")
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
+	if c.IsSQLite() {
+		if strings.TrimSpace(c.SQLitePath) == "" {
+			return fmt.Errorf("%w: URMAIL_SQLITE_PATH", ErrMissing)
+		}
+		if strings.TrimSpace(c.DatabaseURL) != "" ||
+			strings.TrimSpace(c.DatabaseURLPlatform) != "" ||
+			strings.TrimSpace(c.DatabaseURLMigrate) != "" ||
+			strings.TrimSpace(c.DatabaseURLDovecot) != "" {
+			return errors.New("single-engine configuration rejects PostgreSQL database URLs in SQLite mode")
+		}
+	} else {
+		var missing []string
+		if c.DatabaseURL == "" {
+			missing = append(missing, "URMAIL_DATABASE_URL")
+		}
+		if c.DatabaseURLPlatform == "" {
+			missing = append(missing, "URMAIL_DATABASE_URL_PLATFORM")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("%w: %s", ErrMissing, strings.Join(missing, ", "))
+		}
 	}
 	// CFG-01: outside development the SaaS policy service is the only place
 	// subscription eligibility and daily send accounting are enforced, so a
@@ -569,4 +599,19 @@ func resolveDNSListenAddresses(override string) ([]string, error) {
 // without disabling mail protocols, policy enforcement or config convergence.
 func (c *Config) BackgroundWorkersAllowed() bool {
 	return c != nil && !c.DevMode && !c.Quarantined && !c.WorkersHeld
+}
+
+// IsSQLite reports whether the daemon is configured for single-engine SQLite mode.
+func (c *Config) IsSQLite() bool {
+	if c == nil {
+		return false
+	}
+	engine := strings.ToLower(strings.TrimSpace(c.DBEngine))
+	if engine == "sqlite" {
+		return true
+	}
+	if engine == "" && strings.TrimSpace(c.SQLitePath) != "" {
+		return true
+	}
+	return false
 }

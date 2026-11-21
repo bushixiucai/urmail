@@ -44,7 +44,7 @@ func (w ReminderWorker) RunOnce(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	cutoff, cutoffErr := q.PlatformCalendarRestoreCutoff(ctx)
 	if cutoffErr != nil && !errors.Is(cutoffErr, pgx.ErrNoRows) {
 		return cutoffErr

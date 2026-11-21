@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/dnsprovider"
 	"github.com/bushixiucai/urmail/internal/mailtransport"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -18,7 +19,7 @@ func (s *Service) domainDigest(ctx context.Context, domain store.PlatformDNSDoma
 	if err != nil {
 		return "", nil, err
 	}
-	policy, err := store.New(s.Pool).GetDomainTransportSecurity(ctx, store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
+	policy, err := db.Queries(s.Pool).GetDomainTransportSecurity(ctx, store.GetDomainTransportSecurityParams{TenantID: domain.TenantID, DomainID: domain.ID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return digest, records, nil
 	}

@@ -22,7 +22,7 @@ func SealLegacyCopies(ctx context.Context, pool *db.Pool, box mailboxsend.Secret
 		if err != nil {
 			return err
 		}
-		q := store.New(tx)
+		q := db.Queries(tx)
 		row, err := q.PlatformGetLegacyScheduledCopy(ctx)
 		if errors.Is(err, pgx.ErrNoRows) {
 			_ = tx.Rollback(ctx)

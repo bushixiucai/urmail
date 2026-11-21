@@ -87,7 +87,7 @@ func (w *FlowWorker) Tick(ctx context.Context) (int, error) {
 	if !w.opts.Enabled || w.opts.DevMode || w.opts.Quarantined {
 		return 0, ErrDisabled
 	}
-	q := store.New(w.opts.Pool)
+	q := db.Queries(w.opts.Pool)
 	leases, err := q.PlatformRecoverMarketingFlowLeases(ctx)
 	if err != nil {
 		return 0, err

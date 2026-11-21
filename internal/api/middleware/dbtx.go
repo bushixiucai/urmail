@@ -86,7 +86,7 @@ func RequireTenantTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 				return
 			}
 		}
-		queries := store.New(tx)
+		queries := db.Queries(tx)
 		role, err := queries.GetUserRoleForTenant(c.Request.Context(), store.GetUserRoleForTenantParams{
 			UserID:   userID,
 			TenantID: tenantID,

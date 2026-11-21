@@ -11,7 +11,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // PrepareOffline runs only the configuration-writing portion of Apply. The root
@@ -62,7 +61,7 @@ func PrepareOffline(ctx context.Context, cfg *config.Config, raw json.RawMessage
 	}
 	m.pool = pool
 	defer m.Close()
-	m.versions = &reconcile.VersionedStore{StoreQuerier: store.New(pool), DB: pool.Pool}
+	m.versions = &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool.Pool}
 	_, _, err = m.Apply(raw)
 	return m.status, err
 }

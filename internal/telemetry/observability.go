@@ -228,7 +228,7 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 	if e.Pool == nil || e.Source == nil || e.Stream == "" {
 		return errors.New("observability requires configured source and stream")
 	}
-	q := store.New(e.Pool.Pool)
+	q := db.Queries(e.Pool.Pool)
 	thresholds := DefaultThresholds()
 	started := time.Now()
 	settings, err := q.PlatformGetObservabilityThresholds(ctx)
@@ -299,7 +299,7 @@ func (e *Evaluator) Poll(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	queries := store.New(tx)
+	queries := db.Queries(tx)
 	for kind, firing := range conditions {
 		if err = queries.PlatformSetOperationalCondition(ctx, store.PlatformSetOperationalConditionParams{AlertKey: e.Stream + ":" + kind, Kind: kind, Firing: firing}); err != nil {
 			return err

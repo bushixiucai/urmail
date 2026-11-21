@@ -29,7 +29,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/opendkim"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // OpConfigApply applies a validated domain snapshot.
@@ -243,7 +242,7 @@ func NewApplyManager(cfg *config.Config) (*ApplyManager, error) {
 		return nil, err
 	}
 	m.pool = pool
-	m.versions = &reconcile.VersionedStore{StoreQuerier: store.New(pool.Pool), DB: pool.Pool}
+	m.versions = &reconcile.VersionedStore{StoreQuerier: db.Queries(pool.Pool), DB: pool.Pool}
 
 	if err := os.MkdirAll(m.root, 0700); err != nil {
 		return nil, err

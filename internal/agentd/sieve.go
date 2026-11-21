@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -37,7 +38,7 @@ func (m *ApplyManager) ActivateSieve(raw json.RawMessage) (string, string, error
 		return "", "", ErrFailed
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	target, err := store.New(tx).PlatformGetSieveActivationTarget(ctx, store.PlatformGetSieveActivationTargetParams{TenantID: params.TenantID, ID: params.MailboxID})
+	target, err := db.Queries(tx).PlatformGetSieveActivationTarget(ctx, store.PlatformGetSieveActivationTargetParams{TenantID: params.TenantID, ID: params.MailboxID})
 	if err != nil || target.SieveMode != "managed" || !target.SieveScript.Valid || !safeKickAddress(target.Address) || sieve.Digest(target.SieveScript.String) != params.Digest {
 		return "", "", ErrRejected
 	}

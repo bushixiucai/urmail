@@ -124,7 +124,7 @@ func runSetup(ctx context.Context, args []string) error {
 		return fmt.Errorf("upsert brand: %w", err)
 	}
 
-	q := store.New(tx)
+	q := db.Queries(tx)
 	tenant, err := q.PlatformSetupTenant(ctx, store.PlatformSetupTenantParams{BrandID: brandID, Name: *tenantName, Slug: *tenantSlug})
 	if err != nil {
 		return fmt.Errorf("upsert tenant: %w", err)

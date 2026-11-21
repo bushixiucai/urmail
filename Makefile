@@ -116,6 +116,7 @@ sqlc: ## 生成 sqlc 代码（B5a：仅 tenant 查询文件，见 scripts/sqlite
 	python3 scripts/sqlite/wrap_nullable_ts_projections.py
 	python3 scripts/sqlite/gen_sqlc.py
 	python3 scripts/sqlite/gen_querier.py
+	python3 scripts/sqlite/check_store_boundary.py
 	python3 scripts/sqlite/nullable_timestamp_scan.py --check
 
 .PHONY: sqlc-check
@@ -124,6 +125,7 @@ sqlc-check: ## 校验 sqlc 生成物与仓库一致
 	python3 scripts/sqlite/gen_sqlc_overrides.py --check
 	python3 scripts/sqlite/gen_sqlc.py --check
 	python3 scripts/sqlite/gen_querier.py --check
+	python3 scripts/sqlite/check_store_boundary.py --check
 	python3 scripts/sqlite/nullable_timestamp_scan.py --check
 
 .PHONY: i18n-check

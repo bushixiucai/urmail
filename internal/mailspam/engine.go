@@ -116,7 +116,7 @@ func (e *Engine) firstLocalRecipient(ctx context.Context, recipients []string, c
 			continue
 		}
 		lookupCtx, cancel := context.WithTimeout(ctx, cfg.LookupTimeout)
-		row, err := store.New(e.Platform.Pool).PlatformGetMailboxByAddress(lookupCtx, address)
+		row, err := db.Queries(e.Platform.Pool).PlatformGetMailboxByAddress(lookupCtx, address)
 		cancel()
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue

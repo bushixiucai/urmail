@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -126,7 +127,7 @@ func (m *ApplyManager) StartMailAccessWatcher(ctx context.Context, logger *slog.
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	q := store.New(m.pool.Pool)
+	q := db.Queries(m.pool.Pool)
 	go func() {
 		defer close(done)
 		watchMailAccess(ctx, func(queryCtx context.Context) ([]MailAccess, time.Time, error) {

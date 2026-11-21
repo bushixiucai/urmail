@@ -20,7 +20,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/mail/postfix"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // withHTTPScheme prefixes a bare host:port address with http:// unless it
@@ -98,7 +97,7 @@ func runConfigRender(ctx context.Context, args []string) error {
 			return fmt.Errorf("open platform database: %w", err)
 		}
 		defer pool.Close()
-		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: store.New(pool.Pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
+		assembled, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool.Pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
 		if err != nil {
 			return fmt.Errorf("assemble config context: %w", err)
 		}

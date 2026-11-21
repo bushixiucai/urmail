@@ -72,7 +72,7 @@ func (c *Collector) Poll(ctx context.Context) error {
 	if c.Pool == nil || c.Source == nil || c.Stream == "" || len(c.Stream) > 255 {
 		return errors.New("collector requires a pool, fixed source and bounded stream identity")
 	}
-	expected, err := store.New(c.Pool.Pool).PlatformGetCollectorCheckpoint(ctx, c.Stream)
+	expected, err := db.Queries(c.Pool.Pool).PlatformGetCollectorCheckpoint(ctx, c.Stream)
 	if errors.Is(err, pgx.ErrNoRows) {
 		expected = store.CollectorCheckpoints{Stream: c.Stream}
 	} else if err != nil {
@@ -113,7 +113,7 @@ func (c *Collector) Apply(ctx context.Context, expected store.CollectorCheckpoin
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformEnsureCollectorCheckpoint(ctx, c.Stream); err != nil {
 		return err
 	}

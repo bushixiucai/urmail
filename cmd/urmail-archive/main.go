@@ -18,7 +18,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 func main() {
@@ -64,7 +63,7 @@ func run(recipient, envFile string) error {
 	}
 	defer pool.Close()
 	if binding.TenantID == 0 {
-		mailbox, resolveErr := store.New(pool.Pool).PlatformGetMailboxByAddress(ctx, binding.Address)
+		mailbox, resolveErr := db.Queries(pool.Pool).PlatformGetMailboxByAddress(ctx, binding.Address)
 		if resolveErr != nil {
 			return fmt.Errorf("legacy archive retained unbound; immediate canonical resolution: %w", resolveErr)
 		}

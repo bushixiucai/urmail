@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 const contextPlatformAuditCommitted = "urmail.platform_audit_committed"
@@ -36,7 +35,7 @@ func RequirePlatformTx(pool *db.Pool, logger *zap.Logger) gin.HandlerFunc {
 		defer buffered.closeStream()
 		c.Writer = buffered
 		defer func() { c.Writer = original }()
-		q := store.New(tx)
+		q := db.Queries(tx)
 		c.Set(ContextQueries, q)
 		c.Set(contextTransaction, tx)
 		c.Next()

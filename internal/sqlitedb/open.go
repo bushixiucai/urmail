@@ -11,7 +11,9 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,11 @@ import (
 )
 
 const (
+	// ExpectedSchemaVersion is the current migrations_sqlite chain tip
+	// (0001_init.sql + 0002_write_side_effects.sql). Startup verification fails
+	// closed unless PRAGMA user_version matches this exact version.
+	ExpectedSchemaVersion = 2
+
 	busyTimeoutMs    = 5000
 	pragmaTimeout    = 10 * time.Second
 	expectJournalWAL = "wal"
@@ -169,4 +176,64 @@ func AssertPragmas(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("synchronous = %d, want %d (NORMAL)", sync, expectSyncNormal)
 	}
 	return nil
+}
+
+// OpenExisting opens an already-migrated SQLite database at path without
+// creating a new file or running migrations (contract V2 §1.9.1). It rejects
+// missing paths, symlinks, non-regular files, PRAGMA contract mismatches,
+// dirty migration rows, and any PRAGMA user_version != expectedVersion.
+func OpenExisting(ctx context.Context, path string, expectedVersion int) (*sql.DB, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("sqlite path is empty")
+	}
+	if expectedVersion <= 0 {
+		return nil, fmt.Errorf("expected schema version must be positive, got %d", expectedVersion)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat existing sqlite %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("refusing symlink sqlite path %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("sqlite path %s is not a regular file", path)
+	}
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, pragmaTimeout)
+	defer cancel()
+
+	var version int
+	if err := db.QueryRowContext(cctx, "PRAGMA user_version").Scan(&version); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("read sqlite user_version: %w", err)
+	}
+	if version != expectedVersion {
+		_ = db.Close()
+		return nil, fmt.Errorf("sqlite schema user_version = %d, want %d (unmigrated or version gap; refusing to start)", version, expectedVersion)
+	}
+
+	var dirtyCount int
+	err = db.QueryRowContext(cctx,
+		"SELECT count(*) FROM schema_migrations WHERE dirty <> 0",
+	).Scan(&dirtyCount)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("verify schema_migrations table: %w", err)
+	}
+	if dirtyCount != 0 {
+		_ = db.Close()
+		return nil, fmt.Errorf("sqlite schema_migrations has %d dirty row(s); refusing to start", dirtyCount)
+	}
+
+	if err := AssertPragmas(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
 }

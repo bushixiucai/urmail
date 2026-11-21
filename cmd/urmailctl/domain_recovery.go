@@ -72,7 +72,7 @@ func runDomainRecovery(ctx context.Context, args []string) error {
 		return err
 	}
 	defer pool.Close()
-	q := store.New(pool.Pool)
+	q := db.Queries(pool.Pool)
 	domain, err := q.PlatformGetDomainForRecovery(ctx, store.PlatformGetDomainForRecoveryParams{TenantID: *tenantID, ID: *domainID})
 	if err != nil {
 		return fmt.Errorf("read canonical recovery domain: %w", err)
@@ -132,7 +132,7 @@ func runDomainRecovery(ctx context.Context, args []string) error {
 			return txErr
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		queries := store.New(tx)
+		queries := db.Queries(tx)
 		changed, changeErr := queries.PlatformRotateDomainRecoveryToken(ctx, store.PlatformRotateDomainRecoveryTokenParams{TenantID: *tenantID, ID: *domainID, VerificationToken: proof.Token, Fqdn: domain.Fqdn})
 		if changeErr != nil {
 			return changeErr
@@ -187,7 +187,7 @@ func runDomainRecovery(ctx context.Context, args []string) error {
 }
 
 func confirmDomainRecovery(ctx context.Context, pool *db.Pool, proof recoveryProof, lookupTXT func(context.Context, string) ([]string, error)) error {
-	domain, err := store.New(pool.Pool).PlatformGetDomainForRecovery(ctx, store.PlatformGetDomainForRecoveryParams{TenantID: proof.TenantID, ID: proof.DomainID})
+	domain, err := db.Queries(pool.Pool).PlatformGetDomainForRecovery(ctx, store.PlatformGetDomainForRecoveryParams{TenantID: proof.TenantID, ID: proof.DomainID})
 	if err != nil {
 		return err
 	}
@@ -218,7 +218,7 @@ func confirmDomainRecovery(ctx context.Context, pool *db.Pool, proof recoveryPro
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	queries := store.New(tx)
+	queries := db.Queries(tx)
 	changed, err := queries.PlatformConfirmDomainRecovery(ctx, store.PlatformConfirmDomainRecoveryParams{TenantID: proof.TenantID, ID: proof.DomainID, Fqdn: domain.Fqdn, VerificationToken: proof.Token})
 	if err != nil {
 		return err

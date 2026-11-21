@@ -121,4 +121,4 @@ func Seed(ctx context.Context, pool *db.Pool, scale Scale) (*Fixture, error) {
 }
 
 // queries builds a store handle over the pool for scenario operations.
-func queries(pool *db.Pool) *store.Queries { return store.New(pool.Pool) }
+func queries(pool *db.Pool) *store.Queries { return db.Queries(pool.Pool) }

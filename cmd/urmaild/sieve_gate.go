@@ -18,7 +18,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/sievegate"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // The socket is traversable by the mail UID, but each request is authenticated
@@ -73,7 +72,7 @@ func startSieveGate(ctx context.Context, pool *db.Pool, logger *zap.Logger) (fun
 	}
 	ready := &atomic.Bool{}
 	ready.Store(true)
-	q := store.New(pool)
+	q := db.Queries(pool)
 	go func() {
 		err := sievegate.Serve(ctx, listener, mailUID, q.PlatformSieveOutboundAllowed, func(_ string, err error) { logger.Warn("personal Sieve outbound denied; inbound kept", zap.Error(err)) })
 		ready.Store(false)

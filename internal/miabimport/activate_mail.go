@@ -69,7 +69,7 @@ func ActivateLegacyDelegatedMail(ctx context.Context, pool *db.Pool, options Opt
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if _, err = q.PlatformLockLegacyImportTarget(ctx, store.PlatformLockLegacyImportTargetParams{TenantID: options.TenantID, ActorID: options.ActorID}); err != nil {
 		return result, ErrAuthority
 	}

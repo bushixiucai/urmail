@@ -101,7 +101,7 @@ func BrandHostBoundary(pool *db.Pool, canonical ...string) gin.HandlerFunc {
 type pgBrandHostLookup struct{ pool *db.Pool }
 
 func (p pgBrandHostLookup) BrandHostLifecycle(ctx context.Context, host string) (int64, string, bool, error) {
-	row, err := store.New(p.pool).PlatformGetBrandHostLifecycle(ctx, host)
+	row, err := db.Queries(p.pool).PlatformGetBrandHostLifecycle(ctx, host)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, "", false, nil
 	}
@@ -112,7 +112,7 @@ func (p pgBrandHostLookup) BrandHostLifecycle(ctx context.Context, host string) 
 }
 
 func (p pgBrandHostLookup) BrandHostCertEligible(ctx context.Context, host string) (bool, error) {
-	return store.New(p.pool).PlatformBrandHostCertEligible(ctx, host)
+	return db.Queries(p.pool).PlatformBrandHostCertEligible(ctx, host)
 }
 
 // BrandTenantAllowed is checked after current session authentication.
@@ -120,7 +120,7 @@ func BrandTenantAllowed(ctx context.Context, pool *db.Pool, tenant, brand int64)
 	if pool == nil {
 		return false
 	}
-	allowed, err := store.New(pool).PlatformTenantBrandMatches(ctx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
+	allowed, err := db.Queries(pool).PlatformTenantBrandMatches(ctx, store.PlatformTenantBrandMatchesParams{ID: tenant, BrandID: brand})
 	return err == nil && allowed
 }
 

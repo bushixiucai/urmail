@@ -47,7 +47,7 @@ func runTelemetry(ctx context.Context, args []string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	count, err := q.PlatformAcknowledgeCollectorGap(ctx, store.PlatformAcknowledgeCollectorGapParams{Stream: *stream, Generation: *generation})
 	if err != nil {
 		return err

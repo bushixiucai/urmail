@@ -13,7 +13,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/maintenance"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // runConfigPrepare is deliberately offline: no daemon or protocol service is started.
@@ -57,7 +56,7 @@ func runConfigPrepare(ctx context.Context, args []string) error {
 		return err
 	}
 	defer pool.Close()
-	snapshot, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: store.New(pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
+	snapshot, err := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
 	if err != nil {
 		return err
 	}

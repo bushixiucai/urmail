@@ -11,7 +11,6 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 func runDataCheck(ctx context.Context) error {
@@ -34,7 +33,7 @@ func writeDataCheck(ctx context.Context, pool *db.Pool, output io.Writer) error 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	rows, err := q.PlatformDataIssues(ctx)
 	if err != nil {
 		return err

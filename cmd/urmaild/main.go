@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,7 +41,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/notify"
 	"github.com/bushixiucai/urmail/internal/reconcile"
 	"github.com/bushixiucai/urmail/internal/secrets"
-	"github.com/bushixiucai/urmail/internal/store"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
 
@@ -91,11 +92,55 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	server, cleanup, err := prepareDaemon(ctx, cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		logger.Info("http server listening", zap.String("addr", cfg.ListenAddr))
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		logger.Info("shutting down")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	return nil
+}
+
+// prepareDaemon validates single-engine database setup, starts approved
+// background workers, and constructs the HTTP server without listening.
+func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*http.Server, func(), error) {
+	if cfg == nil {
+		return nil, nil, errors.New("configuration is required")
+	}
+	if cfg.DNSSecondaryOnly {
+		return nil, nil, fmt.Errorf("DNS-only secondary configuration is only accepted by urmaild-agent")
+	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	// Validate the encryption authority before opening databases or starting any
 	// listener or worker. A missing key must never enable plaintext secret writes.
 	secretBox, err := loadRuntimeSecrets(cfg)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	// The webmail render key signs image proxy URLs and link confirmation
 	// tokens. An operator may set its own key; otherwise one is derived
@@ -109,58 +154,148 @@ func run() error {
 		}
 	}
 
+	messages, err := i18n.NewStore()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load message catalog: %w", err)
+	}
+
+	baseURL := "https://" + cfg.MyHostname
+	if cfg.MyHostname == "" {
+		baseURL = "https://box." + cfg.PrimaryDomain
+	}
+	telemetryStream := cfg.MyHostname
+	if telemetryStream == "" {
+		telemetryStream = "local"
+	}
+	smtpAddr := "127.0.0.1:587"
+	tokenVerifier := marketingTokenManager(cfg)
+
+	if cfg.IsSQLite() {
+		if strings.TrimSpace(cfg.SQLitePath) == "" {
+			return nil, nil, errors.New("SQLite mode requires URMAIL_SQLITE_PATH")
+		}
+		if strings.TrimSpace(cfg.DatabaseURL) != "" ||
+			strings.TrimSpace(cfg.DatabaseURLPlatform) != "" ||
+			strings.TrimSpace(cfg.DatabaseURLMigrate) != "" ||
+			strings.TrimSpace(cfg.DatabaseURLDovecot) != "" {
+			return nil, nil, errors.New("single-engine configuration rejects PostgreSQL database URLs in SQLite mode")
+		}
+		sqliteDB, openErr := sqlitedb.OpenExisting(ctx, cfg.SQLitePath, sqlitedb.ExpectedSchemaVersion)
+		if openErr != nil {
+			return nil, nil, fmt.Errorf("open verified sqlite database: %w", openErr)
+		}
+		cleanup := func() { _ = sqliteDB.Close() }
+
+		logger.Info("starting urmaild in SQLite single-engine slice-1 mode; PG pools and unmigrated workers remain fail-closed",
+			zap.String("sqlite_path", cfg.SQLitePath),
+			zap.Int("schema_version", sqlitedb.ExpectedSchemaVersion),
+		)
+
+		webmailVault := webmail.NewMemoryVault()
+		go webmailVault.Run(ctx, handlers.SQLiteMailboxStore{DB: sqliteDB}.Get)
+
+		engine := api.New(api.Options{
+			RoundcubeEnabled:   cfg.RoundcubeEnabled,
+			WebmailNative:      cfg.WebmailNative,
+			CardDAVEnabled:     &cfg.CardDAVEnabled,
+			CalDAVEnabled:      &cfg.CalDAVEnabled,
+			EASEnabled:         &cfg.EASEnabled,
+			IMAPAddr:           cfg.IMAPAddr,
+			SMTPAddr:           smtpAddr,
+			WebmailVault:       webmailVault,
+			MetricsToken:       cfg.MetricsToken,
+			AICloudEndpoints:   cfg.AICloudEndpoints,
+			AILocalEndpoints:   cfg.AILocalEndpoints,
+			Quarantined:        cfg.Quarantined,
+			WorkersHeld:        cfg.WorkersHeld,
+			TelemetryStream:    telemetryStream,
+			DevMode:            cfg.DevMode,
+			Logger:             logger,
+			SQLiteStore:        sqliteDB,
+			Messages:           messages,
+			Version:            version,
+			MyHostname:         cfg.MyHostname,
+			Secrets:            secretBox,
+			DNSManagedZones:    cfg.DNSManagedZones,
+			QuoteHMACKey:       cfg.QuoteHMACKey,
+			WebmailRenderKey:   webmailRenderKey,
+			BaseURL:            baseURL,
+			MarketingTokens:    tokenVerifier,
+			MarketingEnabled:   false,
+			RoundcubeBridgeKey: cfg.RoundcubeBridgeKey,
+		})
+
+		server := &http.Server{
+			Addr:              cfg.ListenAddr,
+			Handler:           engine,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       60 * time.Second,
+			WriteTimeout:      120 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		return server, cleanup, nil
+	}
+
+	if strings.TrimSpace(cfg.SQLitePath) != "" {
+		return nil, nil, errors.New("single-engine configuration rejects URMAIL_SQLITE_PATH in PostgreSQL mode")
+	}
+
+	var closers []func()
+	closeAll := func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
+	fail := func(err error) (*http.Server, func(), error) {
+		closeAll()
+		return nil, nil, err
+	}
+
 	appPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "core-app", cfg.DatabaseBudgets.Core)
 	if err != nil {
-		return fmt.Errorf("open tenant database pool: %w", err)
+		return fail(fmt.Errorf("open tenant database pool: %w", err))
 	}
-	defer appPool.Close()
+	closers = append(closers, appPool.Close)
 
 	platformPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "core-platform", cfg.DatabaseBudgets.Core)
 	if err != nil {
-		return fmt.Errorf("open platform database pool: %w", err)
+		return fail(fmt.Errorf("open platform database pool: %w", err))
 	}
-	defer platformPool.Close()
+	closers = append(closers, platformPool.Close)
 
 	// Seal legacy recovery MIME before any worker can read it, including on a
 	// quarantined restore where delivery workers deliberately remain stopped.
 	if secretBox != nil {
 		if err := mailboxschedule.SealLegacyCopies(ctx, platformPool, secretBox); err != nil {
-			return fmt.Errorf("seal legacy webmail recovery material: %w", err)
+			return fail(fmt.Errorf("seal legacy webmail recovery material: %w", err))
 		}
 	}
 
 	marketingPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "marketing-platform", cfg.DatabaseBudgets.Marketing)
 	if err != nil {
-		return fmt.Errorf("open marketing database pool: %w", err)
+		return fail(fmt.Errorf("open marketing database pool: %w", err))
 	}
-	defer marketingPool.Close()
+	closers = append(closers, marketingPool.Close)
 	backgroundPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "background", cfg.DatabaseBudgets.Background)
 	if err != nil {
-		return fmt.Errorf("open background database pool: %w", err)
+		return fail(fmt.Errorf("open background database pool: %w", err))
 	}
-	defer backgroundPool.Close()
+	closers = append(closers, backgroundPool.Close)
 	aiAppPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "ai-app", cfg.DatabaseBudgets.AI)
 	if err != nil {
-		return fmt.Errorf("open AI tenant pool: %w", err)
+		return fail(fmt.Errorf("open AI tenant pool: %w", err))
 	}
-	defer aiAppPool.Close()
+	closers = append(closers, aiAppPool.Close)
 	aiPlatformPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURLPlatform, db.RolePlatform, "ai-platform", cfg.DatabaseBudgets.AI)
 	if err != nil {
-		return fmt.Errorf("open AI platform pool: %w", err)
+		return fail(fmt.Errorf("open AI platform pool: %w", err))
 	}
-	defer aiPlatformPool.Close()
+	closers = append(closers, aiPlatformPool.Close)
 	marketingAppPool, err := db.OpenBudgeted(ctx, cfg.DatabaseURL, db.RoleApp, "marketing-app", cfg.DatabaseBudgets.Marketing)
 	if err != nil {
-		return fmt.Errorf("open marketing tenant pool: %w", err)
+		return fail(fmt.Errorf("open marketing tenant pool: %w", err))
 	}
-	defer marketingAppPool.Close()
-	// Cancel workers before pool cleanup also on startup/server failure, not only signals.
-	defer stop()
-
-	messages, err := i18n.NewStore()
-	if err != nil {
-		return fmt.Errorf("load message catalog: %w", err)
-	}
+	closers = append(closers, marketingAppPool.Close)
 
 	var dnsProvider dnsprovider.Provider
 	switch cfg.DNSProvider {
@@ -176,10 +311,6 @@ func run() error {
 		if cfg.AliyunAccessKeyID != "" && cfg.AliyunAccessKeySecret != "" {
 			dnsProvider = dnsprovider.NewAliyun(cfg.AliyunAccessKeyID, cfg.AliyunAccessKeySecret)
 		}
-	}
-	baseURL := "https://" + cfg.MyHostname
-	if cfg.MyHostname == "" {
-		baseURL = "https://box." + cfg.PrimaryDomain
 	}
 
 	// Periodically purge expired sessions so the sessions table does not
@@ -198,7 +329,7 @@ func run() error {
 	if !cfg.DevMode && !cfg.Quarantined {
 		sieveGateReady, err = startSieveGate(ctx, platformPool, logger)
 		if err != nil {
-			return fmt.Errorf("start personal Sieve entitlement gate: %w", err)
+			return fail(fmt.Errorf("start personal Sieve entitlement gate: %w", err))
 		}
 	}
 
@@ -229,10 +360,10 @@ func run() error {
 	// authenticated sender is still within their plan's daily send limit.
 	if cfg.PolicyEnabled && !cfg.Quarantined {
 		svc := policy.NewService()
-		svc.InboundChecker = &policy.DBInboundChecker{Store: store.New(platformPool)}
+		svc.InboundChecker = &policy.DBInboundChecker{Store: db.Queries(platformPool)}
 		svc.RateLimiter = policy.NewRateLimiter(300, time.Minute)
 		svc.QuotaChecker = policy.NewAtomicDBQuotaChecker(
-			store.New(platformPool), platformPool.Pool, 0,
+			db.Queries(platformPool), platformPool.Pool, 0,
 		)
 		policyServer := policy.NewServer(cfg.PolicySocket, svc)
 		go func() {
@@ -282,7 +413,7 @@ func run() error {
 		}
 		return resp.Stdout, nil
 	}
-	reconcilePipeline := reconcile.NewPipeline(cfg, &reconcile.VersionedStore{StoreQuerier: store.New(platformPool), DB: platformPool.Pool}, cfg.PublicIPv4, cfg.Nameservers).
+	reconcilePipeline := reconcile.NewPipeline(cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(platformPool), DB: platformPool.Pool}, cfg.PublicIPv4, cfg.Nameservers).
 		WithLogger(logger).
 		WithApplier(applyFn)
 	if !cfg.Quarantined {
@@ -301,12 +432,11 @@ func run() error {
 	dnsPlans := startDomainOnboarding(ctx, cfg, platformPool, secretBox, reconcilePipeline, logger)
 	startMailTelemetry(ctx, cfg, backgroundPool, logger)
 	startMailObservability(ctx, cfg, backgroundPool, logger)
-	tokenVerifier := marketingTokenManager(cfg)
 	tokenManager, _ := tokenVerifier.(*domainMail.SuppressionManager)
 	marketingWorker, workerErr := marketing.NewWorker(marketing.Options{Pool: marketingPool, Secrets: secretBox, Tokens: tokenManager, Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined,
 		Hostname: cfg.MyHostname, UnsubscribeURL: baseURL + "/api/v1/marketing/unsubscribe", Logger: logger})
 	if workerErr != nil {
-		return fmt.Errorf("configure marketing worker: %w", workerErr)
+		return fail(fmt.Errorf("configure marketing worker: %w", workerErr))
 	}
 	startBackgroundWorker(ctx, cfg, marketingWorker.Run)
 	flowWorker, flowWorkerErr := marketing.NewFlowWorker(marketing.FlowOptions{
@@ -315,12 +445,11 @@ func run() error {
 		Enabled: cfg.MarketingEnabled && cfg.BackgroundWorkersAllowed(), DevMode: cfg.DevMode, Quarantined: cfg.Quarantined, Logger: logger,
 	})
 	if flowWorkerErr != nil {
-		return fmt.Errorf("configure marketing flow worker: %w", flowWorkerErr)
+		return fail(fmt.Errorf("configure marketing flow worker: %w", flowWorkerErr))
 	}
 	startBackgroundWorker(ctx, cfg, flowWorker.Run)
 	webmailVault := webmail.NewMemoryVault()
-	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: store.New(backgroundPool)}.Get)
-	smtpAddr := "127.0.0.1:587"
+	go webmailVault.Run(ctx, handlers.StoreMailboxNative{Q: db.Queries(backgroundPool)}.Get)
 	if cfg.WebmailNative && cfg.BackgroundWorkersAllowed() && secretBox != nil {
 		schedWorker := mailboxschedule.NewWorker(mailboxschedule.Options{
 			Pool:      backgroundPool,
@@ -328,16 +457,12 @@ func run() error {
 			Vault:     webmailVault,
 			Dialer:    webmail.NetDialer{Addr: cfg.IMAPAddr},
 			Submitter: webmail.NetSubmitter{Addr: smtpAddr},
-			MaySend:   handlers.MailAllowed(store.New(backgroundPool)),
+			MaySend:   handlers.MailAllowed(db.Queries(backgroundPool)),
 			Logger:    logger,
 		})
 		go schedWorker.Run(ctx)
 	}
 	var queueReader handlers.QueueReader
-	telemetryStream := cfg.MyHostname
-	if telemetryStream == "" {
-		telemetryStream = "local"
-	}
 	if !cfg.DevMode {
 		queueReader = agent.NewClient(cfg.AgentSocket)
 	}
@@ -383,7 +508,7 @@ func run() error {
 		Version:               version,
 		MyHostname:            cfg.MyHostname,
 		Reconcile:             reconcilePipeline,
-		Audit:                 store.New(platformPool),
+		Audit:                 db.Queries(platformPool),
 		Secrets:               secretBox,
 		DNSProvider:           dnsProvider,
 		DNSManagedZones:       cfg.DNSManagedZones,
@@ -404,30 +529,7 @@ func run() error {
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-
-	serverErr := make(chan error, 1)
-	go func() {
-		logger.Info("http server listening", zap.String("addr", cfg.ListenAddr))
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErr <- err
-			return
-		}
-		serverErr <- nil
-	}()
-
-	select {
-	case err := <-serverErr:
-		return err
-	case <-ctx.Done():
-		logger.Info("shutting down")
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown: %w", err)
-	}
-	return nil
+	return server, closeAll, nil
 }
 
 func loadRuntimeSecrets(cfg *config.Config) (handlers.SecretsBox, error) {
@@ -444,7 +546,7 @@ func loadRuntimeSecrets(cfg *config.Config) (handlers.SecretsBox, error) {
 // purgeExpiredSessions deletes expired sessions once an hour until ctx is
 // canceled.
 func purgeExpiredSessions(ctx context.Context, pool *db.Pool, logger *zap.Logger) {
-	queries := store.New(pool)
+	queries := db.Queries(pool)
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {

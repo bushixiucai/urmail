@@ -105,7 +105,7 @@ func begin(ctx context.Context, pool *db.Pool, intent Intent) (pgx.Tx, Review, e
 		return nil, Review{}, ErrRejected
 	}
 	fail := func(e error) (pgx.Tx, Review, error) { rollback(tx); return nil, Review{}, e }
-	q := store.New(tx)
+	q := db.Queries(tx)
 	alias, err := q.PlatformLockAliasSenderTarget(ctx, store.PlatformLockAliasSenderTargetParams{ActorID: intent.ActorID, TenantID: intent.TenantID, AliasID: intent.AliasID})
 	if err != nil {
 		return fail(ErrAuthority)
@@ -171,7 +171,7 @@ func apply(ctx context.Context, pool *db.Pool, intent Intent, expected string, c
 	if expected != review.Digest {
 		return result, ErrStale
 	}
-	q := store.New(tx)
+	q := db.Queries(tx)
 	n, err := q.PlatformSetAliasSenderLogins(ctx, store.PlatformSetAliasSenderLoginsParams{TenantID: review.Intent.TenantID, AliasID: review.Intent.AliasID, SenderLogins: review.Intent.SenderLogins})
 	if err != nil || n != 1 {
 		return result, ErrRejected

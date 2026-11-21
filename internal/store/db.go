@@ -17,6 +17,8 @@ type DBTX interface {
 	QueryRow(context.Context, string, ...interface{}) pgx.Row
 }
 
+// New constructs Queries. Production callers must use db.Queries
+// (internal/db/store.go), the single assembly point (v3.2 §2.1).
 func New(db DBTX) *Queries {
 	return &Queries{db: db}
 }

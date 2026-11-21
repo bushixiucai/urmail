@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	recall "github.com/bushixiucai/urmail/internal/domain/recall"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -38,7 +39,7 @@ func (m *ApplyManager) PreviewRecall(raw json.RawMessage) (string, string, error
 		return "", "", ErrFailed
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockRecallTenant(ctx, params.TenantID); err != nil {
 		return "", "", ErrFailed
 	}

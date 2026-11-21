@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -23,7 +24,7 @@ type VersionedStore struct {
 
 // ReserveZoneSerial advances only when normalized zone content changes.
 func (s *VersionedStore) ReserveZoneSerial(ctx context.Context, domain, hash string, seed uint32) (uint32, error) {
-	serial, err := store.New(s.DB).ReserveDNSZoneVersion(ctx, store.ReserveDNSZoneVersionParams{Domain: domain, ContentHash: hash, Serial: (int64(seed) + 1) % 4294967296})
+	serial, err := db.Queries(s.DB).ReserveDNSZoneVersion(ctx, store.ReserveDNSZoneVersionParams{Domain: domain, ContentHash: hash, Serial: (int64(seed) + 1) % 4294967296})
 	if err != nil {
 		return 0, err
 	}

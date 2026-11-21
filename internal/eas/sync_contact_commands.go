@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	appcollab "github.com/bushixiucai/urmail/internal/collab"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/domain/collab"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -151,7 +152,7 @@ func (b *SyncBackend) applyContactCommand(ctx context.Context, req *SyncRequest,
 		return serverID, syncStatusServerError
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	svc := appcollab.Service{Q: q}
 	principal := appcollab.Principal{TenantID: req.Session.TenantID, MailboxID: req.Session.MailboxID}
 	var version int64

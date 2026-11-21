@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/bushixiucai/urmail/internal/certs"
+	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nginx"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 // OpCertificateIssue issues for a registered domain using an agent-owned key.
@@ -199,7 +199,7 @@ func (m *ApplyManager) brandHostCertEligible(domain string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	eligible, err := store.New(m.pool.Pool).PlatformBrandHostCertEligible(ctx, domain)
+	eligible, err := db.Queries(m.pool.Pool).PlatformBrandHostCertEligible(ctx, domain)
 	return err == nil && eligible
 }
 
@@ -520,7 +520,7 @@ func (m *ApplyManager) customWebEnabled(domain string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	enabled, err := store.New(m.pool.Pool).PlatformCustomWebEnabled(ctx, domain)
+	enabled, err := db.Queries(m.pool.Pool).PlatformCustomWebEnabled(ctx, domain)
 	return err == nil && enabled
 }
 func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
@@ -535,6 +535,6 @@ func (m *ApplyManager) certificateProvisioningAllowed(domain string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	allowed, err := store.New(m.pool.Pool).PlatformProvisioningCertificateAllowed(ctx, domain)
+	allowed, err := db.Queries(m.pool.Pool).PlatformProvisioningCertificateAllowed(ctx, domain)
 	return err == nil && allowed
 }

@@ -14,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/bushixiucai/urmail/internal/store"
 )
 
@@ -46,7 +48,7 @@ func (m *ApplyManager) ExpungeRecall(raw json.RawMessage) (string, string, error
 		return "", "", ErrFailed
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	if err = q.PlatformLockRecallTenant(ctx, params.TenantID); err != nil {
 		return "", "", ErrFailed
 	}

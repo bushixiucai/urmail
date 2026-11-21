@@ -13,7 +13,6 @@ import (
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/mail/nsd"
 	"github.com/bushixiucai/urmail/internal/reconcile"
-	"github.com/bushixiucai/urmail/internal/store"
 )
 
 func runDNSAuthority(ctx context.Context, args []string) error {
@@ -71,7 +70,7 @@ func runDNSAuthority(ctx context.Context, args []string) error {
 			return openErr
 		}
 		defer pool.Close()
-		snapshot, assembleErr := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: store.New(pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
+		snapshot, assembleErr := reconcile.AssembleConfigContext(ctx, cfg, &reconcile.VersionedStore{StoreQuerier: db.Queries(pool), DB: pool.Pool}, cfg.PublicIPv4, cfg.Nameservers)
 		if assembleErr != nil {
 			return assembleErr
 		}

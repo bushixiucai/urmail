@@ -105,7 +105,7 @@ func ApplyCore(ctx context.Context, pool *db.Pool, source *miadbinventory.Review
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	// The same advisory lock serializes quota allocation and subscription grants.
 	if q.PlatformLockBillingTenant(ctx, options.TenantID) != nil {
 		return result, ErrRejected

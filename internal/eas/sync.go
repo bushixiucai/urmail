@@ -130,7 +130,7 @@ func (b *SyncBackend) HandleSync(ctx context.Context, req *SyncRequest) (*Node, 
 		defer cancel()
 		_ = guard.Rollback(cleanup)
 	}()
-	if err = store.New(guard).LockMailboxEASSync(ctx, store.LockMailboxEASSyncParams{TenantID: strconv.FormatInt(req.Session.TenantID, 10), MailboxID: strconv.FormatInt(req.Session.MailboxID, 10), DeviceID: req.DeviceID}); err != nil {
+	if err = db.Queries(guard).LockMailboxEASSync(ctx, store.LockMailboxEASSyncParams{TenantID: strconv.FormatInt(req.Session.TenantID, 10), MailboxID: strconv.FormatInt(req.Session.MailboxID, 10), DeviceID: req.DeviceID}); err != nil {
 		return nil, err
 	}
 
@@ -311,7 +311,7 @@ func (b *SyncBackend) keyCheck(ctx context.Context, req *SyncRequest, folderID, 
 		stateExists = true
 		state = st
 	case errors.Is(err, ErrNotFound):
-		epoch, epochErr := store.New(b.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
+		epoch, epochErr := db.Queries(b.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
 		if epochErr != nil {
 			return state, nil, false, syncStatusServerError, epochErr
 		}

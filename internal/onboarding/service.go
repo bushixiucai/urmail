@@ -41,7 +41,7 @@ func (s *Service) manager(provider string, credentials dnsprovider.Credentials) 
 	return dnsprovider.NewRecordManager(provider, credentials)
 }
 func (s *Service) credentialManager(ctx context.Context, tenant, domain int64) (store.DnsCredentials, dnsprovider.RecordManager, error) {
-	row, err := store.New(s.Pool.Pool).PlatformGetDNSCredential(ctx, store.PlatformGetDNSCredentialParams{TenantID: tenant, DomainID: domain})
+	row, err := db.Queries(s.Pool.Pool).PlatformGetDNSCredential(ctx, store.PlatformGetDNSCredentialParams{TenantID: tenant, DomainID: domain})
 	if err != nil {
 		return row, nil, errors.New("DNS_CREDENTIAL_UNAVAILABLE")
 	}
@@ -97,7 +97,7 @@ type Draft struct {
 // Prepare reads upstream data but cannot write DNS or mark a plan confirmed.
 func (s *Service) Prepare(ctx context.Context, tenant, domain int64, kind string, imported []dnsprovider.RemoteRecord) (Draft, error) {
 	out := Draft{Kind: kind}
-	d, err := store.New(s.Pool.Pool).PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
+	d, err := db.Queries(s.Pool.Pool).PlatformDNSDomain(ctx, store.PlatformDNSDomainParams{TenantID: tenant, ID: domain})
 	if err != nil {
 		return out, errors.New("DNS_OWNERSHIP_REQUIRED")
 	}

@@ -23,6 +23,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/net/html/charset"
 
+	"github.com/bushixiucai/urmail/internal/db"
+
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
 )
@@ -128,7 +130,7 @@ func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, r
 		_, domain, _ := strings.Cut(sess.Address, "@")
 		outgoing.MessageID = "<eas-" + hex.EncodeToString(key[:]) + "@" + domain + ">"
 	}
-	epoch, err := store.New(s.Pool.Pool).PlatformRestoreSyncEpoch(c.Request.Context())
+	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(c.Request.Context())
 	if err != nil {
 		sendFailure(c, "111")
 		return
@@ -142,7 +144,7 @@ func (s *Server) handleSendMail(c *gin.Context, sess Session, deviceID string, r
 		return
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	jobID, err := q.ClaimEASSend(ctx, store.ClaimEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, IdempotencyKey: hex.EncodeToString(key[:]), Payload: payload})
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, e := q.GetEASSend(ctx, store.GetEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, IdempotencyKey: hex.EncodeToString(key[:])})
@@ -217,7 +219,7 @@ func (s *Server) finishSend(sess Session, id int64, status string, receipt sendR
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	payload, _ := json.Marshal(receipt)
-	err = store.New(tx).FinishEASSend(ctx, store.FinishEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id, Status: status, Payload: payload})
+	err = db.Queries(tx).FinishEASSend(ctx, store.FinishEASSendParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id, Status: status, Payload: payload})
 	if err != nil {
 		return err
 	}
@@ -359,7 +361,7 @@ func (s *Server) recoverSentCopy(sess Session, secret string, id int64, receipt 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	epoch, err := store.New(s.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
+	epoch, err := db.Queries(s.Pool.Pool).PlatformRestoreSyncEpoch(ctx)
 	if err != nil || receipt.Epoch != epoch {
 		return
 	}
@@ -373,7 +375,7 @@ func (s *Server) recoverSentCopy(sess Session, secret string, id int64, receipt 
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := store.New(tx)
+	q := db.Queries(tx)
 	// Lock by receipt id as well as both principal dimensions.
 	current, err := q.LockEASSendCopy(ctx, store.LockEASSendCopyParams{TenantID: sess.TenantID, MailboxID: sess.MailboxID, ID: id})
 	if err != nil || current.Status != "done" {
