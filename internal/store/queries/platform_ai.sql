@@ -122,4 +122,3 @@ FROM ai_usage_requests WHERE tenant_id=?1 AND status IN('reserved','uncertain') 
 
 -- PlatformSetActiveAIService 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
 -- 同语句 + configuration_digest 重算：切换服务会改写 mode/provider/endpoint/model，旧云同意必须随之失效
-

@@ -9,4 +9,3 @@ SELECT EXISTS(
 
 -- PlatformReadEvidenceBody 在 S4 迁移至 internal/store/sqlite_methods.go（手写同名方法）：
 -- urmail_read_evidence_body = 可见性谓词 + sha256 摘要校验。
-
