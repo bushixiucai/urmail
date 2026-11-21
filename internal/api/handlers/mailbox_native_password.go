@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"net/http"
 	"strconv"
 
@@ -54,6 +55,10 @@ func (h *MailboxNativeHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c.Request.Context()) }()
+	// Bind the platform scope for the platform-domain statements below (same
+	// rationale as MailboxBridgeHandler.Bridge).
+	actorID, _ := middleware.GetUserID(c)
+	c.Request = c.Request.WithContext(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actorID}))
 	q := db.Queries(tx)
 
 	changed, passwordErr := changeMailboxPassword(c.Request.Context(), q, mailboxBridgeRequest{

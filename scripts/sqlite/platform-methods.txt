@@ -508,7 +508,6 @@ PublicBrandBySlug
 RecordMarketingFlowAudit
 RecordTenantAudit
 ReserveDNSZoneVersion
-RetryMarketingFlowInstance
 ScheduleMarketingCampaign
 SetMFASecret
 SetMarketingReportBudget

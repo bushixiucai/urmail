@@ -635,6 +635,11 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
 // PlatformMarkMarketingFlowUncertain freezes a flow position after an
 // ambiguous send (mirrors urmail_mark_marketing_flow_uncertain).
 func (q *Queries) PlatformMarkMarketingFlowUncertain(ctx context.Context, arg PlatformMarkMarketingFlowUncertainParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		return pgstore.New(q.db).PlatformMarkMarketingFlowUncertain(ctx, pgstore.PlatformMarkMarketingFlowUncertainParams{PTenant: arg.PTenant, PFlow: arg.PFlow, PEmail: arg.PEmail})
+	}
 	tag, err := q.db.Exec(ctx, markMarketingFlowUncertainSQL, arg.PTenant, arg.PFlow, arg.PEmail)
 	if err != nil {
 		return "", err
@@ -1856,12 +1861,20 @@ const tenantAdminSQL = `SELECT EXISTS(SELECT 1 FROM user_tenant_roles
  WHERE tenant_id=?1 AND user_id=CAST(nullif(current_setting('urmail.user_id',true),'') AS INTEGER)
   AND role IN('owner','admin'))`
 
+const tenantAdminPGSQL = `SELECT EXISTS(SELECT 1 FROM user_tenant_roles
+ WHERE tenant_id=$1 AND user_id=NULLIF(current_setting('urmail.user_id',true),'')::bigint
+  AND role IN('owner','admin'))`
+
 // tenantAdmin mirrors the `user_id=current_setting(...) AND role IN
 // ('owner','admin')` predicate shared by the tenant-facing marketing and AI
 // configuration procedures.
 func (q *Queries) tenantAdmin(ctx context.Context, tenant int64) (bool, error) {
+	statement := tenantAdminSQL
+	if !isSQLiteDBTX(q.db) {
+		statement = tenantAdminPGSQL
+	}
 	var ok bool
-	err := q.db.QueryRow(ctx, tenantAdminSQL, tenant).Scan(&ok)
+	err := q.db.QueryRow(ctx, statement, tenant).Scan(&ok)
 	return ok, err
 }
 
@@ -2196,6 +2209,14 @@ WHERE p.tenant_id=?1 AND p.id=?2 AND v.definition_id=?3 AND f.status='active'`
 // a failed or delivery-uncertain position whose lease lapsed is made runnable
 // again, and any reserved quota slot is given back.
 func (q *Queries) RetryMarketingFlowInstance(ctx context.Context, arg RetryMarketingFlowInstanceParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure (409 mapping
+		// for unconfirmed retries happens in the handler before this call).
+		return pgstore.New(q.db).RetryMarketingFlowInstance(ctx, pgstore.RetryMarketingFlowInstanceParams{
+			PTenant: arg.PTenant, PDefinition: arg.PDefinition,
+			PPosition: arg.PPosition, PConfirmedNotAccepted: arg.PConfirmedNotAccepted,
+		})
+	}
 	_, _, role, err := q.sessionActor(ctx)
 	if err != nil {
 		return false, err
@@ -2258,8 +2279,14 @@ var marketingFlowAuditActions = map[string]bool{
 const marketingFlowDefinitionSQL = `SELECT EXISTS(SELECT 1 FROM marketing_flow_definitions
  WHERE tenant_id=?1 AND id=?2)`
 
+const marketingFlowDefinitionPGSQL = `SELECT EXISTS(SELECT 1 FROM marketing_flow_definitions
+ WHERE tenant_id=$1 AND id=$2)`
+
 const marketingFlowAuditInsertSQL = `INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
 VALUES(?1,?2,?3,'marketing_flow',?4,?5)`
+
+const marketingFlowAuditInsertPGSQL = `INSERT INTO audit_logs(tenant_id,actor_user_id,action,target_type,target_id,detail)
+VALUES($1,$2,$3,'marketing_flow',$4,$5)`
 
 // RecordMarketingFlowAudit mirrors urmail_record_marketing_flow_audit. The audit
 // table's append-only INSERT trigger still rejects this row until S6 removes the
@@ -2280,7 +2307,11 @@ func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarket
 		return pgError("42501", "MARKETING_ADMIN_REQUIRED")
 	}
 	var definitionExists bool
-	if err := q.db.QueryRow(ctx, marketingFlowDefinitionSQL, arg.PTenant, arg.PDefinition).
+	definitionStatement := marketingFlowDefinitionSQL
+	if !isSQLiteDBTX(q.db) {
+		definitionStatement = marketingFlowDefinitionPGSQL
+	}
+	if err := q.db.QueryRow(ctx, definitionStatement, arg.PTenant, arg.PDefinition).
 		Scan(&definitionExists); err != nil {
 		return err
 	}
@@ -2300,6 +2331,15 @@ func (q *Queries) RecordMarketingFlowAudit(ctx context.Context, arg RecordMarket
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, arg.PDetail); err != nil || compact.Len() > 4000 {
 		return pgError("22023", "INVALID_FLOW_AUDIT")
+	}
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure: the direct
+		// INSERT would fail on audit_logs grants, and the procedure re-checks
+		// tenant admin, definition existence, action whitelist and payload.
+		_, err := q.db.Exec(ctx,
+			`SELECT urmail_record_marketing_flow_audit($1::bigint,$2::bigint,$3::text,$4::jsonb)`,
+			arg.PTenant, arg.PDefinition, arg.PAction, string(compact.Bytes()))
+		return err
 	}
 	_, err = q.db.Exec(ctx, marketingFlowAuditInsertSQL, arg.PTenant, actor,
 		"marketing.flow."+arg.PAction, strconv.FormatInt(arg.PDefinition, 10),
@@ -2350,6 +2390,11 @@ const marketingSuppressionHitSQL = `SELECT EXISTS(SELECT 1 FROM marketing_suppre
 // reserves a quota slot and moves the recipient to submitting, or returns the
 // terminal status that the worker logs and skips on.
 func (q *Queries) PlatformAuthorizeMarketingSend(ctx context.Context, arg PlatformAuthorizeMarketingSendParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		return pgstore.New(q.db).PlatformAuthorizeMarketingSend(ctx, pgstore.PlatformAuthorizeMarketingSendParams{TenantID: arg.TenantID, RecipientID: arg.RecipientID, LeaseOwner: arg.LeaseOwner, Fence: arg.Fence})
+	}
 	var result string
 	err := q.runTx(ctx, func(tx *Queries) error {
 		var err error
@@ -2467,6 +2512,12 @@ var marketingFinishResults = map[string]bool{
 // the SMTP outcome, refunds a bounced/failed slot, retries a failed send up to
 // five times with exponential backoff, and suppresses bounce addresses.
 func (q *Queries) PlatformFinishMarketingSend(ctx context.Context, arg PlatformFinishMarketingSendParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		ok, err := pgstore.New(q.db).PlatformFinishMarketingSend(ctx, pgstore.PlatformFinishMarketingSendParams{TenantID: arg.TenantID, RecipientID: arg.RecipientID, LeaseOwner: arg.LeaseOwner, Fence: arg.Fence, Result: arg.Result})
+		return ok, err
+	}
 	if !marketingFinishResults[arg.Result] {
 		return false, pgError("42501", "MARKETING_WORKER_REQUIRED")
 	}
@@ -2528,6 +2579,12 @@ WHERE tenant_id=?1 AND id=?2`
 // PlatformResolveMarketingAttempt mirrors urmail_resolve_marketing_attempt: an
 // operator says whether an uncertain submit actually reached the provider.
 func (q *Queries) PlatformResolveMarketingAttempt(ctx context.Context, arg PlatformResolveMarketingAttemptParams) (bool, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		ok, err := pgstore.New(q.db).PlatformResolveMarketingAttempt(ctx, pgstore.PlatformResolveMarketingAttemptParams{TenantID: arg.TenantID, RecipientID: arg.RecipientID, Outcome: arg.Outcome, Reason: arg.Reason})
+		return ok, err
+	}
 	if (arg.Outcome != "accepted" && arg.Outcome != "not_submitted") ||
 		utf8.RuneCountInString(strings.TrimSpace(arg.Reason)) < 1 ||
 		utf8.RuneCountInString(strings.TrimSpace(arg.Reason)) > 2048 {
@@ -2850,6 +2907,11 @@ func (q *Queries) commitMarketingFlowStep(ctx context.Context, tenant, flow int6
 // uncertainty/reservation marker when the worker confirmed the delivery, then
 // delegates to the step commit.
 func (q *Queries) PlatformCommitMarketingFlowFenced(ctx context.Context, arg PlatformCommitMarketingFlowFencedParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		return pgstore.New(q.db).PlatformCommitMarketingFlowFenced(ctx, pgstore.PlatformCommitMarketingFlowFencedParams{PTenant: arg.PTenant, PFlow: arg.PFlow, PEmail: arg.PEmail, POwner: arg.POwner, PFence: arg.PFence, PNext: arg.PNext, PUnsubscribed: arg.PUnsubscribed, PConfirmed: arg.PConfirmed})
+	}
 	var result string
 	err := q.runTx(ctx, func(tx *Queries) error {
 		var err error
@@ -2909,6 +2971,11 @@ func (q *Queries) commitMarketingFlowFenced(ctx context.Context, arg PlatformCom
 // PlatformCommitMarketingFlowWait mirrors the same PG function used for a
 // wait/condition step: no send happens, but the step commits atomically.
 func (q *Queries) PlatformCommitMarketingFlowWait(ctx context.Context, arg PlatformCommitMarketingFlowWaitParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		return pgstore.New(q.db).PlatformCommitMarketingFlowWait(ctx, pgstore.PlatformCommitMarketingFlowWaitParams{PTenant: arg.PTenant, PFlow: arg.PFlow, PEmail: arg.PEmail, Event: arg.Event, NextKey: arg.NextKey})
+	}
 	var result string
 	err := q.runTx(ctx, func(tx *Queries) error {
 		var err error
@@ -2932,6 +2999,11 @@ WHERE tenant_id=?1 AND flow_id=?2 AND email=?3`
 // reserves a quota slot and marks the position uncertain until the worker
 // commits the outcome.
 func (q *Queries) PlatformBeginMarketingFlowSend(ctx context.Context, arg PlatformBeginMarketingFlowSendParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		// PostgreSQL keeps the origin SECURITY DEFINER procedure; the
+		// SQLite handwritten twin stays for the single-engine runtime.
+		return pgstore.New(q.db).PlatformBeginMarketingFlowSend(ctx, pgstore.PlatformBeginMarketingFlowSendParams{PTenant: arg.PTenant, PFlow: arg.PFlow, PEmail: arg.PEmail, POwner: arg.POwner, PFence: arg.PFence, PChannel: arg.PChannel})
+	}
 	if err := q.requireMarketingWorker(ctx); err != nil {
 		return "", err
 	}

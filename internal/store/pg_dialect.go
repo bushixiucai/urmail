@@ -51,8 +51,49 @@ SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, arch
 // Parameter positions whose PostgreSQL generated signature takes a native
 // timestamptz while the SQLite generated signature stores unix microseconds.
 // This explicit bridge is B2 adapter metadata, not a SQL text rewrite.
+// Parameter positions whose PostgreSQL generated signature takes a native
+// timestamptz/timestamp while the shared (SQLite-era) signature stores unix
+// microseconds. Derived systematically by diffing every PG twin Params struct
+// against its shared counterpart (scripts/sqlite generated pairings); adapted
+// at the B2 dialect seam, never by rewriting SQL text.
 var postgresTimestampArgIndexes = map[string][]int{
-	"CreateSession": {5},
+	"ArchiveRetentionCandidateDigest":        {1},
+	"CountDeliveryEventsByStatus":            {1},
+	"CreateApplicationCredential":            {3},
+	"CreateComplianceGrant":                  {3},
+	"CreateSession":                          {5},
+	"InsertArchiveEntry":                     {7},
+	"PlatformAIQuotaUsage":                   {3, 4},
+	"PlatformAdvanceCollectorCheckpoint":     {5},
+	"PlatformBindSchedulingEvent":            {5},
+	"PlatformBrandHostCertificateTransition": {4},
+	"PlatformCreateAnnouncement":             {4, 5},
+	"PlatformCreateInvestigation":            {4},
+	"PlatformCreateMailboxScheduledSend":     {5},
+	"PlatformFindTLSReportFingerprint":       {4, 5},
+	"PlatformIndexArchiveCopy":               {7},
+	"PlatformInsertArchiveEntry":             {7},
+	"PlatformInsertBrandHostChallenge":       {3},
+	"PlatformInsertEvent":                    {7, 8},
+	"PlatformListCalendarEventsPage":         {3, 4},
+	"PlatformListEvents":                     {2, 3},
+	"PlatformPutDeliveryQueueContext":        {7},
+	"PlatformQueueAuthenticatedTenant":       {3},
+	"PlatformRecordCollectedDeliveryEvent":   {13},
+	"PlatformRecordTLSReport":                {5, 6},
+	"PlatformRequeueMailboxScheduledSend":    {0},
+	"PlatformReserveAIRequest":               {4, 5, 14},
+	"PlatformReserveMailboxAIRequest":        {4, 5, 14},
+	"PlatformScheduleCalendarReminder":       {4},
+	"PlatformSetBrandHostLifecycle":          {3, 4, 5},
+	"PlatformSumAIUsageBetween":              {1, 2},
+	"PlatformUpdateAnnouncement":             {5, 6},
+	"PlatformUpdateEvent":                    {3, 4},
+	"PlatformVerifyBrandHostProof":           {1},
+	"RecordDeliveryEvent":                    {13},
+	"SetMailboxImportJob":                    {4},
+	"TenantDeliveryOutcomeCounts":            {1, 2},
+	"UpdateDomainStatus":                     {3},
 }
 
 func adaptPostgresArgs(method string, args []any) []any {

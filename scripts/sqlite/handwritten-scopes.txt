@@ -50,21 +50,22 @@ RequestDNSRollback     tenant
 ReviewDNSPlan          tenant
 AbandonDNSPlan         tenant
 
-# -- platform: marketing worker（dispatch / flow 发送与提交；role='urmail_platform'）
-PlatformAuthorizeMarketingSend           system
-PlatformFinishMarketingSend              system
-PlatformResolveMarketingAttempt          system
-PlatformRecordMarketingFeedback          system
-PlatformMarkMarketingRecipientRevoked    system
-PlatformSkipMarketingRecipient           system
-PlatformBeginMarketingFlowSend           system
-PlatformReleaseMarketingFlowReservation  system
-PlatformCommitMarketingFlowFenced        system
-PlatformCommitMarketingFlowWait          system
+# -- platform: marketing worker（QA round-2：flow worker 入口为 platform scope，
+#    dispatch/发送/提交全链对齐，消除同 worker 内 platform/system 混用拒绝；role='urmail_platform'）
+PlatformAuthorizeMarketingSend           platform
+PlatformFinishMarketingSend              platform
+PlatformResolveMarketingAttempt          platform
+PlatformRecordMarketingFeedback          platform
+PlatformMarkMarketingRecipientRevoked    platform
+PlatformSkipMarketingRecipient           platform
+PlatformBeginMarketingFlowSend           platform
+PlatformReleaseMarketingFlowReservation  platform
+PlatformCommitMarketingFlowFenced        platform
+PlatformCommitMarketingFlowWait          platform
 
 # -- platform: 营销管理面（沿用被替换语句原 `-- scope: platform` 注解，不擅自放宽为 system）
 ScheduleMarketingCampaign platform
-RetryMarketingFlowInstance platform
+RetryMarketingFlowInstance tenant
 RecordMarketingFlowAudit  platform
 
 # -- platform: AI 配置面（沿用被替换语句原 `-- scope: platform` 注解；调用方为租户 owner|admin）

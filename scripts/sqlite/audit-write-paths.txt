@@ -25,3 +25,4 @@ trigger:application_credentials_audit_create
 trigger:application_credentials_audit_revoke
 trigger:recall_requests_audit_complete
 trigger:recall_requests_audit_complete_direct
+const:marketingFlowAuditInsertPGSQL

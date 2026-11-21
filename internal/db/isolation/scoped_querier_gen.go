@@ -2817,7 +2817,7 @@ func (s *ScopedQuerier) PlatformAuthorizeMarketingFlowSend(ctx context.Context, 
 }
 
 func (s *ScopedQuerier) PlatformAuthorizeMarketingSend(ctx context.Context, arg store.PlatformAuthorizeMarketingSendParams) (string, error) {
-	if _, err := CheckMethod(ctx, "PlatformAuthorizeMarketingSend", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformAuthorizeMarketingSend", ScopePlatform); err != nil {
 		var zero string
 		return zero, err
 	}
@@ -2864,7 +2864,7 @@ func (s *ScopedQuerier) PlatformBeginMailboxScheduledSendSubmission(ctx context.
 }
 
 func (s *ScopedQuerier) PlatformBeginMarketingFlowSend(ctx context.Context, arg store.PlatformBeginMarketingFlowSendParams) (string, error) {
-	if _, err := CheckMethod(ctx, "PlatformBeginMarketingFlowSend", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformBeginMarketingFlowSend", ScopePlatform); err != nil {
 		var zero string
 		return zero, err
 	}
@@ -3147,7 +3147,7 @@ func (s *ScopedQuerier) PlatformCommissionRate(ctx context.Context, id int64) (i
 }
 
 func (s *ScopedQuerier) PlatformCommitMarketingFlowFenced(ctx context.Context, arg store.PlatformCommitMarketingFlowFencedParams) (string, error) {
-	if _, err := CheckMethod(ctx, "PlatformCommitMarketingFlowFenced", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformCommitMarketingFlowFenced", ScopePlatform); err != nil {
 		var zero string
 		return zero, err
 	}
@@ -3155,7 +3155,7 @@ func (s *ScopedQuerier) PlatformCommitMarketingFlowFenced(ctx context.Context, a
 }
 
 func (s *ScopedQuerier) PlatformCommitMarketingFlowWait(ctx context.Context, arg store.PlatformCommitMarketingFlowWaitParams) (string, error) {
-	if _, err := CheckMethod(ctx, "PlatformCommitMarketingFlowWait", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformCommitMarketingFlowWait", ScopePlatform); err != nil {
 		var zero string
 		return zero, err
 	}
@@ -3793,7 +3793,7 @@ func (s *ScopedQuerier) PlatformFinishMailboxScheduledSend(ctx context.Context, 
 }
 
 func (s *ScopedQuerier) PlatformFinishMarketingSend(ctx context.Context, arg store.PlatformFinishMarketingSendParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "PlatformFinishMarketingSend", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformFinishMarketingSend", ScopePlatform); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -4974,7 +4974,7 @@ func (s *ScopedQuerier) PlatformMarkMarketingFlowUnsubscribed(ctx context.Contex
 }
 
 func (s *ScopedQuerier) PlatformMarkMarketingRecipientRevoked(ctx context.Context, arg store.PlatformMarkMarketingRecipientRevokedParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "PlatformMarkMarketingRecipientRevoked", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformMarkMarketingRecipientRevoked", ScopePlatform); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -5215,7 +5215,7 @@ func (s *ScopedQuerier) PlatformRecordMailboxUsageError(ctx context.Context, arg
 }
 
 func (s *ScopedQuerier) PlatformRecordMarketingFeedback(ctx context.Context, arg store.PlatformRecordMarketingFeedbackParams) (string, error) {
-	if _, err := CheckMethod(ctx, "PlatformRecordMarketingFeedback", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformRecordMarketingFeedback", ScopePlatform); err != nil {
 		var zero string
 		return zero, err
 	}
@@ -5356,7 +5356,7 @@ func (s *ScopedQuerier) PlatformReleaseMarketingFlowLease(ctx context.Context, a
 }
 
 func (s *ScopedQuerier) PlatformReleaseMarketingFlowReservation(ctx context.Context, arg store.PlatformReleaseMarketingFlowReservationParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "PlatformReleaseMarketingFlowReservation", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformReleaseMarketingFlowReservation", ScopePlatform); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -5467,7 +5467,7 @@ func (s *ScopedQuerier) PlatformResolveDeliveryMailboxTenant(ctx context.Context
 }
 
 func (s *ScopedQuerier) PlatformResolveMarketingAttempt(ctx context.Context, arg store.PlatformResolveMarketingAttemptParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "PlatformResolveMarketingAttempt", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformResolveMarketingAttempt", ScopePlatform); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -5733,7 +5733,7 @@ func (s *ScopedQuerier) PlatformSieveOutboundAllowed(ctx context.Context, addres
 }
 
 func (s *ScopedQuerier) PlatformSkipMarketingRecipient(ctx context.Context, arg store.PlatformSkipMarketingRecipientParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "PlatformSkipMarketingRecipient", ScopeSystem); err != nil {
+	if _, err := CheckMethod(ctx, "PlatformSkipMarketingRecipient", ScopePlatform); err != nil {
 		var zero bool
 		return zero, err
 	}
@@ -6136,7 +6136,7 @@ func (s *ScopedQuerier) RestoreArchiveCopy(ctx context.Context, arg store.Restor
 }
 
 func (s *ScopedQuerier) RetryMarketingFlowInstance(ctx context.Context, arg store.RetryMarketingFlowInstanceParams) (bool, error) {
-	if _, err := CheckMethod(ctx, "RetryMarketingFlowInstance", ScopePlatform); err != nil {
+	if _, err := CheckMethod(ctx, "RetryMarketingFlowInstance", ScopeTenant); err != nil {
 		var zero bool
 		return zero, err
 	}

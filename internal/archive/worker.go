@@ -56,6 +56,10 @@ func (w *Worker) Start(ctx context.Context, logger *zap.Logger) {
 
 // Once retains every failed spool item for retry or operator investigation.
 func (w *Worker) Once(ctx context.Context) error {
+	// Entire pass is platform-domain: spool indexing, retention, purge and
+	// alerts all bind platform statements. Elevate at ENTRY (QA round-2: the
+	// spool index loop runs before the retention block and needs the scope).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if w.Pool == nil {
 		return errors.New("archive database unavailable")
 	}
@@ -136,10 +140,6 @@ func (w *Worker) Once(ctx context.Context) error {
 	if processed < 100 {
 		w.scanAfter = ""
 	}
-	// Reconciliation/retention pass: platform-domain statements throughout
-	// (expire/retention/purge/alerts). Elevate once at entry like the
-	// onboarding/notify worker precedents; daemon carries no request scope.
-	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	q := db.Queries(w.Pool)
 	if _, expiryErr := q.PlatformExpireArchiveApprovals(ctx); expiryErr != nil {
 		failures = append(failures, expiryErr)
@@ -296,6 +296,9 @@ func (w *Worker) index(ctx context.Context, spool *os.Root, id string) error {
 }
 
 func (w *Worker) purge(ctx context.Context, tenantID, id int64) error {
+	// Purge is a platform-domain lifecycle op; bind the scope here so both the
+	// Once-driven pass and direct callers (retention drill) satisfy the hook.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	for phase := 0; phase < 2; phase++ {
 		tx, err := w.Pool.PlatformTx(ctx)
 		if err != nil {
@@ -569,6 +572,9 @@ func (w *Worker) IndexSpoolCopy(ctx context.Context, id string) (returnedErr err
 	if w.Pool == nil {
 		return errors.New("archive database unavailable")
 	}
+	// Public index entry: bind platform scope for the pinned-ownership and
+	// index statements (direct callers bypass the Once-elevated context).
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if config.RestoreQuarantined() {
 		return errors.New("archive indexing quarantined")
 	}

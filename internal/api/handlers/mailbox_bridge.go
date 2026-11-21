@@ -18,6 +18,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/ai"
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -97,6 +98,12 @@ func (h *MailboxBridgeHandler) Bridge(c *gin.Context) {
 		return
 	}
 	defer func() { _ = tx.Rollback(c) }()
+	// Every statement in this transaction is platform-domain (roundcube/ticket
+	// pruning, principal lookup, CAS rotation, revocation, audit). Bind the
+	// platform scope to the request context so the S3 DBTX hook admits them.
+	actorID, _ := middleware.GetUserID(c)
+	platCtx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform, ActorID: actorID})
+	c.Request = c.Request.WithContext(platCtx)
 	q := db.Queries(tx)
 	if q.PlatformPruneRoundcubeRequests(c.Request.Context()) != nil || q.PlatformPruneMailboxTickets(c.Request.Context()) != nil || q.PlatformPruneMailboxSessions(c.Request.Context()) != nil {
 		authError(c, 503, "DB_ERROR")
