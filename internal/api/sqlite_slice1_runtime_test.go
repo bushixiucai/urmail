@@ -31,6 +31,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/api/handlers"
 	"github.com/bushixiucai/urmail/internal/db"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
+	"github.com/bushixiucai/urmail/internal/i18n"
 	"github.com/bushixiucai/urmail/internal/imageproxy"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
 	"github.com/bushixiucai/urmail/internal/sqlitedb"
@@ -113,8 +114,13 @@ func newSlice1Server(t *testing.T) (*sql.DB, *httptest.Server) {
 		}
 	}
 
+	messages, err := i18n.NewStore()
+	if err != nil {
+		t.Fatalf("load embedded locale catalog for fixture: %v", err)
+	}
 	engine := api.New(api.Options{
 		SQLiteStore:      db,
+		Messages:         messages,
 		WebmailNative:    true,
 		DevMode:          true,
 		MyHostname:       "localhost",
