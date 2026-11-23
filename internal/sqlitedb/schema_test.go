@@ -84,8 +84,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
-		t.Fatalf("user_version = %d, want 5 (0001_init + 0002_write_side_effects + 0003_mailbox_readonly + 0004_archive_trigram_fts + 0005_archive_bigram_fts)", version)
+	if version != sqlitedb.ExpectedSchemaVersion {
+		t.Fatalf("user_version = %d, want %d (migrations_sqlite chain tip)", version, sqlitedb.ExpectedSchemaVersion)
 	}
 
 	// Idempotency: re-running the chain on the same database is a no-op.
@@ -98,8 +98,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
-		t.Fatalf("user_version after reruns = %d, want 5", version)
+	if version != sqlitedb.ExpectedSchemaVersion {
+		t.Fatalf("user_version after reruns = %d, want %d", version, sqlitedb.ExpectedSchemaVersion)
 	}
 }
 
