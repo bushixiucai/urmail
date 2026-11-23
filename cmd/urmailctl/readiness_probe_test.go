@@ -120,7 +120,7 @@ func TestReadinessProbeBindsLiveStateAndDetectsChange(t *testing.T) {
 	}
 
 	recordPath := filepath.Join(t.TempDir(), "probe.json")
-	raw, err := canonicalJSON(doc)
+	raw, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestReadinessProbeFileAttributesAreBound(t *testing.T) {
 		t.Fatalf("mode not bound: %o", doc.RequiredFiles[0].Mode)
 	}
 	recordPath := filepath.Join(t.TempDir(), "probe.json")
-	raw, _ := canonicalJSON(doc)
+	raw, _ := json.Marshal(doc)
 	if err := os.WriteFile(recordPath, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -365,9 +365,12 @@ func TestReadinessProbeSQLiteIdentity(t *testing.T) {
 		t.Fatalf("sqlite identity missing: %+v", doc.Target)
 	}
 	recordPath := filepath.Join(t.TempDir(), "probe.json")
-	raw, _ := canonicalJSON(doc)
+	raw, _ := json.Marshal(doc)
 	if err := os.WriteFile(recordPath, raw, 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if err := verifyReadinessProbe(ctx, opts, recordPath, doc); err != nil {
+		t.Fatalf("sqlite verify unchanged: %v", err)
 	}
 	// Replace the target at the same path with the same user_version.
 	replacement := filepath.Join(dir, "replacement.sqlite")

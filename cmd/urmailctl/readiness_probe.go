@@ -113,7 +113,9 @@ func runUpgradeReadinessProbe(ctx context.Context, args []string) error {
 		return err
 	}
 	if *verify == "" {
-		raw, err := canonicalJSON(doc)
+		// Struct order is fixed and json.Marshal keeps int64 identity fields
+		// exact; a generic map round-trip would round nanosecond mtimes.
+		raw, err := json.Marshal(doc)
 		if err != nil {
 			return err
 		}
@@ -202,7 +204,7 @@ func probeReadiness(ctx context.Context, opts readinessProbeOptions) (readinessP
 	state := doc
 	state.ProbedAt = time.Time{}
 	state.StateSHA256 = ""
-	raw, err := canonicalJSON(state)
+	raw, err := json.Marshal(state)
 	if err != nil {
 		return doc, err
 	}
