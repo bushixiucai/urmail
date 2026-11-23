@@ -21,10 +21,10 @@ import (
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
 
-func readinessFence(t *testing.T) string {
+func readinessFence(t *testing.T, generation uint64) string {
 	t.Helper()
 	root := t.TempDir()
-	meta := maintenance.UpgradeFenceMeta{Version: 2, CreatedAt: time.Now().UTC(), Reason: "readiness probe fixture", Operator: "fixture", Units: []string{"postfix.service"}}
+	meta := maintenance.UpgradeFenceMeta{Version: 2, Generation: generation, CreatedAt: time.Now().UTC(), Reason: "readiness probe fixture", Operator: "fixture", Units: []string{"postfix.service"}}
 	if err := maintenance.CreateUpgradeFence(root, meta); err != nil {
 		t.Fatalf("create fence: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestReadinessProbeBindsLiveStateAndDetectsChange(t *testing.T) {
 	if err := p.QueryRow(ctx, `SELECT version FROM schema_migrations`).Scan(&generation); err != nil {
 		t.Fatal(err)
 	}
-	root := readinessFence(t)
+	root := readinessFence(t, generation)
 	required := filepath.Join(t.TempDir(), "restored-manifest.json")
 	if err := os.WriteFile(required, []byte(`{"fixture":"restored"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestReadinessProbeBindsLiveStateAndDetectsChange(t *testing.T) {
 	}
 
 	// Wrong expected generation is refused by the probe itself.
-	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: generation + 1, databaseEnv: env}); err == nil || !strings.Contains(err.Error(), "does not match expected generation") {
+	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: generation + 1, databaseEnv: env}); err == nil || !strings.Contains(err.Error(), "does not match requested generation") {
 		t.Fatalf("generation drift accepted: %v", err)
 	}
 
@@ -168,13 +168,13 @@ func TestReadinessProbeBindsLiveStateAndDetectsChange(t *testing.T) {
 func TestReadinessProbeRefusesUnprovenSources(t *testing.T) {
 	ctx := context.Background()
 	p, _ := testdb.OpenMigrated(t)
-	root := readinessFence(t)
+	root := readinessFence(t, 6)
 	env := fmt.Sprintf("URMAIL_PROBE_TEST_%d", time.Now().UnixNano())
 	t.Setenv(env, probeRoleDSN(t, ctx, p, testdb.RequireDatabaseURL(t)))
 
 	// No target configured: never fall back to a default connection.
 	t.Setenv(env+"_EMPTY", "")
-	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 159, databaseEnv: env + "_EMPTY"}); err == nil || !strings.Contains(err.Error(), "requires --sqlite or a read-only URL") {
+	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 6, databaseEnv: env + "_EMPTY"}); err == nil || !strings.Contains(err.Error(), "requires --sqlite or a read-only URL") {
 		t.Fatalf("missing target accepted: %v", err)
 	}
 
@@ -191,7 +191,7 @@ func TestReadinessProbeRefusesUnprovenSources(t *testing.T) {
 	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: sqlitePath, sqliteVersion: 6}); err != nil {
 		t.Fatalf("sqlite positive: %v", err)
 	}
-	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 5, sqlitePath: sqlitePath, sqliteVersion: 5}); err == nil || !strings.Contains(err.Error(), "does not match expected generation") {
+	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 5, sqlitePath: sqlitePath, sqliteVersion: 5}); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("sqlite drift accepted: %v", err)
 	}
 	link := sqlitePath + ".link"
@@ -217,7 +217,7 @@ func TestReadinessProbeRefusesUnprovenSources(t *testing.T) {
 // an absent, symlinked or wrong-format record never authorizes a release.
 func TestReadinessProbeVerifyRejectsBadRecord(t *testing.T) {
 	ctx := context.Background()
-	root := readinessFence(t)
+	root := readinessFence(t, 6)
 	sqlitePath := filepath.Join(t.TempDir(), "target.sqlite")
 	db, err := sql.Open("sqlite", "file:"+sqlitePath)
 	if err != nil {
@@ -267,11 +267,127 @@ func TestReadinessProbeRejectsBadSchemaBooks(t *testing.T) {
 			}
 			env := fmt.Sprintf("URMAIL_PROBE_TEST_%d", time.Now().UnixNano())
 			t.Setenv(env, probeRoleDSN(t, ctx, p, testdb.RequireDatabaseURL(t)))
-			root := readinessFence(t)
+			root := readinessFence(t, 159)
 			_, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 159, databaseEnv: env})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("bad schema book accepted: %v", err)
 			}
 		})
+	}
+}
+
+// TestReadinessProbeRejectsMixedGeneration proves a v2 hold/receipt recorded
+// for another generation cannot satisfy a request for the live target.
+func TestReadinessProbeRejectsMixedGeneration(t *testing.T) {
+	ctx := context.Background()
+	p, _ := testdb.OpenMigrated(t)
+	env := fmt.Sprintf("URMAIL_PROBE_TEST_%d", time.Now().UnixNano())
+	t.Setenv(env, probeRoleDSN(t, ctx, p, testdb.RequireDatabaseURL(t)))
+	root := readinessFence(t, 158)
+	if _, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 159, databaseEnv: env}); err == nil || !strings.Contains(err.Error(), "does not match requested generation") {
+		t.Fatalf("mixed hold generation accepted: %v", err)
+	}
+}
+
+// TestReadinessProbeFileAttributesAreBound proves the required file's security
+// attributes, not only its bytes, participate in the binding and verify.
+func TestReadinessProbeFileAttributesAreBound(t *testing.T) {
+	ctx := context.Background()
+	root := readinessFence(t, 6)
+	sqlitePath := filepath.Join(t.TempDir(), "target.sqlite")
+	db, err := sql.Open("sqlite", "file:"+sqlitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	required := filepath.Join(t.TempDir(), "required.json")
+	if err := os.WriteFile(required, []byte(`{"mode":"bound"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: sqlitePath, sqliteVersion: 6, requiredFiles: []string{required}}
+	doc, err := probeReadiness(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.RequiredFiles[0].Mode != 0o600 {
+		t.Fatalf("mode not bound: %o", doc.RequiredFiles[0].Mode)
+	}
+	recordPath := filepath.Join(t.TempDir(), "probe.json")
+	raw, _ := canonicalJSON(doc)
+	if err := os.WriteFile(recordPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(required, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(required, 0o600) })
+	changed, err := probeReadiness(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReadinessProbe(ctx, opts, recordPath, changed); err == nil || !strings.Contains(err.Error(), "required file") {
+		t.Fatalf("mode-only change accepted: %v", err)
+	}
+}
+
+// TestReadinessProbeSQLiteIdentity proves a replacement at the same path with
+// the same user_version is a different target, and a WAL target is refused
+// until a WAL identity contract is frozen.
+func TestReadinessProbeSQLiteIdentity(t *testing.T) {
+	ctx := context.Background()
+	root := readinessFence(t, 6)
+	dir := t.TempDir()
+	sqlitePath := filepath.Join(dir, "target.sqlite")
+	makeDB := func(path, content string) {
+		t.Helper()
+		db, err := sql.Open("sqlite", "file:"+path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`CREATE TABLE probe_identity(v TEXT NOT NULL); INSERT INTO probe_identity(v) VALUES(?)`, content); err != nil {
+			t.Fatal(err)
+		}
+		_ = db.Close()
+	}
+	makeDB(sqlitePath, "original")
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: sqlitePath, sqliteVersion: 6}
+	doc, err := probeReadiness(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Target.Inode == 0 || doc.Target.FileSHA == "" || doc.Target.Device == 0 {
+		t.Fatalf("sqlite identity missing: %+v", doc.Target)
+	}
+	recordPath := filepath.Join(t.TempDir(), "probe.json")
+	raw, _ := canonicalJSON(doc)
+	if err := os.WriteFile(recordPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Replace the target at the same path with the same user_version.
+	replacement := filepath.Join(dir, "replacement.sqlite")
+	makeDB(replacement, "replacement")
+	if err := os.Rename(replacement, sqlitePath); err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := probeReadiness(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReadinessProbe(ctx, opts, recordPath, replaced); err == nil || !strings.Contains(err.Error(), "STATE_CHANGED") {
+		t.Fatalf("same-version replacement accepted: %v", err)
+	}
+	// A non-empty WAL means committed state outside the main file.
+	if err := os.WriteFile(sqlitePath+"-wal", []byte("wal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(sqlitePath + "-wal") })
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "WAL identity contract is not frozen") {
+		t.Fatalf("WAL target accepted: %v", err)
 	}
 }

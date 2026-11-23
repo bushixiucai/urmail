@@ -49,11 +49,20 @@ type readinessProbeTarget struct {
 	SchemaVersion       uint64 `json:"schema_version"`
 	Dirty               bool   `json:"dirty"`
 	TransactionReadOnly string `json:"transaction_read_only,omitempty"`
+	// SQLite identity: a path and user_version alone are not the target.
+	Device  uint64 `json:"device,omitempty"`
+	Inode   uint64 `json:"inode,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	MtimeNS int64  `json:"mtime_ns,omitempty"`
+	FileSHA string `json:"file_sha256,omitempty"`
 }
 
 type readinessProbeFile struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
+	Mode   uint32 `json:"mode"`
+	UID    uint32 `json:"uid"`
+	GID    uint32 `json:"gid"`
 	SHA256 string `json:"sha256"`
 }
 
@@ -145,6 +154,15 @@ func probeReadiness(ctx context.Context, opts readinessProbeOptions) (readinessP
 	}
 	if !holdMeta.CreatedAt.Equal(receipt.CreatedAt) {
 		return doc, errors.New("upgrade hold and receipt created_at mismatch")
+	}
+	// Hold, receipt, requested generation and the actually connected schema
+	// must agree; a hold recorded for another generation proves nothing about
+	// this target and is refused instead of returning a mixed result.
+	if holdMeta.Generation == 0 || receipt.Generation == 0 {
+		return doc, errors.New("upgrade hold/receipt carries no schema generation; readiness probe refuses an unbound fence")
+	}
+	if holdMeta.Generation != receipt.Generation || holdMeta.Generation != opts.generation {
+		return doc, fmt.Errorf("upgrade hold generation %d / receipt generation %d does not match requested generation %d", holdMeta.Generation, receipt.Generation, opts.generation)
 	}
 	doc.Hold = readinessProbeHold{
 		Path:          filepath.Join(maintenance.Root(opts.rootDir), maintenance.DefaultUpgradeHoldFile),
@@ -255,6 +273,16 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target is missing or not a regular file")
 	}
+	// A non-empty WAL holds committed state outside the main file. Without a
+	// frozen WAL evidence contract the probe refuses the target instead of
+	// claiming an identity it cannot prove; nothing is opened or written.
+	if wal, err := os.Lstat(path + "-wal"); err == nil && wal.Mode().IsRegular() && wal.Size() > 0 {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target has a non-empty WAL; WAL identity contract is not frozen, refusing")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target has no usable stat identity")
+	}
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe open SQLite: %w", err)
@@ -267,7 +295,14 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	if version != generation {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite user_version %d does not match expected generation %d", version, generation)
 	}
-	return readinessProbeTarget{Kind: "sqlite", Path: path, SchemaVersion: version}, nil
+	fileSHA, size, err := hashRegularFile(path)
+	if err != nil {
+		return readinessProbeTarget{}, err
+	}
+	return readinessProbeTarget{
+		Kind: "sqlite", Path: path, SchemaVersion: version,
+		Device: uint64(stat.Dev), Inode: stat.Ino, Size: size, MtimeNS: stat.Mtim.Nano(), FileSHA: fileSHA,
+	}, nil
 }
 
 func probeRequiredFile(path string) (readinessProbeFile, error) {
@@ -281,18 +316,34 @@ func probeRequiredFile(path string) (readinessProbeFile, error) {
 	if info.Size() > readinessProbeMaxFile {
 		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q exceeds the size bound", path)
 	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q has no usable stat attributes", path)
+	}
+	shaValue, size, err := hashRegularFile(path)
+	if err != nil {
+		return readinessProbeFile{}, err
+	}
+	return readinessProbeFile{
+		Path: path, Size: size, Mode: uint32(info.Mode().Perm()), UID: stat.Uid, GID: stat.Gid, SHA256: shaValue,
+	}, nil
+}
+
+// hashRegularFile reads one regular file without following links and returns
+// its SHA-256 and byte count. The open is bounded and never write-capable.
+func hashRegularFile(path string) (string, int64, error) {
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return readinessProbeFile{}, fmt.Errorf("readiness-probe: open required file %q: %w", path, err)
+		return "", 0, fmt.Errorf("readiness-probe: open %q: %w", path, err)
 	}
 	file := os.NewFile(uintptr(fd), path)
 	defer func() { _ = file.Close() }()
 	hasher := sha256.New()
 	n, err := io.Copy(hasher, io.LimitReader(file, readinessProbeMaxFile+1))
 	if err != nil || n > readinessProbeMaxFile {
-		return readinessProbeFile{}, fmt.Errorf("readiness-probe: read required file %q: %w", path, err)
+		return "", 0, fmt.Errorf("readiness-probe: read %q: %w", path, err)
 	}
-	return readinessProbeFile{Path: path, Size: n, SHA256: hex.EncodeToString(hasher.Sum(nil))}, nil
+	return hex.EncodeToString(hasher.Sum(nil)), n, nil
 }
 
 func verifyReadinessProbe(ctx context.Context, opts readinessProbeOptions, recordPath string, live readinessProbeDoc) error {
