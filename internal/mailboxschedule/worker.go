@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxsend"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/webmail"
@@ -117,6 +118,10 @@ func (w *Worker) Step(ctx context.Context) (bool, error) {
 	if !w.enabled() {
 		return false, nil
 	}
+	// This worker only runs platform-issued durable tasks (recovery, authority
+	// re-check, claim and submit). It owns that scope; the caller never has to
+	// provide one, and user-facing handlers still never reach these queries.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if box, ok := w.opts.Secrets.(mailboxsend.SecretBox); ok && w.opts.Pool != nil {
 		if err := SealLegacyCopies(ctx, w.opts.Pool, box); err != nil {
 			return false, err
