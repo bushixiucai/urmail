@@ -13,6 +13,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/certs"
 	"github.com/bushixiucai/urmail/internal/config"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/mail"
 	"github.com/bushixiucai/urmail/internal/mail/dovecot"
@@ -38,6 +39,9 @@ type StoreQuerier interface {
 // AssembleConfigContext builds the complete ConfigContext for all mail services
 // by querying the database store and combining it with node-level runtime config.
 func AssembleConfigContext(ctx context.Context, cfg *config.Config, q StoreQuerier, publicIPv4 string, nameservers []string) (*mail.ConfigContext, error) {
+	// Configuration assembly is a trusted background/operator path over
+	// platform-owned rows; user HTTP requests never call it.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	domains, err := q.PlatformListDomains(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list domains for snapshot: %w", err)

@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/sieve"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -27,6 +28,9 @@ func RunSieveReconciler(ctx context.Context, pool *db.Pool, activator SieveActiv
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	// This reconciler is the trusted background retry path for desired Sieve
+	// scripts; it owns the platform scope and is not reachable from HTTP.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	applied := map[int64]string{}
 	for {
 		rows, err := db.Queries(pool).PlatformListSieveScripts(ctx)

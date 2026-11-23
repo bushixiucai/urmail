@@ -21,6 +21,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/agent"
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -72,6 +73,9 @@ func (c *Collector) Poll(ctx context.Context) error {
 	if c.Pool == nil || c.Source == nil || c.Stream == "" || len(c.Stream) > 255 {
 		return errors.New("collector requires a pool, fixed source and bounded stream identity")
 	}
+	// The background collector owns platform-wide checkpoint rows; callers
+	// (scheduler/tests) do not carry a scope and user paths never reach here.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	expected, err := db.Queries(c.Pool.Pool).PlatformGetCollectorCheckpoint(ctx, c.Stream)
 	if errors.Is(err, pgx.ErrNoRows) {
 		expected = store.CollectorCheckpoints{Stream: c.Stream}
@@ -91,6 +95,7 @@ func (c *Collector) Apply(ctx context.Context, expected store.CollectorCheckpoin
 	if c.Pool == nil || c.Stream == "" {
 		return errors.New("collector state unavailable")
 	}
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if batch.Reset && batch.StartOffset != 0 {
 		return errors.New("new source generation must begin at zero")
 	}

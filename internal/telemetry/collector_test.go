@@ -11,6 +11,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/agentd"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
 )
@@ -248,5 +249,37 @@ func TestCollectorBacklogDoesNotPretendObservationIsCurrent(t *testing.T) {
 	checkpoint, err = q.PlatformGetCollectorCheckpoint(ctx, "backlog")
 	if err != nil || checkpoint.ObservedAt == 0 {
 		t.Fatalf("caught-up source stayed unknown: %+v %v", checkpoint, err)
+	}
+}
+
+type singleBatchSource struct{ batch agentd.MailLogBatch }
+
+func (s singleBatchSource) Read(context.Context, string, int64) (agentd.MailLogBatch, error) {
+	return s.batch, nil
+}
+
+// TestCollectorPollPersistsCheckpointFromBackgroundScope proves the real Poll
+// entry (the scheduler call site, no caller scope) reads and durably advances
+// the platform checkpoint, while a tenant entry context still cannot.
+func TestCollectorPollPersistsCheckpointFromBackgroundScope(t *testing.T) {
+	pool, _ := collectorDatabase(t)
+	ctx := context.Background()
+	data := "2026-10-24T10:00:00Z host postfix/cleanup[2]: POLL1: message-id=<poll@example.test>\n"
+	source := singleBatchSource{batch: agentd.MailLogBatch{Identity: "poll-source", Data: data, StartOffset: 0, EndOffset: int64(len(data)), Reset: true, ObservedAt: time.Date(2026, 10, 24, 10, 10, 0, 0, time.UTC)}}
+	collector := &Collector{Pool: pool, Source: source, Stream: "poll-stream"}
+	if err := collector.Poll(ctx); err != nil {
+		t.Fatalf("background poll: %v", err)
+	}
+	var count int
+	var offset int64
+	if err := pool.QueryRow(ctx, `SELECT count(*), coalesce(max(byte_offset),-1) FROM collector_checkpoints WHERE stream='poll-stream'`).Scan(&count, &offset); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || offset != int64(len(data)) {
+		t.Fatalf("checkpoint count=%d offset=%d want 1/%d", count, offset, len(data))
+	}
+	tenantCtx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: 1})
+	if _, err := db.Querier(pool.Pool).PlatformGetCollectorCheckpoint(tenantCtx, "poll-stream"); !errors.Is(err, isolation.ErrPlatformScopeRequired) {
+		t.Fatalf("tenant entry context read a platform checkpoint: %v", err)
 	}
 }
