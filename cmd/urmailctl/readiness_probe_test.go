@@ -462,3 +462,109 @@ func TestReadinessProbeRejectsFullModeAndIrregularSidecars(t *testing.T) {
 		t.Fatalf("non-empty WAL accepted: %v", err)
 	}
 }
+
+// TestReadinessProbeRefusesWALModeWithoutSidecars proves the WAL journal mode
+// is detected from the file header before any driver opens it: a WAL database
+// with no sidecars must be refused without creating -shm/-wal or touching the
+// target, while a rollback-journal snapshot stays readable with zero writes.
+func TestReadinessProbeRefusesWALModeWithoutSidecars(t *testing.T) {
+	ctx := context.Background()
+	root := readinessFence(t, 6)
+	dir := t.TempDir()
+	walPath := filepath.Join(dir, "wal.sqlite")
+	db, err := sql.Open("sqlite", "file:"+walPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE probe_identity(v TEXT NOT NULL); INSERT INTO probe_identity(v) VALUES('wal')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		_ = os.Remove(walPath + suffix) // build the no-sidecar WAL case
+	}
+	snapshot := func() map[string]int64 {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]int64{}
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out[entry.Name()] = info.Size()
+		}
+		return out
+	}
+	before := snapshot()
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: walPath, sqliteVersion: 6}
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "WAL mode") {
+		t.Fatalf("WAL-mode target accepted: %v", err)
+	}
+	after := snapshot()
+	if len(before) != len(after) {
+		t.Fatalf("WAL probe changed the directory: before=%v after=%v", before, after)
+	}
+	for name, size := range before {
+		if after[name] != size {
+			t.Fatalf("WAL probe changed %s: %d -> %d", name, size, after[name])
+		}
+	}
+
+	// Rollback-journal snapshot: probe twice with zero writes, including verify.
+	rollback := filepath.Join(dir, "rollback.sqlite")
+	r, err := sql.Open("sqlite", "file:"+rollback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Exec(`CREATE TABLE probe_identity(v TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before = snapshot()
+	opts.sqlitePath = rollback
+	doc, err := probeReadiness(ctx, opts)
+	if err != nil {
+		t.Fatalf("rollback journal snapshot refused: %v", err)
+	}
+	after = snapshot()
+	if len(before) != len(after) {
+		t.Fatalf("rollback probe changed the directory: before=%v after=%v", before, after)
+	}
+	recordPath := filepath.Join(t.TempDir(), "probe.json")
+	raw, _ := json.Marshal(doc)
+	if err := os.WriteFile(recordPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := probeReadiness(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyReadinessProbe(ctx, opts, recordPath, second); err != nil {
+		t.Fatalf("rollback verify: %v", err)
+	}
+	third := snapshot()
+	if len(before) != len(third) {
+		t.Fatalf("verify changed the directory: before=%v after=%v", before, third)
+	}
+	for name, size := range before {
+		if third[name] != size {
+			t.Fatalf("verify changed %s: %d -> %d", name, size, third[name])
+		}
+	}
+}

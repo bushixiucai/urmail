@@ -302,6 +302,17 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	if stat.Size > readinessProbeMaxFile {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite target exceeds the size bound")
 	}
+	// Detect WAL mode from the SQLite header before any driver opens the file:
+	// a read-only driver open still creates a 32KiB -shm sidecar for WAL
+	// databases, which would be a write. Without a frozen WAL contract the
+	// target is refused without checkpointing, deleting or modifying anything.
+	header := make([]byte, 100)
+	if _, err := file.ReadAt(header, 0); err != nil && err != io.EOF {
+		return readinessProbeTarget{}, fmt.Errorf("readiness-probe read SQLite header: %w", err)
+	}
+	if len(header) >= 20 && (header[18] == 2 || header[19] == 2) {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target is in WAL mode; WAL identity contract is not frozen, refusing before opening")
+	}
 	fileSHA, size, err := hashOpenFile(file)
 	if err != nil {
 		return readinessProbeTarget{}, err
@@ -320,6 +331,20 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	}
 	if version != generation {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite user_version %d does not match expected generation %d", version, generation)
+	}
+	// Prove the object, its content and its sidecars did not change while read.
+	if again, _, err := hashOpenFile(file); err != nil || again != fileSHA {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target content changed while inspected; refusing")
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		sidecar := path + suffix
+		info, err := os.Lstat(sidecar)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
+			return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite sidecar %s appeared or changed during inspection; refusing", filepath.Base(sidecar))
+		}
 	}
 	// Prove the path still names the object that was hashed and read.
 	after, err := os.Lstat(path)
@@ -389,6 +414,9 @@ func specialBits(mode uint32) uint32 {
 }
 
 func hashOpenFile(file *os.File) (string, int64, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", 0, fmt.Errorf("readiness-probe: rewind %q: %w", file.Name(), err)
+	}
 	hasher := sha256.New()
 	n, err := io.Copy(hasher, io.LimitReader(file, readinessProbeMaxFile+1))
 	if err != nil || n > readinessProbeMaxFile {
