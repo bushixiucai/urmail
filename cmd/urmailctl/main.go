@@ -49,6 +49,8 @@ Usage:
   urmailctl restore mailbox --tenant-id T --mailbox-id M --address A --mail FILE --manifest FILE [--apply-review SHA256 --rollback-dir NEW_PRIVATE_DIR]
   urmailctl restore quarantine status|release [--restore-id ID --confirm-reconciled --source-isolated --reason TEXT]
   urmailctl restore --dump FILE --force [--config FILE] [--database-url URL]
+  urmailctl s5-recall-stage --target PATH [--source-env NAME] [--migrations-dir DIR]
+                                   controlled offline recall preservation: private staging, verified, no-overwrite publish
   urmailctl recover-pending        recover a private pending agent journal while fenced (no service restart)
   urmailctl upgrade fence|hold|release|status|resume|rollback|run-installer|check-installer-lease [OPTIONS]
 `
@@ -127,6 +129,8 @@ func run(args []string) error {
 		return runBackup(ctx, args[1:])
 	case "restore":
 		return runRestore(ctx, args[1:])
+	case "s5-recall-stage":
+		return runS5RecallStage(ctx, args[1:])
 	case "recover-pending":
 		return runRecoverPendingOffline(ctx, args[1:])
 	case "upgrade":
