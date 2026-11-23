@@ -74,6 +74,7 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
 
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [lastSaveFailed, setLastSaveFailed] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const saveToServer = useCallback(async (currentDraft: DraftPayload) => {
@@ -87,6 +88,9 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
     }
 
     setIsSaving(true);
+    // A new attempt supersedes the previous failure indication; there is
+    // deliberately no automatic retry — the next edit schedules the next save.
+    setLastSaveFailed(false);
     try {
       // 1. Local session storage backup
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(currentDraft));
@@ -112,9 +116,15 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
           uid_validity: res.uid_validity,
         }));
         setLastSavedAt(new Date().toLocaleTimeString());
+      } else {
+        // The server answered without confirming the save: the draft exists
+        // locally only, and the UI must not present it as saved.
+        setLastSaveFailed(true);
       }
     } catch {
-      // Silent fail on network error, local sessionStorage remains preserved
+      // Surface the failure instead of failing silently; the local
+      // sessionStorage backup keeps the current input and attachments intact.
+      setLastSaveFailed(true);
     } finally {
       setIsSaving(false);
     }
@@ -165,6 +175,7 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
       attachments: [],
     });
     setLastSavedAt(null);
+    setLastSaveFailed(false);
   }, []);
 
   useEffect(() => {
@@ -181,5 +192,6 @@ export function useDebouncedDraft(initialDraft?: Partial<DraftPayload>) {
     clearDraft,
     isSaving,
     lastSavedAt,
+    lastSaveFailed,
   };
 }

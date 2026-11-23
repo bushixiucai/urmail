@@ -85,8 +85,14 @@ export function WebmailComposeDock({
         }
       : undefined;
 
-  const { draft, updateDraft, clearDraft, isSaving, lastSavedAt } =
-    useDebouncedDraft(initialDraftProp);
+  const {
+    draft,
+    updateDraft,
+    clearDraft,
+    isSaving,
+    lastSavedAt,
+    lastSaveFailed,
+  } = useDebouncedDraft(initialDraftProp);
   const sendAction = useRef<() => void>(() => {});
   const seenSend = useRef(0);
   const seenMinimize = useRef(0);
@@ -485,13 +491,30 @@ export function WebmailComposeDock({
                 </div>
 
                 <div className="flex items-center gap-3 text-xs text-[var(--vellum-ink-secondary)]">
-                  <span data-testid="draft-status-indicator">
-                    {isSaving
-                      ? "Saving draft..."
-                      : lastSavedAt
+                  {isSaving ? (
+                    <span data-testid="draft-status-indicator">
+                      Saving draft...
+                    </span>
+                  ) : lastSaveFailed ? (
+                    <span
+                      data-testid="draft-save-error-notice"
+                      role="status"
+                      className="text-[var(--vellum-danger-strong)]"
+                    >
+                      {t("webmail_next.draft_save_failed")}
+                    </span>
+                  ) : (
+                    <span data-testid="draft-status-indicator">
+                      {lastSavedAt
                         ? `${t("webmail_next.draft_saved")} ${lastSavedAt}`
-                        : ""}
-                  </span>
+                        : !draft.uid &&
+                            (draft.subject.trim() ||
+                              draft.text.trim() ||
+                              draft.to.length > 0)
+                          ? t("webmail_next.draft_local_only")
+                          : ""}
+                    </span>
+                  )}
 
                   <button
                     type="button"
