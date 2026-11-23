@@ -5,7 +5,9 @@ import (
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/timeutil"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -211,6 +213,9 @@ func (h *MailboxNativeHandler) draftSubmissionLocked(c *gin.Context, folder stri
 }
 
 // draftDeletionLocked permits explicit cleanup only after the Sent copy is confirmed.
+func osGetenvDebug() bool                 { return os.Getenv("URMAIL_DEBUG_HANDLER") != "" }
+func logDebug(format string, args ...any) { log.Printf("DEBUG "+format, args...) }
+
 func (h *MailboxNativeHandler) draftDeletionLocked(c *gin.Context, folder string, uid, validity uint32, queries ...*store.Queries) bool {
 	if h.Pool == nil || uid == 0 {
 		return false

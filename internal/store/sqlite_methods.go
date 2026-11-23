@@ -3253,6 +3253,13 @@ WHERE tenant_id=?1`
 // must cite the digest and scope hash of the *current* enabled non-ollama
 // configuration, while revoking always succeeds and records the timestamp.
 func (q *Queries) TenantConsentAICloud(ctx context.Context, arg TenantConsentAICloudParams) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).TenantConsentAICloud(ctx, pgstore.TenantConsentAICloudParams{
+			ConfigurationDigest: arg.ConfigurationDigest,
+			ScopeHash:           arg.ScopeHash,
+			AllowCloud:          arg.AllowCloud,
+		})
+	}
 	return q.runTx(ctx, func(tx *Queries) error {
 		tenant, actor, _, err := tx.sessionActor(ctx)
 		if err != nil {
@@ -3499,6 +3506,33 @@ ON CONFLICT(tenant_id) DO UPDATE SET
 // digest in the same transaction; the RETURNING projection is re-read through
 // PlatformGetAIProvider so the trigger-repaired row is what the caller sees.
 func (q *Queries) PlatformSetAIProvider(ctx context.Context, arg PlatformSetAIProviderParams) (AiProviderConfigs, error) {
+	if !isSQLiteDBTX(q.db) {
+		row, err := pgstore.New(q.db).PlatformSetAIProvider(ctx, pgstore.PlatformSetAIProviderParams{
+			TenantID: arg.TenantID, Mode: arg.Mode, Provider: arg.Provider,
+			Endpoint: arg.Endpoint, Model: arg.Model, EncryptedKey: arg.EncryptedKey,
+			Enabled: arg.Enabled, LocalOnly: arg.LocalOnly,
+			InputMicrosPerMillion:  arg.InputMicrosPerMillion,
+			OutputMicrosPerMillion: arg.OutputMicrosPerMillion,
+			CostCurrency:           arg.CostCurrency,
+		})
+		if err != nil {
+			return AiProviderConfigs{}, err
+		}
+		updated := int64(0)
+		if row.UpdatedAt.Valid {
+			updated = row.UpdatedAt.Time.UnixMicro()
+		}
+		return AiProviderConfigs{TenantID: row.TenantID, Mode: row.Mode, Provider: row.Provider,
+			Endpoint: row.Endpoint, Model: row.Model, EncryptedKey: row.EncryptedKey,
+			Enabled: row.Enabled, LocalOnly: row.LocalOnly,
+			InputMicrosPerMillion:  row.InputMicrosPerMillion,
+			OutputMicrosPerMillion: row.OutputMicrosPerMillion,
+			CostCurrency:           row.CostCurrency, UpdatedAt: updated,
+			ConfigurationVersion: row.ConfigurationVersion, CloudScopeHash: row.CloudScopeHash,
+			ConfigurationDigest: row.ConfigurationDigest, TenantLocalOnly: row.TenantLocalOnly,
+			CloudConsentDigest: row.CloudConsentDigest, CloudConsentScopeHash: row.CloudConsentScopeHash}, nil
+	}
+
 	var out AiProviderConfigs
 	err := q.runTx(ctx, func(tx *Queries) error {
 		if _, err := tx.db.Exec(ctx, aiSetProviderSQL, arg.TenantID, arg.Mode, arg.Provider,
