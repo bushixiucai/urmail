@@ -278,7 +278,7 @@ func probePostgres(ctx context.Context, url string, generation uint64) (readines
 }
 
 func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
-	for _, suffix := range []string{"-wal", "-shm"} {
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
 		sidecar := path + suffix
 		info, err := os.Lstat(sidecar)
 		if errors.Is(err, os.ErrNotExist) {
@@ -288,7 +288,7 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 			return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite sidecar %s is an unsafe link or irregular file; refusing", filepath.Base(sidecar))
 		}
 		if info.Size() > 0 {
-			return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite sidecar %s is non-empty; WAL/SHM identity contract is not frozen, refusing", filepath.Base(sidecar))
+			return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite sidecar %s is non-empty; WAL/SHM/rollback-journal identity contract is not frozen, refusing", filepath.Base(sidecar))
 		}
 	}
 	file, stat, err := openControlledRegular(path)
@@ -302,6 +302,14 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	if stat.Size > readinessProbeMaxFile {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite target exceeds the size bound")
 	}
+	// Prove the snapshot is not being written while inspected. A watcher that
+	// cannot be established means the no-concurrent-write property is unproven,
+	// so the probe refuses instead of assuming it.
+	watch, err := watchForWrites(path)
+	if err != nil {
+		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: cannot prove the SQLite snapshot is not being written: %w", err)
+	}
+	defer watch.Close()
 	// Detect WAL mode from the SQLite header before any driver opens the file:
 	// a read-only driver open still creates a 32KiB -shm sidecar for WAL
 	// databases, which would be a write. Without a frozen WAL contract the
@@ -317,8 +325,8 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	if err != nil {
 		return readinessProbeTarget{}, err
 	}
-	// Read SQLite through this exact open file description, not by path, so
-	// the version cannot come from a swapped object.
+	// Read SQLite through /proc/self/fd/<fd>: the same inode and file
+	// description content via a new descriptor, not a re-resolved path.
 	db, err := sql.Open("sqlite", fmt.Sprintf("file:/proc/self/fd/%d?mode=ro", file.Fd()))
 	if err != nil {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe open SQLite: %w", err)
@@ -332,11 +340,22 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 	if version != generation {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite user_version %d does not match expected generation %d", version, generation)
 	}
-	// Prove the object, its content and its sidecars did not change while read.
+	// Prove the object, its full metadata, its content and its sidecars did
+	// not change while read.
+	var post syscall.Stat_t
+	if err := syscall.Fstat(int(file.Fd()), &post); err != nil {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target metadata unreadable after inspection; refusing")
+	}
+	if !sameFullStat(stat, post) {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target metadata changed while inspected; refusing")
+	}
 	if again, _, err := hashOpenFile(file); err != nil || again != fileSHA {
 		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target content changed while inspected; refusing")
 	}
-	for _, suffix := range []string{"-wal", "-shm"} {
+	if err := watch.NoWrites(); err != nil {
+		return readinessProbeTarget{}, err
+	}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
 		sidecar := path + suffix
 		info, err := os.Lstat(sidecar)
 		if errors.Is(err, os.ErrNotExist) {
@@ -352,8 +371,7 @@ func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
 		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target disappeared during inspection")
 	}
 	afterStat, ok := after.Sys().(*syscall.Stat_t)
-	if !ok || uint64(afterStat.Dev) != uint64(stat.Dev) || afterStat.Ino != stat.Ino ||
-		afterStat.Size != stat.Size || afterStat.Mtim.Nano() != stat.Mtim.Nano() {
+	if !ok || !sameFullStat(stat, *afterStat) {
 		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target changed while inspected; refusing")
 	}
 	return readinessProbeTarget{
@@ -382,6 +400,13 @@ func probeRequiredFile(path string) (readinessProbeFile, error) {
 	if err != nil {
 		return readinessProbeFile{}, err
 	}
+	var post syscall.Stat_t
+	if err := syscall.Fstat(int(file.Fd()), &post); err != nil || !sameFullStat(stat, post) {
+		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q changed while inspected; refusing", path)
+	}
+	if again, _, err := hashOpenFile(file); err != nil || again != fileSHA {
+		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q content changed while inspected; refusing", path)
+	}
 	return readinessProbeFile{
 		Path: path, Size: size, Mode: uint32(stat.Mode & 0o7777), Special: specialBits(stat.Mode),
 		UID: stat.Uid, GID: stat.Gid, Device: uint64(stat.Dev), Inode: stat.Ino, Nlink: uint64(stat.Nlink), SHA256: fileSHA,
@@ -407,6 +432,57 @@ func openControlledRegular(path string) (*os.File, syscall.Stat_t, error) {
 		return nil, stat, fmt.Errorf("readiness-probe: %q is not a regular file", path)
 	}
 	return file, stat, nil
+}
+
+// sameFullStat compares every identity and metadata field that a concurrent
+// write, chmod, chown, link or replace would alter.
+func sameFullStat(a, b syscall.Stat_t) bool {
+	return uint64(a.Dev) == uint64(b.Dev) && a.Ino == b.Ino && a.Mode == b.Mode &&
+		a.Uid == b.Uid && a.Gid == b.Gid && a.Nlink == b.Nlink && a.Size == b.Size &&
+		a.Mtim.Nano() == b.Mtim.Nano() && a.Ctim.Nano() == b.Ctim.Nano()
+}
+
+// inotifyWatch reports whether the inspected path received any write, attrib,
+// move or delete event while the probe read it.
+type inotifyWatch struct{ fd int }
+
+func watchForWrites(path string) (*inotifyWatch, error) {
+	fd, err := syscall.InotifyInit1(syscall.IN_NONBLOCK | syscall.IN_CLOEXEC)
+	if err != nil {
+		return nil, err
+	}
+	mask := uint32(syscall.IN_MODIFY | syscall.IN_ATTRIB | syscall.IN_CLOSE_WRITE | syscall.IN_MOVE_SELF | syscall.IN_DELETE_SELF)
+	if _, err := syscall.InotifyAddWatch(fd, path, mask); err != nil {
+		_ = syscall.Close(fd)
+		return nil, err
+	}
+	return &inotifyWatch{fd: fd}, nil
+}
+
+func (w *inotifyWatch) NoWrites() error {
+	if w == nil || w.fd < 0 {
+		return errors.New("readiness-probe: snapshot write watch unavailable; refusing")
+	}
+	buf := make([]byte, 4096)
+	for {
+		n, err := syscall.Read(w.fd, buf)
+		if errors.Is(err, syscall.EAGAIN) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("readiness-probe: snapshot write watch failed: %w", err)
+		}
+		if n > 0 {
+			return errors.New("readiness-probe: SQLite snapshot received a write while inspected; refusing")
+		}
+	}
+}
+
+func (w *inotifyWatch) Close() {
+	if w != nil && w.fd >= 0 {
+		_ = syscall.Close(w.fd)
+		w.fd = -1
+	}
 }
 
 func specialBits(mode uint32) uint32 {

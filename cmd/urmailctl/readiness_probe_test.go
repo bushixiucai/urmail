@@ -391,7 +391,7 @@ func TestReadinessProbeSQLiteIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(sqlitePath + "-wal") })
-	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "non-empty; WAL/SHM identity contract is not frozen") {
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "non-empty; WAL/SHM/rollback-journal identity contract is not frozen") {
 		t.Fatalf("WAL target accepted: %v", err)
 	}
 }
@@ -566,5 +566,68 @@ func TestReadinessProbeRefusesWALModeWithoutSidecars(t *testing.T) {
 		if third[name] != size {
 			t.Fatalf("verify changed %s: %d -> %d", name, size, third[name])
 		}
+	}
+}
+
+// TestInotifyWatchDetectsConcurrentWrite exercises the snapshot write detector
+// directly: a write after the watch starts must be reported, and a quiet file
+// must not.
+func TestInotifyWatchDetectsConcurrentWrite(t *testing.T) {
+	dir := t.TempDir()
+	quiet := filepath.Join(dir, "quiet")
+	if err := os.WriteFile(quiet, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch, err := watchForWrites(quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := watch.NoWrites(); err != nil {
+		t.Fatalf("quiet file reported a write: %v", err)
+	}
+	watch.Close()
+	busy := filepath.Join(dir, "busy")
+	if err := os.WriteFile(busy, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch, err = watchForWrites(busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watch.Close()
+	if err := os.WriteFile(busy, []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := watch.NoWrites(); err == nil || !strings.Contains(err.Error(), "received a write") {
+		t.Fatalf("concurrent write not detected: %v", err)
+	}
+}
+
+// TestReadinessProbeRejectsRollbackJournalSidecar proves a non-empty rollback
+// journal is refused like WAL/SHM before the driver can act on it.
+func TestReadinessProbeRejectsRollbackJournalSidecar(t *testing.T) {
+	ctx := context.Background()
+	root := readinessFence(t, 6)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target.sqlite")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: path, sqliteVersion: 6}
+	if _, err := probeReadiness(ctx, opts); err != nil {
+		t.Fatalf("positive: %v", err)
+	}
+	journal := path + "-journal"
+	if err := os.WriteFile(journal, []byte("hot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(journal) })
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "rollback-journal") {
+		t.Fatalf("non-empty rollback journal accepted: %v", err)
 	}
 }
