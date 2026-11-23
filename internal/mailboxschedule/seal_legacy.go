@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mailboxsend"
 	"github.com/bushixiucai/urmail/internal/store"
 )
@@ -17,6 +18,10 @@ func SealLegacyCopies(ctx context.Context, pool *db.Pool, box mailboxsend.Secret
 	if pool == nil || box == nil {
 		return errors.New("copy recovery encryption unavailable")
 	}
+	// Legacy recovery material is a trusted startup/quarantine operation over
+	// platform-owned rows. It owns that scope here, mirroring the worker step;
+	// callers never gain it, and their context is not modified.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	for {
 		tx, err := pool.Begin(ctx)
 		if err != nil {

@@ -65,7 +65,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := db.Queries(tx)
-	row, err := q.PlatformFindSchedulingEvent(c.Request.Context(), store.PlatformFindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Uid: message.Message.UID})
+	row, err := q.PlatformFindSchedulingEvent(platformCtx(c), store.PlatformFindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Uid: message.Message.UID})
 	var linked *store.MailboxEvents
 	if err == nil {
 		linked = &row
@@ -83,7 +83,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 	if sendReply {
 		kind = "calendar_response"
 	}
-	prior, err := q.PlatformGetDataImportReceipt(c.Request.Context(), store.PlatformGetDataImportReceiptParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Kind: kind, IdempotencyKey: key})
+	prior, err := q.PlatformGetDataImportReceipt(platformCtx(c), store.PlatformGetDataImportReceiptParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Kind: kind, IdempotencyKey: key})
 	if err == nil {
 		if prior.Status == "done" {
 			c.JSON(200, gin.H{"applied": true, "already_applied": true, "notification_status": "sent"})
@@ -127,12 +127,12 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 		event.AttendeeStatus = nil
 		event.ReminderMinutes = nil
 		event.RecurrenceID = ""
-		calendar, e := svc.EnsureCalendar(c.Request.Context(), p, defaultCalendarName, event.Timezone)
+		calendar, e := svc.EnsureCalendar(platformCtx(c), p, defaultCalendarName, event.Timezone)
 		if e != nil {
 			authError(c, 503, "CALENDAR_UNAVAILABLE")
 			return
 		}
-		saved, e := svc.CreateEvent(c.Request.Context(), p, calendar.ID, "personal-"+key+"@urmail", event)
+		saved, e := svc.CreateEvent(platformCtx(c), p, calendar.ID, "personal-"+key+"@urmail", event)
 		if e != nil {
 			authError(c, 409, "EVENT_CONFLICT")
 			return
@@ -153,7 +153,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 			authError(c, 503, "CALENDAR_UNAVAILABLE")
 			return
 		}
-		if _, e = q.PlatformRecordSchedulingReply(c.Request.Context(), store.PlatformRecordSchedulingReplyParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: linked.ID, Version: linked.Version, Attendees: attendees}); e != nil {
+		if _, e = q.PlatformRecordSchedulingReply(platformCtx(c), store.PlatformRecordSchedulingReplyParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: linked.ID, Version: linked.Version, Attendees: attendees}); e != nil {
 			authError(c, 409, "EVENT_CONFLICT")
 			return
 		}
@@ -171,7 +171,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 				return
 			}
 		} //nolint:misspell // RFC 5545 spelling.
-		if _, err = svc.UpdateEvent(c.Request.Context(), p, linked.ID, linked.Version, event); err != nil {
+		if _, err = svc.UpdateEvent(platformCtx(c), p, linked.ID, linked.Version, event); err != nil {
 			authError(c, 409, "EVENT_CONFLICT")
 			return
 		}
@@ -208,12 +208,12 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 				}
 				event.AttendeeStatus[recipient] = response
 			}
-			calendar, e := svc.EnsureCalendar(c.Request.Context(), p, defaultCalendarName, event.Timezone)
+			calendar, e := svc.EnsureCalendar(platformCtx(c), p, defaultCalendarName, event.Timezone)
 			if e != nil {
 				authError(c, 503, "CALENDAR_UNAVAILABLE")
 				return
 			}
-			saved, e := svc.CreateEvent(c.Request.Context(), p, calendar.ID, message.Message.UID, event)
+			saved, e := svc.CreateEvent(platformCtx(c), p, calendar.ID, message.Message.UID, event)
 			if e != nil {
 				authError(c, 409, "EVENT_CONFLICT")
 				return
@@ -236,14 +236,14 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 				}
 				event.AttendeeStatus[recipient] = response
 			}
-			if _, err = svc.UpdateEvent(c.Request.Context(), p, linked.ID, linked.Version, event); err != nil {
+			if _, err = svc.UpdateEvent(platformCtx(c), p, linked.ID, linked.Version, event); err != nil {
 				authError(c, 409, "EVENT_CONFLICT")
 				return
 			}
 		}
 	}
 	if body.Action != "copy_personal" && body.Action != "apply_reply" {
-		if _, err = q.PlatformBindSchedulingEvent(c.Request.Context(), store.PlatformBindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: eventID, Organizer: message.Message.Organizer, InvitationSequence: int32(min(max(message.Message.Sequence, 0), 2147483647)), InvitationStamp: timeutil.Micro(message.Message.Stamp), InvitationDigest: message.Digest, InvitationResponse: response}); err != nil {
+		if _, err = q.PlatformBindSchedulingEvent(platformCtx(c), store.PlatformBindSchedulingEventParams{TenantID: p.TenantID, MailboxID: p.MailboxID, ID: eventID, Organizer: message.Message.Organizer, InvitationSequence: int32(min(max(message.Message.Sequence, 0), 2147483647)), InvitationStamp: timeutil.Micro(message.Message.Stamp), InvitationDigest: message.Digest, InvitationResponse: response}); err != nil {
 			authError(c, 409, "EVENT_CONFLICT")
 			return
 		}
@@ -254,9 +254,9 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 		return
 	}
 	if sendReply {
-		err = q.PlatformClaimCalendarResponse(c.Request.Context(), store.PlatformClaimCalendarResponseParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key, Payload: payload})
+		err = q.PlatformClaimCalendarResponse(platformCtx(c), store.PlatformClaimCalendarResponseParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key, Payload: payload})
 	} else {
-		err = q.PlatformInsertDataImportReceipt(c.Request.Context(), store.PlatformInsertDataImportReceiptParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Kind: kind, IdempotencyKey: key, Payload: payload})
+		err = q.PlatformInsertDataImportReceipt(platformCtx(c), store.PlatformInsertDataImportReceiptParams{TenantID: p.TenantID, MailboxID: p.MailboxID, Kind: kind, IdempotencyKey: key, Payload: payload})
 	}
 	if err != nil {
 		authError(c, 503, "CALENDAR_UNAVAILABLE")
@@ -284,7 +284,7 @@ func (h MailboxCalendarHandler) applyMailInvitation(c *gin.Context) {
 		authError(c, 409, "MAILBOX_SEND_UNCERTAIN")
 		return
 	}
-	finishCtx, finishCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	finishCtx, finishCancel := context.WithTimeout(platformCtx(c), 5*time.Second)
 	defer finishCancel()
 	n, err := db.Queries(h.Pool).PlatformFinishCalendarResponse(finishCtx, store.PlatformFinishCalendarResponseParams{TenantID: p.TenantID, MailboxID: p.MailboxID, IdempotencyKey: key})
 	if err != nil || n != 1 {

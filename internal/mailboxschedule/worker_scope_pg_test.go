@@ -87,3 +87,37 @@ func TestPlatformScopeNotWidenedByWorkerBinding(t *testing.T) {
 		t.Fatalf("own-tenant mailbox read failed: %v", err)
 	}
 }
+
+// TestSealLegacyCopiesOwnsStartupScope covers the trusted startup call in
+// cmd/urmaild/main.go: legacy sealing runs on a context that carries no scope
+// and must still reach its platform rows, while the caller's own context is
+// left unprivileged afterwards (no scope leak into later startup statements).
+func TestSealLegacyCopiesOwnsStartupScope(t *testing.T) {
+	p, _, tenant, mailbox := scheduleDatabase(t)
+	ctx := context.Background()
+	if _, err := p.Exec(ctx, `INSERT INTO mailbox_scheduled_sends(
+		tenant_id,mailbox_id,draft_folder,draft_uid,send_at,status,smtp_secret,sent_raw,sent_copy_state)
+		VALUES($1,$2,'Drafts',1,now()-interval '1 hour','sent','enc:fixture','startup legacy bytes','none')`, tenant, mailbox); err != nil {
+		t.Fatalf("seed legacy copy: %v", err)
+	}
+	box := fakeSecrets{}
+	if err := SealLegacyCopies(ctx, p, box); err != nil {
+		t.Fatalf("startup sealing with an unscoped context: %v", err)
+	}
+	var raw []byte
+	var secret string
+	if err := p.QueryRow(ctx, `SELECT sent_raw, sent_raw_secret FROM mailbox_scheduled_sends WHERE tenant_id=$1 AND mailbox_id=$2`, tenant, mailbox).Scan(&raw, &secret); err != nil {
+		t.Fatalf("read sealed copy: %v", err)
+	}
+	if raw != nil || !strings.HasSuffix(secret, "startup legacy bytes") {
+		t.Fatalf("startup sealing left raw=%q secret=%q", raw, secret)
+	}
+	// The trusted callee's binding is local: the caller's context still fails
+	// closed on the same platform statement.
+	if _, err := db.Querier(p.Pool).PlatformGetLegacyScheduledCopy(ctx); !errors.Is(err, isolation.ErrPlatformScopeRequired) {
+		t.Fatalf("caller context gained platform scope: %v", err)
+	}
+	if err := SealLegacyCopies(ctx, p, nil); err == nil || !strings.Contains(err.Error(), "copy recovery encryption unavailable") {
+		t.Fatalf("missing encryption box accepted: %v", err)
+	}
+}
