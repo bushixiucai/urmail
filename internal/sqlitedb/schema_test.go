@@ -52,8 +52,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
 		t.Fatal(err)
 	}
-	if tables != 108 {
-		t.Fatalf("table count = %d, want 108 (102 business + 3 webmail + 2 mailbox_readonly + schema_migrations)", tables)
+	if tables != 120 {
+		t.Fatalf("table count = %d, want 120 (102 business + 3 webmail + 2 mailbox_readonly + archive_search_fts + 5 fts shadow + archive_search_bigram_fts + 5 bigram fts shadow + schema_migrations)", tables)
 	}
 
 	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
@@ -84,8 +84,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("user_version = %d, want 3 (0001_init + 0002_write_side_effects + 0003_mailbox_readonly)", version)
+	if version != 5 {
+		t.Fatalf("user_version = %d, want 5 (0001_init + 0002_write_side_effects + 0003_mailbox_readonly + 0004_archive_trigram_fts + 0005_archive_bigram_fts)", version)
 	}
 
 	// Idempotency: re-running the chain on the same database is a no-op.
@@ -98,8 +98,8 @@ func TestSQLiteSchemaHardAssertions(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("user_version after reruns = %d, want 3", version)
+	if version != 5 {
+		t.Fatalf("user_version after reruns = %d, want 5", version)
 	}
 }
 
@@ -641,7 +641,10 @@ func TestAuditWriteSetRegistered(t *testing.T) {
 	}
 	want := map[string][]string{
 		"statements": {"AuditLegacyCredentialUse", "CreateAuditLog", "RecordMailboxImportAudit"},
-		"consts":     {"marketingFlowAuditInsertSQL", "panelCredentialAuditSQL", "recordTenantAuditInsertSQL"},
+		// S4 round-3: marketingFlowAuditInsertPGSQL is the PG-twin insert const
+		// dispatched via the dialect seam; the PG runtime itself goes through
+		// the SECURITY DEFINER procedure urmail_record_marketing_flow_audit.
+		"consts": {"marketingFlowAuditInsertPGSQL", "marketingFlowAuditInsertSQL", "panelCredentialAuditSQL", "recordTenantAuditInsertSQL"},
 		"triggers": {"application_credentials_audit_create", "application_credentials_audit_revoke",
 			"recall_requests_audit_complete", "recall_requests_audit_complete_direct"},
 	}

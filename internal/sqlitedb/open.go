@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite" // pure-Go driver; no cgo, cross-compiles like the rest of the stack.
 
@@ -25,9 +26,10 @@ import (
 
 const (
 	// ExpectedSchemaVersion is the current migrations_sqlite chain tip
-	// (0001_init.sql + 0002_write_side_effects.sql + 0003_mailbox_readonly.sql).
+	// (0001_init + 0002_write_side_effects + 0003_mailbox_readonly +
+	// 0004_archive_trigram_fts + 0005_archive_bigram_fts：§3.5 trigram/bigram FTS5 升级)。
 	// Startup verification fails closed unless PRAGMA user_version matches this exact version.
-	ExpectedSchemaVersion = 3
+	ExpectedSchemaVersion = 5
 
 	busyTimeoutMs    = 5000
 	pragmaTimeout    = 10 * time.Second
@@ -49,6 +51,8 @@ func pragmaStatements() []string {
 		fmt.Sprintf("PRAGMA busy_timeout=%d", busyTimeoutMs),
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
+		"PRAGMA cache_size=-131072",
+		"PRAGMA mmap_size=2147483648",
 	}
 }
 
@@ -79,6 +83,83 @@ func md5Scalar(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, er
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func asciiLowerString(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if b.Len() == 0 {
+				b.Grow(len(s))
+				b.WriteString(s[:i])
+			}
+			b.WriteByte(c + ('a' - 'A'))
+		} else if b.Len() > 0 {
+			b.WriteByte(c)
+		}
+	}
+	if b.Len() == 0 {
+		return s
+	}
+	return b.String()
+}
+
+// ArchiveBigramToken encodes a 2-rune query into the exact hex token indexed by
+// archive_search_bigram_fts.
+func ArchiveBigramToken(q string) string {
+	return hex.EncodeToString([]byte(asciiLowerString(q)))
+}
+
+// ArchiveBigrams emits space-separated deduplicated hex-encoded 2-rune windows
+// for FTS5 ascii indexing (supports 2-char CJK/ASCII queries in <3-rune path).
+func ArchiveBigrams(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = asciiLowerString(s)
+	var prev rune
+	hasPrev := false
+	var buf [utf8.UTFMax * 2]byte
+	seen := make(map[string]struct{}, 64)
+	var out strings.Builder
+	for _, r := range s {
+		if !hasPrev {
+			prev = r
+			hasPrev = true
+			continue
+		}
+		n := utf8.EncodeRune(buf[:], prev)
+		n += utf8.EncodeRune(buf[n:], r)
+		key := string(buf[:n])
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			if out.Len() > 0 {
+				out.WriteByte(' ')
+			}
+			var hexBuf [utf8.UTFMax * 4]byte
+			hn := hex.Encode(hexBuf[:], buf[:n])
+			out.Write(hexBuf[:hn])
+		}
+		prev = r
+	}
+	return out.String()
+}
+
+func bigramsScalar(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("urmail_bigrams: want 1 argument, got %d", len(args))
+	}
+	switch v := args[0].(type) {
+	case nil:
+		return "", nil
+	case string:
+		return ArchiveBigrams(v), nil
+	case []byte:
+		return ArchiveBigrams(string(v)), nil
+	default:
+		return nil, fmt.Errorf("urmail_bigrams: unsupported argument type %T", args[0])
+	}
+}
+
 // withTxLock forces every transaction the driver begins to be BEGIN IMMEDIATE.
 // SQLite has no pg_advisory_xact_lock: the port replaces it with single-writer
 // transaction serialization (see scripts/sqlite/lock-semantics.md). A deferred
@@ -105,6 +186,9 @@ func RegisterConnectionHook() {
 	hookOnce.Do(func() {
 		if err := sqlite.RegisterScalarFunction("md5", 1, md5Scalar); err != nil {
 			panic(fmt.Sprintf("register md5 UDF: %v", err))
+		}
+		if err := sqlite.RegisterDeterministicScalarFunction("urmail_bigrams", 1, bigramsScalar); err != nil {
+			panic(fmt.Sprintf("register urmail_bigrams UDF: %v", err))
 		}
 		sqlite.RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, _ string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), pragmaTimeout)

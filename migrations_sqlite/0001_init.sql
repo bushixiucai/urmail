@@ -601,7 +601,9 @@ CREATE TABLE IF NOT EXISTS "domain_tls_reports" (
   UNIQUE (tenant_id, domain_id, reporter_digest, report_id_digest, period_start, period_end),
   FOREIGN KEY (tenant_id, domain_id) REFERENCES domains(tenant_id, id),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id),
-  CHECK (period_end >= period_start AND period_end <= (period_start + '8 days')),
+  -- 8 days = 691200000000 micros; dialect-corrected (PG: period_start + interval '8 days') —
+  -- SQLite coerced the interval text to the number 8 (S5 delivery, schema defect fix).
+  CHECK (period_end >= period_start AND period_end <= (period_start + 691200000000)),
   CHECK (failed >= 0 AND failed <= 1000000000),
   CHECK (length(report_digest) = 64),
   CHECK (length(report_id_digest) = 64),
