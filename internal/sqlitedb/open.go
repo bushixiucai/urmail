@@ -27,9 +27,10 @@ import (
 const (
 	// ExpectedSchemaVersion is the current migrations_sqlite chain tip
 	// (0001_init + 0002_write_side_effects + 0003_mailbox_readonly +
-	// 0004_archive_trigram_fts + 0005_archive_bigram_fts：§3.5 trigram/bigram FTS5 升级)。
+	// 0004_archive_trigram_fts + 0005_archive_bigram_fts：§3.5 trigram/bigram FTS5 升级 +
+	// 0006_domain_tls_period_check：既有库的 TLS 周期 CHECK 重建)。
 	// Startup verification fails closed unless PRAGMA user_version matches this exact version.
-	ExpectedSchemaVersion = 5
+	ExpectedSchemaVersion = 6
 
 	busyTimeoutMs    = 5000
 	pragmaTimeout    = 10 * time.Second
@@ -51,8 +52,6 @@ func pragmaStatements() []string {
 		fmt.Sprintf("PRAGMA busy_timeout=%d", busyTimeoutMs),
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
-		"PRAGMA cache_size=-131072",
-		"PRAGMA mmap_size=2147483648",
 	}
 }
 
