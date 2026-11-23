@@ -10,6 +10,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/mail/validation"
 	"github.com/bushixiucai/urmail/internal/mailspam"
 	"github.com/bushixiucai/urmail/internal/store"
@@ -105,8 +106,9 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.Queries(tx)
+	tctx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: session.TenantID})
 
-	inserted, err := q.MailboxSpamInsertFeedback(ctx, store.MailboxSpamInsertFeedbackParams{
+	inserted, err := q.MailboxSpamInsertFeedback(tctx, store.MailboxSpamInsertFeedbackParams{
 		TenantID:      session.TenantID,
 		MailboxID:     session.MailboxID,
 		MessageID:     req.MessageID,
@@ -125,7 +127,7 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 		if req.Verdict == "spam" {
 			keep, drop = "deny", "allow"
 		}
-		if _, err = q.MailboxSpamSetSenderList(ctx, store.MailboxSpamSetSenderListParams{
+		if _, err = q.MailboxSpamSetSenderList(tctx, store.MailboxSpamSetSenderListParams{
 			TenantID:  session.TenantID,
 			MailboxID: session.MailboxID,
 			Address:   fromAddress,
@@ -135,7 +137,7 @@ func (h *MailboxSpamFeedback) Feedback(c *gin.Context) {
 			authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 			return
 		}
-		if _, err = q.MailboxSpamRemoveSenderList(ctx, store.MailboxSpamRemoveSenderListParams{
+		if _, err = q.MailboxSpamRemoveSenderList(tctx, store.MailboxSpamRemoveSenderListParams{
 			TenantID:  session.TenantID,
 			MailboxID: session.MailboxID,
 			Address:   fromAddress,
@@ -258,12 +260,13 @@ func (h *MailboxSpamFeedback) AddSender(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.Queries(tx)
+	tctx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: session.TenantID})
 
 	opposite := "allow"
 	if req.List == "allow" {
 		opposite = "deny"
 	}
-	if _, err := q.MailboxSpamSetSenderList(ctx, store.MailboxSpamSetSenderListParams{
+	if _, err := q.MailboxSpamSetSenderList(tctx, store.MailboxSpamSetSenderListParams{
 		TenantID:  session.TenantID,
 		MailboxID: session.MailboxID,
 		Address:   address,
@@ -273,7 +276,7 @@ func (h *MailboxSpamFeedback) AddSender(c *gin.Context) {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
 	}
-	_, _ = q.MailboxSpamRemoveSenderList(ctx, store.MailboxSpamRemoveSenderListParams{
+	_, _ = q.MailboxSpamRemoveSenderList(tctx, store.MailboxSpamRemoveSenderListParams{
 		TenantID:  session.TenantID,
 		MailboxID: session.MailboxID,
 		Address:   address,
@@ -325,8 +328,9 @@ func (h *MailboxSpamFeedback) DeleteSender(c *gin.Context) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.Queries(tx)
+	tctx := isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: session.TenantID})
 
-	deleted, err := q.MailboxSpamRemoveSenderList(ctx, store.MailboxSpamRemoveSenderListParams{
+	deleted, err := q.MailboxSpamRemoveSenderList(tctx, store.MailboxSpamRemoveSenderListParams{
 		TenantID:  session.TenantID,
 		MailboxID: session.MailboxID,
 		Address:   address,
@@ -356,6 +360,7 @@ func RegisterMailboxSpamSenderRoutes(group *gin.RouterGroup, h *MailboxSpamFeedb
 
 // applyTokenDeltas writes the learned token counts for one feedback event.
 func applyTokenDeltas(ctx context.Context, q *store.Queries, tenantID, mailboxID int64, subject, fromAddress, verdict string) error {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID})
 	for token, delta := range mailspam.LearnFromFeedback(subject, fromAddress, verdict) {
 		if _, err := q.MailboxSpamApplyTokenDelta(ctx, store.MailboxSpamApplyTokenDeltaParams{
 			TenantID:  tenantID,

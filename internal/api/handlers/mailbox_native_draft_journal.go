@@ -42,7 +42,7 @@ func (h *MailboxNativeHandler) lockDraftEdit(c *gin.Context, session webmail.Ses
 		authError(c, 503, "DB_ERROR")
 		return nil, false
 	}
-	if err = mailboxsend.LockDraft(c.Request.Context(), db.Queries(tx), session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
+	if err = mailboxsend.LockDraft(platformCtx(c), db.Queries(tx), session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
 		_ = tx.Rollback(context.Background())
 		authError(c, 503, "DB_ERROR")
 		return nil, false
@@ -57,13 +57,13 @@ func (h *MailboxNativeHandler) acquireDraftJournal(c *gin.Context, session webma
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
 	}
-	conn, err := h.Pool.AcquireBudgeted(c.Request.Context())
+	conn, err := h.Pool.AcquireBudgeted(platformCtx(c))
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
 	}
 	args := store.PlatformAcquireDraftSessionLockParams{TenantID: strconv.FormatInt(session.TenantID, 10), MailboxID: strconv.FormatInt(session.MailboxID, 10), Folder: folder, Uid: strconv.FormatUint(uint64(uid), 10), Validity: strconv.FormatUint(uint64(validity), 10)}
-	if err = db.Queries(conn).PlatformAcquireDraftSessionLock(c.Request.Context(), args); err != nil {
+	if err = db.Queries(conn).PlatformAcquireDraftSessionLock(platformCtx(c), args); err != nil {
 		conn.Release()
 		authError(c, 503, "DB_ERROR")
 		return nil, nil, false
@@ -122,7 +122,7 @@ func (h *MailboxNativeHandler) saveDraftJournal(c *gin.Context, client webmail.C
 	}
 	defer release()
 	c.Request = c.Request.WithContext(conn.Context())
-	tx, err := beginDraftJournal(c.Request.Context(), conn, session)
+	tx, err := beginDraftJournal(platformCtx(c), conn, session)
 	if err != nil {
 		authError(c, 503, "DB_ERROR")
 		return webmail.DraftSaveResult{}, false
@@ -136,7 +136,7 @@ func (h *MailboxNativeHandler) saveDraftJournal(c *gin.Context, client webmail.C
 	if req.UID != 0 && h.draftSubmissionLocked(c, folder, req.UID, req.UIDValidity, q) {
 		return webmail.DraftSaveResult{}, false
 	}
-	ctx := c.Request.Context()
+	ctx := platformCtx(c)
 	body, _ := json.Marshal(req)
 	sum := sha256.Sum256(body)
 	digest := hex.EncodeToString(sum[:])

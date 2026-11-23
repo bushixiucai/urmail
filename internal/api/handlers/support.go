@@ -306,7 +306,7 @@ func (h *SupportHandler) PlatformList(c *gin.Context) {
 	if !ok {
 		return
 	}
-	rows, err := requestStore(c, h.Platform).PlatformListSupportTickets(c.Request.Context(), before)
+	rows, err := requestStore(c, h.Platform).PlatformListSupportTickets(platformCtx(c), before)
 	if supportError(c, err) {
 		return
 	}
@@ -331,15 +331,15 @@ func (h *SupportHandler) PlatformGet(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := requestStore(c, h.Platform).PlatformGetSupportTicket(c.Request.Context(), store.PlatformGetSupportTicketParams{TenantID: tid, ID: id})
+	row, err := requestStore(c, h.Platform).PlatformGetSupportTicket(platformCtx(c), store.PlatformGetSupportTicketParams{TenantID: tid, ID: id})
 	if supportError(c, err) {
 		return
 	}
-	msgs, err := requestStore(c, h.Platform).PlatformListSupportMessages(c.Request.Context(), store.PlatformListSupportMessagesParams{TenantID: tid, TicketID: id, AfterID: after})
+	msgs, err := requestStore(c, h.Platform).PlatformListSupportMessages(platformCtx(c), store.PlatformListSupportMessagesParams{TenantID: tid, TicketID: id, AfterID: after})
 	if supportError(c, err) {
 		return
 	}
-	attachments, err := requestStore(c, h.Platform).ListSupportAttachments(c.Request.Context(), store.ListSupportAttachmentsParams{TenantID: tid, TicketID: id})
+	attachments, err := requestStore(c, h.Platform).ListSupportAttachments(platformCtx(c), store.ListSupportAttachmentsParams{TenantID: tid, TicketID: id})
 	if supportError(c, err) {
 		return
 	}
@@ -379,7 +379,7 @@ func (h *SupportHandler) PlatformReply(c *gin.Context) {
 		return
 	}
 	defer rollback()
-	ticket, err := q.PlatformGetSupportTicket(c.Request.Context(), store.PlatformGetSupportTicketParams{TenantID: tid, ID: id})
+	ticket, err := q.PlatformGetSupportTicket(platformCtx(c), store.PlatformGetSupportTicketParams{TenantID: tid, ID: id})
 	if supportError(c, err) {
 		return
 	}
@@ -388,7 +388,7 @@ func (h *SupportHandler) PlatformReply(c *gin.Context) {
 		authError(c, 409, "TICKET_CLOSED")
 		return
 	}
-	row, err := q.PlatformReplySupportTicket(c.Request.Context(), store.PlatformReplySupportTicketParams{TenantID: tid, TicketID: id, AuthorID: uid, Body: in.Body})
+	row, err := q.PlatformReplySupportTicket(platformCtx(c), store.PlatformReplySupportTicketParams{TenantID: tid, TicketID: id, AuthorID: uid, Body: in.Body})
 	if supportError(c, err) {
 		return
 	}
@@ -423,7 +423,7 @@ func (h *SupportHandler) PlatformUpdate(c *gin.Context) {
 	if in.AssignedTo != nil {
 		assigned = pgtype.Int8{Int64: *in.AssignedTo, Valid: true}
 	}
-	row, err := requestStore(c, h.Platform).PlatformChangeSupportTicket(c.Request.Context(), store.PlatformChangeSupportTicketParams{TenantID: tid, ID: id, Status: in.Status, AssignedTo: assigned})
+	row, err := requestStore(c, h.Platform).PlatformChangeSupportTicket(platformCtx(c), store.PlatformChangeSupportTicketParams{TenantID: tid, ID: id, Status: in.Status, AssignedTo: assigned})
 	if supportError(c, err) {
 		return
 	}
@@ -432,7 +432,7 @@ func (h *SupportHandler) PlatformUpdate(c *gin.Context) {
 
 // PlatformAnnouncements includes draft and withdrawn content for trusted editors.
 func (h *SupportHandler) PlatformAnnouncements(c *gin.Context) {
-	rows, err := requestStore(c, h.Platform).PlatformListAnnouncements(c.Request.Context())
+	rows, err := requestStore(c, h.Platform).PlatformListAnnouncements(platformCtx(c))
 	if supportError(c, err) {
 		return
 	}
@@ -481,7 +481,7 @@ func (h *SupportHandler) SaveAnnouncement(c *gin.Context) {
 	title, _ := json.Marshal(in.Title)
 	body, _ := json.Marshal(in.Body)
 	if c.Param("announcement_id") == "" {
-		row, err := requestStore(c, h.Platform).PlatformCreateAnnouncement(c.Request.Context(), store.PlatformCreateAnnouncementParams{BrandID: brand, Title: title, Body: body, State: in.State, PublishedAt: published, EndsAt: ends})
+		row, err := requestStore(c, h.Platform).PlatformCreateAnnouncement(platformCtx(c), store.PlatformCreateAnnouncementParams{BrandID: brand, Title: title, Body: body, State: in.State, PublishedAt: published, EndsAt: ends})
 		if supportError(c, err) {
 			return
 		}
@@ -492,7 +492,7 @@ func (h *SupportHandler) SaveAnnouncement(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := requestStore(c, h.Platform).PlatformUpdateAnnouncement(c.Request.Context(), store.PlatformUpdateAnnouncementParams{ID: id, BrandID: brand, Title: title, Body: body, State: in.State, PublishedAt: published, EndsAt: ends})
+	row, err := requestStore(c, h.Platform).PlatformUpdateAnnouncement(platformCtx(c), store.PlatformUpdateAnnouncementParams{ID: id, BrandID: brand, Title: title, Body: body, State: in.State, PublishedAt: published, EndsAt: ends})
 	if supportError(c, err) {
 		return
 	}
@@ -509,7 +509,7 @@ func (h *SupportHandler) PlatformAttachment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	row, err := requestStore(c, h.Platform).GetSupportAttachment(c.Request.Context(), store.GetSupportAttachmentParams{TenantID: tid, ID: id})
+	row, err := requestStore(c, h.Platform).GetSupportAttachment(platformCtx(c), store.GetSupportAttachmentParams{TenantID: tid, ID: id})
 	if supportError(c, err) {
 		return
 	}
