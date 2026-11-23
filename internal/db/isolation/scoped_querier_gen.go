@@ -1714,7 +1714,12 @@ func (s *ScopedQuerier) GetTenantIDBySenderDomain(ctx context.Context, fqdn stri
 }
 
 func (s *ScopedQuerier) GetTenantSetting(ctx context.Context, arg store.GetTenantSettingParams) (store.Settings, error) {
-	if _, err := CheckMethod(ctx, "GetTenantSetting", ScopeTenant); err != nil {
+	sc, err := CheckMethod(ctx, "GetTenantSetting", ScopeTenant)
+	if err != nil {
+		var zero store.Settings
+		return zero, err
+	}
+	if err := CheckTenantMatch(sc, "GetTenantSetting", arg.ScopeID); err != nil {
 		var zero store.Settings
 		return zero, err
 	}

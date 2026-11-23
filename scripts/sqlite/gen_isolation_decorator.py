@@ -24,6 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 QUERIER_GO = ROOT / "internal" / "store" / "querier.go"
 STORE_DIR = ROOT / "internal" / "store"
 SCOPES_JSON = ROOT / "internal" / "db" / "isolation" / "method_scopes.json"
+PARAM_FIELDS_JSON = ROOT / "scripts" / "sqlite" / "param_tenant_actor_fields.json"
 OUT_GO = ROOT / "internal" / "db" / "isolation" / "scoped_querier_gen.go"
 
 SCOPE_CONST = {
@@ -104,6 +105,9 @@ def parse_querier_methods() -> list[tuple[str, list[tuple[str, str]], str]]:
 def render() -> tuple[str, int]:
     scopes_payload = json.loads(SCOPES_JSON.read_text())
     scopes: dict[str, str] = scopes_payload["scopes"]
+    param_fields: dict[str, str] = {}
+    if PARAM_FIELDS_JSON.exists():
+        param_fields = json.loads(PARAM_FIELDS_JSON.read_text())
     structs = load_store_structs()
     methods = parse_querier_methods()
 
@@ -160,6 +164,23 @@ def render() -> tuple[str, int]:
                         raise SystemExit(
                             f"unsupported TenantID field type {ft!r} on {ptype} for {name}"
                         )
+
+        # Explicit tenant-field overrides for params structs whose tenant field
+        # is not named TenantID (e.g. settings ScopeID).
+        if scope == "tenant" and name in param_fields:
+            field = param_fields[name]
+            struct_type = next((pt for pn, pt in params if pn != "" and pn != "ctx" and pt in structs), "")
+            if not struct_type:
+                raise SystemExit(f"param_tenant_actor_fields: {name} takes no params struct")
+            ft = structs[struct_type].get(field)
+            if ft != "int64":
+                raise SystemExit(
+                    f"param_tenant_actor_fields: {name} field {field!r} must be int64, got {ft!r}"
+                )
+            arg_name = next(pn for pn, pt in params if pt == struct_type)
+            tenant_checks.append(
+                f'\tif err := CheckTenantMatch(sc, "{name}", {arg_name}.{field}); err != nil {{\n'
+            )
 
         # Format return signature & zero return statement.
         if raw_ret == "error":

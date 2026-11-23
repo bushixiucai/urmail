@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -68,6 +69,20 @@ func expectedScopeError(scope Scope) error {
 	}
 }
 
+func paramTenantOverrides(t *testing.T) map[string]string {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "scripts", "sqlite", "param_tenant_actor_fields.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read param overrides: %v", err)
+	}
+	var out map[string]string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("parse param overrides: %v", err)
+	}
+	return out
+}
+
 func buildCallArgs(t *testing.T, m reflect.Method, ctx context.Context, positionalTID bool, tenantID int64, valid bool) ([]reflect.Value, bool) {
 	t.Helper()
 	mt := m.Type
@@ -88,6 +103,12 @@ func buildCallArgs(t *testing.T, m reflect.Method, ctx context.Context, position
 			v.Set(reflect.ValueOf(pgtype.Int8{Int64: tenantID, Valid: valid}))
 			hasTenantArg = true
 		} else if pt.Kind() == reflect.Struct {
+			if field, ok := paramTenantOverrides(t)[m.Name]; ok {
+				if tf := v.FieldByName(field); tf.IsValid() && tf.Type() == reflect.TypeOf(int64(0)) {
+					tf.SetInt(tenantID)
+					hasTenantArg = true
+				}
+			}
 			if tf := v.FieldByName("TenantID"); tf.IsValid() {
 				switch tf.Type() {
 				case reflect.TypeOf(int64(0)):
@@ -239,6 +260,23 @@ func TestScopedQuerierAll702MethodsMatrix(t *testing.T) {
 					}
 				}
 			}
+		}
+
+		// 3b. Explicit param-field tenant overrides (e.g. settings ScopeID)
+		// are refused when they name another tenant.
+		if field, ok := paramTenantOverrides(t)[name]; ok && expected == ScopeTenant {
+			badArgs, _ := buildCallArgs(t, ifMethod, validContexts[ScopeTenant], isPosTID, 202, true)
+			if fm, ok := badArgs[1].FieldByName(field).Interface().(int64); !ok || fm != 202 {
+				t.Fatalf("%s override field %s not populated", name, field)
+			}
+			spy.calls = 0
+			if gotErr := extractCallError(t, m.Call(badArgs)); !errors.Is(gotErr, ErrCrossTenantAccess) {
+				t.Fatalf("%s with foreign %s: err=%v, want ErrCrossTenantAccess", name, field, gotErr)
+			}
+			if spy.calls != 0 {
+				t.Fatalf("%s invoked inner store on foreign %s", name, field)
+			}
+			checkedTenantArgs++
 		}
 
 		// 4. Matching scope & matching tenant delegates cleanly to inner store.
