@@ -211,6 +211,20 @@ type ArchiveInvestigations struct {
 	UpdatedAt  int64  `json:"updated_at"`
 }
 
+type ArchiveSearchBigramFts struct {
+	Subject   string `json:"subject"`
+	FromAddr  string `json:"from_addr"`
+	MessageID string `json:"message_id"`
+	BodyText  string `json:"body_text"`
+}
+
+type ArchiveSearchFts struct {
+	Subject   string `json:"subject"`
+	FromAddr  string `json:"from_addr"`
+	MessageID string `json:"message_id"`
+	BodyText  string `json:"body_text"`
+}
+
 type AuditLogs struct {
 	ID          int64       `json:"id"`
 	TenantID    pgtype.Int8 `json:"tenant_id"`
