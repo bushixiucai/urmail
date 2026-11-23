@@ -48,6 +48,7 @@ const upgradeUsage = "urmailctl upgrade — manage upgrade lock, write fence and
 	"  urmailctl upgrade fence [--reason TEXT] [--timeout DURATION] [--fresh-backup-window DURATION] [--skip-preflight]\n" +
 	"  urmailctl upgrade hold  [--reason TEXT] [--timeout DURATION] [--fresh-backup-window DURATION] [--skip-preflight]\n" +
 	"  urmailctl upgrade readiness-record [--generation N] [--key PATH]\n" +
+	"  urmailctl upgrade readiness-probe --generation N [--database-url-env NAME|--sqlite PATH] [--verify RECORD]\n" +
 	"  urmailctl upgrade release [--timeout DURATION] [--skip-restart] [--break-glass --ack-risk]\n" +
 	"  urmailctl upgrade run-installer --installer /trusted/absolute/install.sh -- [args...]\n" +
 	"  urmailctl upgrade check-installer-lease\n" +
@@ -72,6 +73,8 @@ func runUpgrade(ctx context.Context, args []string) error {
 		return runUpgradeFence(ctx, args[1:])
 	case "readiness-record":
 		return runUpgradeReadinessRecord(ctx, args[1:])
+	case "readiness-probe":
+		return runUpgradeReadinessProbe(ctx, args[1:])
 	case "release":
 		return runUpgradeRelease(ctx, args[1:])
 	case "status":
