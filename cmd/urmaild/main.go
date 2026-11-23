@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"github.com/bushixiucai/urmail/internal/mailauth"
 	"github.com/bushixiucai/urmail/internal/mailboxschedule"
 	"github.com/bushixiucai/urmail/internal/mailspam"
+	"github.com/bushixiucai/urmail/internal/maintenance"
 	"github.com/bushixiucai/urmail/internal/marketing"
 	"github.com/bushixiucai/urmail/internal/notify"
 	"github.com/bushixiucai/urmail/internal/reconcile"
@@ -366,6 +368,10 @@ func prepareDaemon(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 	// authenticated sender is still within their plan's daily send limit.
 	if cfg.PolicyEnabled && !cfg.Quarantined {
 		svc := policy.NewService()
+		// A live upgrade/restore hold must answer inbound and submission
+		// attempts with a fixed 4xx so senders retain their queues; the
+		// marker is re-read per request and release needs no restart.
+		svc.Hold = policy.HoldGate{Path: filepath.Join(maintenance.Root(""), maintenance.DefaultUpgradeHoldFile)}
 		svc.InboundChecker = &policy.DBInboundChecker{Store: db.Queries(platformPool)}
 		svc.RateLimiter = policy.NewRateLimiter(300, time.Minute)
 		svc.QuotaChecker = policy.NewAtomicDBQuotaChecker(

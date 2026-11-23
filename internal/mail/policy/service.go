@@ -70,6 +70,10 @@ type Service struct {
 	// dedup suppresses duplicate quota/rate accounting for the same
 	// (identity, queue_id) pair within a short window. nil disables dedup.
 	dedup *seenCache
+
+	// Hold is the maintenance hold gate. While the marker exists every
+	// policy request is deferred with a 4xx so senders keep their queues.
+	Hold HoldGate
 }
 
 // NewService creates a Service with per-message deduplication enabled.
@@ -84,6 +88,12 @@ func NewService() *Service {
 // recipient, so evaluations sharing the same (identity, queue_id) are
 // counted exactly once.
 func (s *Service) Evaluate(ctx context.Context, req *Request) Decision {
+	// The upgrade/restore hold runs before quota and subscription checks: a
+	// held deployment must not accept mail at all, and the reply stays a 4xx
+	// with the fixed reason so the sender retries instead of bouncing.
+	if s.Hold.Held() {
+		return Decision{Action: ActionDefer, Reason: HoldReason}
+	}
 	state := strings.ToUpper(req.Attrs["protocol_state"])
 	if s.InboundChecker != nil && req.Recipient != "" && (state == "RCPT" || (state == "" && req.SASLUsername == "")) {
 		allowed, err := s.InboundChecker.CheckRecipient(ctx, req.Recipient)

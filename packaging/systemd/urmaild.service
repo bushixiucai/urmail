@@ -42,6 +42,8 @@ RuntimeDirectory=urmail-policy
 RuntimeDirectoryMode=0755
 SupplementaryGroups=postfix
 ReadWritePaths=/var/lib/urmail /run/urmail /run/urmail-policy
+# The policy gate re-reads the upgrade/restore hold marker per SMTP request.
+ReadOnlyPaths=/var/lib/urmail-backup
 
 LimitNOFILE=65536
 
