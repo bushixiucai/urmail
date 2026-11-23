@@ -8,9 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -41,16 +39,10 @@ func (h *MailboxNativeHandler) lockDraftEdit(c *gin.Context, session webmail.Ses
 	}
 	tx, err := h.Pool.MailboxTx(c.Request.Context(), session.TenantID, session.MailboxID)
 	if err != nil {
-		if os.Getenv("URMAIL_DEBUG_HANDLER") != "" {
-			log.Printf("DEBUG lockDraftEdit tx err=%v", err)
-		}
 		authError(c, 503, "DB_ERROR")
 		return nil, false
 	}
 	if err = mailboxsend.LockDraft(platformCtx(c), db.Queries(tx), session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
-		if os.Getenv("URMAIL_DEBUG_HANDLER") != "" {
-			log.Printf("DEBUG lockDraftEdit LockDraft err=%v", err)
-		}
 		_ = tx.Rollback(context.Background())
 		authError(c, 503, "DB_ERROR")
 		return nil, false

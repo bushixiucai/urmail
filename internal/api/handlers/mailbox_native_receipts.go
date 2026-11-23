@@ -5,9 +5,7 @@ import (
 	"errors"
 	"github.com/bushixiucai/urmail/internal/db"
 	"github.com/bushixiucai/urmail/internal/timeutil"
-	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +60,7 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 	q := db.Queries(h.Pool.Pool)
 	items := []gin.H{}
 	if key := strings.TrimSpace(c.Query("request_key")); key != "" {
-		row, e := q.PlatformGetSendReceiptByKey(c.Request.Context(), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
+		row, e := q.PlatformGetSendReceiptByKey(platformCtx(c), store.PlatformGetSendReceiptByKeyParams{TenantID: session.TenantID, MailboxID: session.MailboxID, RequestKey: key})
 		if e == nil {
 			items = append(items, receiptJSON(row))
 		} else if !errors.Is(e, pgx.ErrNoRows) {
@@ -77,7 +75,7 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 			authError(c, 400, "INVALID_PARAMS")
 			return
 		}
-		rows, e := q.PlatformGetSendReceiptsForDraft(c.Request.Context(), store.PlatformGetSendReceiptsForDraftParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
+		rows, e := q.PlatformGetSendReceiptsForDraft(platformCtx(c), store.PlatformGetSendReceiptsForDraftParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
 		if e != nil {
 			authError(c, 503, "DB_ERROR")
 			return
@@ -97,7 +95,7 @@ func (h *MailboxNativeHandler) ListSendReceipts(c *gin.Context) {
 		if offset > 100000 {
 			offset = 100000
 		}
-		rows, e := q.PlatformListSendReceipts(c.Request.Context(), store.PlatformListSendReceiptsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
+		rows, e := q.PlatformListSendReceipts(platformCtx(c), store.PlatformListSendReceiptsParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PageLimit: int32(limit), PageOffset: int32(offset)})
 		if e != nil {
 			authError(c, 503, "DB_ERROR")
 			return
@@ -128,7 +126,7 @@ func (h *MailboxNativeHandler) GetSendReceipt(c *gin.Context) {
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	row, e := db.Queries(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e := db.Queries(h.Pool.Pool).PlatformGetSendReceipt(platformCtx(c), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -174,7 +172,7 @@ func (h *MailboxNativeHandler) RepairSendReceiptCopy(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	row, e = db.Queries(h.Pool.Pool).PlatformGetSendReceipt(c.Request.Context(), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
+	row, e = db.Queries(h.Pool.Pool).PlatformGetSendReceipt(platformCtx(c), store.PlatformGetSendReceiptParams{TenantID: session.TenantID, MailboxID: session.MailboxID, ID: id})
 	if errors.Is(e, pgx.ErrNoRows) {
 		authError(c, 404, "NOT_FOUND")
 		return
@@ -200,7 +198,7 @@ func (h *MailboxNativeHandler) draftSubmissionLocked(c *gin.Context, folder stri
 	if len(queries) > 0 && queries[0] != nil {
 		q = queries[0]
 	}
-	locked, e := q.PlatformDraftSendLocked(c.Request.Context(), store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
+	locked, e := q.PlatformDraftSendLocked(platformCtx(c), store.PlatformDraftSendLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
 	if e != nil {
 		authError(c, 503, "DB_ERROR")
 		return true
@@ -213,9 +211,6 @@ func (h *MailboxNativeHandler) draftSubmissionLocked(c *gin.Context, folder stri
 }
 
 // draftDeletionLocked permits explicit cleanup only after the Sent copy is confirmed.
-func osGetenvDebug() bool                 { return os.Getenv("URMAIL_DEBUG_HANDLER") != "" }
-func logDebug(format string, args ...any) { log.Printf("DEBUG "+format, args...) }
-
 func (h *MailboxNativeHandler) draftDeletionLocked(c *gin.Context, folder string, uid, validity uint32, queries ...*store.Queries) bool {
 	if h.Pool == nil || uid == 0 {
 		return false
@@ -229,7 +224,7 @@ func (h *MailboxNativeHandler) draftDeletionLocked(c *gin.Context, folder string
 	if len(queries) > 0 && queries[0] != nil {
 		q = queries[0]
 	}
-	locked, e := q.PlatformDraftDeleteLocked(c.Request.Context(), store.PlatformDraftDeleteLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
+	locked, e := q.PlatformDraftDeleteLocked(platformCtx(c), store.PlatformDraftDeleteLockedParams{TenantID: session.TenantID, MailboxID: session.MailboxID, DraftFolder: folder, DraftUid: int64(uid), DraftUidvalidity: int64(validity)})
 	if e != nil {
 		authError(c, 503, "DB_ERROR")
 		return true
