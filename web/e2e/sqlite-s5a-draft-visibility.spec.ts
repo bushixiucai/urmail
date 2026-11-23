@@ -67,6 +67,10 @@ test("SQLite §5A draft autosave failure is visible and never shown as saved", a
     mimeType: "text/plain",
     buffer: Buffer.from("Benign visibility-check attachment.\n", "utf8"),
   });
+  // The staged attachment shows its filename in the dock pill list.
+  await expect(
+    page.getByTestId("webmail-compose-dock").getByText("s5a-visibility.txt"),
+  ).toBeVisible();
 
   // The gate rejects the autosave; the dock must say so out loud.
   const saveResponse = await page.waitForResponse(
@@ -87,9 +91,16 @@ test("SQLite §5A draft autosave failure is visible and never shown as saved", a
     .getByTestId("draft-status-indicator")
     .count();
   expect(indicatorCount).toBe(0);
-  // No retry storm: exactly one autosave PUT for one debounced edit.
+  // No retry storm: exactly one autosave PUT for one debounced edit, still
+  // one after a full retry window would have elapsed.
   const putCount = draftCalls.filter((call) => call.method === "PUT").length;
   expect(putCount).toBe(1);
+  await page.waitForTimeout(3000);
+  const putCountAfterRetryWindow = draftCalls.filter(
+    (call) => call.method === "PUT",
+  ).length;
+  expect(putCountAfterRetryWindow).toBe(1);
+  console.log("NO-RETRY still exactly 1 PUT after a 3s retry window");
 
   // Refresh path: content survives locally and the state reads local-only.
   await page.reload();
@@ -106,10 +117,11 @@ test("SQLite §5A draft autosave failure is visible and never shown as saved", a
     "LOCAL-ONLY indicator visible after refresh; server read-back stays denied",
   );
 
-  // The staged attachment survived the refresh with the local draft.
-  expect(
-    await page.getByTestId("compose-file-input").getAttribute("type"),
-  ).toBe("file");
+  // The staged attachment survived the refresh with the local draft: the
+  // filename pill is rendered again by the restored draft.
+  await expect(
+    page.getByTestId("webmail-compose-dock").getByText("s5a-visibility.txt"),
+  ).toBeVisible();
 
   console.log(
     "NOT_RUN reply-thread assertion: no approved isolated real mail backend in this acceptance lane",
