@@ -169,6 +169,20 @@ func TestSlice1SQLiteBrowserSession(t *testing.T) {
 	if playwrightErr != nil {
 		t.Fatalf("Playwright command failed: %v", playwrightErr)
 	}
+	if strings.HasPrefix(spec, "e2e/sqlite-s5a-") {
+		var draftRows int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM mailbox_messages WHERE tenant_id=7 AND mailbox_id=11 AND folder='Drafts'`,
+		).Scan(&draftRows); err != nil || draftRows != 0 {
+			t.Fatalf("SQLite §5A Drafts rows=%d err=%v, want 0 (slice-1 gate must prevent any draft side effect)", draftRows, err)
+		}
+		t.Logf("SQLite evidence: §5A slice-1 gate left zero Drafts rows; Vite PID %d terminated by test cleanup", vite.Process.Pid)
+		return
+	}
+	if spec != "e2e/sqlite-session-browser.spec.ts" {
+		t.Logf("SQLite evidence: spec %s completed; Vite PID %d terminated by test cleanup", spec, vite.Process.Pid)
+		return
+	}
 
 	var displayName, signature string
 	var version int64
