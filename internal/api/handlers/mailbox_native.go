@@ -15,6 +15,7 @@ import (
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	domainMail "github.com/bushixiucai/urmail/internal/domain/mail"
 	"github.com/bushixiucai/urmail/internal/eas"
 	"github.com/bushixiucai/urmail/internal/mailboxprincipal"
@@ -42,8 +43,8 @@ type MailboxNativeHandler struct {
 	Sessions      MailboxNativeSessions
 	ReadOnlyStore MailboxReadOnlyStore
 	Vault         webmail.CredentialVault
-	Dialer           webmail.Dialer
-	Submitter        webmail.Submitter
+	Dialer        webmail.Dialer
+	Submitter     webmail.Submitter
 	// MaySend reports whether this mailbox may submit mail. Nil preserves older routes.
 	MaySend func(context.Context, int64, int64) (bool, error)
 	// Secrets seals SMTP passwords into mailbox_scheduled_sends.smtp_secret.
@@ -116,6 +117,7 @@ type StoreMailboxNative struct {
 
 // Lookup resolves an active mailbox by address.
 func (s StoreMailboxNative) Lookup(ctx context.Context, address string) (int64, int64, string, string, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return 0, 0, "", "", pgx.ErrNoRows
 	}
@@ -139,6 +141,7 @@ func mailboxSessionTTL(remember bool) pgtype.Interval {
 
 // Create inserts a mailbox_sessions row (same principal table as Roundcube bridge).
 func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expectedHash string, remember bool) (webmail.Session, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return webmail.Session{}, pgx.ErrNoRows
 	}
@@ -165,6 +168,7 @@ func (s StoreMailboxNative) Create(ctx context.Context, tokenHash, address, expe
 
 // Get loads a still-valid mailbox session.
 func (s StoreMailboxNative) Get(ctx context.Context, tokenHash string) (webmail.Session, error) {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return webmail.Session{}, pgx.ErrNoRows
 	}
@@ -185,6 +189,7 @@ func (s StoreMailboxNative) Get(ctx context.Context, tokenHash string) (webmail.
 
 // Revoke marks the session revoked.
 func (s StoreMailboxNative) Revoke(ctx context.Context, tokenHash string) error {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return nil
 	}
@@ -443,6 +448,7 @@ func (h *MailboxNativeHandler) DeleteSession(c *gin.Context) {
 
 // BrandTenantMatches preserves the current brand boundary for native sessions.
 func (s StoreMailboxNative) BrandTenantMatches(ctx context.Context, tenant, brand int64) bool {
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	if s.Q == nil {
 		return false
 	}
