@@ -1236,6 +1236,15 @@ func (q *Queries) requireCredentialRow(ctx context.Context, query string, args .
 // session and returns the new credential generation. Mirrors
 // urmail_rotate_panel_password (CREDENTIAL_CHANGED→40001, SESSION_REVOKED→42501).
 func (q *Queries) PlatformRotatePanelPassword(ctx context.Context, arg PlatformRotatePanelPasswordParams) (int64, error) {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).PlatformRotatePanelPassword(ctx, pgstore.PlatformRotatePanelPasswordParams{
+			UserID:          arg.UserID,
+			ExpectedHash:    arg.ExpectedHash,
+			ExpectedVersion: arg.ExpectedVersion,
+			PasswordHash:    arg.PasswordHash,
+			KeepSession:     arg.KeepSession,
+		})
+	}
 	now := timeutil.NowMicro()
 	err := q.requireCredentialRow(ctx, panelUserPasswordSQL, arg.UserID, arg.ExpectedHash, arg.ExpectedVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
