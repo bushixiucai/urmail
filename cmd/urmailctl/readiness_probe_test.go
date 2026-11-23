@@ -244,3 +244,34 @@ func TestReadinessProbeVerifyRejectsBadRecord(t *testing.T) {
 		t.Fatalf("wrong-format record accepted: %v", err)
 	}
 }
+
+// TestReadinessProbeRejectsBadSchemaBooks proves the probe refuses unreadable
+// schema evidence instead of trusting a placeholder: dirty, empty and
+// ambiguous books all fail before any readiness record could be signed.
+func TestReadinessProbeRejectsBadSchemaBooks(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  string
+		wantErr string
+	}{
+		{"dirty", `UPDATE schema_migrations SET dirty=true`, "is dirty"},
+		{"empty", `DELETE FROM schema_migrations`, "is empty"},
+		{"ambiguous", `INSERT INTO schema_migrations(version,dirty) VALUES(158,false)`, "ambiguous"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			p, _ := testdb.OpenMigrated(t)
+			if _, err := p.Exec(ctx, tc.mutate); err != nil {
+				t.Fatal(err)
+			}
+			env := fmt.Sprintf("URMAIL_PROBE_TEST_%d", time.Now().UnixNano())
+			t.Setenv(env, probeRoleDSN(t, ctx, p, testdb.RequireDatabaseURL(t)))
+			root := readinessFence(t)
+			_, err := probeReadiness(ctx, readinessProbeOptions{rootDir: root, generation: 159, databaseEnv: env})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("bad schema book accepted: %v", err)
+			}
+		})
+	}
+}
