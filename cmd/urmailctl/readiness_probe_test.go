@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -323,7 +324,7 @@ func TestReadinessProbeFileAttributesAreBound(t *testing.T) {
 	if err := os.Chmod(required, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(required, 0o600) })
+	t.Cleanup(func() { _ = syscall.Chmod(required, 0o600) })
 	changed, err := probeReadiness(ctx, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +391,74 @@ func TestReadinessProbeSQLiteIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(sqlitePath + "-wal") })
-	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "WAL identity contract is not frozen") {
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "non-empty; WAL/SHM identity contract is not frozen") {
 		t.Fatalf("WAL target accepted: %v", err)
+	}
+}
+
+// TestReadinessProbeRejectsFullModeAndIrregularSidecars covers the QA reversal:
+// a setuid required file (0600 -> 4600) and unsafe WAL/SHM sidecars are refused
+// rather than treated as the same object.
+func TestReadinessProbeRejectsFullModeAndIrregularSidecars(t *testing.T) {
+	ctx := context.Background()
+	root := readinessFence(t, 6)
+	dir := t.TempDir()
+	sqlitePath := filepath.Join(dir, "target.sqlite")
+	db, err := sql.Open("sqlite", "file:"+sqlitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	required := filepath.Join(dir, "required.json")
+	if err := os.WriteFile(required, []byte(`{"mode":"full"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: sqlitePath, sqliteVersion: 6, requiredFiles: []string{required}}
+	if _, err := probeReadiness(ctx, opts); err != nil {
+		t.Fatalf("positive: %v", err)
+	}
+	if err := syscall.Chmod(required, 0o4600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(required, 0o600) })
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "special permission bits") {
+		t.Fatalf("setuid required file accepted: %v", err)
+	}
+	if err := syscall.Chmod(required, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	wal := sqlitePath + "-wal"
+	if err := os.Symlink(sqlitePath, wal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "unsafe link or irregular") {
+		t.Fatalf("symlink WAL accepted: %v", err)
+	}
+	_ = os.Remove(wal)
+	shm := sqlitePath + "-shm"
+	if err := os.Mkdir(shm, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "unsafe link or irregular") {
+		t.Fatalf("directory SHM accepted: %v", err)
+	}
+	_ = os.Remove(shm)
+	// A zero-length regular sidecar is inert and stays allowed.
+	if err := os.WriteFile(wal, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probeReadiness(ctx, opts); err != nil {
+		t.Fatalf("zero-length WAL rejected: %v", err)
+	}
+	if err := os.WriteFile(wal, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(wal) })
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "non-empty") {
+		t.Fatalf("non-empty WAL accepted: %v", err)
 	}
 }

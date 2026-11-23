@@ -54,16 +54,23 @@ type readinessProbeTarget struct {
 	Inode   uint64 `json:"inode,omitempty"`
 	Size    int64  `json:"size,omitempty"`
 	MtimeNS int64  `json:"mtime_ns,omitempty"`
+	Mode    uint32 `json:"mode,omitempty"`
+	Special uint32 `json:"special,omitempty"`
+	Nlink   uint64 `json:"nlink,omitempty"`
 	FileSHA string `json:"file_sha256,omitempty"`
 }
 
 type readinessProbeFile struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	Mode   uint32 `json:"mode"`
-	UID    uint32 `json:"uid"`
-	GID    uint32 `json:"gid"`
-	SHA256 string `json:"sha256"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Mode    uint32 `json:"mode"`
+	Special uint32 `json:"special"`
+	UID     uint32 `json:"uid"`
+	GID     uint32 `json:"gid"`
+	Device  uint64 `json:"device"`
+	Inode   uint64 `json:"inode"`
+	Nlink   uint64 `json:"nlink"`
+	SHA256  string `json:"sha256"`
 }
 
 type readinessProbeDoc struct {
@@ -271,39 +278,63 @@ func probePostgres(ctx context.Context, url string, generation uint64) (readines
 }
 
 func probeSQLite(path string, generation uint64) (readinessProbeTarget, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target is missing or not a regular file")
+	for _, suffix := range []string{"-wal", "-shm"} {
+		sidecar := path + suffix
+		info, err := os.Lstat(sidecar)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || !info.Mode().IsRegular() {
+			return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite sidecar %s is an unsafe link or irregular file; refusing", filepath.Base(sidecar))
+		}
+		if info.Size() > 0 {
+			return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite sidecar %s is non-empty; WAL/SHM identity contract is not frozen, refusing", filepath.Base(sidecar))
+		}
 	}
-	// A non-empty WAL holds committed state outside the main file. Without a
-	// frozen WAL evidence contract the probe refuses the target instead of
-	// claiming an identity it cannot prove; nothing is opened or written.
-	if wal, err := os.Lstat(path + "-wal"); err == nil && wal.Mode().IsRegular() && wal.Size() > 0 {
-		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target has a non-empty WAL; WAL identity contract is not frozen, refusing")
+	file, stat, err := openControlledRegular(path)
+	if err != nil {
+		return readinessProbeTarget{}, err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target has no usable stat identity")
+	defer func() { _ = file.Close() }()
+	if special := specialBits(stat.Mode); special != 0 {
+		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite target has unsafe special permission bits %#x; refusing", special)
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if stat.Size > readinessProbeMaxFile {
+		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite target exceeds the size bound")
+	}
+	fileSHA, size, err := hashOpenFile(file)
+	if err != nil {
+		return readinessProbeTarget{}, err
+	}
+	// Read SQLite through this exact open file description, not by path, so
+	// the version cannot come from a swapped object.
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:/proc/self/fd/%d?mode=ro", file.Fd()))
 	if err != nil {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe open SQLite: %w", err)
 	}
-	defer func() { _ = db.Close() }()
 	var version uint64
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		return readinessProbeTarget{}, fmt.Errorf("readiness-probe read SQLite version: %w", err)
+	queryErr := db.QueryRow("PRAGMA user_version").Scan(&version)
+	_ = db.Close()
+	if queryErr != nil {
+		return readinessProbeTarget{}, fmt.Errorf("readiness-probe read SQLite version: %w", queryErr)
 	}
 	if version != generation {
 		return readinessProbeTarget{}, fmt.Errorf("readiness-probe: SQLite user_version %d does not match expected generation %d", version, generation)
 	}
-	fileSHA, size, err := hashRegularFile(path)
+	// Prove the path still names the object that was hashed and read.
+	after, err := os.Lstat(path)
 	if err != nil {
-		return readinessProbeTarget{}, err
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target disappeared during inspection")
+	}
+	afterStat, ok := after.Sys().(*syscall.Stat_t)
+	if !ok || uint64(afterStat.Dev) != uint64(stat.Dev) || afterStat.Ino != stat.Ino ||
+		afterStat.Size != stat.Size || afterStat.Mtim.Nano() != stat.Mtim.Nano() {
+		return readinessProbeTarget{}, errors.New("readiness-probe: SQLite target changed while inspected; refusing")
 	}
 	return readinessProbeTarget{
 		Kind: "sqlite", Path: path, SchemaVersion: version,
-		Device: uint64(stat.Dev), Inode: stat.Ino, Size: size, MtimeNS: stat.Mtim.Nano(), FileSHA: fileSHA,
+		Device: uint64(stat.Dev), Inode: stat.Ino, Size: size, MtimeNS: stat.Mtim.Nano(),
+		Mode: uint32(stat.Mode & 0o7777), Special: specialBits(stat.Mode), Nlink: uint64(stat.Nlink), FileSHA: fileSHA,
 	}, nil
 }
 
@@ -311,39 +342,57 @@ func probeRequiredFile(path string) (readinessProbeFile, error) {
 	if !filepath.IsAbs(path) {
 		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q is not absolute", path)
 	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q is missing or not a regular file", path)
+	file, stat, err := openControlledRegular(path)
+	if err != nil {
+		return readinessProbeFile{}, err
 	}
-	if info.Size() > readinessProbeMaxFile {
+	defer func() { _ = file.Close() }()
+	if special := specialBits(stat.Mode); special != 0 {
+		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q has disallowed special permission bits %#x; refusing", path, special)
+	}
+	if stat.Size > readinessProbeMaxFile {
 		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q exceeds the size bound", path)
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return readinessProbeFile{}, fmt.Errorf("readiness-probe: required file %q has no usable stat attributes", path)
-	}
-	shaValue, size, err := hashRegularFile(path)
+	fileSHA, size, err := hashOpenFile(file)
 	if err != nil {
 		return readinessProbeFile{}, err
 	}
 	return readinessProbeFile{
-		Path: path, Size: size, Mode: uint32(info.Mode().Perm()), UID: stat.Uid, GID: stat.Gid, SHA256: shaValue,
+		Path: path, Size: size, Mode: uint32(stat.Mode & 0o7777), Special: specialBits(stat.Mode),
+		UID: stat.Uid, GID: stat.Gid, Device: uint64(stat.Dev), Inode: stat.Ino, Nlink: uint64(stat.Nlink), SHA256: fileSHA,
 	}, nil
 }
 
-// hashRegularFile reads one regular file without following links and returns
-// its SHA-256 and byte count. The open is bounded and never write-capable.
-func hashRegularFile(path string) (string, int64, error) {
+// openControlledRegular opens exactly the named regular file without following
+// links and returns its fstat identity, so every later check uses the same
+// object rather than re-resolving the path.
+func openControlledRegular(path string) (*os.File, syscall.Stat_t, error) {
+	var stat syscall.Stat_t
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return "", 0, fmt.Errorf("readiness-probe: open %q: %w", path, err)
+		return nil, stat, fmt.Errorf("readiness-probe: open %q: %w", path, err)
 	}
 	file := os.NewFile(uintptr(fd), path)
-	defer func() { _ = file.Close() }()
+	if err := syscall.Fstat(fd, &stat); err != nil {
+		_ = file.Close()
+		return nil, stat, fmt.Errorf("readiness-probe: stat %q: %w", path, err)
+	}
+	if stat.Mode&syscall.S_IFMT != syscall.S_IFREG {
+		_ = file.Close()
+		return nil, stat, fmt.Errorf("readiness-probe: %q is not a regular file", path)
+	}
+	return file, stat, nil
+}
+
+func specialBits(mode uint32) uint32 {
+	return mode & (syscall.S_ISUID | syscall.S_ISGID | syscall.S_ISVTX)
+}
+
+func hashOpenFile(file *os.File) (string, int64, error) {
 	hasher := sha256.New()
 	n, err := io.Copy(hasher, io.LimitReader(file, readinessProbeMaxFile+1))
 	if err != nil || n > readinessProbeMaxFile {
-		return "", 0, fmt.Errorf("readiness-probe: read %q: %w", path, err)
+		return "", 0, fmt.Errorf("readiness-probe: read %q: %w", file.Name(), err)
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), n, nil
 }
