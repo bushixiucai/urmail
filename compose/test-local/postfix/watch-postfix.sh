@@ -14,11 +14,14 @@ last=$(hash_cfg)
         sleep 0.25
         cur=$(hash_cfg || true)
         if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
-            if postfix -c "$CFG" reload; then
+            # Direct SIGHUP: `postfix reload` blocks ~2s on postfix-script
+            # checks; the master re-reads main.cf/master.cf on SIGHUP.
+            pidfile=/var/spool/postfix/pid/master.pid
+            if [ -s "$pidfile" ] && kill -HUP "$(cat "$pidfile")" 2>/dev/null; then
                 date +%s.%N >"$STAMP"
-                echo "[watch-postfix] config change detected; reload at $(cat "$STAMP")"
+                echo "[watch-postfix] config change detected; SIGHUP at $(cat "$STAMP")"
             else
-                echo "[watch-postfix] reload failed" >&2
+                echo "[watch-postfix] SIGHUP failed" >&2
             fi
             last=$cur
         fi
