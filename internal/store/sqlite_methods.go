@@ -1530,6 +1530,11 @@ WHERE tenant_id=?1 AND domain_id=?2`
 // RevokeDNSCredential disables the domain credential and invalidates live
 // plans. Mirrors urmail_revoke_dns_credential.
 func (q *Queries) RevokeDNSCredential(ctx context.Context, arg RevokeDNSCredentialParams) error {
+	if !isSQLiteDBTX(q.db) {
+		return pgstore.New(q.db).RevokeDNSCredential(ctx, pgstore.RevokeDNSCredentialParams{
+			TenantID: arg.TenantID, DomainID: arg.DomainID,
+		})
+	}
 	if _, err := q.dnsActor(ctx, arg.TenantID, arg.DomainID); err != nil {
 		return err
 	}
@@ -1799,6 +1804,13 @@ WHERE tenant_id=?1 AND id=?2`
 // RequestDNSRollback requests a reviewed rollback of a completed plan. Mirrors
 // urmail_rollback_dns_plan.
 func (q *Queries) RequestDNSRollback(ctx context.Context, arg RequestDNSRollbackParams) error {
+	if !isSQLiteDBTX(q.db) {
+		// The PostgreSQL twin is urmail_rollback_dns_plan; the statements below
+		// are SQLite-only and carry no `-- name:` label.
+		return pgstore.New(q.db).RequestDNSRollback(ctx, pgstore.RequestDNSRollbackParams{
+			TenantID: arg.TenantID, ID: arg.ID, Reason: arg.Reason,
+		})
+	}
 	id, ok := uuidText(arg.ID)
 	if !ok {
 		return pgError("23514", "DNS_PLAN_NOT_FOUND")
@@ -2143,6 +2155,13 @@ ON CONFLICT(campaign_id,email) DO NOTHING`
 // list contact. Every precondition returns a status string instead of an error,
 // as the PG function did.
 func (q *Queries) ScheduleMarketingCampaign(ctx context.Context, arg ScheduleMarketingCampaignParams) (string, error) {
+	if !isSQLiteDBTX(q.db) {
+		// The PostgreSQL twin is the urmail_schedule_marketing procedure; the
+		// statements below are SQLite-only and carry no `-- name:` label.
+		return pgstore.New(q.db).ScheduleMarketingCampaign(ctx, pgstore.ScheduleMarketingCampaignParams{
+			TenantID: arg.TenantID, CampaignID: arg.CampaignID, ScheduledAt: pgtype.Timestamptz{Time: time.UnixMicro(arg.ScheduledAt).UTC(), Valid: arg.ScheduledAt != 0},
+		})
+	}
 	var result string
 	err := q.runTx(ctx, func(tx *Queries) error {
 		var err error
