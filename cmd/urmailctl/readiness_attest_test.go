@@ -18,6 +18,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/bushixiucai/urmail/internal/maintenance"
 )
 
 type attestFixture struct {
@@ -287,11 +289,26 @@ func TestReleaseConsumeGateSameAttempt(t *testing.T) {
 	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err != nil {
 		t.Fatalf("release consume gate: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(f.root, "upgrade_release_attempt.json")); err != nil {
+	attemptPath := filepath.Join(f.root, "upgrade_release_attempt.json")
+	if _, err := os.Stat(attemptPath); err != nil {
 		t.Fatalf("release attempt missing: %v", err)
 	}
+	// An interrupted attempt that did not remove the hold continues under the
+	// same lock/consume record instead of masquerading as success.
+	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err != nil {
+		t.Fatalf("interrupted same-attempt continuation refused: %v", err)
+	}
+	if err := markReleaseCompleted(f.root, mustHoldSHA(t, f.root)); err != nil {
+		t.Fatal(err)
+	}
 	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err == nil || !strings.Contains(err.Error(), "already released") {
-		t.Fatalf("replayed release accepted: %v", err)
+		t.Fatalf("replayed completed release accepted: %v", err)
+	}
+	if already, err := noHoldReleaseOutcome(f.root, true); err != nil || !already {
+		t.Fatalf("no-hold completed attempt not recognized: already=%t err=%v", already, err)
+	}
+	if already, err := noHoldReleaseOutcome(t.TempDir(), true); err == nil || already {
+		t.Fatalf("no-hold without attempt claimed success: already=%t err=%v", already, err)
 	}
 
 	// A record from another round must not release this hold.
@@ -309,11 +326,20 @@ func TestReleaseConsumeGateSameAttempt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.root, "upgrade_readiness_consumed.json"), otherRecord, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_ = os.Remove(filepath.Join(f.root, "upgrade_release_attempt.json"))
+	_ = os.Remove(attemptPath)
 	if err := verifyReleaseConsume(ctx, f.root, f.lockFD); err == nil || !strings.Contains(err.Error(), "wrong round") {
 		t.Fatalf("foreign-round consume accepted: %v", err)
 	}
 	if err := verifyReleaseConsume(ctx, f.root, -1); err == nil || !strings.Contains(err.Error(), "inherited") {
 		t.Fatalf("missing lock accepted: %v", err)
 	}
+}
+
+func mustHoldSHA(t *testing.T, root string) string {
+	t.Helper()
+	hold, _, err := maintenance.ReadUpgradeFenceRaw(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sha256Hex(hold)
 }

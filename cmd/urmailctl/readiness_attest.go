@@ -501,23 +501,108 @@ func verifyReleaseConsume(ctx context.Context, rootDir string, lockFD int) error
 		sha256Hex(targetRaw) != record.TargetDigest || sha256Hex(requiredRaw) != record.RequiredDigest {
 		return errors.New("release consume: live attestation no longer matches the consumed record")
 	}
-	attempt := map[string]any{
-		"format": "urmail-release-attempt-v1", "attempted_at": time.Now().UTC(), "request_id": record.RequestID,
-		"consume_sha256": sha256Hex(raw), "hold_sha256": record.HoldSHA256, "receipt_sha256": record.ReceiptSHA256,
-		"generation": record.Generation, "probe_state_sha256": record.ProbeStateSHA256,
+	attemptPath := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
+	attempt := readinessReleaseAttempt{
+		Format: "urmail-release-attempt-v1", State: "attempted", AttemptedAt: time.Now().UTC(), RequestID: record.RequestID,
+		ConsumeSHA256: sha256Hex(raw), HoldSHA256: record.HoldSHA256, ReceiptSHA256: record.ReceiptSHA256,
+		Generation: record.Generation, ProbeStateSHA256: record.ProbeStateSHA256,
+	}
+	if _, statErr := os.Lstat(attemptPath); statErr == nil {
+		existingRaw, err := readBoundedRegular(attemptPath, 1<<20)
+		if err != nil {
+			return fmt.Errorf("release consume: inspect prior attempt: %w", err)
+		}
+		var existing readinessReleaseAttempt
+		if err := json.Unmarshal(existingRaw, &existing); err != nil {
+			return fmt.Errorf("release consume: unreadable prior release attempt: %w", err)
+		}
+		if existing.State == "completed" {
+			return fmt.Errorf("release consume: this hold was already released (completed attempt %s sha256 %s); refusing replay", attemptPath, sha256Hex(existingRaw))
+		}
+		if existing.ConsumeSHA256 != attempt.ConsumeSHA256 || existing.HoldSHA256 != attempt.HoldSHA256 || existing.RequestID != record.RequestID {
+			return fmt.Errorf("release consume: an interrupted attempt for a different consume/hold exists (%s); manual reconciliation required", attemptPath)
+		}
+		// An interrupted attempt that never removed the hold may continue under
+		// the same lock and same consume record; it is not a success claim.
+		fmt.Printf("CONSUME_VERIFIED_CONTINUE request_id=%s hold_sha256=%s generation=%d\n", record.RequestID, record.HoldSHA256, record.Generation)
+		return nil
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("release consume: inspect prior attempt: %w", statErr)
 	}
 	attemptRaw, err := json.MarshalIndent(attempt, "", "  ")
 	if err != nil {
 		return err
 	}
-	attemptPath := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
 	if err := writePrivateExclusive(attemptPath, attemptRaw); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			existing, _ := readBoundedRegular(attemptPath, 1<<20)
-			return fmt.Errorf("release consume: this hold was already released once (attempt %s sha256 %s); refusing replay", attemptPath, sha256Hex(existing))
+			return errors.New("release consume: concurrent release attempt appeared; refusing")
 		}
 		return err
 	}
 	fmt.Printf("CONSUME_VERIFIED request_id=%s hold_sha256=%s generation=%d\n", record.RequestID, record.HoldSHA256, record.Generation)
 	return nil
+}
+
+type readinessReleaseAttempt struct {
+	Format           string    `json:"format"`
+	State            string    `json:"state"`
+	AttemptedAt      time.Time `json:"attempted_at"`
+	CompletedAt      time.Time `json:"completed_at,omitempty"`
+	RequestID        string    `json:"request_id"`
+	ConsumeSHA256    string    `json:"consume_sha256"`
+	HoldSHA256       string    `json:"hold_sha256"`
+	ReceiptSHA256    string    `json:"receipt_sha256"`
+	Generation       uint64    `json:"generation"`
+	ProbeStateSHA256 string    `json:"probe_state_sha256"`
+}
+
+// markReleaseCompleted flips only an existing same-attempt record to completed
+// after the hold was actually removed; a missing/different record is refused.
+func markReleaseCompleted(rootDir, holdSHA string) error {
+	attemptPath := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
+	raw, err := readBoundedRegular(attemptPath, 1<<20)
+	if err != nil {
+		return fmt.Errorf("mark release completed: %w", err)
+	}
+	var attempt readinessReleaseAttempt
+	if err := json.Unmarshal(raw, &attempt); err != nil {
+		return fmt.Errorf("mark release completed: parse attempt: %w", err)
+	}
+	if attempt.HoldSHA256 != holdSHA || attempt.State != "attempted" {
+		return errors.New("mark release completed: attempt does not match this hold/state")
+	}
+	attempt.State = "completed"
+	attempt.CompletedAt = time.Now().UTC()
+	updated, err := json.MarshalIndent(attempt, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := attemptPath + ".tmp"
+	if err := writePrivateExclusive(tmp, updated); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, attemptPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// noHoldReleaseOutcome decides the no-fence branch under --require-consume:
+// only a completed attempt may report an idempotent release; anything else is
+// an incomplete/manual reconciliation, never a first success.
+func noHoldReleaseOutcome(rootDir string, requireConsume bool) (bool, error) {
+	if !requireConsume {
+		return false, nil
+	}
+	attemptPath := filepath.Join(maintenance.Root(rootDir), "upgrade_release_attempt.json")
+	raw, err := readBoundedRegular(attemptPath, 1<<20)
+	if err != nil {
+		return false, errors.New("no active upgrade fence and no release attempt record; manual reconciliation required (not a successful first release)")
+	}
+	var attempt readinessReleaseAttempt
+	if err := json.Unmarshal(raw, &attempt); err != nil || attempt.State != "completed" {
+		return false, errors.New("no active upgrade fence but the release attempt is not completed; manual reconciliation required (not a successful first release)")
+	}
+	return true, nil
 }

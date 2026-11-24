@@ -289,6 +289,16 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 		return fmt.Errorf("cannot release upgrade fence: %w", holdErr)
 	}
 	if !held {
+		if requireConsume {
+			already, outcomeErr := noHoldReleaseOutcome(rootDir, requireConsume)
+			if outcomeErr != nil {
+				return outcomeErr
+			}
+			if already {
+				fmt.Println("No active upgrade fence; a completed release attempt is recorded (idempotent, not a new release).")
+				return nil
+			}
+		}
 		if err = maintenance.RemoveDropInGuards(dropInDir, maintenance.DropInGuardedUnits); err != nil {
 			return fmt.Errorf("no active upgrade fence, but drop-in guard cleanup failed: %w", err)
 		}
@@ -592,6 +602,11 @@ func releaseUpgradeInternal(ctx context.Context, rootDir, dropInDir string, time
 		cancel()
 		if probeErr != nil {
 			return restoreFenceOnFailure(fmt.Errorf("release protocol readiness failed: %w", probeErr), maintenance.DefaultWriterUnits)
+		}
+	}
+	if requireConsume && holdDigest != "" {
+		if err := markReleaseCompleted(rootDir, holdDigest); err != nil {
+			return fmt.Errorf("release completed services but the attempt record could not be marked: %w (hold already removed; manual reconciliation required)", err)
 		}
 	}
 	fmt.Println("Upgrade fence released successfully.")
