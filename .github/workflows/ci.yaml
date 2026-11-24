@@ -251,7 +251,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The core shard measured 24m04s on run 45483768583 and was cancelled by
+    # the 25 minute job timeout before it finished; 40 minutes covers the
+    # cold-cache case without weakening any test.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:

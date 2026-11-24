@@ -567,6 +567,12 @@ urmailctl config status --wait 240s
 # would see a successful install that cannot be upgraded. Wait, bounded, for
 # the agent to clear it; a journal that survives the bound is a real failure.
 pending_journal=/var/lib/urmail-agent/pending.json
+if [ -e "$pending_journal" ]; then
+  # A journal left by an interrupted apply is cleared by the agent's own
+  # recover path on start (internal/agentd/apply.go recover()); restarting the
+  # agent triggers that reconciliation instead of waiting blindly.
+  systemctl restart urmaild-agent.service
+fi
 for _ in $(seq 1 120); do
   [ ! -e "$pending_journal" ] && break
   sleep 1
