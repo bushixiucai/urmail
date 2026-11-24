@@ -777,7 +777,7 @@ func (m *ApplyManager) render(p ApplyParams) (map[string]string, error) {
 	cert := filepath.Join(m.root, "certs/mail", host+".cert")
 	key := filepath.Join(m.root, "certs/mail", host+".key")
 	mailContext := mail.ConfigContext{
-		PostfixNode: postfix.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, PolicyEnabled: cfg.PolicyEnabled, V80Preserve: cfg.PostfixV80Preserve, PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM, PolicySocket: cfg.PolicySocket, ArchiveEnabled: cfg.ArchiveEnabled}, PostfixSnap: p.Postfix,
+		PostfixNode: postfix.NodeConfig{Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, PolicyEnabled: cfg.PolicyEnabled, V80Preserve: cfg.PostfixV80Preserve, PreserveExternalOpenDKIM: cfg.PreserveExternalOpenDKIM, PolicySocket: cfg.PolicySocket, ArchiveEnabled: cfg.ArchiveEnabled, SignerMilterAddr: cfg.SignerMilterAddr, SpamMilterAddr: cfg.SpamMilterAddr}, PostfixSnap: p.Postfix,
 		DovecotNode: dovecot.NodeConfig{SpamPolicies: p.SpamPolicies, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, TLSCertFile: cert, TLSKeyFile: key, DatabaseURL: cfg.DatabaseURLDovecot, V80Preserve: cfg.PostfixV80Preserve},
 		NSDNode:     nsd.NodeConfig{ListenAddresses: cfg.DNSListenAddresses, Hostname: host, PrimaryDomain: cfg.PrimaryDomain, PublicIPv4: cfg.PublicIPv4, Nameservers: cfg.Nameservers}, NSDSnap: p.DNS,
 		NginxNode: nginx.NodeConfig{PrimaryDomain: cfg.PrimaryDomain, StorageRoot: cfg.StorageRoot, BackendHTTP: "http://" + cfg.ListenAddr, WebmailBackend: fixedWebmailBackend(cfg)}, DKIM: p.DKIM,

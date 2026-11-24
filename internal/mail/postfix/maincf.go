@@ -111,7 +111,18 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 	// degrade path raises the spam_milter_unavailable operational alert.
 	// Only smtpd_milters carries the spam milter: non_smtpd (locally injected
 	// operational) mail must not be classified or Junk-filed.
-	const spamMilter = "inet:127.0.0.1:11339"
+	// Phase 2 (compose form): milter upstreams are injectable parameters; the
+	// defaults are the compose service names (ARCH-PLAN §1.1). Host-systemd
+	// deployments inject loopback addresses via URMAIL_MILTER_*_ADDR.
+	signerAddr := node.SignerMilterAddr
+	if signerAddr == "" {
+		signerAddr = "urmail-signer:12301"
+	}
+	spamAddr := node.SpamMilterAddr
+	if spamAddr == "" {
+		spamAddr = "urmail-spam:11339"
+	}
+	spamMilter := "inet:" + spamAddr
 	switch {
 	case node.V80Preserve && node.PreserveExternalOpenDKIM:
 		// Same-host cutover keeps the live OpenDKIM milter (8891) and OpenDMARC
@@ -121,11 +132,11 @@ func renderMainCF(node NodeConfig, snap Snapshot) string {
 		b.WriteString("non_smtpd_milters = inet:127.0.0.1:8891, inet:127.0.0.1:8893\n\n")
 	case node.V80Preserve:
 		// Preserve OpenDMARC independently; the new signer replaces old 8891.
-		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893, " + spamMilter + "\n")
-		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301, inet:127.0.0.1:8893\n\n")
+		b.WriteString("smtpd_milters = inet:" + signerAddr + ", inet:127.0.0.1:8893, " + spamMilter + "\n")
+		b.WriteString("non_smtpd_milters = inet:" + signerAddr + ", inet:127.0.0.1:8893\n\n")
 	default:
-		b.WriteString("smtpd_milters = inet:127.0.0.1:12301, " + spamMilter + "\n")
-		b.WriteString("non_smtpd_milters = inet:127.0.0.1:12301\n\n")
+		b.WriteString("smtpd_milters = inet:" + signerAddr + ", " + spamMilter + "\n")
+		b.WriteString("non_smtpd_milters = inet:" + signerAddr + "\n\n")
 	}
 
 	b.WriteString("# Sender login restrictions\n")

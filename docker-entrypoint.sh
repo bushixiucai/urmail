@@ -8,6 +8,20 @@
 #   - urmaild: master key (exclusive create, atomic), env file, migrations.
 set -eu
 
+# Hold gate (QA final ③): writer containers must not start while a compose
+# upgrade hold marker exists — a manual `compose start` cannot bypass the
+# fence. urmaild deliberately sets URMAIL_HOLD_GUARD=0 (probe/readiness need
+# it up during the hold). The marker lives in the (read-only) data root.
+hold_guard="${URMAIL_HOLD_GUARD:-1}"
+hold_file="${URMAIL_HOLD_FILE:-/srv/urmail/holds/upgrade.hold}"
+if [ "$hold_guard" = "1" ] && [ -f "$hold_file" ]; then
+    while [ -f "$hold_file" ]; do
+        echo "[entrypoint] upgrade hold active ($hold_file); waiting"
+        sleep 5
+    done
+    echo "[entrypoint] hold cleared; continuing"
+fi
+
 cmd="${1:-}"
 
 if [ "$cmd" = "urmaild" ] || [ "$cmd" = "serve" ]; then

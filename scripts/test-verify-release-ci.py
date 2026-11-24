@@ -33,13 +33,17 @@ def comparison(status="ahead", base=SHA, merge=SHA):
 SHARD_JOBS = ("Integration (handlers)", "Integration (data)",
               "Integration (platform)", "Integration (core)")
 RETIRED_INTEGRATION = "Integration (PostgreSQL)"
+RETIRED_DEB_INSTALL = (
+    "Linux installation (ubuntu-22.04, amd64)",
+    "Linux installation (ubuntu-24.04, amd64)",
+    "Linux installation (ubuntu-24.04-arm, arm64)",
+)
 EXPECTED_REQUIRED = {
     "Go", "Frontend", *SHARD_JOBS,
     "Native webmail (Postfix and Dovecot)", "Embedded frontend", "Package smoke",
     "Shell", "Development stack and browser", "Security dependencies",
-    "Linux installation (ubuntu-22.04, amd64)",
-    "Linux installation (ubuntu-24.04, amd64)",
-    "Linux installation (ubuntu-24.04-arm, arm64)",
+    # Phase 2 (compose form): deb install gates retired, compose smoke added.
+    "Compose smoke",
 }
 
 
@@ -54,6 +58,10 @@ class IntegrationShardJobTests(unittest.TestCase):
     def test_required_jobs_match_sharded_ci(self):
         self.assertEqual(gate.REQUIRED_JOBS, EXPECTED_REQUIRED)
         self.assertNotIn(RETIRED_INTEGRATION, gate.REQUIRED_JOBS)
+        # Phase 2: deb install gates retired; compose smoke is the new gate job.
+        for retired in RETIRED_DEB_INSTALL:
+            self.assertNotIn(retired, gate.REQUIRED_JOBS)
+        self.assertIn("Compose smoke", gate.REQUIRED_JOBS)
 
     def test_all_shard_jobs_present_authorizes(self):
         jobs = [dict(name=name, status="completed", conclusion="success")

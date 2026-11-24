@@ -17,15 +17,17 @@ var update = flag.Bool("update", false, "update golden files")
 
 func defaultNodeConfig() postfix.NodeConfig {
 	return postfix.NodeConfig{
-		Hostname:       "box.urmail.cn",
-		PrimaryDomain:  "urmail.cn",
-		StorageRoot:    "/var/mail",
-		TLSCertFile:    "/var/mail/ssl/box.urmail.cn.cert",
-		TLSKeyFile:     "/var/mail/ssl/box.urmail.cn.key",
-		PolicyEnabled:  false,
-		PolicySocket:   "private/policy",
-		ArchiveEnabled: false,
-		ArchiveSocket:  "private/urmail-archive",
+		SignerMilterAddr: "127.0.0.1:12301",
+		SpamMilterAddr:   "127.0.0.1:11339",
+		Hostname:         "box.urmail.cn",
+		PrimaryDomain:    "urmail.cn",
+		StorageRoot:      "/var/mail",
+		TLSCertFile:      "/var/mail/ssl/box.urmail.cn.cert",
+		TLSKeyFile:       "/var/mail/ssl/box.urmail.cn.key",
+		PolicyEnabled:    false,
+		PolicySocket:     "private/policy",
+		ArchiveEnabled:   false,
+		ArchiveSocket:    "private/urmail-archive",
 	}
 }
 
