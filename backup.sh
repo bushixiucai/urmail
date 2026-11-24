@@ -160,9 +160,23 @@ if [ -z "$VERSION" ] && [ -f "$REPO/VERSION" ]; then VERSION=$(cat "$REPO/VERSIO
 if [ -z "$COMMIT" ] && git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     COMMIT=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)
 fi
-DKIM_SHA=""
-DKIM_KEY=$(find "$OUT/config/dkim" -name '*.key' 2>/dev/null | head -n1)
-[ -n "$DKIM_KEY" ] && DKIM_SHA=$(sha256sum "$DKIM_KEY" | cut -d' ' -f1)
+DKIM_SHA=""; DKIM_SOURCE=""
+# The product stores the per-domain DKIM key in the database
+# (domains.dkim_private_key); the file form is the pre-single-engine layout and
+# is only a fallback. An empty result must not abort the script under set -e.
+DKIM_DB=$(sqlite_snap_query "SELECT dkim_private_key FROM domains WHERE dkim_private_key IS NOT NULL AND dkim_private_key<>'' ORDER BY id LIMIT 1;" 2>/dev/null || true)
+if [ -n "$DKIM_DB" ]; then
+    # Hash the whole PEM value (it spans lines); command substitution strips the
+    # same trailing newlines on both the backup and the verify side.
+    DKIM_SHA=$(printf '%s\n' "$DKIM_DB" | sha256sum | cut -d' ' -f1)
+    DKIM_SOURCE="db:domains.dkim_private_key"
+else
+    DKIM_KEY=$(find "$OUT/config/dkim" -name '*.key' 2>/dev/null | head -n1 || true)
+    if [ -n "$DKIM_KEY" ]; then
+        DKIM_SHA=$(sha256sum "$DKIM_KEY" | cut -d' ' -f1)
+        DKIM_SOURCE=${DKIM_KEY#"$OUT"/}
+    fi
+fi
 MAIL_FILES=$(find "$OUT/mail" -type f 2>/dev/null | wc -l | tr -d ' ')
 SQLITE_SHA=$(sha256sum "$OUT/db/urmail.sqlite" | cut -d' ' -f1)
 SZ_DB=$(du -sb "$OUT/db" | cut -f1); SZ_MAIL=$(du -sb "$OUT/mail" | cut -f1)
@@ -196,7 +210,7 @@ sqlite_tables=$TAB
 sqlite_integrity=$INT
 admin_password_hash_rows=${AH:-0}
 platform_admin_rows=${PA:-0}
-dkim_key_path=${DKIM_KEY#"$OUT"/}
+dkim_key_path=${DKIM_SOURCE}
 dkim_key_sha256=$DKIM_SHA
 mail_files=$MAIL_FILES
 mail_tree_changed_during_copy=$([ "$QUIET" = yes ] && echo no || echo yes)

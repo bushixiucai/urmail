@@ -82,9 +82,26 @@ PW=$(sqlq "SELECT count(*) FROM users WHERE password_hash IS NOT NULL AND passwo
 PA=$(sqlq "SELECT count(*) FROM platform_admins;" | head -n1)
 [ "$PW" = "$(meta admin_password_hash_rows)" ] && ok "admin password hashes=$PW (matches snapshot)" || bad "admin password hash rows=$PW != snapshot $(meta admin_password_hash_rows)"
 [ "$PA" = "$(meta platform_admin_rows)" ] && ok "platform admins=$PA (matches snapshot)" || bad "platform admin rows=$PA != snapshot $(meta platform_admin_rows)"
-DKIM_KEY=$(find "$TARGET/config/dkim" -name '*.key' 2>/dev/null | head -n1)
-DKIM_SHA=$([ -n "$DKIM_KEY" ] && sha256sum "$DKIM_KEY" | cut -d' ' -f1 || true)
-[ -n "$DKIM_SHA" ] && [ "$DKIM_SHA" = "$(meta dkim_key_sha256)" ] && ok "DKIM private key sha256 unchanged" || bad "DKIM key missing or changed"
+# The product stores DKIM keys in the database; the file layout is a fallback
+# for older data roots. Both are compared with the snapshot's recorded digest.
+DKIM_DB=$(sqlq "SELECT dkim_private_key FROM domains WHERE dkim_private_key IS NOT NULL AND dkim_private_key<>'' ORDER BY id LIMIT 1;" 2>/dev/null || true)
+if [ -n "$DKIM_DB" ]; then
+    DKIM_SHA=$(printf '%s\n' "$DKIM_DB" | sha256sum | cut -d' ' -f1)
+    DKIM_SOURCE="db:domains.dkim_private_key"
+else
+    DKIM_KEY=$(find "$TARGET/config/dkim" -name '*.key' 2>/dev/null | head -n1 || true)
+    if [ -n "$DKIM_KEY" ]; then
+        DKIM_SHA=$(sha256sum "$DKIM_KEY" | cut -d' ' -f1)
+        DKIM_SOURCE=${DKIM_KEY#"$TARGET"/}
+    else
+        DKIM_SHA=""; DKIM_SOURCE="none"
+    fi
+fi
+if [ -n "$DKIM_SHA" ] && [ "$DKIM_SHA" = "$(meta dkim_key_sha256)" ]; then
+    ok "DKIM private key sha256 unchanged ($DKIM_SOURCE)"
+else
+    bad "DKIM key missing or changed ($DKIM_SOURCE)"
+fi
 
 log "4/5 Maildir sample ($SAMPLE files)"
 mapfile -t MSGS < <(find "$TARGET/mail" -type f \( -path '*/cur/*' -o -path '*/new/*' \) | sort)
