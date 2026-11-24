@@ -44,7 +44,7 @@ func (h *MailboxNativeHandler) guardDraftMutation(c *gin.Context, client webmail
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
 	q := db.Queries(tx)
 	for _, uid := range ordered {
-		if err = mailboxsend.LockDraft(c.Request.Context(), q, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
+		if err = mailboxsend.LockDraft(platformCtx(c), q, session.TenantID, session.MailboxID, mailboxsend.DraftRef{Folder: folder, UID: uid, Validity: validity}); err != nil {
 			release()
 			authError(c, 503, "DB_ERROR")
 			return func() {}, false
