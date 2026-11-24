@@ -11,7 +11,7 @@ hash_cfg() {
 last=$(hash_cfg)
 (
     while :; do
-        sleep 1
+        sleep 0.25
         cur=$(hash_cfg || true)
         if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
             if postfix -c "$CFG" reload; then

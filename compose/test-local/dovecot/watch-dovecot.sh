@@ -8,7 +8,7 @@ STAMP=/srv/urmail/config/dovecot/.reload-dovecot.ts
 last=$(sha256sum "$CFG" 2>/dev/null | cut -d' ' -f1)
 (
     while :; do
-        sleep 1
+        sleep 0.25
         cur=$(sha256sum "$CFG" 2>/dev/null | cut -d' ' -f1 || true)
         if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
             if doveadm -c "$CFG" reload; then
