@@ -131,8 +131,11 @@ func TestAuditCompositeCursorDoesNotSkipIDTimeInversion(t *testing.T) {
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodGet, "/audit?limit=1", nil))
 	var page struct {
-		Logs []store.AuditLogs `json:"logs"`
-		Next string            `json:"next_cursor"`
+		Logs []struct {
+			Action    string    `json:"action"`
+			CreatedAt time.Time `json:"created_at"`
+		} `json:"logs"`
+		Next string `json:"next_cursor"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil || len(page.Logs) != 1 || page.Logs[0].Action != "newer-time" || page.Next == "" {
 		t.Fatalf("first page: %s %v", response.Body, err)

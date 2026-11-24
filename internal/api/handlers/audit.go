@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
@@ -132,7 +133,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 		params.BeforeID = sql.NullInt64{Int64: cursor.ID, Valid: true}
 		params.BeforeTime = sql.NullInt64{Int64: cursor.Time.UnixMicro(), Valid: true}
 	}
-	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(c.Request.Context(), params)
+	logs, err := requestStore(c, h.Store).ListAuditLogsByTenant(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: tenantID}), params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
@@ -177,7 +178,7 @@ func (h *AuditHandler) export(c *gin.Context, q AuditStore, p store.ListAuditLog
 		authError(c, 400, "INVALID_PARAMS")
 		return
 	}
-	rows, err := q.ExportAuditLogsByTenant(c.Request.Context(), store.ExportAuditLogsByTenantParams{TenantID: p.TenantID, ActorUserID: p.ActorUserID, Action: p.Action, TargetType: p.TargetType, TargetID: p.TargetID, FromTime: p.FromTime, ToTime: p.ToTime})
+	rows, err := q.ExportAuditLogsByTenant(isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopeTenant, TenantID: p.TenantID.Int64}), store.ExportAuditLogsByTenantParams{TenantID: p.TenantID, ActorUserID: p.ActorUserID, Action: p.Action, TargetType: p.TargetType, TargetID: p.TargetID, FromTime: p.FromTime, ToTime: p.ToTime})
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return

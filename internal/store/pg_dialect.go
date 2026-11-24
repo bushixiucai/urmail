@@ -65,6 +65,8 @@ SELECT id, tenant_id, message_id, requested_by, status, reason, created_at, arch
 // at the B2 dialect seam, never by rewriting SQL text.
 var postgresTimestampArgIndexes = map[string][]int{
 	"ArchiveRetentionCandidateDigest":        {1},
+	"ListAuditLogsByTenant":                  {5, 6, 8},
+	"ExportAuditLogsByTenant":                {5, 6},
 	"SearchArchiveContent":                   {5, 6, 7},
 	"CountDeliveryEventsByStatus":            {1},
 	"CreateApplicationCredential":            {3},

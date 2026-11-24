@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func TestPlatformTransactionAuditsCommitRollbackAndCallback(t *testing.T) {
 	r.POST("/api/v1/platform/tenants/:id/mutation", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
 		q := raw.(*store.Queries)
-		if _, err := q.PlatformUpdateTenantStatus(c, store.PlatformUpdateTenantStatusParams{ID: tid, Status: "suspended"}); err != nil {
+		if _, err := q.PlatformUpdateTenantStatus(isolation.WithScope(c, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformUpdateTenantStatusParams{ID: tid, Status: "suspended"}); err != nil {
 			t.Fatal(err)
 		}
 		c.Status(201)
