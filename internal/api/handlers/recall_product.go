@@ -66,18 +66,7 @@ func recallProductError(c *gin.Context, err error) {
 		authError(c, 409, "RECALL_REVIEW_STALE")
 		return
 	}
-	var databaseError *pgconn.PgError
-	if errors.As(err, &databaseError) {
-		switch databaseError.Code {
-		case "42501":
-			authError(c, 403, "FORBIDDEN")
-			return
-		case "23514", "23505":
-			authError(c, 409, "RECALL_REVIEW_STALE")
-			return
-		}
-	}
-	authError(c, 503, "ARCHIVE_UNAVAILABLE")
+	writeDatabaseError(c, err, "RECALL_REVIEW_STALE")
 }
 func recallAudit(c *gin.Context, q *store.Queries, tenant, actor, id int64, action string, _ any) bool {
 	row, err := q.GetRecallByID(c.Request.Context(), store.GetRecallByIDParams{TenantID: tenant, ID: id})

@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/bushixiucai/urmail/internal/api/middleware"
@@ -82,21 +81,7 @@ func archiveCaseError(c *gin.Context, err error) {
 		authError(c, 404, "NOT_FOUND")
 		return
 	}
-	var databaseError *pgconn.PgError
-	if errors.As(err, &databaseError) {
-		switch databaseError.Code {
-		case "23514", "23505":
-			authError(c, 409, "ARCHIVE_CASE_STALE")
-			return
-		case "23503":
-			authError(c, 404, "NOT_FOUND")
-			return
-		case "42501":
-			authError(c, 403, "FORBIDDEN")
-			return
-		}
-	}
-	authError(c, 503, "ARCHIVE_UNAVAILABLE")
+	writeDatabaseError(c, err, "ARCHIVE_CASE_STALE")
 }
 
 func caseAudit(c *gin.Context, q *store.Queries, tenant, actor int64, action string, id int64) bool {

@@ -84,6 +84,10 @@ func run() error {
 		return fmt.Errorf("build logger: %w", err)
 	}
 	defer func() { _ = logger.Sync() }()
+	// The frozen S7 rule requires the raw driver error in the log when a
+	// database failure cannot be classified. Install the process logger as the
+	// zap global so handler helpers that predate a logger field log for real.
+	zap.ReplaceGlobals(logger)
 
 	logger.Info("starting urmaild",
 		zap.String("version", version),
