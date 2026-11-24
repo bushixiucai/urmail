@@ -60,7 +60,7 @@ type PlatformTenant struct {
 
 // Overview returns aggregate platform resource counts.
 func (h *PlatformHandler) Overview(c *gin.Context) {
-	row, err := requestStore(c, h.Store).PlatformOverview(c.Request.Context())
+	row, err := requestStore(c, h.Store).PlatformOverview(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -73,7 +73,7 @@ func (h *PlatformHandler) Overview(c *gin.Context) {
 
 // ListTenants lists tenants with resource counts.
 func (h *PlatformHandler) ListTenants(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListTenants(c.Request.Context())
+	rows, err := requestStore(c, h.Store).PlatformListTenants(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -129,7 +129,7 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 			return
 		}
 	}
-	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(c.Request.Context(), store.PlatformUpdateTenantStatusParams{
+	row, err := requestStore(c, h.Store).PlatformUpdateTenantStatus(platformCtx(c), store.PlatformUpdateTenantStatusParams{
 		ID:     id,
 		Status: status,
 	})
@@ -155,7 +155,7 @@ func (h *PlatformHandler) setStatus(c *gin.Context, status string) {
 
 // Brands lists the compatibility brand administration view.
 func (h *PlatformHandler) Brands(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListBrands(c.Request.Context())
+	rows, err := requestStore(c, h.Store).PlatformListBrands(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -298,7 +298,7 @@ func (h *PlatformHandler) UpsertBrand(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_PARAMS"}})
 		return
 	}
-	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(c.Request.Context(), store.PlatformUpsertBrandParams{
+	brand, err := requestStore(c, h.Store).PlatformUpsertBrand(platformCtx(c), store.PlatformUpsertBrandParams{
 		Slug: in.Slug, Name: in.Name, Theme: theme,
 		LogoUrl: textOrNull(in.LogoURL), FaviconUrl: textOrNull(in.FaviconURL),
 		PrimaryColor: textOrNull(in.PrimaryColor),
@@ -335,7 +335,7 @@ type ChannelInput struct {
 
 // Channels lists platform-managed distribution channels.
 func (h *PlatformHandler) Channels(c *gin.Context) {
-	rows, err := requestStore(c, h.Store).PlatformListChannels(c.Request.Context())
+	rows, err := requestStore(c, h.Store).PlatformListChannels(platformCtx(c))
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
@@ -384,7 +384,7 @@ func (h *PlatformHandler) UpsertChannel(c *gin.Context) {
 	if in.Active != nil {
 		active = *in.Active
 	}
-	row, err := requestStore(c, h.Store).PlatformUpsertChannel(c.Request.Context(), store.PlatformUpsertChannelParams{
+	row, err := requestStore(c, h.Store).PlatformUpsertChannel(platformCtx(c), store.PlatformUpsertChannelParams{
 		BrandID: brandID, Code: in.Code, Name: in.Name, Kind: kind,
 		CommissionBps: in.CommissionBps, ParentID: parentID,
 		Contact: contact, Active: active,
@@ -491,7 +491,7 @@ func (h *PlatformHandler) AuditLogs(c *gin.Context) {
 			limit = int32(v)
 		}
 	}
-	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(c.Request.Context(), limit)
+	logs, err := requestStore(c, h.Store).PlatformListAuditLogs(platformCtx(c), limit)
 	if err != nil {
 		if respondConstraintError(c, err) {
 			return
