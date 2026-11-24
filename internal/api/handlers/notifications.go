@@ -54,7 +54,7 @@ func (h *NotificationHandler) Alerts(c *gin.Context) {
 		authError(c, 503, "DB_ERROR")
 		return
 	}
-	rows, err := q.PlatformListOperationalAlerts(c.Request.Context())
+	rows, err := q.PlatformListOperationalAlerts(platformCtx(c))
 	if err != nil {
 		authError(c, 500, "DB_ERROR")
 		return

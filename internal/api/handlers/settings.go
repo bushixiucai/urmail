@@ -140,7 +140,7 @@ func (h *PlatformHandler) Settings(c *gin.Context) {
 		c.JSON(503, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
 	}
-	rows, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformListSettings(c.Request.Context())
+	rows, err := requestStore(c, db.Queries(h.Pool.Pool)).PlatformListSettings(platformCtx(c))
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"code": "DB_ERROR"}})
 		return
