@@ -163,6 +163,12 @@ type sqliteDBTX struct {
 	db *sql.DB
 }
 
+// IsSQLite declares this adapter's dialect, exactly like the production
+// sqlitePoolTx. Without it store.PostgresCompatibleDBTX wraps the handle as
+// PostgreSQL and calls FieldDescriptions on sqliteRows, whose embedded
+// pgx.Rows is nil.
+func (*sqliteDBTX) IsSQLite() bool { return true }
+
 func (s *sqliteDBTX) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
@@ -196,6 +202,10 @@ type sqliteTx struct {
 	pgx.Tx
 	tx *sql.Tx
 }
+
+// IsSQLite keeps transactions started from sqliteDBTX on the native dialect,
+// matching the production sqlitePoolTx marker.
+func (*sqliteTx) IsSQLite() bool { return true }
 
 func (t *sqliteTx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	res, err := t.tx.ExecContext(ctx, query, args...)
@@ -351,7 +361,8 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 
 	// 6. Transaction + WithTx isolation enforcement against real SQLite with DBTXScopeHook.
 	expiresAt := time.Now().Add(time.Hour).UnixMicro()
-	// ArchiveCasesCreate is platform-scoped: default db.Querier rejects tenant10 before touching SQLite.
+	// ArchiveCasesCreate is tenant-scoped since the S7 reclassification: a
+	// tenant10 context with a matching TenantID may create the case.
 	if _, err := querier.ArchiveCasesCreate(tenant10, store.ArchiveCasesCreateParams{
 		TenantID:   10,
 		ActorID:    101,
@@ -359,27 +370,27 @@ func TestSQLiteQuerierAndWithTxIsolationMatrix(t *testing.T) {
 		Purpose:    "Audit",
 		ExpiresAt:  expiresAt,
 		RequestKey: "11111111-1111-1111-1111-111111111111",
-	}); !errors.Is(err, isolation.ErrPlatformScopeRequired) {
-		t.Fatalf("Querier ArchiveCasesCreate under tenant10 ctx err=%v, want ErrPlatformScopeRequired", err)
+	}); err != nil {
+		t.Fatalf("Querier ArchiveCasesCreate under matching tenant10 ctx failed: %v", err)
 	}
 
 	SetIsolationHook(isolation.DBTXScopeHook())
 	t.Cleanup(func() { SetIsolationHook(isolation.DBTXScopeHook()) })
 
 	q := Queries(shim)
-	if _, err := q.ArchiveCasesCreate(platformCtx, store.ArchiveCasesCreateParams{
+	if _, err := q.ArchiveCasesCreate(tenant10, store.ArchiveCasesCreateParams{
 		TenantID:   10,
 		ActorID:    101,
-		Title:      "Case A",
+		Title:      "Case B",
 		Purpose:    "Audit",
 		ExpiresAt:  expiresAt,
-		RequestKey: "11111111-1111-1111-1111-111111111111",
+		RequestKey: "22222222-2222-2222-2222-222222222222",
 	}); err != nil {
-		t.Fatalf("runTx/WithTx ArchiveCasesCreate under valid platformCtx failed: %v", err)
+		t.Fatalf("ArchiveCasesCreate under valid tenant10 ctx with DBTXScopeHook failed: %v", err)
 	}
 	var caseCount int
-	if err := sqliteDB.QueryRow(`SELECT count(*) FROM archive_investigations WHERE tenant_id=10`).Scan(&caseCount); err != nil || caseCount != 1 {
-		t.Fatalf("expected 1 archive case committed through WithTx, got %d (err=%v)", caseCount, err)
+	if err := sqliteDB.QueryRow(`SELECT count(*) FROM archive_investigations WHERE tenant_id=10`).Scan(&caseCount); err != nil || caseCount != 2 {
+		t.Fatalf("expected 2 archive cases after the scoped creates, got %d (err=%v)", caseCount, err)
 	}
 
 	tx, err := shim.Begin(context.Background())

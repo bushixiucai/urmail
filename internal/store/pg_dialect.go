@@ -18,6 +18,11 @@ import (
 
 var ErrPostgreSQLQueryUnavailable = errors.New("store: PostgreSQL query variant unavailable")
 
+// errNilPGXRows is returned when the PostgreSQL handle reports success without
+// a rows object. Scan cannot describe columns on a nil handle, so this fails
+// closed instead of dereferencing it.
+var errNilPGXRows = errors.New("store: PostgreSQL dialect received a nil rows handle")
+
 var sqliteOnlySQL = regexp.MustCompile(`(?i)(\?[0-9]+|\bstrftime\s*\(|\bjson_each\s*\(|\bjson_object\s*\()`)
 
 // pgExtraStatements carries native PostgreSQL SQL for methods whose shared
@@ -202,6 +207,11 @@ func (p *pgDialectDBTX) Query(ctx context.Context, query string, args ...any) (p
 	if err != nil {
 		return nil, err
 	}
+	if rows == nil {
+		// A nil handle must fail closed: the conversion in Scan needs field
+		// descriptions, and calling them on a nil interface panics.
+		return nil, errNilPGXRows
+	}
 	return pgDialectRows{Rows: rows}, nil
 }
 
@@ -214,6 +224,9 @@ func (p *pgDialectDBTX) QueryRow(ctx context.Context, query string, args ...any)
 	rows, err := p.inner.Query(ctx, statement, adaptPostgresArgs(method, args)...)
 	if err != nil {
 		return pgErrorRow{err: err}
+	}
+	if rows == nil {
+		return pgErrorRow{err: errNilPGXRows}
 	}
 	return pgDialectRow{rows: pgDialectRows{Rows: rows}}
 }

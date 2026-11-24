@@ -65,6 +65,24 @@ func TestPostgresCompatibleDBTXFailsClosedOnUnlabelledSQLiteSQL(t *testing.T) {
 	}
 }
 
+// nilRowsProbe reports success with no rows handle, the shape that used to
+// reach pgDialectRows.Scan and panic on FieldDescriptions.
+type nilRowsProbe struct{ dialectProbe }
+
+func (*nilRowsProbe) Query(context.Context, string, ...any) (pgx.Rows, error) { return nil, nil }
+
+func TestPostgresCompatibleDBTXFailsClosedOnNilRowsHandle(t *testing.T) {
+	db := PostgresCompatibleDBTX(&nilRowsProbe{})
+	ctx := context.Background()
+	if _, err := db.Query(ctx, "SELECT 1"); !errors.Is(err, errNilPGXRows) {
+		t.Fatalf("Query with nil rows err=%v, want errNilPGXRows", err)
+	}
+	var value any
+	if err := db.QueryRow(ctx, "SELECT 1").Scan(&value); !errors.Is(err, errNilPGXRows) {
+		t.Fatalf("QueryRow with nil rows err=%v, want errNilPGXRows", err)
+	}
+}
+
 func TestPostgresCompatibleDBTXLeavesSQLiteQueriesNative(t *testing.T) {
 	probe := &sqliteDialectProbe{}
 	db := PostgresCompatibleDBTX(probe)
