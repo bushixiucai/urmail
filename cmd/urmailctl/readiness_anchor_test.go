@@ -81,3 +81,20 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestAnchorRejectsSpecialPermissionBits proves setuid/setgid/sticky anchor
+// modes are refused rather than accepted as ordinary ownership.
+func TestAnchorRejectsSpecialPermissionBits(t *testing.T) {
+	dir := secureTempDir(t)
+	key := filepath.Join(dir, "anchor.pub")
+	if err := os.WriteFile(key, []byte("00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Chmod(key, 0o4600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Chmod(key, 0o600) })
+	if _, err := loadAnchorFile(key, false); err == nil || !contains(err.Error(), "special permission bits") {
+		t.Fatalf("setuid anchor accepted: %v", err)
+	}
+}

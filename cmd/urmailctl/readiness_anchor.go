@@ -47,6 +47,9 @@ func loadAnchorFile(path string, requireRoot bool) (ed25519.PublicKey, error) {
 	if info.Mode().Perm()&0o022 != 0 {
 		return nil, errors.New("readiness anchor is group or world writable")
 	}
+	if stat.Mode&(syscall.S_ISUID|syscall.S_ISGID|syscall.S_ISVTX) != 0 {
+		return nil, errors.New("readiness anchor has disallowed special permission bits")
+	}
 	if stat.Nlink != 1 {
 		return nil, errors.New("readiness anchor must have exactly one link")
 	}

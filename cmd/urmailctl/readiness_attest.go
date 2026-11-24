@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/bushixiucai/urmail/internal/maintenance"
 )
 
 // readinessAttestFormat is the fixed payload an independent signer signs over
@@ -45,6 +48,8 @@ func runUpgradeReadinessAttest(ctx context.Context, args []string) error {
 		return runReadinessAttestSign(ctx, args[1:])
 	case "verify":
 		return runReadinessAttestVerify(ctx, args[1:])
+	case "consume":
+		return runReadinessAttestConsume(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown readiness-attest subcommand %q", args[0])
 	}
@@ -59,6 +64,7 @@ type readinessAttestFlags struct {
 	attestPath string
 	keyPath    string
 	pubKeyPath string
+	requestID  string
 }
 
 func parseReadinessAttestFlags(setName string, args []string) (readinessAttestFlags, error) {
@@ -76,6 +82,7 @@ func parseReadinessAttestFlags(setName string, args []string) (readinessAttestFl
 	attest := flags.String("attest", "", "signed attestation payload (required for verify)")
 	key := flags.String("key", releaseSigningKeyPath, "existing ed25519 release signing key (never created)")
 	pub := flags.String("pubkey", "", "test-only anchor override in tagged builds; the product uses a fixed trusted anchor")
+	requestID := flags.String("request-id", os.Getenv("URMAIL_READINESS_REQUEST_ID"), "one-time attempt identity for consume")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return out, errors.New("usage: upgrade readiness-attest sign|verify --generation N --root-dir DIR [--database-url-env NAME|--sqlite PATH] [--required-file PATH ...] [--probe FILE] [--attest FILE] [--key PATH|--pubkey PATH]")
 	}
@@ -87,6 +94,7 @@ func parseReadinessAttestFlags(setName string, args []string) (readinessAttestFl
 	}
 	out.opts = readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required}
 	out.probePath, out.attestPath, out.keyPath, out.pubKeyPath = *probe, *attest, *key, *pub
+	out.requestID = *requestID
 	return out, nil
 }
 
@@ -161,50 +169,60 @@ func runReadinessAttestVerify(ctx context.Context, args []string) error {
 	if f.attestPath == "" {
 		f.attestPath = filepath.Join(f.opts.rootDir, "upgrade_readiness_attest.json")
 	}
-	pub, err := readinessVerifyAnchor(f.pubKeyPath)
+	payload, err := verifyReadinessAttestation(ctx, f)
 	if err != nil {
 		return err
-	}
-	payloadRaw, err := readBoundedRegular(f.attestPath, 1<<20)
-	if err != nil {
-		return fmt.Errorf("readiness-attest verify: %w", err)
-	}
-	var payload readinessAttestPayload
-	if err := json.Unmarshal(payloadRaw, &payload); err != nil {
-		return fmt.Errorf("readiness-attest verify: parse attestation: %w", err)
-	}
-	if payload.Format != readinessAttestFormat {
-		return fmt.Errorf("readiness-attest verify: unsupported format %q", payload.Format)
-	}
-	now := time.Now().UTC()
-	if payload.IssuedAt.After(now.Add(time.Minute)) || now.Sub(payload.IssuedAt) > readinessFreshnessWindow {
-		return errors.New("readiness-attest verify: attestation is expired or not yet valid")
-	}
-	sigRaw, err := readBoundedRegular(f.attestPath+".sig", 4096)
-	if err != nil {
-		return fmt.Errorf("readiness-attest verify: %w", err)
-	}
-	signature, err := hex.DecodeString(strings.TrimSpace(string(sigRaw)))
-	if err != nil || len(signature) != ed25519.SignatureSize {
-		return errors.New("readiness-attest verify: signature is malformed")
-	}
-	canonical, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	if !ed25519.Verify(pub, canonical, signature) {
-		return errors.New("readiness-attest verify: signature does not verify against the pinned anchor")
-	}
-	live, err := probeReadiness(ctx, f.opts)
-	if err != nil {
-		return err
-	}
-	livePayload := readinessAttestFromDoc(live, payload.IssuedAt)
-	if err := compareAttestToLive(payload, livePayload); err != nil {
-		return fmt.Errorf("readiness-attest verify: STATE_CHANGED: %w", err)
 	}
 	fmt.Printf("VALID attest=%s state_sha256=%s generation=%d\n", f.attestPath, payload.ProbeStateSHA256, payload.Generation)
 	return nil
+}
+
+// verifyReadinessAttestation performs the fixed-anchor signature, freshness
+// and live binding checks shared by verify and consume.
+func verifyReadinessAttestation(ctx context.Context, f readinessAttestFlags) (readinessAttestPayload, error) {
+	var payload readinessAttestPayload
+	pub, err := readinessVerifyAnchor(f.pubKeyPath)
+	if err != nil {
+		return payload, err
+	}
+	payloadRaw, err := readBoundedRegular(f.attestPath, 1<<20)
+	if err != nil {
+		return payload, fmt.Errorf("readiness-attest verify: %w", err)
+	}
+	if err := json.Unmarshal(payloadRaw, &payload); err != nil {
+		return payload, fmt.Errorf("readiness-attest verify: parse attestation: %w", err)
+	}
+	if payload.Format != readinessAttestFormat {
+		return payload, fmt.Errorf("readiness-attest verify: unsupported format %q", payload.Format)
+	}
+	now := time.Now().UTC()
+	if payload.IssuedAt.After(now.Add(time.Minute)) || now.Sub(payload.IssuedAt) > readinessFreshnessWindow {
+		return payload, errors.New("readiness-attest verify: attestation is expired or not yet valid")
+	}
+	sigRaw, err := readBoundedRegular(f.attestPath+".sig", 4096)
+	if err != nil {
+		return payload, fmt.Errorf("readiness-attest verify: %w", err)
+	}
+	signature, err := hex.DecodeString(strings.TrimSpace(string(sigRaw)))
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return payload, errors.New("readiness-attest verify: signature is malformed")
+	}
+	canonical, err := json.Marshal(payload)
+	if err != nil {
+		return payload, err
+	}
+	if !ed25519.Verify(pub, canonical, signature) {
+		return payload, errors.New("readiness-attest verify: signature does not verify against the pinned anchor")
+	}
+	live, err := probeReadiness(ctx, f.opts)
+	if err != nil {
+		return payload, err
+	}
+	livePayload := readinessAttestFromDoc(live, payload.IssuedAt)
+	if err := compareAttestToLive(payload, livePayload); err != nil {
+		return payload, fmt.Errorf("readiness-attest verify: STATE_CHANGED: %w", err)
+	}
+	return payload, nil
 }
 
 func compareProbeToLive(recorded, live readinessProbeDoc) error {
@@ -331,4 +349,88 @@ func readBoundedRegular(path string, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("%s exceeds the size bound", filepath.Base(path))
 	}
 	return raw, nil
+}
+
+// readinessConsumedRecord is the one-time attempt identity persisted under the
+// maintenance root. It binds the exact attestation and live inputs that were
+// accepted; a second consume refuses against this original.
+type readinessConsumedRecord struct {
+	Format           string    `json:"format"`
+	ConsumedAt       time.Time `json:"consumed_at"`
+	RequestID        string    `json:"request_id"`
+	UID              int       `json:"uid"`
+	Hostname         string    `json:"hostname"`
+	AttestSHA256     string    `json:"attest_sha256"`
+	SignatureSHA256  string    `json:"signature_sha256"`
+	HoldSHA256       string    `json:"hold_sha256"`
+	ReceiptSHA256    string    `json:"receipt_sha256"`
+	Generation       uint64    `json:"generation"`
+	ProbeStateSHA256 string    `json:"probe_state_sha256"`
+	ProbeRevision    string    `json:"probe_source_revision"`
+	TargetDigest     string    `json:"target_digest"`
+	RequiredDigest   string    `json:"required_files_digest"`
+}
+
+// runReadinessAttestConsume is the fixed consumption entry before a hold may be
+// cleared: under the maintenance operation lock it re-runs verification
+// against the pinned anchor, then writes a one-time attempt record with O_EXCL.
+// It does not remove the hold and does not replace the existing release gate.
+func runReadinessAttestConsume(ctx context.Context, args []string) error {
+	f, err := parseReadinessAttestFlags("upgrade-readiness-attest-consume", args)
+	if err != nil {
+		return err
+	}
+	requestID := f.requestID
+	if strings.TrimSpace(requestID) == "" || len(requestID) > 128 || strings.ContainsAny(requestID, "/\\\x00") {
+		return errors.New("readiness-attest consume requires a safe --request-id (or URMAIL_READINESS_REQUEST_ID)")
+	}
+	if f.attestPath == "" {
+		f.attestPath = filepath.Join(f.opts.rootDir, "upgrade_readiness_attest.json")
+	}
+	lock, err := maintenance.AcquireLockWithTimeout(ctx, f.opts.rootDir, maintenance.DefaultLockName, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("acquire operation lock: %w", err)
+	}
+	defer func() { _ = maintenance.ReleaseLock(lock) }()
+	payload, err := verifyReadinessAttestation(ctx, f)
+	if err != nil {
+		return err
+	}
+	attestRaw, err := readBoundedRegular(f.attestPath, 1<<20)
+	if err != nil {
+		return err
+	}
+	sigRaw, err := readBoundedRegular(f.attestPath+".sig", 4096)
+	if err != nil {
+		return err
+	}
+	targetRaw, _ := json.Marshal(payload.Target)
+	requiredRaw, _ := json.Marshal(payload.RequiredFiles)
+	hostname, _ := os.Hostname()
+	record := readinessConsumedRecord{
+		Format: "urmail-readiness-consumed-v1", ConsumedAt: time.Now().UTC(), RequestID: requestID,
+		UID: os.Geteuid(), Hostname: hostname, AttestSHA256: sha256Hex(attestRaw), SignatureSHA256: sha256Hex(sigRaw),
+		HoldSHA256: payload.HoldSHA256, ReceiptSHA256: payload.ReceiptSHA256, Generation: payload.Generation,
+		ProbeStateSHA256: payload.ProbeStateSHA256, ProbeRevision: payload.ProbeSourceRevision,
+		TargetDigest: sha256Hex(targetRaw), RequiredDigest: sha256Hex(requiredRaw),
+	}
+	raw, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(maintenance.Root(f.opts.rootDir), "upgrade_readiness_consumed.json")
+	if err := writePrivateExclusive(path, raw); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			existing, _ := readBoundedRegular(path, 1<<20)
+			return fmt.Errorf("readiness-attest consume: already consumed by %s (sha256 %s)", path, sha256Hex(existing))
+		}
+		return err
+	}
+	fmt.Printf("CONSUMED record=%s request_id=%s hold_sha256=%s generation=%d\n", path, requestID, payload.HoldSHA256, payload.Generation)
+	return nil
+}
+
+func sha256Hex(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

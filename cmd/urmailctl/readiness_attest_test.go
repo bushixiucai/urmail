@@ -220,3 +220,41 @@ func TestReadinessAttestRefusesUnprovenInputs(t *testing.T) {
 		t.Fatalf("stale attestation accepted: %v", err)
 	}
 }
+
+// TestReadinessAttestConsumeOnce proves the fixed consumption entry binds the
+// live inputs under the operation lock and refuses a second attempt while the
+// original record remains.
+func TestReadinessAttestConsumeOnce(t *testing.T) {
+	f := newAttestFixture(t)
+	ctx := context.Background()
+	if err := runReadinessAttestSign(ctx, f.signArgs()); err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	consumeArgs := func(request string) []string {
+		return append(f.targetArgs(), "--attest", f.attestPath, "--request-id", request)
+	}
+	if err := runReadinessAttestConsume(ctx, consumeArgs("")); err == nil || !strings.Contains(err.Error(), "request-id") {
+		t.Fatalf("missing request id accepted: %v", err)
+	}
+	if err := runReadinessAttestConsume(ctx, consumeArgs("attempt-one")); err != nil {
+		t.Fatalf("first consume: %v", err)
+	}
+	recordPath := filepath.Join(f.root, "upgrade_readiness_consumed.json")
+	raw, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("consumed record missing: %v", err)
+	}
+	var record readinessConsumedRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.RequestID != "attempt-one" || record.Generation != 6 || record.HoldSHA256 == "" || record.AttestSHA256 == "" {
+		t.Fatalf("unexpected consumed record: %+v", record)
+	}
+	if err := runReadinessAttestConsume(ctx, consumeArgs("attempt-two")); err == nil || !strings.Contains(err.Error(), "already consumed") {
+		t.Fatalf("second consume accepted: %v", err)
+	}
+	if _, err := os.Stat(recordPath); err != nil {
+		t.Fatalf("original record lost after refusal: %v", err)
+	}
+}

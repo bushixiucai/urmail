@@ -631,3 +631,62 @@ func TestReadinessProbeRejectsRollbackJournalSidecar(t *testing.T) {
 		t.Fatalf("non-empty rollback journal accepted: %v", err)
 	}
 }
+
+// TestReadinessProbeRequiresHeldOperationLock proves the formal-input contract:
+// a free or missing maintenance lock is refused, while an exclusively held
+// lock allows the read-only probe.
+func TestReadinessProbeRequiresHeldOperationLock(t *testing.T) {
+	ctx := context.Background()
+	root := readinessFence(t, 6)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target.sqlite")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	opts := readinessProbeOptions{rootDir: root, generation: 6, sqlitePath: path, sqliteVersion: 6, requireLock: true}
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "operation lock is missing") {
+		t.Fatalf("missing lock accepted: %v", err)
+	}
+	lockPath := filepath.Join(root, "operation.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lockFile.Close() }()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probeReadiness(ctx, opts); err != nil {
+		t.Fatalf("held lock refused: %v", err)
+	}
+	_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	if _, err := probeReadiness(ctx, opts); err == nil || !strings.Contains(err.Error(), "not held exclusively") {
+		t.Fatalf("free lock accepted: %v", err)
+	}
+}
+
+// TestInotifyDirectoryWatchDetectsSidecar proves a sidecar appearing during
+// the read window is observed even when the main file itself is untouched.
+func TestInotifyDirectoryWatchDetectsSidecar(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target.sqlite")
+	if err := os.WriteFile(path, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watch, err := watchForWrites(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watch.Close()
+	if err := os.WriteFile(path+"-journal", []byte("hot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := watch.NoWrites(); err == nil || !strings.Contains(err.Error(), "received a write") {
+		t.Fatalf("sidecar appearance not detected: %v", err)
+	}
+}

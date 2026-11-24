@@ -91,6 +91,7 @@ type readinessProbeOptions struct {
 	sqlitePath    string
 	sqliteVersion uint64
 	requiredFiles []string
+	requireLock   bool
 }
 
 // runUpgradeReadinessProbe is registered as "urmailctl upgrade readiness-probe".
@@ -105,13 +106,14 @@ func runUpgradeReadinessProbe(ctx context.Context, args []string) error {
 	required := multiFlag{}
 	flags.Var(&required, "required-file", "absolute required file whose digest is bound (repeatable)")
 	verify := flags.String("verify", "", "path of a previous probe record to re-check; no record is written")
+	requireLock := flags.Bool("require-operation-lock", true, "require the maintenance operation lock to be held exclusively (formal inputs)")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("usage: urmailctl upgrade readiness-probe --generation N [--root-dir DIR] [--database-url-env NAME] [--sqlite PATH --sqlite-generation N] [--required-file PATH ...] [--verify RECORD]")
 	}
 	if *generation == 0 {
 		return errors.New("readiness-probe requires --generation from the authorized upgrade plan")
 	}
-	opts := readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required}
+	opts := readinessProbeOptions{rootDir: *rootDir, generation: *generation, databaseEnv: *databaseEnv, sqlitePath: *sqlitePath, sqliteVersion: *sqliteVersion, requiredFiles: required, requireLock: *requireLock}
 	if opts.sqlitePath != "" && opts.sqliteVersion == 0 {
 		return errors.New("readiness-probe requires --sqlite-generation with --sqlite")
 	}
@@ -142,6 +144,11 @@ func runUpgradeReadinessProbe(ctx context.Context, args []string) error {
 // migration handle and never writes to the targets.
 func probeReadiness(ctx context.Context, opts readinessProbeOptions) (readinessProbeDoc, error) {
 	doc := readinessProbeDoc{Format: readinessProbeFormat, ProbedAt: time.Now().UTC(), SourceRevision: buildRevision()}
+	if opts.requireLock {
+		if err := verifyOperationLock(opts.rootDir); err != nil {
+			return doc, err
+		}
+	}
 	holdRaw, receiptRaw, err := maintenance.ReadUpgradeFenceRaw(opts.rootDir)
 	if err != nil {
 		return doc, fmt.Errorf("read live upgrade fence: %w", err)
@@ -444,45 +451,81 @@ func sameFullStat(a, b syscall.Stat_t) bool {
 
 // inotifyWatch reports whether the inspected path received any write, attrib,
 // move or delete event while the probe read it.
-type inotifyWatch struct{ fd int }
+type inotifyWatch struct{ fds []int }
 
 func watchForWrites(path string) (*inotifyWatch, error) {
 	fd, err := syscall.InotifyInit1(syscall.IN_NONBLOCK | syscall.IN_CLOEXEC)
 	if err != nil {
 		return nil, err
 	}
-	mask := uint32(syscall.IN_MODIFY | syscall.IN_ATTRIB | syscall.IN_CLOSE_WRITE | syscall.IN_MOVE_SELF | syscall.IN_DELETE_SELF)
-	if _, err := syscall.InotifyAddWatch(fd, path, mask); err != nil {
+	fileMask := uint32(syscall.IN_MODIFY | syscall.IN_ATTRIB | syscall.IN_CLOSE_WRITE | syscall.IN_MOVE_SELF | syscall.IN_DELETE_SELF)
+	dirMask := uint32(syscall.IN_CREATE | syscall.IN_DELETE | syscall.IN_MOVED_FROM | syscall.IN_MOVED_TO | syscall.IN_ATTRIB | syscall.IN_CLOSE_WRITE)
+	add := func(target string, mask uint32) error {
+		_, err := syscall.InotifyAddWatch(fd, target, mask)
+		return err
+	}
+	if err := add(path, fileMask); err != nil {
 		_ = syscall.Close(fd)
 		return nil, err
 	}
-	return &inotifyWatch{fd: fd}, nil
+	// A sidecar appearing or the directory changing is a write even when the
+	// main file's own watch stays quiet.
+	if err := add(filepath.Dir(path), dirMask); err != nil {
+		_ = syscall.Close(fd)
+		return nil, err
+	}
+	return &inotifyWatch{fds: []int{fd}}, nil
 }
 
 func (w *inotifyWatch) NoWrites() error {
-	if w == nil || w.fd < 0 {
+	if w == nil || len(w.fds) == 0 {
 		return errors.New("readiness-probe: snapshot write watch unavailable; refusing")
 	}
 	buf := make([]byte, 4096)
-	for {
-		n, err := syscall.Read(w.fd, buf)
-		if errors.Is(err, syscall.EAGAIN) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("readiness-probe: snapshot write watch failed: %w", err)
-		}
-		if n > 0 {
-			return errors.New("readiness-probe: SQLite snapshot received a write while inspected; refusing")
+	for _, fd := range w.fds {
+		for {
+			n, err := syscall.Read(fd, buf)
+			if errors.Is(err, syscall.EAGAIN) {
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("readiness-probe: snapshot write watch failed: %w", err)
+			}
+			if n > 0 {
+				return errors.New("readiness-probe: SQLite snapshot or its directory received a write while inspected; refusing")
+			}
 		}
 	}
+	return nil
 }
 
 func (w *inotifyWatch) Close() {
-	if w != nil && w.fd >= 0 {
-		_ = syscall.Close(w.fd)
-		w.fd = -1
+	if w == nil {
+		return
 	}
+	for _, fd := range w.fds {
+		_ = syscall.Close(fd)
+	}
+	w.fds = nil
+}
+
+// verifyOperationLock proves the maintenance operation lock is held
+// exclusively by the authorized upgrade flow. The probe itself only opens the
+// existing lock read-only and takes a non-blocking shared advisory lock.
+func verifyOperationLock(rootDir string) error {
+	path := filepath.Join(maintenance.Root(rootDir), maintenance.DefaultLockName)
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return fmt.Errorf("readiness-probe: operation lock is missing or unreadable: %w", err)
+	}
+	defer func() { _ = syscall.Close(fd) }()
+	if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err == nil {
+		_ = syscall.Flock(fd, syscall.LOCK_UN)
+		return errors.New("readiness-probe: operation lock is not held exclusively; refusing to treat inputs as immutable")
+	} else if !errors.Is(err, syscall.EWOULDBLOCK) {
+		return fmt.Errorf("readiness-probe: operation lock check failed: %w", err)
+	}
+	return nil
 }
 
 func specialBits(mode uint32) uint32 {
