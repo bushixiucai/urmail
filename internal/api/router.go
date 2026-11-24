@@ -441,7 +441,10 @@ func New(opts Options) *gin.Engine {
 				c.AbortWithStatus(http.StatusUnauthorized)
 				return
 			}
-			ctx := caldav.WithSession(c.Request.Context(), caldav.Session{TenantID: session.TenantID, MailboxID: session.MailboxID})
+			// The CalDAV server owns the platform query surface; bind its
+			// scope at this trusted, authenticated entry.
+			ctx := isolation.WithScope(c.Request.Context(), isolation.ScopeContext{Scope: isolation.ScopePlatform})
+			ctx = caldav.WithSession(ctx, caldav.Session{TenantID: session.TenantID, MailboxID: session.MailboxID})
 			request := c.Request.WithContext(ctx)
 			if strings.HasPrefix(request.URL.Path, "/api/v1/caldav") {
 				urlCopy := *request.URL

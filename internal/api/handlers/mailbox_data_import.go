@@ -225,6 +225,7 @@ func metadataComponents(raw, kind string) ([]string, error) {
 
 // Handle validates a preview or atomically commits its reviewed metadata.
 func (h MailboxDataImport) Handle(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := middleware.GetMailboxSession(c)
 	if !ok || h.Pool == nil {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")
@@ -361,6 +362,7 @@ func (h MailboxDataImport) Handle(c *gin.Context) {
 
 // History lists the authenticated mailbox's durable import receipts.
 func (h MailboxDataImport) History(c *gin.Context) {
+	bindPlatformScope(c)
 	sess, ok := middleware.GetMailboxSession(c)
 	if !ok || h.Pool == nil {
 		authError(c, 401, "MAILBOX_AUTHORIZATION_DENIED")

@@ -371,7 +371,7 @@ func (h MailboxContactsHandler) CreateGroup(c *gin.Context) {
 		return
 	}
 	if req.AddressbookID == 0 {
-		book, err := h.Service.EnsureAddressbook(c, p, "Contacts")
+		book, err := h.Service.EnsureAddressbook(c.Request.Context(), p, "Contacts")
 		if err != nil {
 			authError(c, 503, "CONTACTS_UNAVAILABLE")
 			return

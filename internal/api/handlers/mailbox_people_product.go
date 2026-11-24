@@ -115,7 +115,7 @@ func (h MailboxCalendarHandler) deleteOccurrence(c *gin.Context, p appcollab.Pri
 	if !ok {
 		return
 	}
-	if _, err := h.Service.UpdateEvent(c, p, id, version, event); err != nil {
+	if _, err := h.Service.UpdateEvent(c.Request.Context(), p, id, version, event); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, appcollab.ErrConflict) {
 			authError(c, 409, "EVENT_CONFLICT")
 		} else {
