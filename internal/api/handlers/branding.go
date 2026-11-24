@@ -72,11 +72,14 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"brand": fallback, "source": "default"})
 		return
 	}
+	// PublicBrandByHost/BySlug are registered platform-scoped reads; this
+	// public route is the trusted entry, so bind the scope once.
+	ctx := platformCtx(c)
 	var row store.PublicBrandBySlugRow
 	var found bool
 	source := "default"
 	if host, ok := normalizeBrandHost(c.Request.Host); ok {
-		byHost, err := requestStore(c, h.Store).PublicBrandByHost(c.Request.Context(), host)
+		byHost, err := requestStore(c, h.Store).PublicBrandByHost(ctx, host)
 		if err == nil {
 			row = store.PublicBrandBySlugRow(byHost)
 			found = true
@@ -90,7 +93,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 		slug := c.Query("brand")
 		if slug != "" && slugPattern.MatchString(slug) {
 			var err error
-			row, err = requestStore(c, h.Store).PublicBrandBySlug(c.Request.Context(), slug)
+			row, err = requestStore(c, h.Store).PublicBrandBySlug(ctx, slug)
 			if err == nil {
 				found = true
 				source = "link"
@@ -102,7 +105,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 	}
 	if !found {
 		var err error
-		row, err = requestStore(c, h.Store).PublicBrandBySlug(c.Request.Context(), "default")
+		row, err = requestStore(c, h.Store).PublicBrandBySlug(ctx, "default")
 		if err == nil {
 			found = true
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -114,7 +117,7 @@ func (h *BrandingHandler) Public(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"brand": fallback, "source": "default"})
 		return
 	}
-	rows, err := requestStore(c, h.Store).PlatformPublicThemeSettings(c.Request.Context(), row.ID)
+	rows, err := requestStore(c, h.Store).PlatformPublicThemeSettings(ctx, row.ID)
 	if err != nil {
 		authError(c, http.StatusServiceUnavailable, "DB_ERROR")
 		return
