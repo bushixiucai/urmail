@@ -55,7 +55,7 @@ func (h *MailboxNativeHandler) guardDraftMutation(c *gin.Context, client webmail
 			release()
 			return func() {}, false
 		}
-		pending, pendingErr := q.PlatformDraftReplacementPending(c.Request.Context(), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uint64(uid), 10), PreviousValidity: strconv.FormatUint(uint64(validity), 10)})
+		pending, pendingErr := q.PlatformDraftReplacementPending(platformCtx(c), store.PlatformDraftReplacementPendingParams{TenantID: session.TenantID, MailboxID: session.MailboxID, PreviousUid: strconv.FormatUint(uint64(uid), 10), PreviousValidity: strconv.FormatUint(uint64(validity), 10)})
 		if pendingErr != nil {
 			release()
 			authError(c, 503, "DB_ERROR")
