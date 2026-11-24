@@ -938,19 +938,29 @@ func preflightFreshBackup(ctx context.Context, window time.Duration) (string, er
 	}
 	cfg, err := config.Load()
 	if err != nil {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("URMAIL_DB_ENGINE")), "sqlite") {
+			return "", fmt.Errorf("fresh-backup pre-flight: single-engine configuration is invalid: %v; fix it or pass --skip-preflight to record an explicit operator override", err)
+		}
 		return degraded("configuration error: %v", err)
 	}
-	if cfg.DatabaseURLPlatform == "" {
-		return degraded("no platform database URL configured")
-	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	// The ledger lives on the configured engine. PostgreSQL keeps the legacy
+	// "degraded" escape (repairing that database is often why the upgrade
+	// runs); the single engine must fail closed, because a SQLite deployment
+	// has no separate platform DSN and would otherwise never read backup_runs.
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
+		if cfg.IsSQLite() {
+			return "", fmt.Errorf("fresh-backup pre-flight: cannot open the SQLite backup ledger: %v; fix the database path or pass --skip-preflight to record an explicit operator override", err)
+		}
 		return degraded("open: %v", err)
 	}
 	defer pool.Close()
 	health, err := (&backupauto.StateRecorder{Pool: pool}).LastRunHealth(ctx)
 	switch {
 	case errors.Is(err, backupauto.ErrBackupOffsiteDisabled):
+		if cfg.IsSQLite() {
+			return "", errors.New("fresh-backup pre-flight: the SQLite database has no backup_runs table, so no complete backup can be proven; run a complete backup first, or pass --skip-preflight to record an explicit operator override")
+		}
 		fmt.Println("Fresh-backup pre-flight: offsite backup not provisioned on this installation; proceeding.")
 		return "", nil
 	case errors.Is(err, backupauto.ErrNoRuns):
