@@ -228,7 +228,7 @@ func TestAuditKeepsBusinessCommitAndAfterCommitFailure(t *testing.T) {
 	engine.Use(middleware.Audit(store.New(p.Pool), zap.NewNop()), middleware.RequireTenantTx(app, zap.NewNop()))
 	engine.POST("/provider", func(c *gin.Context) {
 		raw, _ := middleware.QueriesFromCtx(c)
-		if _, err := raw.(*store.Queries).UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte(`"en"`)}); err != nil {
+		if _, err := raw.(*store.Queries).UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: "locale", Value: []byte(`"en"`)}); err != nil {
 			t.Fatal(err)
 		}
 		middleware.AfterCommit(c, func() { c.JSON(502, gin.H{"error": gin.H{"code": "PAYMENT_PROVIDER_ERROR"}}) })

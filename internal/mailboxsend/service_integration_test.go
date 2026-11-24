@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/secrets"
 	"github.com/bushixiucai/urmail/internal/store"
 	"github.com/bushixiucai/urmail/internal/testdb"
@@ -148,7 +149,7 @@ func TestImmediateReceiptConcurrentReplayAndFrozenSubmission(t *testing.T) {
 	if created.Load() != 1 || submit.calls.Load() != 1 {
 		t.Fatalf("created=%d SMTP=%d", created.Load(), submit.calls.Load())
 	}
-	row, err := q.PlatformGetSendReceiptByKey(ctx, store.PlatformGetSendReceiptByKeyParams{TenantID: tenant, MailboxID: mailbox, RequestKey: "concurrent-send-0001"})
+	row, err := q.PlatformGetSendReceiptByKey(isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform}), store.PlatformGetSendReceiptByKeyParams{TenantID: tenant, MailboxID: mailbox, RequestKey: "concurrent-send-0001"})
 	if err != nil || row.Status != "accepted" {
 		t.Fatalf("receipt %s %v", row.Status, err)
 	}

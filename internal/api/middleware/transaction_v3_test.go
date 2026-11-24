@@ -78,7 +78,7 @@ func TestTransactionCommitBeforeResponseAndCallbacks(t *testing.T) {
 				c.Request = c.Request.WithContext(requestCtx)
 				raw, _ := middleware.QueriesFromCtx(c)
 				q := raw.(*store.Queries)
-				if _, err := q.UpsertTenantSetting(c, store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value}); err != nil {
+				if _, err := q.UpsertTenantSetting(c.Request.Context(), store.UpsertTenantSettingParams{ScopeID: tid, Key: key, Value: value}); err != nil {
 					t.Fatal(err)
 				}
 				middleware.AfterCommit(c, func() {
