@@ -19,10 +19,35 @@ import (
 	"github.com/bushixiucai/urmail/internal/backupauto"
 	"github.com/bushixiucai/urmail/internal/config"
 	"github.com/bushixiucai/urmail/internal/db"
+	"github.com/bushixiucai/urmail/internal/db/isolation"
 	"github.com/bushixiucai/urmail/internal/secrets"
+	"github.com/bushixiucai/urmail/internal/sqlitedb"
 )
 
 const automaticBackupSpool = "/var/backups/urmail"
+
+// openBackupPlatformPool opens the platform store for backup bookkeeping on
+// the configured engine. SQLite single-engine mode never builds a PostgreSQL
+// connection: the DSN does not exist there, and pingng it would fail every
+// automatic backup before it could record pending_local_only.
+func openBackupPlatformPool(ctx context.Context, cfg *config.Config) (*db.Pool, error) {
+	if cfg.IsSQLite() {
+		if strings.TrimSpace(cfg.SQLitePath) == "" {
+			return nil, errors.New("SQLite backup bookkeeping requires URMAIL_SQLITE_PATH")
+		}
+		raw, err := sqlitedb.OpenExisting(ctx, cfg.SQLitePath, sqlitedb.ExpectedSchemaVersion)
+		if err != nil {
+			return nil, fmt.Errorf("open sqlite backup bookkeeping: %w", err)
+		}
+		pool, err := db.NewSQLitePool(raw, isolation.ScopePlatform)
+		if err != nil {
+			_ = raw.Close()
+			return nil, err
+		}
+		return pool, nil
+	}
+	return db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+}
 
 // offsiteDestinationFromSettings resolves the platform-admin-configured
 // offsite destination (BE-04) from the settings table. The returned
@@ -30,7 +55,7 @@ const automaticBackupSpool = "/var/backups/urmail"
 // recipient comes from the row when the caller passes an empty one; it is
 // a public key and never secret.
 func offsiteDestinationFromSettings(ctx context.Context, cfg *config.Config, recipient string) (resolvedRecipient, uri string, creds backupauto.Credentials, disabled bool, err error) {
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
 		return "", "", backupauto.Credentials{}, false, err
 	}
@@ -202,7 +227,7 @@ func runBackupAuto(ctx context.Context, args []string) error {
 			return errors.New("invalid automatic backup destination or credentials")
 		}
 	}
-	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	pool, err := openBackupPlatformPool(ctx, cfg)
 	if err != nil {
 		return err
 	}
