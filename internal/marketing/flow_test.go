@@ -49,7 +49,7 @@ func TestFlowSenderSuppressionIsTerminalForAllSteps(t *testing.T) {
 	if _, err := store.New(f.platform.Pool).AddMarketingSuppression(testTenantCtx(f.tenant), store.AddMarketingSuppressionParams{TenantID: f.tenant, Email: email, Reason: "unsubscribe"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := flowSender(t, f).Send(context.Background(), f.tenant, flowID, email, "welcome"); err != nil {
+	if err := flowSender(t, f).Send(testPlatformCtx(), f.tenant, flowID, email, "welcome"); err != nil {
 		t.Fatal(err)
 	}
 	var unsubscribed bool
@@ -67,7 +67,7 @@ func TestFlowSenderEntitlementLossSkipsWithoutUnsubscribing(t *testing.T) {
 	if _, err := f.platform.Exec(context.Background(), "DELETE FROM settings WHERE scope='tenant' AND scope_id=$1 AND key IN('marketing_daily_recipient_limit','marketing_rate_per_minute')", f.tenant); err != nil {
 		t.Fatal(err)
 	}
-	err := flowSender(t, f).Send(context.Background(), f.tenant, flowID, email, "welcome")
+	err := flowSender(t, f).Send(testPlatformCtx(), f.tenant, flowID, email, "welcome")
 	if !errors.Is(err, marketingflow.ErrNotAllowed) {
 		t.Fatalf("expected retryable denial: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestFlowSenderRequiresActiveFlow(t *testing.T) {
 	if _, err := f.platform.Exec(context.Background(), "UPDATE marketing_flows SET status='paused' WHERE tenant_id=$1 AND id=$2", f.tenant, flowID); err != nil {
 		t.Fatal(err)
 	}
-	err := flowSender(t, f).Send(context.Background(), f.tenant, flowID, "recipient-0@example.test", "welcome")
+	err := flowSender(t, f).Send(testPlatformCtx(), f.tenant, flowID, "recipient-0@example.test", "welcome")
 	if !errors.Is(err, marketingflow.ErrNotAllowed) {
 		t.Fatalf("paused flow sent: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestFlowSenderRequiresStepContent(t *testing.T) {
 	flowID := flowFixture(t, f, "recipient-0@example.test")
 	sender := flowSender(t, f)
 	sender.Content = func(context.Context, int64, int64, string) (string, string, bool, error) { return "", "", false, nil }
-	err := sender.Send(context.Background(), f.tenant, flowID, "recipient-0@example.test", "welcome")
+	err := sender.Send(testPlatformCtx(), f.tenant, flowID, "recipient-0@example.test", "welcome")
 	if err == nil || !strings.Contains(err.Error(), "no content") {
 		t.Fatalf("missing content accepted: %v", err)
 	}
