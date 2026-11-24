@@ -119,3 +119,33 @@ func setupDBFileSHA256(t *testing.T, raw *sql.DB) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }
+
+// TestSetupSQLiteKeepsCredentialAndHostnameRules: the SQLite path must apply
+// the same administrator password length and hostname rules as PostgreSQL,
+// before any write.
+func TestSetupSQLiteKeepsCredentialAndHostnameRules(t *testing.T) {
+	cases := []struct {
+		name     string
+		password string
+		hostname string
+	}{
+		{"short password", "elevenchars", "drill.test"},
+		{"empty hostname", "drill-password-123", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, raw := newSetupSQLite(t)
+			t.Setenv("URMAIL_MYHOSTNAME", tc.hostname)
+			err := runSetup(context.Background(), []string{"--email", "admin@drill.test", "--password", tc.password, "--brand", "default", "--tenant", "default"})
+			if err == nil {
+				t.Fatalf("setup accepted %s", tc.name)
+			}
+			for _, query := range []string{"SELECT count(*) FROM users", "SELECT count(*) FROM tenants"} {
+				var count int
+				if qerr := raw.QueryRow(query).Scan(&count); qerr != nil || count != 0 {
+					t.Fatalf("%s: %s count=%d err=%v", tc.name, query, count, qerr)
+				}
+			}
+		})
+	}
+}

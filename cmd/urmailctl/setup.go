@@ -98,17 +98,22 @@ func runSetup(ctx context.Context, args []string) error {
 		return err
 	}
 	input := selfhost.Input{DatabaseURL: cfg.DatabaseURLPlatform, AdminEmail: normalizedEmail, Password: *password, Hostname: cfg.MyHostname}
-	if !cfg.IsSQLite() {
-		if err := selfhost.PreflightConnected(ctx, input, func(ctx context.Context, databaseURL string) error {
-			pool, err := db.OpenPlatform(ctx, databaseURL)
-			if err != nil {
-				return err
-			}
-			pool.Close()
-			return nil
-		}); err != nil {
+	if cfg.IsSQLite() {
+		// Same credential and hostname rules as the PostgreSQL preflight, from
+		// the same source. The DSN shape is not meaningful in single-engine
+		// mode, so a canonical valid PostgreSQL URL feeds only those rules.
+		if err := selfhost.Preflight(selfhost.Input{DatabaseURL: "postgres://urmail@localhost/urmail", AdminEmail: normalizedEmail, Password: *password, Hostname: cfg.MyHostname}); err != nil {
+			return selfhost.ErrNotReady
+		}
+	} else if err := selfhost.PreflightConnected(ctx, input, func(ctx context.Context, databaseURL string) error {
+		pool, err := db.OpenPlatform(ctx, databaseURL)
+		if err != nil {
 			return err
 		}
+		pool.Close()
+		return nil
+	}); err != nil {
+		return err
 	}
 	if !slugPattern.MatchString(*brandSlug) {
 		return fmt.Errorf("invalid brand slug %q", *brandSlug)
@@ -133,25 +138,9 @@ func runSetup(ctx context.Context, args []string) error {
 	if cfg.IsSQLite() {
 		return runSetupSQLite(ctx, cfg, *brandSlug, *tenantSlug, *tenantName, normalizedEmail, *password, *resetPassword, freeEnd, *freeReason)
 	}
-	var pool *db.Pool
-	if cfg.IsSQLite() {
-		if strings.TrimSpace(cfg.SQLitePath) == "" {
-			return errors.New("SQLite setup requires URMAIL_SQLITE_PATH")
-		}
-		sqliteDB, openErr := sqlitedb.OpenExisting(ctx, cfg.SQLitePath, sqlitedb.ExpectedSchemaVersion)
-		if openErr != nil {
-			return fmt.Errorf("open verified sqlite database: %w", openErr)
-		}
-		defer func() { _ = sqliteDB.Close() }()
-		pool, err = db.NewSQLitePool(sqliteDB, isolation.ScopePlatform)
-		if err != nil {
-			return fmt.Errorf("open platform sqlite pool: %w", err)
-		}
-	} else {
-		pool, err = db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
-		if err != nil {
-			return fmt.Errorf("open platform database: %w", err)
-		}
+	pool, err := db.OpenPlatform(ctx, cfg.DatabaseURLPlatform)
+	if err != nil {
+		return fmt.Errorf("open platform database: %w", err)
 	}
 	defer pool.Close()
 
