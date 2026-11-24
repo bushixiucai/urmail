@@ -33,6 +33,10 @@ MODULE = "github.com/bushixiucai/urmail"
 # (so "internal/mail" owns "internal/mail/dovecot").  Packages that match no
 # rule fall into the "core" shard, which is the catch-all.
 SHARD_RULES: list[tuple[str, list[str]]] = [
+    # The onboarding suite can block for its full 20 minute test timeout; it
+    # owns a shard so a hang costs only that shard instead of eating the core
+    # shard's budget.
+    ("onboarding", ["internal/onboarding"]),
     ("handlers", ["internal/api/handlers"]),
     ("data", [
         "internal/db",

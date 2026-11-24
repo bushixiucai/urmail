@@ -262,6 +262,7 @@ jobs:
           - handlers
           - data
           - platform
+          - onboarding
           - core
     services:
       postgres:
