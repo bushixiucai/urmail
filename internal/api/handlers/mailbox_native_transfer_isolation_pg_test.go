@@ -38,6 +38,24 @@ func TestMailTransferReceiptIsTenantScopedPG(t *testing.T) {
 		router.ServeHTTP(w, r)
 		return w
 	}
+	var tenantB, mailboxB int64
+	var brandA int64
+	if err := fixture.pool.QueryRow(t.Context(), `SELECT brand_id FROM tenants WHERE id=$1`, fixture.principal.TenantID).Scan(&brandA); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(t.Context(),
+		`INSERT INTO tenants(brand_id,name,slug,status) VALUES($1,'Tenant B','tenant-b-scope','active') RETURNING id`, brandA).Scan(&tenantB); err != nil {
+		t.Fatal(err)
+	}
+	var domainB int64
+	if err := fixture.pool.QueryRow(t.Context(),
+		`INSERT INTO domains(tenant_id,fqdn,status,verification_token,verified_at) VALUES($1,'tenant-b-scope.example.test','active','token-b',now()) RETURNING id`, tenantB).Scan(&domainB); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(t.Context(),
+		`INSERT INTO mailboxes(tenant_id,domain_id,local_part,address,password_hash) VALUES($1,$2,'owner','owner@tenant-b-scope.example.test','test') RETURNING id`, tenantB, domainB).Scan(&mailboxB); err != nil {
+		t.Fatal(err)
+	}
 	const key = "tenant-scoped-receipt"
 	first := copyAs(fixture.principal.TenantID, fixture.principal.MailboxID, key)
 	if first.Code != 200 {
@@ -48,7 +66,7 @@ func TestMailTransferReceiptIsTenantScopedPG(t *testing.T) {
 	}
 	// Same key, different tenant: a tenant-scoped receipt means this must run a
 	// real copy (mutations increments) instead of replaying tenant A's answer.
-	second := copyAs(fixture.principal.TenantID+1000, fixture.principal.MailboxID+1000, key)
+	second := copyAs(tenantB, mailboxB, key)
 	if second.Code != 200 {
 		t.Fatalf("tenant B copy: %d %s", second.Code, second.Body.String())
 	}
