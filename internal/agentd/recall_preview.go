@@ -35,6 +35,8 @@ func (m *ApplyManager) PreviewRecall(raw json.RawMessage) (string, string, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	// Trusted platform entry: the recall preview statements are platform-scoped.
+	ctx = isolation.WithScope(ctx, isolation.ScopeContext{Scope: isolation.ScopePlatform})
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
 		return "", "", ErrFailed
