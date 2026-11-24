@@ -40,7 +40,7 @@ func callTenantCurrent(t *testing.T, err error) *httptest.ResponseRecorder {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/tenants/current", nil)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/tenants/current", nil)
 	c.Set(middleware.ContextTenantID, int64(1))
 	h := NewTenantHandler(tenantCurrentStub{err: err}, tenantPlatformStub{})
 	h.Current(c)
