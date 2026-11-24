@@ -187,6 +187,11 @@ func RegisterConnectionHook() {
 		if err := sqlite.RegisterScalarFunction("md5", 1, md5Scalar); err != nil {
 			panic(fmt.Sprintf("register md5 UDF: %v", err))
 		}
+		// Ported SQL and triggers read current_setting(); SQLite has no session
+		// variables, so the UDF answers "unset" with PostgreSQL's semantics.
+		if err := sqlite.RegisterScalarFunction("current_setting", -1, currentSettingScalar); err != nil {
+			panic(fmt.Sprintf("register current_setting UDF: %v", err))
+		}
 		if err := sqlite.RegisterDeterministicScalarFunction("urmail_bigrams", 1, bigramsScalar); err != nil {
 			panic(fmt.Sprintf("register urmail_bigrams UDF: %v", err))
 		}
