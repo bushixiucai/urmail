@@ -90,15 +90,19 @@ func retentionManifest(raw []byte, stamp string, now time.Time) (*Manifest, erro
 	if _, e := ParseRecipient(m.Encryption.Recipient); e != nil {
 		return nil, e
 	}
-	expected := map[string]string{"urmail-" + stamp + ".dump": KindPgDump, "urmail-config-" + stamp + ".tar.gz": KindConfigTar, "urmail-mail-" + stamp + ".tar.gz": KindMailTar}
+	seen := map[string]bool{}
+	dbArtifacts := 0
 	for _, a := range m.Artifacts {
-		kind, ok := expected[a.Name]
+		kind, ok := expectedArtifactKind(stamp, a.Name)
 		if !ok || a.Kind != kind || a.Size <= 0 || a.Mode != 0o600 || !retentionHash.MatchString(a.SHA256) || a.EncryptedName != EncryptedName(a.Name) || a.Algorithm != EncryptionAlgorithmAge || a.EncryptedSize <= 0 || !retentionHash.MatchString(a.EncryptedSHA256) {
 			return nil, fmt.Errorf("retention artifact identity, kind or integrity metadata invalid")
 		}
-		delete(expected, a.Name)
+		seen[a.Name] = true
+		if a.Kind == KindPgDump || a.Kind == KindSqliteSnapshot {
+			dbArtifacts++
+		}
 	}
-	if len(expected) != 0 {
+	if dbArtifacts != 1 || !seen["urmail-config-"+stamp+".tar.gz"] || !seen["urmail-mail-"+stamp+".tar.gz"] {
 		return nil, fmt.Errorf("retention required artifacts missing")
 	}
 	return &m, nil
@@ -250,19 +254,18 @@ func completeLocalArtifacts(stamp string, artifacts []LocalArtifact) error {
 }
 
 // VerifyCompleteArtifactSet is the single completeness predicate for a
-// generation: the database dump, the configuration archive and the mail
-// archive must all be present with their expected kind, a positive size and a
-// well-formed sha256. The upgrade fence reuses it so a manifest that lists only
-// one of the three can never authorize a cut-over.
+// generation: exactly one database artifact (pg_dump or sqlite-snapshot), the
+// configuration archive and the mail archive, each with its expected kind, a
+// positive size and a well-formed sha256. The upgrade fence reuses it so a
+// manifest that lists only some of them can never authorize a cut-over.
 func VerifyCompleteArtifactSet(stamp string, artifacts []LocalArtifact) error {
-	expected := map[string]string{
-		"urmail-" + stamp + ".dump":          KindPgDump,
-		"urmail-config-" + stamp + ".tar.gz": KindConfigTar,
-		"urmail-mail-" + stamp + ".tar.gz":   KindMailTar,
+	if len(artifacts) != 3 {
+		return fmt.Errorf("complete backup requires database, configuration and mail artifacts (got %d)", len(artifacts))
 	}
-	present := map[string]bool{}
+	seen := map[string]bool{}
+	dbArtifacts := 0
 	for _, artifact := range artifacts {
-		kind, ok := expected[artifact.Name]
+		kind, ok := expectedArtifactKind(stamp, artifact.Name)
 		if !ok {
 			return fmt.Errorf("complete backup artifact %q is not part of generation %s", artifact.Name, stamp)
 		}
@@ -275,12 +278,39 @@ func VerifyCompleteArtifactSet(stamp string, artifacts []LocalArtifact) error {
 		if !retentionHash.MatchString(artifact.SHA256) {
 			return fmt.Errorf("complete backup artifact %q has an invalid sha256", artifact.Name)
 		}
-		present[artifact.Name] = true
-	}
-	for name, kind := range expected {
-		if !present[name] {
-			return fmt.Errorf("complete backup generation %s is missing its %s artifact %q", stamp, kind, name)
+		seen[artifact.Name] = true
+		if artifact.Kind == KindPgDump || artifact.Kind == KindSqliteSnapshot {
+			dbArtifacts++
 		}
 	}
+	if dbArtifacts != 1 {
+		return fmt.Errorf("complete backup generation %s must carry exactly one database artifact (pg_dump or sqlite-snapshot), got %d", stamp, dbArtifacts)
+	}
+	if !seen["urmail-config-"+stamp+".tar.gz"] {
+		return fmt.Errorf("complete backup generation %s is missing its config_tar artifact", stamp)
+	}
+	if !seen["urmail-mail-"+stamp+".tar.gz"] {
+		return fmt.Errorf("complete backup generation %s is missing its mail_tar artifact", stamp)
+	}
 	return nil
+}
+	}
+	return nil
+}
+
+// expectedArtifactKind maps the one database slot (either engine), the config
+// tar and the mail tar to their recorded kinds. A complete set has exactly one
+// database artifact.
+func expectedArtifactKind(stamp, name string) (string, bool) {
+	switch name {
+	case "urmail-" + stamp + ".dump":
+		return KindPgDump, true
+	case "urmail-" + stamp + ".sqlite":
+		return KindSqliteSnapshot, true
+	case "urmail-config-" + stamp + ".tar.gz":
+		return KindConfigTar, true
+	case "urmail-mail-" + stamp + ".tar.gz":
+		return KindMailTar, true
+	}
+	return "", false
 }

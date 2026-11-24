@@ -14,9 +14,10 @@ const ScopeComplete = "local-mail-and-metadata"
 // Artifact kinds recorded in the manifest and used by restore tooling to
 // locate the database dump without parsing file names.
 const (
-	KindPgDump    = "pg_dump"
-	KindConfigTar = "config_tar"
-	KindMailTar   = "mail_tar"
+	KindPgDump         = "pg_dump"
+	KindSqliteSnapshot = "sqlite-snapshot"
+	KindConfigTar      = "config_tar"
+	KindMailTar        = "mail_tar"
 )
 
 // PlannerConfig is the host snapshot the planner needs. It is a plain struct
@@ -30,6 +31,9 @@ type PlannerConfig struct {
 	IncludeMail bool
 	// Configured reports that the host finished setup (a dump always exists).
 	Configured bool
+	// SQLite selects the single-engine snapshot artifact instead of a pg_dump.
+	// Both kinds occupy the same "database" slot of a complete backup.
+	SQLite bool
 }
 
 // PlanEntry is one artifact the backup step must produce.
@@ -62,6 +66,9 @@ func PlanBackupSet(cfg PlannerConfig) ([]PlanEntry, error) {
 	entries := []PlanEntry{
 		{Kind: KindPgDump, Name: "urmail-" + cfg.Stamp + ".dump"},
 		{Kind: KindConfigTar, Name: "urmail-config-" + cfg.Stamp + ".tar.gz"},
+	}
+	if cfg.SQLite {
+		entries[0] = PlanEntry{Kind: KindSqliteSnapshot, Name: "urmail-" + cfg.Stamp + ".sqlite"}
 	}
 	if cfg.IncludeMail {
 		entries = append(entries, PlanEntry{Kind: KindMailTar, Name: "urmail-mail-" + cfg.Stamp + ".tar.gz"})

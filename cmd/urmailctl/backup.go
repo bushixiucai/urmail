@@ -85,10 +85,6 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 	}
 	// A full archive includes FORCE-RLS tables and the isolated Roundcube schema.
 	// Root peer authentication supplies both without widening runtime roles.
-	dbURL, err := backupPeerDatabaseURL(cfg.DatabaseURLMigrate)
-	if err != nil {
-		return err
-	}
 	if err := os.MkdirAll(outDir, 0o700); err != nil { // #nosec G703 -- destination is explicitly selected by the root administrator and checked as a real private directory.
 		return err
 	}
@@ -108,30 +104,45 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 		}
 		defer func() { returnErr = errors.Join(returnErr, resume()) }()
 	}
-	dump := filepath.Join(outDir, "urmail-"+stamp+".dump")
-	cmd, err := backupDatabaseCommand(ctx, dbURL)
-	if err != nil {
-		return err
-	}
+	var dump string
+	if cfg.IsSQLite() {
+		// Single-engine SQLite: VACUUM INTO writes a consistent standalone
+		// snapshot. Under --maintenance the writers are already fenced; the
+		// checkpoint folds any WAL content into the main file first.
+		dump = filepath.Join(outDir, "urmail-"+stamp+".sqlite")
+		if err := createSQLiteSnapshot(ctx, cfg.SQLitePath, dump); err != nil {
+			return err
+		}
+	} else {
+		dbURL, err := backupPeerDatabaseURL(cfg.DatabaseURLMigrate)
+		if err != nil {
+			return err
+		}
+		dump = filepath.Join(outDir, "urmail-"+stamp+".dump")
+		cmd, err := backupDatabaseCommand(ctx, dbURL)
+		if err != nil {
+			return err
+		}
 
-	dumpFile, err := os.OpenFile(dump, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 G703 -- root-authorized private backup artifact, never opened by the postgres account.
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dumpFile.Close() }()
-	cmd.Stdout = dumpFile
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("database backup failed: %w", err)
-	}
-	if err = dumpFile.Sync(); err != nil {
-		return err
-	}
-	if err = dumpFile.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(dump, 0o600); err != nil { // #nosec G703 -- root-authorized artifact is inside the private backup directory.
-		return err
+		dumpFile, err := os.OpenFile(dump, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 G703 -- root-authorized private backup artifact, never opened by the postgres account.
+		if err != nil {
+			return err
+		}
+		defer func() { _ = dumpFile.Close() }()
+		cmd.Stdout = dumpFile
+		cmd.Stderr = io.Discard
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("database backup failed: %w", err)
+		}
+		if err = dumpFile.Sync(); err != nil {
+			return err
+		}
+		if err = dumpFile.Close(); err != nil {
+			return err
+		}
+		if err := os.Chmod(dump, 0o600); err != nil { // #nosec G703 -- root-authorized artifact is inside the private backup directory.
+			return err
+		}
 	}
 	configArchive := filepath.Join(outDir, "urmail-config-"+stamp+".tar.gz")
 	paths := []string{"etc/urmail", strings.TrimPrefix(cfg.MasterKeyPath, "/"), "var/lib/urmail-agent/certs"}
@@ -148,7 +159,7 @@ func runBackup(ctx context.Context, args []string) (returnErr error) {
 		}
 	}
 	tarArgs := append([]string{"-czf", configArchive, "-C", "/", "--"}, paths...)
-	cmd = exec.CommandContext(ctx, "tar", tarArgs...) // #nosec G204 G702 -- root CLI uses a fixed executable and separate validated path arguments.
+	cmd := exec.CommandContext(ctx, "tar", tarArgs...) // #nosec G204 G702 -- root CLI uses a fixed executable and separate validated path arguments.
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -349,6 +360,8 @@ func writeBackupManifest(path, scope string, consistent bool, files []string, sl
 		switch {
 		case strings.HasSuffix(base, ".dump"):
 			kind = backupauto.KindPgDump
+		case strings.HasSuffix(base, ".sqlite"):
+			kind = backupauto.KindSqliteSnapshot
 		case strings.Contains(base, "config") && strings.HasSuffix(base, ".tar.gz"):
 			kind = backupauto.KindConfigTar
 		case strings.Contains(base, "mail") && strings.HasSuffix(base, ".tar.gz"):
