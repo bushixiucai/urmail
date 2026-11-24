@@ -120,7 +120,6 @@ func TestS5MigratorFullSampleZeroDiff(t *testing.T) {
 	// trigger-maintained tables (rows are created by engine triggers on
 	// parents; the migrator still copies whatever exists on disk). The
 	// coverage check is per-table set equality — no count thresholds.
-	const recallRequestsGap = "PG pending-only INSERT vs SQLite preview+epoch-1-only insert: no representable form — migrator refuses with evidence (schema-port defect reported)"
 	triggerMaintained := map[string]string{
 		"platform_marketing_dispatch":  "singleton rows created by tenants triggers on PG",
 		"mailbox_storage_reservations": "reservation rows created by mailboxes triggers on PG",
