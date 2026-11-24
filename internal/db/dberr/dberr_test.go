@@ -59,20 +59,20 @@ func TestClassifySQLiteConstraint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err = db.Exec("CREATE TABLE t(a INTEGER PRIMARY KEY, b TEXT UNIQUE)"); err != nil {
+	if _, err = db.ExecContext(t.Context(), "CREATE TABLE t(a INTEGER PRIMARY KEY, b TEXT UNIQUE)"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("INSERT INTO t(a,b) VALUES(1,'x')"); err != nil {
+	if _, err = db.ExecContext(t.Context(), "INSERT INTO t(a,b) VALUES(1,'x')"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec("INSERT INTO t(a,b) VALUES(2,'x')")
+	_, err = db.ExecContext(t.Context(), "INSERT INTO t(a,b) VALUES(2,'x')")
 	if err == nil {
 		t.Fatal("duplicate insert succeeded")
 	}
 	if got := Classify(err); got != Constraint {
 		t.Fatalf("sqlite unique violation classified %v (%v), want Constraint", got, err)
 	}
-	if _, err = db.Exec("INSERT INTO t(a,b) VALUES(1,'y')"); err == nil || Classify(err) != Constraint {
+	if _, err = db.ExecContext(t.Context(), "INSERT INTO t(a,b) VALUES(1,'y')"); err == nil || Classify(err) != Constraint {
 		t.Fatalf("sqlite primary key violation classified %v (%v)", Classify(err), err)
 	}
 }

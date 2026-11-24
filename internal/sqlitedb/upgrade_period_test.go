@@ -25,7 +25,7 @@ func applyLegacyV3(t *testing.T, db *sql.DB, legacy bool) {
 			t.Fatalf("apply %s: %v", name, err)
 		}
 	}
-	if _, err := db.Exec("PRAGMA user_version=3"); err != nil {
+	if _, err := db.ExecContext(t.Context(), "PRAGMA user_version=3"); err != nil {
 		t.Fatal(err)
 	}
 	if !legacy {
@@ -78,11 +78,11 @@ func TestUpgradeV3ReceivesCorrectedTLSPeriodCheck(t *testing.T) {
 		t.Fatalf("upgrade v3: %v", err)
 	}
 	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
+	if err := db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != sqlitedb.ExpectedSchemaVersion {
 		t.Fatalf("user_version=%d err=%v want %d", version, err, sqlitedb.ExpectedSchemaVersion)
 	}
 	var rows int
-	if err := db.QueryRow("SELECT count(*) FROM domain_tls_reports").Scan(&rows); err != nil || rows != 1 {
+	if err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM domain_tls_reports").Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("existing rows=%d err=%v", rows, err)
 	}
 	// Legal product period (8 days) must now be accepted on the upgraded DB;
@@ -97,7 +97,7 @@ func TestUpgradeV3ReceivesCorrectedTLSPeriodCheck(t *testing.T) {
 		VALUES(1,1,printf('%064d',7),printf('%064d',8),printf('%064d',9),20000,20000+8*24*3600*1000000+1,1,0,'[]')`); err == nil {
 		t.Fatal("over-limit period accepted")
 	}
-	idxRows, err := db.Query("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='domain_tls_reports' ORDER BY name")
+	idxRows, err := db.QueryContext(t.Context(), "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='domain_tls_reports' ORDER BY name")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestUpgradeV3ReceivesCorrectedTLSPeriodCheck(t *testing.T) {
 	if !strings.Contains(strings.Join(indexes, ","), "domain_tls_reports_tenant_id_domain_id_reporter_digest_repo_key") {
 		t.Fatalf("unique index missing after rebuild: %v", indexes)
 	}
-	fk, err := db.Query("PRAGMA foreign_key_check")
+	fk, err := db.QueryContext(t.Context(), "PRAGMA foreign_key_check")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestFailedTLSPeriodRebuildLeavesLegacyIntact(t *testing.T) {
 	// A pre-existing row outside the corrected window forces the rebuild to
 	// fail; it was only insertable by bypassing the legacy CHECK in this
 	// synthetic fixture. The migration must roll back completely.
-	if _, err := db.Exec("PRAGMA ignore_check_constraints=ON"); err != nil {
+	if _, err := db.ExecContext(t.Context(), "PRAGMA ignore_check_constraints=ON"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO domain_tls_reports(tenant_id,domain_id,report_digest,reporter_digest,report_id_digest,
@@ -144,12 +144,12 @@ func TestFailedTLSPeriodRebuildLeavesLegacyIntact(t *testing.T) {
 		VALUES(1,1,printf('%064d',11),printf('%064d',12),printf('%064d',13),5000,5000+9*24*3600*1000000,1,0,'[]')`); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = db.Exec("PRAGMA ignore_check_constraints=OFF")
+	_, _ = db.ExecContext(t.Context(), "PRAGMA ignore_check_constraints=OFF")
 	if err := sqlitedb.Migrate(ctx, db, os.DirFS("../../migrations_sqlite"), "."); err == nil {
 		t.Fatal("invalid legacy row did not fail the rebuild")
 	}
 	var version, rows int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+	if err := db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 5 {
 		t.Fatalf("version=%d err=%v want 5 (0006 rolled back) after failed migration", version, err)
 	}
 	// The legacy CHECK is still in force: no partial rebuild leaked.
@@ -158,7 +158,7 @@ func TestFailedTLSPeriodRebuildLeavesLegacyIntact(t *testing.T) {
 		VALUES(1,1,printf('%064d',14),printf('%064d',15),printf('%064d',16),30000,30000+8*24*3600*1000000,1,0,'[]')`); err == nil {
 		t.Fatal("failed rebuild left the corrected CHECK behind")
 	}
-	if err := db.QueryRow("SELECT count(*) FROM domain_tls_reports").Scan(&rows); err != nil || rows != 2 {
+	if err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM domain_tls_reports").Scan(&rows); err != nil || rows != 2 {
 		t.Fatalf("rows=%d err=%v want 2 intact", rows, err)
 	}
 }

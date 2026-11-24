@@ -49,20 +49,20 @@ func TestSetupCreatesFirstAdminOnSQLite(t *testing.T) {
 	}
 	var tenantID, userID, ownerID int64
 	var status, role, email string
-	if err := raw.QueryRow(`SELECT id,status,owner_user_id FROM tenants WHERE slug='acme'`).Scan(&tenantID, &status, &ownerID); err != nil {
+	if err := raw.QueryRowContext(t.Context(), `SELECT id,status,owner_user_id FROM tenants WHERE slug='acme'`).Scan(&tenantID, &status, &ownerID); err != nil {
 		t.Fatal(err)
 	}
-	if err := raw.QueryRow(`SELECT id,email FROM users WHERE email='admin@drill.test'`).Scan(&userID, &email); err != nil {
+	if err := raw.QueryRowContext(t.Context(), `SELECT id,email FROM users WHERE email='admin@drill.test'`).Scan(&userID, &email); err != nil {
 		t.Fatal(err)
 	}
-	if err := raw.QueryRow(`SELECT role FROM user_tenant_roles WHERE tenant_id=? AND user_id=?`, tenantID, userID).Scan(&role); err != nil {
+	if err := raw.QueryRowContext(t.Context(), `SELECT role FROM user_tenant_roles WHERE tenant_id=? AND user_id=?`, tenantID, userID).Scan(&role); err != nil {
 		t.Fatal(err)
 	}
 	var admins, audits int
-	_ = raw.QueryRow(`SELECT count(*) FROM platform_admins WHERE user_id=?`, userID).Scan(&admins)
-	_ = raw.QueryRow(`SELECT count(*) FROM audit_logs WHERE action='SETUP platform.bootstrap' AND tenant_id=?`, tenantID).Scan(&audits)
+	_ = raw.QueryRowContext(t.Context(), `SELECT count(*) FROM platform_admins WHERE user_id=?`, userID).Scan(&admins)
+	_ = raw.QueryRowContext(t.Context(), `SELECT count(*) FROM audit_logs WHERE action='SETUP platform.bootstrap' AND tenant_id=?`, tenantID).Scan(&audits)
 	var schemaVersion int
-	if err := raw.QueryRow("PRAGMA user_version").Scan(&schemaVersion); err != nil || schemaVersion != sqlitedb.ExpectedSchemaVersion {
+	if err := raw.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&schemaVersion); err != nil || schemaVersion != sqlitedb.ExpectedSchemaVersion {
 		t.Fatalf("user_version=%d err=%v want %d", schemaVersion, err, sqlitedb.ExpectedSchemaVersion)
 	}
 	if status != "pending" || ownerID != userID || role != "owner" || admins != 1 || audits != 1 {
@@ -75,7 +75,7 @@ func TestSetupCreatesFirstAdminOnSQLite(t *testing.T) {
 		t.Fatalf("setup --domain: %v", err)
 	}
 	var stored string
-	if err := raw.QueryRow(`SELECT dkim_private_key FROM domains WHERE fqdn='first.example.test'`).Scan(&stored); err != nil || len(stored) < 100 || !strings.Contains(stored, "RSA PRIVATE KEY") {
+	if err := raw.QueryRowContext(t.Context(), `SELECT dkim_private_key FROM domains WHERE fqdn='first.example.test'`).Scan(&stored); err != nil || len(stored) < 100 || !strings.Contains(stored, "RSA PRIVATE KEY") {
 		t.Fatalf("domain dkim_private_key len=%d err=%v", len(stored), err)
 	}
 }
@@ -114,7 +114,7 @@ func TestSetupSQLiteKeepsPlatformScopeEnforced(t *testing.T) {
 func setupDBFileSHA256(t *testing.T, raw *sql.DB) string {
 	t.Helper()
 	path := ""
-	if err := raw.QueryRow("PRAGMA database_list").Scan(new(int), new(string), &path); err != nil {
+	if err := raw.QueryRowContext(t.Context(), "PRAGMA database_list").Scan(new(int), new(string), &path); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(path)
@@ -149,7 +149,7 @@ func TestSetupSQLiteKeepsCredentialAndHostnameRules(t *testing.T) {
 			}
 			for _, query := range []string{"SELECT count(*) FROM users", "SELECT count(*) FROM tenants", "SELECT count(*) FROM platform_admins"} {
 				var count int
-				if qerr := raw.QueryRow(query).Scan(&count); qerr != nil || count != 0 {
+				if qerr := raw.QueryRowContext(t.Context(), query).Scan(&count); qerr != nil || count != 0 {
 					t.Fatalf("%s: %s count=%d err=%v", tc.name, query, count, qerr)
 				}
 			}
@@ -200,7 +200,7 @@ func TestFirstDomainCreationRejectsCrossTenantContext(t *testing.T) {
 		t.Fatalf("seed setup: %v", err)
 	}
 	var tenantID int64
-	if err := raw.QueryRow(`SELECT id FROM tenants WHERE slug='default'`).Scan(&tenantID); err != nil {
+	if err := raw.QueryRowContext(t.Context(), `SELECT id FROM tenants WHERE slug='default'`).Scan(&tenantID); err != nil {
 		t.Fatal(err)
 	}
 	pool, err := db.NewSQLitePool(raw, isolation.ScopeTenant)
@@ -228,7 +228,7 @@ func TestFirstDomainCreationRejectsCrossTenantContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	var crossed int
-	if err := raw.QueryRow(`SELECT count(*) FROM domains WHERE fqdn='guard.example.test'`).Scan(&crossed); err != nil || crossed != 0 {
+	if err := raw.QueryRowContext(t.Context(), `SELECT count(*) FROM domains WHERE fqdn='guard.example.test'`).Scan(&crossed); err != nil || crossed != 0 {
 		t.Fatalf("refused cross-tenant write left %d rows (err=%v)", crossed, err)
 	}
 
@@ -244,7 +244,7 @@ func TestFirstDomainCreationRejectsCrossTenantContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	var created int
-	if err := raw.QueryRow(`SELECT count(*) FROM domains WHERE fqdn='guard.example.test' AND tenant_id=?`, tenantID).Scan(&created); err != nil || created != 1 {
+	if err := raw.QueryRowContext(t.Context(), `SELECT count(*) FROM domains WHERE fqdn='guard.example.test' AND tenant_id=?`, tenantID).Scan(&created); err != nil || created != 1 {
 		t.Fatalf("matching-tenant write left %d rows (err=%v)", created, err)
 	}
 }
